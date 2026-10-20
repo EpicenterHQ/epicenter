@@ -102,7 +102,14 @@ another repository's working tree. Its files read and open as before. When the s
 window closed), the child ends every `git` it started, with their helpers
 (`src/stop.ts`).
 
-- `status` reads only, and takes no lock.
+- `status` and `history` read only, and take no lock.
+- `save-version` and `sync` commit only a folder that has declared what
+  stays on this computer: its root `epicenter.json` (its `local` list), or the
+  hidden `--app-local '<json array>'` an app passes for a folder it does not
+  own. With neither, or with an `epicenter.json` that cannot be read, they
+  refuse before any commit or push and say so; opening a folder never writes
+  one. A Whispering folder, for one, needs `"local": ["audio/"]` before its
+  recordings can be exchanged without its audio.
 - `save-version` records the folder's edits as one commit, with `-m` as its
   message when given, under the folder's history lock.
 - `sync` records the edits, fetches, and merges both heads into one commit

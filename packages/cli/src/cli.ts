@@ -172,7 +172,10 @@ the first sync creates it, and the folder's remote becomes
 <git origin>/<namespace>/<name>.git. --to also takes any remote's URL.
 What both sides changed merges into one commit, and this folder's version
 of each field or lines both changed wins; the commit's Overrode: lines name
-what the remote lost, which its history still holds. A sync asks nothing.`,
+what the remote lost, which its history still holds. A sync asks nothing.
+A folder with no epicenter.json is not synced (nothing says which files stay
+on this computer), and nothing is committed or pushed; declare them in
+epicenter.json's "local" list first.`,
 	generate: `Runs <dir>/epicenter.ts, whose default export is defineFolder({...}) from
 @epicenter/folder, and writes the epicenter.json it declares. It is the only
 command that runs a folder's code; check and query read only epicenter.json.

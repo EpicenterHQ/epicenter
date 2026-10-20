@@ -150,7 +150,11 @@ async function synced(files: Record<string, string | Uint8Array>) {
 	);
 	const folder = join(project, 'folder');
 	await mkdir(folder);
-	for (const [path, content] of Object.entries(files))
+	// A folder that commits has declared what stays local (it may declare none).
+	for (const [path, content] of Object.entries({
+		'epicenter.json': DECLARATION,
+		...files,
+	}))
 		await write(folder, path, content);
 	// The person connected the folder with their own Git.
 	await git(folder, 'init', '--quiet', '--initial-branch=main');
@@ -215,9 +219,12 @@ test('status, save-version, and history read and record the folder', async () =>
 	expect(again.reply.result.status).toBe('unchanged');
 
 	const log = await reply('log', ['history', folder, '--depth', '5']);
-	expect(log.reply.result.data?.map((commit) => commit.message.trim())).toEqual(
-		['Add b', 'Add notes/a.md'],
+	// The first version holds the declaration beside `notes/a.md`.
+	const messages = log.reply.result.data?.map((commit) =>
+		commit.message.trim(),
 	);
+	expect(messages).toHaveLength(2);
+	expect(messages?.[0]).toBe('Add b');
 	const after = await reply('status', ['status', folder]);
 	expect(after.reply.state.sync).toMatchObject({ ahead: 1, behind: 0 });
 });
@@ -355,6 +362,7 @@ test("epicenter clone checks out each blob's bytes, so a save-version right afte
 	};
 	for (const [path, content] of Object.entries(files))
 		await write(upstream, path, content);
+	await write(upstream, 'epicenter.json', DECLARATION);
 	await git(upstream, 'add', '--all');
 	await git(upstream, 'commit', '--quiet', '-m', 'Files');
 	// Committed after the files, so each blob keeps the bytes above.

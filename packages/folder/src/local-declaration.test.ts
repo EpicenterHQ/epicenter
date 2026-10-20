@@ -15,6 +15,10 @@
  * - `runHistory`'s sync, with `epicenter.json` declaring `audio/` and no
  *   `.gitignore`, pushes no audio; a WAV committed earlier is untracked and
  *   kept on disk
+ * - A folder with no `epicenter.json` refuses a save version and a sync with
+ *   an actionable error before any commit, while status and the log still
+ *   read; an explicit `appLocal` is the one way past it, and declares nothing
+ * - A saved version leaves out declared-local audio, tracked earlier or not
  * - An `epicenter.json` that is there but cannot be used refuses a save
  *   version and a sync, and pushes nothing; status still reads
  */
@@ -213,4 +217,91 @@ test('the CLI refuses to save or sync when epicenter.json cannot be used, and pu
 		{ author },
 	);
 	expect((status.result as { error: unknown }).error).toBeNull();
+});
+
+test('a folder with no epicenter.json refuses to save a version or sync, commits and pushes nothing, and still reads', async () => {
+	// A fresh Whispering folder: a row and its audio, and no declaration.
+	const folder = await desktopFolder();
+	await folder.write('recordings/take.md', '---\ntitle: Take\n---\n');
+	await folder.write('audio/take.wav', 'RIFF');
+	for (const request of [
+		{ op: 'saveVersion', message: 'Keep this' } as const,
+		{ op: 'sync' } as const,
+		{ op: 'sync', connect: 'https://example.test/x.git' } as const,
+	]) {
+		const refusal = await runHistory(folder.directory, request, {
+			author,
+		}).then(
+			() => undefined,
+			(error: Error) => error.message,
+		);
+		expect(refusal).toContain('has no epicenter.json');
+		expect(refusal).toContain('nothing was committed');
+		expect(refusal).toContain('"local": ["audio/"]');
+	}
+	// Nothing was committed or pushed, and every file is still on disk.
+	expect(await git(folder.directory, 'rev-list', '--all')).toBe('');
+	expect(await git(folder.directory, 'ls-files')).toBe('');
+	expect(await git(folder.directory, 'ls-remote', 'origin')).toBe('');
+	expect(await readFile(join(folder.directory, 'audio/take.wav'), 'utf8')).toBe(
+		'RIFF',
+	);
+	// Refusing declared nothing.
+	await expect(
+		readFile(join(folder.directory, 'epicenter.json')),
+	).rejects.toThrow();
+	// Status and the log still read the folder.
+	for (const request of [
+		{ op: 'status' } as const,
+		{ op: 'log', depth: 5 } as const,
+	]) {
+		const reply = await runHistory(folder.directory, request, { author });
+		expect((reply.result as { error: unknown }).error).toBeNull();
+	}
+});
+
+test('an explicit appLocal still lets a folder with no epicenter.json save a version, and declares nothing', async () => {
+	const folder = await desktopFolder();
+	await folder.write('recordings/take.md', '---\ntitle: Take\n---\n');
+	await folder.write('audio/take.wav', 'RIFF');
+	const reply = await runHistory(
+		folder.directory,
+		{ op: 'saveVersion' },
+		{ author, appLocal: ['audio/'] },
+	);
+	expect(reply.result).toMatchObject({ status: 'committed' });
+	expect((await git(folder.directory, 'ls-files')).split('\n')).toEqual([
+		'recordings/take.md',
+	]);
+	await expect(
+		readFile(join(folder.directory, 'epicenter.json')),
+	).rejects.toThrow();
+});
+
+test('a saved version leaves out audio an epicenter.json declares local, even audio an earlier version tracked', async () => {
+	const folder = await desktopFolder();
+	await folder.write(
+		'epicenter.json',
+		formatDefinition(defineFolder({ tables })),
+	);
+	await folder.write('recordings/take.md', '---\ntitle: Take\n---\n');
+	await folder.write('audio/take.wav', 'RIFF');
+	const saveVersion = () =>
+		runHistory(folder.directory, { op: 'saveVersion' }, { author });
+	expect((await saveVersion()).result).toMatchObject({ status: 'committed' });
+	expect(await git(folder.directory, 'ls-files', 'audio')).toBe(
+		'audio/take.wav',
+	);
+
+	await folder.write('epicenter.json', formatDefinition(definition));
+	await folder.write('audio/take.wav', 'RIFF, longer now');
+	await folder.write('audio/other.wav', 'RIFF');
+	expect((await saveVersion()).result).toMatchObject({ status: 'committed' });
+	expect(await git(folder.directory, 'ls-files', 'audio')).toBe('');
+	expect(
+		await git(folder.directory, 'ls-tree', '-r', '--name-only', 'HEAD'),
+	).not.toContain('audio/');
+	expect(await readFile(join(folder.directory, 'audio/take.wav'), 'utf8')).toBe(
+		'RIFF, longer now',
+	);
 });

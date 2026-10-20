@@ -55,10 +55,18 @@ A recording's ID is its file stem, set when the recording starts
 (`20260102-030405-k3f9`). Its title is a field, so renaming a recording changes
 frontmatter and never moves a file. Audio is an ordinary file under `audio/`,
 saved as its exact bytes. Whispering keeps no history and copies the folder
-nowhere. A copy of the folder that leaves `audio/` out, such as a Git clone of
-a folder whose `.gitignore` names it, has each recording's row, notes, and
+nowhere, and a fresh folder has no `epicenter.json`: opening and recording
+declare nothing. Audio is not excluded from Git by Whispering. A copy of the
+folder that leaves `audio/` out has each recording's row, notes, and
 transcripts, and no audio. There a recording says "This recording's audio
 isn't on this device", and it cannot be played or transcribed.
+
+Two things leave `audio/` out of a copy. The `epicenter` CLI's `save-version`
+and `sync` refuse a folder with no `epicenter.json`, committing nothing; to
+exchange a Whispering folder through them, author an `epicenter.json` that
+declares `"local": ["audio/"]`, which they then keep out of every commit, even
+audio an earlier version tracked. Plain `git` in a repository you manage
+commits whatever its own `.gitignore` allows, so name `audio/` there yourself.
 
 Files an earlier build left in the folder read as they are, `epicenter.json`
 and `.gitignore` included; Whispering no longer writes either.
@@ -370,7 +378,8 @@ in this build.
   way. A save over a file that changed since your edit started merges with the
   change (see [Editing](#editing)).
 - If the folder is a Git repository you manage, `git` works on it as on any
-  directory. Whispering commits nothing.
+  directory. Whispering commits nothing, and nothing keeps `audio/` out of
+  that repository unless your `.gitignore` names it.
 
 ### Where a recording is while it runs
 

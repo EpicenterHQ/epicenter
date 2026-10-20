@@ -127,11 +127,12 @@ export type HistoryOptions = {
  * this computer (`GitMissingError`).
  *
  * The folder's history is opened for this one operation: its file storage,
- * its own `epicenter.json` (rows merge as text when it has none), and history
- * over this process's `git` (`systemHistory`). An `epicenter.json` that is
- * there but cannot be read or prepared refuses a save version and a sync,
- * which could otherwise commit files its `local` keeps on this machine;
- * status and the log still read. A save version and a sync hold the folder's
+ * its own `epicenter.json`, and history over this process's `git`
+ * (`systemHistory`). An `epicenter.json` that is there but cannot be read or
+ * prepared refuses a save version and a sync, which could otherwise commit
+ * files its `local` keeps on this machine. So does none at all, unless
+ * `appLocal` is given: nothing then says what stays local, and the folder is
+ * not declared by being opened. Status and the log still read either way. A save version and a sync hold the folder's
  * history lock (`holdingHistoryLock`), so two processes never interleave
  * them. Reading status or the log takes no lock.
  */
@@ -171,6 +172,19 @@ export async function runHistory(
 	)
 		throw new Error(
 			`${resolved}/epicenter.json cannot be used, so nothing was committed: ${declarationError.reason}. Fix the file, then try again.`,
+		);
+	// With no `epicenter.json` and no explicit `appLocal`, nothing says which
+	// files stay on this machine: an app's audio would be committed beside
+	// its rows. Opening a folder never writes a declaration, so the person
+	// authors one (or an app passes its own `local`) before anything commits.
+	if (
+		declared === undefined &&
+		appLocal === undefined &&
+		request.op !== 'status' &&
+		request.op !== 'log'
+	)
+		throw new Error(
+			`${resolved} has no epicenter.json, so nothing was committed: without one, nothing says which files stay on this computer. Add an epicenter.json that declares them (for Whispering, "local": ["audio/"]), then try again; status and history still read.`,
 		);
 	const definition: Definition | undefined = declared ?? undefined;
 	const landed: string[] = [];
