@@ -1,17 +1,4 @@
-/**
- * The browser workspace: this site's local folder in the browser.
- *
- * The same tables and files as the desktop folder, kept in this browser's
- * storage for this site (`openFolder({ tables })`). Opening needs no account,
- * remote, or network. Transcription requests go straight from the page, so
- * the endpoint must allow this origin.
- *
- * The opener is the browser one, named explicitly. It refuses inside a
- * desktop app or when browser storage cannot be opened. Older OPFS
- * recordings are left untouched and are not read by this opener. A refusal
- * is shown without opening different storage in its place.
- */
-import { openFolder } from '@epicenter/folder/browser';
+/** Browser capture, requests and device preferences over the folder the app opened. */
 import { Err, Ok } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
 import { createFixtureDevice, toneWav } from '../capture.js';
@@ -24,10 +11,7 @@ import {
 	readStoredConnection,
 	type StoredConnection,
 } from '../connections.js';
-import {
-	DEFAULT_TRANSCRIPTION_CONNECTION,
-	whisperingTables,
-} from '../definition.js';
+import { DEFAULT_TRANSCRIPTION_CONNECTION } from '../definition.js';
 import { readBytes } from '../files.js';
 import { transcribeOverConnection } from '../transcription.js';
 import {
@@ -36,7 +20,7 @@ import {
 } from '../transformation.js';
 import { createWebViewMicrophone } from '../webview-microphone.js';
 import { localPreferences } from './microphone-preference.js';
-import type { CreateWorkspace, OpenWhisperingFolder } from './types.js';
+import type { CreateServices } from './types.js';
 
 /** This tab's two connections, keys included, as one JSON object. */
 const CONNECTIONS_STORAGE = 'whispering.connections';
@@ -98,11 +82,8 @@ function wantsToneFixture(): boolean {
 	);
 }
 
-/** The `#platform/workspace` leaf of every build Epicenter does not serve. */
-export const openWhisperingFolder: OpenWhisperingFolder = () =>
-	openFolder({ tables: whisperingTables });
-
-export const createWorkspace: CreateWorkspace = (folder) => ({
+/** The `#platform/services` leaf of every build Epicenter does not serve. */
+export const createServices: CreateServices = (folder) => ({
 	kind: 'browser',
 	location: 'This browser’s storage for this site',
 	capture: wantsToneFixture()

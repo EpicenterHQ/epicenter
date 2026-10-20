@@ -49,11 +49,11 @@ import { TransformationError } from './transformation.js';
 import {
 	deferred,
 	eventually,
-	openTestWorkspace,
+	openTestServices,
 	TEST_BASE_URL,
-	type TestWorkspaceOptions,
+	type TestServicesOptions,
 	replaceTables,
-} from './workspace.test-support.js';
+} from './services.test-support.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -71,14 +71,14 @@ type Hooks = {
 	>;
 };
 
-/** Product state over a test workspace whose `text_runs/` listings run `hooks` first. */
-async function open(options: TestWorkspaceOptions = {}) {
-	const test = await openTestWorkspace(options);
+/** Product state over a test services whose `text_runs/` listings run `hooks` first. */
+async function open(options: TestServicesOptions = {}) {
+	const test = await openTestServices(options);
 	const hooks: Hooks = {};
 	const { tables } = test.folder;
 	const textRuns = tables.text_runs;
 	const whispering = await openTestWhispering({
-		workspace: test.workspace,
+		services: test.services,
 		folder: replaceTables(test.folder, {
 			text_runs: {
 				...textRuns,
@@ -272,7 +272,7 @@ async function newestText(library: Library, stem: string) {
 
 test('a recipe runs on pasted text with no recordings; its row is written to text_runs/ when it starts and filled when the answer arrives, with no Save', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
 	const { library, root, transformed } = await open({
 		transform: () => answer.promise,
 	});
@@ -329,7 +329,7 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 
 test('what is written is what was sent: edits to the recipe or the connection while it runs change nothing', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
 	const { library, transformed } = await open({
 		transform: () => answer.promise,
 	});
@@ -373,7 +373,7 @@ test('what is written is what was sent: edits to the recipe or the connection wh
 
 test('a second ask on pasted text while one runs sends nothing; another recipe, and a later ask, are each their own row', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
 	const { library, root, transformed } = await open({
 		transform: () => answer.promise,
 	});
@@ -398,7 +398,7 @@ test('a second ask on pasted text while one runs sends nothing; another recipe, 
 
 test('discarding a result on pasted text deletes its row, even while its request runs; the late answer writes nothing', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
 	const { library, root, transformed } = await open({
 		transform: () => answer.promise,
 	});
@@ -488,7 +488,7 @@ test('a transcript’s failed run is not sent again over a connection that moved
 });
 
 test('pasted text stays across pages and guards departure until cleared', async () => {
-	const test = await openTestWorkspace();
+	const test = await openTestServices();
 	const { remove } = test;
 	const whispering = await openTestWhispering(test);
 	cleanups.push(async () => {

@@ -93,7 +93,8 @@ binds each window's folder; standalone Todos binds its own.
 Name each product root `<Product>App`: `TodosApp`, `CaptureApp`,
 `HoneycrispApp`, `VocabApp`, and `WhisperingApp`. This component receives the
 opened folder context, installs its providers, and composes the product's
-state and interface. Whispering's root also receives its platform workspace.
+state and interface. Whispering also receives only this context and assembles
+its platform capabilities inside its product constructor.
 `FolderApp` owns the folder lifecycle for every product.
 
 Use `Shell` for surrounding layout and `View` for a screen or representation.

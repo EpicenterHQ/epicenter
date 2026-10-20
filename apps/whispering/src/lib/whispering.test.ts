@@ -11,13 +11,14 @@ import {
 	openTestWhispering,
 	closeTestWhispering,
 } from './library.test-support.js';
-import type { Workspace, WhisperingFolder } from './workspace/types.js';
+import type { WhisperingFolder } from './folder.js';
+import type { WhisperingServices } from './platform/types.js';
 import {
 	deferred,
 	eventually,
-	openTestWorkspace,
+	openTestServices,
 	replaceTables,
-} from './workspace.test-support.js';
+} from './services.test-support.js';
 
 const { STOPPED } = await import('./library.svelte.js');
 
@@ -28,7 +29,7 @@ afterEach(async () => {
 async function fixture(
 	change: (folder: WhisperingFolder) => WhisperingFolder = (f) => f,
 ) {
-	const test = await openTestWorkspace();
+	const test = await openTestServices();
 	cleanups.push(test.remove);
 	const whispering = await createTestWhispering({
 		...test,
@@ -90,8 +91,8 @@ test('a refused exclusion write stays visible and files remain writable', async 
 });
 
 test('internal navigation is allowed; unload waits for a write, not recording or transcription', async () => {
-	const answer = deferred<Awaited<ReturnType<Workspace['transcribe']>>>();
-	const test = await openTestWorkspace({ transcribe: () => answer.promise });
+	const answer = deferred<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
+	const test = await openTestServices({ transcribe: () => answer.promise });
 	cleanups.push(test.remove);
 	const whispering = await openTestWhispering(test);
 	cleanups.push(() => closeTestWhispering(whispering));
@@ -192,8 +193,8 @@ test('stop and folder close finish while the first listing is held and start rej
 			},
 		);
 	});
-	const read = test.workspace.connections.read;
-	test.workspace.connections.read = () => {
+	const read = test.services.connections.read;
+	test.services.connections.read = () => {
 		connections++;
 		return read();
 	};
@@ -224,8 +225,8 @@ test('folder close waits for recording recovery and starts no listings after sto
 			},
 		});
 	});
-	const recover = test.workspace.recoverRecordings;
-	test.workspace.recoverRecordings = async () => {
+	const recover = test.services.recoverRecordings;
+	test.services.recoverRecordings = async () => {
 		begun.resolve();
 		await gate.promise;
 		return recover();

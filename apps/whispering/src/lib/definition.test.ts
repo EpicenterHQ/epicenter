@@ -25,7 +25,7 @@ import {
 import {
 	openTestFolder,
 	whisperingDirectory,
-} from './workspace.test-support.js';
+} from './services.test-support.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {

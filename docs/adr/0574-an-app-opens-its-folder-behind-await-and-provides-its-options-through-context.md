@@ -104,8 +104,9 @@ Force Quit, and a crash cannot provide that asynchronous guarantee.
 - Apps share opening, query integration, page/window behavior, and recovery
   presentation. Folder owns persistence whether a UI context exists or not.
 - Each mounted product retains its forms, selections, recording, and inference
-  state across routes. Whispering's platform workspace supplies capabilities
-  over the opened Folder and does not open or close another storage lifetime.
+  state across routes. Whispering constructs platform capabilities inside its
+  product constructor over the opened Folder; its root receives only context.
+  These capabilities do not open or close another storage lifetime.
 - Tests can construct context over a test Folder. Mounted root tests cover
   opening, startup failure, unmount during reads, and final workflow writes
   before storage closure.

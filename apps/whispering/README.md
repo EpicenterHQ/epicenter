@@ -17,6 +17,18 @@ folder through Epicenter's recorder, and transcription through Epicenter, are
 covered by tests, not yet by a desktop run. Dictating into other apps is not part
 of it. [What is not supported](#what-is-not-supported) lists the rest.
 
+## App composition
+
+The layout passes an inline `openFolder({ tables: whisperingTables })` opener
+to FolderApp. Its child is `<WhisperingApp {context}>`: the product root
+installs that exact context and calls `createWhispering(context)`. Whispering
+constructs its own platform services internally; callers do not assemble a
+workspace or provide a second folder lifetime. The build selects browser or
+native capture and inference through `#platform/services`.
+
+Product shutdown registers recording finalization and accepted workflow writes
+before FolderApp closes storage. Route changes retain the same product state.
+
 ## The data folder
 
 ```text
@@ -133,7 +145,7 @@ Checks, from `apps/whispering`:
 
 ```sh
 bun run typecheck                 # the page
-bun run test                      # workspace and workflow tests, then the mounted row views
+bun run test                      # platform and workflow tests, then the mounted row views
 bun run build                     # the browser build, into build/
 bun run build:host                # Epicenter's bundled page, into dist/
 ```
@@ -571,8 +583,8 @@ These are absent, not hidden behind a setting:
 - Automatic transcription or transformation after a recording. Each is a button
   you press, so nothing is sent to a paid endpoint on its own.
 - Choosing transcription on this computer. Epicenter grants Whispering its
-  local model, and the workspace can transcribe with it
-  (`src/lib/workspace/local-transcription.ts`), but Settings has no way to
+  local model, and the native services can transcribe with it
+  (`src/lib/platform/local-transcription.ts`), but Settings has no way to
   choose it yet, so transcription needs an endpoint.
 - A terminal and Reveal folder. The standalone desktop app ran them in its own
   host; Epicenter gives Whispering neither. Use a terminal or Finder on the

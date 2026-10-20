@@ -36,7 +36,8 @@ import {
 } from './definition.js';
 import { describeError } from './files.js';
 import type { RecipeRow, ResolvedRecipe } from './recipe.js';
-import type { WhisperingFolder, Workspace } from './workspace/types.js';
+import type { WhisperingFolder } from './folder.js';
+import type { WhisperingServices } from './platform/types.js';
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -118,7 +119,8 @@ const unread = (row: Row) =>
 
 export function createRuns({
 	folder,
-	workspace,
+	transcribe,
+	transform,
 	makeId,
 	refused,
 	connections,
@@ -128,7 +130,8 @@ export function createRuns({
 	capturing,
 	track,
 }: {
-	workspace: Workspace;
+	transcribe: WhisperingServices['transcribe'];
+	transform: WhisperingServices['transform'];
 	folder: WhisperingFolder;
 	makeId: MakeId;
 	/** Why nothing new starts now, if it does not. */
@@ -416,7 +419,7 @@ export function createRuns({
 			if (problem !== null)
 				return `Nothing was sent: the result’s file could not be written. ${problem}`;
 			await send(target, from, () =>
-				workspace.transform({
+				transform({
 					expectedBaseUrl: fields.endpoint,
 					model: fields.model,
 					prompt: fields.prompt,
@@ -479,7 +482,7 @@ export function createRuns({
 				target: { table, stem, recording },
 				from: stored,
 				request: () =>
-					workspace.transcribe({
+					transcribe({
 						audioPath,
 						expectedBaseUrl: fields.endpoint,
 						model: fields.model,
@@ -496,7 +499,7 @@ export function createRuns({
 			target: { table, stem, recording },
 			from: stored,
 			request: () =>
-				workspace.transform({
+				transform({
 					expectedBaseUrl: fields.endpoint,
 					model: fields.model,
 					prompt: fields.prompt,
@@ -608,7 +611,7 @@ export function createRuns({
 						`Nothing was sent: the transcript’s file could not be written. ${problem}`,
 					);
 				await send(target, from, () =>
-					workspace.transcribe({
+					transcribe({
 						audioPath,
 						expectedBaseUrl: connection.baseUrl,
 						model: connection.model,

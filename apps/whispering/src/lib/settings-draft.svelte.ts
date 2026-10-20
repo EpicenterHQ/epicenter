@@ -11,7 +11,7 @@
  *
  * The base URL and model follow the saved connection until they are typed
  * in, and follow it again when it changes. A connection not set up yet
- * starts from the workspace's defaults; nothing is sent to those, or saved,
+ * starts from the services's defaults; nothing is sent to those, or saved,
  * until Save. The
  * key is never read back: the draft holds only what was typed since the last
  * save, and whether to keep, replace, or remove the saved one. Keeping is
@@ -42,7 +42,7 @@ function createConnectionDraft(library: Library, operation: Operation) {
 	const saved = $derived<ConnectionInfo | undefined>(
 		library.connections?.[operation],
 	);
-	const defaults = library.workspace.connections.defaults[operation];
+	const defaults = library.services.connections.defaults[operation];
 	/** Where an unconfigured form starts: the defaults. */
 	const start = $derived.by(() => {
 		if (operation === 'transcription')

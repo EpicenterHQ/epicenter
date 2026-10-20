@@ -31,9 +31,9 @@ import type { Library, WriteNotice } from '../../lib/library.svelte.js';
 import { quiet } from '../../lib/query.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
 
-// Load the workspace after the mounted loader registered its plugin.
-const { openGatedTestFolder, openTestWorkspace, whisperingDirectory } =
-	await import('../../lib/workspace.test-support.js');
+// Load the services after the mounted loader registered its plugin.
+const { openGatedTestFolder, openTestServices, whisperingDirectory } =
+	await import('../../lib/services.test-support.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTestLibrary } = await import('../../lib/library.test-support.js');
 const { pageState } = await import('../page-state.test-support.svelte.js');
@@ -63,7 +63,7 @@ async function open(
 ) {
 	const root = await whisperingDirectory('whispering-rows-');
 	const disk = { refusing: false };
-	const stubs = await openTestWorkspace({
+	const stubs = await openTestServices({
 		folder: openGatedTestFolder(root, async () =>
 			disk.refusing ? new Error('Disk unavailable') : undefined,
 		),

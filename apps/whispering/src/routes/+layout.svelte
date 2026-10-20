@@ -4,7 +4,8 @@
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { ModeWatcher } from 'mode-watcher';
 	import FolderApp from '@epicenter/svelte/folder-app';
-	import { createWorkspace, openWhisperingFolder } from '$lib/workspace/index.js';
+	import { openFolder } from '@epicenter/folder';
+	import { whisperingTables } from '$lib/definition.js';
 	import WhisperingApp from './components/WhisperingApp.svelte';
 	import '@epicenter/ui/app.css';
 	// Whispering's brand overrides, layered after the shared theme so they win.
@@ -19,9 +20,9 @@
 <svelte:head><title>Whispering</title></svelte:head>
 
 <Tooltip.Provider>
-	<FolderApp open={openWhisperingFolder}>
+	<FolderApp open={() => openFolder({ tables: whisperingTables })}>
 		{#snippet children(context)}
-			<WhisperingApp {context} workspace={createWorkspace(context.folder)}>
+			<WhisperingApp {context}>
 				{@render props.children?.()}
 			</WhisperingApp>
 		{/snippet}

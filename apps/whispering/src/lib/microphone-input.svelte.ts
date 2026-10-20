@@ -3,7 +3,7 @@
  *
  * The choice is the system default or one microphone, identified by the ID
  * its platform lists it under: the shell's in Epicenter, the WebView's in a
- * browser. It is kept on this device through the workspace and
+ * browser. It is kept on this device through the services and
  * applies to the next recording: a recording that is running keeps the
  * microphone it opened, so the choice cannot be changed while one is
  * starting, running, or finishing. A choice whose ID is not listed stays the
@@ -27,7 +27,7 @@ import type {
 	MicrophoneMeter,
 	MicrophonePreference,
 } from './capture.js';
-import type { Workspace } from './workspace/index.js';
+import type { WhisperingServices } from './platform/types.js';
 
 export type MicrophoneInput = ReturnType<typeof createMicrophoneInput>;
 
@@ -64,7 +64,7 @@ export function createMicrophoneInput({
 	recording,
 }: {
 	capture: CaptureDevice;
-	preferences: Workspace['preferences'];
+	preferences: WhisperingServices['preferences'];
 	/** Whether a recording is starting, running, or finishing. */
 	recording: () => boolean;
 }) {

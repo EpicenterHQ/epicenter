@@ -5,9 +5,9 @@
 	"description": "Voice notes: recordings, transcripts, and settings are files in a Git-versioned folder, in Epicenter or a browser tab",
 	"type": "module",
 	"imports": {
-		"#platform/workspace": {
-			"epicenter-host": "./src/lib/workspace/desktop.ts",
-			"default": "./src/lib/workspace/browser.ts"
+		"#platform/services": {
+			"epicenter-host": "./src/lib/platform/desktop.ts",
+			"default": "./src/lib/platform/browser.ts"
 		}
 	},
 	"scripts": {

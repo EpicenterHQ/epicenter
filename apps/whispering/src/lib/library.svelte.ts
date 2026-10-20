@@ -94,7 +94,7 @@ import {
 } from './recipe.js';
 import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { createRuns } from './runs.svelte.js';
-import type { Workspace } from './workspace/index.js';
+import type { WhisperingServices } from './platform/types.js';
 
 export const STOPPED = 'Whispering stopped before it finished starting.';
 
@@ -298,7 +298,10 @@ function perListing<TListing extends object, TValue>(
 	};
 }
 
-export function createLibrary(workspace: Workspace, local: WhisperingContext) {
+export function createLibrary(
+	services: WhisperingServices,
+	local: WhisperingContext,
+) {
 	const { folder } = local;
 	const { queryClient } = local;
 	const keys = whisperingKeys;
@@ -596,7 +599,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 
 	async function readConnections() {
 		try {
-			const read = await workspace.connections.read();
+			const read = await services.connections.read();
 			if (fenced) return;
 			connections = read;
 			connectionsError = undefined;
@@ -649,7 +652,8 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 
 	const runs = createRuns({
 		folder,
-		workspace,
+		transcribe: (request) => services.transcribe(request),
+		transform: (request) => services.transform(request),
 		makeId: recordingId,
 		refused,
 		connections: () => ({ info: connections, error: connectionsError }),
@@ -661,8 +665,8 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 	});
 
 	const input = createMicrophoneInput({
-		capture: workspace.capture,
-		preferences: workspace.preferences,
+		capture: services.capture,
+		preferences: services.preferences,
 		recording: () => recorder.phase !== 'idle',
 	});
 
@@ -779,7 +783,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 	const saveConnection = action(
 		'save-connection',
 		async (operation: Operation, change: ConnectionChange) => {
-			const { data: saved, error } = await workspace.connections.set(
+			const { data: saved, error } = await services.connections.set(
 				operation,
 				change,
 			);
@@ -824,7 +828,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 	}
 
 	return {
-		workspace,
+		services,
 		/** The opened folder context and its query cache. */
 		local,
 		/** The microphone the next recording uses, and the test of it. */
@@ -1191,7 +1195,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 		/** Repair interrupted recordings before the first folder and device reads. */
 		async start() {
 			if (fenced) throw new Error(STOPPED);
-			const notice = await local.run(() => workspace.recoverRecordings());
+			const notice = await local.run(() => services.recoverRecordings());
 			if (fenced) throw new Error(STOPPED);
 			captureNotice = notice;
 			// A read that answers with an error is shown as that listing's
@@ -1354,7 +1358,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 			const at = new Date();
 			const id = recordingId(at);
 			const { data: capture, error: startError } =
-				await workspace.capture.start({
+				await services.capture.start({
 					folder: recordingFolder(),
 					path: recordingAudioStem(id),
 					input: input.choice,
@@ -1380,7 +1384,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 			const fields: RecordingFields = {
 				title: defaultTitle(at),
 				recordedAt: InstantString.fromDate(at),
-				capture: workspace.capture.source,
+				capture: services.capture.source,
 				audioPath: capture.audioPath,
 			};
 			const creating = track(

@@ -5,22 +5,18 @@ import { readdir } from 'node:fs/promises';
 import { SaveError } from '@epicenter/folder';
 import type { Whispering } from '../../lib/whispering.svelte.js';
 import type { WhisperingContext } from '../../lib/folder.js';
-import type {
-	OpenWhisperingFolder,
-	WhisperingFolder,
-	Workspace,
-} from '../../lib/workspace/types.js';
+import type { WhisperingFolder } from '../../lib/folder.js';
+import type { WhisperingServices } from '../../lib/platform/types.js';
 import {
 	desktop,
 	nativeWindow,
 } from '../../../../../packages/svelte/src/tauri-window.test-support.js';
 
 const { mount, unmount, flushSync } = await import('svelte');
-const { openTestWorkspace, deferred, eventually } = await import(
-	'../../lib/workspace.test-support.js'
+const { openTestServices, provideServices, deferred, eventually } = await import(
+	'../../lib/services.test-support.js'
 );
 const { pageState } = await import('../page-state.test-support.svelte.js');
-const Root = (await import('./test-fixtures/WhisperingRoot.svelte')).default;
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -30,13 +26,15 @@ afterEach(async () => {
 
 async function render(
 	options: {
-		change?: (folder: WhisperingFolder, workspace: Workspace) => void;
-		opener?: (open: OpenWhisperingFolder) => OpenWhisperingFolder;
+		change?: (folder: WhisperingFolder, services: WhisperingServices) => void;
+		opener?: (open: Awaited<ReturnType<typeof openTestServices>>['open']) => Awaited<ReturnType<typeof openTestServices>>['open'];
 	} = {},
 ) {
-	const test = await openTestWorkspace();
+	const test = await openTestServices();
 	cleanups.push(test.remove);
-	options.change?.(test.folder, test.workspace);
+	options.change?.(test.folder, test.services);
+	provideServices(test.folder, test.services);
+	const Root = (await import('./test-fixtures/WhisperingRoot.svelte')).default;
 	const page = pageState({ route: 'home' });
 	const seen: { whispering: Whispering; context: WhisperingContext }[] = [];
 	const target = document.createElement('main');
@@ -45,7 +43,6 @@ async function render(
 		target,
 		props: {
 			open: options.opener?.(test.open) ?? test.open,
-			workspace: test.workspace,
 			page,
 			report: (whispering, context) => seen.push({ whispering, context }),
 		},
@@ -158,14 +155,14 @@ test('unmount closes during a held first listing and starts no later reads', asy
 	let connections = 0;
 	let microphones = 0;
 	const app = await render({
-		change(folder, workspace) {
-			const read = workspace.connections.read;
-			workspace.connections.read = () => {
+		change(folder, services) {
+			const read = services.connections.read;
+			services.connections.read = () => {
 				connections++;
 				return read();
 			};
-			const microphone = workspace.preferences.microphone;
-			workspace.preferences.microphone = () => {
+			const microphone = services.preferences.microphone;
+			services.preferences.microphone = () => {
 				microphones++;
 				return microphone();
 			};

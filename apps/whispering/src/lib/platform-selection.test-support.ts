@@ -5,4 +5,5 @@
  */
 export { OpenFolderError } from '@epicenter/folder';
 export { RecorderError } from '@epicenter/recorder';
-export { openWhisperingFolder, createWorkspace } from '#platform/workspace';
+export { createServices } from '#platform/services';
+export { openFolder } from '@epicenter/folder';

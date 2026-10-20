@@ -95,9 +95,9 @@
 				/>
 			{/if}
 			<span class="text-xs text-muted-foreground">
-				Kept in {library.workspace.connections.storedIn}. It is sent only to this endpoint; a new endpoint needs its key entered again.
+				Kept in {library.services.connections.storedIn}. It is sent only to this endpoint; a new endpoint needs its key entered again.
 			</span>
-			{#if library.workspace.kind === 'browser'}
+			{#if library.services.kind === 'browser'}
 				<span class="text-xs text-warning" data-testid="{id}-key-warning">
 					This key is saved in this browser. Code running on this site can read it.
 				</span>

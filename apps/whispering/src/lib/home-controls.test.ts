@@ -37,13 +37,13 @@ import { STARTER_TRANSFORMATIONS } from './definition.js';
 import { settle, transformationEditor } from './edits.test-support.js';
 import { quiet } from './query.test-support.js';
 import type { Whispering } from './whispering.svelte.js';
-import type { Workspace } from './workspace/types.js';
+import type { WhisperingServices } from './platform/types.js';
 import {
 	deferred,
-	openTestWorkspace,
+	openTestServices,
 	TEST_BASE_URL,
-	type TestWorkspaceOptions,
-} from './workspace.test-support.js';
+	type TestServicesOptions,
+} from './services.test-support.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -51,12 +51,12 @@ afterEach(async () => {
 });
 
 async function open(
-	change: (workspace: Workspace) => Workspace = (workspace) => workspace,
-	options: TestWorkspaceOptions = {},
+	change: (services: WhisperingServices) => WhisperingServices = (services) => services,
+	options: TestServicesOptions = {},
 ) {
-	const test = await openTestWorkspace(options);
-	const workspace = change(test.workspace);
-	const whispering = await openTestWhispering({ ...test, workspace });
+	const test = await openTestServices(options);
+	const services = change(test.services);
+	const whispering = await openTestWhispering({ ...test, services });
 	cleanups.push(async () => {
 		await closeTestWhispering(whispering);
 		await test.remove();
@@ -253,10 +253,10 @@ test('a changed endpoint cannot keep the saved key: the draft says why and the d
 });
 
 test('a connection the device refuses is reported, its typed key stays, and nothing changes', async () => {
-	const { whispering, device } = await open((workspace) => ({
-		...workspace,
+	const { whispering, device } = await open((services) => ({
+		...services,
 		connections: {
-			...workspace.connections,
+			...services.connections,
 			set: async () =>
 				Err('The transcription connection comes from the environment.'),
 		},
@@ -298,15 +298,15 @@ test('saving uses the submitted key and keeps typing done while the save is unde
 	const started = deferred<void>();
 	const finish = deferred<void>();
 	const changes: ConnectionChange[] = [];
-	const { whispering } = await open((workspace) => ({
-		...workspace,
+	const { whispering } = await open((services) => ({
+		...services,
 		connections: {
-			...workspace.connections,
+			...services.connections,
 			async set(operation, change) {
 				changes.push(change);
 				started.resolve();
 				await finish.promise;
-				return workspace.connections.set(operation, change);
+				return services.connections.set(operation, change);
 			},
 		},
 	}));

@@ -9,7 +9,7 @@
  * stop. The fixture device exists for
  * repeatable automation: it writes the same bytes every time on stop and
  * marks the recording `fixture`, so a fixture take is never stored as a
- * microphone take. The workspace decides which device a session uses;
+ * microphone take. The platform adapter chooses which device a session uses;
  * nothing here falls back from one to the other.
  */
 import type { RecordingFolder } from '@epicenter/recorder';

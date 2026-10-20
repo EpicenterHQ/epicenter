@@ -29,7 +29,7 @@ import {
 	type TransformationFields,
 } from './definition.js';
 import { describeError, readBytes } from './files.js';
-import type { WhisperingFolder } from './workspace/types.js';
+import type { WhisperingFolder } from './folder.js';
 
 /** What a confirmed deletion removes, captured when the person was asked. */
 export type Deletion =

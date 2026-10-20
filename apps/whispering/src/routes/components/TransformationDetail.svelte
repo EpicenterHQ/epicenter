@@ -403,7 +403,7 @@
 							{:else}
 								<p>No text connection is set up. Set one up in Settings to run this.</p>
 							{/if}
-							<p>{library.workspace.transformNote}</p>
+							<p>{library.services.transformNote}</p>
 							<p>
 								A result on a transcript is saved as a new file in <code class="font-mono">transformation_runs/</code>, and a result on
 								pasted text in <code class="font-mono">text_runs/</code>. Each file is written when the run starts and gets its answer

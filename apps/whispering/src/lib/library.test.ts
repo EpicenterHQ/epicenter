@@ -51,7 +51,7 @@ import { readBytes } from './files.js';
 import type { Library } from './library.svelte.js';
 import { quiet } from './query.test-support.js';
 import { filesLine } from './status.js';
-import type { Workspace } from './workspace/types.js';
+import type { WhisperingServices } from './platform/types.js';
 import {
 	eventually,
 	openTestFolder,
@@ -62,7 +62,7 @@ import {
 	withObstructedCreates,
 	withResultFailures,
 	replaceTables,
-} from './workspace.test-support.js';
+} from './services.test-support.js';
 
 /** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
 const recordingFiles = async (root: string) =>
@@ -84,7 +84,7 @@ type Options = {
 	/** Fail this many answers written into transcript rows. */
 	failAnswerWrites?: number;
 	/** Replace the stubbed transcription answer. */
-	transcribe?: Workspace['transcribe'];
+	transcribe?: WhisperingServices['transcribe'];
 	root?: string;
 	/** Runs before each save of a file through `files`, with its path and whether it is new. */
 	beforeFileWrite?: (path: string, created: boolean) => Promise<void>;
@@ -120,7 +120,7 @@ async function open({
 			return stored.write(path, from, content);
 		},
 	};
-	const transcribed: Parameters<Workspace['transcribe']>[0][] = [];
+	const transcribed: Parameters<WhisperingServices['transcribe']>[0][] = [];
 	const device = testConnections(connections);
 	const recordings = withObstructedCreates(
 		folder.tables.recordings,
@@ -128,7 +128,7 @@ async function open({
 		{ creates: failRowWrites },
 	);
 	const test = {
-		workspace: {
+		services: {
 			kind: 'native',
 
 			location: directory,
@@ -150,7 +150,7 @@ async function open({
 				microphone: async () => undefined,
 				setMicrophone: async () => undefined,
 			},
-		} satisfies Workspace,
+		} satisfies WhisperingServices,
 		folder: replaceTables(
 			folder,
 			{
@@ -665,7 +665,7 @@ function newest(library: Library, recording: string) {
 
 test('a transcript row is written with an empty body before the request goes out, and filled when the answer arrives', async () => {
 	const answer =
-		Promise.withResolvers<Awaited<ReturnType<Workspace['transcribe']>>>();
+		Promise.withResolvers<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -704,7 +704,7 @@ test('a transcript row is written with an empty body before the request goes out
 
 test('an answer is filled as a change from the empty row: a field changed meanwhile is kept', async () => {
 	const answer =
-		Promise.withResolvers<Awaited<ReturnType<Workspace['transcribe']>>>();
+		Promise.withResolvers<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -836,7 +836,7 @@ test('after a reload, a row whose answer was never written is unfinished, and ru
 
 test('a running transcription cannot be asked for again; deleting its row discards it, and its answer writes nothing', async () => {
 	const answer =
-		Promise.withResolvers<Awaited<ReturnType<Workspace['transcribe']>>>();
+		Promise.withResolvers<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -972,7 +972,7 @@ test('a recording is not deleted while a result cannot say which recording it be
 });
 
 test('a recording cannot be deleted while its transcription runs, including one started after confirming', async () => {
-	let answer!: (value: Awaited<ReturnType<Workspace['transcribe']>>) => void;
+	let answer!: (value: Awaited<ReturnType<WhisperingServices['transcribe']>>) => void;
 	const { library, root } = await open({
 		transcribe: () => new Promise((resolve) => (answer = resolve)),
 	});

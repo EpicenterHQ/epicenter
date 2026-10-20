@@ -1,12 +1,14 @@
 /**
- * A library over a test workspace, built as the product root builds it: the
+ * A library over test platform services, built as the product root builds it: the
  * folder's local context (`@epicenter/svelte/folder`), then the
  * library over it. Both are runes modules, loaded here once the test has
  * registered the Svelte compiler plugin.
  */
+import { provideServices } from './services.test-support.js';
 import type { Library } from './library.svelte.js';
 import { filesLine } from './status.js';
-import type { WhisperingFolder, Workspace } from './workspace/types.js';
+import type { WhisperingFolder } from './folder.js';
+import type { WhisperingServices } from './platform/types.js';
 
 /** The header's status line for `library`, as AppHeader words it. */
 export const headerLine = (library: Library) =>
@@ -17,20 +19,20 @@ export const headerLine = (library: Library) =>
 		unwrittenAnswers: library.unwrittenAnswers,
 	});
 
-/** A library over `workspace`, not yet started. */
+/** A library over `services`, not yet started. */
 export async function createTestLibrary(
-	{ workspace, folder }: { workspace: Workspace; folder: WhisperingFolder },
+	{ services, folder }: { services: WhisperingServices; folder: WhisperingFolder },
 ): Promise<Library> {
 	const [{ createFolderContext }, { createLibrary }] = await Promise.all([
 		import('@epicenter/svelte/folder'),
 		import('./library.svelte.js'),
 	]);
-	return createLibrary(workspace, createFolderContext(folder));
+	return createLibrary(services, createFolderContext(folder));
 }
 
-/** A library over `workspace`, started: the folder read once. */
+/** A library over `services`, started: the folder read once. */
 export async function openTestLibrary(
-	test: { workspace: Workspace; folder: WhisperingFolder },
+	test: { services: WhisperingServices; folder: WhisperingFolder },
 ): Promise<Library> {
 	const library = await createTestLibrary(test);
 	await library.start();
@@ -48,8 +50,9 @@ export async function closeTestLibrary(library: Library) {
 
 /** Construct product state as FolderApp's child does, after the close guard. */
 export async function createTestWhispering(
-	{ workspace, folder }: { workspace: Workspace; folder: WhisperingFolder },
+	{ services, folder }: { services: WhisperingServices; folder: WhisperingFolder },
 ) {
+	provideServices(folder, services);
 	const [{ createFolderContext }, { createWhispering }] = await Promise.all([
 		import('@epicenter/svelte/folder'),
 		import('./whispering.svelte.js'),
@@ -61,10 +64,10 @@ export async function createTestWhispering(
 		await context.close();
 		throw cause;
 	}
-	return createWhispering(context, workspace);
+	return createWhispering(context);
 }
 export async function openTestWhispering(
-	test: { workspace: Workspace; folder: WhisperingFolder },
+	test: { services: WhisperingServices; folder: WhisperingFolder },
 ) {
 	const whispering = await createTestWhispering(test);
 	await whispering.start();

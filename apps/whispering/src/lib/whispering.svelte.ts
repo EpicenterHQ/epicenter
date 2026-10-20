@@ -8,15 +8,12 @@ import { createLibrary, STOPPED } from './library.svelte.js';
 import type { PostProcessingChoice } from './post-processing.js';
 import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
 import { createSettingsDraft } from './settings-draft.svelte.js';
-import type { Workspace } from './workspace/index.js';
+import { createServices } from '#platform/services';
 const log = createLogger('whispering');
 
 /** Construct without reading; start maintains exclusions before the first product reads. */
-export function createWhispering(
-	context: WhisperingContext,
-	workspace: Workspace,
-) {
-	const library = createLibrary(workspace, context);
+export function createWhispering(context: WhisperingContext) {
+	const library = createLibrary(createServices(context.folder), context);
 	/** What the shell shows. Held here so no route owns it. */
 	const view = $state({
 		sidebarOpen: false,

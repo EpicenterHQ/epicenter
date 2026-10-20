@@ -19,7 +19,7 @@
  *   is confirmed by reading back and recreates nothing
  *
  * See also:
- * - `desktop.test.ts` for the workspace over the shell and the host
+ * - `desktop.test.ts` for the services over the shell and the host
  * - `editing.test.ts` for editing over a directory this process opens
  */
 import { closeTestLibrary, createTestLibrary } from '../library.test-support.js';
@@ -37,8 +37,8 @@ import {
 import { whisperingTables } from '../definition.js';
 import { settle, transformationEditor } from '../edits.test-support.js';
 
-import { deferred, openTestWorkspace } from '../workspace.test-support.js';
-import type { Workspace } from './types.js';
+import { deferred, openTestServices } from '../services.test-support.js';
+import type { WhisperingServices } from './types.js';
 
 let shell: GrantedShell;
 mock.module('@tauri-apps/api/core', () => ({
@@ -72,12 +72,12 @@ async function open(files: Record<string, string>, path = PATH) {
 	shell = createGrantedShell(root);
 	for (const [path, text] of Object.entries(files))
 		await shell.write(path, text);
-	const stubs = await openTestWorkspace();
+	const stubs = await openTestServices();
 	const folder = expectOk(await openTauriFolder({ tables: whisperingTables }));
-	const workspace: Workspace = {
-		...stubs.workspace,
+	const services: WhisperingServices = {
+		...stubs.services,
 	};
-	const library = await createTestLibrary({ workspace, folder });
+	const library = await createTestLibrary({ services, folder });
 	cleanups.push(async () => {
 		await closeTestLibrary(library);
 		await stubs.folder.close();

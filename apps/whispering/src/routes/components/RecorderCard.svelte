@@ -118,9 +118,9 @@
 <!-- Always mounted so the start of a recording is announced. The clock stays outside it: it changes every second. -->
 <span class="sr-only" role="status">{active ? 'Recording' : ''}</span>
 
-{#if library.workspace.capture.source === 'fixture'}
+{#if library.services.capture.source === 'fixture'}
 	<p class="text-center text-xs text-balance text-warning" data-testid="fixture-notice">
-		Fixture mode: recordings use {library.workspace.capture.label}. The microphone is not used.
+		Fixture mode: recordings use {library.services.capture.label}. The microphone is not used.
 	</p>
 {/if}
 

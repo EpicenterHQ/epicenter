@@ -7,7 +7,7 @@
  * origin, so the choice lasts from launch to launch.
  */
 import type { MicrophonePreference } from '../capture.js';
-import type { Workspace } from './types.js';
+import type { WhisperingServices } from './types.js';
 
 const MICROPHONE_STORAGE = 'whispering.microphone';
 
@@ -29,7 +29,7 @@ function savedMicrophone(): MicrophonePreference | undefined {
 	return undefined;
 }
 
-export const localPreferences: Workspace['preferences'] = {
+export const localPreferences: WhisperingServices['preferences'] = {
 	microphone: async () => savedMicrophone(),
 	async setMicrophone(microphone) {
 		try {

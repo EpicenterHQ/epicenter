@@ -1,15 +1,15 @@
 <script lang="ts">
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import * as Tooltip from '@epicenter/ui/tooltip';
-	import type { OpenWhisperingFolder, Workspace } from '../../../lib/workspace/types.js';
 	import type { Whispering } from '../../../lib/whispering.svelte.js';
-	import type { WhisperingContext } from '../../../lib/folder.js';
+	import type { OpenFolderError } from '@epicenter/folder';
+	import type { Result } from 'wellcrafted/result';
+	import type { WhisperingFolder, WhisperingContext } from '../../../lib/folder.js';
 	import WhisperingApp from '../WhisperingApp.svelte';
 	import WhisperingPage from './WhisperingPage.svelte';
 
-	let { open, workspace, page, report }: {
-		open: OpenWhisperingFolder;
-		workspace: Workspace;
+	let { open, page, report }: {
+		open: () => Promise<Result<WhisperingFolder, OpenFolderError>>;
 		page: { route: string };
 		report: (whispering: Whispering, context: WhisperingContext) => void;
 	} = $props();
@@ -18,7 +18,7 @@
 <Tooltip.Provider>
 	<FolderApp {open}>
 		{#snippet children(context)}
-			<WhisperingApp {context} {workspace}>
+			<WhisperingApp {context}>
 				{#key page.route}
 					<WhisperingPage {report} route={page.route} />
 				{/key}

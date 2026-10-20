@@ -1,10 +1,7 @@
 /**
- * The browser workspace's own storage: it opens this site's local folder
- * with Whispering's tables and nothing else, a refusal from it is what the
- * person is shown, microphone preference failures reach the chooser rather
- * than becoming System default, and connections keep their keys in this
- * browser, tell the page none, and send only to the base URL a request was
- * prepared for.
+ * Browser capture, connections, and microphone preferences over an opened folder.
+ * Provider requests read audio from that folder and use only their prepared
+ * connection. Malformed device settings remain visible rather than overwritten.
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import { OpenFolderError } from '@epicenter/folder';
@@ -13,14 +10,14 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { toneWav } from '../capture.js';
 import { whisperingTables } from '../definition.js';
 import { readBytes } from '../files.js';
-import { openTestWorkspace } from '../workspace.test-support.js';
-import type { WhisperingFolder } from './types.js';
+import { openTestServices } from '../services.test-support.js';
+import type { WhisperingFolder } from '../folder.js';
 
 // Compile the Vite build flag for this adapter test; no microphone is opened.
 Bun.plugin({
-	name: 'browser-workspace-build-flag',
+	name: 'browser-services-build-flag',
 	setup(build) {
-		build.onLoad({ filter: /\/workspace\/browser\.ts$/ }, async ({ path }) => ({
+		build.onLoad({ filter: /\/platform\/browser\.ts$/ }, async ({ path }) => ({
 			contents: new Bun.Transpiler({
 				loader: 'ts',
 				define: { 'import.meta.env.DEV': 'false' },
@@ -40,7 +37,8 @@ mock.module('@epicenter/folder/browser', () => ({
 		return refusal ?? Ok(folder);
 	},
 }));
-const { openWhisperingFolder, createWorkspace } = await import('./browser.js');
+const { createServices } = await import('./browser.js');
+const { openFolder } = await import('@epicenter/folder/browser');
 const originalStorage = Object.getOwnPropertyDescriptor(
 	globalThis,
 	'localStorage',
@@ -63,8 +61,8 @@ afterEach(async () => {
 });
 
 async function preferences(getItem: (key: string) => string | null) {
-	const workspace = await openTestWorkspace();
-	folder = workspace.folder;
+	const services = await openTestServices();
+	folder = services.folder;
 	Object.defineProperty(globalThis, 'localStorage', {
 		configurable: true,
 		value: { getItem },
@@ -73,10 +71,10 @@ async function preferences(getItem: (key: string) => string | null) {
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
-	const browser = createWorkspace(expectOk(await openWhisperingFolder()));
+	const browser = createServices(expectOk(await openFolder({ tables: whisperingTables })));
 	cleanups.push(async () => {
 		await folder.close();
-		await workspace.remove();
+		await services.remove();
 	});
 	return browser.preferences;
 }
@@ -84,24 +82,24 @@ async function preferences(getItem: (key: string) => string | null) {
 test('browser storage failure is reported without opening another folder', async () => {
 	refusal = OpenFolderError.Unavailable({ cause: new Error('storage denied') });
 
-	const refused = expectErr(await openWhisperingFolder());
+	const refused = expectErr(await openFolder({ tables: whisperingTables }));
 
 	expect(refused.name).toBe('Unavailable');
 	expect(refused.message).toContain('storage denied');
 });
 
 test('a recording’s audio is read back from the folder as its exact bytes for transcription', async () => {
-	const workspace = await openTestWorkspace();
-	folder = workspace.folder;
+	const services = await openTestServices();
+	folder = services.folder;
 	Object.defineProperty(globalThis, 'location', {
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
 	expectOk(await folder.files.write('audio/take.webm', null, toneWav()));
-	const browser = createWorkspace(expectOk(await openWhisperingFolder()));
+	const browser = createServices(expectOk(await openFolder({ tables: whisperingTables })));
 	cleanups.push(async () => {
 		await folder.close();
-		await workspace.remove();
+		await services.remove();
 	});
 
 	expect(expectOk(await readBytes(folder, 'audio/take.webm'))).toEqual(
@@ -150,10 +148,10 @@ const prepared = (expectedBaseUrl: string) => ({
 	input: 'some text',
 });
 
-/** A browser workspace over storage held in `stored`, with every request it sends recorded. */
+/** A browser services over storage held in `stored`, with every request it sends recorded. */
 async function browserWithStorage(stored: Map<string, string>) {
-	const workspace = await openTestWorkspace();
-	folder = workspace.folder;
+	const services = await openTestServices();
+	folder = services.folder;
 	Object.defineProperty(globalThis, 'localStorage', {
 		configurable: true,
 		value: {
@@ -181,11 +179,11 @@ async function browserWithStorage(stored: Map<string, string>) {
 		});
 		return Response.json({ choices: [{ message: { content: 'ok' } }] });
 	}) as unknown as typeof fetch;
-	const browser = createWorkspace(expectOk(await openWhisperingFolder()));
+	const browser = createServices(expectOk(await openFolder({ tables: whisperingTables })));
 	cleanups.push(async () => {
 		globalThis.fetch = originalFetch;
 		await folder.close();
-		await workspace.remove();
+		await services.remove();
 	});
 	return { browser, sent };
 }

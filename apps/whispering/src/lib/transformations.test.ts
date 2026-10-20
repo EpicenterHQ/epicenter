@@ -61,10 +61,10 @@ import { TransformationError } from './transformation.js';
 import {
 	deferred,
 	eventually,
-	openTestWorkspace,
+	openTestServices,
 	replaceTables,
-	type TestWorkspaceOptions,
-} from './workspace.test-support.js';
+	type TestServicesOptions,
+} from './services.test-support.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -74,8 +74,8 @@ afterEach(async () => {
 const RUNS = 'transformation_runs';
 const CLEANUP = STARTER_TRANSFORMATIONS[0]!;
 
-async function open(options: TestWorkspaceOptions = {}) {
-	const test = await openTestWorkspace(options);
+async function open(options: TestServicesOptions = {}) {
+	const test = await openTestServices(options);
 	const library = await createTestLibrary(test);
 	cleanups.push(async () => {
 		await closeTestLibrary(library);
@@ -474,7 +474,7 @@ async function newestResult(library: Library, transcriptionId: string) {
 
 test('a recording cannot be deleted while a transformation of it runs, including one started after confirming', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
 	const started = deferred<void>();
 	const { library, root } = await open({
 		transform: () => {
@@ -608,7 +608,7 @@ test('deleting a recording removes the results made from its transcripts', async
 
 test('a run’s row is in the folder from its start with every field and no body, and holds nothing in the window', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
 	const started = deferred<void>();
 	const { library, root } = await open({
 		transform: () => {
@@ -747,8 +747,8 @@ test('an answer whose write fails is written again while the page lives', async 
 
 test('an answer for a row someone filled meanwhile stands after their text, and one for a row deleted meanwhile writes nothing', async () => {
 	const answers = [
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>(),
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>(),
+		deferred<Awaited<ReturnType<Library['services']['transform']>>>(),
+		deferred<Awaited<ReturnType<Library['services']['transform']>>>(),
 	];
 	const { library, root, transformed } = await open({
 		transform: () => answers[transformed.length - 1]!.promise,
@@ -792,7 +792,7 @@ test('an answer for a row someone filled meanwhile stands after their text, and 
  */
 async function fillRace(typed: string) {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
 	const { library, root, folder, transformed } = await open({
 		transform: () => answer.promise,
 	});
@@ -856,9 +856,9 @@ async function until(condition: () => boolean) {
  */
 async function openHoldingReads(
 	held: 'transformations' | 'transformation_runs',
-	options: TestWorkspaceOptions = {},
+	options: TestServicesOptions = {},
 ) {
-	const test = await openTestWorkspace(options);
+	const test = await openTestServices(options);
 	const reads: { hold?: Promise<void>; waiting: number } = { waiting: 0 };
 	const { tables } = test.folder;
 	const table = tables[held];
@@ -873,8 +873,8 @@ async function openHoldingReads(
 				},
 			},
 		}),
-		workspace: {
-			...test.workspace,
+		services: {
+			...test.services,
 		},
 	});
 	cleanups.push(async () => {

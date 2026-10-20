@@ -62,13 +62,14 @@ import {
 	transcriptsToCopy,
 } from './recording-collection.js';
 import type { Whispering } from './whispering.svelte.js';
-import type { WhisperingFolder, Workspace } from './workspace/types.js';
+import type { WhisperingFolder } from './folder.js';
+import type { WhisperingServices } from './platform/types.js';
 import {
 	deferred,
 	eventually,
-	openTestWorkspace,
+	openTestServices,
 	replaceTables,
-} from './workspace.test-support.js';
+} from './services.test-support.js';
 
 /** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
 const recordingFiles = async (root: string) =>
@@ -82,7 +83,7 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-type Transcribe = Workspace['transcribe'];
+type Transcribe = WhisperingServices['transcribe'];
 
 /**
  * A folder with a history, written as another program would have left it:
@@ -101,7 +102,7 @@ async function history(
 	/** Put something in the way of the folder the app is given, after the history is written. */
 	folderOf: (folder: WhisperingFolder) => WhisperingFolder = (given) => given,
 ) {
-	const test = await openTestWorkspace();
+	const test = await openTestServices();
 	const { folder } = test;
 	const sent: Parameters<Transcribe>[0][] = [];
 	const recording = async (
@@ -189,8 +190,8 @@ async function history(
 
 	const whispering = await openTestWhispering({
 		folder: folderOf(test.folder),
-		workspace: {
-			...test.workspace,
+		services: {
+			...test.services,
 			async transcribe(request) {
 				sent.push(request);
 				return transcribe

@@ -34,9 +34,9 @@ import type { Whispering } from './whispering.svelte.js';
 import {
 	deferred,
 	openGatedTestFolder,
-	openTestWorkspace,
+	openTestServices,
 	whisperingDirectory,
-} from './workspace.test-support.js';
+} from './services.test-support.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -55,7 +55,7 @@ async function openWindow() {
 		if (control.throwWrite) throw new Error('transport disconnected');
 		return control.refuse ? new Error('the disk refused it') : undefined;
 	});
-	const fixture = await openTestWorkspace({ folder });
+	const fixture = await openTestServices({ folder });
 	desktop(true);
 	const whispering: Whispering = await openTestWhispering(fixture);
 	cleanups.push(async () => {
@@ -164,8 +164,8 @@ test('unsubmitted connection settings and pasted text keep the window', async ()
 test('an accepted connection save finishes before the window closes', async () => {
 	const window = await openWindow();
 	const waiting = deferred<void>();
-	const set = window.whispering.library.workspace.connections.set;
-	window.whispering.library.workspace.connections.set = async (...args) => {
+	const set = window.whispering.library.services.connections.set;
+	window.whispering.library.services.connections.set = async (...args) => {
 		await waiting.promise;
 		return set(...args);
 	};

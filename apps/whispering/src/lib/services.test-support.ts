@@ -1,5 +1,5 @@
 /**
- * A workspace for tests: a real directory, a fixture capture device, and
+ * A services for tests: a real directory, a fixture capture device, and
  * stubbed endpoints. Nothing here reaches a network, a microphone, or a
  * provider.
  *
@@ -12,6 +12,7 @@
  * The endpoint stubs are plain functions, so a test decides each answer and
  * counts each request.
  */
+import { mock } from 'bun:test';
 import { mkdirSync, rmdirSync } from 'node:fs';
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -36,10 +37,11 @@ import {
 import { whisperingTables } from './definition.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
-import type { WhisperingFolder, Workspace } from './workspace/types.js';
+import type { WhisperingFolder } from './folder.js';
+import type { WhisperingServices } from './platform/types.js';
 
-type TransformRequest = Parameters<Workspace['transform']>[0];
-type TranscribeRequest = Parameters<Workspace['transcribe']>[0];
+type TransformRequest = Parameters<WhisperingServices['transform']>[0];
+type TranscribeRequest = Parameters<WhisperingServices['transcribe']>[0];
 
 /** The base URL both stub endpoints answer at. */
 export const TEST_BASE_URL = 'http://127.0.0.1:18080/v1';
@@ -56,7 +58,7 @@ export const TEST_CONNECTIONS: Record<Operation, StoredConnection> = {
 /**
  * A device's connections, kept in memory by the same rules the host and the
  * browser apply to their storage. `stored` holds the keys, so a test can see
- * where one went; the workspace member answers as a workspace does, never
+ * where one went; the services member answers as a services does, never
  * with a key.
  */
 export function testConnections({
@@ -75,7 +77,7 @@ export function testConnections({
 			connectionInfo(stored.transcription, readOnly.transcription),
 		text: stored.text && connectionInfo(stored.text, readOnly.text),
 	});
-	const member: Workspace['connections'] = {
+	const member: WhisperingServices['connections'] = {
 		storedIn: 'test',
 		defaults: {
 			transcription: {
@@ -195,11 +197,11 @@ export function withObstructedCreates<TTable extends FolderTable>(
 	};
 }
 
-export type TestWorkspaceOptions = {
+export type TestServicesOptions = {
 	/** Replace the stubbed transcription answer. */
-	transcribe?: Workspace['transcribe'];
+	transcribe?: WhisperingServices['transcribe'];
 	/** Replace the stubbed transformation answer. */
-	transform?: Workspace['transform'];
+	transform?: WhisperingServices['transform'];
 	/** Fail this many result rows written when a run starts, in any result table. */
 	failResultStarts?: number;
 	/** Fail this many answers written into result rows, in any result table. */
@@ -254,15 +256,15 @@ export function replaceTables(
 	return folder;
 }
 
-export async function openTestWorkspace({
+export async function openTestServices({
 	transcribe,
 	transform,
 	failResultStarts = 0,
 	failAnswerWrites = 0,
 	connections,
 	folder: given,
-}: TestWorkspaceOptions = {}) {
-	const root = await whisperingDirectory('whispering-workspace-');
+}: TestServicesOptions = {}) {
+	const root = await whisperingDirectory('whispering-services-');
 	let folder = given ?? (await openTestFolder(root));
 	const failures: ResultFailures = {
 		starts: failResultStarts,
@@ -288,7 +290,7 @@ export async function openTestWorkspace({
 		closes++;
 		return await closeFolder();
 	};
-	const workspace: Workspace = {
+	const services: WhisperingServices = {
 		kind: 'native',
 
 		location: root,
@@ -347,7 +349,7 @@ export async function openTestWorkspace({
 	return {
 		root,
 		folder,
-		workspace,
+		services,
 		/** Result row writes still to fail; a test may arm more. */
 		failures,
 		/** What `FolderApp` is given: it counts how many times a folder was opened. */
@@ -387,4 +389,24 @@ export async function eventually(check: () => boolean, timeoutMs = 4000) {
 		if (Date.now() > deadline) throw new Error('It never happened.');
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
+}
+
+/** Per-folder device doubles used by the actual product constructor. */
+const providedServices = new WeakMap<WhisperingFolder, WhisperingServices>();
+let installedServices = false;
+export function provideServices(
+	folder: WhisperingFolder,
+	services: WhisperingServices,
+) {
+	providedServices.set(folder, services);
+	if (installedServices) return;
+	installedServices = true;
+	mock.module('#platform/services', () => ({
+		createServices(folder: WhisperingFolder): WhisperingServices {
+			const services = providedServices.get(folder);
+			if (services === undefined)
+				throw new Error('No test services were provided for this folder');
+			return services;
+		},
+	}));
 }

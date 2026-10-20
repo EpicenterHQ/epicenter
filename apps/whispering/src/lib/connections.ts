@@ -17,7 +17,7 @@
  * is kept only for the destination it was saved for: changing the base URL
  * needs the key replaced or removed in the same change.
  *
- * These rules are pure, so both workspaces apply the same ones to their own
+ * These rules are pure, so both platform adapters apply the same ones to their own
  * storage. Nothing here reads or writes anything.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';

@@ -2,9 +2,9 @@
  * The real microphone as a capture device: recording from one into the
  * folder, over the inputs the platform lists, allows, and tests.
  *
- * Each workspace supplies both halves and nothing here chooses between them:
+ * Each platform adapter supplies both halves and nothing here chooses between them:
  *
- * - In Epicenter (`workspace/desktop-microphone.ts`) Rust owns the
+ * - In Epicenter (`platform/desktop-microphone.ts`) Rust owns the
  *   microphone. The shell lists the inputs, reads a level, asks the system
  *   for access, and records the WAV into the folder as it captures; the page
  *   opens no microphone of its own (ADR-0571).

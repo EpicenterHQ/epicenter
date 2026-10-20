@@ -14,7 +14,6 @@
 	import { resolve } from '$app/paths';
 	import { setFolder, type WhisperingContext } from '$lib/folder.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
-	import type { Workspace } from '$lib/workspace/index.js';
 	import AppHeader from './AppHeader.svelte';
 	import BottomNav from './BottomNav.svelte';
 	import FileBrowser from './FileBrowser.svelte';
@@ -24,17 +23,16 @@
 	/** Product state over FolderApp's context; stops workflows before the folder closes. */
 	let {
 		context,
-		workspace,
 		children,
-	}: { context: WhisperingContext; workspace: Workspace; children: Snippet } = $props();
+	}: { context: WhisperingContext; children: Snippet } = $props();
 
-	// Each mounted product root keeps the context and workspace it received.
+	// Each mounted product root keeps the context it received.
 	// svelte-ignore state_referenced_locally
 	setFolder(context);
 	// svelte-ignore state_referenced_locally
 	setQueryClientContext(context.queryClient);
 	// svelte-ignore state_referenced_locally
-	const whispering = createWhispering(context, workspace);
+	const whispering = createWhispering(context);
 	setWhispering(whispering);
 	const { library, view } = whispering;
 	const starting = whispering.start();

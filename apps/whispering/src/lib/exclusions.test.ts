@@ -14,7 +14,7 @@ import { openRepository } from '../../../../packages/folder/src/browser/reposito
 import { prepareCommit } from '../../../../packages/folder/src/browser/sync.js';
 import { readCommit } from '../../../../packages/folder/src/git/raw-objects.js';
 import { maintainExclusions } from './exclusions.js';
-import { deferred, openTestWorkspace } from './workspace.test-support.js';
+import { deferred, openTestServices } from './services.test-support.js';
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -22,15 +22,15 @@ afterEach(async () => {
 });
 
 async function open(source?: string | Uint8Array) {
-	const workspace = await openTestWorkspace();
-	const files = workspace.folder.files;
+	const services = await openTestServices();
+	const files = services.folder.files;
 	cleanups.push(async () => {
-		await workspace.folder.close();
-		await workspace.remove();
+		await services.folder.close();
+		await services.remove();
 	});
 	if (source !== undefined)
 		expectOk(await files.write('.gitignore', null, source));
-	return { files, root: workspace.root };
+	return { files, root: services.root };
 }
 
 async function text(files: Pick<FolderFiles, 'read'>) {

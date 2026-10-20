@@ -48,9 +48,9 @@ import type { Library } from './library.svelte.js';
 
 import {
 	openGatedTestFolder,
-	openTestWorkspace,
+	openTestServices,
 	whisperingDirectory,
-} from './workspace.test-support.js';
+} from './services.test-support.js';
 
 const opened: { library: Library; remove: () => Promise<void> }[] = [];
 
@@ -99,7 +99,7 @@ function gated(root: string) {
 async function open() {
 	const root = await whisperingDirectory('whispering-editing-');
 	const { folder, control } = gated(root);
-	const fixture = await openTestWorkspace({ folder });
+	const fixture = await openTestServices({ folder });
 	const library = await openTestLibrary(fixture);
 	opened.push({
 		library,

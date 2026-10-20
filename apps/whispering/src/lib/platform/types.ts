@@ -1,9 +1,8 @@
 /**
  * What this build offers beside the folder FolderApp opened: capture,
- * inference, connections, preferences, and recording recovery. The workspace
+ * inference, connections, preferences, and recording recovery. The services
  * holds no folder lifetime. Unsupported capabilities are undefined.
  */
-import type { Folder, OpenFolderError } from '@epicenter/folder';
 import type { Result } from 'wellcrafted/result';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
 import type {
@@ -12,7 +11,7 @@ import type {
 	ConnectionsInfo,
 	Operation,
 } from '../connections.js';
-import type { WhisperingTables } from '../definition.js';
+import type { WhisperingFolder } from '../folder.js';
 import type {
 	PreparedTranscription,
 	TranscriptionError,
@@ -23,14 +22,11 @@ import type {
 } from '../transformation.js';
 import type { LocalTranscription } from './local-transcription.js';
 
-/** Whispering's folder: its files, read through Whispering's tables. */
-export type WhisperingFolder = Folder<WhisperingTables>;
-
-export type Workspace = {
+export type WhisperingServices = {
 	readonly kind: 'native' | 'browser';
 	/** Where the files are, as the person is told it. */
 	readonly location: string;
-	/** What this app records from. Fixed when the workspace is constructed. */
+	/** What this app records from. Fixed when the services are constructed. */
 	readonly capture: CaptureDevice;
 	/** Repair recordings a quit or crash cut off before anything reads them; report when they could not be checked. */
 	recoverRecordings(): Promise<string | undefined>;
@@ -88,9 +84,5 @@ export type Workspace = {
 	};
 };
 
-/** Open the folder for FolderApp; importing the platform seam is inert. */
-export type OpenWhisperingFolder = () => Promise<
-	Result<WhisperingFolder, OpenFolderError>
->;
 /** Construct the capabilities this build offers beside the opened folder, without I/O or owning its lifetime. */
-export type CreateWorkspace = (folder: WhisperingFolder) => Workspace;
+export type CreateServices = (folder: WhisperingFolder) => WhisperingServices;

@@ -32,7 +32,7 @@ import {
 	createWebViewMicrophone,
 	type MicrophoneEnvironment,
 } from './webview-microphone.js';
-import { deferred } from './workspace.test-support.js';
+import { deferred } from './services.test-support.js';
 
 const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
 

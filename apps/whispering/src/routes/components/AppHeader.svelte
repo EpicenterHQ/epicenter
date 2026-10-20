@@ -38,7 +38,7 @@
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
-	{#if library.workspace.capture.source === 'fixture'}
+	{#if library.services.capture.source === 'fixture'}
 		<Badge variant="outline" class="shrink-0 border-warning text-warning" data-testid="fixture-badge">Fixture<span class="max-sm:sr-only">&nbsp;audio</span></Badge>
 	{/if}
 
@@ -64,7 +64,7 @@
 	{/if}
 
 	<StatusPopover summary={files} details={[{ name: 'Files', testid: 'status-files', line: files }]}>
-		<StatusRow name="Folder" class="text-xs break-all" data-testid="status-folder">{library.workspace.location}</StatusRow>
+		<StatusRow name="Folder" class="text-xs break-all" data-testid="status-folder">{library.services.location}</StatusRow>
 	</StatusPopover>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">

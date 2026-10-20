@@ -33,8 +33,11 @@ such as Epicenter's `FolderEditor`.
 `FolderApp` remains the shared folder lifecycle component. It invokes the
 app-supplied opener, prepares its context, and closes it on departure.
 Whispering uses the same shared root in its persistent layout. `WhisperingApp`
-installs the exact context it receives and owns recording, inference, forms,
-and view state across route changes. It registers workflow teardown as an app
+receives only the opened context, installs it, and owns recording, inference,
+forms,
+and view state across route changes. Its product constructor assembles platform
+capabilities internally; the layout does not pass a workspace. It registers
+workflow teardown as an app
 action before `FolderApp` closes storage. Folder owns accepted file edits and
 their persistence; the UI context connects it to queries and window behavior.
 

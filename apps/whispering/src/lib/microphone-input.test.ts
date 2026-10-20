@@ -45,12 +45,12 @@ import {
 	toneWav,
 } from './capture.js';
 
-import type { Workspace } from './workspace/types.js';
+import type { WhisperingServices } from './platform/types.js';
 import {
 	deferred,
-	openTestWorkspace,
+	openTestServices,
 	replaceTables,
-} from './workspace.test-support.js';
+} from './services.test-support.js';
 
 const BUILT_IN = { deviceId: 'built-in-id', label: 'Built-in Microphone' };
 const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
@@ -205,7 +205,7 @@ function shellMicrophone(connected: MicrophonePreference[] = [BUILT_IN, USB]) {
 /** Preferences kept in memory, as one device would across sessions. */
 function devicePreferences(saved?: MicrophonePreference) {
 	const store = { saved, writes: 0 };
-	const preferences: Workspace['preferences'] = {
+	const preferences: WhisperingServices['preferences'] = {
 		microphone: async () => store.saved,
 		async setMicrophone(microphone) {
 			store.saved = microphone;
@@ -223,11 +223,11 @@ async function open({
 	microphone?: ReturnType<typeof scriptedMicrophone>;
 	device?: ReturnType<typeof devicePreferences>;
 } = {}) {
-	const test = await openTestWorkspace();
+	const test = await openTestServices();
 	const library = await createTestLibrary({
 		folder: test.folder,
-		workspace: {
-			...test.workspace,
+		services: {
+			...test.services,
 			capture: microphone.device,
 			preferences: device.preferences,
 		},
@@ -647,7 +647,7 @@ test('closing the session withdraws a pending enable at once', async () => {
 test('closing releases the microphone at once, while a file command that was accepted is still being written', async () => {
 	for (const holding of ['test', 'recording'] as const) {
 		const microphone = scriptedMicrophone();
-		const test = await openTestWorkspace();
+		const test = await openTestServices();
 		const writing = deferred<void>();
 		const { folder } = test;
 		const { files } = folder;
@@ -663,8 +663,8 @@ test('closing releases the microphone at once, while a file command that was acc
 					},
 				},
 			),
-			workspace: {
-				...test.workspace,
+			services: {
+				...test.services,
 				capture: microphone.device,
 			},
 		});
@@ -712,7 +712,7 @@ function heldPreferences() {
 		microphone: MicrophonePreference | undefined;
 		answer: (problem?: string) => void;
 	}[] = [];
-	const preferences: Workspace['preferences'] = {
+	const preferences: WhisperingServices['preferences'] = {
 		microphone: async () => undefined,
 		setMicrophone: (microphone) =>
 			new Promise((answer) => saves.push({ microphone, answer })),
@@ -769,7 +769,7 @@ test('choices are saved one at a time in the order chosen, and an older save tha
 test('closing while a choice is being saved releases the microphone at once and closes the folder only after the save', async () => {
 	const held = heldPreferences();
 	const microphone = scriptedMicrophone();
-	const test = await openTestWorkspace();
+	const test = await openTestServices();
 	const order: string[] = [];
 	const closeFolder = test.folder.close;
 	test.folder.close = async () => {
@@ -778,8 +778,8 @@ test('closing while a choice is being saved releases the microphone at once and 
 	};
 	const library = await createTestLibrary({
 		folder: test.folder,
-		workspace: {
-			...test.workspace,
+		services: {
+			...test.services,
 			capture: microphone.device,
 			preferences: held.preferences,
 		},
@@ -822,12 +822,12 @@ test('closing while a choice is being saved releases the microphone at once and 
 });
 
 test('fixture mode has no input: nothing is listed, tested, enabled, or chosen', async () => {
-	const test = await openTestWorkspace();
+	const test = await openTestServices();
 	const device = devicePreferences(USB);
 	const library = await createTestLibrary({
 		folder: test.folder,
-		workspace: {
-			...test.workspace,
+		services: {
+			...test.services,
 			preferences: device.preferences,
 		},
 	});

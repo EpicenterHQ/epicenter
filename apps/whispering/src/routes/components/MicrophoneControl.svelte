@@ -116,7 +116,7 @@
 		{#if !library.input.available}
 			<p class="font-medium">No real input</p>
 			<p class="text-xs text-muted-foreground" data-testid="microphone-fixture">
-				Recordings use {library.workspace.capture.label}. No microphone is listed, asked for, or opened.
+				Recordings use {library.services.capture.label}. No microphone is listed, asked for, or opened.
 			</p>
 		{:else}
 			<div class="flex items-center gap-2">

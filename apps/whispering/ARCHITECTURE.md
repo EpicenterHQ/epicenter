@@ -108,12 +108,12 @@ What Whispering adds on top:
   or `connections/whispering-text.md`, holding the kind `openai-compatible`,
   the title "Whispering transcription" or "Whispering text", and the model.
   The base URL and key are not in the row: they are in this computer's
-  keychain under the row's id (`src/lib/workspace/desktop-connections.ts`).
+  keychain under the row's id (`src/lib/platform/desktop-connections.ts`).
   In a browser tab they are `whispering.connections` in `localStorage`.
   `src/lib/connections.ts` holds the rules both storages apply.
 - The chosen microphone is not folder data either: it names hardware on one
   device. It is `whispering.microphone` in the origin's `localStorage`
-  (`src/lib/workspace/microphone-preference.ts`). Epicenter serves
+  (`src/lib/platform/microphone-preference.ts`). Epicenter serves
   every app from one fixed loopback origin, so it lasts between launches.
 
 Every file action, including settings saves, file creation, rename, and
@@ -121,15 +121,26 @@ deletion, is tracked work, and product teardown waits for it. A request to
 an endpoint is not waited for: its result row is in the folder before it goes
 out (ADR-0542), and an answer that has not arrived when the app quits is lost.
 
-## The storage boundary
+## Folder and platform capabilities
 
-`src/lib/workspace/types.ts` is the one seam. The build picks its
-implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
-`desktop.ts` in the build Epicenter serves (`EPICENTER_HOST=1`, the
-`epicenter-host` condition) and to `browser.ts` otherwise, and
-`FolderApp` calls `openWhisperingFolder` when the app layout mounts.
-`createWorkspace(folder)` constructs the platform capabilities without I/O;
-the workspace holds no folder or closing lifetime:
+The layout supplies FolderApp an inline opener:
+
+```svelte
+<FolderApp open={() => openFolder({ tables: whisperingTables })}>
+	{#snippet children(context)}
+		<WhisperingApp {context}>{@render props.children?.()}</WhisperingApp>
+	{/snippet}
+</FolderApp>
+```
+
+WhisperingApp installs the exact context and constructs its product state with
+`createWhispering(context)`. That constructor assembles the app's capture,
+inference, connections, and preferences through `#platform/services`. The
+layout and route pages do not construct or receive a separate workspace.
+
+The build selects `src/lib/platform/desktop.ts` in the Epicenter host
+and `browser.ts` otherwise (ADR-0391). `platform/types.ts` describes
+those app capabilities. They neither open nor close storage:
 
 | | Desktop, in Epicenter (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
@@ -164,10 +175,10 @@ desktop adapter or Epicenter's generated bindings, and the host build no
 browser storage or isomorphic-git. `src/lib/platform-selection.test.ts`
 bundles both builds and reads what each pulls in.
 `src/lib/page-boundary.test.ts` fails if anything else under `src/` opens a
-folder, imports a workspace other than through `#platform/workspace`, imports
+folder, imports a platform adapter other than through `#platform/services`, imports
 a Node or Bun module, imports a Tauri module other than the `Channel` the
 desktop connections stream on, imports the bindings outside the desktop
-workspace, or imports the Yjs store, sync, or an account module.
+adapter, or imports the Yjs store, sync, or an account module.
 
 ## Bundled in Epicenter
 
@@ -188,7 +199,7 @@ the rule.
 
 ## Connections through Epicenter
 
-Whispering's window opens no folder but its own and reaches no other. `src/lib/workspace/desktop-connections.ts` reads and changes the two
+Whispering's window opens no folder but its own and reaches no other. `src/lib/platform/desktop-connections.ts` reads and changes the two
 rows of `so.epicenter`'s `connections` table, which sync with that folder,
 through two Epicenter commands that name an operation, `transcription` or
 `text`, never a row or a path: `whispering_connection_read` and
@@ -214,7 +225,7 @@ not set up on this one until a person saves its endpoint, and key if it has
 one, here.
 
 `transcribe` and `transform` take what to send, the model, and the base URL
-the page prepared the request for (`expectedBaseUrl`). The workspace reads
+the page prepared the request for (`expectedBaseUrl`). The platform adapter reads
 the operation's row and keychain entry once, at entry; if either is missing,
 or the base URL is not exactly `expectedBaseUrl`, it answers
 `ConnectionUnavailable` or `ConnectionChanged` and sends nothing. Otherwise
@@ -241,7 +252,7 @@ again is the person's choice and is one more request.
 
 ## Local transcription
 
-`src/lib/workspace/local-transcription.ts` transcribes a recording with
+`src/lib/platform/local-transcription.ts` transcribes a recording with
 Epicenter's one active local model (ADR-0180). It asks
 `list_inference_models` which installed model is active, reads the audio
 through the folder engine, and hands the bytes to `transcribe_audio_bytes`
@@ -263,8 +274,8 @@ routes/+layout.svelte      mounts one shared FolderApp
 ```
 
 `FolderApp` owns opening, the folder context, and closing. `WhisperingApp`
-receives that context and the platform workspace, constructs product state
-with `createWhispering(context, workspace)`, and provides `getWhispering()`
+receives only that context, constructs product state
+with `createWhispering(context)`, and provides `getWhispering()`
 and `getFolder()` to descendants. Pages build no library and open no folder.
 There is no module-level mutable state.
 
@@ -277,7 +288,7 @@ read to check the merged rules. A refusal becomes `exclusionNotice`, shown by
 the shell while Files and other work remain available. Reload checks a repair.
 No Git or provider request is made.
 
-Then `library.start()` calls `workspace.recoverRecordings()` before reading
+Then `library.start()` calls `services.recoverRecordings()` before reading
 the folder and device settings. A thrown startup error stops the library and
 shows its original message under "Whispering could not start". The folder
 remains owned by FolderApp until unmount.
@@ -316,16 +327,15 @@ recording, never cancels it. Nothing in a row says whether a recording is
 running: the library's live capture says that, and a running recording is
 refused transcription.
 
-There are two capture devices, and a workspace has exactly one, chosen when it
-opens; neither falls back to the other.
+There are two capture devices, and each mounted product has exactly one, chosen at construction; neither falls back to the other.
 
 - The microphone device (`src/lib/microphone.ts`) records with the recorder
-  each workspace supplies, over that workspace's inputs: the desktop
-  workspace imports `@epicenter/recorder/tauri` and the browser workspace
+  each platform adapter supplies, over that adapter's inputs: the desktop
+  adapter imports `@epicenter/recorder/tauri` and the browser adapter
   `@epicenter/recorder/browser`; shared code names only the bare contract.
-  The library calls the desktop workspace's `recoverRecordings()` before reads, and
+  The library calls the desktop adapter's `recoverRecordings()` before reads, and
   shows a failure as its capture notice. Inside the
-  desktop app (`src/lib/workspace/desktop-microphone.ts`) Rust owns the
+  desktop app (`src/lib/platform/desktop-microphone.ts`) Rust owns the
   microphone (ADR-0571): the shell's `tauri-plugin-epicenter-recorder` lists
   the inputs, reads a level, and writes `<path>.wav` into the granted folder
   as it captures, finalizing it on stop and on a page reload or a closed
@@ -387,7 +397,7 @@ had accepted, and stops listening for `devicechange` (a browser announces
 connected inputs; the shell does not, so there the person lists again).
 
 Nothing here runs at launch. The app reads the saved choice through
-`workspace.preferences` and opens nothing; the first listing is when the
+`services.preferences` and opens nothing; the first listing is when the
 person opens the control.
 
 The choice's identity is its device ID and nothing else. A name does not
@@ -406,7 +416,7 @@ origin.
 `src/lib/transformation.ts` is the request: `POST <base>/chat/completions` with
 the model, the prompt as the system message, and the input as the user
 message, reading `choices[0].message.content`. It is plain `fetch` with
-`redirect: 'error'` and `credentials: 'omit'`, shared by both workspaces like
+`redirect: 'error'` and `credentials: 'omit'`, shared by both platform adapters like
 the transcription request (in Epicenter, its `fetch` goes through
 the `epicenter` CLI), and it refuses a base URL
 that is not plain HTTP(S) before sending. `transformOverConnection` is the one
@@ -605,7 +615,7 @@ tone instead of the microphone (`src/lib/capture.ts`); a production build and
 Epicenter never do.
 
 No build offers failure injection. Tests fail a save by wrapping a table
-in `src/lib/workspace.test-support.ts`: `withObstructedCreates` puts a real
+in `src/lib/services.test-support.ts`: `withObstructedCreates` puts a real
 obstacle where a new row's file goes, so the folder itself fails the save,
 and `withResultFailures` refuses a result save before it reaches the folder.
 Tests open a directory with the folder package's Bun and Tauri openers by
@@ -616,7 +626,7 @@ their modules until public entries export them.
 | Path | Role |
 | --- | --- |
 | `src/lib/definition.ts` | The tables, each row's schema, and row paths. |
-| `src/lib/workspace/` | The storage seam, its two implementations, Epicenter's connections, local transcription, and microphone, and the microphone preference. |
+| `src/lib/platform/` | Browser and native capture, requests, connections, and device preferences. |
 | `src/lib/whispering.svelte.ts` | Product state for the mounted root: what the shell shows, post-processing, pasted text, settings, startup, and teardown. |
 | `src/lib/folder.ts` | Whispering's typed folder context, provided by WhisperingApp. |
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
@@ -633,4 +643,4 @@ their modules until public entries export them.
 | `src/routes/` | The layout that mounts FolderApp, the product root, and the three pages. |
 | `src/routes/components/` | The shell, navigation, header, recorder, recording and transformation lists and details, file browser and view. |
 | `src/lib/assets/` | The microphone mark from the earlier Whispering. |
-| `src/lib/tauri/bindings.gen.ts` | Epicenter's typed commands, generated by its Rust tests. Only the desktop workspace imports it. |
+| `src/lib/tauri/bindings.gen.ts` | Epicenter's typed commands, generated by its Rust tests. Only the desktop adapter imports it. |
