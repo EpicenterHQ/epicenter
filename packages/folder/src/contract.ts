@@ -17,7 +17,6 @@ export type {
 	Folder,
 	FolderChange,
 	FolderFiles,
-	FolderOptions,
 	FolderStatus,
 	FolderTable,
 	FolderTables,

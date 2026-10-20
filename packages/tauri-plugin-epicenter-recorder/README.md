@@ -4,7 +4,7 @@ The desktop shell's microphone. It lists the inputs, reads one's level, and
 records: a page in the shell opens no microphone of its own
 ([ADR-0571](../../docs/adr/0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md)).
 A recording is a WAV in the folder
-the recording window was granted, written from the first sample
+the shell bound to the recording window, written from the first sample
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
 `start` creates `<path>.wav` and appends 16 kHz mono PCM16 as the microphone
 captures, `stop` finalizes its header, and `cancel` deletes it. A quit, a
@@ -31,7 +31,7 @@ A page reaches it through `@epicenter/recorder/tauri`.
 
 ## Installing it in a shell
 
-Install it beside `tauri-plugin-epicenter-folder`, which grants the folder:
+Install it beside `tauri-plugin-epicenter-folder`, which binds each window's folder:
 
 ```rust
 tauri::Builder::default()
@@ -58,22 +58,23 @@ the channel the page passes to `start`.
 
 A page names a microphone by the id `inputs` answers, cpal's `DeviceId` as
 text (`coreaudio:<device UID>` on macOS), which stays the same across
-launches and reconnections. To record, it names a folder scope and a
-folder-relative path, never a root.
+launches and reconnections. To record, it names a folder-relative path,
+never a root or a folder: the folder is the one the shell bound to the
+calling window, read once when the command arrives.
 
 | Command | What it does |
 | --- | --- |
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(scope, path, device, signals)` | Records into `<path>.wav` in the folder this window was granted for `scope`, from the microphone with id `device` or the system default. Answers the recording's `id`, its path, and the microphone's name. |
+| `start(path, device, signals)` | Records into `<path>.wav` in the folder bound to this window, from the microphone with id `device` or the system default. Answers the recording's `id`, its path, and the microphone's name. |
 | `stop(id)` | Finalizes the WAV and answers its path and length. Only the window that started it may stop it. |
 | `cancel(id)` | Deletes the WAV. Only the window that started it may cancel it. |
-| `recover(scope, under)` | Rewrites the header of every `.wav` under `under` whose sizes disagree with its length, leaving the recording still being written alone. Answers the paths it rewrote; a second run rewrites none. |
+| `recover(under)` | Rewrites the header of every `.wav` under `under` whose sizes disagree with its length, leaving the recording still being written alone. Answers the paths it rewrote; a second run rewrites none. |
 
 `start` refuses before it opens anything:
 
-- `Refused`: the window was not granted `scope`, the path is not a data path
+- `Refused`: the shell bound no folder to the window, the path is not a data path
   the shared path rule accepts (`page_files::data_path` in the folder
   plugin's core, no link on the way), or a file is already at `<path>.wav`.
 - `PermissionDenied`: macOS does not allow Epicenter the microphone.

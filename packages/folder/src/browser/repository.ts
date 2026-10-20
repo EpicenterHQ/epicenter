@@ -251,7 +251,7 @@ export async function openRepository<
 			},
 			set(
 				id: string,
-				from: Row<TSchema> | null,
+				from: Pick<Row, 'text' | 'issues'> | null,
 				change: RowChange,
 			): Promise<Result<{ sent: Row<TSchema> }, SaveError>> {
 				return save(async () => {
@@ -281,7 +281,7 @@ export async function openRepository<
 			},
 			delete(
 				id: string,
-				from: Row<TSchema> | null,
+				from: Pick<Row, 'text' | 'issues'> | null,
 			): Promise<Result<{ deleted: boolean }, SaveError>> {
 				if (!validId(name, id) && (from === null || !readableId(name, id)))
 					return Promise.resolve(SaveError.InvalidId({ id }));

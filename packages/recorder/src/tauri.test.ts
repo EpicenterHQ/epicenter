@@ -2,8 +2,8 @@
  * The desktop recorder against a stand-in for the shell's commands.
  *
  * Key behaviors:
- * - `start` names the folder's scope, the path, and the chosen microphone by
- *   the ID the shell listed it under, and passes the channel levels and
+ * - `start` names the path and the chosen microphone by the ID the shell
+ *   listed it under, and no folder, and passes the channel levels and
  *   endings arrive on
  * - `listInputs` answers the shell's inputs; `openMeter` opens one by ID,
  *   hears its levels, and closes it, and a meter withdrawn while opening is
@@ -12,7 +12,7 @@
  *   the channel
  * - The shell's refusals arrive as this package's errors, by name
  * - A start withdrawn while the shell opened the microphone is cancelled
- * - `recover` names the scope and the directory
+ * - `recover` names the directory, and no folder
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -40,7 +40,6 @@ const { listInputs, openMeter, startRecording, recoverRecordings } =
 	await import('./tauri.js');
 
 const folder: RecordingFolder = {
-	id: 'so.epicenter.whispering',
 	write: () => {
 		throw new Error('the desktop recorder never writes through the page');
 	},
@@ -62,7 +61,7 @@ beforeEach(() => {
 				: null;
 });
 
-test('a recording starts in the granted folder and stops by the id the shell minted', async () => {
+test('a recording starts in the window folder and stops by the id the shell minted', async () => {
 	const recording = expectOk(
 		await startRecording({
 			folder,
@@ -75,10 +74,10 @@ test('a recording starts in the granted folder and stops by the id the shell min
 	const [start] = calls;
 	expect(start?.cmd).toBe('plugin:epicenter-recorder|start');
 	expect(start?.args).toMatchObject({
-		scope: 'so.epicenter.whispering',
 		path: 'recordings/a',
 		device: 'coreaudio:desk-uid',
 	});
+	expect(start?.args).not.toHaveProperty('scope');
 
 	const channel = start?.args.signals as FakeChannel<unknown>;
 	const levels: number[] = [];
@@ -174,15 +173,15 @@ test('a start withdrawn while the shell opened the microphone is cancelled', asy
 	]);
 });
 
-test('recover names the scope and the directory, and answers what it repaired', async () => {
+test('recover names the directory and no folder, and answers what it repaired', async () => {
 	answer = () => ['recordings/a.wav'];
-	expect(
-		expectOk(await recoverRecordings({ folder, under: 'recordings' })),
-	).toEqual(['recordings/a.wav']);
+	expect(expectOk(await recoverRecordings({ under: 'recordings' }))).toEqual([
+		'recordings/a.wav',
+	]);
 	expect(calls).toEqual([
 		{
 			cmd: 'plugin:epicenter-recorder|recover',
-			args: { scope: 'so.epicenter.whispering', under: 'recordings' },
+			args: { under: 'recordings' },
 		},
 	]);
 });
@@ -192,7 +191,7 @@ test('a reply that is none of the shell’s refusals is a failure, not an answer
 		throw 'no such command plugin:epicenter-recorder|recover';
 	};
 	expect(
-		expectErr(await recoverRecordings({ folder, under: 'recordings' })),
+		expectErr(await recoverRecordings({ under: 'recordings' })),
 	).toMatchObject({
 		name: 'Failed',
 		cause: 'no such command plugin:epicenter-recorder|recover',

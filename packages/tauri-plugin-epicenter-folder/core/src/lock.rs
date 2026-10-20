@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode};
 
-/// How long a save waits for another process's save to the same folder
+/// How long a save waits for another writer's save to the same folder
 /// before it gives up. A holder keeps the lock only across one check, which
 /// hashes the file, and one rename. The Bun host waits as long.
 pub const SAVE_LOCK_WAIT: Duration = Duration::from_secs(10);
@@ -107,7 +107,7 @@ pub struct SaveLock {
 
 impl SaveLock {
     /// Take the save lock for a canonical root, waiting up to `wait` for a
-    /// save in another process to finish. A save that still finds it held
+    /// save from any participating writer to finish. A save that still finds it held
     /// changes nothing and says so.
     pub fn acquire(root: &Path, wait: Duration) -> Result<Self, String> {
         let path = verify(root, save_lock_path(root)?, "saved to", "save again")?;
@@ -116,7 +116,7 @@ impl SaveLock {
                 connection: Some(connection),
             }),
             Err(cause) if is_busy(&cause) => Err(format!(
-                "Nothing was saved to the folder at {}: another program held its save lock ({}) for more than {} seconds. Save again; if it keeps happening, quit the other program.",
+                "Nothing was saved to the folder at {}: another writer held its save lock ({}) for more than {} seconds. Try saving again when the other save finishes.",
                 root.display(),
                 path.display(),
                 wait.as_secs_f64()
@@ -168,7 +168,10 @@ mod tests {
         assert!(waited >= Duration::from_millis(50), "{waited:?}");
         assert!(waited < SAVE_LOCK_WAIT, "{waited:?}");
         // The transaction wrote nothing, so SQLite left no journal beside it.
-        assert!(!temp.path().join(".notes.epicenter-save-lock-journal").exists());
+        assert!(!temp
+            .path()
+            .join(".notes.epicenter-save-lock-journal")
+            .exists());
     }
 
     #[cfg(unix)]

@@ -6,13 +6,13 @@ in a browser tab it keeps its folder in browser storage. Exactly one thing
 opens the data folder: the page's own folder engine.
 
 ```text
-src/                        the page      the UI; opens the folder it is granted
+src/                        the page      the UI; opens the folder bound to its window
 ```
 
 ```text
 ┌───────────── Epicenter's shell (Rust) ─────────────┐
-│ grants the assigned folder to Whispering's window │
-│ window; tauri-plugin-epicenter-folder makes        │
+│ binds one folder to each Whispering window before  │
+│ it exists; tauri-plugin-epicenter-folder makes     │
 │ checked reads and changes under its save lock      │
 │ tauri-plugin-epicenter-recorder: audio into folder │
 │ local transcription with the one active model      │
@@ -29,13 +29,14 @@ src/                        the page      the UI; opens the folder it is granted
 └────────────────────────────────────────────────────┘
 ```
 
-The page opens the folder with `@epicenter/folder/tauri` and names only the
-ID Epicenter registered its directory under. The shared Rust plugin
-(`tauri-plugin-epicenter-folder`), in Epicenter's process, grants
-Whispering's window the directory. The page's own folder engine, the native
+The page opens the folder with `@epicenter/folder/tauri` and names no folder:
+Epicenter binds one directory to each Whispering window before the window
+exists, and the shared Rust plugin (`tauri-plugin-epicenter-folder`), in
+Epicenter's process, answers every command in the calling window's
+directory. The page's own folder engine, the native
 `Folder`, then makes every read (`read_folder_file` and the rest) and every
 change (`put_folder_file`) through the folder plugin, one command per storage
-method. It reads only inside the granted directory and never through a link;
+method. It reads only inside the window's directory and never through a link;
 the plugin checks each change against the shared path rule, keeps it out of
 Git's private state, and lands it only while the path still holds the bytes
 the save read. This app has no folder code of its own on the desktop: no copy
@@ -45,9 +46,12 @@ Every other native service is Epicenter's, granted to Whispering's windows
 (`whispering.json` in `apps/epicenter/src-tauri/capabilities`):
 the recorder, local transcription with Epicenter's active model, and the AI
 commands. The two connections are rows of Epicenter's own folder
-`so.epicenter`, whose endpoints and keys stay in this computer's keychain; a
-request goes through the `epicenter` CLI, which adds the key. Nothing native opens the folder for the page, takes its lock for it, or
-saves a file the folder tracks.
+`so.epicenter`, which Epicenter reads and saves for the page by operation;
+their endpoints and keys stay in this computer's keychain, and a request goes
+through the `epicenter` CLI, which adds the key. The page runs the Folder
+engine over its recording directory. The native folder plugin performs its
+rooted file operations; the connection commands separately read and save the
+two rows in Epicenter's own directory through the CLI.
 
 The two fail apart. If the `epicenter` command fails while Whispering is
 open, the folder is still open and still saves; what stops is a request that
@@ -128,21 +132,21 @@ implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
 
 | | Desktop, in Epicenter (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
-| Folder | The directory Epicenter assigned to this window, opened by its scope with Whispering's tables (`openFolder({ directory, tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); earlier OPFS folders are not read or changed |
+| Folder | The directory Epicenter bound to this window, opened with Whispering's tables (`openFolder({ tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); earlier OPFS folders are not read or changed |
 | Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
 | Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
-| Connections and keys | Rows of `so.epicenter`'s `connections` table; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
+| Connections and keys | Rows of `so.epicenter`'s `connections` table, read and saved by Epicenter by operation; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
 | Local transcription | Epicenter's active local model (`local-transcription.ts`) | None |
 | Chosen microphone | `localStorage` | `localStorage` |
 
-The desktop workspace asks the shell which folder this window was handed
-(`window_folder`) and opens its scope with Whispering's tables. Moving between
-Whispering's routes or reloading keeps that folder. It writes nothing on
-opening: no declaration, no ignore file, no repository. Recordings are written
-under the ID opened (`Workspace.folderId`). The shell's refusal (an unknown
-scope, a window the scope does not list, a missing permission) is
-`DesktopFolder`, with the shell's own reason, as is a granted folder the
-engine cannot open.
+The desktop workspace opens the folder Epicenter bound to this window with
+Whispering's tables; it names no folder. Moving between Whispering's routes
+or reloading keeps that folder, since the binding is the window's. It writes
+nothing on opening: no declaration, no ignore file, no repository. The
+recorder writes into the same folder, which no call names. The shell's
+refusal (a window with no folder, a folder that is gone, a missing
+permission) is `DesktopFolder`, with the shell's own reason, as is a folder
+the engine cannot open.
 
 Everything above the seam (`library.svelte.ts`, its query cache, the components)
 is the same code for both. Opening returns a `Result`, and a refusal is shown
@@ -174,22 +178,29 @@ so the build runs wherever Epicenter serves it, at
 `epicenter-app://localhost/whispering/`. Links go through `resolve` from
 `$app/paths`.
 
-Epicenter opens the app's window with a `whispering:<folder name in hex>`
-label. The `whispering.json` capability selects those labels and
+Epicenter opens the app's window with a `whispering:<digest of the folder's
+directory>` label, one window per folder. The `whispering.json` capability selects those labels and
 grants the folder plugin, the recorder, local transcription and its
-readiness, opening Settings, and the AI commands. Epicenter's README states
+readiness, opening Settings, the AI commands, and the two connection-row
+commands. Epicenter's README states
 the rule.
 
 ## Connections through Epicenter
 
-Opening Whispering's window permits it into Epicenter's own folder,
-`so.epicenter`. `src/lib/workspace/desktop-connections.ts` reads and changes
-the two rows of its `connections` table, which sync with that folder, over
-the folder `src/lib/workspace/desktop.ts` opens by ID with that one table
-(`connectionsTables`, the schema of `connectionsTable` from
-`@epicenter/ai/connection-table`). Opening writes nothing there. A row that
-does not read is reported, never taken for none, and a save keeps the row's
-title and every field another program added. The endpoint and key are
+Whispering's window opens no folder but its own and reaches no other. `src/lib/workspace/desktop-connections.ts` reads and changes the two
+rows of `so.epicenter`'s `connections` table, which sync with that folder,
+through two Epicenter commands that name an operation, `transcription` or
+`text`, never a row or a path: `whispering_connection_read` and
+`whispering_connection_set`. Each runs `epicenter whispering-connection
+read|set` (`packages/cli/src/connection-rows.ts`), which opens `so.epicenter`
+under the Epicenter folder with `connectionsTables` from
+`@epicenter/ai/connection-table`, reads or saves the one row, and closes it.
+Reading writes nothing there. A row that does not read is reported, never
+taken for none. A save sends the row's exact source as the page read it as
+its base and assigns only `kind`, `title` for a new row, and `model`, so it
+keeps the row's title, every field another program added, and an edit
+Settings saved meanwhile. A save whose reply never arrived is reported as not
+confirmed, never as saved. The endpoint and key are
 in this computer's keychain under the row's id, and only the `epicenter` CLI
 reads or writes them (`epicenter auth key set|remove|state`), through the
 Rust commands `ai_key_set`, `ai_key_remove`, and `ai_key_state`. The page

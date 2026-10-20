@@ -91,13 +91,10 @@ export const commands = {
 /**  Local transcription model administration. */
 "transcription" | null>("take_pending_home_section"),
 	/**
-	 *  List the data folders under the Epicenter folder root, and let the Folders
-	 *  window open each one.
+	 *  List the data folders under the Epicenter folder root.
 	 * 
-	 *  Granted to the `folders` window alone. Every scope it returns is one that
-	 *  window is registered or permitted for, so `openFolder({ directory: id,
-	 *  tables: {} })` there
-	 *  can be granted it. Off the main thread, since it reads the disk.
+	 *  Granted to the `folders` window alone. Off the main thread, since it
+	 *  reads the disk.
 	 */
 	listDataFolders: () => typedError<DataFolder[], string>(__TAURI_INVOKE("list_data_folders")),
 	/**
@@ -105,18 +102,13 @@ export const commands = {
 	 *  accepted or dismissed, oldest first. Reads none of them.
 	 */
 	pendingFolderOpenings: () => __TAURI_INVOKE<string[]>("pending_folder_openings"),
-	/**
-	 *  Open the directory `path` an app asked for, now that the person accepted:
-	 *  only then is it checked, granted to the Folders window, and remembered.
-	 *  Granted to the Folders window alone. Off the main thread, since it reads
-	 *  the disk.
-	 */
+	/**  Accept a pending request and open its own editor, then remember the path. */
 	acceptFolderOpening: (path: string) => typedError<AcceptedOpening, string>(__TAURI_INVOKE("accept_folder_opening", { path })),
 	/**  Let go of an app's request to open `path` without reading it. */
 	dismissFolderOpening: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_opening", { path }),
 	/**
 	 *  The folders `folders.json` remembers and those accepted this run, each
-	 *  with the scope it opens by while it is there. Off the main thread, since
+	 *  with its availability problem, if any. Off the main thread, since
 	 *  it reads the disk.
 	 */
 	listRememberedFolders: () => __TAURI_INVOKE<RememberedFolders>("list_remembered_folders"),
@@ -125,6 +117,14 @@ export const commands = {
 	 *  there. Deletes no files. A folder open now stays open.
 	 */
 	forgetRememberedFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("forget_remembered_folder", { path })),
+	/**
+	 *  Open the listed folder `name` in its own editor window, or reveal the one
+	 *  already open on it. The page passes the name the listing gave it, never a
+	 *  path; the shell finds the directory again and binds it to the window.
+	 */
+	openFolderEditor: (name: string) => typedError<null, string>(__TAURI_INVOKE("open_folder_editor", { name })),
+	/**  Open a currently remembered or this-run accepted path in its own editor. */
+	openRememberedFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_remembered_folder", { path })),
 	/**
 	 *  Send one request over an AI connection with the key saved on this
 	 *  computer, through `epicenter send` (ADR-0557). Each line of its NDJSON
@@ -167,11 +167,39 @@ export const commands = {
 	 */
 	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
 	/**
-	 *  Open bundled app `app` on its fixed default folder, or with `folder`, on a
-	 *  folder the Folders window listed under that scope. A window already open
-	 *  on the folder is revealed.
+	 *  Read one of Whispering's connection rows in `so.epicenter`, through
+	 *  `epicenter whispering-connection read`; `null` when there is none.
+	 *  Reading creates nothing.
+	 */
+	whisperingConnectionRead: (connection: WhisperingConnection) => typedError<{
+	text: string,
+	issues: ConnectionRowIssue_Serialize[] | null,
+	/**  `null` when the row does not read; any other field stays in `text`. */
+	fields: ConnectionRowFields | null,
+} | null, CliError>(__TAURI_INVOKE("whispering_connection_read", { connection })),
+	/**
+	 *  Save `fields` to one of Whispering's connection rows, merged from `base`,
+	 *  the row as the page read it, or `null` for a new row, through
+	 *  `epicenter whispering-connection set`, which reads both on stdin. Answers
+	 *  the row as sent. A refusal changed nothing; a run that failed may or may
+	 *  not have saved.
+	 */
+	whisperingConnectionSet: (connection: WhisperingConnection, base: {
+	text: string,
+	issues: ConnectionRowIssue_Deserialize[] | null,
+} | null, fields: ConnectionRowAssignment_Deserialize) => typedError<ConnectionRow_Serialize, CliError>(__TAURI_INVOKE("whispering_connection_set", { connection, base, fields })),
+	/**
+	 *  Open bundled app `app` on its fixed default folder, or with `folder`, on
+	 *  the folder the Folders window listed under that directory name. A window
+	 *  already open on the folder is revealed.
 	 */
 	openBundledApp: (app: BundledApp, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_bundled_app", { app, folder })),
+	/**
+	 *  Ask the person for a folder with the native picker and open bundled app
+	 *  `app` on it, or reveal the window already open on it. Answers whether a
+	 *  folder was chosen. The page passes no path: the picker answers Rust.
+	 */
+	chooseFolderForApp: (app: BundledApp) => typedError<boolean, string>(__TAURI_INVOKE("choose_folder_for_app", { app })),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("get_unload_policy"),
 	/**
@@ -221,13 +249,8 @@ export const events = {
 };
 
 /* Types */
-/**
- *  An accepted opening: the scope the Folders window opens it by, and why
- *  Epicenter could not remember it, when it could not.
- */
+/**  A successful native opening, with a separate persistence failure if any. */
 export type AcceptedOpening = {
-	/**  The scope to pass as `directory` to `openFolder`. */
-	id: string,
 	/**  Why `folders.json` was not updated; the folder is open regardless. */
 	rememberProblem: string | null,
 };
@@ -321,6 +344,12 @@ export type AppliedHints = {
 	initialPrompt: boolean,
 };
 
+/**
+ *  The only kind a Whispering save assigns; an `epicenter` or `local` row
+ *  is Settings' to make.
+ */
+export type AssignedConnectionKind = "openai-compatible";
+
 /**  Who approved a grant, as the server's userinfo answered at sign-in. */
 export type AuthAccount = {
 	id: string,
@@ -390,10 +419,111 @@ export type CliExit = {
 	stderr: string,
 };
 
-/**  One data folder the Folders window can open. */
+/**  What a connection row's `kind` names. */
+export type ConnectionKind = "openai-compatible" | "epicenter" | "local";
+
+/**
+ *  One of Whispering's connection rows as the CLI read or sent it. `text`
+ *  is the file's exact source; with `issues`, it is the next save's base.
+ */
+export type ConnectionRow = ConnectionRow_Serialize | ConnectionRow_Deserialize;
+
+/**
+ *  The fields a Whispering save assigns. One left out keeps its value, and
+ *  every field another program added survives.
+ */
+export type ConnectionRowAssignment = ConnectionRowAssignment_Serialize | ConnectionRowAssignment_Deserialize;
+
+/**
+ *  The fields a Whispering save assigns. One left out keeps its value, and
+ *  every field another program added survives.
+ */
+export type ConnectionRowAssignment_Deserialize = {
+	kind?: AssignedConnectionKind | null,
+	title?: string | null,
+	model?: string | null,
+};
+
+/**
+ *  The fields a Whispering save assigns. One left out keeps its value, and
+ *  every field another program added survives.
+ */
+export type ConnectionRowAssignment_Serialize = {
+	kind?: AssignedConnectionKind,
+	title?: string,
+	model?: string,
+};
+
+/**  The row a save starts from, as the page read it. */
+export type ConnectionRowBase = ConnectionRowBase_Serialize | ConnectionRowBase_Deserialize;
+
+/**  The row a save starts from, as the page read it. */
+export type ConnectionRowBase_Deserialize = {
+	text: string,
+	issues: ConnectionRowIssue_Deserialize[] | null,
+};
+
+/**  The row a save starts from, as the page read it. */
+export type ConnectionRowBase_Serialize = {
+	text: string,
+	issues: ConnectionRowIssue_Serialize[] | null,
+};
+
+/**  A connection row's three schema fields, when it reads as one. */
+export type ConnectionRowFields = {
+	kind: ConnectionKind,
+	title: string,
+	model: string,
+};
+
+export type ConnectionRowIssue = ConnectionRowIssue_Serialize | ConnectionRowIssue_Deserialize;
+
+/**  Why a row does not read as a connection, as `@epicenter/folder` reports it. */
+export type ConnectionRowIssueKind = "not-text" | "frontmatter" | "schema";
+
+export type ConnectionRowIssue_Deserialize = {
+	kind: ConnectionRowIssueKind,
+	message: string,
+	path: IssuePathStep[],
+	line?: number | null,
+};
+
+export type ConnectionRowIssue_Serialize = {
+	kind: ConnectionRowIssueKind,
+	message: string,
+	path: IssuePathStep[],
+	line?: number,
+};
+
+/**
+ *  One of Whispering's connection rows as the CLI read or sent it. `text`
+ *  is the file's exact source; with `issues`, it is the next save's base.
+ */
+export type ConnectionRow_Deserialize = {
+	text: string,
+	issues: ConnectionRowIssue_Deserialize[] | null,
+	/**  `null` when the row does not read; any other field stays in `text`. */
+	fields: ConnectionRowFields | null,
+};
+
+/**
+ *  One of Whispering's connection rows as the CLI read or sent it. `text`
+ *  is the file's exact source; with `issues`, it is the next save's base.
+ */
+export type ConnectionRow_Serialize = {
+	text: string,
+	issues: ConnectionRowIssue_Serialize[] | null,
+	/**  `null` when the row does not read; any other field stays in `text`. */
+	fields: ConnectionRowFields | null,
+};
+
+/**  One data folder the Folders window lists. */
 export type DataFolder = {
-	/**  The scope to pass as `directory` to `openFolder`. */
-	id: string,
+	/**
+	 *  The directory's name under the Epicenter folder, which the Folders
+	 *  window passes back to open it. Never a path.
+	 */
+	name: string,
 	/**  `epicenter.json`'s `title` when it is a string, else the directory name. */
 	title: string,
 };
@@ -438,6 +568,9 @@ export type InferenceModel = {
 	installed: boolean,
 	active: boolean,
 };
+
+/**  One step of an issue's path: a field name or an index. */
+export type IssuePathStep = string | number;
 
 /**
  *  Whether the active-model transcription route is ready and which hints it accepts.
@@ -487,8 +620,6 @@ export type ModelInfo = {
 export type RememberedFolder = {
 	/**  The absolute path as stored, which `forget_remembered_folder` matches. */
 	path: string,
-	/**  The scope to pass as `directory` to `openFolder`, while it can open. */
-	id: string | null,
 	/**  Whether `folders.json` holds it; `false` when remembering it failed. */
 	remembered: boolean,
 	/**  Why it cannot open now, such as a folder that is not there. */
@@ -582,6 +713,12 @@ export type UnavailableReason =
  *  timed variants are enforced by the background idle watcher.
  */
 export type UnloadPolicy = "never" | "immediately" | "after_5_minutes" | "after_30_minutes";
+
+/**
+ *  Which of Whispering's two connections: a closed set, which the CLI maps
+ *  to the row `whispering-transcription` or `whispering-text`.
+ */
+export type WhisperingConnection = "transcription" | "text";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {

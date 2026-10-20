@@ -1,6 +1,6 @@
 # Todos
 
-Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md). It opens without an account, a remote, or Git. The browser build uses this origin's IndexedDB folder. The host build (`build:host`) uses the directory its desktop shell grants its window: Epicenter's, or Todos's own window (`src-tauri/`). The native CLI opens an existing directory supplied on its command line. The same table schema interprets `todos/<id>.md` on both hosts.
+Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md). It opens without an account, a remote, or Git. The browser build uses this origin's IndexedDB folder. The host build (`build:host`) uses the directory its desktop shell binds to its window: Epicenter's, or Todos's own shell (`src-tauri/`). The native CLI opens an existing directory supplied on its command line. The same table schema interprets `todos/<id>.md` on both hosts.
 
 The current UI can add, edit, complete, and delete todos. A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name remain in the source when a row is edited. A file that does not read as a todo remains visible with its source for repair.
 Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
@@ -35,19 +35,15 @@ This builds the host page into `apps/todos/dist` (`build:host`) and runs the Tau
 
 To build a local macOS app that you can quit and reopen from Finder, run `bun build:todos:desktop` from the repository root. The result is `apps/todos/src-tauri/target/release/bundle/macos/Todos.app`. This local build is not a signed distribution.
 
-The folder is the whole application data directory, `~/Library/Application Support/so.epicenter.todos` on macOS. Todos rows land at `todos/<id>.md` directly in it; there is no child directory and no marker file. The shell creates the directory at the first open when it is missing. The save lock and scratch directory sit beside it, named `.so.epicenter.todos.epicenter-save-lock` and `.so.epicenter.todos.epicenter-scratch`.
+The standalone window's folder is the whole application data directory, `~/Library/Application Support/so.epicenter.todos` on macOS. Todos rows land at `todos/<id>.md` directly in it; there is no child directory and no marker file. The shell creates the directory at launch when it is missing. The save lock and scratch directory sit beside it, named `.so.epicenter.todos.epicenter-save-lock` and `.so.epicenter.todos.epicenter-scratch`.
 
-The shell registers that directory for the `todos` window in trusted Rust code and hands the window its scope. The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` gives the window the folder plugin's commands and change event, its app identifier, and `open_in_epicenter`.
+Standalone Todos always edits this fixed default. It has one window and no folder picker, recent-folder list, or extra-folder windows. To use Todos on another existing folder, open Todos through Epicenter's launcher and choose the folder there. Both wrappers load the same static host build; its `openFolder({ tables })` call reaches the directory its native shell already bound to the invoking window.
+
+The shell binds the window's directory to it in trusted Rust before the window exists ([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)). The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` selects `todos` and gives that window the folder plugin's commands and its change event, plus reading the app identifier and its own handoff command. The page receives no opener permission.
+
+Standalone Todos also offers **Open in Epicenter**. Rust reads the calling window's bound directory and asks the operating system to open `epicenter://open?path=…`. The page passes no path. Epicenter shows the full path and asks the person to accept before opening a separate file editor. The handoff opens the standalone default in Epicenter; it does not copy or move files. The message confirms only that the computer was asked, since Epicenter may not be installed ([ADR-0646](../../docs/adr/0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md)).
 
 On the tested macOS build, opening and saving left only `.git/` and `todos/` in the Folder root. The shell assigns WebView runtime storage to its cache directory, outside the Folder. Linux and Windows packaged builds have not been run.
-
-### Open in Epicenter
-
-The desktop header offers **Open in Epicenter** (`src/routes/local/open-in-epicenter.ts`, ADR-0646). The page asks the shell's `open_in_epicenter` command, which reads the root the folder plugin granted the window and asks the operating system to open `epicenter://open?path=<that directory, percent-encoded>`. The page passes no path, and the window holds no opener permission. The shell sends whatever directory its grant names, not a path derived from the app's identifier.
-
-When the opener call succeeds, the header says that Todos asked the computer to open Epicenter. The detached system opener cannot confirm that Epicenter received the link, so the person checks its Folders window and chooses **Open** there. If the opener call itself fails, the header shows the reason. The link carries no app ID, schema, or manifest: Epicenter's Folders window shows the files as text and needs only the path.
-
-The action appears only when `getIdentifier()` answers `so.epicenter.todos` or `so.epicenter.todos.dev` (`core:app:allow-identifier` in `capabilities/todos.json`). The browser build has no Tauri shell. Todos bundled in Epicenter runs under Epicenter's identifier, and its windows are not granted the lookup.
 
 ## Native directory example
 
@@ -66,7 +62,7 @@ Earlier Todos builds kept named folders in OPFS. This build opens its IndexedDB 
 
 ## Boundaries and checks
 
-`src/routes/+page.svelte` mounts one `FolderApp` with `todosTables`. The root owns the Folder handle, query cache, drafts, status, and close. `src/routes/local/` contains the UI; it reads the handle through the Svelte context. `scripts/native.ts` uses the same public Folder operations over a directory. Todos has no account, inference, or sync action. Its one native action beyond the Folder is Open in Epicenter, in standalone Todos only.
+`src/routes/+page.svelte` mounts one `FolderApp` with `todosTables`. The root owns the Folder handle, query cache, drafts, status, and close. `src/routes/local/` contains the UI; it reads the handle through the Svelte context. `scripts/native.ts` uses the same public Folder operations over a directory. Todos has no account, inference, or sync action.
 
 From the repository root:
 

@@ -54,7 +54,7 @@ pub enum RecorderError {
     #[error("{message}")]
     NotRecording { message: String },
 
-    /// The window may not record here: the folder was not granted to it, the
+    /// The window may not record here: the shell bound no folder to it, the
     /// path is not a data path the shared path rule accepts, or a file is
     /// already at it. Nothing was opened or written.
     #[error("{message}")]

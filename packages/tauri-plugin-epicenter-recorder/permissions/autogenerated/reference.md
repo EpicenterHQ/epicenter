@@ -1,6 +1,6 @@
 ## Default Permission
 
-List the microphones and read one's level, record from a microphone into a folder this window was granted, stop or cancel that recording, and repair recordings a quit cut off.
+List the microphones and read one's level, record from a microphone into the folder bound to this window, stop or cancel that recording, and repair recordings a quit cut off.
 
 #### This default permission set includes the following:
 

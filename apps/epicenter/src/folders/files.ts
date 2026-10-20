@@ -1,12 +1,12 @@
 /**
- * How the Folders window shows a folder's files and edits one exactly: the
- * tree a listing of paths shows (`fileTree`), the query keys its cache uses,
- * what a file's bytes are to the editor (`fileText`), and the text a save
- * sends (`savedText`).
+ * How a folder editor window shows its folder's files and edits one exactly:
+ * the tree a listing of paths shows (`fileTree`), the query keys its cache
+ * uses, what a file's bytes are to the editor (`fileText`), and the text a
+ * save sends (`savedText`).
  *
- * The window opens every folder with no tables (`tables: {}`): it knows no
- * app's schema, so it edits each file as the text it holds and never
- * interprets a row. A file that is not UTF-8 text, or whose line endings a
+ * The editor opens its window's folder with no tables (`tables: {}`): it
+ * knows no app's schema, so it edits each file as the text it holds and
+ * never interprets a row. A file that is not UTF-8 text, or whose line endings a
  * text box would rewrite, is shown and left as it is.
  */
 
@@ -73,14 +73,15 @@ export function fileTree(paths: readonly string[]): TreeRow[] {
 	return rows;
 }
 
-/** The root of every query over the folder opened as `scope`. */
-export const folderKey = (scope: string) => ['folder', scope] as const;
-/** The query key of the folder's list of files. */
-export const listKey = (scope: string) =>
-	[...folderKey(scope), 'list'] as const;
-/** The query key of one file's bytes. */
-export const fileKey = (scope: string, path: string) =>
-	[...folderKey(scope), 'file', path] as const;
+/**
+ * The query key of the folder's list of files, below `root`, the folder
+ * context's key (`context.queries.key`). Below it, a change the folder
+ * cannot name invalidates every read, and closing cancels them.
+ */
+export const listKey = (root: readonly unknown[]) => [...root, 'list'] as const;
+/** The query key of one file's bytes, below the folder context's key. */
+export const fileKey = (root: readonly unknown[], path: string) =>
+	[...root, 'file', path] as const;
 
 /** What one file is to the editor. */
 export type FileText =

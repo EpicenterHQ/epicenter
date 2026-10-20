@@ -1,7 +1,7 @@
 /**
  * A desktop page's folder storage: each method one command of the folder
- * plugin (ADR-0581), which the shell answers over the directory it granted
- * this window as `scope` (`grant_directory`).
+ * plugin (ADR-0581), which the shell answers over the directory it bound to
+ * the calling window. No call names a root or a folder.
  *
  * The shell checks every path as the Bun directory storage does
  * (`directory-store.ts`): literal names, no link followed, `.git` never
@@ -102,16 +102,12 @@ async function answered<T>(
 	}
 }
 
-/** The folder plugin's storage commands for the folder granted as `scope`. */
-export function tauriHostFiles(scope: string): HostFiles {
+/** The folder plugin's storage commands for this window's folder. */
+export function tauriHostFiles(): HostFiles {
 	return {
-		list: () => answered(() => commands.listFolder(scope), '', 'list'),
+		list: () => answered(() => commands.listFolder(), '', 'list'),
 		children: (directory) =>
-			answered(
-				() => commands.readFolderChildren(scope, directory),
-				directory,
-				'list',
-			),
+			answered(() => commands.readFolderChildren(directory), directory, 'list'),
 		async read(path) {
 			let bytes: Uint8Array;
 			try {
@@ -122,7 +118,6 @@ export function tauriHostFiles(scope: string): HostFiles {
 					await invoke<ArrayBuffer>(
 						'plugin:epicenter-folder|read_folder_file',
 						{
-							scope,
 							path,
 						},
 					),
@@ -135,7 +130,6 @@ export function tauriHostFiles(scope: string): HostFiles {
 		},
 		async change(path, bytes, ifMatch) {
 			const headers: Record<string, string> = {
-				scope: encodeURIComponent(scope),
 				path: encodeURIComponent(path),
 				remove: String(bytes === null),
 			};
@@ -162,14 +156,14 @@ export function tauriHostFiles(scope: string): HostFiles {
 		},
 		mkdir: (path) =>
 			answered(
-				() => commands.makeFolderDirectory(scope, path),
+				() => commands.makeFolderDirectory(path),
 				path,
 				'create directory',
 				true,
 			).then((made) => (made.error === null ? Ok(undefined) : made)),
 		rmdir: (path) =>
 			answered(
-				() => commands.removeFolderDirectory(scope, path),
+				() => commands.removeFolderDirectory(path),
 				path,
 				'remove directory',
 				true,

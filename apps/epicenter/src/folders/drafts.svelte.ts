@@ -1,8 +1,8 @@
 /**
- * What a person typed into the files of the open folder and has not saved,
- * held by the window for as long as the folder is open, not by the editor
- * that shows a file. Choosing another file keeps the typing; choosing it
- * again shows it, with why its save failed.
+ * What a person typed into the files of the window's folder and has not
+ * saved, held by the window for as long as the folder is open, not by the
+ * editor that shows a file. Choosing another file keeps the typing; choosing
+ * it again shows it, with why its save failed.
  *
  * - **Drafts.** One draft per file holds the text typed since the file last
  *   saved, and the content it started from. A reread never replaces it. It
@@ -15,12 +15,14 @@
  * - **A failed save** keeps the draft and its error. `save()` tries again;
  *   so does further typing, after its pause. `discard()` lets it go, and
  *   only when the person asks.
- * - **Leaving** the folder refuses input, sends every draft, and waits for
- *   every save started. When all saved, input stays refused and the folder
- *   may close. Otherwise input is taken again, and the drafts that did not
- *   save are answered, so the folder stays open with them.
+ * - **Settling** sends every draft now and waits for every save started,
+ *   and answers the drafts still held. It refuses no input: the window
+ *   settles when it is hidden and when it is asked to close, and typing goes
+ *   on afterward as before. The folder context closes the handle only after
+ *   its work settled, once the editor is gone.
  *
- * `createFolderSwitch` builds one per opened folder.
+ * The folder editor builds one for its window and registers it with the
+ * folder context (`registerWork`).
  */
 import type { FileContent, FolderFiles, SaveError } from '@epicenter/folder';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
@@ -45,7 +47,7 @@ type Draft = DraftBase & {
 	readonly error: SaveError | Error | undefined;
 };
 
-/** A draft that did not save, as `leave` answers it. */
+/** A draft still held once a settle finished, as `settle` answers it. */
 export type Unsaved = {
 	readonly path: string;
 	readonly text: string;
@@ -67,12 +69,10 @@ export function createFileDrafts({
 	const waiting = new SvelteSet<string>();
 	const timers = new Map<string, ReturnType<typeof setTimeout>>();
 	/** The save loop of each file with one running. */
-	const running = new Map<string, Promise<void>>();
+	const running = new SvelteMap<string, Promise<void>>();
 	/** Files asked to save again while a save of them ran. */
 	const again = new Set<string>();
 	let revisions = 0;
-	let fenced = $state(false);
-	let leaving: Promise<Unsaved[]> | undefined;
 
 	function clearTimer(path: string) {
 		clearTimeout(timers.get(path));
@@ -167,18 +167,12 @@ export function createFileDrafts({
 				get error() {
 					return drafts.get(path)?.error;
 				},
-				/** Whether input is refused, because the folder is being left. */
-				get locked() {
-					return fenced;
-				},
 				/**
 				 * Type `text`; it saves after a pause. The first keystroke of a
 				 * draft starts from `base`, the file as shown, and is refused
-				 * without one. Answers whether it was taken: nothing is while the
-				 * folder is being left.
+				 * without one. Answers whether it was taken.
 				 */
 				type(text: string, base: DraftBase | undefined): boolean {
-					if (fenced) return false;
 					const draft = drafts.get(path);
 					const from = draft ?? base;
 					if (from === undefined) return false;
@@ -197,10 +191,10 @@ export function createFileDrafts({
 				save: () => flush(path),
 				/**
 				 * Let go of typing that did not save, as the person asked.
-				 * Refused while a save of it runs or the folder is being left.
+				 * Refused while a save of it runs.
 				 */
 				discard(): boolean {
-					if (fenced || running.has(path) || !drafts.has(path)) return false;
+					if (running.has(path) || !drafts.has(path)) return false;
 					clearTimer(path);
 					drafts.delete(path);
 					return true;
@@ -220,29 +214,23 @@ export function createFileDrafts({
 				.map(([path, draft]) => unsavedOf(path, draft));
 		},
 
-		/** Whether input is refused, because the folder is being left. */
-		get fenced() {
-			return fenced;
+		/**
+		 * Whether closing now could lose something: typing is held, which a
+		 * failed save keeps, or a save runs.
+		 */
+		get busy(): boolean {
+			return drafts.size > 0 || running.size > 0;
 		},
 
 		/**
-		 * Refuse input, send every draft, and wait for every save started.
-		 * Answers the drafts that did not save; when there are any, input is
-		 * taken again. Calls while one runs answer the same completion.
+		 * Send every draft now and wait for every save started, refusing no
+		 * input. Answers the drafts still held: those whose save failed, and
+		 * typing that arrived meanwhile.
 		 */
-		leave(): Promise<Unsaved[]> {
-			leaving ??= (async () => {
-				fenced = true;
-				await Promise.allSettled([...drafts.keys()].map(flush));
-				await Promise.allSettled([...running.values()]);
-				const kept = [...drafts].map(([path, draft]) => unsavedOf(path, draft));
-				if (kept.length > 0) {
-					fenced = false;
-					leaving = undefined;
-				}
-				return kept;
-			})();
-			return leaving;
+		async settle(): Promise<Unsaved[]> {
+			await Promise.allSettled([...drafts.keys()].map(flush));
+			await Promise.allSettled([...running.values()]);
+			return [...drafts].map(([path, draft]) => unsavedOf(path, draft));
 		},
 	};
 }

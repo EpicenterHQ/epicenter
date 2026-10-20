@@ -47,10 +47,12 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter auth git-credential get \| store \| erase` | built | `src/auth.ts` |
 | `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
+| `epicenter whispering-connection read \| set <transcription\|text>` | built, hidden | `src/connection-rows.ts` over `openFolder` in `@epicenter/folder/bun` |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
 
-`send`, `history`, `save-version`, `install-command`, `sync --allow-unrelated`,
-and `--desktop` are left out of `--help`: the desktop app runs them.
+`send`, `history`, `save-version`, `whispering-connection`, `install-command`,
+`sync --allow-unrelated`, and `--desktop` are left out of `--help`: the
+desktop app runs them.
 
 The source installer, the `app` group, is deleted, with no alias: Epicenter
 bundles its apps. Clones an earlier build installed under `apps/` in the data
@@ -173,6 +175,27 @@ so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,
 the AI connections' seeded from its JSON and the sign-ins' empty, so tests
 never touch the real one.
 
+`whispering-connection read|set <transcription|text>` reads or saves one of
+Whispering's two rows of `so.epicenter/connections`,
+`whispering-transcription` or `whispering-text`
+(`WHISPERING_CONNECTION_IDS` in `@epicenter/ai/connection-table`), for the
+desktop shell's `whispering_connection_read` and `whispering_connection_set`.
+It takes no path: `so.epicenter` is under `EPICENTER_FOLDER_DIR`'s folder. Each
+run opens it with `connectionsTables`, reads or saves the one row, and closes
+it; a save takes the folder's save lock, as Settings' saves do. It needs no
+account, keychain, network, Git, or `epicenter.json`. `read` answers
+`{"row": {"text", "issues", "fields"} | null}`: `text` is the file's exact
+source, and `fields` is the schema's `kind`, `title`, and `model`, or `null`
+when the row does not read. `set` reads `{"base": {"text", "issues"} | null,
+"fields": {"kind"?, "title"?, "model"?}}` on stdin, where `base` is the row as
+read and the only kind is `openai-compatible`, merges the change from that
+base into the file as it is now, and answers the row as sent. Anything else
+on stdin is refused. A refusal is `{"error", "name"}` and exit 2, and the file
+is as it was. Reading a missing `so.epicenter` answers no row and creates
+nothing; a save creates it inside an Epicenter folder that is there, and
+never the Epicenter folder itself. A link or a file at `so.epicenter` is
+refused.
+
 `install-command` is ADR-0558's hidden command. It keeps one link
 (ADR-0566, ADR-0567), and never needs `sudo`:
 
@@ -288,6 +311,7 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names and the token for the deployment's Git. |
 | `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the command link live, by the shell's rule. |
 | `src/ai-commands.ts` | `auth key` and `send`, printing what `@epicenter/ai/send` returns. |
+| `src/connection-rows.ts` | `whispering-connection`: Whispering's two connection rows in `so.epicenter`. |
 | `src/auth.ts` | The two grants: device and desktop sign-in, the one refresh, status, sign-out, and Git's credential helper. |
 | `src/auth-commands.ts` | `auth login`, `logout`, `status`, `token`, and `git-credential`, printing what `src/auth.ts` returns. |
 | `src/secrets.ts` | The keychain through `Bun.secrets`, by service, or the test stores. |
@@ -302,7 +326,9 @@ bun run typecheck
 ```
 
 `src/epicenter.test.ts` runs every command in a fresh process against real
-directories, and `src/ai-commands.test.ts` runs `send` and `auth key`
+directories, `src/connection-rows.test.ts` runs `whispering-connection` over a
+new Epicenter folder that `EPICENTER_FOLDER_DIR` names, and
+`src/ai-commands.test.ts` runs `send` and `auth key`
 against a local fake OpenAI-compatible server, so both can run against the
 compiled binary too.
 `src/auth.postgres.test.ts` signs in against `@epicenter/server`'s

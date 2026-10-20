@@ -20,10 +20,11 @@ Mount one `<FolderApp>` at the route that owns an app's folder:
 <FolderApp title="Todos" tables={todosTables}><TodosView /></FolderApp>
 ```
 
-The root calls `openFolder({ tables })`. In a browser it opens this origin's
-fixed IndexedDB folder. Inside Epicenter, the Folder opener asks the shell
-which directory it assigned to this window.
-It never falls back to browser storage if a native open fails. Opening needs
+The root calls `openFolder({ tables })`, which each build's exact alias of
+`@epicenter/folder` resolves to one engine. In a browser it opens this
+origin's fixed IndexedDB folder. In a desktop window it opens the directory
+the shell bound to that window before the window existed; the page names no
+path. It never falls back to browser storage if a native open fails. Opening needs
 no account, remote, or network. The root shows a loading or refusal screen,
 sends drafts when the page hides, and closes after pending work settles. A
 pending draft or unsubmitted form prompts before a browser unload. In a

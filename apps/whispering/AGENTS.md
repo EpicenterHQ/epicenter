@@ -17,12 +17,13 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   picks the workspace through `#platform/workspace` (ADR-0391); no page code
   asks where it runs. `src/lib/page-boundary.test.ts` enforces
   these boundaries; keep it passing without granting native reach to components.
-- **One folder, one opener.** Inside Epicenter the shell's
-  `tauri-plugin-epicenter-folder` grants Whispering's window its assigned folder,
-  `Whispering` by default or one opened with "Open with…", and the page's folder engine
-  (`@epicenter/folder/tauri`) is the only thing that opens it. The page names
-  only the folder's scope. Do not add a second path by which the page reads or
-  writes folder files, and do not copy the plugins' bindings into this app.
+- **One folder, one opener.** Inside Epicenter the shell binds one folder to
+  each Whispering window before it exists, `Whispering` by default, a listed
+  folder opened with "Open with…", or one chosen in the native picker, and the
+  page's folder engine (`@epicenter/folder/tauri`) is the only thing that
+  opens it. The page names no folder. Do not add a second path by which the
+  page reads or writes folder files, and do not copy the plugins' bindings
+  into this app.
 - **Closing settles drafts.** The page sends pending text and waits for local
   saves before its desktop window closes. A failed save keeps the window and
   its draft open. A recording streams into the folder from its start
@@ -81,8 +82,10 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   must not call the endpoint or create a second file. A result on pasted text
   names no recording and must never participate in recording deletion.
 - **Inside Epicenter, a key stays in the keychain.** The connections are rows
-  of Epicenter's folder `so.epicenter`, with endpoints and keys in this
-  computer's keychain; requests go through the `epicenter` CLI (`ai_send`),
+  of Epicenter's folder `so.epicenter`, which the page reads and saves only
+  through `whispering_connection_read` and `whispering_connection_set`, by
+  operation; it never opens `so.epicenter` as a second folder. Endpoints and
+  keys are in this computer's keychain; requests go through the `epicenter` CLI (`ai_send`),
   which adds the key. A key is never returned to
   the page, logged, or written to the folder, including inside an error
   message.

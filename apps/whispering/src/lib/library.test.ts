@@ -49,7 +49,7 @@ import { readBytes } from './files.js';
 import type { Library } from './library.svelte.js';
 import { openTestLibrary } from './library.test-support.js';
 import { filesLine } from './status.js';
-import { WHISPERING_FOLDER_ID, type Workspace } from './workspace/types.js';
+import type { Workspace } from './workspace/types.js';
 import {
 	eventually,
 	openTestFolder,
@@ -143,7 +143,6 @@ async function open({
 			},
 			files,
 		),
-		folderId: WHISPERING_FOLDER_ID,
 		location: directory,
 		capture: createFixtureDevice({
 			name: 'tone.wav',

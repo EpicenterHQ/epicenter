@@ -7,6 +7,7 @@ use tauri::{
     WindowEvent, Wry,
 };
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_epicenter_folder::FolderExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_specta::Event as _;
@@ -21,6 +22,7 @@ mod bundled_apps;
 mod cli;
 mod data_folders;
 mod folder_opening;
+mod folder_windows;
 mod remembered_folders;
 mod scheme;
 
@@ -61,7 +63,9 @@ const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 
 /// Epicenter's own windows. Todos, Capture, Honeycrisp, and Whispering, which
 /// Epicenter bundles, open one window per folder through `open_bundled_app`
-/// (`bundled_apps.rs`).
+/// and `choose_folder_for_app` (`bundled_apps.rs`), and each listed folder's
+/// editor opens in a window of its own through `open_folder_editor`
+/// (`data_folders.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
@@ -136,6 +140,8 @@ macro_rules! shell_commands {
             folder_opening::dismiss_folder_opening,
             folder_opening::list_remembered_folders,
             folder_opening::forget_remembered_folder,
+            data_folders::open_folder_editor,
+            folder_opening::open_remembered_folder,
             cli::ai_send,
             cli::account_send,
             cli::ai_key_set,
@@ -144,7 +150,10 @@ macro_rules! shell_commands {
             cli::auth_login::<tauri::Wry>,
             cli::auth_status,
             cli::auth_logout,
+            cli::whispering_connection_read,
+            cli::whispering_connection_set,
             bundled_apps::open_bundled_app,
+            bundled_apps::choose_folder_for_app,
             get_unload_policy,
             set_unload_policy,
             list_models,
@@ -327,8 +336,10 @@ pub fn run() {
         .plugin(log_plugin)
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
+        // The native folder picker, which Rust opens and answers: no
+        // capability grants a page the dialog plugin's commands.
+        .plugin(tauri_plugin_dialog::init())
         .manage(PendingHomeSection::default())
-        .manage(data_folders::DataFolderScopes::default())
         .manage(folder_opening::FolderOpenings::default())
         .manage(cli::CliChildren::default())
         .manage(DownloadManager::default());
@@ -364,8 +375,6 @@ pub fn run() {
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
             std::fs::create_dir_all(&desktop_paths.folder_dir)?;
-            data_folders::register_epicenter_folder(app.folders(), &desktop_paths.folder_dir)
-                .map_err(anyhow::Error::msg)?;
             match data_folders::watch_data_folders(app.handle(), &desktop_paths.folder_dir) {
                 Ok(watch) => {
                     app.manage(watch);
@@ -488,18 +497,26 @@ fn follow_deep_link(app: &DesktopAppHandle, link: DeepLink) {
     }
 }
 
-/// Ask for a window without waiting, and log rather than report what the
-/// main thread makes of it.
-///
-/// That is right for the callers that have nobody to answer to (startup, the
-/// tray, a deep link, macOS reopen, Settings asked for by the Folders window
-/// or an app). It is wrong for `open_bundled_app`, where a person clicked
-/// and is owed an outcome, so that command waits on the main thread instead.
+/// Schedule a built-in window and show a native error if it cannot open.
+/// Callers include native launch events and pages asking to open Settings.
 fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
     let window_app = app.clone();
     let schedule = app.run_on_main_thread(move || {
         if let Err(error) = ensure_window(&window_app, built_in) {
             log::error!("open the {} window: {error:#}", built_in.id());
+            let mut dialog = window_app
+                .dialog()
+                .message(format!("{error:#}"))
+                .title(format!("{} could not open", built_in.title()))
+                .kind(MessageDialogKind::Error);
+            let windows = window_app.webview_windows();
+            if let Some(parent) = windows
+                .values()
+                .find(|window| window.is_focused().unwrap_or(false))
+            {
+                dialog = dialog.parent(parent);
+            }
+            dialog.show(|_| {});
         }
     });
     if let Err(error) = schedule {
@@ -616,13 +633,26 @@ fn open_account_website(app: &DesktopAppHandle, url: &tauri::Url) -> NewWindowRe
 ///
 /// The window label is the app's ID, which is what every capability file in
 /// `src-tauri/capabilities/` selects on. One built-in app has one window.
+/// Settings edits Epicenter's own folder, which is bound to it, and made when
+/// missing, before its WebView exists. The Folders window is a launcher and
+/// is bound to no folder.
 fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     if let Some(window) = app.get_webview_window(built_in.id()) {
         focus(window);
         return Ok(());
     }
 
-    let window = create_app_window(app, built_in.id(), built_in.title(), built_in.path())?;
+    let build = || create_app_window(app, built_in.id(), built_in.title(), built_in.path());
+    let window = match built_in {
+        BuiltInApp::Home => {
+            let paths = app.state::<app_data::DesktopPaths>();
+            let directory =
+                data_folders::settings_directory(&paths.folder_dir).map_err(anyhow::Error::msg)?;
+            app.folders()
+                .bind_while_building(built_in.id(), directory, build)?
+        }
+        BuiltInApp::Folders => build()?,
+    };
     let close_window = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -673,13 +703,17 @@ mod tests {
     const HOME: &str = include_str!("../capabilities/home.json");
     const BUNDLED_APP: &str = include_str!("../capabilities/bundled-app.json");
     const WHISPERING: &str = include_str!("../capabilities/whispering.json");
+    const FOLDER_EDITOR: &str = include_str!("../capabilities/folder-editor.json");
 
     /// Every capability file, for checks that hold for all of them.
-    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, BUNDLED_APP, WHISPERING];
+    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, BUNDLED_APP, WHISPERING, FOLDER_EDITOR];
 
-    /// The windows a bundled app's page opens in, on two folders.
-    fn bundled_labels(app: BundledApp) -> [String; 2] {
-        [app.window_label(app.name()), app.window_label("My notes")]
+    /// The windows a page with label prefix `prefix` opens in, on two folders.
+    fn folder_labels(prefix: &str) -> [String; 2] {
+        [
+            crate::folder_windows::label(prefix, std::path::Path::new("/Epicenter/Todos")),
+            crate::folder_windows::label(prefix, std::path::Path::new("/elsewhere/My notes")),
+        ]
     }
 
     #[test]
@@ -737,6 +771,7 @@ mod tests {
             files,
             [
                 "bundled-app.json",
+                "folder-editor.json",
                 "folders.json",
                 "home.json",
                 "whispering.json"
@@ -757,7 +792,7 @@ mod tests {
             production["app"]["security"]["capabilities"],
             serde_json::json!(identifiers)
         );
-        // A page reads and changes only the directory a grant names: no fs
+        // A page reads and changes only the directory bound to its window: no fs
         // plugin is installed, and Git is a separate CLI concern.
         assert!(
             production["plugins"].get("fs").is_none(),
@@ -823,7 +858,7 @@ mod tests {
             ])
         );
         for app in BundledApp::ALL {
-            for label in bundled_labels(app) {
+            for label in folder_labels(app.page()) {
                 for encoded in ALL_CAPABILITIES {
                     let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
                     assert_eq!(
@@ -835,10 +870,43 @@ mod tests {
                 }
             }
         }
-        for encoded in [BUNDLED_APP, WHISPERING] {
+        for encoded in [BUNDLED_APP, WHISPERING, FOLDER_EDITOR] {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for built_in in BuiltInApp::ALL {
                 assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
+            }
+        }
+    }
+
+    /// A folder editor window, one per listed folder (`data_folders.rs`), is
+    /// selected by `folder-editor.json` alone and holds the folder plugin, its
+    /// change event, and destroying itself once what is typed saved: no
+    /// listing, launch, account, AI, recorder, or model command.
+    #[test]
+    fn a_folder_editor_window_holds_the_folder_plugin_alone() {
+        let capability: serde_json::Value = serde_json::from_str(FOLDER_EDITOR).unwrap();
+        assert_eq!(
+            capability["windows"],
+            serde_json::json!([format!("{}:*", crate::folder_windows::EDITOR_PREFIX)])
+        );
+        assert_eq!(
+            capability["permissions"],
+            serde_json::json!([
+                "epicenter-folder:default",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten",
+                "core:window:allow-destroy"
+            ])
+        );
+        for label in folder_labels(crate::folder_windows::EDITOR_PREFIX) {
+            for encoded in ALL_CAPABILITIES {
+                let other: serde_json::Value = serde_json::from_str(encoded).unwrap();
+                assert_eq!(
+                    selects(&other, &label),
+                    *encoded == FOLDER_EDITOR,
+                    "{} {label}",
+                    other["identifier"]
+                );
             }
         }
     }
@@ -848,15 +916,16 @@ mod tests {
     /// recording when the window is destroyed (ADR-0543, ADR-0571); System
     /// Settings' privacy panes (ADR-0555); transcription with the active
     /// local model, its readiness, and opening Settings to fix it
-    /// (ADR-0180); and its AI connections and who Epicenter is signed in as
-    /// (ADR-0557, ADR-0558). No folder history, account request, key
-    /// removal, or model administration.
+    /// (ADR-0180); and its AI connections, their two rows by operation, and
+    /// who Epicenter is signed in as (ADR-0557, ADR-0558). No second folder,
+    /// folder history, account request, key removal, or model
+    /// administration.
     #[test]
     fn whispering_windows_hold_what_whispering_calls() {
         let capability: serde_json::Value = serde_json::from_str(WHISPERING).unwrap();
         assert_eq!(
             capability["windows"],
-            serde_json::json!([format!("{}*", BundledApp::Whispering.window_prefix())])
+            serde_json::json!([format!("{}:*", BundledApp::Whispering.page())])
         );
         assert_eq!(
             capability["permissions"],
@@ -877,9 +946,33 @@ mod tests {
                 "allow-ai-send",
                 "allow-ai-key-set",
                 "allow-ai-key-state",
-                "allow-auth-status"
+                "allow-auth-status",
+                "allow-whispering-connection-read",
+                "allow-whispering-connection-set"
             ])
         );
+    }
+
+    /// Whispering's connection rows are read and saved by operation, for
+    /// Whispering's windows alone. Settings edits `so.epicenter` as its own
+    /// folder, and no other window calls these.
+    #[test]
+    fn whispering_connection_rows_are_granted_to_whispering_alone() {
+        for encoded in ALL_CAPABILITIES {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            let permissions = capability["permissions"].as_array().unwrap();
+            for permission in [
+                "allow-whispering-connection-read",
+                "allow-whispering-connection-set",
+            ] {
+                assert_eq!(
+                    permissions.contains(&serde_json::json!(permission)),
+                    *encoded == WHISPERING,
+                    "{} {permission}",
+                    capability["identifier"]
+                );
+            }
+        }
     }
 
     /// Epicenter's own pages and the bundled apps' pages are served from one
@@ -1146,37 +1239,39 @@ mod tests {
         assert_ne!(production["identifier"], development["identifier"]);
     }
 
-    /// The Folders window holds the folder plugin, its own listing, opening a
-    /// bundled app (`bundled_apps.rs`), opening Settings (ADR-0537), and
-    /// accepting a directory another app asked to open, with the remembered
-    /// folders (`folder_opening.rs`, ADR-0646). It reaches folders only
-    /// through scopes the listing or an acceptance registered or permitted it
-    /// into, and administers no model or connection.
+    /// The Folders window is a launcher: its own listing, opening a listed
+    /// folder's editor window, opening a bundled app on its default, a listed
+    /// folder, or one chosen in the native picker (`bundled_apps.rs`), and
+    /// opening Settings (ADR-0537). It is bound to no folder, holds no
+    /// folder command, and administers no model or connection.
     #[test]
-    fn the_folders_window_holds_the_folder_plugin_and_its_listing() {
-        const OPENING: [&str; 5] = [
+    fn the_folders_window_is_a_launcher_without_folder_commands() {
+        const OPENING: [&str; 6] = [
             "allow-pending-folder-openings",
             "allow-accept-folder-opening",
             "allow-dismiss-folder-opening",
             "allow-list-remembered-folders",
             "allow-forget-remembered-folder",
+            "allow-open-remembered-folder",
         ];
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
         assert_eq!(capability["windows"], serde_json::json!(["folders"]));
         assert_eq!(
             capability["permissions"],
             serde_json::json!([
-                "epicenter-folder:default",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
                 "allow-list-data-folders",
+                "allow-open-folder-editor",
                 "allow-open-bundled-app",
+                "allow-choose-folder-for-app",
                 "allow-open-home",
                 OPENING[0],
                 OPENING[1],
                 OPENING[2],
                 OPENING[3],
-                OPENING[4]
+                OPENING[4],
+                OPENING[5]
             ]),
             "folders"
         );
@@ -1195,9 +1290,19 @@ mod tests {
                     permission, "allow-list-data-folders",
                     "the listing belongs to the Folders window alone"
                 );
-                assert_ne!(
-                    permission, "allow-open-bundled-app",
-                    "opening a bundled app belongs to the Folders window alone"
+                for launch in [
+                    "allow-open-bundled-app",
+                    "allow-choose-folder-for-app",
+                    "allow-open-folder-editor",
+                ] {
+                    assert_ne!(
+                        permission, launch,
+                        "opening a folder's window belongs to the Folders window alone"
+                    );
+                }
+                assert!(
+                    !permission.starts_with("dialog:"),
+                    "the folder picker is opened and answered in Rust"
                 );
                 assert!(
                     !OPENING.contains(&permission),

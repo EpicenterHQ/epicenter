@@ -207,15 +207,15 @@ shows who the app is signed in as. Nothing restarts. It is a separate grant
 from a terminal's `epicenter auth login`, and signing one out leaves the
 other signed in.
 
-An app opens its granted local directory before any account flow. Each
+An app opens the local directory bound to its window before any account flow. Each
 bundled app uses the same `Folder` table schemas on desktop and in the
 browser.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
-it. It lists your data folders, offers "Open with…" on every folder for each
-bundled app, lists the folders other apps asked it to open under "Opened
-folders", lists the bundled apps under Apps, and opens Settings from its
+it. It lists your data folders, opens each in an editor window of its own,
+offers "Open with…" on every folder for each bundled app, lists the bundled
+apps under Apps with Open and Choose folder…, and opens Settings from its
 Settings button with `open_home`. Opening an app opens its own window; the OS
 is the switcher from there, and closing the Folders window leaves everything
 it opened running.
@@ -233,34 +233,23 @@ open 'epicenter://app/folders'
 open 'epicenter://app/home'
 ```
 
-A standalone app asks Epicenter to open a directory with
-`epicenter://open?path=<percent-encoded absolute directory>`
-([Opening a folder from another app](#opening-a-folder-from-another-app)).
-
 ## The Folders window
 
-The Folders window (`folders`, served at `/folders/`) opens any data
-folder under the authored folder root. Its page source is `src/folders`,
-built by `build:folders` into `dist/folders`.
-It is the window Epicenter opens to, and `epicenter://app/folders` opens it.
+The Folders window (`folders`, served at `/folders/`) is a launcher over the
+data folders under the authored folder root and the apps Epicenter bundles.
+Its page source is `src/folders`, built by `build:folders` into
+`dist/folders`. It is the window Epicenter opens to, and
+`epicenter://app/folders` opens it. The shell binds no folder to it, and its
+capability grants no folder command.
 
 The page asks the shell for `list_data_folders`. The shell lists real,
 non-hidden child directories under the authored folder root, including ones
-without `epicenter.json`. An existing declaration can provide a display title;
-it is not required to open or edit files. Each listed directory has a
-registered scope. The page calls `openFolder({ directory: folder.id, tables:
-{} })` from `@epicenter/folder/tauri` and edits files through `folder.files`.
-
-- **Epicenter's own folder**, `so.epicenter`, is registered at setup for the
-  `folders` and `home` windows and listed under that scope.
-- **Any other data folder** gets the scope `data:<directory name>` the first
-  time it is listed, registered for the `folders` window. A bundled app
-  permits its own window into that entry when it opens the folder
-  ([Bundled apps](#bundled-apps)). Listing again in the same run returns the
-  same scope. Registrations last until the process exits; a folder removed
-  from the root keeps an unused scope. A folder named by the id of an app an
-  earlier version installed, such as `so.epicenter.todos`, is a data folder
-  like any other, `data:so.epicenter.todos`.
+without `epicenter.json`, by directory name and title. An existing
+declaration can provide a display title; it is not required to open or edit
+files. Epicenter's own folder, `so.epicenter`, is listed like any other, and a
+folder named by the id of an app an earlier version installed, such as
+`so.epicenter.todos`, is a data folder like any other. Nothing is registered
+by listing.
 
 The shell watches the root from setup until exit (`watch_data_folders`). When
 an entry directly under it, or a folder's `epicenter.json`, is created,
@@ -269,101 +258,57 @@ changed, or removed, it sends `epicenter://data-folders-changed` to the
 error is sent the same way. Deeper changes, such as a row saved in a folder,
 are not.
 
-### What the view does
+### Incoming folders and remembered paths
 
-The page lists directories and opens one at a time. It supplies no table
-schemas, so every source file appears in a file tree and opens as text when
-its bytes are editable text. The window subscribes to `folder.onChange` and
-invalidates the relevant TanStack Query reads. The shell watcher reports
-changes from other windows and processes. File drafts belong to the Folders
-window and survive switching files. A failed save keeps its text visible and
-prevents leaving the directory until the person retries or discards it.
+A standalone app can ask Epicenter to open `epicenter://open?path=<percent-encoded absolute directory>`. Receiving the link only queues it and shows the launcher. **Open** resolves the existing directory and opens its own bound editor; **Dismiss** reads none of its files. Handoffs refuse folders overlapping Epicenter's Settings or app data, including linked spellings. The editor receives the same canonical directory that passed that check.
+
+After the editor opens, Epicenter remembers the original path in `<app data>/folders.json`. Failed persistence leaves the editor open and the shortcut available for this run, with the problem shown. **Opened folders** lists stored paths and this run's acceptances without binding any folder to the launcher. Reopening requires fresh membership in that list and checks the directory again. Missing or refused entries remain visible and can be forgotten. **Forget** removes only the shortcut; existing editors and their drafts stay open. The file's save lock and whole-file replacement preserve concurrent list changes and leave malformed contents untouched ([ADR-0646](../../docs/adr/0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md), amended by [ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)).
+
+### Folder editor windows
+
+Choosing a listed folder calls `open_folder_editor(name)`. The shell finds the
+directory again as a real direct child of the folder root (a name that is not
+one entry, a dot entry, a link, or a folder that is gone is refused, and
+nothing is created), binds it to a new window labelled `files:<digest of the
+canonical root>`, and opens that window at `/folders/editor/`, which the
+scheme serves from the Folders build; the route selects the editor's page. A
+second choice of the same folder reveals its window.
+
+The editor mounts `<FolderApp>` with no tables, which opens the window's
+folder with `openFolder({ tables: {} })`, owns its handle, and closes it when
+the window goes. Every source file appears in a file tree and opens as text
+when its bytes are editable text; byte-order marks, `\r\n` endings, and
+unknown fields are kept, and mixed line endings and binary files are shown,
+not edited. File drafts belong to the window, survive switching files, and
+are registered with the folder context: hiding the window sends what is
+typed and leaves it editable, and closing the window waits for its saves. A
+failed save keeps its text visible and keeps the window open until the person
+retries or discards it. Unsaved files stay reachable even when their disk
+entry disappears or the listing fails. Each change batch marks the editor's
+file reads stale, including descendants of a changed directory; the shell watcher reports changes from other windows and
+processes.
+
+### Opening apps
 
 Beside each listed directory but Epicenter's own, "Open with…" offers every
-bundled app (`src/folders/openers.ts`). The shell hands that directory's
-scope to the app window; the app interprets its files through its own
-schemas. Opening a bundled app from the Apps list hands it its default
-folder. The Folders view does not use `epicenter.json` to authorize either
-action.
-
-### Opening a folder from another app
-
-Standalone Todos's **Open in Epicenter** sends the directory its own window
-was granted (ADR-0646):
-
-```bash
-open 'epicenter://open?path=%2FUsers%2Fme%2FLibrary%2FApplication%20Support%2Fso.epicenter.todos'
-```
-
-`src-tauri/src/folder_opening.rs` reads the link and nothing else. The link
-must have the host `open`, no path, and exactly one `path=` pair: `&`, `;`,
-`=`, a raw `+`, and a broken `%` escape are refused. The decoded path must be
-absolute, with no `.` or `..` segment and no doubled or trailing `/`. Any
-other form is ignored. A cold start, a running Epicenter, and a second launch
-that forwards its arguments all deliver it the same way.
-
-Receiving a link only holds the path and shows the Folders window. The window
-shows "Open this folder?" with the full path, **Open**, and **Dismiss**.
-Nothing reads, grants, or remembers the directory until the person chooses
-**Open** (`accept_folder_opening`). Then the shell admits it only if it is an
-existing real directory, never creating it. It must not be, hold, or lie
-inside `so.epicenter` or Epicenter's app data. The shell registers it with
-`FolderConfig::data` at the checked resolved directory as `opened:<n>` for the
-`folders` window alone. Accepting the same resolved directory again returns
-the same scope. No bundled app is offered on it,
-and `open_bundled_app` refuses its scope. The window opens it through the
-same folder switch as any other choice. The switch waits for unfinished edits
-to save and keeps the current folder and its drafts open if a save fails.
-
-An accepted path is remembered in `<data_dir>/folders.json`
-(`~/Library/Application Support/so.epicenter/folders.json` in release macOS
-builds), a JSON array of absolute paths with no IDs (ADR-0641):
-
-```json
-[
-  "/Users/me/Library/Application Support/so.epicenter.todos"
-]
-```
-
-An absent file is an empty list. Each change takes
-`.folders.json.epicenter-save-lock` beside it, the same SQLite save lock
-folder saves use, reads the list, and renames a whole new file over it, so a
-future CLI writer that takes the lock cannot lose another writer's entry.
-Content that is not an array of strings is reported under "Opened folders" and
-left byte-identical; adding and forgetting wait until it is repaired. If the
-write fails, the folder still opens, the window reports that the remembered
-list could not be updated, and it is listed as "Opened this time only" unless
-it was already remembered.
-
-Folder saves take their own save lock beside the selected directory. For an
-external folder such as `~/Notes`, saving may create `~/.Notes.epicenter-save-lock`.
-If its parent cannot be written, the save fails and the Folders window keeps
-the draft for retry or repair. This lock location lets standalone Todos and
-Epicenter coordinate writes to the same directory.
-
-"Opened folders" lists `folders.json` and this run's acceptances
-(`list_remembered_folders`). After a restart, each remembered directory that
-is still there opens without a new request, under the same refusal rules. A
-missing one stays listed with its problem. **Forget**
-(`forget_remembered_folder`) removes the stored path and deletes no files.
-
-The link names no app, schema, or folder ID. The Folders window opens every
-folder with no tables and shows its files as text, so the path is all it
-needs.
+bundled app (`src/folders/openers.ts`). The Apps list offers Open, on the
+app's default folder, and Choose folder…, which asks the shell to show the
+native folder picker. The app interprets its files through its own schemas.
+The Folders view does not use `epicenter.json` to authorize any of them.
 
 ## Bundled apps
 
 Epicenter bundles Todos, Capture, Honeycrisp, and Whispering
 (`src-tauri/src/bundled_apps.rs`). One closed table, `BundledApp`, names for
-each its page, its fixed default folder, its window label and capability,
-whether its window also reaches Epicenter's own folder, and its build path:
+each its page, its fixed default folder, its window label and capability, and
+its build path:
 
-| Page | Default folder | Window label | Capability | Also permitted into |
-| --- | --- | --- | --- | --- |
-| `todos` | `<folderDir>/Todos` | `todos:<hex>` | `bundled-app.json` | nothing |
-| `capture` | `<folderDir>/Capture` | `capture:<hex>` | `bundled-app.json` | nothing |
-| `honeycrisp` | `<folderDir>/Honeycrisp` | `honeycrisp:<hex>` | `bundled-app.json` | nothing |
-| `whispering` | `<folderDir>/Whispering` | `whispering:<hex>` | `whispering.json` | `so.epicenter` |
+| Page | Default folder | Window label | Capability |
+| --- | --- | --- | --- |
+| `todos` | `<folderDir>/Todos` | `todos:<digest>` | `bundled-app.json` |
+| `capture` | `<folderDir>/Capture` | `capture:<digest>` | `bundled-app.json` |
+| `honeycrisp` | `<folderDir>/Honeycrisp` | `honeycrisp:<digest>` | `bundled-app.json` |
+| `whispering` | `<folderDir>/Whispering` | `whispering:<digest>` | `whispering.json` |
 
 `build:bundled` (`scripts/build-bundled-apps.ts`) runs each app's own
 `build:host` (`EPICENTER_HOST=1`) in `apps/<page>` and copies its `dist/` to
@@ -373,41 +318,35 @@ Tauri shell (`bun run --cwd apps/todos build:desktop`). Opening an app clones,
 builds, and fetches nothing, and asks for no approval, account, network, or
 Git action.
 
-The Folders window opens one with `open_bundled_app(app, folder)`, the one
-launch command for every bundled app:
+The Folders window opens one in three ways, each deciding the folder in Rust:
 
-- **Open**, under Apps, passes no folder. The shell opens the app's fixed
-  default, such as `<folderDir>/Todos` (`~/Epicenter/Todos` in production),
-  and creates it first when it is missing. The name is a launch policy, not
-  the app id, and the app's rows land directly in it, such as
-  `todos/<id>.md`.
-- **Open with…**, beside a listed folder, passes that folder's listed scope.
-  The shell maps it back to the directory it listed; a scope it never listed,
-  Epicenter's own folder, or a directory that is gone, is refused. Nothing is
-  created and the default is never opened instead.
+- **Open**, under Apps, calls `open_bundled_app(app, null)`. The shell opens
+  the app's fixed default, such as `<folderDir>/Todos` (`~/Epicenter/Todos` in
+  production), and creates it first when it is missing. The name is a launch
+  policy, not the app id, and the app's rows land directly in it, such as
+  `todos/<id>.md`. A disk that stores the default under another casing opens
+  that directory.
+- **Open with…**, beside a listed folder, calls `open_bundled_app(app, name)`.
+  The shell finds the directory again as a real direct child of the folder
+  root. A folder that is gone, a name that is not one listed entry, or
+  Epicenter's own folder is refused; nothing is created and the default is
+  never opened instead.
+- **Choose folder…**, under Apps, calls `choose_folder_for_app(app)`. The
+  shell shows the native folder picker and opens the app on what the person
+  chose; cancelling opens nothing. The chosen directory must exist and be a
+  real directory, never a link, though its parent may be one; it is never
+  created. Epicenter's own folder is refused however it is reached. No page
+  passes a path, and no page is granted the dialog plugin.
 
-Opening an app recreates its fixed default when it is missing, even if it was
-removed earlier in this run. "Open with…" never creates a missing folder. A
-disk that stores the default under another casing opens that directory's one
-window, named by its stored spelling.
-
-Each app gets one window per directory, labelled `<page>:<directory name in
-hex>`, and no scope of its own. It uses the registry entry the Folders window
-already opens the folder through, `data:<directory name>`, with that entry's
-root, save lock, and watch. The shell permits that exact window into the entry and hands it the
-scope before the WebView exists; a default opened before the Folders window
-listed it is registered under the same `data:<Name>` the listing then reports.
-Todos, Capture, and Honeycrisp call `openFolder({ tables })`, which asks for
-that assignment (`window_folder`). Whispering asks for the assigned scope so
-its recorder and Folder use the same one, then calls the public native
-`openFolder({ directory, tables })`. No page names a path. Two apps opened
-on one folder are two windows on its one entry. This action permits no other
-window or Settings into the entry. No bundled app opens `so.epicenter` as its
-folder. A folder
-removed after its window opened is refused `Missing` at the next grant. A
-later Open action recreates only an app's fixed default. Opening the same app
-on the same folder again reveals its window.
-A permitted label stays in the entry until the process exits.
+The shell binds the directory to the app's window before the WebView exists
+(`folder_windows.rs`) and labels the window by the app and a digest of the
+canonical root: the same app on the same directory reveals its window, and
+two directories with one name in different places are two windows. The page
+calls `openFolder({ tables })`, which opens the folder bound to its window;
+Whispering's recorder writes into the same folder, and no call names it. Two
+apps opened on one folder are two windows on one root, sharing its save lock
+and watch. A folder removed after its window opened is refused `Missing` when
+the page opens it again; a later Open recreates only an app's fixed default.
 
 The native Folder reads ordinary files as they stand, merges row edits with
 current bytes, and lands one guarded file change per save. Opening writes
@@ -430,16 +369,23 @@ else.
 `capabilities/whispering.json` selects `whispering:*` and grants what
 Whispering's page calls:
 
-- the folder plugin and its change event, for its folder and for the AI
-  connections in `so.epicenter`, which the shell permits its exact window
-  into before the window exists while still handing it its own folder;
+- the folder plugin and its change event, for the one folder the shell binds
+  to its window;
 - the recorder plugin, and the opener's `allow-open-url` scoped to
   `x-apple.systempreferences:`, to open System Settings' microphone pane;
 - `list_inference_models`, `transcribe_audio_bytes`,
   `get_local_transcription_readiness`, and `open_home`, for optional local
   transcription with the active model (ADR-0180);
 - `ai_send`, `ai_key_set`, `ai_key_state`, and `auth_status`, for its AI
-  connections (ADR-0557, ADR-0558).
+  connections (ADR-0557, ADR-0558);
+- `whispering_connection_read` and `whispering_connection_set`, for its two
+  connection rows in `so.epicenter`. The page names `transcription` or
+  `text`; the shell runs `epicenter whispering-connection read|set`, which
+  opens `so.epicenter` under the folder root it inherits in
+  `EPICENTER_FOLDER_DIR`, reads or saves the one row under the folder's save
+  lock, and closes it. A save carries the row's exact source as its base and
+  assigns only `kind` (`openai-compatible`), `title`, and `model`. Settings
+  still opens `so.epicenter` as its own folder.
 
 No bundled app's window is granted folder history (`status`, `history`,
 `save_version`, `sync`), `account_send`, `ai_key_remove`, or model
@@ -452,12 +398,13 @@ in the folder root; WebView data and the page builds live in the application
 data and resource directories. The Folder engine stages a save's bytes in
 `.<directory name>.epicenter-scratch` beside the folder. Whispering's own
 folder was `so.epicenter.whispering` when it was installed; that folder stays
-listed and opens with "Open with…", and nothing moves it.
+listed and opens with "Open with…", and nothing moves or adopts it.
 
 Each kind of window has one capability file, and every file is `"local": true`
 because its page is served on the scheme: `folders.json`, `home.json`,
-`bundled-app.json`, and `whispering.json`. A development build selects the
-same four. This is wiring, not a sandbox (ADR-0179, ADR-0334).
+`bundled-app.json`, `whispering.json`, and `folder-editor.json`, which selects
+`files:*` and grants the folder plugin, its change event, and destroying its
+own window. A development build selects the same five. This is wiring, not a sandbox (ADR-0179, ADR-0334).
 
 Whispering's page has no recording overlay and
 registers no global shortcuts, so neither is created or granted.

@@ -1,48 +1,51 @@
-//! The apps Epicenter bundles, each opened on one local folder per window.
+//! The apps Epicenter bundles, each opened on one existing folder per window.
 //!
 //! `BundledApp` is the closed table: Todos, Capture, Honeycrisp, and
 //! Whispering. Each row names the app's page, built from `apps/<page>` into
 //! `dist/<page>/` and served by the scheme at `/<page>/`; its fixed default
-//! folder under `folder_dir`; the label its windows get, which selects their
-//! capability; and whether its windows also reach Epicenter's own folder.
-//! Opening one clones, builds, and fetches nothing, and no account, approval,
-//! or Git step is on the way. The Folders window calls
-//! `open_bundled_app`; the shell permits the window into its folder and hands
-//! it that folder in trusted Rust before the WebView exists. Todos, Capture,
-//! and Honeycrisp call `openFolder({ tables })`; Whispering asks
-//! `window_folder` for the recorder's scope and passes it as `directory` to
-//! the public native `openFolder`. The plugin grants the assigned directory.
+//! folder under `folder_dir`; and the prefix of its windows' labels, which
+//! selects their capability. Opening one clones, builds, and fetches
+//! nothing, and no account, approval, or Git step is on the way.
+//!
+//! The shell decides the window's folder in trusted Rust and binds it to the
+//! window before the WebView exists (`folder_windows`). The page calls
+//! `openFolder({ tables })` and names no path: every folder command it sends
+//! reaches the directory bound to its window.
 //!
 //! - Open an app: the fixed default, `<folder_dir>/<name>`, such as
 //!   `<folder_dir>/Todos`, which the shell creates when it is missing. The
 //!   name is this launch policy's choice, not one derived from an app id.
-//! - Open in an app: a folder the Folders window listed, named by its listed
-//!   scope. It must already exist: a missing one is refused, never created,
-//!   and never replaced by the default. Epicenter's own folder is refused.
+//! - Open a listed folder in an app: a direct child of `folder_dir` the
+//!   Folders window listed, found again by its name. It must already exist.
+//! - Choose a folder for an app: the native folder picker, in Rust. The
+//!   chosen directory must exist and be a real directory; its parent may be
+//!   a link.
 //!
-//! An app adds no scope of its own. A directory is one entry in the folder
-//! registry (`data_folders::scope_for_window`): the entry, with its root,
-//! lock, and watch, that the Folders window opens the folder through. The
-//! window `<page>:<name in hex>` is permitted into that entry by its exact
-//! label. Whispering's window is also permitted into `so.epicenter`, already
-//! registered at setup, because its AI connections are rows there; it still
-//! is handed its own folder. Other windows need their own grants, and the
-//! plugin refuses the directory once it is gone. The page names no path.
+//! A folder that is missing, a file, or a link is refused, never created and
+//! never replaced by the default. A folder that overlaps Epicenter's own
+//! files is refused however it is reached: Settings' `so.epicenter` or
+//! anything in it, the app data, or a directory holding either, such as the
+//! folder root itself (`overlaps_epicenter_files`). The root's other direct
+//! children open. One app on one directory is one window: opening it again
+//! reveals that window. Whispering's AI connections are
+//! rows of `so.epicenter`, which its page reads and saves through two
+//! commands by operation (`cli::whispering_connection_read` and `_set`),
+//! never as a second folder.
 //!
 //! A window is destroyed when it closes, as Tauri closes any window: no
 //! handler hides it. The recorder finalizes a Whispering recording when its
 //! window is destroyed.
 
 use std::fs;
-use std::path::Path;
-use std::sync::mpsc;
+use std::path::{Path, PathBuf};
 
-use anyhow::Context;
-use tauri::Manager;
-use tauri_plugin_epicenter_folder::{FolderExt, Folders, WindowFolder};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_epicenter_folder::Directory;
 
 use crate::app_data::DesktopPaths;
-use crate::data_folders::{scope_for_window, DataFolderScopes, EPICENTER_FOLDER};
+use crate::data_folders::{listed_folder, overlaps_epicenter_files};
+use crate::folder_windows::{self, FolderWindow};
 use crate::DesktopAppHandle;
 
 /// An app Epicenter bundles. The page API names it by its page.
@@ -65,7 +68,7 @@ impl BundledApp {
 
     /// The app's source folder under `apps/`, the directory below the pages
     /// directory that holds its build, the first segment of the path the
-    /// scheme serves it at, and the start of its windows' labels.
+    /// scheme serves it at, and the prefix of its windows' labels.
     pub const fn page(self) -> &'static str {
         match self {
             Self::Todos => "todos",
@@ -86,16 +89,6 @@ impl BundledApp {
         }
     }
 
-    /// The app `window_folder` names to its windows.
-    const fn id(self) -> &'static str {
-        match self {
-            Self::Todos => "so.epicenter.todos",
-            Self::Capture => "so.epicenter.capture",
-            Self::Honeycrisp => "so.epicenter.honeycrisp",
-            Self::Whispering => "so.epicenter.whispering",
-        }
-    }
-
     /// The capability file, by identifier, whose `windows` select this app's
     /// labels: the folder plugin alone, or Whispering's own grant. Tauri
     /// matches labels to the files; the tests hold the files to this.
@@ -107,13 +100,7 @@ impl BundledApp {
         }
     }
 
-    /// Whether the app's windows are also permitted into `so.epicenter`,
-    /// whose `connections` table its AI commands name (ADR-0557).
-    const fn reaches_connections(self) -> bool {
-        matches!(self, Self::Whispering)
-    }
-
-    /// Where every window of the app opens, whatever folder it was assigned.
+    /// Where every window of the app opens, whatever folder it was bound to.
     /// Its navigation stays below this path.
     pub fn path(self) -> String {
         format!("/{}/", self.page())
@@ -121,23 +108,6 @@ impl BundledApp {
 
     pub fn from_page(page: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|app| app.page() == page)
-    }
-
-    /// Every label of the app's windows starts with this; its capability
-    /// selects `<page>:*`.
-    pub fn window_prefix(self) -> String {
-        format!("{}:", self.page())
-    }
-
-    /// The label of the app's window on directory `name`: one window per app
-    /// and folder. A label may hold only letters, digits, `-`, `/`, `:`, and
-    /// `_`, so the name is spelled in hex.
-    pub(crate) fn window_label(self, name: &str) -> String {
-        let mut label = self.window_prefix();
-        for byte in name.bytes() {
-            label.push_str(&format!("{byte:02x}"));
-        }
-        label
     }
 
     fn window_title(self, name: &str) -> String {
@@ -149,9 +119,20 @@ impl BundledApp {
     }
 }
 
-/// Open bundled app `app` on its fixed default folder, or with `folder`, on a
-/// folder the Folders window listed under that scope. A window already open
-/// on the folder is revealed.
+/// Which folder an app's window opens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AppFolder {
+    /// The app's fixed default under the folder root, made when missing.
+    Default,
+    /// A folder the Folders window listed, by its directory name.
+    Listed(String),
+    /// A directory the person chose in the native picker.
+    Chosen(PathBuf),
+}
+
+/// Open bundled app `app` on its fixed default folder, or with `folder`, on
+/// the folder the Folders window listed under that directory name. A window
+/// already open on the folder is revealed.
 #[tauri::command]
 #[specta::specta]
 pub async fn open_bundled_app(
@@ -160,54 +141,109 @@ pub async fn open_bundled_app(
     folder: Option<String>,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let paths = handle.state::<DesktopPaths>();
-        let listed = handle.state::<DataFolderScopes>();
-        let name = directory(&paths.folder_dir, &listed, app, folder.as_deref())?;
-        let label = assign(
-            handle.folders(),
-            &listed,
-            &paths.folder_dir,
-            app,
-            &name,
-            folder.is_none(),
-        )?;
-        open_window(&handle, &label, &app.window_title(&name), &app.path())
-            .map_err(|error| format!("{error:#}"))
+        let target = folder.map_or(AppFolder::Default, AppFolder::Listed);
+        open_on(&handle, app, target, build_app_window(app)).map(|_| ())
     })
     .await
     .map_err(|error| format!("the {} window could not be opened: {error}", app.name()))?
 }
 
-/// The name of the directory under `folder_dir` that `app` opens: its fixed
-/// default when `folder` is `None`, or the directory the Folders window
-/// listed under the scope `folder`. Whether it is there is checked by
-/// `assign`, under the registry's lock.
-fn directory(
-    folder_dir: &Path,
-    listed: &DataFolderScopes,
+/// Ask the person for a folder with the native picker and open bundled app
+/// `app` on it, or reveal the window already open on it. Answers whether a
+/// folder was chosen. The page passes no path: the picker answers Rust.
+#[tauri::command]
+#[specta::specta]
+pub async fn choose_folder_for_app(
+    handle: DesktopAppHandle,
     app: BundledApp,
-    folder: Option<&str>,
-) -> Result<String, String> {
-    let Some(scope) = folder else {
-        return Ok(default_name(folder_dir, app.name()));
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder_dir = handle.state::<DesktopPaths>().folder_dir.clone();
+        let picked = handle
+            .dialog()
+            .file()
+            .set_title(format!("Open a folder in {}", app.name()))
+            .set_directory(&folder_dir)
+            .blocking_pick_folder()
+            .map(|picked| picked.into_path())
+            .transpose()
+            .map_err(|error| format!("The chosen folder could not be read: {error}"))?;
+        open_chosen(&handle, app, picked, build_app_window(app))
+    })
+    .await
+    .map_err(|error| format!("the {} window could not be opened: {error}", app.name()))?
+}
+
+/// Builds the WebView of an app's window, at the app's page.
+fn build_app_window(
+    app: BundledApp,
+) -> impl FnOnce(&DesktopAppHandle, &str, &str) -> anyhow::Result<WebviewWindow<tauri::Wry>>
+       + Send
+       + 'static {
+    let path = app.path();
+    move |handle, label, title| crate::create_app_window(handle, label, title, &path)
+}
+
+/// Open `app` on what the picker answered, or nothing when the person
+/// cancelled: whether a folder was chosen.
+pub(crate) fn open_chosen<R: Runtime>(
+    handle: &AppHandle<R>,
+    app: BundledApp,
+    picked: Option<PathBuf>,
+    build: impl FnOnce(&AppHandle<R>, &str, &str) -> anyhow::Result<WebviewWindow<R>> + Send + 'static,
+) -> Result<bool, String> {
+    let Some(path) = picked else {
+        return Ok(false);
     };
-    let name = listed
-        .listed_name(scope)
-        .ok_or_else(|| "That folder is not in the list of folders.".to_string())?;
-    // A case-insensitive disk names one directory by every casing.
-    if name.eq_ignore_ascii_case(EPICENTER_FOLDER) {
+    open_on(handle, app, AppFolder::Chosen(path), build).map(|_| true)
+}
+
+/// Resolve `target` for `app`, then reveal its window or bind and build it.
+pub(crate) fn open_on<R: Runtime>(
+    handle: &AppHandle<R>,
+    app: BundledApp,
+    target: AppFolder,
+    build: impl FnOnce(&AppHandle<R>, &str, &str) -> anyhow::Result<WebviewWindow<R>> + Send + 'static,
+) -> Result<(), String> {
+    let window = app_window(&handle.state::<DesktopPaths>(), app, target)?;
+    folder_windows::show(handle, window, build).map_err(|error| format!("{error:#}"))
+}
+
+/// The window `app` opens `target` in, with its directory resolved: made
+/// when it is the fixed default, found as it is otherwise, and refused when
+/// it overlaps Epicenter's own files.
+fn app_window(
+    paths: &DesktopPaths,
+    app: BundledApp,
+    target: AppFolder,
+) -> Result<FolderWindow, String> {
+    let folder_dir = &paths.folder_dir;
+    let (path, create) = match target {
+        AppFolder::Default => (folder_dir.join(default_name(folder_dir, app.name())), true),
+        AppFolder::Listed(name) => (listed_folder(folder_dir, &name)?, false),
+        AppFolder::Chosen(path) => (path, false),
+    };
+    let opened = if create {
+        Directory::create(&path)
+    } else {
+        Directory::existing(&path)
+    };
+    let directory = opened
+        .map_err(|error| format!("The folder could not be opened in {}: {error}", app.name()))?;
+    if overlaps_epicenter_files(paths, &directory) {
         return Err(format!(
-            "Epicenter's own folder cannot be opened in {}.",
+            "This folder holds Epicenter's own files, so it cannot be opened in {}.",
             app.name()
         ));
     }
-    Ok(name)
+    let title = app.window_title(&folder_windows::directory_name(&directory));
+    Ok(FolderWindow::new(app.page(), title, directory))
 }
 
 /// The name the default folder `default` has on disk. A case-insensitive
 /// disk that already holds `Todos` as `todos` lists it as `todos`, and the
-/// window and scope are named by the listed spelling, so the default is one
-/// directory with one window, not two. An exact `default` always wins, so a
+/// window is named by the canonical root, so the default is one directory
+/// with one window, not two. An exact `default` always wins, so a
 /// case-sensitive disk keeps its two directories apart.
 fn default_name(folder_dir: &Path, default: &str) -> String {
     let Ok(entries) = fs::read_dir(folder_dir) else {
@@ -234,99 +270,30 @@ fn default_name(folder_dir: &Path, default: &str) -> String {
     }
 }
 
-/// Permit `app`'s window on directory `name` into that directory's registry
-/// entry, and Whispering's into `so.epicenter` too, and hand it the entry's
-/// scope, before the window exists. Answers the window's label. A second
-/// open of the same directory reuses both. `fixed_default` lets a first open
-/// make the directory (`scope_for_window`).
-fn assign(
-    folders: &Folders,
-    listed: &DataFolderScopes,
-    folder_dir: &Path,
-    app: BundledApp,
-    name: &str,
-    fixed_default: bool,
-) -> Result<String, String> {
-    let label = app.window_label(name);
-    let scope = scope_for_window(folders, folder_dir, listed, name, fixed_default)?;
-    folders
-        .permit(&scope, &label)
-        .map_err(|error| format!("The folder \"{name}\" could not be opened: {error:?}"))?;
-    if app.reaches_connections() {
-        folders.permit(EPICENTER_FOLDER, &label).map_err(|error| {
-            format!(
-                "{} could not reach Epicenter's AI connections: {error:?}",
-                app.name()
-            )
-        })?;
-    }
-    folders.hand(
-        &label,
-        WindowFolder {
-            app: app.id().into(),
-            folder: scope,
-        },
-    );
-    Ok(label)
-}
-
-/// Open the window `label`, already assigned its folder, at `path`, or
-/// reveal it when it is open. The window is destroyed when it closes.
-fn open_window(
-    handle: &DesktopAppHandle,
-    label: &str,
-    title: &str,
-    path: &str,
-) -> anyhow::Result<()> {
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let window_app = handle.clone();
-    let label = label.to_string();
-    let title = title.to_string();
-    let path = path.to_string();
-    handle
-        .run_on_main_thread(move || {
-            let result = match window_app.get_webview_window(&label) {
-                Some(window) => {
-                    crate::focus(window);
-                    Ok(())
-                }
-                None => {
-                    crate::create_app_window(&window_app, &label, &title, &path).map(crate::focus)
-                }
-            };
-            let _ = sender.send(result);
-        })
-        .context("schedule the app window on the main thread")?;
-    receiver
-        .recv()
-        .context("the main thread stopped before opening the window")?
-}
-
 #[cfg(test)]
 mod tests {
-    //! The assignment through the folder plugin's real commands on the mock
-    //! runtime, as each page calls them when it opens its folder.
-
-    use std::path::PathBuf;
+    //! The routing of each kind of folder to an app's window, through the
+    //! folder plugin's real commands on the mock runtime, as each page calls
+    //! them when it opens its folder. A mock window stands in for the
+    //! WebView, and a test passes the path the picker would answer.
 
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
     use tauri::utils::acl::ExecutionContext;
     use tauri::webview::InvokeRequest;
-    use tauri::{App, WebviewWindow, WebviewWindowBuilder};
-
-    use tauri_plugin_epicenter_folder::GrantError;
+    use tauri::{App, WebviewWindowBuilder};
+    use tauri_plugin_epicenter_folder::FolderExt;
 
     use super::*;
-    use crate::data_folders::{list_in, register_epicenter_folder};
+    use crate::data_folders::{list_in, EPICENTER_FOLDER};
 
     use super::BundledApp::{Capture, Honeycrisp, Todos, Whispering};
 
     struct Fixture {
         app: App<MockRuntime>,
         folder_dir: PathBuf,
-        listed: DataFolderScopes,
+        data_dir: PathBuf,
         _temporary: tempfile::TempDir,
     }
 
@@ -336,38 +303,41 @@ mod tests {
         }
     }
 
+    /// A mock window in place of the app's WebView.
+    fn mock_window(
+        app: &AppHandle<MockRuntime>,
+        label: &str,
+        _title: &str,
+    ) -> anyhow::Result<WebviewWindow<MockRuntime>> {
+        Ok(WebviewWindowBuilder::new(app, label, Default::default()).build()?)
+    }
+
     impl Fixture {
-        /// List the folder root as the Folders window does, by scope and title.
-        fn list(&self) -> Vec<(String, String)> {
-            list_in(&self.folder_dir, self.app.folders(), &self.listed)
-                .unwrap()
-                .into_iter()
-                .map(|folder| (folder.id, folder.title))
-                .collect()
+        /// Open `app` on `target` as the commands do. The boolean records
+        /// whether its window already existed before this call.
+        fn open(&self, app: BundledApp, target: AppFolder) -> Result<(String, bool), String> {
+            let paths = self.app.state::<DesktopPaths>();
+            let label = app_window(&paths, app, target.clone())?.label;
+            let was_open = self.app.get_webview_window(&label).is_some();
+            open_on(self.app.handle(), app, target, mock_window).map(|()| (label, was_open))
         }
 
-        /// What `open_bundled_app` does before it makes the window.
-        fn open(&self, app: BundledApp, folder: Option<&str>) -> Result<String, String> {
-            let name = directory(&self.folder_dir, &self.listed, app, folder)?;
-            assign(
-                self.app.folders(),
-                &self.listed,
-                &self.folder_dir,
-                app,
-                &name,
-                folder.is_none(),
-            )
+        fn listed(&self, app: BundledApp, name: &str) -> Result<String, String> {
+            self.open(app, AppFolder::Listed(name.to_string()))
+                .map(|(label, _)| label)
+        }
+
+        fn default(&self, app: BundledApp) -> Result<String, String> {
+            self.open(app, AppFolder::Default).map(|(label, _)| label)
         }
 
         fn window(&self, label: &str) -> WebviewWindow<MockRuntime> {
-            WebviewWindowBuilder::new(&self.app, label, Default::default())
-                .build()
-                .expect("mock window")
+            self.app.get_webview_window(label).expect("an open window")
         }
 
         /// A data folder with one todo in it.
-        fn folder_with_todo(&self, name: &str, id: &str) -> PathBuf {
-            let root = self.folder_dir.join(name);
+        fn folder_with_todo(&self, parent: &Path, name: &str, id: &str) -> PathBuf {
+            let root = parent.join(name);
             fs::create_dir_all(root.join("todos")).unwrap();
             fs::write(
                 root.join("todos").join(format!("{id}.md")),
@@ -376,14 +346,26 @@ mod tests {
             .unwrap();
             root
         }
+
+        fn listed_with_todo(&self, name: &str, id: &str) -> PathBuf {
+            self.folder_with_todo(&self.folder_dir.clone(), name, id)
+        }
+
+        /// A directory outside the folder root, as a person might choose.
+        fn elsewhere(&self, name: &str) -> PathBuf {
+            let path = self.folder_dir.with_file_name(name);
+            fs::create_dir_all(&path).unwrap();
+            path
+        }
     }
 
     fn fixture() -> Fixture {
         let temporary = tempfile::tempdir().unwrap();
-        let folder_dir = fs::canonicalize(temporary.path())
-            .unwrap()
-            .join("Epicenter");
+        let root = fs::canonicalize(temporary.path()).unwrap();
+        let folder_dir = root.join("Epicenter");
         fs::create_dir_all(&folder_dir).unwrap();
+        let data_dir = root.join("Application Support").join("so.epicenter");
+        fs::create_dir_all(&data_dir).unwrap();
 
         let mut context = mock_context(noop_assets());
         for command in tauri_plugin_epicenter_folder::COMMANDS {
@@ -394,13 +376,16 @@ mod tests {
         }
         let app = mock_builder()
             .plugin(tauri_plugin_epicenter_folder::init())
+            .manage(DesktopPaths {
+                data_dir: data_dir.clone(),
+                folder_dir: folder_dir.clone(),
+            })
             .build(context)
             .expect("mock app");
-        register_epicenter_folder(app.folders(), &folder_dir).unwrap();
         Fixture {
             app,
             folder_dir,
-            listed: DataFolderScopes::default(),
+            data_dir,
             _temporary: temporary,
         }
     }
@@ -425,29 +410,27 @@ mod tests {
         .map(|body| body.deserialize::<Value>().expect("a JSON response"))
     }
 
-    /// What `app`'s page does in `openFolder({ tables })`: ask which folder
-    /// the window was handed, then be granted it. Answers the scope and the
-    /// granted root.
-    fn open_assigned(window: &WebviewWindow<MockRuntime>, app: BundledApp) -> (String, String) {
-        let handed = invoke(window, "window_folder", json!({})).unwrap();
-        assert_eq!(handed["app"], app.id());
-        let scope = handed["folder"].as_str().unwrap().to_string();
-        let granted = invoke(window, "grant_directory", json!({ "scope": scope })).unwrap();
-        (scope, granted["root"].as_str().unwrap().to_string())
-    }
-
-    fn todo_files(window: &WebviewWindow<MockRuntime>, scope: &str) -> Value {
+    /// What `app`'s page does in `openFolder({ tables })`, then a listing of
+    /// its todos: the files the window reaches.
+    fn todo_files(window: &WebviewWindow<MockRuntime>) -> Value {
+        invoke(window, "open_folder", json!({})).unwrap();
         invoke(
             window,
             "read_folder_children",
-            json!({ "scope": scope, "directory": "todos" }),
+            json!({ "directory": "todos" }),
         )
         .unwrap()["files"]
             .clone()
     }
 
-    fn refusal(window: &WebviewWindow<MockRuntime>, scope: &str) -> Value {
-        invoke(window, "grant_directory", json!({ "scope": scope })).unwrap_err()["name"].clone()
+    fn bound_root(fixture: &Fixture, label: &str) -> PathBuf {
+        fixture
+            .app
+            .folders()
+            .bound(label)
+            .unwrap()
+            .root()
+            .to_path_buf()
     }
 
     #[test]
@@ -457,7 +440,7 @@ mod tests {
                 app.page(),
                 app.name(),
                 app.path(),
-                app.window_prefix(),
+                format!("{}:", app.page()),
                 app.capability(),
             )
         });
@@ -488,58 +471,39 @@ mod tests {
         for page in ["home", "folders", "apps", "so.epicenter.todos", "Todos"] {
             assert_eq!(BundledApp::from_page(page), None, "{page}");
         }
+        assert_eq!(Todos.window_title("Todos"), "Todos");
         assert_eq!(
-            BundledApp::ALL
-                .iter()
-                .filter(|app| app.reaches_connections())
-                .collect::<Vec<_>>(),
-            [&Whispering]
+            Whispering.window_title("Groceries"),
+            "Whispering: Groceries"
         );
     }
 
     /// Two existing folders, each opened in its own window of one page: each
-    /// window is handed and granted its own root, and neither is granted the
-    /// other's. Every bundled app assigns the same way.
+    /// window reaches its own root and not the other's. Every bundled app
+    /// routes the same way, and opening a folder again reveals its window.
     #[test]
-    fn two_listed_folders_open_in_one_page_each_granted_alone() {
+    fn two_listed_folders_open_in_one_page_each_bound_alone() {
         for app in BundledApp::ALL {
             let fixture = fixture();
-            let a = fixture.folder_with_todo("A", "milk");
-            let b = fixture.folder_with_todo("B", "eggs");
-            assert_eq!(
-                fixture.list(),
-                [
-                    ("data:A".to_string(), "A".to_string()),
-                    ("data:B".to_string(), "B".to_string()),
-                ]
-            );
+            let a = fixture.listed_with_todo("A", "milk");
+            let b = fixture.listed_with_todo("B", "eggs");
 
-            let label_a = fixture.open(app, Some("data:A")).unwrap();
-            let label_b = fixture.open(app, Some("data:B")).unwrap();
+            let label_a = fixture.listed(app, "A").unwrap();
+            let label_b = fixture.listed(app, "B").unwrap();
             assert_ne!(label_a, label_b);
             for label in [&label_a, &label_b] {
-                assert!(label.starts_with(&app.window_prefix()), "{label}");
+                assert!(label.starts_with(&format!("{}:", app.page())), "{label}");
             }
-            let window_a = fixture.window(&label_a);
-            let window_b = fixture.window(&label_b);
+            assert_eq!(bound_root(&fixture, &label_a), a);
+            assert_eq!(bound_root(&fixture, &label_b), b);
+            assert_eq!(todo_files(&fixture.window(&label_a)), json!(["milk.md"]));
+            assert_eq!(todo_files(&fixture.window(&label_b)), json!(["eggs.md"]));
 
-            let (scope_a, root_a) = open_assigned(&window_a, app);
-            let (scope_b, root_b) = open_assigned(&window_b, app);
-            assert_eq!(root_a, a.to_str().unwrap());
-            assert_eq!(root_b, b.to_str().unwrap());
-            assert_eq!(todo_files(&window_a, &scope_a), json!(["milk.md"]));
-            assert_eq!(todo_files(&window_b, &scope_b), json!(["eggs.md"]));
-
-            for (window, other) in [(&window_a, &scope_b), (&window_b, &scope_a)] {
-                assert_eq!(
-                    refusal(window, other),
-                    "WindowNotPermitted",
-                    "{app:?} {other}"
-                );
-            }
-            // Opening A again reuses its window and scope.
-            assert_eq!(fixture.open(app, Some("data:A")).unwrap(), label_a);
-            assert_eq!(open_assigned(&window_a, app), (scope_a, root_a));
+            assert_eq!(
+                fixture.open(app, AppFolder::Listed("A".into())).unwrap(),
+                (label_a.clone(), true)
+            );
+            assert_eq!(bound_root(&fixture, &label_a), a);
         }
     }
 
@@ -549,82 +513,161 @@ mod tests {
     #[test]
     fn a_folder_named_by_an_installed_apps_id_opens_in_every_bundled_app() {
         let fixture = fixture();
-        let old = fixture.folder_with_todo("so.epicenter.todos", "milk");
+        let old = fixture.listed_with_todo("so.epicenter.todos", "milk");
         assert_eq!(
-            fixture.list(),
-            [(
-                "data:so.epicenter.todos".to_string(),
-                "so.epicenter.todos".to_string()
-            )]
+            list_in(&fixture.folder_dir).unwrap()[0].name,
+            "so.epicenter.todos"
         );
         for app in BundledApp::ALL {
-            let window =
-                fixture.window(&fixture.open(app, Some("data:so.epicenter.todos")).unwrap());
-            let (scope, root) = open_assigned(&window, app);
-            assert_eq!(scope, "data:so.epicenter.todos");
-            assert_eq!(root, old.to_str().unwrap());
-            assert_eq!(todo_files(&window, &scope), json!(["milk.md"]));
+            let label = fixture.listed(app, "so.epicenter.todos").unwrap();
+            assert_eq!(bound_root(&fixture, &label), old);
+            assert_eq!(todo_files(&fixture.window(&label)), json!(["milk.md"]));
         }
     }
 
-    /// Different apps on different folders are granted only their own; two
-    /// apps on one folder are two windows on its one registry entry.
+    /// Two apps on one folder are two windows on its one root; neither reaches
+    /// a folder it was not opened on.
     #[test]
-    fn each_apps_window_is_granted_its_own_folder_alone() {
+    fn two_apps_on_one_folder_are_two_windows_on_one_root() {
         let fixture = fixture();
-        let a = fixture.folder_with_todo("A", "milk");
-        fixture.folder_with_todo("B", "eggs");
-        fixture.list();
+        let a = fixture.listed_with_todo("A", "milk");
+        fixture.listed_with_todo("B", "eggs");
 
-        let todos = fixture.window(&fixture.open(Todos, Some("data:A")).unwrap());
-        let capture = fixture.window(&fixture.open(Capture, Some("data:B")).unwrap());
-        let whispering = fixture.window(&fixture.open(Whispering, Some("data:A")).unwrap());
-        assert_eq!(open_assigned(&todos, Todos).0, "data:A");
-        assert_eq!(open_assigned(&capture, Capture).0, "data:B");
-        let (scope, root) = open_assigned(&whispering, Whispering);
-        assert_eq!(
-            (scope.as_str(), root.as_str()),
-            ("data:A", a.to_str().unwrap())
-        );
-
-        assert_eq!(refusal(&todos, "data:B"), "WindowNotPermitted");
-        assert_eq!(refusal(&capture, "data:A"), "WindowNotPermitted");
-        assert_eq!(refusal(&whispering, "data:B"), "WindowNotPermitted");
-        // Opening Honeycrisp on B permits no window but its own.
-        fixture.open(Honeycrisp, Some("data:B")).unwrap();
-        assert_eq!(refusal(&todos, "data:B"), "WindowNotPermitted");
+        let todos = fixture.listed(Todos, "A").unwrap();
+        let capture = fixture.listed(Capture, "B").unwrap();
+        let whispering = fixture.listed(Whispering, "A").unwrap();
+        assert_ne!(todos, whispering);
+        assert_eq!(bound_root(&fixture, &todos), a);
+        assert_eq!(bound_root(&fixture, &whispering), a);
+        assert_eq!(todo_files(&fixture.window(&capture)), json!(["eggs.md"]));
+        assert_eq!(todo_files(&fixture.window(&whispering)), json!(["milk.md"]));
     }
 
-    /// Whispering's window alone is permitted into `so.epicenter`, where its
-    /// AI connections are rows, and it is still handed its own folder. No
-    /// app's window is handed `so.epicenter`, and no other app's reaches it.
+    fn refusal(app: BundledApp) -> String {
+        format!(
+            "This folder holds Epicenter's own files, so it cannot be opened in {}.",
+            app.name()
+        )
+    }
+
+    /// No bundled app opens a folder that overlaps Epicenter's own files:
+    /// `so.epicenter` listed, in another casing, or chosen, anything in it,
+    /// the app data, or a directory holding either, including the folder root.
+    /// Nothing is bound or opened. The root's other direct children and a
+    /// folder elsewhere still open.
     #[test]
-    fn whispering_alone_reaches_epicenters_connections() {
+    fn no_bundled_app_opens_a_folder_that_overlaps_epicenters_own_files() {
         let fixture = fixture();
-        fixture.folder_with_todo("A", "milk");
-        fixture.list();
+        let own = fixture.folder_dir.join(EPICENTER_FOLDER);
+        fs::create_dir_all(own.join("connections")).unwrap();
+        let chosen = [
+            own.clone(),
+            own.join("connections"),
+            fixture.folder_dir.clone(),
+            fixture.folder_dir.parent().unwrap().to_path_buf(),
+            fixture.data_dir.clone(),
+            fixture.data_dir.parent().unwrap().to_path_buf(),
+        ];
         for app in BundledApp::ALL {
-            for folder in [None, Some("data:A")] {
-                let window = fixture.window(&fixture.open(app, folder).unwrap());
-                let (scope, _) = open_assigned(&window, app);
-                assert_ne!(scope, EPICENTER_FOLDER);
-                let connections = invoke(
-                    &window,
-                    "grant_directory",
-                    json!({ "scope": EPICENTER_FOLDER }),
+            assert_eq!(
+                fixture.listed(app, EPICENTER_FOLDER).unwrap_err(),
+                refusal(app)
+            );
+            if fixture.folder_dir.join("SO.EPICENTER").exists() {
+                assert_eq!(
+                    fixture.listed(app, "SO.EPICENTER").unwrap_err(),
+                    refusal(app)
                 );
-                match app {
-                    Whispering => {
-                        assert!(connections.is_ok(), "{connections:?}");
-                    }
-                    _ => assert_eq!(
-                        connections.unwrap_err()["name"],
-                        "WindowNotPermitted",
-                        "{app:?}"
-                    ),
-                }
+            }
+            for path in &chosen {
+                assert_eq!(
+                    open_chosen(fixture.app.handle(), app, Some(path.clone()), mock_window)
+                        .unwrap_err(),
+                    refusal(app),
+                    "{path:?}"
+                );
             }
         }
+        assert!(fixture.app.webview_windows().is_empty());
+
+        let listed = fixture.listed_with_todo("A", "milk");
+        let elsewhere = fixture.folder_with_todo(&fixture.elsewhere("place"), "Notes", "eggs");
+        for app in BundledApp::ALL {
+            let label = fixture.listed(app, "A").unwrap();
+            assert_eq!(bound_root(&fixture, &label), listed);
+            let (chosen, was_open) = fixture
+                .open(app, AppFolder::Chosen(listed.clone()))
+                .unwrap();
+            assert_eq!((chosen, was_open), (label, true));
+            let (label, _) = fixture
+                .open(app, AppFolder::Chosen(elsewhere.clone()))
+                .unwrap();
+            assert_eq!(bound_root(&fixture, &label), elsewhere);
+        }
+    }
+
+    /// A linked parent is no route around the refusal: the folder root, the
+    /// app data, Settings' folder, and the directories holding them are
+    /// refused through it, while a direct child opens on its real root.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_parent_reaches_no_folder_that_overlaps_epicenters_own_files() {
+        let fixture = fixture();
+        let own = fixture.folder_dir.join(EPICENTER_FOLDER);
+        fs::create_dir_all(own.join("connections")).unwrap();
+        let root = fixture.folder_dir.parent().unwrap();
+        let alias = fixture.elsewhere("place").join("alias");
+        std::os::unix::fs::symlink(root, &alias).unwrap();
+        let linked_root = fixture.elsewhere("other").join("linked-root");
+        std::os::unix::fs::symlink(&fixture.folder_dir, &linked_root).unwrap();
+        let through = |path: &Path| alias.join(path.strip_prefix(root).unwrap());
+
+        for app in BundledApp::ALL {
+            for path in [
+                through(&fixture.folder_dir),
+                through(&own),
+                through(&own.join("connections")),
+                through(&fixture.data_dir),
+                through(fixture.data_dir.parent().unwrap()),
+                linked_root.join(EPICENTER_FOLDER),
+            ] {
+                assert_eq!(
+                    fixture
+                        .open(app, AppFolder::Chosen(path.clone()))
+                        .unwrap_err(),
+                    refusal(app),
+                    "{path:?}"
+                );
+            }
+        }
+        assert!(fixture.app.webview_windows().is_empty());
+
+        let child = fixture.listed_with_todo("A", "milk");
+        let (label, _) = fixture
+            .open(Todos, AppFolder::Chosen(linked_root.join("A")))
+            .unwrap();
+        assert_eq!(bound_root(&fixture, &label), child);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_epicenter_parent_keeps_settings_reserved() {
+        let fixture = fixture();
+        let real = fixture.folder_dir.with_file_name("actual-folders");
+        fs::rename(&fixture.folder_dir, &real).unwrap();
+        std::os::unix::fs::symlink(&real, &fixture.folder_dir).unwrap();
+        let own = real.join(EPICENTER_FOLDER);
+        fs::create_dir(&own).unwrap();
+
+        for app in BundledApp::ALL {
+            assert!(fixture.listed(app, EPICENTER_FOLDER).is_err());
+            for path in [own.clone(), fixture.folder_dir.join(EPICENTER_FOLDER)] {
+                assert!(fixture.open(app, AppFolder::Chosen(path)).is_err());
+            }
+        }
+        assert!(fixture.app.webview_windows().is_empty());
+        let todos = fixture.default(Todos).unwrap();
+        assert_eq!(bound_root(&fixture, &todos), real.join("Todos"));
     }
 
     /// A listed folder that is gone is refused: nothing is created in its
@@ -633,111 +676,75 @@ mod tests {
     fn a_missing_listed_folder_is_refused_without_creating_it_or_the_default() {
         for app in BundledApp::ALL {
             let fixture = fixture();
-            fixture.folder_with_todo("A", "milk");
-            fixture.list();
+            fixture.listed_with_todo("A", "milk");
             fs::remove_dir_all(fixture.folder_dir.join("A")).unwrap();
 
-            let refused = fixture.open(app, Some("data:A")).unwrap_err();
+            let refused = fixture.listed(app, "A").unwrap_err();
             assert_eq!(refused, "The folder \"A\" is not there anymore.");
             assert!(!fixture.folder_dir.join("A").exists());
             assert!(!fixture.folder_dir.join(app.name()).exists());
-            assert_eq!(fixture.app.folders().handed(&app.window_label("A")), None);
 
-            // A scope the Folders window never listed, and a path, open nothing.
-            for unlisted in ["data:B", "todos:A", "/tmp", "../A", ""] {
-                assert!(fixture.open(app, Some(unlisted)).is_err(), "{unlisted}");
+            // A name that is not one listed directory, and a path, open nothing.
+            for unlisted in ["B", "data:A", "/tmp", "../A", "", "A/B"] {
+                assert!(fixture.listed(app, unlisted).is_err(), "{unlisted}");
             }
             assert!(!fixture.folder_dir.join(app.name()).exists());
+            assert!(fixture.app.webview_windows().is_empty());
         }
     }
 
+    /// Opening an app makes its fixed default when it is missing, and binds
+    /// the window to that directory, empty. Each app has its own. Opening it
+    /// again, or opening the listed default, reveals the same window.
     #[test]
-    fn epicenters_own_folder_is_handed_to_no_bundled_app() {
-        let fixture = fixture();
-        for app in BundledApp::ALL {
-            let refused = fixture.open(app, Some(EPICENTER_FOLDER)).unwrap_err();
-            assert_eq!(
-                refused,
-                format!("Epicenter's own folder cannot be opened in {}.", app.name())
-            );
-            assert_eq!(
-                fixture
-                    .app
-                    .folders()
-                    .handed(&app.window_label(EPICENTER_FOLDER)),
-                None
-            );
-        }
-    }
-
-    /// A folder removed after its window was assigned it is refused at the
-    /// grant, as a data folder, rather than made again.
-    #[test]
-    fn an_assigned_folder_removed_later_is_missing_not_recreated() {
-        let fixture = fixture();
-        fixture.folder_with_todo("A", "milk");
-        fixture.list();
-        let window = fixture.window(&fixture.open(Whispering, Some("data:A")).unwrap());
-        fs::remove_dir_all(fixture.folder_dir.join("A")).unwrap();
-
-        assert_eq!(refusal(&window, "data:A"), "Missing");
-        assert!(!fixture.folder_dir.join("A").exists());
-    }
-
-    /// Opening an app makes its fixed default when it is missing, and the
-    /// window is granted that directory, empty. Each app has its own.
-    #[test]
-    fn each_missing_default_folder_is_created_and_granted() {
+    fn each_missing_default_folder_is_created_and_bound() {
         let fixture = fixture();
         for app in BundledApp::ALL {
             let default = fixture.folder_dir.join(app.name());
             assert!(!default.exists());
 
-            let label = fixture.open(app, None).unwrap();
+            let (label, was_open) = fixture.open(app, AppFolder::Default).unwrap();
+            assert_eq!(was_open, false);
             assert!(default.is_dir());
-            let window = fixture.window(&label);
-            let (scope, root) = open_assigned(&window, app);
-            assert_eq!(scope, format!("data:{}", app.name()));
-            assert_eq!(root, default.to_str().unwrap());
+            assert_eq!(bound_root(&fixture, &label), default);
             assert_eq!(fs::read_dir(&default).unwrap().count(), 0);
 
-            // Opening it again reuses the window and its scope, and Open in
-            // on the listed default opens the same window.
-            assert_eq!(fixture.open(app, None).unwrap(), label);
-            assert!(fixture
-                .list()
-                .contains(&(scope.clone(), app.name().to_string())));
-            assert_eq!(fixture.open(app, Some(scope.as_str())).unwrap(), label);
+            assert_eq!(
+                fixture.open(app, AppFolder::Default).unwrap(),
+                (label.clone(), true)
+            );
+            assert_eq!(fixture.listed(app, app.name()).unwrap(), label);
+            assert_eq!(
+                fixture
+                    .open(app, AppFolder::Chosen(default.clone()))
+                    .unwrap(),
+                (label.clone(), true)
+            );
         }
-        assert_eq!(
-            fixture
-                .list()
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect::<Vec<_>>(),
-            [
-                "data:Capture",
-                "data:Honeycrisp",
-                "data:Todos",
-                "data:Whispering"
-            ]
-        );
+        let names: Vec<String> = list_in(&fixture.folder_dir)
+            .unwrap()
+            .into_iter()
+            .map(|folder| folder.name)
+            .collect();
+        assert_eq!(names, ["Capture", "Honeycrisp", "Todos", "Whispering"]);
     }
 
     #[test]
     fn a_removed_default_is_recreated_when_opened_again() {
         for app in BundledApp::ALL {
             let fixture = fixture();
-            let label = fixture.open(app, None).unwrap();
-            let window = fixture.window(&label);
-            open_assigned(&window, app);
+            let label = fixture.default(app).unwrap();
             let default = fixture.folder_dir.join(app.name());
             fs::remove_dir(&default).unwrap();
+            assert_eq!(
+                invoke(&fixture.window(&label), "open_folder", json!({})).unwrap_err(),
+                json!({ "name": "Missing" })
+            );
 
-            assert_eq!(fixture.open(app, None).unwrap(), label);
+            assert_eq!(fixture.default(app).unwrap(), label);
             assert!(default.is_dir());
             assert_eq!(fs::read_dir(&default).unwrap().count(), 0);
-            open_assigned(&window, app);
+            invoke(&fixture.window(&label), "open_folder", json!({})).unwrap();
         }
     }
 
@@ -746,96 +753,119 @@ mod tests {
     #[test]
     fn a_linked_default_folder_is_refused() {
         let fixture = fixture();
-        let elsewhere = fixture.folder_dir.with_file_name("elsewhere");
-        fs::create_dir_all(&elsewhere).unwrap();
+        let elsewhere = fixture.elsewhere("elsewhere");
         std::os::unix::fs::symlink(&elsewhere, fixture.folder_dir.join(Whispering.name())).unwrap();
-        assert!(fixture.open(Whispering, None).is_err());
+        assert!(fixture.default(Whispering).is_err());
+        assert!(fixture.app.webview_windows().is_empty());
     }
 
-    /// Opening a listed folder in an app adds its window to the entry the
-    /// Folders window already uses, not a second scope over the same
-    /// directory: both windows are granted the same root under `data:A`.
+    /// The picker's answer is routed to one window per app and canonical
+    /// directory: the same directory again reveals it, and two directories
+    /// with one name in different places are two windows. A cancelled pick
+    /// opens nothing.
     #[test]
-    fn an_apps_window_shares_the_folders_windows_registry_entry() {
+    fn a_chosen_folder_opens_its_own_window_and_again_reveals_it() {
         let fixture = fixture();
-        let a = fixture.folder_with_todo("A", "milk");
-        fixture.list();
-        let label = fixture.open(Todos, Some("data:A")).unwrap();
+        let home = fixture.elsewhere("home");
+        let work = fixture.elsewhere("work");
+        let home_notes = fixture.folder_with_todo(&home, "Notes", "milk");
+        let work_notes = fixture.folder_with_todo(&work, "Notes", "eggs");
 
-        let registry = fixture.app.folders();
         assert_eq!(
-            registry.handed(&label),
-            Some(WindowFolder {
-                app: Todos.id().into(),
-                folder: "data:A".into(),
-            })
+            open_chosen(fixture.app.handle(), Todos, None, mock_window),
+            Ok(false)
         );
-        let folders = fixture.window("folders");
-        let todos = fixture.window(&label);
+        assert!(fixture.app.webview_windows().is_empty());
+
         assert_eq!(
-            invoke(&folders, "window_folder", json!({})).unwrap(),
-            Value::Null
+            open_chosen(
+                fixture.app.handle(),
+                Todos,
+                Some(home_notes.clone()),
+                mock_window
+            ),
+            Ok(true)
         );
-        let from_folders = invoke(&folders, "grant_directory", json!({ "scope": "data:A" }));
-        let (scope, root) = open_assigned(&todos, Todos);
-        assert_eq!(scope, "data:A");
-        assert_eq!(root, a.to_str().unwrap());
-        assert_eq!(from_folders.unwrap()["root"], root.as_str());
-        // Listing again, and opening again, add no scope and no window.
-        fixture.list();
-        assert_eq!(fixture.open(Todos, Some("data:A")).unwrap(), label);
+        let (home_label, was_open) = fixture
+            .open(Todos, AppFolder::Chosen(home_notes.clone()))
+            .unwrap();
+        assert_eq!(was_open, true);
+        // Reached through another spelling of the same directory: one window.
+        let roundabout = home_notes.join("todos").join("..");
         assert_eq!(
-            registry.permit("todos:A", &label),
-            Err(GrantError::UnknownScope {
-                scope: "todos:A".into()
-            })
+            fixture.open(Todos, AppFolder::Chosen(roundabout)).unwrap(),
+            (home_label.clone(), true)
         );
-        assert_eq!(refusal(&todos, EPICENTER_FOLDER), "WindowNotPermitted");
+        let (work_label, was_open) = fixture
+            .open(Todos, AppFolder::Chosen(work_notes.clone()))
+            .unwrap();
+        assert_eq!(was_open, false);
+        assert_ne!(home_label, work_label);
+        assert_eq!(todo_files(&fixture.window(&home_label)), json!(["milk.md"]));
+        assert_eq!(todo_files(&fixture.window(&work_label)), json!(["eggs.md"]));
+        // Another app on the same chosen directory is its own window.
+        let (capture, _) = fixture
+            .open(Capture, AppFolder::Chosen(home_notes.clone()))
+            .unwrap();
+        assert_ne!(capture, home_label);
+        assert_eq!(bound_root(&fixture, &capture), home_notes);
     }
 
-    /// Opening an app before the Folders window ever listed its default makes
-    /// it under the scope the listing then reports, not a second one.
+    /// A chosen directory is opened only as it is: one that is gone, a file,
+    /// or a link is refused and nothing is created. A linked parent is fine.
     #[test]
-    fn the_default_opened_before_listing_is_the_listings_scope() {
+    fn a_chosen_folder_must_be_an_existing_real_directory() {
         let fixture = fixture();
-        let label = fixture.open(Capture, None).unwrap();
-        assert_eq!(
-            fixture.app.folders().handed(&label).unwrap().folder,
-            "data:Capture"
-        );
-        assert_eq!(
-            fixture.list(),
-            [("data:Capture".to_string(), "Capture".to_string())]
-        );
-        let folders = fixture.window("folders");
-        let granted = invoke(
-            &folders,
-            "grant_directory",
-            json!({ "scope": "data:Capture" }),
-        );
-        assert_eq!(
-            granted.unwrap()["root"],
-            fixture.folder_dir.join("Capture").to_str().unwrap()
-        );
+        let place = fixture.elsewhere("place");
+        let gone = place.join("gone");
+        let file = place.join("notes.md");
+        fs::write(&file, "").unwrap();
+        for refused in [&gone, &file] {
+            assert!(
+                open_chosen(
+                    fixture.app.handle(),
+                    Honeycrisp,
+                    Some(refused.clone()),
+                    mock_window
+                )
+                .is_err(),
+                "{refused:?}"
+            );
+        }
+        assert!(!gone.exists());
+        assert!(fixture.app.webview_windows().is_empty());
+        #[cfg(unix)]
+        {
+            let real = fixture.elsewhere("real");
+            fs::create_dir(real.join("notes")).unwrap();
+            let link = place.join("link");
+            std::os::unix::fs::symlink(&real.join("notes"), &link).unwrap();
+            assert!(fixture.open(Honeycrisp, AppFolder::Chosen(link)).is_err());
+
+            let alias = place.join("alias");
+            std::os::unix::fs::symlink(&real, &alias).unwrap();
+            let (label, _) = fixture
+                .open(Honeycrisp, AppFolder::Chosen(alias.join("notes")))
+                .unwrap();
+            assert_eq!(bound_root(&fixture, &label), real.join("notes"));
+        }
     }
 
-    /// The app's fixed default can be recreated after the listing saw it;
-    /// a person-selected folder is still never recreated.
+    /// A window whose WebView could not be built leaves no binding: the next
+    /// open of the same folder builds it.
     #[test]
-    fn a_listed_default_removed_before_opening_is_recreated() {
+    fn a_window_that_fails_to_build_leaves_its_label_free() {
         let fixture = fixture();
-        fixture.folder_with_todo(Honeycrisp.name(), "milk");
-        fixture.list();
-        fs::remove_dir_all(fixture.folder_dir.join(Honeycrisp.name())).unwrap();
-        let label = fixture.open(Honeycrisp, None).unwrap();
-        assert_eq!(label, Honeycrisp.window_label(Honeycrisp.name()));
-        assert!(fixture.folder_dir.join(Honeycrisp.name()).is_dir());
-        assert_eq!(
-            fs::read_dir(fixture.folder_dir.join(Honeycrisp.name()))
-                .unwrap()
-                .count(),
-            0
+        fixture.listed_with_todo("A", "milk");
+        let failed = open_on(
+            fixture.app.handle(),
+            Todos,
+            AppFolder::Listed("A".into()),
+            |_, _, _| anyhow::bail!("no WebView"),
         );
+        assert!(failed.unwrap_err().contains("no WebView"));
+        let label = fixture.listed(Todos, "A").unwrap();
+        assert_eq!(todo_files(&fixture.window(&label)), json!(["milk.md"]));
     }
 
     /// The default is one directory with one window whatever its spelling on
@@ -849,84 +879,13 @@ mod tests {
         let insensitive = fixture.folder_dir.join("Todos").exists();
         assert_eq!(default(), if insensitive { "todos" } else { "Todos" });
         if insensitive {
-            let listed = fixture.list();
-            assert_eq!(listed, [("data:todos".to_string(), "todos".to_string())]);
-            let label = fixture.open(Todos, None).unwrap();
-            assert_eq!(label, Todos.window_label("todos"));
-            assert_eq!(fixture.open(Todos, Some("data:todos")).unwrap(), label);
-        }
-        // An exact `Todos` wins where both exist.
-        if !insensitive {
+            let label = fixture.default(Todos).unwrap();
+            assert_eq!(fixture.listed(Todos, "todos").unwrap(), label);
+        } else {
+            // An exact `Todos` wins where both exist.
             fs::create_dir(fixture.folder_dir.join("Todos")).unwrap();
             assert_eq!(default(), "Todos");
         }
-    }
-
-    #[test]
-    fn a_case_variant_default_removed_after_open_uses_the_fixed_spelling() {
-        let fixture = fixture();
-        fs::create_dir(fixture.folder_dir.join("todos")).unwrap();
-        if !fixture.folder_dir.join("Todos").exists() {
-            return; // This filesystem distinguishes the names.
-        }
-        fixture.list();
-        let label = fixture.open(Todos, None).unwrap();
-        assert_eq!(label, Todos.window_label("todos"));
-        fs::remove_dir(fixture.folder_dir.join("todos")).unwrap();
-        let next = fixture.open(Todos, None).unwrap();
-        assert_eq!(next, Todos.window_label("Todos"));
-        assert!(fixture.folder_dir.join("Todos").is_dir());
-    }
-
-    /// No window but the ones assigned a folder is handed or granted it,
-    /// except the Folders window, which holds the entry already: not another
-    /// app's window on another folder, and not Settings.
-    #[test]
-    fn no_other_window_is_handed_or_granted_a_bundled_apps_folder() {
-        let fixture = fixture();
-        fixture.folder_with_todo("A", "milk");
-        fixture.list();
-        fixture.open(Whispering, Some("data:A")).unwrap();
-
-        let other_folder = Todos.window_label("B");
-        let other_app = Capture.window_label("A");
-        for label in ["home", other_folder.as_str(), other_app.as_str()] {
-            let window = fixture.window(label);
-            assert_eq!(
-                invoke(&window, "window_folder", json!({})).unwrap(),
-                if label == "home" {
-                    json!({ "app": "so.epicenter", "folder": "so.epicenter" })
-                } else {
-                    Value::Null
-                },
-                "{label}"
-            );
-            assert_eq!(refusal(&window, "data:A"), "WindowNotPermitted", "{label}");
-        }
-    }
-
-    #[test]
-    fn a_window_label_is_one_app_and_folder_and_a_valid_label() {
-        for (app, name, label) in [
-            (Todos, "Todos", "todos:546f646f73"),
-            (Todos, "My notes", "todos:4d79206e6f746573"),
-            (Whispering, "My notes", "whispering:4d79206e6f746573"),
-            (Capture, "A", "capture:41"),
-            (Honeycrisp, "A", "honeycrisp:41"),
-        ] {
-            let made = app.window_label(name);
-            assert_eq!(made, label);
-            assert!(made
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '/' | ':' | '_')));
-        }
-        assert_ne!(Todos.window_label("a"), Todos.window_label("b"));
-        assert_ne!(Todos.window_label("a"), Capture.window_label("a"));
-        assert_eq!(Todos.window_title("Todos"), "Todos");
-        assert_eq!(
-            Whispering.window_title("Groceries"),
-            "Whispering: Groceries"
-        );
     }
 
     /// The build script builds every page in the table from its app's

@@ -1,65 +1,32 @@
 <script lang="ts">
 	/**
-	 * The Folders window, which is what opening Epicenter shows (ADR-0537):
-	 * every data folder under the Epicenter folder, the apps that open each,
-	 * and the one folder opened. The shell lists the folders
-	 * (`list_data_folders`) and permits this window into each, so
-	 * `openFolder({ directory, tables: {} })` opens one by the scope the
-	 * listing names. The window knows no app's schema, so it opens every
-	 * folder with no tables and edits its files as the text they hold; it
-	 * writes nothing on opening. One folder is open at a time
-	 * (`folder-switch.svelte.ts`): choosing another first sends what was
-	 * typed in the open one and waits for every save; a save that failed
-	 * keeps that folder open with its typing, and says which files.
+	 * The Folders window, which is what opening Epicenter shows (ADR-0537): a
+	 * launcher over every data folder under the Epicenter folder and the apps
+	 * Epicenter bundles. It opens no folder itself. The shell lists the
+	 * folders by directory name and title (`list_data_folders`), and the list
+	 * is read again when the shell reports that one appeared, went, or changed
+	 * its `epicenter.json` (`DATA_FOLDERS_CHANGED`).
 	 *
-	 * The open folder is read through TanStack Query, and this root wires the
-	 * folder's one channel of change to the cache (ADR-0548): each
-	 * `onChange` report invalidates the list and the files it names, or
-	 * everything when it names none. The subscription lives exactly as long
-	 * as the folder is open. Focus refetch is off: the channel is the one
-	 * detector of outside changes. The list of folders is read again when
-	 * the shell reports that one appeared, went, or changed its
-	 * `epicenter.json` (`DATA_FOLDERS_CHANGED`).
-	 *
-	 * "Open with" opens an app on that folder through the same verb as the
-	 * Apps list, which opens it on its default folder. Every app Epicenter
-	 * bundles, Todos, Capture, Honeycrisp, and Whispering, is offered on
-	 * every folder but Epicenter's own (`openers.ts`); each app interprets it
-	 * through its own table schemas. Each opens with `open_bundled_app`: from
-	 * the Apps list on the app's default folder under the Epicenter folder,
-	 * and from "Open with" on the listed folder, which must still be there.
-	 * Nothing is installed, built, or approved, and the page passes only the
-	 * listed scope, never a path. The Settings button opens Settings with
+	 * Choosing a folder opens its own editor window (`open_folder_editor`),
+	 * or reveals the one already open on it; that window edits the folder's
+	 * files as text. "Open with" opens an app on that folder, and the Apps
+	 * list opens an app on its default folder, or on a folder the person
+	 * chooses in the native picker, which the shell opens and answers
+	 * (`open_bundled_app`, `choose_folder_for_app`). Every app Epicenter
+	 * bundles is offered on every folder but Epicenter's own (`openers.ts`).
+	 * Nothing is installed, built, or approved, and the page passes only a
+	 * listed name, never a path. The Settings button opens Settings with
 	 * `open_home`.
-	 *
-	 * Another app's "Open in Epicenter" shows here as a request naming a
-	 * directory (`openings.svelte.ts`, ADR-0646). Nothing reads it until the
-	 * person opens it; then the shell grants it to this window alone and
-	 * remembers it in `folders.json`. "Opened folders" lists what it
-	 * remembers, including folders that are not there now, which can be
-	 * forgotten. No bundled app is offered on them.
 	 */
-	import { openFolder } from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
-	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { onMount } from 'svelte';
-	import { createLogger } from 'wellcrafted/logger';
 	import { commands, type DataFolder } from '../ui/bindings.gen';
 	import { createLaunch } from '../ui/launch.svelte.ts';
-	import { fileKey, folderKey, listKey } from './files';
-	import { createFolderSwitch } from './folder-switch.svelte';
-	import FolderView from './FolderView.svelte';
-	import { bundledOpeners, type Opener } from './openers.ts';
-	import {
-		createFolderOpenings,
-		FOLDER_OPENINGS_CHANGED,
-		folderName,
-	} from './openings.svelte';
-
-	const log = createLogger('epicenter/folders');
+	import { bundledOpeners } from './openers.ts';
+	import { createFolderOpenings, folderName, FOLDER_OPENINGS_CHANGED } from './openings.svelte.ts';
 
 	let folders = $state<DataFolder[] | undefined>(undefined);
 	let listProblem = $state<string | undefined>(undefined);
@@ -77,68 +44,19 @@
 	 */
 	const EPICENTER_FOLDER = 'so.epicenter';
 
-	// Reads reach this computer's disk, and the folder's change channel is
-	// the one detector of outside change: a read is fresh until it reports
-	// one, and a failure is shown, not retried.
-	const queryClient = new QueryClient({
-		defaultOptions: {
-			queries: {
-				networkMode: 'always',
-				retry: false,
-				staleTime: Number.POSITIVE_INFINITY,
-				refetchOnWindowFocus: false,
-			},
-		},
-	});
-	setQueryClientContext(queryClient);
-
-	const current = createFolderSwitch({
-		open: (id) => openFolder({ directory: id, tables: {} }),
-		// Subscribed before anything reads, so no change falls between them.
-		// Leaving stops the channel and drops the cache: what the next folder
-		// reads is its own.
-		watch(id, folder) {
-			const stop = folder.onChange((change) => {
-				if (change.paths === null) {
-					void queryClient.invalidateQueries({ queryKey: folderKey(id) });
-					return;
-				}
-				void queryClient.invalidateQueries({ queryKey: listKey(id) });
-				for (const path of change.paths)
-					void queryClient.invalidateQueries({ queryKey: fileKey(id, path) });
-			});
-			return () => {
-				stop();
-				queryClient.removeQueries({ queryKey: folderKey(id) });
-			};
-		},
-		saved: (id, path) =>
-			queryClient.invalidateQueries({ queryKey: fileKey(id, path) }),
-	});
-
-	const openings = createFolderOpenings({ host: commands, current });
-
-	/** The name the open folder `id` is listed under. */
-	function titleOf(id: string) {
-		const listed = folders?.find((folder) => folder.id === id);
-		if (listed !== undefined) return listed.title;
-		const opened = openings.remembered?.folders.find((folder) => folder.id === id);
-		if (opened !== undefined) return folderName(opened.path);
-		return id.startsWith('opened:') ? 'Opened folder' : id;
-	}
-
 	const launcher = createLaunch();
+	const openings = createFolderOpenings({ host: commands });
 	/** Why Settings did not open, when it did not. */
 	let settingsProblem = $state<string | undefined>(undefined);
 
-	/** The app being opened, said while the shell opens it. */
+	/** What is being opened, said while the shell opens it. */
 	let opening = $state<string | undefined>(undefined);
 
 	/** Each listed folder with the apps it offers: no bundled app opens Epicenter's own. */
 	const listed = $derived(
 		(folders ?? []).map((folder) => ({
 			folder,
-			openers: folder.id === EPICENTER_FOLDER ? [] : bundledOpeners,
+			openers: folder.name === EPICENTER_FOLDER ? [] : bundledOpeners,
 		})),
 	);
 	/** Listings that resolve out of order keep only the newest. */
@@ -157,13 +75,10 @@
 		}
 	}
 
-	/**
-	 * Open `application` on `folder`, or on its default folder, then list the
-	 * folders again: its default folder may be new.
-	 */
-	async function launch(application: Opener, folder?: string) {
-		opening = `Opening ${application.title}…`;
-		await launcher.launch(application, folder);
+	/** Say what is opening while `work` runs, then list again: a folder may be new. */
+	async function opened(what: string, work: () => Promise<void>) {
+		opening = `Opening ${what}…`;
+		await work();
 		opening = undefined;
 		await list();
 	}
@@ -179,120 +94,43 @@
 		}
 	}
 
-	/** Open folder `id`, the scope the shell listed it under. */
-	function open(id: string) {
-		void current.choose(id);
-	}
-
-	function settle() {
-		const drafts = current.opened?.drafts;
-		if (drafts === undefined) return;
-		void Promise.allSettled(drafts.held.map((path) => drafts.file(path).save()));
-	}
-
-	function beforeUnload(event: BeforeUnloadEvent) {
-		if (!current.opened?.drafts.held.length) return;
-		event.preventDefault();
-		event.returnValue = '';
-	}
-
 	onMount(() => {
-		queryClient.mount();
+		const refreshOpenings = () => {
+			void openings.refresh();
+			void openings.list();
+		};
 		// The window's own listener: a global one would hear other windows' events too.
 		const stopListing = getCurrentWebviewWindow().listen(
 			DATA_FOLDERS_CHANGED,
 			() => void list(),
 		);
-		const stopRequests = getCurrentWebviewWindow().listen(
+		const stopOpenings = getCurrentWebviewWindow().listen(
 			FOLDER_OPENINGS_CHANGED,
-			() => void openings.refresh(),
+			refreshOpenings,
 		);
-		// Subscribe before the first read so a new request cannot arrive between
-		// the read and the listener becoming active.
-		void stopListing.then(() => list(), () => list());
-		void stopRequests.then(() => openings.refresh(), () => openings.refresh());
-		void openings.list();
+		// Subscribe before reading: a request arriving during startup must not be missed.
+		void stopOpenings.then(refreshOpenings, refreshOpenings);
+		void stopListing.then(list, list);
 		return () => {
+			void stopOpenings.then((stop) => stop());
 			void stopListing.then((stop) => stop());
-			void stopRequests.then((stop) => stop());
-			void current.close().then((unsaved) => {
-				for (const draft of unsaved)
-					log.warn(
-						new Error(
-							`Closed with ${draft.path} unsaved: ${draft.error?.message ?? 'not sent'}`,
-						),
-					);
-				queryClient.unmount();
-			});
 		};
 	});
 </script>
 
-<svelte:window onpagehide={settle} onbeforeunload={beforeUnload} />
-<svelte:document
-	onvisibilitychange={() => {
-		if (document.visibilityState === 'hidden') settle();
-	}}
-/>
-
-<main class="flex h-full min-h-0">
-	<nav class="flex w-80 shrink-0 flex-col overflow-auto border-r" aria-label="Folders">
-		<header class="flex items-center justify-between gap-2 px-4 py-3">
+<main class="flex h-full min-h-0 justify-center overflow-auto">
+	<div class="flex w-full max-w-xl flex-col gap-2 py-3">
+		<header class="flex items-center justify-between gap-2 px-4">
 			<h1 class="text-lg font-semibold">Folders</h1>
 			<Button variant="ghost" size="sm" onclick={() => void openSettings()}>
 				Settings
 			</Button>
 		</header>
 		{#if launcher.failure ?? settingsProblem}
-			<div class="px-3 pb-3">
+			<div class="px-3">
 				<Alert.Root variant="destructive">
 					<Alert.Title>Could not open</Alert.Title>
 					<Alert.Description>{launcher.failure ?? settingsProblem}</Alert.Description>
-				</Alert.Root>
-			</div>
-		{/if}
-		{#each openings.requests as path (path)}
-			<div class="px-3 pb-3">
-				<Alert.Root>
-					<Alert.Title>Open this folder?</Alert.Title>
-					<Alert.Description>
-						<p>
-							An app asked Epicenter to open
-							<span class="font-mono break-all">{path}</span>. Epicenter reads nothing
-							there until you open it.
-						</p>
-						<div class="mt-2 flex gap-2">
-							<Button
-								size="sm"
-								disabled={openings.accepting !== undefined}
-								onclick={() => void openings.accept(path)}
-							>
-								{openings.accepting === path ? 'Opening…' : 'Open'}
-							</Button>
-							<Button
-								variant="ghost"
-								size="sm"
-								disabled={openings.accepting !== undefined}
-								onclick={() => void openings.dismiss(path)}
-							>
-								Dismiss
-							</Button>
-						</div>
-					</Alert.Description>
-				</Alert.Root>
-			</div>
-		{/each}
-		{#if openings.failure !== undefined}
-			<div class="px-3 pb-3">
-				<Alert.Root variant="destructive">
-					<Alert.Description>{openings.failure}</Alert.Description>
-				</Alert.Root>
-			</div>
-		{/if}
-		{#if openings.notice !== undefined}
-			<div class="px-3 pb-3">
-				<Alert.Root>
-					<Alert.Description>{openings.notice}</Alert.Description>
 				</Alert.Root>
 			</div>
 		{/if}
@@ -309,17 +147,15 @@
 				No data folders yet. Add a directory under your Epicenter folder to open its files here.
 			</p>
 		{:else}
-			<ul class="flex flex-col gap-0.5 px-2 pb-3">
-				{#each listed as { folder, openers } (folder.id)}
+			<ul class="flex flex-col gap-0.5 px-2" aria-label="Folders">
+				{#each listed as { folder, openers } (folder.name)}
 					<li class="flex items-center gap-1">
 						<button
 							type="button"
-							aria-current={folder.id === current.chosen ? 'page' : undefined}
-							class={[
-								'min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted',
-								folder.id === current.chosen && 'bg-muted font-medium',
-							]}
-							onclick={() => open(folder.id)}
+							class="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+							title="Open the files of {folder.title} in a window of their own"
+							onclick={() =>
+								void opened(folder.title, () => launcher.editFolder(folder.name))}
 						>
 							{folder.title}
 						</button>
@@ -332,7 +168,12 @@
 								</DropdownMenu.Trigger>
 								<DropdownMenu.Content align="end">
 									{#each openers as application (application.app)}
-										<DropdownMenu.Item onclick={() => void launch(application, folder.id)}>
+										<DropdownMenu.Item
+											onclick={() =>
+												void opened(application.title, () =>
+													launcher.launch(application, folder.name),
+												)}
+										>
 											{application.title}
 										</DropdownMenu.Item>
 									{/each}
@@ -344,52 +185,76 @@
 			</ul>
 		{/if}
 
+		{#if openings.failure}
+			<div class="px-3">
+				<Alert.Root variant="destructive">
+					<Alert.Description>{openings.failure}</Alert.Description>
+				</Alert.Root>
+			</div>
+		{/if}
+		{#if openings.notice}
+			<p class="px-4 text-sm text-muted-foreground">{openings.notice}</p>
+		{/if}
+		{#if openings.requests.length > 0}
+			<section class="px-4" aria-label="Requests to open folders">
+				<h2 class="text-sm font-semibold">Open in Epicenter</h2>
+				{#each openings.requests as path (path)}
+					<div class="flex items-center gap-2 py-1">
+						<div class="min-w-0 flex-1">
+							<span class="block truncate">{folderName(path)}</span>
+							<span class="block truncate text-xs text-muted-foreground">{path}</span>
+						</div>
+						<Button
+							variant="ghost"
+							size="xs"
+							disabled={openings.accepting !== undefined}
+							onclick={() => void openings.accept(path)}
+						>
+							Open
+						</Button>
+						<Button
+							variant="ghost"
+							size="xs"
+							disabled={openings.accepting !== undefined}
+							onclick={() => void openings.dismiss(path)}
+						>
+							Dismiss
+						</Button>
+					</div>
+				{/each}
+			</section>
+		{/if}
 		{#if openings.remembered !== undefined && (openings.remembered.folders.length > 0 || openings.remembered.problem !== null)}
-			<h2 class="px-4 pt-2 pb-1 text-sm font-semibold">Opened folders</h2>
-			{#if openings.remembered.problem !== null}
-				<p class="px-4 pb-1 text-xs text-destructive">{openings.remembered.problem}</p>
-			{/if}
-			<ul class="flex flex-col gap-0.5 px-2 pb-3" aria-label="Opened folders">
+			<section class="px-4" aria-label="Opened folders">
+				<h2 class="text-sm font-semibold">Opened folders</h2>
+				{#if openings.remembered.problem}
+					<p class="text-xs text-destructive">{openings.remembered.problem}</p>
+				{/if}
 				{#each openings.remembered.folders as entry (entry.path)}
-					<li class="flex items-center gap-1" title={entry.path}>
-						{#if entry.id !== null}
-							{@const id = entry.id}
-							<button
-								type="button"
-								aria-current={id === current.chosen ? 'page' : undefined}
-								class={[
-									'min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted',
-									id === current.chosen && 'bg-muted font-medium',
-								]}
-								onclick={() => open(id)}
-							>
-								<span class="block truncate">{folderName(entry.path)}</span>
-								<span class="block truncate text-xs text-muted-foreground">
-									{entry.remembered ? entry.path : 'Opened this time only'}
-								</span>
-							</button>
-						{:else}
-							<div class="min-w-0 flex-1 px-2 py-1.5 text-sm">
-								<span class="block truncate text-muted-foreground">
-									{folderName(entry.path)}
-								</span>
-								<span class="block truncate text-xs text-muted-foreground">
-									{entry.problem ?? entry.path}
-								</span>
-							</div>
-						{/if}
+					<div class="flex items-center gap-2 py-1">
+						<button
+							type="button"
+							class="min-w-0 flex-1 text-left"
+							disabled={entry.problem !== null}
+							onclick={() => void openings.open(entry.path)}
+						>
+							<span class="block truncate">{folderName(entry.path)}</span>
+							<span class="block truncate text-xs text-muted-foreground">
+								{entry.problem ?? (entry.remembered ? entry.path : 'Opened this time only')}
+							</span>
+						</button>
 						{#if entry.remembered}
 							<Button variant="ghost" size="xs" onclick={() => void openings.forget(entry.path)}>
 								Forget
 							</Button>
 						{/if}
-					</li>
+					</div>
 				{/each}
-			</ul>
+			</section>
 		{/if}
 
-		<h2 class="px-4 pt-2 pb-1 text-sm font-semibold">Apps</h2>
-		<ul class="flex flex-col gap-0.5 px-2 pb-1" aria-label="Apps">
+		<h2 class="px-4 pt-2 text-sm font-semibold">Apps</h2>
+		<ul class="flex flex-col gap-0.5 px-2" aria-label="Apps">
 			{#each bundledOpeners as application (application.app)}
 				<li class="flex items-center gap-1">
 					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm">
@@ -399,50 +264,23 @@
 						variant="ghost"
 						size="xs"
 						disabled={opening !== undefined}
-						onclick={() => void launch(application)}
+						onclick={() => void opened(application.title, () => launcher.launch(application))}
 					>
 						Open
+					</Button>
+					<Button
+						variant="ghost"
+						size="xs"
+						disabled={opening !== undefined}
+						onclick={() => void opened(application.title, () => launcher.choose(application))}
+					>
+						Choose folder…
 					</Button>
 				</li>
 			{/each}
 		</ul>
 		{#if opening !== undefined}
-			<p class="px-4 pb-3 text-sm text-muted-foreground">{opening}</p>
-		{/if}
-	</nav>
-
-	<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-		{#if current.problem !== undefined}
-			<div class="p-4">
-				<Alert.Root variant="destructive">
-					<Alert.Description>Could not open this folder: {current.problem}</Alert.Description>
-				</Alert.Root>
-			</div>
-		{:else if current.opening}
-			<p class="p-4 text-sm text-muted-foreground">Opening…</p>
-		{:else if current.opened !== undefined}
-			{@const { id, folder, drafts } = current.opened}
-			{#if current.kept !== undefined}
-				<Alert.Root variant="destructive" class="rounded-none border-x-0 border-t-0">
-					<Alert.Description>
-						This folder stayed open because edits did not save:
-						{current.kept.map((draft) => draft.path).join(', ')}. Try again or discard
-						them, then choose the other folder again.
-					</Alert.Description>
-				</Alert.Root>
-			{/if}
-			{#key current.opened}
-				<FolderView
-					{folder}
-					{drafts}
-					scope={id}
-					title={titleOf(id)}
-				/>
-			{/key}
-		{:else}
-			<div class="flex flex-1 items-center justify-center p-8 text-center text-muted-foreground">
-				Choose a folder to open it.
-			</div>
+			<p class="px-4 text-sm text-muted-foreground" role="status">{opening}</p>
 		{/if}
 	</div>
 </main>

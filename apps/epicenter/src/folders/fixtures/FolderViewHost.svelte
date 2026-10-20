@@ -1,13 +1,11 @@
-<!-- One opened folder as the Folders window shows it: inside the window's query client. -->
+<!-- A folder editor window's page below its `<FolderApp>`: the editor inside the opened folder's context. -->
 <script lang="ts">
-	import { QueryClientProvider, type QueryClient } from '@tanstack/svelte-query';
-	import type { ComponentProps } from 'svelte';
-	import FolderView from '../FolderView.svelte';
+	import type { FolderContext } from '@epicenter/svelte/folder';
+	import FolderProvider from '@epicenter/svelte/folder-provider';
+	import FolderEditor from '../FolderEditor.svelte';
 
-	let {
-		client,
-		...view
-	}: { client: QueryClient } & ComponentProps<typeof FolderView> = $props();
+	let { context }: { context: FolderContext<Record<never, never>> } = $props();
 </script>
 
-<QueryClientProvider {client}><FolderView {...view} /></QueryClientProvider>
+<FolderProvider {context}><FolderEditor /></FolderProvider>
+<output aria-label="Save state">{context.saveState}</output>

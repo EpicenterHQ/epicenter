@@ -69,14 +69,13 @@ test('the page imports no Node or Bun module, and Tauri only for a response’s 
 	// The Tauri APIs the page names: the desktop connections open the
 	// `Channel` an AI response streams back on, and the desktop microphone
 	// opens System Settings through the opener. Folder commands are the folder
-	// adapter's, and Epicenter's own commands go through its generated
-	// bindings (below).
+	// adapter's, which opens the folder bound to this window, and Epicenter's
+	// own commands go through its generated bindings (below).
 	expect(
 		importers((specifier) => specifier.startsWith('@tauri-apps/')),
 	).toEqual([
 		'lib/workspace/desktop-connections.ts imports @tauri-apps/api/core',
 		'lib/workspace/desktop-microphone.ts imports @tauri-apps/plugin-opener',
-		'lib/workspace/desktop.ts imports @tauri-apps/api/core',
 	]);
 });
 

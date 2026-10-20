@@ -5,17 +5,14 @@
  * A standalone app's "Open in Epicenter" reaches the shell as
  * `epicenter://open?path=…`. The shell only holds the path and shows this
  * window: nothing reads the directory until the person accepts it here.
- * Accepting asks the shell to check the directory, grant it to this window
- * alone, and remember it in `folders.json`; the answer names the scope it
- * opens by. A folder that could not be remembered is still open, and the
- * window says why it was not remembered. The window's folder switch
- * (`folder-switch.svelte.ts`) protects unfinished typing during the change.
+ * Accepting asks Rust to validate the directory, open its own bound editor,
+ * and remember the path. The launcher never owns a folder or its drafts.
+ * Existing editors keep their own input while another window opens.
  *
  * The remembered list includes folders that are not there now. Each keeps
  * its stored path, so it can be forgotten.
  */
 import type { AcceptedOpening, RememberedFolders } from '../ui/bindings.gen';
-import type { FolderSwitch } from './folder-switch.svelte';
 
 /**
  * The shell's event when the pending requests changed:
@@ -32,6 +29,7 @@ type Answer<T> = Promise<
 export type OpeningHost = {
 	pendingFolderOpenings(): Promise<string[]>;
 	acceptFolderOpening(path: string): Answer<AcceptedOpening>;
+	openRememberedFolder(path: string): Answer<null>;
 	dismissFolderOpening(path: string): Promise<void>;
 	listRememberedFolders(): Promise<RememberedFolders>;
 	forgetRememberedFolder(path: string): Answer<null>;
@@ -46,13 +44,7 @@ function described(cause: unknown) {
 	return cause instanceof Error ? cause.message : String(cause);
 }
 
-export function createFolderOpenings({
-	host,
-	current,
-}: {
-	host: OpeningHost;
-	current: Pick<FolderSwitch, 'opened' | 'choose'>;
-}) {
+export function createFolderOpenings({ host }: { host: OpeningHost }) {
 	let requests = $state<string[]>([]);
 	let remembered = $state.raw<RememberedFolders>();
 	let failure = $state<string>();
@@ -126,15 +118,27 @@ export function createFolderOpenings({
 					failure = `${path} did not open. ${answer.error}`;
 					return;
 				}
-				const { id, rememberProblem } = answer.data;
+				const { rememberProblem } = answer.data;
 				if (rememberProblem !== null)
 					notice = `Epicenter could not update its remembered folders. ${rememberProblem}`;
-				await current.choose(id);
 			} catch (cause) {
 				failure = `Could not show ${folderName(path)}. ${described(cause)}`;
 			} finally {
 				accepting = undefined;
 			}
+		},
+
+		/** Ask Rust to recheck a currently remembered path and open its editor. */
+		async open(path: string) {
+			failure = undefined;
+			try {
+				const answer = await host.openRememberedFolder(path);
+				if (answer.error !== null)
+					failure = `${path} did not open. ${answer.error}`;
+			} catch (cause) {
+				failure = `Could not show ${folderName(path)}. ${described(cause)}`;
+			}
+			await list();
 		},
 
 		/** Let go of the request for `path`; nothing reads it. */

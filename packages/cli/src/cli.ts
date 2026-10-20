@@ -88,6 +88,18 @@ const HANDLERS: Record<string, Run> = {
 			action as string,
 			grant,
 		),
+	'whispering-connection read': async ({ positionals: [operation], json }) =>
+		(await import('./connection-rows.ts')).whisperingConnection(
+			'read',
+			operation as string,
+			json,
+		),
+	'whispering-connection set': async ({ positionals: [operation], json }) =>
+		(await import('./connection-rows.ts')).whisperingConnection(
+			'set',
+			operation as string,
+			json,
+		),
 	'install-command': async ({ json }) =>
 		(await import('./install-command.ts')).installCommand({ json }),
 };

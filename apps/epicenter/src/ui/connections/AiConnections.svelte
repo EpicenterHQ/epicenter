@@ -8,13 +8,14 @@
 	import { onMount } from 'svelte';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import ConnectionList from './ConnectionList.svelte';
-	import { connectionTables, EPICENTER_FOLDER_ID } from './connections';
+	import { connectionTables } from './connections';
 
 	/**
 	 * Settings' AI connections (ADR-0557): the `connections` table of
 	 * Epicenter's own folder, opened with the page's own engine for as long as
-	 * Settings is open. The shell registers `so.epicenter` for this window, so
-	 * the folder opens by that scope. Its cache follows the folder's changes,
+	 * Settings is open. The shell binds `so.epicenter` to this window before
+	 * it exists, so the page opens its window folder and names none. Its cache
+	 * follows the folder's changes,
 	 * so an edit made in the Folders window, by an agent, or by a sync shows
 	 * here. What is typed is held as each row's draft until it saves
 	 * (`edits`); leaving Settings sends it before the folder closes.
@@ -26,7 +27,6 @@
 		let closed = false;
 		const opening = (async () => {
 			const { data: folder, error } = await openFolder({
-				directory: EPICENTER_FOLDER_ID,
 				tables: connectionTables,
 			});
 			if (error !== null) {

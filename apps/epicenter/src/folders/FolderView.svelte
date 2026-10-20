@@ -1,39 +1,34 @@
 <script lang="ts">
-	import type { Folder } from '@epicenter/folder';
 	import * as Alert from '@epicenter/ui/alert';
+	import { getFolder } from '@epicenter/svelte/folder';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { createSubscriber } from 'svelte/reactivity';
 	import type { FileDrafts } from './drafts.svelte';
 	import FileEditor from './FileEditor.svelte';
 	import { fileTree, listKey } from './files';
 
 	/**
-	 * One opened data folder: its files as a tree, and the one chosen, edited
-	 * as the exact text it holds (`FileEditor`). The window knows no app's
-	 * schema, so it opened the folder with no tables and interprets no row;
-	 * a row is a file like any other. Everything shown is read through the
-	 * window's query cache, which the app root keeps fresh from
+	 * The window's folder: its files as a tree, and the one chosen, edited as
+	 * the exact text it holds (`FileEditor`). The editor knows no app's
+	 * schema, so it opened the folder with no tables and interprets no row; a
+	 * row is a file like any other. Everything shown is read through the
+	 * folder context's query cache, which the editor keeps fresh from
 	 * `folder.onChange`; this view has no refresh of its own. What is typed
 	 * is held by the window (`drafts`), so choosing another file keeps it:
 	 * the tree marks each file holding typing not saved, and the header says
 	 * whether a save is running or which files did not save.
 	 */
 	let {
-		folder,
 		drafts,
-		scope,
-		title,
 	}: {
-		folder: Folder<Record<never, never>>;
 		/** The typing held in the folder, which outlives each file's editor. */
 		drafts: FileDrafts;
-		/** The scope the folder was opened as, which its query keys name. */
-		scope: string;
-		title: string;
 	} = $props();
 
+	const context = getFolder<Record<never, never>>();
+	const folder = context.folder;
+
 	const listing = createQuery(() => ({
-		queryKey: listKey(scope),
+		queryKey: listKey(context.queries.key),
 		queryFn: async () => {
 			const listed = await folder.files.list();
 			if (listed.error !== null) throw listed.error;
@@ -42,19 +37,17 @@
 	}));
 	const tree = $derived(listing.data === undefined ? undefined : fileTree(listing.data));
 	const held = $derived(new Set(drafts.held));
+	const unlisted = $derived(
+		drafts.held.filter((path) => listing.error || !listing.data?.includes(path)),
+	);
 	let selected = $state<string | undefined>(undefined);
 
-	// The root closes the folder only after this view is gone.
-	const trackStatus = createSubscriber((update) => folder.onStatusChange(update));
-	const status = $derived.by(() => {
-		trackStatus();
-		return folder.status;
-	});
+	const status = $derived(context.status);
 </script>
 
-<section class="flex min-h-0 flex-1 flex-col">
+<section class="flex h-full min-h-0 flex-1 flex-col">
 	<header class="flex flex-wrap items-center gap-3 border-b px-4 py-3">
-		<h2 class="text-lg font-semibold">{title}</h2>
+		<h1 class="text-lg font-semibold">Files</h1>
 		<span class="ml-auto text-sm text-muted-foreground" role="status">
 			{#if status.saving}
 				Saving…
@@ -70,6 +63,26 @@
 
 	<div class="flex min-h-0 flex-1">
 		<nav class="w-72 shrink-0 overflow-auto border-r p-2" aria-label="Files">
+			{#if unlisted.length > 0}
+				<section class="mb-3" aria-label="Unsaved files">
+					<h2 class="px-2 py-1 text-sm font-semibold">Unsaved files</h2>
+					<ul class="font-mono text-sm">
+						{#each unlisted as path (path)}
+							<li>
+								<button
+									type="button"
+									title={path}
+									aria-current={path === selected ? 'page' : undefined}
+									class={['block w-full truncate rounded px-2 py-0.5 text-left hover:bg-muted', path === selected && 'bg-muted font-medium']}
+									onclick={() => (selected = path)}
+								>
+									{path}<span class="sr-only"> (not saved yet)</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
 			{#if listing.error}
 				<Alert.Root variant="destructive">
 					<Alert.Description>Could not list the files: {listing.error.message}</Alert.Description>
@@ -107,7 +120,7 @@
 		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 			{#if selected !== undefined}
 				{#key selected}
-					<FileEditor {folder} {drafts} {scope} path={selected} />
+					<FileEditor {drafts} path={selected} />
 				{/key}
 			{:else}
 				<div class="flex flex-1 items-center justify-center p-8 text-center text-muted-foreground">

@@ -19,26 +19,26 @@ export const commands = {
 	/**  Close the meter `id` this window opened, releasing its microphone. */
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
-	 *  Start recording into `<path>.wav` in the folder this window was granted for
-	 *  `scope`, from the microphone whose id is `device` or the system default. Levels,
-	 *  and an ending nobody asked for, arrive on `signals`.
+	 *  Start recording into `<path>.wav` in the folder bound to this window, from
+	 *  the microphone whose id is `device` or the system default. Levels, and an
+	 *  ending nobody asked for, arrive on `signals`.
 	 *
 	 *  The path must be a data path the shared path rule accepts, with nothing at
 	 *  it yet; missing directories on the way are made. Microphone access is
 	 *  asked for before the device is resolved. A refusal opens nothing.
 	 */
-	start: (scope: string, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { scope, path, device, signals })),
+	start: (path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { path, device, signals })),
 	/**  Stop the recording `id` this window started and finalize its file. */
 	stop: (id: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id })),
 	/**  Cancel the recording `id` this window started, deleting its file. */
 	cancel: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|cancel", { id })),
 	/**
-	 *  Rewrite the header of every WAV under `under` in the folder this window was
-	 *  granted for `scope` whose sizes disagree with its length, and return their
+	 *  Rewrite the header of every WAV under `under` in the folder bound to this
+	 *  window whose sizes disagree with its length, and return their
 	 *  folder-relative paths. The recording still being written is left alone.
 	 *  Running it again changes nothing.
 	 */
-	recover: (scope: string, under: string) => typedError<string[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { scope, under })),
+	recover: (under: string) => typedError<string[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { under })),
 };
 
 /* Types */
@@ -135,7 +135,7 @@ export type RecorderError =
  */
 { name: "NotRecording"; message: string } |
 /**
- *  The window may not record here: the folder was not granted to it, the
+ *  The window may not record here: the shell bound no folder to it, the
  *  path is not a data path the shared path rule accepts, or a file is
  *  already at it. Nothing was opened or written.
  */

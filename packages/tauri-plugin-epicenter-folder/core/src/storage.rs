@@ -20,7 +20,7 @@
 //! it makes nothing in the root but the files saved, and never touches
 //! `.git`, whatever is there. Only the check of what the path holds and the
 //! rename (or the removal) hold the folder's publishing turn
-//! (`registry::PageWork`), so no other save through the shell, and no save
+//! (`directory::Directory::publishing`), so no other save through the shell, and no save
 //! by the Bun host, lands between them. On Unix no other account can read
 //! staged bytes, before publication or after a stopped save: the scratch
 //! directory is `0700` before anything is staged in it (`make_private`), and
@@ -850,8 +850,11 @@ pub fn put<Turn>(
     // private even when it exists. A new file must satisfy the portable rule.
     if if_match.is_some() {
         if let Some(reason) = readable_path_problem(path).or_else(|| {
-            path.split('/').any(|part| part.eq_ignore_ascii_case("head"))
-                .then_some("the path contains a segment named HEAD, which Git reads as a repository")
+            path.split('/')
+                .any(|part| part.eq_ignore_ascii_case("head"))
+                .then_some(
+                    "the path contains a segment named HEAD, which Git reads as a repository",
+                )
         }) {
             return Err(StorageError::InvalidPath {
                 path: path.to_string(),
@@ -1004,7 +1007,7 @@ pub fn sweep_scratch(root: &Path, now_ms: u64) {
         return;
     }
     // An older shell may have left staged bytes in a 0755 directory. Make
-    // them private at grant, before the next save has reason to use it.
+    // them private at open, before the next save has reason to use it.
     if make_private(&scratch).is_err() {
         return;
     }

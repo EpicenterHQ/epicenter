@@ -17,7 +17,10 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsTables,
+} from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -33,6 +36,10 @@ import {
 	loginWithLoopback,
 	resolveDeployment,
 } from '../../../../../packages/cli/src/auth.js';
+import {
+	readConnectionRow,
+	setConnectionRow,
+} from '../../../../../packages/cli/src/connection-rows.js';
 import { openBunFolder } from '../../../../../packages/folder/src/native/bun.js';
 import {
 	type CloudEnv,
@@ -46,10 +53,7 @@ import {
 import { startDisposablePostgres } from '../../../../../packages/server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../../../packages/server/src/test-helpers/oauth-client.js';
 import type { AuthStatus } from '../tauri/bindings.gen.js';
-import {
-	type ConnectionCommands,
-	connectionsTables,
-} from './desktop-connections.js';
+import type { ConnectionCommands } from './desktop-connections.js';
 
 mock.module('@tauri-apps/api/core', () => ({
 	transformCallback: () => 0,
@@ -182,14 +186,38 @@ afterAll(async () => {
 	if (scratch) await rm(scratch, { recursive: true, force: true });
 });
 
-/** `auth_status` and `ai_send` as the CLI answers them with the app's grant. */
+/**
+ * `auth_status` and `ai_send` as the CLI answers them with the app's grant,
+ * and the connection rows as `epicenter whispering-connection` reads and
+ * saves them in `scratch`'s `so.epicenter`.
+ */
 function shell(): ConnectionCommands {
 	const fail = () => {
 		throw new Error('an Epicenter connection has no keychain entry');
 	};
+	// A reply as it crosses the shell: JSON, or the CLI's refusal.
+	const reply = (
+		answered:
+			| { data: unknown; error: null }
+			| { data: null; error: { message: string } },
+	) =>
+		answered.error === null
+			? { data: JSON.parse(JSON.stringify(answered.data)), error: null }
+			: {
+					data: null,
+					error: { name: 'Refused' as const, message: answered.error.message },
+				};
 	return {
 		aiKeyState: fail,
 		aiKeySet: fail,
+		async whisperingConnectionRead(connection) {
+			return reply(await readConnectionRow(scratch, connection));
+		},
+		async whisperingConnectionSet(connection, base, fields) {
+			return reply(
+				await setConnectionRow(scratch, connection, { base, fields }),
+			);
+		},
 		async authStatus() {
 			const { data: grants, error } = await authStatus(ctx);
 			if (error !== null) throw new Error(error.message);
@@ -243,10 +271,8 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 	);
 	expect(created).toBeNull();
 
-	const connections = createDesktopConnections({
-		commands: shell(),
-		openConnections: async () => ({ data: folder, error: null }),
-	});
+	await folder.close();
+	const connections = createDesktopConnections({ commands: shell() });
 	const info = await connections.read();
 	expect(info.transcription).toMatchObject({
 		baseUrl: `${origin}/v1`,
@@ -282,5 +308,4 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 		path: '/v1/audio/transcriptions',
 		body: JSON.stringify({ model: 'whisper-1' }),
 	});
-	await connections.close();
 }, 60_000);

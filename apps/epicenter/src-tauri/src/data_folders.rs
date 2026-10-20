@@ -1,207 +1,185 @@
 //! The data folders under the Epicenter folder root, as the Folders window
-//! opens them (ADR-0535).
+//! lists them (ADR-0535), and the editor window it opens on one.
 //!
 //! A data folder is a direct child of `folder_dir` that is a real directory,
-//! not a link or a dot entry. The Folders window opens one with
-//! `openFolder({ directory: id, tables: {} })`, so each listed
-//! folder needs a scope that window may be granted:
+//! not a link or a dot entry. The Folders window shows each by its
+//! directory name and title, and opens none itself: it is a launcher. A
+//! window that edits a listed folder is opened in trusted Rust, which
+//! derives the path from `folder_dir` and the listed name again, checks it
+//! is still a real direct child, and binds it to the window before the
+//! WebView exists (`folder_windows`). No list of registered folders is kept:
+//! the directory is the record.
 //!
-//! - Epicenter's own folder, `so.epicenter` (ADR-0539), is registered at
-//!   setup for the Folders window and Settings, which hold its AI
-//!   connections, and is listed under that scope. Settings runs Epicenter
-//!   itself: the shell hands it `so.epicenter` as its folder. Its tables
-//!   interpret the files there; opening publishes no declaration.
-//! - Any other folder gets a scope of its own, `data:<directory name>`, the
-//!   first time it is listed in a run, registered for the Folders window
-//!   alone as a data folder (`FolderConfig::data`): the shell never creates
-//!   its directory, and never gives it a repository of its own inside
-//!   another repository's working tree. Listing again returns the same
-//!   scope. A bundled app opens a folder under this same scope
-//!   (`scope_for_window`): its window is permitted into the one entry rather
-//!   than into a second scope, and a folder it opens before the listing
-//!   finds it is registered as the listing would. A folder named by the id
-//!   of an app an earlier build installed, such as `so.epicenter.todos`, is
-//!   a data folder like any other.
-//!
-//! A folder whose scope cannot be permitted or registered is left out of the
-//! listing and logged; the others are still listed.
+//! - Epicenter's own folder, `so.epicenter` (ADR-0539), holds its AI
+//!   connections. Settings is bound to it, creating it when missing
+//!   (`settings_directory`). It is listed like any other folder, and its
+//!   editor window may open it. No bundled app or handoff opens it, the app
+//!   data, Settings' sibling staging directory, or a directory holding any
+//!   of them (`overlaps_epicenter_files`).
+//! - A listed folder's editor, `files:<digest>`, serves the Folders build's
+//!   `/folders/editor/` route, which selects the editor's UI. It edits that
+//!   one folder's files as text and is destroyed when it closes. A folder
+//!   missing when it is opened is refused, never created.
 //!
 //! The shell watches the root (`watch_data_folders`) and tells the Folders
 //! window when the listing may have changed, so it lists again.
 //!
-//! The reply carries scope IDs and titles, never paths. The page learns a
-//! folder's root from the plugin's grant, as every folder page does.
+//! The reply carries directory names and titles, never paths.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
 use std::time::Duration;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, NoCache};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
-use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, Folders, ScopeConfig, WindowFolder};
+use tauri_plugin_epicenter_folder::Directory;
 
 use crate::app_data::DesktopPaths;
+use crate::folder_windows;
 use crate::{BuiltInApp, DesktopAppHandle};
 
 /// Epicenter's own folder: its AI connections (ADR-0539, ADR-0569). It is
 /// named by Epicenter's id, as each app's folder is named by its id.
 pub const EPICENTER_FOLDER: &str = "so.epicenter";
 
-/// The windows that hold Epicenter's own folder.
-const EPICENTER_FOLDER_WINDOWS: [BuiltInApp; 2] = [BuiltInApp::Folders, BuiltInApp::Home];
-
 /// The file that makes a directory a data folder (ADR-0517).
 const DECLARATION: &str = "epicenter.json";
 
-/// Register Epicenter's own folder for the Folders window and Settings. Each
-/// page runs `@epicenter/folder`'s own engine over its directory; the shell
-/// grants it to the windows registered for it, and owns nothing else.
-/// Settings runs Epicenter itself, so it is handed `so.epicenter` as its own
-/// folder; the Folders window runs no app and opens folders by scope.
-pub fn register_epicenter_folder(folders: &Folders, folder_dir: &Path) -> Result<(), String> {
-    folders.register(ScopeConfig {
-        scope: EPICENTER_FOLDER.into(),
-        folder: FolderConfig::new(folder_dir.join(EPICENTER_FOLDER)),
-        windows: EPICENTER_FOLDER_WINDOWS
-            .iter()
-            .map(|window| window.id().into())
-            .collect(),
-    })?;
-    folders.hand(
-        BuiltInApp::Home.id(),
-        WindowFolder {
-            app: EPICENTER_FOLDER.into(),
-            folder: EPICENTER_FOLDER.into(),
-        },
-    );
-    Ok(())
+/// Settings' folder, `<folder_dir>/so.epicenter`, made when it is missing: a
+/// fixed directory the shell computes, bound to Settings before its WebView
+/// exists.
+pub fn settings_directory(folder_dir: &Path) -> Result<Directory, String> {
+    Directory::create(&folder_dir.join(EPICENTER_FOLDER)).map_err(|error| error.to_string())
 }
 
-/// One data folder the Folders window can open.
+/// Whether `directory` overlaps Epicenter's own files, so that neither a
+/// bundled app nor a handoff may bind it: Settings' folder, its sibling save
+/// staging directory, or the app data, anything inside them, or a directory
+/// holding them. The folder root and its parents hold Settings' folder, so
+/// they are refused; an ordinary direct child of the root is not. The
+/// listed-folder editor does not ask, and may open Settings' folder.
+pub fn overlaps_epicenter_files(paths: &DesktopPaths, directory: &Directory) -> bool {
+    let settings = resolved(&paths.folder_dir.join(EPICENTER_FOLDER));
+    let Ok(scratch) = epicenter_folder_core::storage::scratch_directory(&settings) else {
+        return true;
+    };
+    [settings, resolved(&scratch), resolved(&paths.data_dir)]
+        .iter()
+        .any(|kept| overlaps(directory.root(), kept))
+}
+
+/// Resolve each existing component and normalize missing components too. A
+/// missing segment followed by `..` must still name the eventual directory:
+/// the OS will create that segment before walking back through it.
+fn resolved(path: &Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                result.pop();
+            }
+            Component::CurDir => {}
+            _ => {
+                result.push(component.as_os_str());
+                if let Ok(canonical) = dunce::canonicalize(&result) {
+                    result = canonical;
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Compare containment even when the OS exposes one directory through two
+/// absolute paths that canonicalization does not merge (for example a macOS
+/// firmlink, or another casing on a disk that ignores case). A missing
+/// protected leaf still has the lexical fallback above.
+fn overlaps(candidate: &Path, protected: &Path) -> bool {
+    candidate.starts_with(protected)
+        || protected.starts_with(candidate)
+        || candidate
+            .ancestors()
+            .any(|ancestor| same_file::is_same_file(ancestor, protected).unwrap_or(false))
+        || protected
+            .ancestors()
+            .any(|ancestor| same_file::is_same_file(ancestor, candidate).unwrap_or(false))
+}
+
+/// One data folder the Folders window lists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DataFolder {
-    /// The scope to pass as `directory` to `openFolder`.
-    pub id: String,
+    /// The directory's name under the Epicenter folder, which the Folders
+    /// window passes back to open it. Never a path.
+    pub name: String,
     /// `epicenter.json`'s `title` when it is a string, else the directory name.
     pub title: String,
 }
 
-/// The scopes this run registered under the root, by directory name: each
-/// data folder's `data:<name>`.
-#[derive(Default)]
-pub struct DataFolderScopes(Mutex<BTreeMap<String, String>>);
-
-impl DataFolderScopes {
-    /// The directory name of the folder listed under `scope`: one this run
-    /// registered, or Epicenter's own folder. Another window opens a listed
-    /// folder by the scope the Folders window passed, never by a path.
-    pub fn listed_name(&self, scope: &str) -> Option<String> {
-        if scope == EPICENTER_FOLDER {
-            return Some(EPICENTER_FOLDER.to_string());
-        }
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .iter()
-            .find(|(_, id)| id.as_str() == scope)
-            .map(|(name, _)| name.clone())
-    }
-}
-
-/// List the data folders under the Epicenter folder root, and let the Folders
-/// window open each one.
+/// List the data folders under the Epicenter folder root.
 ///
-/// Granted to the `folders` window alone. Every scope it returns is one that
-/// window is registered or permitted for, so `openFolder({ directory: id,
-/// tables: {} })` there
-/// can be granted it. Off the main thread, since it reads the disk.
+/// Granted to the `folders` window alone. Off the main thread, since it
+/// reads the disk.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn list_data_folders(app: DesktopAppHandle) -> Result<Vec<DataFolder>, String> {
-    let paths = app.state::<DesktopPaths>();
-    list_in(
-        &paths.folder_dir,
-        app.folders(),
-        &app.state::<DataFolderScopes>(),
-    )
+    list_in(&app.state::<DesktopPaths>().folder_dir)
 }
 
-/// Register `data:<name>` over the existing directory `root` for the Folders
-/// window, as a data folder the shell never creates. Answers the scope.
-fn register_data_folder(folders: &Folders, name: &str, root: PathBuf) -> Result<String, String> {
-    let id = format!("data:{name}");
-    folders.register(ScopeConfig {
-        scope: id.clone(),
-        folder: FolderConfig::data(root),
-        windows: vec![BuiltInApp::Folders.id().into()],
-    })?;
-    Ok(id)
-}
-
-/// The scope under which a window other than the Folders window opens the
-/// direct child `name` of `folder_dir`: the one registry entry the Folders
-/// window already uses, never a second scope over the same directory (and so
-/// never a second watch). A child the listing has registered is reused. Any
-/// other is registered here as the listing would register it, `data:<name>`,
-/// and `create` makes its directory first. Only an app's fixed default asks
-/// to create; a folder selected from the listing must still exist.
-///
-/// The directory must be there as a real directory, not a link, whichever
-/// path found the scope. The caller permits its own window into the scope
-/// and hands it; this grants nothing.
-pub fn scope_for_window(
-    folders: &Folders,
-    folder_dir: &Path,
-    scopes: &DataFolderScopes,
-    name: &str,
-    create: bool,
-) -> Result<String, String> {
-    let root = folder_dir.join(name);
-    // Held across registration, as the listing holds it, so a listing and an
-    // open at once register a folder once.
-    let mut registered = scopes
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let known = registered.get(name).cloned();
-    if create {
-        fs::create_dir_all(&root)
-            .map_err(|error| format!("The folder \"{name}\" could not be created: {error}"))?;
+/// The path of the data folder the Folders window listed as `name`: a real
+/// directory directly under `folder_dir`, found again now. A name that is
+/// not one directory entry, a dot entry, a link, or a directory that is gone
+/// is refused, and nothing is made.
+pub fn listed_folder(folder_dir: &Path, name: &str) -> Result<PathBuf, String> {
+    let mut components = Path::new(name).components();
+    let one_name = matches!(
+        (components.next(), components.next()),
+        (Some(Component::Normal(_)), None)
+    );
+    if !one_name || name.starts_with('.') || name.contains(['/', '\\', '\0']) {
+        return Err("That folder is not in the list of folders.".to_string());
     }
+    let path = folder_dir.join(name);
     // `symlink_metadata` does not follow a link, so a linked directory is
     // refused, as the listing skips one.
-    if !fs::symlink_metadata(&root).is_ok_and(|stats| stats.is_dir()) {
+    if !fs::symlink_metadata(&path).is_ok_and(|stats| stats.is_dir()) {
         return Err(format!("The folder \"{name}\" is not there anymore."));
     }
-    if let Some(id) = known {
-        return Ok(id);
-    }
-    let id = register_data_folder(folders, name, root)?;
-    registered.insert(name.to_string(), id.clone());
-    Ok(id)
+    Ok(path)
 }
 
-pub(crate) fn list_in(
-    folder_dir: &Path,
-    folders: &Folders,
-    scopes: &DataFolderScopes,
-) -> Result<Vec<DataFolder>, String> {
+/// The editor window for the listed folder `name`, bound to it.
+fn listed_directory(folder_dir: &Path, name: &str) -> Result<Directory, String> {
+    let path = listed_folder(folder_dir, name)?;
+    let directory = Directory::existing(&path)
+        .map_err(|error| format!("The folder \"{name}\" could not be opened: {error}"))?;
+    Ok(directory)
+}
+
+/// Open the listed folder `name` in its own editor window, or reveal the one
+/// already open on it. The page passes the name the listing gave it, never a
+/// path; the shell finds the directory again and binds it to the window.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_folder_editor(handle: DesktopAppHandle, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = handle.state::<DesktopPaths>();
+        let directory = listed_directory(&paths.folder_dir, &name)?;
+        folder_windows::show_editor(&handle, directory).map_err(|error| format!("{error:#}"))
+    })
+    .await
+    .map_err(|error| format!("the folder could not be opened: {error}"))?
+}
+
+pub(crate) fn list_in(folder_dir: &Path) -> Result<Vec<DataFolder>, String> {
     let entries = match fs::read_dir(folder_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(format!("The Epicenter folder could not be read: {error}")),
     };
-    // Held across registration, so two listings at once register a folder once.
-    let mut registered = scopes
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut listed = Vec::new();
     for entry in entries.flatten() {
         let Ok(name) = entry.file_name().into_string() else {
@@ -212,8 +190,7 @@ pub(crate) fn list_in(
         if name.starts_with('.') || !is_directory {
             continue;
         }
-        let root = entry.path();
-        let declaration = root.join(DECLARATION);
+        let declaration = entry.path().join(DECLARATION);
         let title = fs::symlink_metadata(&declaration)
             .ok()
             .filter(|stats| stats.is_file())
@@ -221,32 +198,9 @@ pub(crate) fn list_in(
             .as_deref()
             .and_then(declared_title)
             .unwrap_or_else(|| name.clone());
-
-        if name == EPICENTER_FOLDER {
-            // Registered at setup for this window already.
-            listed.push(DataFolder {
-                id: EPICENTER_FOLDER.to_string(),
-                title,
-            });
-            continue;
-        }
-
-        let id = match registered.get(&name) {
-            Some(id) => id.clone(),
-            None => match register_data_folder(folders, &name, root) {
-                Ok(id) => {
-                    registered.insert(name, id.clone());
-                    id
-                }
-                Err(error) => {
-                    log::warn!("data folder '{name}' was not listed: {error}");
-                    continue;
-                }
-            },
-        };
-        listed.push(DataFolder { id, title });
+        listed.push(DataFolder { name, title });
     }
-    listed.sort_by_cached_key(|folder| (folder.title.to_lowercase(), folder.id.clone()));
+    listed.sort_by_cached_key(|folder| (folder.title.to_lowercase(), folder.name.clone()));
     Ok(listed)
 }
 
@@ -335,24 +289,23 @@ fn declared_title(text: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    //! The listing over a real directory, and the folder plugin's grant
-    //! through Tauri's real invoke path on the mock runtime.
+    //! The listing over a real directory, and the editor window the folder
+    //! plugin's real commands reach on the mock runtime.
 
-    use std::path::PathBuf;
-
+    use crate::folder_windows::FolderWindow;
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
     use tauri::utils::acl::ExecutionContext;
     use tauri::webview::InvokeRequest;
     use tauri::{App, WebviewWindow, WebviewWindowBuilder};
+    use tauri_plugin_epicenter_folder::FolderExt;
 
     use super::*;
 
     struct Fixture {
         app: App<MockRuntime>,
         folder_dir: PathBuf,
-        scopes: DataFolderScopes,
     }
 
     impl Drop for Fixture {
@@ -364,18 +317,27 @@ mod tests {
 
     impl Fixture {
         fn list(&self) -> Vec<DataFolder> {
-            list_in(&self.folder_dir, self.app.folders(), &self.scopes).unwrap()
+            list_in(&self.folder_dir).unwrap()
+        }
+
+        /// What `open_folder_editor` does, with a mock window for the WebView.
+        fn open_editor(&self, name: &str) -> Result<(String, bool), String> {
+            let window = FolderWindow::editor(listed_directory(&self.folder_dir, name)?);
+            let label = window.label.clone();
+            let was_open = self.app.get_webview_window(&label).is_some();
+            folder_windows::show(self.app.handle(), window, |app, label, _| {
+                Ok(WebviewWindowBuilder::new(app, label, Default::default()).build()?)
+            })
+            .map_err(|error| format!("{error:#}"))?;
+            Ok((label, was_open))
         }
 
         fn window(&self, label: &str) -> WebviewWindow<MockRuntime> {
-            WebviewWindowBuilder::new(&self.app, label, Default::default())
-                .build()
-                .expect("mock window")
+            self.app.get_webview_window(label).expect("an open window")
         }
     }
 
-    /// An app with the folder plugin and Epicenter's own folder registered,
-    /// over an empty folder root.
+    /// An app with the folder plugin over an empty folder root.
     fn fixture(label: &str) -> Fixture {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let folder_dir = std::env::temp_dir().join(format!(
@@ -398,12 +360,7 @@ mod tests {
             .plugin(tauri_plugin_epicenter_folder::init())
             .build(context)
             .expect("mock app");
-        register_epicenter_folder(app.folders(), &folder_dir).unwrap();
-        Fixture {
-            app,
-            folder_dir,
-            scopes: DataFolderScopes::default(),
-        }
+        Fixture { app, folder_dir }
     }
 
     /// A data folder whose optional declaration supplies test metadata.
@@ -433,24 +390,15 @@ mod tests {
         .map(|body| body.deserialize::<Value>().expect("a JSON response"))
     }
 
-    /// Grant `scope` to `window`, then list the root's entry names through it.
-    fn granted_names(window: &WebviewWindow<MockRuntime>, scope: &str) -> Vec<String> {
-        invoke(window, "grant_directory", json!({ "scope": scope }))
-            .unwrap_or_else(|error| panic!("{} was not granted {scope}: {error}", window.label()));
-        let children = invoke(
-            window,
-            "read_folder_children",
-            json!({ "scope": scope, "directory": "" }),
-        )
-        .unwrap();
+    /// Open the window's folder, then list its root's entry names.
+    fn root_names(window: &WebviewWindow<MockRuntime>) -> Vec<String> {
+        invoke(window, "open_folder", json!({}))
+            .unwrap_or_else(|error| panic!("{} did not open: {error}", window.label()));
+        let children = invoke(window, "read_folder_children", json!({ "directory": "" })).unwrap();
         let mut names: Vec<String> = ["files", "directories"]
             .iter()
             .flat_map(|kind| children[*kind].as_array().unwrap().clone())
-            .map(|name| {
-                name.as_str()
-                    .unwrap_or_else(|| panic!("{name}"))
-                    .to_string()
-            })
+            .map(|name| name.as_str().unwrap().to_string())
             .collect();
         names.sort();
         names
@@ -461,7 +409,10 @@ mod tests {
         use tauri::Listener;
 
         let fixture = fixture("watch");
-        let window = fixture.window(BuiltInApp::Folders.id());
+        let window =
+            WebviewWindowBuilder::new(&fixture.app, BuiltInApp::Folders.id(), Default::default())
+                .build()
+                .unwrap();
         let (heard, hearing) = std::sync::mpsc::channel();
         window.listen(DATA_FOLDERS_CHANGED, move |_| {
             let _ = heard.send(());
@@ -518,9 +469,18 @@ mod tests {
         assert_eq!(
             fixture.list(),
             [
-                DataFolder { id: "data:odd".into(), title: "odd".into() },
-                DataFolder { id: "data:plain".into(), title: "plain".into() },
-                DataFolder { id: "data:vault".into(), title: "vault".into() },
+                DataFolder {
+                    name: "odd".into(),
+                    title: "odd".into()
+                },
+                DataFolder {
+                    name: "plain".into(),
+                    title: "plain".into()
+                },
+                DataFolder {
+                    name: "vault".into(),
+                    title: "vault".into()
+                },
             ]
         );
     }
@@ -542,143 +502,22 @@ mod tests {
         );
         data_folder(&fixture, "numbered", r#"{ "title": 7 }"#);
         data_folder(&fixture, "broken", "not json");
+        data_folder(&fixture, EPICENTER_FOLDER, r#"{ "title": "Epicenter" }"#);
 
         let titles: Vec<(String, String)> = fixture
             .list()
             .into_iter()
-            .map(|folder| (folder.id, folder.title))
+            .map(|folder| (folder.name, folder.title))
             .collect();
         assert_eq!(
             titles,
             [
-                ("data:broken".into(), "broken".into()),
-                ("data:numbered".into(), "numbered".into()),
-                ("data:reading".into(), "Reading list".into()),
+                ("broken".into(), "broken".into()),
+                (EPICENTER_FOLDER.into(), "Epicenter".into()),
+                ("numbered".into(), "numbered".into()),
+                ("reading".into(), "Reading list".into()),
             ]
         );
-    }
-
-    /// A folder an earlier build's installed app opened, named by its id, is a
-    /// data folder like any other: listed under `data:<name>`, with its files
-    /// and title as they are, and granted to the Folders window.
-    #[test]
-    fn a_folder_named_by_an_app_id_is_a_data_folder() {
-        let fixture = fixture("application");
-        data_folder(&fixture, "so.epicenter.todos", r#"{ "title": "Todos" }"#);
-        fs::create_dir_all(fixture.folder_dir.join("so.epicenter.todos/todos")).unwrap();
-        fs::write(
-            fixture.folder_dir.join("so.epicenter.todos/todos/milk.md"),
-            "---\ntitle: milk\n---\n",
-        )
-        .unwrap();
-        assert_eq!(
-            fixture.list(),
-            [DataFolder {
-                id: "data:so.epicenter.todos".into(),
-                title: "Todos".into(),
-            }]
-        );
-        assert_eq!(
-            granted_names(&fixture.window("folders"), "data:so.epicenter.todos"),
-            ["epicenter.json", "todos"]
-        );
-    }
-
-    #[test]
-    fn epicenters_own_folder_is_listed_under_its_scope_for_both_windows() {
-        let fixture = fixture("epicenter");
-        data_folder(&fixture, EPICENTER_FOLDER, r#"{ "title": "Epicenter" }"#);
-        fs::write(fixture.folder_dir.join("so.epicenter/notes.md"), "").unwrap();
-
-        assert_eq!(
-            fixture.list(),
-            [DataFolder {
-                id: EPICENTER_FOLDER.into(),
-                title: "Epicenter".into(),
-            }]
-        );
-        for label in ["folders", "home"] {
-            assert_eq!(
-                granted_names(&fixture.window(label), EPICENTER_FOLDER),
-                ["epicenter.json", "notes.md"]
-            );
-        }
-        assert!(invoke(
-            &fixture.window("todos"),
-            "grant_directory",
-            json!({ "scope": EPICENTER_FOLDER })
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn settings_is_handed_epicenters_folder_and_the_folders_window_nothing() {
-        let fixture = fixture("handed-built-in");
-        assert_eq!(
-            invoke(&fixture.window("home"), "window_folder", json!({})).unwrap(),
-            json!({ "app": EPICENTER_FOLDER, "folder": EPICENTER_FOLDER })
-        );
-        assert_eq!(
-            invoke(&fixture.window("folders"), "window_folder", json!({})).unwrap(),
-            Value::Null
-        );
-    }
-
-    #[test]
-    fn another_folder_is_registered_once_and_keeps_its_scope() {
-        let fixture = fixture("stable");
-        data_folder(&fixture, "vault", "{}");
-        let first = fixture.list();
-        // A second registration of `data:vault` would leave it out.
-        let second = fixture.list();
-        assert_eq!(first, second);
-        assert_eq!(first[0].id, "data:vault");
-    }
-
-    #[test]
-    fn a_folder_that_cannot_be_registered_is_left_out_and_the_rest_are_listed() {
-        let fixture = fixture("skipped");
-        data_folder(&fixture, "vault", "{}");
-        data_folder(&fixture, "notes", "{}");
-        // Something else already registered `data:vault`, so this listing's
-        // registration of it is refused.
-        fixture
-            .app
-            .folders()
-            .register(ScopeConfig {
-                scope: "data:vault".into(),
-                folder: FolderConfig::data(fixture.folder_dir.join("vault")),
-                windows: vec!["elsewhere".into()],
-            })
-            .unwrap();
-
-        let ids: Vec<String> = fixture.list().into_iter().map(|folder| folder.id).collect();
-        assert_eq!(ids, ["data:notes"]);
-    }
-
-    #[test]
-    fn a_data_folder_removed_after_listing_is_missing_not_recreated() {
-        let fixture = fixture("removed");
-        data_folder(&fixture, "vault", "{}");
-        let folders = fixture.window("folders");
-        let id = fixture.list().remove(0).id;
-        fs::remove_dir_all(fixture.folder_dir.join("vault")).unwrap();
-
-        let refused = invoke(&folders, "grant_directory", json!({ "scope": id })).unwrap_err();
-        assert_eq!(refused["name"], "Missing");
-        assert!(!fixture.folder_dir.join("vault").exists());
-    }
-
-    #[test]
-    fn a_registered_data_folder_is_granted_to_the_folders_window_alone() {
-        let fixture = fixture("data-grant");
-        data_folder(&fixture, "vault", "{}");
-        let folders = fixture.window("folders");
-        let todos = fixture.window("todos");
-
-        let id = fixture.list().remove(0).id;
-        assert_eq!(granted_names(&folders, &id), ["epicenter.json"]);
-        assert!(invoke(&todos, "grant_directory", json!({ "scope": id })).is_err());
     }
 
     #[test]
@@ -693,5 +532,121 @@ mod tests {
             !reply.contains(fixture.folder_dir.to_str().unwrap()),
             "{reply}"
         );
+    }
+
+    /// Choosing a listed folder opens a separate editor window bound to that
+    /// folder alone; choosing it again reveals the same window.
+    #[test]
+    fn a_listed_folder_opens_in_its_own_editor_window_and_again_reveals_it() {
+        let fixture = fixture("editor");
+        data_folder(&fixture, "vault", "{}");
+        fs::write(fixture.folder_dir.join("vault/notes.md"), "").unwrap();
+        data_folder(&fixture, "books", "{}");
+
+        let (vault, was_open) = fixture.open_editor("vault").unwrap();
+        assert_eq!(was_open, false);
+        assert!(vault.starts_with("files:"), "{vault}");
+        let (books, _) = fixture.open_editor("books").unwrap();
+        assert_ne!(vault, books);
+        assert_eq!(fixture.open_editor("vault").unwrap(), (vault.clone(), true));
+
+        assert_eq!(
+            root_names(&fixture.window(&vault)),
+            ["epicenter.json", "notes.md"]
+        );
+        assert_eq!(root_names(&fixture.window(&books)), ["epicenter.json"]);
+        // The Folders window itself is bound to no folder.
+        let launcher =
+            WebviewWindowBuilder::new(&fixture.app, BuiltInApp::Folders.id(), Default::default())
+                .build()
+                .unwrap();
+        assert_eq!(
+            invoke(&launcher, "open_folder", json!({})).unwrap_err(),
+            json!({ "name": "NotBound" })
+        );
+    }
+
+    /// Epicenter's own folder is listed and may be edited in its editor
+    /// window; Settings is bound to it too, made when it is missing.
+    #[test]
+    fn epicenters_own_folder_opens_in_settings_and_in_its_editor() {
+        let fixture = fixture("epicenter");
+        let settings = settings_directory(&fixture.folder_dir).unwrap();
+        assert!(fixture.folder_dir.join(EPICENTER_FOLDER).is_dir());
+        let paths = DesktopPaths {
+            data_dir: fixture.folder_dir.with_file_name("app-data"),
+            folder_dir: fixture.folder_dir.clone(),
+        };
+        assert!(overlaps_epicenter_files(&paths, &settings));
+        fs::write(fixture.folder_dir.join("so.epicenter/notes.md"), "").unwrap();
+
+        let home = fixture
+            .app
+            .folders()
+            .bind_while_building("home", settings, || {
+                Ok::<_, anyhow::Error>(
+                    WebviewWindowBuilder::new(&fixture.app, "home", Default::default()).build()?,
+                )
+            })
+            .unwrap();
+        assert_eq!(root_names(&home), ["notes.md"]);
+        let (editor, _) = fixture.open_editor(EPICENTER_FOLDER).unwrap();
+        assert_eq!(root_names(&fixture.window(&editor)), ["notes.md"]);
+    }
+
+    #[test]
+    fn admission_protects_settings_staged_bytes_and_a_missing_parent_in_app_data() {
+        let fixture = fixture("protected-sidecars");
+        let scratch = fixture.folder_dir.join(".so.epicenter.epicenter-scratch");
+        fs::create_dir(&scratch).unwrap();
+        let private = fixture.folder_dir.join("private");
+        fs::create_dir(&private).unwrap();
+        let paths = DesktopPaths {
+            data_dir: fixture.folder_dir.join("absent/../private"),
+            folder_dir: fixture.folder_dir.clone(),
+        };
+        assert!(!fixture.folder_dir.join("absent").exists());
+
+        for protected in [&scratch, &private] {
+            let directory = Directory::existing(protected).unwrap();
+            assert!(overlaps_epicenter_files(&paths, &directory));
+        }
+        let ordinary = fixture.folder_dir.join("ordinary");
+        fs::create_dir(&ordinary).unwrap();
+        let directory = Directory::existing(&ordinary).unwrap();
+        assert!(!overlaps_epicenter_files(&paths, &directory));
+    }
+
+    /// A listed folder that is gone, a name that is not one directory entry,
+    /// and a link are refused, and nothing is created.
+    #[test]
+    fn an_editor_opens_only_a_listed_folder_that_is_still_there() {
+        let fixture = fixture("editor-refused");
+        data_folder(&fixture, "vault", "{}");
+        fixture.list();
+        fs::remove_dir_all(fixture.folder_dir.join("vault")).unwrap();
+        assert_eq!(
+            fixture.open_editor("vault").unwrap_err(),
+            "The folder \"vault\" is not there anymore."
+        );
+        assert!(!fixture.folder_dir.join("vault").exists());
+
+        fs::write(fixture.folder_dir.join("loose.md"), "").unwrap();
+        for name in [
+            "", ".", "..", "../vault", "/tmp", "a/b", ".hidden", "loose.md",
+        ] {
+            assert!(fixture.open_editor(name).is_err(), "{name:?}");
+        }
+        #[cfg(unix)]
+        {
+            let elsewhere = fixture.folder_dir.with_file_name(format!(
+                "{}-elsewhere",
+                fixture.folder_dir.file_name().unwrap().to_string_lossy()
+            ));
+            fs::create_dir_all(&elsewhere).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, fixture.folder_dir.join("linked")).unwrap();
+            assert!(fixture.open_editor("linked").is_err());
+            fs::remove_dir_all(&elsewhere).unwrap();
+        }
     }
 }

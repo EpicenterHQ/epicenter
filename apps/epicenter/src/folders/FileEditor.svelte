@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { Folder } from '@epicenter/folder';
 	import * as Alert from '@epicenter/ui/alert';
+	import { getFolder } from '@epicenter/svelte/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
@@ -8,9 +8,9 @@
 	import { fileKey, fileText } from './files';
 
 	/**
-	 * One file of an opened folder, edited as the exact text it holds. What
-	 * is typed is the folder's draft of the file (`drafts.file`), which the
-	 * window holds, not this editor: it saves a second after the last
+	 * One file of the window's folder, edited as the exact text it holds.
+	 * What is typed is the folder's draft of the file (`drafts.file`), which
+	 * the window holds, not this editor: it saves a second after the last
 	 * keystroke, when the box loses focus, and when the editor goes away, and
 	 * choosing the file again shows it. The folder merges each save, by line,
 	 * with whatever else was saved meanwhile, so lines another window or
@@ -20,31 +20,27 @@
 	 * not changed. The view keys this editor by the file.
 	 */
 	let {
-		folder,
 		drafts,
-		scope,
 		path: shownPath,
 	}: {
-		folder: Folder<Record<never, never>>;
 		/** The typing held in the folder, which outlives this editor. */
 		drafts: FileDrafts;
-		/** The scope the folder was opened as, which its query keys name. */
-		scope: string;
 		/** The file this editor edits. */
 		path: string;
 	} = $props();
+
+	const context = getFolder<Record<never, never>>();
 
 	// The view keys this editor by its file; while it replaces one, the prop
 	// may already read the next file, so a save sent as it goes uses this.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
-	// svelte-ignore state_referenced_locally
-	const files = folder.files;
+	const files = context.folder.files;
 	// svelte-ignore state_referenced_locally
 	const draft = drafts.file(path);
 
 	const stored = createQuery(() => ({
-		queryKey: fileKey(scope, path),
+		queryKey: fileKey(context.queries.key, path),
 		queryFn: async () => {
 			const read = await files.read(path);
 			if (read.error !== null) throw read.error;
@@ -88,7 +84,7 @@
 				<p>Your edit was not saved: {draft.error.message}</p>
 				<div class="mt-1 flex gap-2">
 					<Button size="xs" variant="outline" onclick={() => void draft.save()}>Try again</Button>
-					<Button size="xs" variant="ghost" disabled={draft.locked} onclick={() => draft.discard()}>
+					<Button size="xs" variant="ghost" onclick={() => draft.discard()}>
 						Discard edit
 					</Button>
 				</div>
@@ -127,7 +123,6 @@
 			class="min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm outline-none"
 			aria-label="Text of {path}"
 			spellcheck="false"
-			readonly={draft.locked}
 			value={draft.text ?? (shown?.kind === 'text' ? shown.text : '')}
 			oninput={(event) => draft.type(event.currentTarget.value, base)}
 			onblur={() => void draft.save()}

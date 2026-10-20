@@ -8,12 +8,10 @@ import { Type } from 'typebox';
 
 const notes = Type.Object({ title: Type.String() });
 
-export async function start(directory?: string) {
-	const { data: folder, error: openError } = await openFolder(
-		directory === undefined
-			? { tables: { notes } }
-			: { directory, tables: { notes } },
-	);
+export async function start() {
+	const { data: folder, error: openError } = await openFolder({
+		tables: { notes },
+	});
 	if (openError !== null) return openError.name;
 	await folder.close();
 	return 'so.epicenter.bundlefixture';

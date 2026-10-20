@@ -417,6 +417,9 @@ mod tests {
             "/folders/assets/",
             "/folders",
             "/todos/todo/42",
+            // A folder editor window's page: the Folders document, whose
+            // route selects the editor.
+            crate::folder_windows::EDITOR_PATH,
         ] {
             let response = get(&pages, route);
             assert_eq!(response.status(), StatusCode::OK, "{route}");
@@ -426,6 +429,10 @@ mod tests {
                 "{route}"
             );
         }
+        assert_eq!(
+            body(&get(&pages, crate::folder_windows::EDITOR_PATH)),
+            "<!doctype html><title>folders</title>"
+        );
         // A missing asset is not a route.
         for missing in ["/folders/assets/index-missing.js", "/todos/favicon.ico"] {
             assert_eq!(
@@ -613,6 +620,7 @@ mod tests {
             ("/folders/", "/folders/"),
             ("/folders/", "/folders/table/notes?row=1#x"),
             ("/home/", "/home/"),
+            ("/folders/editor/", "/folders/editor/"),
             (todos, "/todos/"),
             (todos, "/todos/todo/42"),
             (todos, "/todos/?folder=data%3AGroceries"),
@@ -626,6 +634,7 @@ mod tests {
         for (prefix, path) in [
             ("/folders/", "/home/"),
             ("/folders/", "/folders"),
+            ("/folders/editor/", "/folders/"),
             ("/home/", "/folders/"),
             ("/home/", "/todos/"),
             (todos, "/folders/"),

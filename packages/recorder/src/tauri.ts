@@ -1,8 +1,8 @@
 /**
  * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`.
  *
- * The shell's recorder writes `<path>.wav` into the folder this window was
- * granted from the first sample, so the file exists and grows while the
+ * The shell's recorder writes `<path>.wav` into the folder the shell bound
+ * to this window, from the first sample, so the file exists and grows while the
  * recording runs. `stop` finalizes its header and `cancel` deletes it. When
  * the page reloads or its window closes, the shell finalizes the recording
  * itself: the file is kept and its row, written at start, already names it.
@@ -57,7 +57,6 @@ function fromNative(error: NativeRecorderError, label = '') {
 }
 
 export const startRecording: StartRecording = async ({
-	folder,
 	path,
 	input,
 	signal,
@@ -73,12 +72,7 @@ export const startRecording: StartRecording = async ({
 	};
 	let answer: Awaited<ReturnType<typeof commands.start>>;
 	try {
-		answer = await commands.start(
-			folder.id,
-			path,
-			input?.deviceId ?? null,
-			signals,
-		);
+		answer = await commands.start(path, input?.deviceId ?? null, signals);
 	} catch (cause) {
 		return RecorderError.Failed({ cause });
 	}
@@ -129,12 +123,9 @@ export const startRecording: StartRecording = async ({
 	});
 };
 
-export const recoverRecordings: RecoverRecordings = async ({
-	folder,
-	under,
-}) => {
+export const recoverRecordings: RecoverRecordings = async ({ under }) => {
 	try {
-		const { data, error } = await commands.recover(folder.id, under);
+		const { data, error } = await commands.recover(under);
 		if (error !== null) return fromNative(error);
 		return Ok(data);
 	} catch (cause) {

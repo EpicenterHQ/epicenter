@@ -77,7 +77,6 @@ function fakeRecorderClass(produced: () => Uint8Array) {
 function fakeFolder(refuse?: string) {
 	const written: { path: string; bytes: Uint8Array }[] = [];
 	const folder: RecordingFolder = {
-		id: 'so.epicenter.test',
 		async write(path, _from, bytes) {
 			if (refuse !== undefined)
 				return { data: null, error: { message: refuse } } as Result<
@@ -283,9 +282,8 @@ test('a window without a microphone or an encoder cannot record', async () => {
 });
 
 test('a browser has no cut-off recordings to repair', async () => {
-	const { folder } = fakeFolder();
 	const { recoverRecordings } = createBrowserRecorder(environment());
-	expect(
-		expectOk(await recoverRecordings({ folder, under: 'recordings' })),
-	).toEqual([]);
+	expect(expectOk(await recoverRecordings({ under: 'recordings' }))).toEqual(
+		[],
+	);
 });

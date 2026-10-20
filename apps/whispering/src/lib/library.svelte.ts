@@ -693,9 +693,11 @@ export function createLibrary(
 
 	// --- recording ----------------------------------------------------------
 
-	/** The folder a capture writes its audio into. */
+	/**
+	 * The write a browser capture places its audio through. On the desktop
+	 * the shell records into the folder it bound to this window.
+	 */
 	const recordingFolder = (): RecordingFolder => ({
-		id: workspace.folderId,
 		write: folder.files.write,
 	});
 

@@ -37,11 +37,7 @@ import {
 } from '../transformation.js';
 import { createWebViewMicrophone } from '../webview-microphone.js';
 import { localPreferences } from './microphone-preference.js';
-import {
-	type OpenWorkspace,
-	WHISPERING_FOLDER_ID,
-	WorkspaceError,
-} from './types.js';
+import { type OpenWorkspace, WorkspaceError } from './types.js';
 
 /** This tab's two connections, keys included, as one JSON object. */
 const CONNECTIONS_STORAGE = 'whispering.connections';
@@ -114,7 +110,6 @@ export const openWorkspace: OpenWorkspace = async () => {
 	return Ok({
 		kind: 'browser',
 		folder,
-		folderId: WHISPERING_FOLDER_ID,
 		location: 'This browser’s storage for this site',
 		capture: wantsToneFixture()
 			? createFixtureDevice({

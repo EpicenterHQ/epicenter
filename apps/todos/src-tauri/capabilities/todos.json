@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "todos",
-	"description": "The Todos window opens the folder the shell handed it with the page's own engine through the folder plugin, and listens for the plugin's change event, epicenter-folder://changed. The shell registered that folder for this window alone; the page names no path. The page holds the window's close until what is typed saved, then destroys its own window (core:window:allow-destroy). It reads the app's identifier (core:app:allow-identifier) to offer Open in Epicenter only in standalone Todos, and asks the shell to open Epicenter on the folder the window was granted (open_in_epicenter); the shell, not the page, names that directory and opens the link.",
+	"description": "The one standalone Todos window opens the whole app data directory bound by Rust before its WebView exists. The static page calls openFolder with its schema and passes no path. Folder selection belongs to Epicenter's launcher; standalone Todos has no picker or extra-folder windows. The page listens for changes, holds close until edits save, and may ask Rust to hand its bound default to Epicenter.",
 	"local": true,
 	"windows": ["todos"],
 	"permissions": [

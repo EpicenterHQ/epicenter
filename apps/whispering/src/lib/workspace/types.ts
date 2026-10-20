@@ -35,13 +35,6 @@ import type { LocalTranscription } from './local-transcription.js';
 export type WhisperingFolder = Folder<WhisperingTables>;
 
 /**
- * The ID a browser workspace reports for its folder, which the recorder
- * names its audio under. A desktop workspace reports the scope Epicenter
- * handed its window instead, and never opens a folder by this ID.
- */
-export const WHISPERING_FOLDER_ID = 'so.epicenter.whispering';
-
-/**
  * Why no workspace could be opened. The message is what the person is shown.
  * Neither storage is tried in place of the other: a browser folder that is
  * refused is not replaced by a desktop one, and inside a desktop app nothing
@@ -67,12 +60,6 @@ export type WorkspaceError = InferErrors<typeof WorkspaceError>;
 export type Workspace = {
 	readonly kind: 'native' | 'browser';
 	readonly folder: WhisperingFolder;
-	/**
-	 * The ID the folder was opened under: the scope Epicenter handed this
-	 * window, or `WHISPERING_FOLDER_ID` in a browser. The desktop recorder
-	 * writes a recording's audio under it.
-	 */
-	readonly folderId: string;
 	/** Where the files are, as the person is told it. */
 	readonly location: string;
 	/** What this session records from. Fixed when the workspace opens. */

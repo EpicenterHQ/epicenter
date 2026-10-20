@@ -1,78 +1,66 @@
-//! Todos as its own desktop window over its own local Folder.
+//! Standalone Todos edits its whole application data directory in one window.
 //!
-//! The shell resolves the application data directory, registers that whole
-//! directory as the one folder the Todos window may edit, and hands it to the
-//! window before the window exists. The page then calls
-//! `openFolder({ tables })`, which asks the folder plugin which folder this
-//! window was handed and is granted it; the page never names a path. The
-//! plugin creates the directory at the first grant when it is missing.
-//!
-//! **Open in Epicenter** (`open_in_epicenter`) asks the operating system to
-//! open `epicenter://open?path=<directory>` for the directory the window was
-//! granted (ADR-0646). The shell reads that directory from its own grant, not
-//! from the page or the app's id. A successful answer means the system took
-//! the request, not that Epicenter opened the folder: Epicenter asks the
-//! person first.
+//! The native wrapper creates the fixed default when missing and binds it
+//! before loading the static page. The page calls `openFolder({ tables })`;
+//! it never selects or discovers a path. Epicenter can load the same page
+//! over another folder selected by its own launcher. Standalone Todos has
+//! no folder picker, recent-folder list, or extra-folder windows.
 
-use std::path::PathBuf;
+use std::error::Error;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, Folders, ScopeConfig, WindowFolder};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_epicenter_folder::{Directory, FolderExt, Folders};
 use tauri_plugin_opener::OpenerExt;
 
-/// The label of the one Todos window, which `capabilities/todos.json` names.
+/// The one standalone window, selected by `capabilities/todos.json`.
 const WINDOW: &str = "todos";
-
-/// The app and the scope of its folder, as `window_folder` answers the page.
-/// A label for the shell's registry, not a path or a lookup key: the page
-/// passes it back to `grant_directory` and reads nothing from it.
-const TODOS: &str = "so.epicenter.todos";
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_epicenter_folder::init())
-        // Rust alone opens the link; no capability grants the page the
-        // opener's commands.
+        // Only reports a startup failure; no page receives dialog commands.
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![open_in_epicenter])
         .setup(|app| {
-            let root = app.path().app_data_dir()?;
-            // A Linux WebView otherwise defaults to local app data, which is
-            // also this Folder root. Keep browser runtime files in cache.
-            let webview_data = app.path().app_cache_dir()?.join("webview");
-            assign_folder(app.folders(), root)?;
-            WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::default())
-                .title("Todos")
-                .inner_size(960.0, 720.0)
-                .min_inner_size(480.0, 400.0)
-                .data_directory(webview_data)
-                .build()?;
+            let opened = (|| -> Result<(), Box<dyn Error>> {
+                let root = app.path().app_data_dir()?;
+                let directory = Directory::create(&root)?;
+                // Keep WebView runtime files outside the editable default on Linux.
+                let webview_data = app.path().app_cache_dir()?.join("webview");
+                app.folders().bind_while_building(
+                    WINDOW,
+                    directory,
+                    || -> Result<_, Box<dyn Error>> {
+                        Ok(
+                            WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::default())
+                                .title("Todos")
+                                .inner_size(960.0, 720.0)
+                                .min_inner_size(480.0, 400.0)
+                                .data_directory(webview_data)
+                                .build()?,
+                        )
+                    },
+                )?;
+                Ok(())
+            })();
+            if let Err(error) = opened {
+                let handle = app.handle().clone();
+                app.dialog()
+                    .message(error.to_string())
+                    .title("Todos could not open its folder")
+                    .kind(MessageDialogKind::Error)
+                    .show(move |_| handle.exit(1));
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("Todos could not start");
 }
 
-/// Register `root` as the Todos window's folder, whole, and hand it to that
-/// window. No other window is let in.
-fn assign_folder(folders: &Folders, root: PathBuf) -> Result<(), String> {
-    folders.register(ScopeConfig {
-        scope: TODOS.into(),
-        folder: FolderConfig::new(root),
-        windows: vec![WINDOW.into()],
-    })?;
-    folders.hand(
-        WINDOW,
-        WindowFolder {
-            app: TODOS.into(),
-            folder: TODOS.into(),
-        },
-    );
-    Ok(())
-}
-
 /// Ask the operating system to open Epicenter on the directory the calling
-/// window was granted. Answers once the system took the request; whether
+/// window is bound to. Answers once the system took the request; whether
 /// Epicenter opens the folder is the person's choice there.
 #[tauri::command]
 fn open_in_epicenter(app: tauri::AppHandle, window: tauri::Window) -> Result<(), String> {
@@ -82,15 +70,11 @@ fn open_in_epicenter(app: tauri::AppHandle, window: tauri::Window) -> Result<(),
         .map_err(|error| format!("The system did not open Epicenter: {error}"))
 }
 
-/// `epicenter://open?path=<directory>` for the root `window` was granted, as
+/// `epicenter://open?path=<directory>` for the root `label` is bound to, as
 /// the folder plugin resolved it.
-fn epicenter_link(folders: &Folders, window: &str) -> Result<String, String> {
-    let handed = folders
-        .handed(window)
-        .ok_or_else(|| "This window has no folder.".to_string())?;
-    let root = folders
-        .granted_root(&handed.folder, window)
-        .map_err(|_| "This window's folder is not open yet.".to_string())?;
+fn epicenter_link(folders: &Folders, label: &str) -> Result<String, String> {
+    let directory = folders.bound(label).map_err(|error| error.to_string())?;
+    let root = directory.root();
     let root = root
         .to_str()
         .ok_or_else(|| "This folder's path cannot be sent to Epicenter.".to_string())?;
@@ -113,8 +97,9 @@ fn encode_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    //! The folder plugin's real commands on the mock runtime, as the page
-    //! calls them when it opens its folder.
+    //! The folder plugin's real commands on the mock runtime, as each page
+    //! calls them when it opens its fixed folder, with a mock window standing
+    //! in for the WebView.
 
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -124,11 +109,11 @@ mod tests {
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
     use tauri::utils::acl::ExecutionContext;
     use tauri::webview::InvokeRequest;
-    use tauri::{App, WebviewWindow, WebviewWindowBuilder};
+    use tauri::{App, WebviewWindow};
 
     use super::*;
 
-    /// A mock app with the folder plugin and Todos's folder assigned at
+    /// A mock app with the folder plugin, and Todos's default folder at
     /// `root`, which does not exist yet.
     struct Fixture {
         app: App<MockRuntime>,
@@ -139,6 +124,23 @@ mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             self.app.folders().shutdown();
+        }
+    }
+
+    impl Fixture {
+        fn launch(&self) -> String {
+            let directory = Directory::create(&self.root).unwrap();
+            self.app
+                .folders()
+                .bind_while_building(WINDOW, directory, || -> Result<_, Box<dyn Error>> {
+                    Ok(WebviewWindowBuilder::new(&self.app, WINDOW, Default::default()).build()?)
+                })
+                .unwrap();
+            WINDOW.into()
+        }
+
+        fn window(&self, label: &str) -> WebviewWindow<MockRuntime> {
+            self.app.get_webview_window(label).expect("an open window")
         }
     }
 
@@ -159,18 +161,11 @@ mod tests {
             .plugin(tauri_plugin_epicenter_folder::init())
             .build(context)
             .expect("mock app");
-        assign_folder(app.folders(), root.clone()).unwrap();
         Fixture {
             app,
             root,
             _temp: temp,
         }
-    }
-
-    fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
-        WebviewWindowBuilder::new(app, label, Default::default())
-            .build()
-            .expect("mock window")
     }
 
     fn invoke(
@@ -202,102 +197,15 @@ mod tests {
         names
     }
 
-    #[test]
-    fn the_todos_window_opens_the_whole_assigned_directory_and_makes_it_when_missing() {
-        let fixture = fixture();
-        let todos = window(&fixture.app, WINDOW);
-        assert!(!fixture.root.exists());
-
-        let handed = invoke(&todos, "window_folder", json!({})).unwrap();
-        assert_eq!(handed, json!({ "app": TODOS, "folder": TODOS }));
-        let scope = handed["folder"].as_str().unwrap();
-
-        let granted = invoke(&todos, "grant_directory", json!({ "scope": scope })).unwrap();
-        assert_eq!(granted, json!({ "root": fixture.root.to_str().unwrap() }));
-        // The grant made the directory itself, and nothing in it: no child
-        // folder and no marker file.
-        assert!(fixture.root.is_dir());
-        assert!(entries(&fixture.root).is_empty());
-        assert_eq!(
-            fixture.app.folders().granted_root(TODOS, WINDOW).unwrap(),
-            fixture.root
-        );
-    }
-
-    #[test]
-    fn a_reopened_page_is_granted_the_same_directory_and_finds_its_files() {
-        let fixture = fixture();
-        let todos = window(&fixture.app, WINDOW);
-        invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap();
-        fs::create_dir(fixture.root.join("todos")).unwrap();
-        fs::write(
-            fixture.root.join("todos/milk.md"),
-            "---\ntitle: Milk\n---\n",
-        )
-        .unwrap();
-
-        let granted = invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap();
-        assert_eq!(granted, json!({ "root": fixture.root.to_str().unwrap() }));
-        let children = invoke(
-            &todos,
+    fn todo_files(window: &WebviewWindow<MockRuntime>) -> Value {
+        invoke(window, "open_folder", json!({})).unwrap();
+        invoke(
+            window,
             "read_folder_children",
-            json!({ "scope": TODOS, "directory": "todos" }),
+            json!({ "directory": "todos" }),
         )
-        .unwrap();
-        assert_eq!(children, json!({ "files": ["milk.md"], "directories": [] }));
-    }
-
-    #[test]
-    fn a_removed_fixed_default_is_recreated_within_the_same_run() {
-        let fixture = fixture();
-        let todos = window(&fixture.app, WINDOW);
-        invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap();
-        fs::remove_dir(&fixture.root).unwrap();
-
-        let granted = invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap();
-        assert_eq!(granted, json!({ "root": fixture.root.to_str().unwrap() }));
-        assert!(fixture.root.is_dir());
-        assert!(entries(&fixture.root).is_empty());
-    }
-
-    #[test]
-    fn no_other_window_is_handed_or_granted_the_folder() {
-        let fixture = fixture();
-        let other = window(&fixture.app, "other");
-
-        assert_eq!(
-            invoke(&other, "window_folder", json!({})).unwrap(),
-            Value::Null
-        );
-        let refused = invoke(&other, "grant_directory", json!({ "scope": TODOS })).unwrap_err();
-        assert_eq!(refused["name"], "WindowNotPermitted");
-        assert!(!fixture.root.exists());
-    }
-
-    /// The link names the directory the plugin granted the window, read from
-    /// the grant itself, so a moved or redirected root is sent as it now is.
-    #[test]
-    fn open_in_epicenter_names_the_granted_directory() {
-        let fixture = fixture();
-        let todos = window(&fixture.app, WINDOW);
-        assert_eq!(
-            epicenter_link(fixture.app.folders(), WINDOW).unwrap_err(),
-            "This window's folder is not open yet."
-        );
-
-        invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap();
-        let link = epicenter_link(fixture.app.folders(), WINDOW).unwrap();
-        assert_eq!(
-            link,
-            format!(
-                "epicenter://open?path={}",
-                encode_path(fixture.root.to_str().unwrap())
-            )
-        );
-        assert_eq!(
-            epicenter_link(fixture.app.folders(), "other").unwrap_err(),
-            "This window has no folder."
-        );
+        .unwrap()["files"]
+            .clone()
     }
 
     #[test]
@@ -312,11 +220,77 @@ mod tests {
         );
     }
 
-    /// The window holds the folder plugin, its own app identifier (which the
-    /// page reads to offer Open in Epicenter only in standalone Todos), and
-    /// its one command. No opener permission: the shell opens the link.
     #[test]
-    fn the_capability_selects_only_the_todos_window_and_the_folder_commands() {
+    fn handoff_names_the_default_bound_root_without_a_page_grant() {
+        let fixture = fixture();
+        fixture.launch();
+        assert_eq!(
+            epicenter_link(fixture.app.folders(), WINDOW).unwrap(),
+            format!(
+                "epicenter://open?path={}",
+                encode_path(fixture.root.to_str().unwrap())
+            )
+        );
+        assert!(epicenter_link(fixture.app.folders(), "unbound").is_err());
+    }
+
+    #[test]
+    fn launch_makes_the_whole_app_data_directory_and_binds_it_to_the_first_window() {
+        let fixture = fixture();
+        assert!(!fixture.root.exists());
+        let todos = fixture.window(&fixture.launch());
+        // Launch made the directory itself, and nothing in it: no child
+        // folder and no marker file.
+        assert!(fixture.root.is_dir());
+        assert!(entries(&fixture.root).is_empty());
+        invoke(&todos, "open_folder", json!({})).unwrap();
+        assert_eq!(
+            fixture.app.folders().bound(todos.label()).unwrap().root(),
+            fixture.root
+        );
+
+        fs::create_dir(fixture.root.join("todos")).unwrap();
+        fs::write(
+            fixture.root.join("todos/milk.md"),
+            "---\ntitle: Milk\n---\n",
+        )
+        .unwrap();
+        // A reloaded page opens the same directory and finds its files.
+        assert_eq!(todo_files(&todos), json!(["milk.md"]));
+    }
+
+    /// The default removed while its window is open is refused when the page
+    /// opens it again, and is made again only when native startup prepares the default.
+    #[test]
+    fn a_removed_default_is_refused_until_native_startup_prepares_it() {
+        let fixture = fixture();
+        let todos = fixture.window(&fixture.launch());
+        fs::remove_dir(&fixture.root).unwrap();
+        assert_eq!(
+            invoke(&todos, "open_folder", json!({})).unwrap_err(),
+            json!({ "name": "Missing" })
+        );
+        assert!(!fixture.root.exists());
+        Directory::create(&fixture.root).unwrap();
+        assert!(fixture.root.is_dir());
+        invoke(&todos, "open_folder", json!({})).unwrap();
+    }
+
+    #[test]
+    fn a_window_with_no_folder_is_refused() {
+        let fixture = fixture();
+        fixture.launch();
+        let other = WebviewWindowBuilder::new(&fixture.app, "other", Default::default())
+            .build()
+            .unwrap();
+        assert_eq!(
+            invoke(&other, "open_folder", json!({})).unwrap_err(),
+            json!({ "name": "NotBound" })
+        );
+    }
+
+    #[test]
+    fn the_capability_selects_the_one_standalone_window() {
         let capability: Value =
             serde_json::from_str(include_str!("../capabilities/todos.json")).unwrap();
         assert_eq!(capability["windows"], json!([WINDOW]));

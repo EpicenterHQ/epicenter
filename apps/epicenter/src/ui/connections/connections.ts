@@ -4,19 +4,15 @@
  * new connection's id, and what a person is told when something failed.
  */
 
-import {
-	CONNECTIONS_FOLDER_ID,
-	connectionsTables as connectionTables,
-} from '@epicenter/ai/connection-table';
+import { connectionsTables as connectionTables } from '@epicenter/ai/connection-table';
+
 export { connectionsTables as connectionTables } from '@epicenter/ai/connection-table';
+
 import type { ConnectionKind } from '@epicenter/ai/send';
-import type { Row, ReadError, SaveError } from '@epicenter/folder';
+import type { ReadError, Row, SaveError } from '@epicenter/folder';
 import type { ActionError } from '@epicenter/svelte/write-failure';
 import type { Static } from 'typebox';
 import type { CliError } from '../bindings.gen';
-
-/** Epicenter's own folder, by the scope the shell registers it under. */
-export const EPICENTER_FOLDER_ID = CONNECTIONS_FOLDER_ID;
 
 /**
  * The tables Settings opens `so.epicenter` with: one row per AI connection,

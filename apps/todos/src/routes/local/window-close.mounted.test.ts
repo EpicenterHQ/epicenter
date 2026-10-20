@@ -115,7 +115,8 @@ async function windowOnMilk() {
 	return { get };
 }
 
-const said = (text: string) => document.body.textContent?.includes(text) ?? false;
+const said = (text: string) =>
+	document.body.textContent?.includes(text) ?? false;
 
 test('closing at once after typing a title saves it, then destroys the window', async () => {
 	const page = await windowOnMilk();

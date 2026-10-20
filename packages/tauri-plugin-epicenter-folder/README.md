@@ -1,23 +1,25 @@
 # tauri-plugin-epicenter-folder
 
-The desktop shell's side of an Epicenter folder: it grants a directory to the
-windows registered for it, and is each window's folder storage, one command
-per storage method, under checks the page cannot get around. It runs no `git`: the folder's
-history runs in the `epicenter` CLI, which the shell starts for a page over
-the root this crate granted
+The desktop shell's side of an Epicenter folder: it binds one existing
+directory to each window that edits files, before the window exists, and is
+that window's folder storage, one command per storage method, under checks
+the page cannot get around. It runs no `git`: the folder's history runs in the
+`epicenter` CLI, which a shell starts for a page over the directory bound to
+its window
 ([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
 
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-A shell registers a directory under a scope ID for the windows that may edit
-it. The page names the scope and nothing else: it never supplies a root.
+It names no root, scope, or window: every command answers in the directory
+bound to the calling WebView's label
+([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)).
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the registry, the cross-process save lock, the shared path rule, and the page's storage (`storage.rs`). No Tauri; its tests need only `git` and `bun`. |
-| `src/` | The Tauri plugin: the commands, and the watcher that tells a scope's windows what changed (`watcher.rs`). |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, and the page's storage (`storage.rs`). No Tauri; its tests need only `git` and `bun`. |
+| `src/` | The Tauri plugin: one binding and watch owner (`folders.rs`), the commands, and native event filtering (`watcher.rs`). |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 | `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
@@ -25,101 +27,88 @@ it. The page names the scope and nothing else: it never supplies a root.
 This crate has no JavaScript package of its own. A page reaches it through
 `@epicenter/folder` (or `@epicenter/folder/tauri`).
 
-## Registering folders in a shell
+## Binding a window's folder
 
-Install the plugin once. Register each folder from trusted Rust code after the
-shell has resolved its paths, which is in `setup`, not before:
+Install the plugin once. A shell decides which directory a window edits in
+trusted Rust, resolves it, and binds it to the window's label before it builds
+the WebView:
 
 ```rust
-use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, ScopeConfig};
+use tauri_plugin_epicenter_folder::{Directory, FolderExt};
 
 tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
-        let todos = resolve_todos_directory(app)?;
-        app.folders().register(ScopeConfig {
-            scope: "so.epicenter.todos".into(),
-            folder: FolderConfig::new(todos),
-            windows: vec!["todos".into()],
+        let folders = app.folders();
+        // A fixed default the shell computes: made when it is missing.
+        let directory = Directory::create(&app.path().app_data_dir()?)?;
+        let label = "todos";
+        folders.bind_while_building(label, directory, || {
+            WebviewWindowBuilder::new(app, label, WebviewUrl::default()).build()
         })?;
         Ok(())
     })
 ```
 
-`windows` must name at least one window. To let another window into a
-registered folder later, such as a browser window opening Todos's folder,
-call `app.folders().permit("so.epicenter.todos", "browser")`. A permitted
-window stays permitted until the app exits.
+`Directory::create(path)` prepares a fixed default computed by the shell,
+creating it when missing and retaining its canonical root.
+`Directory::existing(path)` resolves a directory a person selected without
+creating anything: a missing one is `Missing`, a file or a link is
+`Unavailable`, and nothing is made. The directory itself must be a real
+directory, never a link; its parent may be a link a person chose. What `.git`
+is, if anything, does not matter, as it does not to the Bun host
+(`@epicenter/folder/bun`): a directory with no `.git`, with a `.git` file or
+link (a linked worktree or submodule), or with a repository opens and saves
+alike, and the shell never changes `.git`. Git state that would send history
+writes elsewhere is the `epicenter` CLI's to refuse, before each history
+operation.
 
-`FolderConfig` fields:
+`Folders::bind_while_building(label, directory, build)` binds the directory
+before building the window. A live label is never bound again, whichever
+directory: a second bind is `BindError::Bound`. The plugin removes the binding
+when the window is destroyed, and a failed build removes it too, so the label
+is free for a later try. Epicenter chooses labels from the app and a digest
+of the canonical root, so opening the same app on the same directory finds
+the existing window. Standalone Todos uses the fixed label `todos`. The
+plugin accepts the shell's labels and does not compute window identities.
+A root's watch lasts while a window bound to it is open (see Changes outside
+the page); watches are runtime resources, not a persisted list of folder
+choices.
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `root` | required | The folder's directory. The first grant of an application's folder creates it if it is missing. |
-| `kind` | `Application` | `FolderKind::Application` for an application's own folder, made by `FolderConfig::new`. `FolderKind::Data` for a data folder found under the Epicenter root, made by `FolderConfig::data`: its root is never created (a missing one is refused `Missing`). |
-
-Everything else, the remote, the author, and the branch included, is the
-repository's: the page's engine and the `epicenter` CLI read it from Git's
-configuration, and the CLI supplies its own defaults.
-
-Several windows may edit one scope at once. Each page runs its own engine over
-the directory, and the shell checks and publishes every save under one mutex
-per root (see Storage), so a save that carries the hash it read, or a
-create, that another window overtook is answered `stale` instead of silently
-replacing it, and the page reads again and merges. Only a scope's windows change once
-it is registered. Two scopes may hold one root, as the Folders window's
-`data:<name>` and an app's own scope do; they share the root's mutex.
+Several windows may be bound to one directory, as Settings and a folder
+editor are to `so.epicenter`. Each page runs its own engine over the
+directory. Every participating writer takes the folder's save lock across
+its expectation check and change (see Storage). A save that another writer
+overtook is answered `stale`; the page reads again and merges. Native windows,
+other Epicenter processes, and Bun writers use the same lock
+([ADR-0568](../../docs/adr/0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md)).
 
 A shell must also give the window the plugin's commands in a capability:
-`{ "windows": ["todos"], "permissions": ["epicenter-folder:default"] }`. That
-is all the window needs; no fs plugin is installed. The capability only lets
-a window call the plugin. Which folders it reaches is decided by `windows` in
-`ScopeConfig` and by `permit`.
+`{ "windows": ["todos"], "permissions": ["epicenter-folder:default"] }`.
+That is all the window needs; no fs plugin is installed. The capability only
+lets a window call the plugin. Which directory it reaches is its binding.
 
-## Which folder a window opens
+## Opening
 
-A window an app runs opens one folder, which the shell decides. When it
-opens the window it calls
-`app.folders().hand(label, WindowFolder { app, folder })`, beside `permit`,
-and the page asks `window_folder()`: the app's id and the scope of the
-folder it was handed, or `null` for a window that runs no app. The page
-never reads its folder from its URL, so its navigation and reloads cannot
-change or lose it, and it cannot claim another app. `hand` permits nothing.
+The page calls `open_folder()`, with no arguments. A window with no binding
+is refused `NotBound`, a bound directory that is gone `Missing`, and one that
+cannot be inspected `Unavailable`; nothing is made again here, since making a
+default belongs to the shell's launch. After shutdown the answer is
+`ShuttingDown`. From a root's first open the plugin watches it (see Changes
+outside the page).
 
-## The grant
+Every open also removes the staged files in `.<directory>.epicenter-scratch`
+beside the root that a stopped save left more than an hour ago
+(`storage::sweep_scratch`), by the creation time in the name the stager gave
+it, the same rule as `isStaleScratch` in `@epicenter/folder`. Younger ones
+may belong to a save still running in another process. Only regular files
+with a name a stager made are removed: any other file, a directory, or a link
+stays, and a scratch path that is a link or not a directory is not read.
+Files an older shell staged in `.git/epicenter/scratch` are left as they are.
 
-The page calls `grant_directory(scope)`. A window the scope does not name is
-refused as `WindowNotPermitted`, an unregistered scope as `UnknownScope`. The
-first grant, from whichever of the scope's windows asks first, creates the
-root if it is missing and the folder is an application's (a
-missing data folder's root is refused `Missing`). Its parent may be a link a
-person chose; the root itself must be a real directory. The grant resolves
-the root to its canonical path. What `.git` is, if anything, does not matter,
-as it does not to the Bun host (`@epicenter/folder/bun`): a directory with no
-`.git`, with a `.git` file or link (a linked worktree or submodule), or with a
-repository opens and saves alike, and the shell never changes `.git`. Git
-state that would send history writes elsewhere is the `epicenter` CLI's to
-refuse, before each history operation.
-
-Every grant, the first and each later one, also removes the staged files in
-`.<directory>.epicenter-scratch` beside the root that a stopped save left more
-than an hour ago (`storage::sweep_scratch`), by the creation time in the name
-the stager gave it, the same rule as `isStaleScratch` in `@epicenter/folder`.
-Younger ones may belong to a save still running in another process. Only
-regular files with a name a stager made are removed: any other file, a
-directory, or a link stays, and a scratch path that is a link or not a
-directory is not read. Files an older shell staged in `.git/epicenter/scratch`
-are left as they are.
-
-A grant returns `{ root }`. A later grant, such as a reloaded page's or
-another window's, returns the same root. Nothing keeps out a second scope on
-the root or a second Epicenter process: each save takes the folder's save
-lock, which every writer shares
-([ADR-0568](../../docs/adr/0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md)).
-The `epicenter` CLI refuses a data folder's first `git init` inside another
-repository's working tree whatever the page asks. The grant adds nothing to
-the app's access control: the window reaches the folder only through this
-plugin's commands, each of which looks up the root the scope was granted.
+Each command clones the window's `Directory` when it arrives and works in
+that root until it ends. A window closed and replaced under the same label
+meanwhile cannot redirect work already admitted.
 
 ## Storage
 
@@ -129,12 +118,15 @@ A page's folder storage (`FolderStorage` in `@epicenter/folder`'s
 
 | Method | Command | Answers |
 | --- | --- | --- |
-| `list()` | `list_folder(scope)` | `{ files: { path, size }[], directories: string[] }` |
-| `children(directory)` | `read_folder_children(scope, directory)` | `{ files: string[], directories: string[] }`; `""` is the root |
-| `read(path)` | `read_folder_file(scope, path)` | the bytes, raw |
+| `list()` | `list_folder()` | `{ files: { path, size }[], directories: string[] }` |
+| `children(directory)` | `read_folder_children(directory)` | `{ files: string[], directories: string[] }`; `""` is the root |
+| `read(path)` | `read_folder_file(path)` | the bytes, raw |
 | `put(path, bytes, ifMatch)` | `put_folder_file`, raw body and headers | `"landed"` or `"stale"` |
-| `mkdir(path)` | `make_folder_directory(scope, path)` | `null` |
-| `rmdir(path)` | `remove_folder_directory(scope, path)` | `null` |
+| `mkdir(path)` | `make_folder_directory(path)` | `null` |
+| `rmdir(path)` | `remove_folder_directory(path)` | `null` |
+
+A command from a window with no binding, or after shutdown, is `Io` naming
+`NotBound` or `ShuttingDown`, and changes nothing.
 
 Paths are folder-relative with `/`, and must pass the shared path rule
 (`paths::path_problem`, the same rule as `pathProblem` in
@@ -172,8 +164,8 @@ reply was lost, which it reports as `Unconfirmed`.
 `put_folder_file` publishes a file's bytes at a path, or removes its file,
 only while the path holds what the page expects. It takes the bytes as the
 request's raw body, so content crosses IPC as it is rather than as a JSON
-array of numbers. Its arguments are headers, each percent-encoded: `scope`,
-`path`, `remove` (`true` to remove the file, when the body is ignored), and
+array of numbers. Its arguments are headers, each percent-encoded: `path`,
+`remove` (`true` to remove the file, when the body is ignored), and
 `if-match`, the lowercase SHA-256 of the file the page expects there, left
 out when it expects no file. A JSON array of bytes, Tauri's `postMessage`
 fallback, is accepted too. The generated bindings cannot type a raw request,
@@ -194,16 +186,14 @@ a save that has not landed or one that stopped. On macOS an access control
 entry lets other accounts past those bits, and a parent can pass one on
 (`everyone allow read`), so the scratch directory and each staged file have
 every entry removed through the open descriptor before anything is staged or
-written; a put that cannot remove them is `Io`. A grant's sweep removes them
+written; a put that cannot remove them is `Io`. An open's sweep removes them
 from an existing scratch directory too. Replacing a file keeps its
 permission bits; a new file is `0600`. Windows has no such bits: there the
 scratch directory has the access its parent passes on. The scratch
 directory is on the parent's file
 system, so a root that is itself a mount point cannot be saved to: its
 rename fails as `Io` and the file at the path stays. Then the put takes the
-folder's turn: one mutex per canonical
-root, kept in the registry and shared by every window and scope of the
-folder, and the folder's save lock, an exclusive SQLite transaction on
+folder's save lock, an exclusive SQLite transaction on
 `.<directory>.epicenter-save-lock` beside it (`lock.rs`). Holding the turn,
 it walks the path again (no link, every name stored as asked), checks what
 the path holds, and only then makes the path's missing parent directories
@@ -216,12 +206,13 @@ does any other Epicenter shell, so no other save through the plugin or the
 Bun host lands between the check and the change
 ([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
 A directory another writer pruned while the put waited is made again under
-the turn. A put waits up to ten seconds for another process's save; past
-that it changes nothing and is `Io`, naming the lock file. The cost is a
-read and hash of the destination when `if-match` names a hash. A path that
-holds something else changes nothing and answers `"stale"`. On every answer
-but `"landed"` the put leaves nothing behind: not its staged file, and not a
-directory it made, unless another writer put something in it.
+the turn; the root itself never is. A put waits up to ten seconds for
+another writer's save; past that it changes nothing and is `Io`, naming the
+lock file. The cost is a read and hash of the destination when `if-match`
+names a hash. A path that holds something else changes nothing and answers
+`"stale"`. On every answer but `"landed"` the put leaves nothing behind: not
+its staged file, and not a directory it made, unless another writer put
+something in it.
 
 A folder has no repository until its first commit, Sync or Save version
 ([ADR-0535](../../docs/adr/0535-an-existing-folder-opens-with-its-own-declaration.md)),
@@ -233,7 +224,7 @@ A data file is never written in place: the rename replaces a hard link
 rather than writing through it. The one data file written in place is a
 recording, by `tauri-plugin-epicenter-recorder`
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
-It asks `app.folders().granted_root(scope, window)` for the window's root,
+It asks `app.folders().bound(window)` for the calling window's directory,
 checks the path with `page_files::data_path` (the same rule and link check
 as a put), and creates the file with `create_new`. A directory is removed
 only when empty; nothing removes a tree whole. The page writes no Git
@@ -249,31 +240,27 @@ an older page.
 
 ## Git
 
-This crate runs no `git`. A page's history (status, the log, Save version,
-Sync, and settling a Sync) runs in the `epicenter` CLI, one child per
-operation, which the shell starts with fixed arguments over the root a
-window was granted
-([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
-`Folders::granted_root(scope, window)` names that root, refused for a window
-without a grant; the Epicenter shell's `history.rs` reads it.
-The Git rules (no hooks, no fsmonitor, a scrubbed environment, a remote that
-is a network URL, a credential only for an `https` origin, and Git state
-checked before each operation) live in the CLI's runner,
+The `epicenter` CLI owns Git operations over an explicit directory. This
+plugin offers file storage; the current page capabilities grant no native
+history command. Git's checks live in the CLI's runner,
 `packages/folder/src/git/native-host.ts`.
 
 ## Changes outside the page
 
-From a folder's first grant, by whichever window, the plugin watches its root
+From a root's first open, by whichever window, the plugin watches it
 ([ADR-0548](../../docs/adr/0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md)),
-until shutdown or exit (`watcher.rs`). It uses notify's recommended watcher,
+until the last window bound to it is destroyed, or shutdown or exit
+(`watcher.rs`). It uses notify's recommended watcher,
 FSEvents on macOS, and `notify-debouncer-full` with a 50 ms debounce; the full
 debouncer passes a rescan through, which the mini debouncer drops. Each batch
 is one Tauri event, `epicenter-folder://changed`, emitted to each window
-permitted into the scope when the batch is reported, by label, and to no
-other window:
+bound to the root when the batch is reported, by label. The Folder API uses
+window-scoped listeners to filter these reports. Tauri's global listeners
+can also receive them, so event targeting does not make relative filenames
+private to a window. A window has one folder, so the event names none:
 
 ```ts
-type FolderChanged = { scope: string; paths: string[] | null };
+type FolderChanged = { paths: string[] | null };
 ```
 
 | What changed | `paths` |
@@ -285,7 +272,7 @@ type FolderChanged = { scope: string; paths: string[] | null };
 
 A sleep is noticed by a clock thread that reads the wall clock every 5
 seconds: a jump of more than 30 seconds past that, or a step backward, reports
-`null` for every watched scope. A clock set by hand reads the same and costs
+`null` for every watched root. A clock set by hand reads the same and costs
 one reread. Reading a file is not a change. The watch never follows a link and
 keeps no file ID cache, so nothing outside the root is watched or read, and an
 event naming a path outside the root is ignored.
@@ -303,12 +290,25 @@ with `getCurrentWebviewWindow().listen(...)`, not the global `listen(...)`, or
 it hears other windows' folders too. A folder that cannot be watched still
 opens; the failure is logged and its windows hear no outside change.
 
+A watch belongs to the windows bound to its root. Closing one of several
+keeps it; closing the last stops it, and the next window to open the root
+starts a new one, which begins with `null`. A root deleted and made again
+while no window is bound to it is therefore watched again by the next
+window that opens it; one deleted and made again under a window that stays
+open is not watched again. An open whose window closes while it runs starts no watch.
+One `Folders` state lock protects both bindings and watches. Removing a
+binding and detaching its root's last watch happen together, so a new window
+either keeps the existing watch or starts another on open. Reports and
+watcher destruction run after releasing the lock. A stopped watch may still
+deliver one last batch to whatever windows are bound to the root then; that
+costs at most a reread.
+
 ## Shutdown
 
-Every put and directory change holds an admission while it runs; a read
-holds none. When the app exits, or the shell calls
-`app.folders().shutdown()`, the plugin refuses new grants, reads, and work,
-and stops watching. It waits for nothing: quitting is
+Every put and directory change holds a clone of its window's directory while
+it runs; a read holds one too. When the app exits, or the shell calls
+`app.folders().shutdown()`, the plugin refuses new binds, opens, reads, and
+work, and stops watching. It waits for nothing: quitting is
 immediate ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
 Every save is an atomic rename, so a change cut off at exit leaves the old
 file or the new one. A late change is refused as `ShuttingDown` and writes nothing.
@@ -322,15 +322,15 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
   `.<directory>.epicenter-save-lock` beside the directory. The system
   releases it when the process ends, however it ends (`fcntl`, through
   SQLite). It is unreliable on some network filesystems.
-- A change made in the moment between a grant and its watch starting is
+- A change made in the moment between an open and its watch starting is
   reported only by the `null` that watching begins with, which a page that
-  subscribes after its grant does not hear; it already reads after the grant.
+  subscribes after its open does not hear; it already reads after the open.
   Conditional saves turn a stale write, another window's included, into a
   conflict either way.
-- The expectation is checked under the root's mutex and the folder's save
-  lock. A program that takes neither, anything but this shell and
-  `@epicenter/folder/bun`, and changes a path between that check and the
-  rename is not seen.
+- The expectation is checked under the folder's save lock. A program that
+  takes no lock and changes a path between that check and the rename is not
+  seen. Two windows bound to nested roots, one inside the other, take
+  different save locks.
 - A compromised page keeps the powers the engine needs: it can move the
   branch, reset the index, and change or delete any data path. Each is
   visible and repairable from the reflog and the remote.

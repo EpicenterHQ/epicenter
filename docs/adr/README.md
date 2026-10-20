@@ -855,3 +855,5 @@ When you add an ADR, add its row here.
 | [0640](0640-future-media-sync-uses-git-lfs-and-one-endpoint-pair.md) | Future media sync uses Git LFS and one endpoint pair | Proposed |
 | [0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) | Epicenter remembers folders as machine-local paths | Accepted (amends 0558) |
 | [0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) | Each desktop app selects its CLI independently of the terminal | Accepted (amends 0558) |
+| [0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) | A native app hands Epicenter a directory path, and the person accepts it | Accepted (amended by 0647) |
+| [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Accepted (amends 0531 and 0644) |

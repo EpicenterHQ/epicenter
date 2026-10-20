@@ -1,6 +1,7 @@
 <!--
-	The root of an app over its local folder: opens the browser origin's or
-	desktop window's assigned folder with `openFolder({ tables })` when it mounts,
+	The root of an app over its local folder: opens the browser origin's
+	folder, or the folder the desktop shell bound to this window, with
+	`openFolder({ tables })` when it mounts,
 	shows one loading screen and one
 	refusal screen, provides the opened folder to its children
 	(`getFolder()`), and closes it when it unmounts.

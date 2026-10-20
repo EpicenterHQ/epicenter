@@ -31,7 +31,6 @@ const USB = { deviceId: 'coreaudio:usb-uid', label: 'USB Microphone' };
 
 const INTO: CaptureStart = {
 	folder: {
-		id: 'so.epicenter.whispering',
 		write: async () => Ok(undefined),
 	},
 	path: 'recordings/a',

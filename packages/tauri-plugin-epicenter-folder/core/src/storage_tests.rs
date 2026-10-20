@@ -188,12 +188,7 @@ fn a_read_answers_the_bytes_of_a_regular_file_and_nothing_else() {
             path: "todos/a.md/x".into()
         })
     );
-    for refused in [
-        "",
-        ".git/HEAD",
-        "../outside.md",
-        "todos//a.md",
-    ] {
+    for refused in ["", ".git/HEAD", "../outside.md", "todos//a.md"] {
         assert!(
             read(&root, refused).is_err_and(|error| invalid(refused)(&error)),
             "{refused:?}"
@@ -204,19 +199,30 @@ fn a_read_answers_the_bytes_of_a_regular_file_and_nothing_else() {
 #[cfg(unix)]
 #[test]
 fn existing_nonportable_names_can_be_repaired_with_a_witness() {
-    let (_temp, root) = folder("storage-read-nonportable", &[
-        ("notes/.md", b"empty"),
-        ("notes/a: b.md", b"colon"),
-    ]);
+    let (_temp, root) = folder(
+        "storage-read-nonportable",
+        &[("notes/.md", b"empty"), ("notes/a: b.md", b"colon")],
+    );
     assert_eq!(read(&root, "notes/.md").unwrap(), b"empty");
     assert_eq!(read(&root, "notes/a: b.md").unwrap(), b"colon");
     assert!(put_now(&root, "notes/a: b.md", b(b"changed"), None)
         .is_err_and(|error| invalid("notes/a: b.md")(&error)));
     let witness = sha256(b"colon");
-    assert_eq!(put_now(&root, "notes/a: b.md", b(b"repaired"), Some(&witness)).unwrap(), PutOutcome::Landed);
+    assert_eq!(
+        put_now(&root, "notes/a: b.md", b(b"repaired"), Some(&witness)).unwrap(),
+        PutOutcome::Landed
+    );
     assert_eq!(read(&root, "notes/a: b.md").unwrap(), b"repaired");
-    assert_eq!(put_now(&root, "notes/a: b.md", None, Some(&sha256(b"repaired"))).unwrap(), PutOutcome::Landed);
-    assert_eq!(read(&root, "notes/a: b.md"), Err(StorageError::NotFound { path: "notes/a: b.md".into() }));
+    assert_eq!(
+        put_now(&root, "notes/a: b.md", None, Some(&sha256(b"repaired"))).unwrap(),
+        PutOutcome::Landed
+    );
+    assert_eq!(
+        read(&root, "notes/a: b.md"),
+        Err(StorageError::NotFound {
+            path: "notes/a: b.md".into()
+        })
+    );
 }
 
 #[test]
@@ -224,10 +230,13 @@ fn an_existing_head_is_readable_but_never_changed() {
     let (_temp, root) = folder("storage-head-private", &[("HEAD", b"notes\n")]);
     assert_eq!(read(&root, "HEAD").unwrap(), b"notes\n");
     let witness = sha256(b"notes\n");
-    assert!(put_now(&root, "HEAD", b(b"ref: refs/heads/main\n"), Some(&witness))
-        .is_err_and(|error| invalid("HEAD")(&error)));
-    assert!(put_now(&root, "HEAD", None, Some(&witness))
-        .is_err_and(|error| invalid("HEAD")(&error)));
+    assert!(
+        put_now(&root, "HEAD", b(b"ref: refs/heads/main\n"), Some(&witness))
+            .is_err_and(|error| invalid("HEAD")(&error))
+    );
+    assert!(
+        put_now(&root, "HEAD", None, Some(&witness)).is_err_and(|error| invalid("HEAD")(&error))
+    );
     assert_eq!(read(&root, "HEAD").unwrap(), b"notes\n");
 }
 
@@ -758,7 +767,7 @@ fn staged_bytes_keep_no_acl_the_parent_passes_on() {
 }
 
 /// A scratch directory made under a parent that passed an entry on, as an
-/// older shell left one, loses the entry at the sweep a grant runs, before
+/// older shell left one, loses the entry at the sweep an open runs, before
 /// a save has reason to use it.
 #[cfg(target_os = "macos")]
 #[test]
@@ -959,7 +968,10 @@ fn a_sweep_removes_only_staged_files_an_hour_old() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        assert_eq!(fs::metadata(&scratch).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(
+            fs::metadata(&scratch).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
     let mut left = staged(&root);
     left.sort();
@@ -1041,16 +1053,17 @@ fn a_parent_respelled_before_the_turn_refuses_the_put() {
     if !ignores_case(&root) {
         return;
     }
-    let respell = || {
-        fs::rename(root.join("notes"), root.join("Notes")).map_err(|cause| cause.to_string())
-    };
+    let respell =
+        || fs::rename(root.join("notes"), root.join("Notes")).map_err(|cause| cause.to_string());
     assert!(put(&root, "notes/a.md", b(b"mine"), None, respell)
         .is_err_and(|error| invalid("notes/a.md")(&error)));
     assert!(!root.join("Notes/a.md").exists());
-    let back = || fs::rename(root.join("Notes"), root.join("notes")).map_err(|cause| cause.to_string());
+    let back =
+        || fs::rename(root.join("Notes"), root.join("notes")).map_err(|cause| cause.to_string());
     let respell = || {
         back()?;
-        fs::rename(root.join("notes/b.md"), root.join("notes/B.md")).map_err(|cause| cause.to_string())
+        fs::rename(root.join("notes/b.md"), root.join("notes/B.md"))
+            .map_err(|cause| cause.to_string())
     };
     // The target itself respelled: removing `notes/b.md` must not remove `B.md`.
     assert!(put(&root, "notes/b.md", None, Some(&sha256(b"b")), respell)
@@ -1130,10 +1143,13 @@ fn an_rmdir_waits_for_another_holder_of_the_save_lock() {
 fn an_entry_appearing_during_an_rmdir_is_directory_not_empty() {
     let (_temp, root) = folder("storage-rmdir-race", &[]);
     fs::create_dir(root.join("notes")).unwrap();
-    let appear = || fs::write(root.join("notes/a.md"), b"theirs").map_err(|cause| cause.to_string());
+    let appear =
+        || fs::write(root.join("notes/a.md"), b"theirs").map_err(|cause| cause.to_string());
     assert_eq!(
         rmdir(&root, "notes", appear),
-        Err(StorageError::DirectoryNotEmpty { path: "notes".into() })
+        Err(StorageError::DirectoryNotEmpty {
+            path: "notes".into()
+        })
     );
     assert!(root.join("notes/a.md").exists());
 }
@@ -1178,12 +1194,18 @@ fn storage_follows_the_shared_outcomes() {
         let path = call["path"].as_str().unwrap_or_default();
         let if_match = text(&call["ifMatch"]).map(|bytes| sha256(bytes.as_bytes()));
         let answer: Result<Value, StorageError> = match call["method"].as_str().unwrap() {
-            "read" => read(&root, path)
-                .map(|bytes| json!({ "text": String::from_utf8(bytes).unwrap() })),
+            "read" => {
+                read(&root, path).map(|bytes| json!({ "text": String::from_utf8(bytes).unwrap() }))
+            }
             "put" => {
                 let bytes = text(&call["bytes"]);
-                put_now(&root, path, bytes.as_deref().map(str::as_bytes), if_match.as_deref())
-                    .map(|outcome| json!(outcome))
+                put_now(
+                    &root,
+                    path,
+                    bytes.as_deref().map(str::as_bytes),
+                    if_match.as_deref(),
+                )
+                .map(|outcome| json!(outcome))
             }
             "mkdir" => mkdir(&root, path).map(|()| Value::Null),
             "rmdir" => rmdir_now(&root, path).map(|()| Value::Null),
@@ -1221,7 +1243,10 @@ fn storage_follows_the_shared_outcomes() {
         }
         for path in after["absent"].as_array().into_iter().flatten() {
             let path = path.as_str().unwrap();
-            assert!(fs::symlink_metadata(root.join(path)).is_err(), "{name}: {path}");
+            assert!(
+                fs::symlink_metadata(root.join(path)).is_err(),
+                "{name}: {path}"
+            );
         }
         assert!(staged(&root).is_empty(), "{name}: a staged file was left");
         ran += 1;

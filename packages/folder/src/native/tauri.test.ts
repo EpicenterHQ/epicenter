@@ -1,16 +1,16 @@
 /**
- * The native `Folder` over a directory the desktop shell registered:
- * `openTauriFolder`. The shell's commands are the stand-ins in
+ * The native `Folder` over the directory the desktop shell bound to this
+ * window: `openTauriFolder`. The shell's commands are the stand-ins in
  * `granted-shell.test-support.ts`, which reach the disk through `node:fs`
  * and fail as the shell does.
  *
  * Key behaviors:
- * - The shell grants the registered ID; opening reads existing files and writes none
- * - Every refused grant is an `OpenFolderError` and opens nothing
- * - The automatic opener uses this window's assigned folder; no assignment refuses
+ * - Opening names no folder; it reads existing files and writes none
+ * - Every refused open is an `OpenFolderError`, and nothing opens or falls back
+ * - No command names a scope, root, or window
  * - A save is one guarded put; a put another writer overtook reads and merges again
  * - A lost reply is the save landing only when the path holds what was sent
- * - The shell's watcher reaches listeners as `other-handle`; history moving does not
+ * - The shell's watcher reaches listeners as `other-handle` until close
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { existsSync, writeFileSync } from 'node:fs';
@@ -39,7 +39,7 @@ mock.module('@tauri-apps/api/core', () => ({
 const changeHandlers = new Set<(event: { payload: unknown }) => void>();
 
 /** The shell's watcher announcing a change, as the folder plugin emits it. */
-function emitChanged(payload: { scope: string; paths: string[] | null }) {
+function emitChanged(payload: { paths: string[] | null }) {
 	for (const handler of [...changeHandlers]) handler({ payload });
 }
 
@@ -60,7 +60,6 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 const { openTauriFolder } = await import('./tauri.js');
 
 const notes = Type.Object({ title: Type.String() });
-const SCOPE = 'data:Groceries';
 
 beforeEach(() => {
 	shell = createGrantedShell('');
@@ -74,86 +73,90 @@ async function granted(files: Record<string, string> = {}) {
 		await writeFile(join(root, path), content);
 	}
 	shell = createGrantedShell(root);
-	const folder = expectOk(
-		await openTauriFolder({ directory: SCOPE, tables: { notes } }),
-	);
+	const folder = expectOk(await openTauriFolder({ tables: { notes } }));
 	return { root, folder };
 }
 
-test('the shell grants the registered ID, and opening writes nothing', async () => {
+test('opening names no folder, reads existing files, and writes nothing', async () => {
 	const { folder } = await granted({
 		'notes/milk.md': '---\ntitle: Milk\nfrom: phone\n---\n',
 	});
-	expect(shell.calls[0]).toEqual({
-		cmd: 'grant_directory',
-		args: { scope: SCOPE },
-	});
+	expect(shell.calls[0]).toEqual({ cmd: 'open_folder', args: {} });
 	const row = expectOk(await folder.tables.notes.get('milk'))!;
 	expect(row.fields).toEqual({ title: 'Milk', from: 'phone' });
 	expect(shell.changes).toEqual([]);
-	await folder.close();
-});
-
-test('the default opener opens the folder assigned to this window', async () => {
-	shell = createGrantedShell(await grantedDirectory('native-tauri-'));
-	shell.control.window = { app: 'so.epicenter.todos', folder: SCOPE };
-	const { openFolder } = await import('../index.js');
-	const folder = expectOk(await openFolder({ tables: { notes } }));
-	expect(shell.calls.slice(0, 2)).toEqual([
-		{ cmd: 'window_folder', args: {} },
-		{ cmd: 'grant_directory', args: { scope: SCOPE } },
-	]);
-	await folder.close();
-});
-
-test('a window without an assigned folder opens no storage', async () => {
-	shell.control.window = null;
-	expect(expectErr(await openTauriFolder({ tables: { notes } })).name).toBe(
-		'NotAssigned',
+	expectOk(
+		await folder.files.write('notes/eggs.md', null, '---\ntitle: Eggs\n---\n'),
 	);
-	expect(shell.calls).toEqual([{ cmd: 'window_folder', args: {} }]);
-	expect(changeHandlers.size).toBe(0);
+	expectOk(await folder.files.list());
+	// No command names the folder: the shell answers in the calling window's.
+	for (const call of shell.calls) {
+		for (const name of ['scope', 'root', 'window'])
+			expect(call.args).not.toHaveProperty(name);
+		if (call.cmd === 'read_folder_children')
+			expect(
+				call.args.directory === '' || call.args.directory === 'notes',
+			).toBe(true);
+		else expect(call.args).not.toHaveProperty('directory');
+	}
+	await folder.close();
 });
 
-test('every refused grant is a refusal, and nothing opens', async () => {
-	shell.control.grant = () => {
-		throw { name: 'UnknownScope', scope: SCOPE };
+test('every refused open is a refusal, and nothing opens or falls back', async () => {
+	const refusals = [
+		{ name: 'NotBound' },
+		{ name: 'Missing' },
+		{ name: 'ShuttingDown' },
+		{ name: 'Unavailable', message: 'the disk is gone' },
+	] as const;
+	for (const refusal of refusals) {
+		shell.control.open = () => {
+			throw refusal;
+		};
+		expect(expectErr(await openTauriFolder({ tables: {} })).name).toBe(
+			refusal.name,
+		);
+	}
+	// Tauri rejects with text when the window lacks the permission.
+	shell.control.open = () => {
+		throw 'open_folder not allowed';
 	};
+	expect(expectErr(await openTauriFolder({ tables: {} })).name).toBe(
+		'Unavailable',
+	);
 	expect(
-		expectErr(await openTauriFolder({ directory: SCOPE, tables: {} })).name,
-	).toBe('UnknownScope');
-	shell.control.grant = () => {
-		throw 'plugin:epicenter-folder|grant_directory not allowed';
-	};
-	expect(
-		expectErr(await openTauriFolder({ directory: SCOPE, tables: {} })).name,
-	).toBe('Unavailable');
-	expect(
-		expectErr(await openTauriFolder({ directory: ' ', tables: {} })).name,
-	).toBe('InvalidId');
-	expect(
-		expectErr(
-			await openTauriFolder({ directory: SCOPE, tables: { '.git': notes } }),
-		).name,
+		expectErr(await openTauriFolder({ tables: { '.git': notes } })).name,
 	).toBe('InvalidTable');
 	expect(changeHandlers.size).toBe(0);
+	expect(shell.calls.map((call) => call.cmd)).toEqual(
+		Array(refusals.length + 1).fill('open_folder'),
+	);
 });
 
-test('an explicit registered folder bypasses the assignment, and browser storage is refused', async () => {
+test('a page that names a directory is refused, and the shell is not asked', async () => {
+	const named = { directory: '/Users/a/Notes', tables: { notes } };
+	expect(expectErr(await openTauriFolder(named as never)).name).toBe(
+		'InvalidRoot',
+	);
+	expect(shell.calls).toEqual([]);
+});
+
+test('the automatic opener opens the window folder, and browser storage is refused', async () => {
 	const { openFolder } = await import('../index.js');
 	const { openFolder: openBrowserFolder } = await import('../browser.js');
 	expect(expectErr(await openBrowserFolder({ tables: { notes } })).name).toBe(
 		'InsideTauri',
 	);
 	shell = createGrantedShell(await grantedDirectory('native-tauri-'));
-	const folder = expectOk(
-		await openFolder({ directory: SCOPE, tables: { notes } }),
-	);
-	expect(shell.calls[0]).toEqual({
-		cmd: 'grant_directory',
-		args: { scope: SCOPE },
-	});
+	const folder = expectOk(await openFolder({ tables: { notes } }));
+	expect(shell.calls[0]).toEqual({ cmd: 'open_folder', args: {} });
 	await folder.close();
+	shell.control.open = () => {
+		throw { name: 'NotBound' };
+	};
+	expect(expectErr(await openFolder({ tables: { notes } })).name).toBe(
+		'NotBound',
+	);
 });
 
 test('a save is one guarded put, and an overtaken put reads and merges again', async () => {
@@ -202,7 +205,7 @@ test('a native-style save stages beside the root and leaves no .git in the autho
 	}
 });
 
-test('a grant sweeps stale staged files beside the root, and leaves younger and foreign ones', async () => {
+test('opening sweeps stale staged files beside the root, and leaves younger and foreign ones', async () => {
 	const root = await grantedDirectory('native-tauri-');
 	shell = createGrantedShell(root);
 	try {
@@ -220,9 +223,7 @@ test('a grant sweeps stale staged files beside the root, and leaves younger and 
 			staged(-2 * 60 * 60 * 1000),
 		);
 		await writeFile(old, 'x');
-		const folder = expectOk(
-			await openTauriFolder({ directory: SCOPE, tables: { notes } }),
-		);
+		const folder = expectOk(await openTauriFolder({ tables: { notes } }));
 		expect((await readdir(shell.scratch)).sort()).toEqual(
 			[fresh, 'left-behind'].sort(),
 		);
@@ -260,9 +261,8 @@ test('the shell watcher reaches listeners as other-handle changes until close', 
 	const { folder } = await granted();
 	const heard: FolderChange[] = [];
 	folder.onChange((change) => heard.push(change));
-	emitChanged({ scope: SCOPE, paths: ['notes/milk.md'] });
-	emitChanged({ scope: 'data:Other', paths: ['x.md'] });
-	emitChanged({ scope: SCOPE, paths: null });
+	emitChanged({ paths: ['notes/milk.md'] });
+	emitChanged({ paths: null });
 	expect(heard).toEqual([
 		{ paths: ['notes/milk.md'], origin: 'other-handle' },
 		{ paths: null, origin: 'other-handle' },

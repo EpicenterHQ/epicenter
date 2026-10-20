@@ -8,22 +8,14 @@
 //! remembers it until the person accepts the request there
 //! (`accept_folder_opening`).
 //!
-//! Accepting admits the directory only while it exists as a real directory:
-//! it is registered as a data folder (`FolderConfig::data`, never created)
-//! under a scope of its own, `opened:<n>`, for the Folders window alone. No
-//! bundled app's window is permitted into it, and `open_bundled_app` finds no
-//! listed name for it. A directory that is, holds, or lies inside Epicenter's
-//! own folder or Epicenter's app data is refused, whichever spelling or link
-//! leads there. One resolved directory has one scope for the whole run,
-//! however often it is accepted or listed.
-//!
-//! The accepted path is then remembered in `folders.json`
-//! (`remembered_folders`). A failed write is reported beside the opening and
-//! does not undo it. `list_remembered_folders` lists the remembered paths and
-//! those accepted this run, admitting each that is still there by the same
-//! rule; one that is not is listed with its problem and can be forgotten.
+//! Accepting resolves an existing directory and opens its own bound editor
+//! window. The launcher stays unbound. The accepted path is remembered in
+//! `folders.json`; bookmarks are shortcuts, never native file permissions.
+//! Reopening requires a stored or this-run accepted path and checks it again.
+//! Like a bundled app's launcher, the handoff refuses paths overlapping
+//! Epicenter's own folder or app data (`overlaps_epicenter_files`). Receiving or
+//! dismissing a request reads none of its files.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
@@ -32,10 +24,10 @@ use std::sync::{Mutex, MutexGuard};
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
-use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, Folders, ScopeConfig};
+use tauri_plugin_epicenter_folder::Directory;
 
 use crate::app_data::DesktopPaths;
-use crate::data_folders::EPICENTER_FOLDER;
+use crate::data_folders::overlaps_epicenter_files;
 use crate::remembered_folders;
 use crate::{BuiltInApp, DesktopAppHandle};
 
@@ -43,9 +35,6 @@ use crate::{BuiltInApp, DesktopAppHandle};
 /// carries nothing: the window asks `pending_folder_openings` again.
 /// `FOLDER_OPENINGS_CHANGED` in `src/folders/openings.svelte.ts` names it too.
 pub const FOLDER_OPENINGS_CHANGED: &str = "epicenter://folder-openings-changed";
-
-/// The scope of a directory admitted by path starts with this.
-const SCOPE_PREFIX: &str = "opened:";
 
 /// The directory `epicenter://open?path=<directory>` names, or `None` for any
 /// other link.
@@ -124,8 +113,6 @@ pub struct FolderOpenings(Mutex<Openings>);
 struct Openings {
     /// Requested and not yet accepted or dismissed, oldest first, each once.
     pending: Vec<String>,
-    /// The scope of each resolved directory this run admitted.
-    scopes: BTreeMap<PathBuf, String>,
     /// Accepted this run, in order, whether or not remembering succeeded.
     accepted: Vec<String>,
 }
@@ -191,52 +178,9 @@ pub fn receive<R: Runtime>(app: &AppHandle<R>, directory: String) {
     }
 }
 
-/// Where a path from a link may not lead: Epicenter's own folder and its app
-/// data, each resolved as the disk resolves it.
-fn protected(paths: &DesktopPaths) -> [PathBuf; 2] {
-    [
-        resolved(&paths.folder_dir.join(EPICENTER_FOLDER)),
-        resolved(&paths.data_dir),
-    ]
-}
-
-/// `path` with every link resolved, or its parent's resolved when it does not
-/// exist yet, or as written when neither does.
-fn resolved(path: &Path) -> PathBuf {
-    if let Ok(canonical) = fs::canonicalize(path) {
-        return canonical;
-    }
-    match (path.parent(), path.file_name()) {
-        (Some(parent), Some(name)) => fs::canonicalize(parent)
-            .map(|parent| parent.join(name))
-            .unwrap_or_else(|_| path.to_path_buf()),
-        _ => path.to_path_buf(),
-    }
-}
-
-/// Compare containment even when the OS exposes one directory through two
-/// absolute paths that canonicalization does not merge (for example a macOS
-/// firmlink). A missing protected leaf still has the lexical fallback above.
-fn overlaps(candidate: &Path, protected: &Path) -> bool {
-    candidate.starts_with(protected)
-        || protected.starts_with(candidate)
-        || candidate
-            .ancestors()
-            .any(|ancestor| same_file::is_same_file(ancestor, protected).unwrap_or(false))
-        || protected
-            .ancestors()
-            .any(|ancestor| same_file::is_same_file(ancestor, candidate).unwrap_or(false))
-}
-
-/// Let the Folders window open the existing directory `directory`, as a data
-/// folder the shell never creates, under its scope for this run. Answers the
-/// scope, the same one for each resolved directory.
-fn admit(
-    folders: &Folders,
-    openings: &FolderOpenings,
-    paths: &DesktopPaths,
-    directory: &str,
-) -> Result<String, String> {
+/// Resolve and check an existing handoff directory without granting it to
+/// the launcher. The returned canonical Directory is the one the editor binds.
+fn admit(paths: &DesktopPaths, directory: &str) -> Result<Directory, String> {
     if !is_plain_absolute_path(directory) {
         return Err("This is not a plainly spelled absolute folder path.".to_string());
     }
@@ -252,39 +196,20 @@ fn admit(
         Ok(stats) if !stats.is_dir() => return Err("This path is not a folder.".to_string()),
         Ok(_) => {}
     }
-    let canonical = fs::canonicalize(path)
-        .map_err(|error| format!("This folder could not be checked: {error}"))?;
-    if protected(paths)
-        .iter()
-        .any(|kept| overlaps(&canonical, kept))
-    {
+    let directory = Directory::existing(path).map_err(|error| error.to_string())?;
+    if overlaps_epicenter_files(paths, &directory) {
         return Err(
             "This folder holds Epicenter's own files, so Epicenter does not open it here."
                 .to_string(),
         );
     }
-    // Held across registration, so two admissions at once register once.
-    let mut openings = openings.lock();
-    if let Some(scope) = openings.scopes.get(&canonical) {
-        return Ok(scope.clone());
-    }
-    let scope = format!("{SCOPE_PREFIX}{}", openings.scopes.len() + 1);
-    folders.register(ScopeConfig {
-        scope: scope.clone(),
-        folder: FolderConfig::data(&canonical),
-        windows: vec![BuiltInApp::Folders.id().into()],
-    })?;
-    openings.scopes.insert(canonical, scope.clone());
-    Ok(scope)
+    Ok(directory)
 }
 
-/// An accepted opening: the scope the Folders window opens it by, and why
-/// Epicenter could not remember it, when it could not.
+/// A successful native opening, with a separate persistence failure if any.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AcceptedOpening {
-    /// The scope to pass as `directory` to `openFolder`.
-    pub id: String,
     /// Why `folders.json` was not updated; the folder is open regardless.
     pub remember_problem: Option<String>,
 }
@@ -295,8 +220,6 @@ pub struct AcceptedOpening {
 pub struct RememberedFolder {
     /// The absolute path as stored, which `forget_remembered_folder` matches.
     pub path: String,
-    /// The scope to pass as `directory` to `openFolder`, while it can open.
-    pub id: Option<String>,
     /// Whether `folders.json` holds it; `false` when remembering it failed.
     pub remembered: bool,
     /// Why it cannot open now, such as a folder that is not there.
@@ -311,32 +234,51 @@ pub struct RememberedFolders {
     pub problem: Option<String>,
 }
 
-fn accept(
-    folders: &Folders,
+/// Consume only a pending request, then resolve it without creating anything.
+fn requested_directory(
     openings: &FolderOpenings,
     paths: &DesktopPaths,
     directory: &str,
-) -> Result<AcceptedOpening, String> {
+) -> Result<Directory, String> {
     if !openings.take(directory) {
         return Err("No app asked Epicenter to open this folder.".to_string());
     }
-    let id = admit(folders, openings, paths, directory)?;
+    admit(paths, directory)
+}
+
+/// Called only after its editor opened. Failed persistence leaves the editor open.
+fn remember_accepted(
+    openings: &FolderOpenings,
+    paths: &DesktopPaths,
+    directory: &str,
+) -> AcceptedOpening {
     openings.mark_accepted(directory);
     let remember_problem = remembered_folders::add(&paths.data_dir, directory).err();
     if let Some(problem) = &remember_problem {
         log::warn!("an opened folder was not remembered: {problem}");
     }
-    Ok(AcceptedOpening {
-        id,
-        remember_problem,
-    })
+    AcceptedOpening { remember_problem }
 }
 
-fn remembered(
-    folders: &Folders,
+/// A stale launcher row is no authority: require current bookmark membership,
+/// then resolve and check the path again before opening its editor.
+fn remembered_directory(
     openings: &FolderOpenings,
     paths: &DesktopPaths,
-) -> RememberedFolders {
+    path: &str,
+) -> Result<Directory, String> {
+    let accepted = openings.accepted().iter().any(|entry| entry == path);
+    if !accepted
+        && !remembered_folders::read(&paths.data_dir)?
+            .iter()
+            .any(|entry| entry == path)
+    {
+        return Err("This folder is not in the remembered folders.".to_string());
+    }
+    admit(paths, path)
+}
+
+fn remembered(openings: &FolderOpenings, paths: &DesktopPaths) -> RememberedFolders {
     let (stored, problem) = match remembered_folders::read(&paths.data_dir) {
         Ok(stored) => (stored, None),
         Err(problem) => (Vec::new(), Some(problem)),
@@ -354,13 +296,9 @@ fn remembered(
     let entries = listed
         .into_iter()
         .map(|(path, remembered)| {
-            let (id, problem) = match admit(folders, openings, paths, &path) {
-                Ok(id) => (Some(id), None),
-                Err(problem) => (None, Some(problem)),
-            };
+            let problem = admit(paths, &path).err();
             RememberedFolder {
                 path,
-                id,
                 remembered,
                 problem,
             }
@@ -380,24 +318,43 @@ pub fn pending_folder_openings(app: DesktopAppHandle) -> Vec<String> {
     app.state::<FolderOpenings>().pending()
 }
 
-/// Open the directory `path` an app asked for, now that the person accepted:
-/// only then is it checked, granted to the Folders window, and remembered.
-/// Granted to the Folders window alone. Off the main thread, since it reads
-/// the disk.
-#[tauri::command(async)]
+/// Accept a pending request and open its own editor, then remember the path.
+#[tauri::command]
 #[specta::specta]
-pub fn accept_folder_opening(
+pub async fn accept_folder_opening(
     app: DesktopAppHandle,
     path: String,
 ) -> Result<AcceptedOpening, String> {
-    let accepted = accept(
-        app.folders(),
-        &app.state::<FolderOpenings>(),
-        &app.state::<DesktopPaths>(),
-        &path,
-    );
-    let _ = app.emit_to(BuiltInApp::Folders.id(), FOLDER_OPENINGS_CHANGED, ());
-    accepted
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = (|| {
+            let openings = app.state::<FolderOpenings>();
+            let paths = app.state::<DesktopPaths>();
+            let directory = requested_directory(&openings, &paths, &path)?;
+            crate::folder_windows::show_editor(&app, directory)
+                .map_err(|error| format!("{error:#}"))?;
+            Ok(remember_accepted(&openings, &paths, &path))
+        })();
+        let _ = app.emit_to(BuiltInApp::Folders.id(), FOLDER_OPENINGS_CHANGED, ());
+        result
+    })
+    .await
+    .map_err(|error| format!("the folder could not be opened: {error}"))?
+}
+
+/// Open a currently remembered or this-run accepted path in its own editor.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_remembered_folder(app: DesktopAppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let directory = remembered_directory(
+            &app.state::<FolderOpenings>(),
+            &app.state::<DesktopPaths>(),
+            &path,
+        )?;
+        crate::folder_windows::show_editor(&app, directory).map_err(|error| format!("{error:#}"))
+    })
+    .await
+    .map_err(|error| format!("the folder could not be opened: {error}"))?
 }
 
 /// Let go of an app's request to open `path` without reading it.
@@ -410,16 +367,12 @@ pub fn dismiss_folder_opening(app: DesktopAppHandle, path: String) {
 }
 
 /// The folders `folders.json` remembers and those accepted this run, each
-/// with the scope it opens by while it is there. Off the main thread, since
+/// with its availability problem, if any. Off the main thread, since
 /// it reads the disk.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn list_remembered_folders(app: DesktopAppHandle) -> RememberedFolders {
-    remembered(
-        app.folders(),
-        &app.state::<FolderOpenings>(),
-        &app.state::<DesktopPaths>(),
-    )
+    remembered(&app.state::<FolderOpenings>(), &app.state::<DesktopPaths>())
 }
 
 /// Forget the remembered path `path`, exactly as listed, whether or not it is
@@ -434,128 +387,84 @@ pub fn forget_remembered_folder(app: DesktopAppHandle, path: String) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    //! Receiving, accepting, and listing over real directories, and the
-    //! folder plugin's grant through Tauri's real invoke path on the mock
-    //! runtime.
-
+    use super::*;
+    use crate::data_folders::EPICENTER_FOLDER;
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
     use tauri::utils::acl::ExecutionContext;
     use tauri::webview::InvokeRequest;
     use tauri::{App, WebviewWindow, WebviewWindowBuilder};
-
-    use super::*;
-    use crate::bundled_apps::BundledApp;
-
-    /// One run of Epicenter: its app and the run's state.
-    struct Run(App<MockRuntime>);
-
-    impl Drop for Run {
-        fn drop(&mut self) {
-            self.0.folders().shutdown();
-        }
-    }
+    use tauri_plugin_epicenter_folder::FolderExt;
 
     struct Fixture {
-        run: Run,
+        app: App<MockRuntime>,
+        openings: FolderOpenings,
         paths: DesktopPaths,
-        /// A directory outside the Epicenter folder root, as a standalone app
-        /// keeps its own.
         elsewhere: PathBuf,
-        temp: PathBuf,
-        _temporary: tempfile::TempDir,
+        temp: tempfile::TempDir,
     }
-
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.app.folders().shutdown();
+        }
+    }
     impl Fixture {
-        fn app(&self) -> &App<MockRuntime> {
-            &self.run.0
+        fn request(&self, path: &Path) {
+            self.openings.queue(path.to_str().unwrap().into());
         }
-
-        fn openings(&self) -> tauri::State<'_, FolderOpenings> {
-            self.app().state::<FolderOpenings>()
+        fn accept(&self, path: &Path) -> Result<AcceptedOpening, String> {
+            let path = path.to_str().unwrap();
+            let directory = requested_directory(&self.openings, &self.paths, path)?;
+            self.editor(directory);
+            Ok(remember_accepted(&self.openings, &self.paths, path))
         }
-
-        /// Grant `scope` to the window `label` through the plugin's command.
-        fn grant(&self, label: &str, scope: &str) -> Result<Value, Value> {
-            invoke(
-                &self.window(label),
-                "grant_directory",
-                json!({ "scope": scope }),
-            )
+        fn reopen(&self, path: &Path) -> Result<String, String> {
+            let directory =
+                remembered_directory(&self.openings, &self.paths, path.to_str().unwrap())?;
+            Ok(self.editor(directory))
         }
-
-        /// The same machine, launched again: a new app and its state over
-        /// the same directories.
-        fn restart(self) -> Self {
-            let Self {
-                run,
-                paths,
-                elsewhere,
-                temp,
-                _temporary,
-            } = self;
-            drop(run);
-            Self {
-                run: Run(mock_app()),
-                paths,
-                elsewhere,
-                temp,
-                _temporary,
+        fn editor(&self, directory: Directory) -> String {
+            let label = crate::folder_windows::label(
+                crate::folder_windows::EDITOR_PREFIX,
+                directory.root(),
+            );
+            if self.app.get_webview_window(&label).is_none() {
+                self.app
+                    .folders()
+                    .bind_while_building(&label, directory, || {
+                        WebviewWindowBuilder::new(&self.app, &label, Default::default())
+                            .build()
+                            .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })
+                    })
+                    .unwrap();
             }
+            label
         }
-
-        fn receive(&self, directory: &Path) {
-            receive(self.app().handle(), directory.to_str().unwrap().to_string());
+        fn listed(&self) -> RememberedFolders {
+            remembered(&self.openings, &self.paths)
         }
-
-        fn accept(&self, directory: &Path) -> Result<AcceptedOpening, String> {
-            accept(
-                self.app().folders(),
-                &self.openings(),
-                &self.paths,
-                directory.to_str().unwrap(),
-            )
-        }
-
-        fn remembered(&self) -> RememberedFolders {
-            remembered(self.app().folders(), &self.openings(), &self.paths)
-        }
-
-        /// The window `label`, made the first time it is asked for.
-        fn window(&self, label: &str) -> WebviewWindow<MockRuntime> {
-            self.app().get_webview_window(label).unwrap_or_else(|| {
-                WebviewWindowBuilder::new(self.app(), label, Default::default())
-                    .build()
-                    .expect("mock window")
-            })
+        fn root(&self, label: &str) -> PathBuf {
+            self.app
+                .folders()
+                .bound(label)
+                .unwrap()
+                .root()
+                .to_path_buf()
         }
     }
-
-    /// An Epicenter run over a fresh temporary home: its folder root, its app
-    /// data, and an app's directory elsewhere with one file in it.
     fn fixture() -> Fixture {
-        let temporary = tempfile::tempdir().unwrap();
-        let temp = fs::canonicalize(temporary.path()).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
         let paths = DesktopPaths {
-            data_dir: temp.join("Application Support/so.epicenter"),
-            folder_dir: temp.join("Epicenter"),
+            data_dir: root.join("Application Support/so.epicenter"),
+            folder_dir: root.join("Epicenter"),
         };
         fs::create_dir_all(paths.folder_dir.join(EPICENTER_FOLDER)).unwrap();
         fs::create_dir_all(&paths.data_dir).unwrap();
-        let elsewhere = temp.join("Application Support/so.epicenter.todos");
+        let elsewhere = root.join("Application Support/so.epicenter.todos");
         fs::create_dir_all(elsewhere.join("todos")).unwrap();
         fs::write(elsewhere.join("todos/milk.md"), "---\ntitle: Milk\n---\n").unwrap();
-        Fixture {
-            run: Run(mock_app()),
-            paths,
-            elsewhere,
-            temp,
-            _temporary: temporary,
-        }
-    }
-
-    fn mock_app() -> App<MockRuntime> {
         let mut context = mock_context(noop_assets());
         for command in tauri_plugin_epicenter_folder::COMMANDS {
             context.runtime_authority_mut().__allow_command(
@@ -566,11 +475,15 @@ mod tests {
         let app = mock_builder()
             .plugin(tauri_plugin_epicenter_folder::init())
             .build(context)
-            .expect("mock app");
-        app.manage(FolderOpenings::default());
-        app
+            .unwrap();
+        Fixture {
+            app,
+            openings: FolderOpenings::default(),
+            paths,
+            elsewhere,
+            temp,
+        }
     }
-
     fn invoke(
         window: &WebviewWindow<MockRuntime>,
         command: &str,
@@ -585,12 +498,11 @@ mod tests {
                 url: "tauri://localhost".parse().unwrap(),
                 body: InvokeBody::Json(args),
                 headers: Default::default(),
-                invoke_key: INVOKE_KEY.to_string(),
+                invoke_key: INVOKE_KEY.into(),
             },
         )
-        .map(|body| body.deserialize::<Value>().expect("a JSON response"))
+        .map(|body| body.deserialize().unwrap())
     }
-
     fn link(text: &str) -> Option<String> {
         parse_open_link(&text.parse().unwrap())
     }
@@ -653,359 +565,232 @@ mod tests {
     }
 
     #[test]
-    fn receiving_a_request_reads_grants_and_remembers_nothing() {
-        let fixture = fixture();
-        let missing = fixture.temp.join("not/there");
-        fixture.receive(&fixture.elsewhere);
-        fixture.receive(&missing);
-        // The same request again waits once.
-        fixture.receive(&fixture.elsewhere);
-
-        assert_eq!(
-            fixture.openings().pending(),
-            [
-                fixture.elsewhere.to_str().unwrap(),
-                missing.to_str().unwrap()
-            ]
-        );
+    fn receiving_and_dismissing_reads_binds_and_remembers_nothing() {
+        let f = fixture();
+        let missing = f.temp.path().join("not/there");
+        f.request(&f.elsewhere);
+        f.request(&missing);
+        f.request(&f.elsewhere);
+        assert_eq!(f.openings.pending().len(), 2);
+        assert!(f.openings.take(f.elsewhere.to_str().unwrap()));
+        assert!(f.accept(&f.elsewhere).is_err());
         assert!(!missing.exists());
-        assert!(!remembered_folders::file(&fixture.paths.data_dir).exists());
-        let refused = fixture.grant("folders", "opened:1").unwrap_err();
-        assert_eq!(refused["name"], "UnknownScope");
+        assert!(!remembered_folders::file(&f.paths.data_dir).exists());
+        assert!(f.app.webview_windows().is_empty());
     }
-
     #[test]
-    fn an_accepted_directory_outside_the_root_opens_in_the_folders_window_alone() {
-        let fixture = fixture();
-        fixture.receive(&fixture.elsewhere);
-        let accepted = fixture.accept(&fixture.elsewhere).unwrap();
+    fn acceptance_opens_only_its_bound_editor_and_leaves_the_launcher_unbound() {
+        let f = fixture();
+        assert!(f.accept(&f.elsewhere).is_err());
+        f.request(&f.elsewhere);
+        assert_eq!(f.accept(&f.elsewhere).unwrap().remember_problem, None);
+        assert!(f.accept(&f.elsewhere).is_err());
+        let label = f.reopen(&f.elsewhere).unwrap();
+        let window = f.app.get_webview_window(&label).unwrap();
+        assert_eq!(f.root(&label), f.elsewhere);
+        assert_eq!(invoke(&window, "open_folder", json!({})), Ok(Value::Null));
         assert_eq!(
-            accepted,
-            AcceptedOpening {
-                id: "opened:1".into(),
-                remember_problem: None,
-            }
+            invoke(
+                &window,
+                "read_folder_children",
+                json!({"directory":"todos"})
+            )
+            .unwrap(),
+            json!({"files":["milk.md"],"directories":[]})
         );
-        assert!(fixture.openings().pending().is_empty());
-
-        let folders = fixture.window(BuiltInApp::Folders.id());
-        let granted = invoke(&folders, "grant_directory", json!({ "scope": "opened:1" })).unwrap();
+        let launcher = WebviewWindowBuilder::new(&f.app, "folders", Default::default())
+            .build()
+            .unwrap();
         assert_eq!(
-            granted,
-            json!({ "root": fixture.elsewhere.to_str().unwrap() })
+            invoke(&launcher, "open_folder", json!({})).unwrap_err()["name"],
+            "NotBound"
         );
-        let children = invoke(
-            &folders,
-            "read_folder_children",
-            json!({ "scope": "opened:1", "directory": "todos" }),
-        )
-        .unwrap();
-        assert_eq!(children, json!({ "files": ["milk.md"], "directories": [] }));
-
-        // No bundled app's window, Settings, or any other window is let in.
-        let mut others: Vec<String> = BundledApp::ALL
-            .iter()
-            .map(|app| app.window_label(app.name()))
-            .collect();
-        others.extend(["home".to_string(), "todos".to_string()]);
-        for label in others {
-            let refused = fixture.grant(&label, "opened:1").unwrap_err();
-            assert_eq!(refused["name"], "WindowNotPermitted", "{label}");
+        assert!(f.app.folders().bound("home").is_err());
+        assert_eq!(
+            remembered_folders::read(&f.paths.data_dir).unwrap(),
+            [f.elsewhere.to_str().unwrap()]
+        );
+    }
+    #[test]
+    fn repeated_acceptance_reveals_one_editor_and_remembers_once() {
+        let f = fixture();
+        for _ in 0..3 {
+            f.request(&f.elsewhere);
+            f.accept(&f.elsewhere).unwrap();
         }
-
-        assert_eq!(
-            remembered_folders::read(&fixture.paths.data_dir).unwrap(),
-            [fixture.elsewhere.to_str().unwrap()]
-        );
+        assert_eq!(f.app.webview_windows().len(), 1);
+        assert_eq!(f.listed().folders.len(), 1);
+        assert_eq!(f.openings.accepted().len(), 1);
     }
-
-    #[test]
-    fn a_request_is_accepted_once_and_only_when_it_was_made() {
-        let fixture = fixture();
-        assert_eq!(
-            fixture.accept(&fixture.elsewhere).unwrap_err(),
-            "No app asked Epicenter to open this folder."
-        );
-        assert_eq!(
-            fixture.grant("folders", "opened:1").unwrap_err()["name"],
-            "UnknownScope"
-        );
-
-        fixture.receive(&fixture.elsewhere);
-        fixture.accept(&fixture.elsewhere).unwrap();
-        assert!(fixture.accept(&fixture.elsewhere).is_err());
-    }
-
-    #[test]
-    fn a_dismissed_request_reads_and_remembers_nothing() {
-        let fixture = fixture();
-        fixture.receive(&fixture.elsewhere);
-        assert!(fixture.openings().take(fixture.elsewhere.to_str().unwrap()));
-        assert!(fixture.openings().pending().is_empty());
-        assert!(fixture.accept(&fixture.elsewhere).is_err());
-        assert!(!remembered_folders::file(&fixture.paths.data_dir).exists());
-    }
-
     #[test]
     fn a_missing_directory_is_refused_and_never_created() {
-        let fixture = fixture();
-        let missing = fixture.temp.join("Notes");
-        fixture.receive(&missing);
-        assert_eq!(
-            fixture.accept(&missing).unwrap_err(),
-            "This folder is not there."
-        );
+        let f = fixture();
+        let missing = f.temp.path().join("missing");
+        f.request(&missing);
+        assert_eq!(f.accept(&missing).unwrap_err(), "This folder is not there.");
         assert!(!missing.exists());
-        assert!(!remembered_folders::file(&fixture.paths.data_dir).exists());
-
-        // One removed after it was accepted is refused, not recreated.
-        fixture.receive(&fixture.elsewhere);
-        let id = fixture.accept(&fixture.elsewhere).unwrap().id;
-        fs::remove_dir_all(&fixture.elsewhere).unwrap();
-        let refused = fixture.grant("folders", &id).unwrap_err();
-        assert_eq!(refused["name"], "Missing");
-        assert!(!fixture.elsewhere.exists());
+        f.request(&f.elsewhere);
+        f.accept(&f.elsewhere).unwrap();
+        fs::remove_dir_all(&f.elsewhere).unwrap();
+        assert!(f.reopen(&f.elsewhere).is_err());
+        assert!(!f.elsewhere.exists());
+        assert!(f.listed().folders[0].problem.is_some());
     }
-
     #[test]
-    fn a_file_or_a_link_is_not_admitted() {
-        let fixture = fixture();
-        let file = fixture.temp.join("notes.md");
+    fn files_leaf_links_and_nonplain_paths_are_refused() {
+        let f = fixture();
+        let file = f.temp.path().join("notes.md");
         fs::write(&file, "").unwrap();
-        fixture.receive(&file);
-        assert_eq!(
-            fixture.accept(&file).unwrap_err(),
-            "This path is not a folder."
-        );
-
+        f.request(&file);
+        assert_eq!(f.accept(&file).unwrap_err(), "This path is not a folder.");
+        assert!(admit(&f.paths, "relative/notes").is_err());
         #[cfg(unix)]
         {
-            let linked = fixture.temp.join("linked");
-            std::os::unix::fs::symlink(&fixture.elsewhere, &linked).unwrap();
-            fixture.receive(&linked);
-            assert!(fixture.accept(&linked).unwrap_err().contains("link"));
+            let link = f.temp.path().join("link");
+            std::os::unix::fs::symlink(&f.elsewhere, &link).unwrap();
+            f.request(&link);
+            assert!(f.accept(&link).unwrap_err().contains("link"));
         }
-        assert_eq!(
-            fixture.grant("folders", "opened:1").unwrap_err()["name"],
-            "UnknownScope"
-        );
+        assert!(f.app.webview_windows().is_empty());
     }
-
+    #[test]
+    fn handoffs_preserve_the_protected_overlap_policy() {
+        let f = fixture();
+        let own = f.paths.folder_dir.join(EPICENTER_FOLDER);
+        fs::create_dir(own.join("connections")).unwrap();
+        for path in [
+            &own,
+            &own.join("connections"),
+            &f.paths.folder_dir,
+            &f.paths.data_dir,
+            f.paths.data_dir.parent().unwrap(),
+        ] {
+            f.request(path);
+            assert!(f
+                .accept(path)
+                .unwrap_err()
+                .contains("Epicenter's own files"));
+        }
+        assert!(f.app.webview_windows().is_empty());
+        assert!(!remembered_folders::file(&f.paths.data_dir).exists());
+    }
     #[cfg(unix)]
     #[test]
-    fn a_linked_parent_changing_after_acceptance_cannot_redirect_the_grant() {
+    fn a_retargeted_parent_cannot_redirect_an_admitted_directory_or_bypass_reopen_checks() {
         use std::os::unix::fs::symlink;
-
-        let fixture = fixture();
-        let alias = fixture.temp.join("alias-parent");
-        symlink(fixture.elsewhere.parent().unwrap(), &alias).unwrap();
-        let requested = alias.join("so.epicenter.todos");
-        fixture.receive(&requested);
-        let first = fixture.accept(&requested).unwrap();
-
-        // The link now leads into Epicenter's protected app data before the
-        // Folders window asks the plugin for its first grant.
-        let protected_child = fixture.paths.data_dir.join("so.epicenter.todos");
-        fs::create_dir(&protected_child).unwrap();
+        let f = fixture();
+        let alias = f.temp.path().join("alias");
+        symlink(f.elsewhere.parent().unwrap(), &alias).unwrap();
+        let path = alias.join("so.epicenter.todos");
+        f.request(&path);
+        let admitted = requested_directory(&f.openings, &f.paths, path.to_str().unwrap()).unwrap();
+        let protected = f.paths.data_dir.join("so.epicenter.todos");
+        fs::create_dir(&protected).unwrap();
         fs::remove_file(&alias).unwrap();
-        symlink(&fixture.paths.data_dir, &alias).unwrap();
-        assert_eq!(fs::canonicalize(&requested).unwrap(), protected_child);
-        assert_eq!(
-            fixture.grant("folders", &first.id).unwrap()["root"],
-            fixture.elsewhere.to_str().unwrap()
-        );
-        assert!(fixture.remembered().folders[0].id.is_none());
-
-        // The same bookmarked spelling can later lead to a different safe
-        // directory; listing registers that root under a different scope.
-        let second_parent = fixture.temp.join("another-app");
+        symlink(&f.paths.data_dir, &alias).unwrap();
+        let first = f.editor(admitted);
+        remember_accepted(&f.openings, &f.paths, path.to_str().unwrap());
+        assert_eq!(f.root(&first), f.elsewhere);
+        assert!(f
+            .reopen(&path)
+            .unwrap_err()
+            .contains("Epicenter's own files"));
+        assert!(f.listed().folders[0].problem.is_some());
+        let second_parent = f.temp.path().join("another-app");
         let second = second_parent.join("so.epicenter.todos");
         fs::create_dir_all(&second).unwrap();
         fs::remove_file(&alias).unwrap();
         symlink(&second_parent, &alias).unwrap();
-        let listed = fixture.remembered();
-        assert_eq!(listed.folders[0].id.as_deref(), Some("opened:2"));
-        assert_eq!(
-            fixture.grant("folders", "opened:2").unwrap()["root"],
-            second.to_str().unwrap()
-        );
-        assert_eq!(
-            fixture.grant("folders", &first.id).unwrap()["root"],
-            fixture.elsewhere.to_str().unwrap()
-        );
+        let next = f.reopen(&path).unwrap();
+        assert_ne!(first, next);
+        assert_eq!(f.root(&next), dunce::canonicalize(second).unwrap());
+        assert_eq!(f.root(&first), f.elsewhere);
     }
-
     #[test]
-    fn epicenters_own_folder_and_app_data_are_never_opened_from_a_request() {
-        let fixture = fixture();
-        let own = fixture.paths.folder_dir.join(EPICENTER_FOLDER);
-        fs::create_dir_all(own.join("connections")).unwrap();
-        let mut refused = vec![
-            own.clone(),
-            own.join("connections"),
-            // A folder holding Epicenter's own folder holds its files.
-            fixture.paths.folder_dir.clone(),
-            fixture.temp.clone(),
-            fixture.paths.data_dir.clone(),
-            fixture.paths.data_dir.parent().unwrap().to_path_buf(),
-        ];
-        #[cfg(unix)]
-        {
-            // A link to the root, then the plain path of Epicenter's folder
-            // below it.
-            std::os::unix::fs::symlink(&fixture.paths.folder_dir, fixture.temp.join("alias"))
-                .unwrap();
-            refused.push(fixture.temp.join("alias").join(EPICENTER_FOLDER));
-        }
-        for directory in refused {
-            fixture.receive(&directory);
-            let problem = fixture.accept(&directory).unwrap_err();
-            assert!(
-                problem.contains("Epicenter's own files"),
-                "{directory:?}: {problem}"
-            );
-        }
-        assert_eq!(
-            fixture.grant("folders", "opened:1").unwrap_err()["name"],
-            "UnknownScope"
-        );
-        assert!(!remembered_folders::file(&fixture.paths.data_dir).exists());
-    }
-
-    #[test]
-    fn accepting_again_keeps_one_scope_one_window_and_one_remembered_entry() {
-        let fixture = fixture();
-        for _ in 0..3 {
-            fixture.receive(&fixture.elsewhere);
-            assert_eq!(fixture.accept(&fixture.elsewhere).unwrap().id, "opened:1");
-        }
-        assert!(fixture.grant("folders", "opened:1").is_ok());
-        assert_eq!(
-            fixture.grant("other", "opened:1").unwrap_err()["name"],
-            "WindowNotPermitted"
-        );
-        assert_eq!(
-            fixture.grant("folders", "opened:2").unwrap_err()["name"],
-            "UnknownScope"
-        );
-        let listed = fixture.remembered();
-        assert_eq!(listed.folders.len(), 1);
-        assert_eq!(listed.folders[0].id.as_deref(), Some("opened:1"));
-        assert_eq!(
-            remembered_folders::read(&fixture.paths.data_dir).unwrap(),
-            [fixture.elsewhere.to_str().unwrap()]
-        );
-    }
-
-    #[test]
-    fn a_remembered_folder_is_listed_after_a_restart_and_a_missing_one_stays_forgettable() {
-        let fixture = fixture();
-        fixture.receive(&fixture.elsewhere);
-        fixture.accept(&fixture.elsewhere).unwrap();
-        let path = fixture.elsewhere.to_str().unwrap().to_string();
-
-        let fixture = fixture.restart();
-        let listed = fixture.remembered();
-        assert_eq!(
-            listed,
-            RememberedFolders {
-                folders: vec![RememberedFolder {
-                    path: path.clone(),
-                    id: Some("opened:1".into()),
-                    remembered: true,
-                    problem: None,
-                }],
-                problem: None,
-            }
-        );
-        assert_eq!(fixture.grant("folders", "opened:1").unwrap()["root"], path);
-
-        fs::remove_dir_all(&fixture.elsewhere).unwrap();
-        let fixture = fixture.restart();
-        assert_eq!(
-            fixture.remembered().folders,
-            [RememberedFolder {
-                path: path.clone(),
-                id: None,
-                remembered: true,
-                problem: Some("This folder is not there.".into()),
-            }]
-        );
-        remembered_folders::forget(&fixture.paths.data_dir, &path).unwrap();
-        assert!(fixture.remembered().folders.is_empty());
-        assert!(!fixture.elsewhere.exists());
-    }
-
-    #[test]
-    fn a_failed_bookmark_write_keeps_the_opening_and_is_reported() {
-        let fixture = fixture();
-        let list = remembered_folders::file(&fixture.paths.data_dir);
-        fs::write(&list, "{ \"not\": \"a list\" }").unwrap();
-
-        fixture.receive(&fixture.elsewhere);
-        let accepted = fixture.accept(&fixture.elsewhere).unwrap();
-        assert_eq!(accepted.id, "opened:1");
-        assert!(accepted
-            .remember_problem
-            .as_deref()
-            .is_some_and(|problem| problem.contains("left unchanged")));
-        assert_eq!(
-            fs::read_to_string(&list).unwrap(),
-            "{ \"not\": \"a list\" }"
-        );
-        assert!(fixture.grant("folders", "opened:1").is_ok());
-
-        // Listed for this run, as not remembered, beside the list's problem.
-        let listed = fixture.remembered();
-        assert!(listed.problem.is_some());
+    fn restart_lists_shortcuts_without_binding_and_missing_paths_stay_forgettable() {
+        let f = fixture();
+        f.request(&f.elsewhere);
+        f.accept(&f.elsewhere).unwrap();
+        let restarted = FolderOpenings::default();
+        let listed = remembered(&restarted, &f.paths);
         assert_eq!(
             listed.folders,
             [RememberedFolder {
-                path: fixture.elsewhere.to_str().unwrap().into(),
-                id: Some("opened:1".into()),
-                remembered: false,
-                problem: None,
+                path: f.elsewhere.to_str().unwrap().into(),
+                remembered: true,
+                problem: None
             }]
         );
+        assert!(remembered_directory(&restarted, &f.paths, f.elsewhere.to_str().unwrap()).is_ok());
+        fs::remove_dir_all(&f.elsewhere).unwrap();
+        assert!(remembered(&restarted, &f.paths).folders[0]
+            .problem
+            .is_some());
+        remembered_folders::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
+        assert!(remembered(&restarted, &f.paths).folders.is_empty());
+        assert!(!f.elsewhere.exists());
     }
-
     #[test]
-    fn an_unwritable_app_data_directory_is_reported_after_opening() {
-        let fixture = fixture();
-        fs::remove_dir_all(&fixture.paths.data_dir).unwrap();
-        fs::write(&fixture.paths.data_dir, "").unwrap();
-
-        fixture.receive(&fixture.elsewhere);
-        let accepted = fixture.accept(&fixture.elsewhere).unwrap();
-        assert_eq!(accepted.id, "opened:1");
+    fn arbitrary_and_forgotten_paths_cannot_reopen_but_live_editors_stay_bound() {
+        let f = fixture();
+        assert!(f.reopen(&f.elsewhere).is_err());
+        f.request(&f.elsewhere);
+        f.accept(&f.elsewhere).unwrap();
+        let label = f.reopen(&f.elsewhere).unwrap();
+        remembered_folders::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
+        f.openings.forget(f.elsewhere.to_str().unwrap());
+        assert!(f.reopen(&f.elsewhere).is_err());
+        assert_eq!(f.root(&label), f.elsewhere);
+    }
+    #[test]
+    fn a_failed_bookmark_write_keeps_the_editor_and_this_run_shortcut() {
+        let f = fixture();
+        let list = remembered_folders::file(&f.paths.data_dir);
+        fs::write(&list, "{\"not\":\"a list\"}").unwrap();
+        f.request(&f.elsewhere);
+        let accepted = f.accept(&f.elsewhere).unwrap();
         assert!(accepted.remember_problem.is_some());
+        assert_eq!(fs::read_to_string(&list).unwrap(), "{\"not\":\"a list\"}");
+        assert!(f.reopen(&f.elsewhere).is_ok());
+        let listed = f.listed();
+        assert!(listed.problem.is_some());
+        assert!(!listed.folders[0].remembered);
+        assert_eq!(listed.folders[0].problem, None);
     }
-
     #[test]
-    fn a_hand_edited_entry_is_listed_with_its_problem_and_protected_paths_stay_closed() {
-        let fixture = fixture();
-        let own = fixture.paths.folder_dir.join(EPICENTER_FOLDER);
+    fn unusable_app_data_is_reported_after_the_editor_opens() {
+        let f = fixture();
+        fs::remove_dir_all(&f.paths.data_dir).unwrap();
+        fs::write(&f.paths.data_dir, "").unwrap();
+        f.request(&f.elsewhere);
+        assert!(f.accept(&f.elsewhere).unwrap().remember_problem.is_some());
+        assert_eq!(f.app.webview_windows().len(), 1);
+        assert!(f.reopen(&f.elsewhere).is_ok());
+    }
+    #[test]
+    fn hand_edited_bookmarks_are_checked_before_opening() {
+        let f = fixture();
+        let own = f.paths.folder_dir.join(EPICENTER_FOLDER);
         fs::write(
-            remembered_folders::file(&fixture.paths.data_dir),
+            remembered_folders::file(&f.paths.data_dir),
             serde_json::to_string(&[
                 "relative/notes",
                 own.to_str().unwrap(),
-                fixture.elsewhere.to_str().unwrap(),
+                f.elsewhere.to_str().unwrap(),
             ])
             .unwrap(),
         )
         .unwrap();
-
-        let listed = fixture.remembered();
-        assert_eq!(listed.problem, None);
-        let summary: Vec<(Option<&str>, bool)> = listed
-            .folders
-            .iter()
-            .map(|folder| (folder.id.as_deref(), folder.problem.is_some()))
-            .collect();
+        let listed = f.listed();
         assert_eq!(
-            summary,
-            [(None, true), (None, true), (Some("opened:1"), false)]
+            listed
+                .folders
+                .iter()
+                .map(|f| f.problem.is_some())
+                .collect::<Vec<_>>(),
+            [true, true, false]
         );
+        assert!(f.app.webview_windows().is_empty());
+        assert!(f.reopen(&own).is_err());
     }
 }

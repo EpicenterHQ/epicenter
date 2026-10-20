@@ -1,9 +1,8 @@
 //! Where a folder's directory is, and whether it can be opened.
 //!
-//! The shell names a folder's directory when it registers the scope. The
-//! first grant makes sure it is a real directory, creating an application
-//! folder's when it is missing (`prepare_directory`), and resolves it once
-//! (`resolve_root`). What `.git` is, if anything, does not matter here, as
+//! The shell names a folder's directory before it binds it to a window. It
+//! makes sure it is a real directory, creating a fixed default when it is
+//! missing (`prepare_directory`), and resolves it once (`resolve_root`). What `.git` is, if anything, does not matter here, as
 //! it does not to the Bun host (`localRoot` in `@epicenter/folder`'s
 //! `native/directory.ts`): no `.git`, a `.git` file or link (a linked
 //! worktree or submodule), and a repository all open and save alike, since
@@ -70,9 +69,9 @@ pub fn prepare_directory(root: &Path, create: bool) -> Result<(), PrepareError> 
 /// Resolve the folder root once, refusing a path that is not a directory.
 ///
 /// On Windows the result is a plain drive or share path (`C:\notes`), not
-/// the `\\?\C:\notes` form `fs::canonicalize` gives: the page joins `/` onto
-/// the root it is granted, and under `\\?\` Windows reads `/` as part of a
-/// name, not a separator. `dunce` keeps the `\\?\` form only for a path that
+/// the `\\?\C:\notes` form `fs::canonicalize` gives: a page's paths, joined
+/// with `/`, are resolved under it, and under `\\?\` Windows reads `/` as part
+/// of a name, not a separator. `dunce` keeps the `\\?\` form only for a path that
 /// cannot be written without it.
 pub fn resolve_root(root: &Path) -> Result<PathBuf, String> {
     let resolved = dunce::canonicalize(root).map_err(|cause| {

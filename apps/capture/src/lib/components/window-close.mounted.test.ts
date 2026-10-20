@@ -52,7 +52,9 @@ const FILE = '---\ncapturedAt: 2026-10-04T20:49:23Z\n---\n\nBefore\n';
 const CONTENTS = 'textarea[aria-label^="Contents of"]';
 
 /** Run `read` as another tab of this profile, outside the window. */
-async function asTab<T>(read: (folder: Awaited<ReturnType<typeof tab>>) => Promise<T>) {
+async function asTab<T>(
+	read: (folder: Awaited<ReturnType<typeof tab>>) => Promise<T>,
+) {
 	desktop(false);
 	try {
 		const folder = await tab();
@@ -129,7 +131,8 @@ async function editAsText(page: Awaited<ReturnType<typeof openWindow>>) {
 	return () => page.target.querySelector<HTMLTextAreaElement>(CONTENTS);
 }
 
-const said = (text: string) => document.body.textContent?.includes(text) ?? false;
+const said = (text: string) =>
+	document.body.textContent?.includes(text) ?? false;
 
 test('New capture text not added keeps the window until it is cleared', async () => {
 	const page = await openWindow();
@@ -145,10 +148,7 @@ test('New capture text not added keeps the window until it is cleared', async ()
 		(document.getElementById('new-capture') as HTMLTextAreaElement | null)
 			?.value,
 	).toBe('Not added yet');
-	await until(
-		() => said('Some text is typed and not added.'),
-		'the notice',
-	);
+	await until(() => said('Some text is typed and not added.'), 'the notice');
 
 	type(document.getElementById('new-capture'), '');
 	await requestClose();

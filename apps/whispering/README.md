@@ -98,14 +98,15 @@ bun dev:epicenter
 ```
 
 In Epicenter's Folders window, choose Whispering under Apps to open its default
-folder. Choose "Open with…" beside a listed folder to open that folder in
-Whispering. The shell assigns the directory before opening the window, then
-serves the bundled page at `/whispering/`. Local opening needs no installation,
+folder, or Choose folder… to pick another. Choose "Open with…" beside a listed
+folder to open that folder in Whispering. Each folder opens in its own window.
+The shell binds the directory to the window before opening it, then serves
+the bundled page at `/whispering/`. Local opening needs no installation,
 account, approval, or network connection. Build changes take effect when you
 rebuild Epicenter and reopen the window.
 
-Inside Epicenter the shell grants the window its folder by the ID it
-registered, and the page names no path. The page is the UI, and it opens the
+Inside Epicenter the shell binds the window its folder, and the page names
+no path or folder. The page is the UI, and it opens the
 folder itself: it reads the files and saves them, and every read and save goes
 through the shell, which keeps them inside the folder and out of Git's private
 files. The shell's recorder writes a recording into the folder
@@ -532,7 +533,7 @@ is saved (ADR-0632). These promises of the earlier build changed:
   the new name followed by deleting the old one.
 - Epicenter bundles Whispering, and "Open with…" can open any listed folder.
   The status names the folder as opened in Epicenter rather than showing an
-  internal scope ID.
+  internal ID.
 
 ## What is not supported
 
@@ -570,7 +571,7 @@ These are absent, not hidden behind a setting:
 - Windows and Linux are untested.
 - A desktop app of its own. Whispering's standalone Tauri shell is deleted
   (ADR-0493); on the desktop it runs only in Epicenter.
-- Opening the desktop folder from a browser tab. The shell grants the folder
+- Opening the desktop folder from a browser tab. The shell binds the folder
   to Whispering's window alone.
 - Moving a recording's audio and having the recording follow. Nothing repairs
   `audioPath`, and nothing collects audio files that no recording names.

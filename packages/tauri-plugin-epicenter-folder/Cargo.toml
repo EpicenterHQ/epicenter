@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-epicenter-folder"
 version = "0.0.1"
-description = "The desktop shell's grant of an Epicenter folder to the one window that edits it"
+description = "The desktop shell's binding of one existing Epicenter folder to each window that edits it"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"

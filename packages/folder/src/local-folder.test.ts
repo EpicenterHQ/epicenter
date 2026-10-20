@@ -14,8 +14,8 @@ import { beforeEach, expect, expectTypeOf, test } from 'bun:test';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openFolder } from './browser.js';
 import { openRepository } from './browser/repository.js';
+import { openFolder } from './browser.js';
 import type { Folder, FolderChange, FolderStatus } from './contract.js';
 import { openFolder as openAutomaticFolder } from './index.js';
 
@@ -93,7 +93,9 @@ test('old OPFS access cannot block the current IndexedDB folder', async () => {
 		expectOk(await first.files.write('readme.md', null, 'saved'));
 		await first.close();
 		const second = await open();
-		expect(await expectOk(await second.files.read('readme.md'))?.content.text()).toBe('saved');
+		expect(
+			await expectOk(await second.files.read('readme.md'))?.content.text(),
+		).toBe('saved');
 		await second.close();
 		expect(opened).toBe(0);
 	} finally {
@@ -137,7 +139,10 @@ test('files and rows saved before close are there after reopening', async () => 
 	]);
 	const deleted = expectOk(await second.tables.notes.delete('a', row ?? null));
 	expect(deleted).toEqual({ deleted: true });
-	expect(expectOk(await second.files.list())).toEqual(['notes/a/photo.txt', 'readme.md']);
+	expect(expectOk(await second.files.list())).toEqual([
+		'notes/a/photo.txt',
+		'readme.md',
+	]);
 	await second.close();
 });
 
@@ -411,9 +416,13 @@ test('a table that cannot be one directory, or missing IndexedDB, refuses to ope
 test('browser writes refuse the same nonportable paths and row IDs as a directory', async () => {
 	const folder = await open();
 	for (const path of ['con.md', 'notes/a: b.md', 'a\\b', 'trailing.', 'HEAD/x'])
-		expect(expectErr(await folder.files.write(path, null, 'x')).name).toBe('InvalidPath');
+		expect(expectErr(await folder.files.write(path, null, 'x')).name).toBe(
+			'InvalidPath',
+		);
 	for (const id of ['', 'con', 'a/b', 'a: b'])
-		expect(expectErr(await folder.tables.notes.set(id, null, { body: 'x' })).name).toBe('InvalidId');
+		expect(
+			expectErr(await folder.tables.notes.set(id, null, { body: 'x' })).name,
+		).toBe('InvalidId');
 	expect(expectOk(await folder.files.list())).toEqual([]);
 	await folder.close();
 });
@@ -421,26 +430,49 @@ test('browser writes refuse the same nonportable paths and row IDs as a director
 test('earlier nonportable browser paths remain readable for repair', async () => {
 	const earlier = await openRepository('default');
 	const snapshot = await earlier.storage.capture([]);
-	expect(await earlier.storage.publish({
-		revision: snapshot.state.revision,
-		edits: new Map([
-			['notes/a: b.md', '---\ntitle: Kept\n---\nSource\n'],
-			['notes/.md', '---\ntitle: Empty stem\n---\nKept\n'],
-		]),
-	})).toBe(true);
+	expect(
+		await earlier.storage.publish({
+			revision: snapshot.state.revision,
+			edits: new Map([
+				['notes/a: b.md', '---\ntitle: Kept\n---\nSource\n'],
+				['notes/.md', '---\ntitle: Empty stem\n---\nKept\n'],
+			]),
+		}),
+	).toBe(true);
 	const folder = await open();
-	expect(expectOk(await folder.files.list())).toEqual(['notes/.md', 'notes/a: b.md']);
-	expect(await expectOk(await folder.files.read('notes/a: b.md'))?.content.text()).toContain('Source');
-	expect(expectOk(await folder.tables.notes.list()).map((row) => row.id)).toEqual(['', 'a: b']);
-	expect(expectOk(await folder.tables.notes.get(''))?.fields).toEqual({ title: 'Empty stem' });
+	expect(expectOk(await folder.files.list())).toEqual([
+		'notes/.md',
+		'notes/a: b.md',
+	]);
+	expect(
+		await expectOk(await folder.files.read('notes/a: b.md'))?.content.text(),
+	).toContain('Source');
+	expect(
+		expectOk(await folder.tables.notes.list()).map((row) => row.id),
+	).toEqual(['', 'a: b']);
+	expect(expectOk(await folder.tables.notes.get(''))?.fields).toEqual({
+		title: 'Empty stem',
+	});
 	const raw = expectOk(await folder.tables.notes.get('a: b'))!;
 	expect(raw.fields).toEqual({ title: 'Kept' });
-	expect(expectErr(await folder.tables.notes.set('a: b', null, { body: 'changed' })).name).toBe('InvalidId');
-	const { sent } = expectOk(await folder.tables.notes.set('a: b', raw, { body: 'Repaired\n' }));
-	expect(await expectOk(await folder.files.read('notes/a: b.md'))?.content.text()).toContain('Repaired');
-	expect(expectOk(await folder.tables.notes.delete('a: b', sent))).toEqual({ deleted: true });
+	expect(
+		expectErr(await folder.tables.notes.set('a: b', null, { body: 'changed' }))
+			.name,
+	).toBe('InvalidId');
+	const { sent } = expectOk(
+		await folder.tables.notes.set('a: b', raw, { body: 'Repaired\n' }),
+	);
+	expect(
+		await expectOk(await folder.files.read('notes/a: b.md'))?.content.text(),
+	).toContain('Repaired');
+	expect(expectOk(await folder.tables.notes.delete('a: b', sent))).toEqual({
+		deleted: true,
+	});
 	expect(expectOk(await folder.tables.notes.get('a: b'))).toBeUndefined();
-	expect(expectErr(await folder.tables.notes.set('a: b', raw, { body: 'again' })).name).toBe('InvalidPath');
+	expect(
+		expectErr(await folder.tables.notes.set('a: b', raw, { body: 'again' }))
+			.name,
+	).toBe('InvalidPath');
 	await folder.close();
 	earlier.close();
 });
@@ -448,15 +480,27 @@ test('earlier nonportable browser paths remain readable for repair', async () =>
 test('an existing HEAD stays readable but cannot be changed into Git state', async () => {
 	const earlier = await openRepository('default');
 	const snapshot = await earlier.storage.capture([]);
-	expect(await earlier.storage.publish({
-		revision: snapshot.state.revision,
-		edits: new Map([['HEAD', 'notes\n']]),
-	})).toBe(true);
+	expect(
+		await earlier.storage.publish({
+			revision: snapshot.state.revision,
+			edits: new Map([['HEAD', 'notes\n']]),
+		}),
+	).toBe(true);
 	const folder = await open();
-	expect(await expectOk(await folder.files.read('HEAD'))?.content.text()).toBe('notes\n');
-	expect(expectErr(await folder.files.write('HEAD', 'notes\n', 'ref: refs/heads/main\n')).name).toBe('InvalidPath');
-	expect(expectErr(await folder.files.delete('HEAD', 'notes\n')).name).toBe('InvalidPath');
-	expect(await expectOk(await folder.files.read('HEAD'))?.content.text()).toBe('notes\n');
+	expect(await expectOk(await folder.files.read('HEAD'))?.content.text()).toBe(
+		'notes\n',
+	);
+	expect(
+		expectErr(
+			await folder.files.write('HEAD', 'notes\n', 'ref: refs/heads/main\n'),
+		).name,
+	).toBe('InvalidPath');
+	expect(expectErr(await folder.files.delete('HEAD', 'notes\n')).name).toBe(
+		'InvalidPath',
+	);
+	expect(await expectOk(await folder.files.read('HEAD'))?.content.text()).toBe(
+		'notes\n',
+	);
 	await folder.close();
 	earlier.close();
 });
@@ -475,12 +519,18 @@ test('the automatic opener opens the browser default and refuses a directory in 
 
 	expect(
 		expectErr(
-			await openAutomaticFolder({ directory: '/tmp/notes', tables: { notes } }),
+			await openAutomaticFolder({
+				directory: '/tmp/notes',
+				tables: { notes },
+			} as unknown as Parameters<typeof openAutomaticFolder>[0]),
 		).name,
 	).toBe('NotTauri');
 	expect(
 		expectErr(
-			await openFolder({ directory: '/tmp/notes', tables: { notes } } as unknown as Parameters<typeof openFolder>[0]),
+			await openFolder({
+				directory: '/tmp/notes',
+				tables: { notes },
+			} as unknown as Parameters<typeof openFolder>[0]),
 		).name,
 	).toBe('NotTauri');
 });

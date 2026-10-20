@@ -8,7 +8,7 @@
 //! changes nothing else. A header that already states them is left alone, so a
 //! repair run twice writes once.
 //!
-//! `recover` repairs every WAV under one directory of a granted folder. A
+//! `recover` repairs every WAV under one directory of a window's folder. A
 //! folder's pages call it when they open it, which is when a recording a quit
 //! cut off is found (ADR-0542). It walks only what the folder's path rule
 //! accepts and never follows a link.

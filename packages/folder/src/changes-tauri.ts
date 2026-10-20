@@ -1,10 +1,10 @@
 /**
  * The desktop's one detector of changes a page did not make (ADR-0548): the
- * shell watches each granted directory and announces what changed as the
+ * shell watches each opened directory and announces what changed as the
  * folder plugin's `epicenter-folder://changed` event, sent to each window
- * the folder is permitted to. Tauri also delivers an event sent to one
- * window to every page's global `listen`, so the page listens on its own
- * window, and reports only its own folder's scope.
+ * bound to that directory. A window has one folder, so the event names none.
+ * Tauri also delivers an event sent to one window to every page's global
+ * `listen`, so the page listens on its own window alone.
  */
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { createLogger } from 'wellcrafted/logger';
@@ -19,10 +19,11 @@ const log = createLogger('folder/changes-tauri');
 export type FilesChanged = readonly string[] | 'everything';
 
 /**
- * Listen for the shell's reports about `scope`, calling `report` for each.
- * `ready` settles once the page hears changes; `stop` ends listening.
+ * Listen for the shell's reports about this window's folder, calling
+ * `report` for each. `ready` settles once the page hears changes; `stop`
+ * ends listening.
  */
-export function tauriChangeDetector(scope: string) {
+export function tauriChangeDetector() {
 	return (report: (change: FilesChanged) => void) => {
 		let open = true;
 		let unlisten: UnlistenFn | undefined;
@@ -32,7 +33,7 @@ export function tauriChangeDetector(scope: string) {
 				getCurrentWebviewWindow().listen<FolderChanged>(
 					FOLDER_CHANGED_EVENT,
 					({ payload }) => {
-						if (!open || payload?.scope !== scope) return;
+						if (!open || !payload) return;
 						report(payload.paths === null ? 'everything' : payload.paths);
 					},
 				),
@@ -44,7 +45,7 @@ export function tauriChangeDetector(scope: string) {
 				},
 				(cause: unknown) =>
 					log.error(
-						new Error(`Could not hear changes to the folder '${scope}'.`, {
+						new Error("Could not hear changes to this window's folder.", {
 							cause,
 						}),
 					),

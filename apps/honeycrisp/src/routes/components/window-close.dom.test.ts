@@ -120,7 +120,8 @@ async function windowOnNewNote() {
 	return { get };
 }
 
-const said = (text: string) => document.body.textContent?.includes(text) ?? false;
+const said = (text: string) =>
+	document.body.textContent?.includes(text) ?? false;
 
 test('a title typed and closed at once is saved before the window goes', async () => {
 	const page = await windowOnNewNote();

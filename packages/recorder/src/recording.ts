@@ -19,14 +19,12 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 
 /**
- * The folder a recording is written into: its ID, which names the scope the
- * desktop shell granted this window, and the write a browser writes through.
- * A handle from `@epicenter/folder` supplies `write`, the folder's one write,
- * which places a recording as a write from no file; its ID is the one it was
- * opened with.
+ * The folder a recording is written into, by the write a browser writes
+ * through: a handle's `files.write`, the folder's one write, which places a
+ * recording as a write from no file. On the desktop the shell writes into
+ * the folder it bound to the recording window, which no page names.
  */
 export type RecordingFolder = {
-	readonly id: string;
 	write(
 		path: string,
 		from: null,
@@ -88,7 +86,6 @@ export type Recording = {
 };
 
 export type RecoverRecordingsOptions = {
-	readonly folder: RecordingFolder;
 	/** The folder-relative directory recordings are kept in, such as `recordings`. */
 	readonly under: string;
 };

@@ -1,20 +1,22 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "folders",
-	"description": "The Folders window lists the data folders under the Epicenter folder root and opens each with the page's own engine. Listing permits the window into each folder's scope; the folder plugin then grants it the directory and reads and changes it. It opens Todos, Capture, Honeycrisp, or Whispering, which Epicenter bundles, on the app's default folder or a listed one (open_bundled_app), and opens Settings (ADR-0537). It shows the directories other apps asked Epicenter to open, and accepts or dismisses each; only an accepted one is checked, registered for this window alone, and remembered in folders.json, which it lists and forgets entries from (ADR-0646). The window listens for the folder plugin's change event, epicenter-folder://changed, for the shell's epicenter://data-folders-changed, sent when the list of data folders may have changed, and for epicenter://folder-openings-changed, sent when the requests to open a directory changed. Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561).",
+	"description": "The Folders window is Epicenter's launcher (ADR-0537). It lists the data folders under the Epicenter folder root by name and title, and opens none itself: choosing one opens that folder's own editor window (open_folder_editor). It opens Todos, Capture, Honeycrisp, or Whispering, which Epicenter bundles, on the app's default folder or a listed one (open_bundled_app), or on a folder the person chooses in the native picker, which Rust opens and answers (choose_folder_for_app), and opens Settings. The shell binds no folder to this window, so it holds no folder command. It listens for the shell's epicenter://data-folders-changed, sent when the list of data folders may have changed. Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561). It shows incoming folder-opening requests; accepting or reopening a remembered path opens a separate editor, while the launcher stays unbound.",
 	"local": true,
 	"windows": ["folders"],
 	"permissions": [
-		"epicenter-folder:default",
 		"core:event:allow-listen",
 		"core:event:allow-unlisten",
 		"allow-list-data-folders",
+		"allow-open-folder-editor",
 		"allow-open-bundled-app",
+		"allow-choose-folder-for-app",
 		"allow-open-home",
 		"allow-pending-folder-openings",
 		"allow-accept-folder-opening",
 		"allow-dismiss-folder-opening",
 		"allow-list-remembered-folders",
-		"allow-forget-remembered-folder"
+		"allow-forget-remembered-folder",
+		"allow-open-remembered-folder"
 	]
 }

@@ -395,9 +395,14 @@ test.skipIf(!darwin)(
 		const saving = folder.files.write('shared.md', 'old\n', 'secret\n');
 		const staging = join(parent, '.folder.epicenter-scratch');
 		let staged: string[] = [];
-		for (let tries = 0; staged.length === 0 && tries < 200; tries++) {
+		let stagedText = '';
+		// Creation precedes the write. Wait for the bytes whose permissions we inspect.
+		for (let tries = 0; stagedText !== 'secret\n' && tries < 200; tries++) {
 			await Bun.sleep(10);
 			staged = await readdir(staging).catch(() => []);
+			if (staged.length === 1) {
+				stagedText = await readFile(join(staging, staged[0]!), 'utf8');
+			}
 		}
 		expect(staged).toHaveLength(1);
 		const file = join(staging, staged[0]!);

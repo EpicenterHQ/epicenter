@@ -10,12 +10,14 @@ selects the folder when it opens:
 | Runtime | Opening | Folder |
 | --- | --- | --- |
 | Browser | `openFolder({ tables })` | This origin's default local folder in IndexedDB, under a fixed internal key. |
-| Desktop app (Tauri) | `openFolder({ tables })` | The directory the shell assigned to this window. An explicit `directory` opens another registered folder by ID, never by path. |
+| Desktop app (Tauri) | `openFolder({ tables })` | The directory the shell bound to this window before the window existed. The page names no path, scope, or window. |
 | Bun | `openFolder({ directory, tables })` | The existing directory at the path `directory`. |
 
 Opening needs no app ID, account, remote, network, or schema file. It
 creates no Git history or authored files. The desktop shell may create its
-fixed default directory before granting it. See
+fixed default directory when it launches the window, never when the page
+opens it
+([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)). See
 [shared vocabulary](../../docs/CONTEXT.md).
 
 ```ts
@@ -38,15 +40,16 @@ await folder.close();
 
 | Import | Exports | Use it when |
 | --- | --- | --- |
-| `@epicenter/folder` | Acts as `/browser` in a browser and `/tauri` in the desktop app. `openFolder({ tables })` opens the origin's or window's default; an explicit `directory` selects another registered desktop folder. Only the chosen engine is loaded. | Ordinary application code that runs in both. |
+| `@epicenter/folder` | Acts as `/browser` in a browser and `/tauri` in the desktop app. `openFolder({ tables })` opens the origin's folder or the window's folder. Only the chosen engine is loaded. A build may alias this exact specifier to one entry. | Ordinary application code that runs in both. |
 | `@epicenter/folder/browser` | `openFolder({ tables })`. Refuses inside the desktop app. | A web-only build. |
-| `@epicenter/folder/tauri` | `openFolder({ tables })` for this window's assignment, or `{ directory, tables }` for another registered folder. Refuses outside the desktop app. | A desktop-only build. |
+| `@epicenter/folder/tauri` | `openFolder({ tables })` for the folder the shell bound to this window. Refuses outside the desktop app. | A desktop-only build. |
 | `@epicenter/folder/bun` | `openFolder({ directory, tables })` over a path, and the `epicenter` CLI's tools ([below](#cli-tools)). | Command-line tools, scripts, and tests given a directory. |
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
-type and its parts, `FolderOptions`, `OpenFolderError`, `ReadError`, and
-`SaveError`. Importing an entry opens nothing.
+type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
+`OpenFolderError`, `ReadError`, and `SaveError`. Importing an entry opens
+nothing.
 
 ## Opening
 
@@ -59,10 +62,10 @@ returned, never thrown, and no opener opens other storage instead.
 | `Unavailable` | Storage could not be reached: no IndexedDB, or a shell that cannot answer. |
 | `InsideTauri` | The browser entry was called in the desktop app. |
 | `NotTauri` | A desktop directory was asked for outside the desktop app. |
-| `NotAssigned` | The desktop shell assigned no folder to this window. |
-| `InvalidId` | Desktop: an empty registered ID. |
-| `UnknownScope`, `WindowNotPermitted`, `Missing`, `ShuttingDown` | Desktop: the shell refused the grant, or an explicitly chosen directory is gone. The shell may create its fixed default before assigning it. |
-| `InvalidRoot` | Bun: the path is not a directory, or has no parent to hold its save lock. |
+| `NotBound` | Desktop: the shell bound no folder to this window. |
+| `Missing` | Desktop: the window's folder is gone. Opening never makes it again. |
+| `ShuttingDown` | Desktop: the shell is shutting its folders down. |
+| `InvalidRoot` | Bun: the path is not a directory, or has no parent to hold its save lock. Desktop: the page passed a `directory`, which the desktop opener never takes. |
 
 Each handle has one root. A caller may open several handles, of one folder or
 of several, and two schemas over one directory change interpretation, not
@@ -205,11 +208,13 @@ those of other handles of the directory in this process.
 
 ### Desktop app
 
-`directory` is the ID the shell registered the directory under
-(`tauri-plugin-epicenter-folder`). Opening asks the shell to grant this
-window that directory (`grant_directory`); the page then reads and saves only
+The shell bound one existing directory to this window before the window
+existed (`tauri-plugin-epicenter-folder`). Opening asks the shell to open it
+(`open_folder`, with no arguments); the page then reads and saves only
 through the shell's storage commands, one per storage method (`tauri-files.ts`,
-[ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md)).
+[ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md)),
+each answered in the calling window's directory. No command names a root,
+scope, or window.
 The shell checks every path, stages and renames each save, and checks its
 expected bytes under the same save lock. A command whose reply was lost counts
 as landed only when the path holds what was sent. The shell's watcher reports

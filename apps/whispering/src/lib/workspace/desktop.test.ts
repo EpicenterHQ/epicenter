@@ -3,29 +3,32 @@
  *
  * The shell's replies are scripted here, so these pin what the page itself
  * decides: that the browser workspace refuses inside a desktop app, that the
- * desktop one names a registered directory and never a path, that a refusal
- * is returned and nothing else is opened in its place, and that the folder's
- * changes go to the shell. The shell grants a real directory, and the page's
- * own folder engine opens it (`granted-shell.test-support.ts` in the folder
- * package); nothing here runs the Rust shell or a WebView.
+ * desktop one names no folder, path, or scope, that a refusal is returned and
+ * nothing else is opened in its place, and that the folder's changes go to
+ * the shell. The shell has a real directory bound to the window, and the
+ * page's own folder engine opens it through `@epicenter/folder/tauri`
+ * (`granted-shell.test-support.ts` in the folder package); nothing here runs
+ * the Rust shell or a WebView.
  *
- * The desktop opener over a registered directory is the folder package's
- * `openTauriFolder`, reached here by its module until a public entry
- * exports it; the workspace takes it as `openDirectory`.
- *
- * The connections are rows of a real `so.epicenter` folder on disk, opened
- * with Whispering's one table of it. The AI commands are scripted with the
- * code the `epicenter` CLI runs (`@epicenter/ai/send`) over an in-memory
- * keychain and a stubbed endpoint, so a test about a key or a request runs
- * against what the CLI really checks and sends. Local transcription answers
- * with scripted shell commands.
+ * The connections are rows of a real `so.epicenter` folder on disk, which the
+ * page never opens: its row commands are answered by the code
+ * `epicenter whispering-connection` runs (`packages/cli/src/connection-rows.ts`),
+ * with each reply passed through JSON as it crosses the shell. The AI
+ * commands are scripted with the code the `epicenter` CLI runs
+ * (`@epicenter/ai/send`) over an in-memory keychain and a stubbed endpoint,
+ * so a test about a key or a request runs against what the CLI really
+ * checks and sends. Local transcription answers with scripted shell
+ * commands.
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
+import { join } from 'node:path';
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsTables,
+} from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -36,6 +39,10 @@ import {
 } from '@epicenter/ai/send';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
+	readConnectionRow,
+	setConnectionRow,
+} from '../../../../../packages/cli/src/connection-rows.js';
+import {
 	createGrantedShell,
 	type GrantedShell,
 	grantedDirectory,
@@ -44,17 +51,14 @@ import {
 import { openBunFolder } from '../../../../../packages/folder/src/native/bun.js';
 import { toneWav } from '../capture.js';
 import { readBytes } from '../files.js';
-import {
-	type ConnectionCommands,
-	connectionsTables,
-} from './desktop-connections.js';
+import type { ConnectionCommands } from './desktop-connections.js';
 import type { LocalTranscriptionCommands } from './local-transcription.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
 /** Every command the page sent the shell. */
 let calls: Call[] = [];
-/** The shell, once a test has one grant a directory. */
+/** The shell, once a test has bound the window a directory. */
 let shell: GrantedShell | undefined;
 
 mock.module('@tauri-apps/api/core', () => ({
@@ -82,12 +86,8 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 
 const { openWorkspace: openBrowserWorkspace } = await import('./browser.js');
 const { openDesktopWorkspace, openWorkspace } = await import('./desktop.js');
-const { openTauriFolder } = await import(
-	'../../../../../packages/folder/src/native/tauri.js'
-);
 
 const ORIGIN = 'epicenter-app://localhost';
-const SCOPE = 'so.epicenter.whispering';
 const ENDPOINT = 'http://127.0.0.1:18080/v1';
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -101,7 +101,7 @@ afterEach(async () => {
 	delete scope.localStorage;
 });
 
-/** A shell that grants this window a new empty directory. */
+/** A shell with a new empty directory bound to this window. */
 async function granted() {
 	const directory = await grantedDirectory();
 	cleanups.push(() => rm(directory, { recursive: true, force: true }));
@@ -146,16 +146,14 @@ const noCommands: LocalTranscriptionCommands = {
 	openHome: unexpected,
 };
 
-/** The desktop workspace over the scripted shell, on `SCOPE` unless told otherwise. */
+/** The desktop workspace over the scripted shell. */
 const openDesktop = (
-	options: Partial<Parameters<typeof openDesktopWorkspace>[0]> = {},
-) =>
-	openDesktopWorkspace({
-		openDirectory: openTauriFolder,
-		directory: SCOPE,
-		commands: noCommands,
-		...options,
-	});
+	options: Parameters<typeof openDesktopWorkspace>[0] = {},
+) => openDesktopWorkspace({ commands: noCommands, ...options });
+
+/** Whether a command named a folder, a root, or a window. */
+const namesAFolder = (call: Call) =>
+	['scope', 'root', 'window', 'directory'].some((name) => name in call.args);
 
 /** A provider's request, as the stubbed endpoint received it. */
 type ProviderCall = {
@@ -166,24 +164,40 @@ type ProviderCall = {
 };
 
 /**
- * Epicenter as Whispering's connections reach it: a real `so.epicenter`
- * folder on disk, and the AI commands answered by the code `epicenter send`
- * and `epicenter auth key` run, over an in-memory keychain and an endpoint
- * that answers every request. `keychain` is what the CLI would hold; the
- * page is never handed it.
+ * Epicenter as Whispering's connections reach it: a real Epicenter folder on
+ * disk, whose `so.epicenter` the row commands read and save as
+ * `epicenter whispering-connection` does, and the AI commands answered by
+ * the code `epicenter send` and `epicenter auth key` run, over an in-memory
+ * keychain and an endpoint that answers every request. `keychain` is what
+ * the CLI would hold; the page is never handed it. `so.epicenter` is made by
+ * the first save.
  */
 async function epicenter() {
-	// Epicenter's own folder, where its connections are rows.
-	const root = join(
-		await mkdtemp(join(tmpdir(), 'whispering-so-epicenter-')),
-		CONNECTIONS_FOLDER_ID,
-	);
-	await mkdir(root);
+	// The Epicenter folder; Epicenter's own folder, where its connections are
+	// rows, is `root` inside it.
+	const folderDir = await mkdtemp(join(tmpdir(), 'whispering-epicenter-'));
+	const root = join(folderDir, CONNECTIONS_FOLDER_ID);
 	const keychain = createMemorySecrets();
 	const provider: ProviderCall[] = [];
 	/** Every line the page was sent. */
 	const lines: string[] = [];
 	let losing = false;
+	/** Whether a row save lands and its reply is lost on the way back. */
+	let losingSave = false;
+	/** Runs between the page's key save and its row save, as another writer would. */
+	let beforeRowSave: (() => Promise<void>) | undefined;
+	/** A row command's reply as it crosses the shell: JSON, or the CLI's refusal. */
+	const reply = (
+		answered:
+			| { data: unknown; error: null }
+			| { data: null; error: { message: string } },
+	) =>
+		answered.error === null
+			? { data: JSON.parse(JSON.stringify(answered.data)), error: null }
+			: {
+					data: null,
+					error: { name: 'Refused' as const, message: answered.error.message },
+				};
 	const endpoint = (async (
 		input: URL | string | Request,
 		init?: RequestInit,
@@ -218,6 +232,29 @@ async function epicenter() {
 						data: null,
 						error: { name: 'Refused', message: error.message },
 					};
+		},
+		async whisperingConnectionRead(connection) {
+			return reply(await readConnectionRow(folderDir, connection));
+		},
+		async whisperingConnectionSet(connection, base, fields) {
+			await beforeRowSave?.();
+			const answered = reply(
+				await setConnectionRow(
+					folderDir,
+					connection,
+					JSON.parse(JSON.stringify({ base, fields })),
+				),
+			);
+			// The CLI saved the row; its reply is lost on the way back.
+			if (losingSave)
+				return {
+					data: null,
+					error: {
+						name: 'Failed' as const,
+						message: 'the page that started the CLI ended',
+					},
+				};
+			return answered;
 		},
 		async aiKeySet(connection, url, key) {
 			const { data, error } = await saveKey(keychain, connection, {
@@ -264,16 +301,24 @@ async function epicenter() {
 			return { status: 'ok', data: { ...exit, reply: null }, error: null };
 		},
 	} as ConnectionCommands;
-	cleanups.push(() => rm(dirname(root), { recursive: true, force: true }));
+	cleanups.push(() => rm(folderDir, { recursive: true, force: true }));
 	return {
 		root,
 		keychain,
 		provider,
 		lines,
 		ai,
-		open: () => openBunFolder({ directory: root, tables: connectionsTables }),
+		/** `so.epicenter` as Settings opens it, as its own folder. */
+		settings: () =>
+			openBunFolder({ directory: root, tables: connectionsTables }),
 		lose(next: boolean) {
 			losing = next;
+		},
+		loseSave(next: boolean) {
+			losingSave = next;
+		},
+		beforeRowSave(next: (() => Promise<void>) | undefined) {
+			beforeRowSave = next;
 		},
 	};
 }
@@ -282,10 +327,7 @@ type Epicenter = Awaited<ReturnType<typeof epicenter>>;
 
 /** The desktop workspace over `host`'s connections. */
 const openWith = (host: Epicenter) =>
-	openDesktop({
-		connectionCommands: host.ai,
-		openConnectionsFolder: host.open,
-	});
+	openDesktop({ connectionCommands: host.ai });
 
 // ============================================================================
 // The browser workspace inside a desktop app
@@ -305,18 +347,16 @@ test('the browser workspace refuses inside a desktop app, and opens nothing in i
 // Opening
 // ============================================================================
 
-test('the page names the registered directory by its ID and nothing else, and opening writes nothing', async () => {
+test('the page opens its window folder naming no folder, and opening writes nothing', async () => {
 	setup();
 	const { root } = await granted();
 
-	const workspace = expectOk(await openDesktop());
+	const workspace = expectOk(await openWorkspace());
 
-	// The window asks for its directory by ID; no root, author, or branch.
-	expect(calls[0]).toEqual({ cmd: 'grant_directory', args: { scope: SCOPE } });
-	expect(sent('grant_directory')).toHaveLength(1);
-	// Everything after the grant names the folder, never another.
-	for (const call of calls.slice(1)) expect(call.args.scope).toBe(SCOPE);
-	expect(workspace.folderId).toBe(SCOPE);
+	// The window opens the folder bound to it; no root, scope, author, or branch.
+	expect(calls[0]).toEqual({ cmd: 'open_folder', args: {} });
+	expect(sent('open_folder')).toHaveLength(1);
+	expect(calls.filter(namesAFolder)).toEqual([]);
 	expect(workspace.location).toBe('The folder opened in Epicenter');
 	expect(workspace.capture.source).toBe('microphone');
 	// No declaration, ignore file, or repository is made.
@@ -324,61 +364,29 @@ test('the page names the registered directory by its ID and nothing else, and op
 	await workspace.close();
 });
 
-test('the page opens the folder handed to its window, whatever app name it was handed under', async () => {
-	for (const handed of [
-		// The bundled page on its default folder, and on a listed one.
-		{ app: 'so.epicenter.whispering', folder: 'data:Whispering' },
-		{ app: 'so.epicenter.whispering', folder: 'data:other' },
-		// A name other than Whispering's own: the page checks none.
-		{ app: 'com.example.voice', folder: 'data:other' },
-	]) {
-		setup();
-		calls = [];
-		const granting = await granted();
-		granting.control.window = handed;
-
-		const workspace = expectOk(await openWorkspace());
-		expect(calls[0]).toEqual({ cmd: 'window_folder', args: {} });
-		expect(sent('window_folder')).toHaveLength(1);
-		expect(sent('grant_directory')[0]?.args.scope).toBe(handed.folder);
-		expect(workspace.folderId).toBe(handed.folder);
-		await workspace.close();
-	}
-});
-
-test('a window handed no folder is refused, and nothing is opened in its place', async () => {
-	setup();
-	const granting = await granted();
-	granting.control.window = null;
-
-	const refused = expectErr(await openWorkspace());
-	expect(refused.name).toBe('DesktopFolder');
-	if (refused.name === 'DesktopFolder')
-		expect(refused.refusal.name).toBe('NotAssigned');
-	expect(calls.map((call) => call.cmd)).toEqual(['window_folder']);
-});
-
 test('a refusal from the shell is returned, and nothing is opened in its place', async () => {
 	setup();
 	for (const refusal of [
-		{ name: 'UnknownScope', scope: SCOPE },
-		{ name: 'WindowNotPermitted', scope: SCOPE, window: 'other' },
+		// A window the shell bound no folder to, and one whose folder is gone.
+		{ name: 'NotBound' },
+		{ name: 'Missing' },
+		{ name: 'ShuttingDown' },
 		// What Tauri answers a window with no capability for the plugin.
-		'epicenter-folder.grant_directory not allowed',
+		'epicenter-folder.open_folder not allowed',
 	]) {
 		calls = [];
-		(await granted()).control.grant = () => {
+		(await granted()).control.open = () => {
 			throw refusal;
 		};
 
-		const refused = expectErr(await openDesktop());
+		const refused = expectErr(await openWorkspace());
 
 		expect(refused.name).toBe('DesktopFolder');
 		if (refused.name === 'DesktopFolder')
 			expect<string>(refused.refusal.name).toBe(
 				typeof refusal === 'string' ? 'Unavailable' : refusal.name,
 			);
-		expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
+		expect(calls.map((call) => call.cmd)).toEqual(['open_folder']);
 	}
 });
 
@@ -401,7 +409,8 @@ test('opening repairs the recordings a quit cut off, and a repair that fails is 
 	};
 
 	const repaired = expectOk(await openDesktop());
-	expect(asked).toEqual([{ scope: repaired.folderId, under: 'audio' }]);
+	// The recorder repairs the window's folder; the page names none.
+	expect(asked).toEqual([{ under: 'audio' }]);
 	expect(repaired.captureNotice).toBeUndefined();
 	await repaired.close();
 
@@ -524,6 +533,10 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	expect(await host.keychain.get('whispering-text')).toBe(
 		JSON.stringify({ endpoint: ENDPOINT, key: 'device-secret-key' }),
 	);
+	// The window opened its own folder and no other: the row was saved
+	// through Epicenter, by operation.
+	expect(sent('open_folder')).toHaveLength(1);
+	expect(calls.filter(namesAFolder)).toEqual([]);
 
 	// The key is never carried to another base URL.
 	const moved = await first.connections.set('text', {
@@ -581,8 +594,81 @@ test('a connection row that does not read is reported, never taken for none', as
 	const workspace = expectOk(await openWith(host));
 
 	await expect(workspace.connections.read()).rejects.toThrow(
-		'does not read as a connection',
+		'so.epicenter/connections/whispering-text.md does not read as a connection',
 	);
+	// A save is refused with the same reason, and the file keeps its bytes.
+	const refused = await workspace.connections.set('text', {
+		baseUrl: ENDPOINT,
+		model: 'chat-model',
+		key: { action: 'replace', key: 'k' },
+	});
+	expect(refused.error).toContain('does not read as a connection');
+	expect(refused.error).toContain('Fix that file');
+	expect(
+		await readFile(join(host.root, 'connections/whispering-text.md'), 'utf8'),
+	).toBe('---\nkind: [open\n---\n');
+	await workspace.close();
+});
+
+test('an edit Settings saved while Whispering saved a connection is kept beside Whispering’s', async () => {
+	setup();
+	await granted();
+	const host = await epicenter();
+	const workspace = expectOk(await openWith(host));
+	const change = (model: string) => ({
+		baseUrl: ENDPOINT,
+		model,
+		key: { action: 'replace' as const, key: 'k' },
+	});
+	expectOk(await workspace.connections.set('text', change('first-model')));
+
+	// After the page read the row, Settings renames it and adds a field.
+	host.beforeRowSave(async () => {
+		host.beforeRowSave(undefined);
+		const folder = expectOk(await host.settings());
+		const row = expectOk(
+			await folder.tables.connections.get('whispering-text'),
+		);
+		expectOk(
+			await folder.tables.connections.set('whispering-text', row ?? null, {
+				fields: { title: 'Renamed in Settings', note: 'kept' },
+			}),
+		);
+		await folder.close();
+	});
+	const saved = expectOk(
+		await workspace.connections.set('text', change('second-model')),
+	);
+	expect(saved.text?.model).toBe('second-model');
+	const text = await readFile(
+		join(host.root, 'connections/whispering-text.md'),
+		'utf8',
+	);
+	expect(text).toContain('title: Renamed in Settings');
+	expect(text).toContain('note: kept');
+	expect(text).toContain('model: second-model');
+	await workspace.close();
+});
+
+test('a connection save whose reply Epicenter never delivered is not reported as saved', async () => {
+	setup();
+	await granted();
+	const host = await epicenter();
+	const workspace = expectOk(await openWith(host));
+	host.loseSave(true);
+
+	const lost = await workspace.connections.set('text', {
+		baseUrl: ENDPOINT,
+		model: 'chat-model',
+		key: { action: 'replace', key: 'k' },
+	});
+	expect(lost.data).toBeNull();
+	expect(lost.error).toContain('did not confirm');
+	expect(lost.error).toContain('the page that started the CLI ended');
+
+	// Reading again shows what landed.
+	host.loseSave(false);
+	expect((await workspace.connections.read()).text?.model).toBe('chat-model');
 	await workspace.close();
 });
 

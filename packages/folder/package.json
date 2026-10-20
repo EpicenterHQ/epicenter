@@ -2,7 +2,7 @@
 	"name": "@epicenter/folder",
 	"version": "0.0.1",
 	"private": true,
-	"description": "One local Folder: Markdown tables and ordinary files, opened as a browser origin's default folder, a directory the Tauri desktop app registered, or a directory in Bun.",
+	"description": "One local Folder: Markdown tables and ordinary files, opened as a browser origin's default folder, a directory bound to a Tauri window, or a directory in Bun.",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",

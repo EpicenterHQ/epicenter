@@ -39,7 +39,6 @@ const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
 /** Where a test's recordings would be written. Nothing here stops one, so nothing is. */
 const INTO: CaptureStart = {
 	folder: {
-		id: 'so.epicenter.test',
 		write: async () => Ok(undefined),
 	},
 	path: 'recordings/a',

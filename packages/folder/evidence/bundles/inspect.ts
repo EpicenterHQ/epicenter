@@ -15,7 +15,7 @@ const [entry = 'main', root] = process.argv
 	.filter((argument) => !argument.startsWith('--'));
 const APP = join(import.meta.dir, 'app');
 const MARKERS = {
-	desktop: 'plugin:epicenter-folder|grant_directory',
+	desktop: 'plugin:epicenter-folder|open_folder',
 	browser: 'IndexedDB could not be opened',
 	git: 'git-upload-pack',
 	shell: 'sha256sum',

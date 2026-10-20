@@ -3,13 +3,14 @@
  * directory, for tests that run the production desktop opener
  * (`@epicenter/folder/tauri`) and everything above it.
  *
- * The shell grants the window one directory (`grant_directory`). The page's
- * storage is the folder plugin's commands, one per storage method
+ * The shell bound the window one directory before the window existed, and
+ * the page opens it (`open_folder`), naming none. The page's storage is the
+ * folder plugin's commands, one per storage method
  * (ADR-0581). Here the Bun directory storage over `node:fs`
  * (`directory-store.ts`), whose outcomes the plugin's `storage.rs` matches,
  * answers each storage command. A command answers as the plugin does: its
  * value, or a rejection with the plugin's `StorageError`, where a failure the
- * shell reports changed nothing and so is `Io`, never `Unconfirmed`. A grant
+ * shell reports changed nothing and so is `Io`, never `Unconfirmed`. An open
  * sweeps staged files an hour old from the scratch directory beside the
  * root, as the shell's does. A test installs `invoke` with `mock.module`,
  * then opens the folder the way its app does.
@@ -93,21 +94,19 @@ async function answered<T>(result: Promise<Result<T, FileError>>) {
 	return data;
 }
 
-/** A new, empty directory to grant, resolved to the spelling the shell reports. */
+/** A new, empty directory to bind, resolved to the spelling the shell reports. */
 export async function grantedDirectory(prefix = 'granted-'): Promise<string> {
 	return nodeFs.realpath(await nodeFs.mkdtemp(join(tmpdir(), prefix)));
 }
 
-/** The shell, granting the directory at `root`. */
+/** The shell, with the directory at `root` bound to the window. */
 export function createGrantedShell(root: string) {
 	const calls: ShellCall[] = [];
 	/** Every data change that landed, in order. */
 	const changes: DataChange[] = [];
 	const control = {
-		/** The installed app and directory handed to this window. */
-		window: undefined as { app: string; folder: string } | null | undefined,
-		/** The shell's answer to `grant_directory`; throw to refuse. */
-		grant: (): unknown => ({ root }),
+		/** The shell's answer to `open_folder`; throw to refuse. */
+		open: (): unknown => null,
 		/** Runs before each data change is checked and made; await in it to hold the change. */
 		beforeChange: undefined as
 			| ((change: DataChange) => Promise<void> | void)
@@ -193,14 +192,10 @@ export function createGrantedShell(root: string) {
 	}
 
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
-		window_folder() {
-			if (control.window === undefined) throw new Error('No folder was handed to this window');
-			return control.window;
-		},
-		async grant_directory() {
-			const granted = control.grant();
+		async open_folder() {
+			const opened = control.open();
 			await sweep();
-			return granted;
+			return opened;
 		},
 		list_folder: () => answered(storage.list()),
 		read_folder_children: (args) =>

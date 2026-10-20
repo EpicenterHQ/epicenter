@@ -1,12 +1,11 @@
 "$schema" = "schemas/schema.json"
 
 # Granting this to a window lets it call the plugin. It does not choose a
-# folder: a window reaches only the scope the shell registered for its label.
+# folder: a window reaches only the directory the shell bound to its label.
 [default]
-description = "Ask which app this window runs and the folder the shell handed it, ask for the folder the shell registered for this window, then read and change its files through the shell."
+description = "Open the folder the shell bound to this window, then read and change its files through the shell."
 permissions = [
-  "allow-window-folder",
-  "allow-grant-directory",
+  "allow-open-folder",
   "allow-list-folder",
   "allow-read-folder-children",
   "allow-read-folder-file",

@@ -4,10 +4,10 @@
 //! A microphone is named by the id `inputs` answers, never by the name a
 //! WebView gives it: on the desktop the page opens no microphone of its own.
 //!
-//! A page names a folder scope and a folder-relative path, never a root. The
-//! folder plugin decides whether the invoking window was granted the scope and
-//! where its directory is; the shared path rule decides whether the path is a
-//! data path. Only then is the microphone opened.
+//! A page names a folder-relative path, never a root or a folder. The folder
+//! plugin answers which directory the shell bound to the calling window; the
+//! shared path rule decides whether the path is a data path. Only then is the
+//! microphone opened.
 
 use std::sync::Arc;
 
@@ -23,11 +23,14 @@ use crate::meter::OpenedMeter;
 use crate::recorder::{Input, Result, StartedRecording, StoppedRecording};
 use crate::{refresh_capturing, Recorders};
 
-/// The directory this window was granted for `scope`.
-fn granted_root<R: Runtime>(webview: &Webview<R>, scope: &str) -> Result<std::path::PathBuf> {
+/// The root of the directory the shell bound to this window, read once for
+/// this operation: a window closed and replaced under the same label
+/// meanwhile does not redirect it.
+fn bound_root<R: Runtime>(webview: &Webview<R>) -> Result<std::path::PathBuf> {
     webview
         .folders()
-        .granted_root(scope, webview.label())
+        .bound(webview.label())
+        .map(|directory| directory.root().to_path_buf())
         .map_err(|refusal| RecorderError::refused(format!("{refusal:?}")))
 }
 
@@ -92,9 +95,9 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
     result
 }
 
-/// Start recording into `<path>.wav` in the folder this window was granted for
-/// `scope`, from the microphone whose id is `device` or the system default. Levels,
-/// and an ending nobody asked for, arrive on `signals`.
+/// Start recording into `<path>.wav` in the folder bound to this window, from
+/// the microphone whose id is `device` or the system default. Levels, and an
+/// ending nobody asked for, arrive on `signals`.
 ///
 /// The path must be a data path the shared path rule accepts, with nothing at
 /// it yet; missing directories on the way are made. Microphone access is
@@ -103,7 +106,6 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 #[specta::specta]
 pub async fn start<R: Runtime>(
     webview: Webview<R>,
-    scope: String,
     path: String,
     device: Option<String>,
     signals: Channel<RecordingSignal>,
@@ -115,7 +117,7 @@ pub async fn start<R: Runtime>(
     // time it would record, and nobody could stop what it started.
     let page = recorders.lock().page(&owner);
 
-    let root = granted_root(&webview, &scope)?;
+    let root = bound_root(&webview)?;
     // The path the page named is checked too, so an empty one is not `.wav`.
     if let Some(problem) = path_problem(&path) {
         return Err(RecorderError::refused(format!("{path:?}: {problem}")));
@@ -185,18 +187,14 @@ pub async fn cancel<R: Runtime>(webview: Webview<R>, id: String) -> Result<()> {
     result
 }
 
-/// Rewrite the header of every WAV under `under` in the folder this window was
-/// granted for `scope` whose sizes disagree with its length, and return their
+/// Rewrite the header of every WAV under `under` in the folder bound to this
+/// window whose sizes disagree with its length, and return their
 /// folder-relative paths. The recording still being written is left alone.
 /// Running it again changes nothing.
 #[tauri::command]
 #[specta::specta]
-pub async fn recover<R: Runtime>(
-    webview: Webview<R>,
-    scope: String,
-    under: String,
-) -> Result<Vec<String>> {
-    let root = granted_root(&webview, &scope)?;
+pub async fn recover<R: Runtime>(webview: Webview<R>, under: String) -> Result<Vec<String>> {
+    let root = bound_root(&webview)?;
     let held = webview.state::<Recorders<R>>().lock().held_path();
     tauri::async_runtime::spawn_blocking(move || {
         crate::wav::recover(&root, &under, held.as_deref()).map_err(RecorderError::refused)

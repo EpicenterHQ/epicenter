@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-remembered-folder"
+description = "Enables the open_remembered_folder command without any pre-configured scope."
+commands.allow = ["open_remembered_folder"]
+
+[[permission]]
+identifier = "deny-open-remembered-folder"
+description = "Denies the open_remembered_folder command without any pre-configured scope."
+commands.deny = ["open_remembered_folder"]

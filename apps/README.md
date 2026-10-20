@@ -20,10 +20,11 @@ await folder.close();
 
 `openFolder({ tables })` opens this browser origin's stable default in
 IndexedDB. It requires no account, network connection, Git repository, or
-schema file. A native opener receives `{ directory, tables }`: Bun receives an
-existing path, while an Epicenter WebView receives a directory scope that the
-shell registered and granted to that window. Native files use directory
-writes, with the same row parsing and merge rules as the browser.
+schema file. In a desktop window the same call opens the one directory the
+shell bound to that window before it existed; the page names no path, scope,
+or window. Bun receives `{ directory, tables }` with an existing path. Native
+files use directory writes, with the same row parsing and merge rules as the
+browser.
 
 The previous browser opener stored named folders in OPFS. The new browser
 opener checks for that data and refuses to show an empty IndexedDB folder in
@@ -49,10 +50,11 @@ drafts and file actions with the context so close waits for them too.
 <FolderApp title="Todos" tables={todosTables}><TodosView /></FolderApp>
 ```
 
-An Epicenter WebView's root obtains its handed directory scope before
-opening. Neither a browser page nor an app chooses a native path from its
-URL. A refused open shows the refusal; the app does not open different
-storage as a fallback.
+Each build's exact alias of `@epicenter/folder` gives the root one engine. A
+desktop window's root opens the directory its shell bound to the window; to
+edit another folder, the shell opens another window. Neither a browser page
+nor an app chooses a native path, and no URL carries one. A refused open
+shows the refusal; the app does not open different storage as a fallback.
 
 Folder methods return the current source with every row. A view keeps the
 source it edited as its save base, listens to `onChange` for affected paths,
@@ -64,4 +66,4 @@ The root `bun dev:<app>` scripts start each app's required development
 processes. See each app's README for its route and test commands. Todos is the
 first demonstration of the new browser contract; Capture, Honeycrisp, Vocab,
 and Whispering also use the Folder handle. Epicenter owns the Tauri shell and
-its folder grants.
+binds each window's folder; standalone Todos binds its own.

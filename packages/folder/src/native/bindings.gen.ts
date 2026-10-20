@@ -5,45 +5,36 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
-	 *  Which app this window runs and the folder the shell handed it
-	 *  (`Folders::hand`), or `None` for a window that runs no app. An app's
-	 *  page opens this folder, never one its own URL names.
+	 *  Open this window's folder: the directory the shell bound to it before
+	 *  the window existed. Refused for a window with none, and for a bound
+	 *  directory that is gone, which is never made again for the window. From
+	 *  the first open of a root it is watched while a window is bound to it, and
+	 *  every window bound to it hears `epicenter-folder://changed`. An open
+	 *  whose window closes while it runs starts no watch. Every open also
+	 *  removes the staged files a stopped save left an hour or more ago
+	 *  (`storage::sweep_scratch`).
 	 */
-	windowFolder: () => __TAURI_INVOKE<{
-	/**  The app's id, such as `so.epicenter.todos`. */
-	app: string,
-	/**  The scope of the folder the window opens. */
-	folder: string,
-} | null>("plugin:epicenter-folder|window_folder"),
+	openFolder: () => typedError<null, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder")),
 	/**
-	 *  Give this window the directory of a scope the shell registered for it.
-	 *  The window reads and changes it through this plugin's commands alone;
-	 *  nothing else on disk becomes reachable. From the first grant the folder
-	 *  is watched, and the scope's windows hear `epicenter-folder://changed`.
-	 *  Every grant also removes the staged files a stopped save left an hour or
-	 *  more ago (`storage::sweep_scratch`).
+	 *  Every entry below the window's root, `.git` aside, none of them followed
+	 *  (`storage::list`).
 	 */
-	grantDirectory: (scope: string) => typedError<Granted, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|grant_directory", { scope })),
+	listFolder: () => typedError<FileListing, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder")),
 	/**
-	 *  Every entry below a granted folder's root, `.git` aside, none of them
-	 *  followed (`storage::list`).
+	 *  The immediate children of a directory in the window's folder, the root
+	 *  for `""` (`storage::children`).
 	 */
-	listFolder: (scope: string) => typedError<FileListing, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { scope })),
+	readFolderChildren: (directory: string) => typedError<Children, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|read_folder_children", { directory })),
 	/**
-	 *  The immediate children of a directory in a granted folder, the root for
-	 *  `""` (`storage::children`).
-	 */
-	readFolderChildren: (scope: string, directory: string) => typedError<Children, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|read_folder_children", { scope, directory })),
-	/**
-	 *  Make a directory and its missing ancestors in a granted folder
+	 *  Make a directory and its missing ancestors in the window's folder
 	 *  (`storage::mkdir`).
 	 */
-	makeFolderDirectory: (scope: string, path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { scope, path })),
+	makeFolderDirectory: (path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { path })),
 	/**
-	 *  Remove an empty directory in a granted folder (`storage::rmdir`), under
-	 *  the same publishing and save locks as a put.
+	 *  Remove an empty directory in the window's folder (`storage::rmdir`),
+	 *  under the same save lock as a put.
 	 */
-	removeFolderDirectory: (scope: string, path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { scope, path })),
+	removeFolderDirectory: (path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { path })),
 };
 
 /* Constants */
@@ -69,40 +60,16 @@ export type FileListing = {
 	directories: string[],
 };
 
-/**  What may have changed in a granted folder. */
+/**
+ *  What may have changed in the window's folder. A window has one folder,
+ *  so the event names none.
+ */
 export type FolderChanged = {
-	/**  The scope whose folder changed. */
-	scope: string,
 	/**
 	 *  The changed paths, relative to the root with `/` and sorted, or
 	 *  `null` when anything may have changed.
 	 */
 	paths: string[] | null,
-};
-
-/**
- *  Why a window was not given a folder, or a change for it was not
- *  admitted.
- */
-export type GrantError =
-/**  The shell registered no folder under this scope. */
-{ name: "UnknownScope"; scope: string } |
-/**  The scope exists, but is not registered for this window. */
-{ name: "WindowNotPermitted"; scope: string; window: string } |
-/**
- *  The registered directory is missing. The shell creates a fixed
- *  application folder when its original parent is still in place.
- */
-{ name: "Missing"; root: string } |
-/**  The folder could not be prepared or reached. */
-{ name: "Unavailable"; message: string } |
-/**  The shell is shutting its folders down. */
-{ name: "ShuttingDown" };
-
-/**  What a scope's window is given: where its folder is. */
-export type Granted = {
-	/**  The canonical root, as an absolute path. */
-	root: string,
 };
 
 /**  One file in a listing. */
@@ -150,17 +117,16 @@ export type StorageError =
  */
 { name: "Io"; path: string; operation: string; message: string };
 
-/**
- *  Which app a window runs, and the folder the shell handed it: what
- *  `window_folder` answers that window. The app's own folder is the scope
- *  named by its id; any other is a folder the person chose "Open in" on.
- */
-export type WindowFolder = {
-	/**  The app's id, such as `so.epicenter.todos`. */
-	app: string,
-	/**  The scope of the folder the window opens. */
-	folder: string,
-};
+/**  Why the calling window's folder could not be used: what the page is told. */
+export type WindowError =
+/**  The shell bound no folder to this window. */
+{ name: "NotBound" } |
+/**  The bound directory is gone; it is never created again for the window. */
+{ name: "Missing" } |
+/**  The bound directory could not be reached. */
+{ name: "Unavailable"; message: string } |
+/**  The shell is shutting its folders down. */
+{ name: "ShuttingDown" };
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {

@@ -27,7 +27,7 @@ import { build, type Rollup } from 'vite';
 const APP = join(import.meta.dir, 'app');
 
 /** Text only the desktop engine contains: the plugin's command names. */
-const DESKTOP = 'plugin:epicenter-folder|grant_directory';
+const DESKTOP = 'plugin:epicenter-folder|open_folder';
 /** Text only the desktop engine's reads contain: the file read by name. */
 const READS = 'plugin:epicenter-folder|read_folder_file';
 /** Text only the browser engine contains: its storage failure. */

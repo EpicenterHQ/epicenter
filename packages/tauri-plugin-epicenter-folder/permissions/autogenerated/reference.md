@@ -1,11 +1,10 @@
 ## Default Permission
 
-Ask which app this window runs and the folder the shell handed it, ask for the folder the shell registered for this window, then read and change its files through the shell.
+Open the folder the shell bound to this window, then read and change its files through the shell.
 
 #### This default permission set includes the following:
 
-- `allow-window-folder`
-- `allow-grant-directory`
+- `allow-open-folder`
 - `allow-list-folder`
 - `allow-read-folder-children`
 - `allow-read-folder-file`
@@ -21,32 +20,6 @@ Ask which app this window runs and the folder the shell handed it, ask for the f
 <th>Description</th>
 </tr>
 
-
-<tr>
-<td>
-
-`epicenter-folder:allow-grant-directory`
-
-</td>
-<td>
-
-Enables the grant_directory command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-grant-directory`
-
-</td>
-<td>
-
-Denies the grant_directory command without any pre-configured scope.
-
-</td>
-</tr>
 
 <tr>
 <td>
@@ -96,6 +69,32 @@ Enables the make_folder_directory command without any pre-configured scope.
 <td>
 
 Denies the make_folder_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:allow-open-folder`
+
+</td>
+<td>
+
+Enables the open_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-open-folder`
+
+</td>
+<td>
+
+Denies the open_folder command without any pre-configured scope.
 
 </td>
 </tr>
@@ -200,32 +199,6 @@ Enables the remove_folder_directory command without any pre-configured scope.
 <td>
 
 Denies the remove_folder_directory command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-window-folder`
-
-</td>
-<td>
-
-Enables the window_folder command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-window-folder`
-
-</td>
-<td>
-
-Denies the window_folder command without any pre-configured scope.
 
 </td>
 </tr>

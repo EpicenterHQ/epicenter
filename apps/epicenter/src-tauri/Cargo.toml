@@ -47,6 +47,8 @@ tauri = { version = "2.12", features = ["test"] }
 glob = "0.3"
 
 [dependencies]
+dunce = "1"
+tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
 # The folder save lock, which also takes turns on `folders.json` with any
 # other writer of it (`remembered_folders.rs`).

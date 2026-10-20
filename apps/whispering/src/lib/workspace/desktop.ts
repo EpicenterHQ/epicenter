@@ -1,17 +1,15 @@
 /**
- * The desktop workspace: Whispering in Epicenter (ADR-0493), over an ordinary
- * directory Epicenter's shell grants this window.
+ * The desktop workspace: Whispering in Epicenter (ADR-0493), over the
+ * ordinary directory Epicenter's shell bound to this window.
  *
- * Epicenter assigns this window one folder before the window exists: the
- * Whispering default under the Epicenter folder, or a folder chosen through
- * "Open with" in the Folders window. The page asks which scope it was handed
- * (`window_folder`) and opens exactly that scope with Whispering's tables
- * (`openFolder({ directory, tables })`); the recorder writes under the same
- * scope. The page supplies no path: the shell grants the window the
- * directory, checks every path, and lands each save. Files a person or
- * another program left in the directory are read as they are, and opening
- * writes nothing. The installed copy of Whispering, while it remains, is
- * handed a folder the same way.
+ * Epicenter binds this window one folder before the window exists: the
+ * Whispering default under the Epicenter folder, a folder the Folders window
+ * listed, or one the person chose in the native picker. The page opens it
+ * with Whispering's tables (`openFolder({ tables })`), and the recorder
+ * writes into the same folder. The page names no path, scope, or window:
+ * the shell checks every path and lands each save in the window's directory.
+ * Files a person or another program left in the directory are read as they
+ * are, and opening writes nothing.
  *
  * Everything else native is Epicenter's, granted to Whispering's windows
  * (`whispering.json` in Epicenter's capabilities):
@@ -20,9 +18,11 @@
  *   reads one's level, and writes a recording into the granted directory as
  *   it captures, and the page opens no microphone of its own (ADR-0543,
  *   ADR-0571, `desktop-microphone.ts`);
- * - the two connections, rows of Epicenter's own folder `so.epicenter`, whose
- *   endpoints and keys stay in this computer's keychain; requests go through
- *   the `epicenter` CLI, which adds the key (`desktop-connections.ts`);
+ * - the two connections, rows of Epicenter's own folder `so.epicenter`, which
+ *   Epicenter reads and saves by operation, so this window opens no second
+ *   folder; their endpoints and keys stay in this computer's keychain, and
+ *   requests go through the `epicenter` CLI, which adds the key
+ *   (`desktop-connections.ts`);
  * - transcription with Epicenter's active local model
  *   (`local-transcription.ts`).
  *
@@ -34,16 +34,15 @@
  * unknown, never as "not sent", and nothing is sent again on its own.
  */
 
-import { type Folder, OpenFolderError } from '@epicenter/folder';
+import type { Folder, OpenFolderError } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/tauri';
 import { recoverRecordings } from '@epicenter/recorder/tauri';
-import { invoke } from '@tauri-apps/api/core';
-import type { TSchema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
 import {
 	AUDIO,
 	DEFAULT_TRANSCRIPTION_CONNECTION,
+	type WhisperingTables,
 	whisperingTables,
 } from '../definition.js';
 import { readBytes } from '../files.js';
@@ -58,10 +57,7 @@ import {
 	transformOverConnection,
 } from '../transformation.js';
 import {
-	CONNECTIONS_FOLDER_ID,
 	type ConnectionCommands,
-	type ConnectionsFolder,
-	connectionsTables,
 	createDesktopConnections,
 	type DesktopConnections,
 } from './desktop-connections.js';
@@ -76,63 +72,40 @@ import { type OpenWorkspace, type Workspace, WorkspaceError } from './types.js';
 type Route = Awaited<ReturnType<DesktopConnections['route']>>;
 
 /**
- * Opens the directory the shell registered as `directory`, with `tables`:
- * `@epicenter/folder/tauri`'s opener. Injected for tests.
+ * Opens this window's folder with Whispering's tables:
+ * `@epicenter/folder/tauri`'s `openFolder({ tables })`. Injected for tests.
  */
-export type OpenDirectory = <
-	const TTables extends Record<string, TSchema>,
->(options: {
-	readonly directory: string;
-	readonly tables: TTables;
-}) => Promise<Result<Folder<TTables>, OpenFolderError>>;
+export type OpenWindowFolder = () => Promise<
+	Result<Folder<WhisperingTables>, OpenFolderError>
+>;
 
-/**
- * The desktop opener over a directory the shell registered (ADR-0636):
- * `@epicenter/folder/tauri`'s `openFolder({ directory, tables })`.
- */
-const openRegistered: OpenDirectory = ({ directory, tables }) =>
-	openFolder({ directory, tables });
+const openWindowFolder: OpenWindowFolder = () =>
+	openFolder({ tables: whisperingTables });
 
 export async function openDesktopWorkspace({
-	openDirectory = openRegistered,
-	directory,
+	openFolder: open = openWindowFolder,
 	commands: native = commands,
 	connectionCommands = commands,
-	openConnectionsFolder = () =>
-		openDirectory({
-			directory: CONNECTIONS_FOLDER_ID,
-			tables: connectionsTables,
-		}),
 }: {
-	/** How a registered directory is opened; injected for tests. */
-	openDirectory?: OpenDirectory;
-	/** The registered directory Whispering opens: the scope handed to its window. */
-	directory: string;
+	/** How this window's folder is opened; injected for tests. */
+	openFolder?: OpenWindowFolder;
 	commands?: LocalTranscriptionCommands;
-	/** The AI connection commands; injected for tests. */
+	/** The AI connection commands and connection rows; injected for tests. */
 	connectionCommands?: ConnectionCommands;
-	/** Open `so.epicenter` with its `connections` table; injected for tests. */
-	openConnectionsFolder?: () => Promise<
-		Result<ConnectionsFolder, { readonly message: string }>
-	>;
-}): Promise<Result<Workspace, WorkspaceError>> {
-	const opened = await openDirectory({ directory, tables: whisperingTables });
+} = {}): Promise<Result<Workspace, WorkspaceError>> {
+	const opened = await open();
 	if (opened.error !== null)
 		return WorkspaceError.DesktopFolder({ refusal: opened.error });
 	const folder = opened.data;
 	// Repair the recordings a quit or a crash cut off, before anything reads
 	// them. A failure keeps the folder open and is shown beside the recorder.
-	const { error: recoverError } = await recoverRecordings({
-		folder: { id: directory, write: folder.files.write },
-		under: AUDIO,
-	});
+	const { error: recoverError } = await recoverRecordings({ under: AUDIO });
 	const captureNotice =
 		recoverError === null
 			? undefined
 			: `Recordings a quit cut off could not be checked: ${recoverError.message}`;
 	const connections = createDesktopConnections({
 		commands: connectionCommands,
-		openConnections: openConnectionsFolder,
 	});
 
 	const readAudioBytes = (path: string) => readBytes(folder, path);
@@ -152,7 +125,6 @@ export async function openDesktopWorkspace({
 	return Ok({
 		kind: 'native',
 		folder,
-		folderId: directory,
 		location: 'The folder opened in Epicenter',
 		capture: createDesktopMicrophone(),
 		captureNotice,
@@ -207,29 +179,13 @@ export async function openDesktopWorkspace({
 		},
 		preferences: localPreferences,
 		// Closing waits for the saves already under way.
-		close: async () => {
-			await Promise.all([folder.close(), connections.close()]);
-		},
+		close: () => folder.close(),
 	});
 }
 
 /**
  * The `#platform/workspace` leaf of the build Epicenter serves: open the
- * folder the shell handed this window, whichever app name it was handed
- * under. A window handed none is refused, and nothing else is opened.
+ * folder the shell bound to this window. A window bound to none is refused,
+ * and nothing else is opened.
  */
-export const openWorkspace: OpenWorkspace = async () => {
-	let handed: { app: string; folder: string } | null;
-	try {
-		handed = await invoke('plugin:epicenter-folder|window_folder');
-	} catch (cause) {
-		return WorkspaceError.DesktopFolder({
-			refusal: OpenFolderError.Unavailable({ cause }).error,
-		});
-	}
-	if (handed === null)
-		return WorkspaceError.DesktopFolder({
-			refusal: OpenFolderError.NotAssigned().error,
-		});
-	return openDesktopWorkspace({ directory: handed.folder });
-};
+export const openWorkspace: OpenWorkspace = () => openDesktopWorkspace();

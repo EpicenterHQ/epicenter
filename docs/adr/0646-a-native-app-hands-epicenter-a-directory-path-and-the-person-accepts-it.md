@@ -5,6 +5,8 @@
 - **Relates:** [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) (remembered paths and the handoff rule this builds), [ADR-0644](0644-the-shell-assigns-a-native-windows-default-folder.md) (a shell's folder assignment), [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) (composition through paths), and [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) (the Folders window).
 - **Unbuilt:** the `epicenter folders` and `epicenter open` CLI commands, Open in Epicenter in any standalone app but Todos, and verification of the operating system's delivery on a packaged build.
 
+- **Amended by:** [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md): the sender reads its window binding; acceptance opens a separate bound editor. The launcher holds no folder, scope map, or switching state. Remembered entries are path shortcuts checked again on reopen, and forgetting leaves editors open. The scope and folder-switch mechanics below describe the original decision.
+
 ## Context
 
 Standalone Todos (`apps/todos/src-tauri`) registers its whole app-data

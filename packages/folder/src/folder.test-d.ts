@@ -1,8 +1,9 @@
 /**
- * Every entry opens the one `Folder`: the browser entry with `{ tables }`,
- * the desktop entry with either form, the Bun entry with `{ directory, tables }`, and the automatic
- * entry with either. Rows are typed by the caller's TypeBox schemas, and the
- * removed declaration-dependent shapes do not type-check.
+ * Every entry opens the one `Folder`: the browser, desktop, and automatic
+ * entries with `{ tables }`, each the runtime's own folder, and the Bun entry
+ * with `{ directory, tables }`, a path. No page names a desktop directory.
+ * Rows are typed by the caller's TypeBox schemas, and the removed
+ * declaration-dependent shapes do not type-check.
  */
 import { expectTypeOf } from 'bun:test';
 import { Type } from 'typebox';
@@ -33,20 +34,21 @@ type Opened = Promise<Result<Folder<Tables>, OpenFolderError>>;
 expectTypeOf(browser.openFolder({ tables: { notes } })).toEqualTypeOf<Opened>();
 expectTypeOf(tauri.openFolder({ tables: { notes } })).toEqualTypeOf<Opened>();
 expectTypeOf(
-	tauri.openFolder({ directory: 'data:Notes', tables: { notes } }),
-).toEqualTypeOf<Opened>();
-expectTypeOf(
 	bun.openFolder({ directory: '/tmp/notes', tables: { notes } }),
 ).toEqualTypeOf<Opened>();
 expectTypeOf(root.openFolder({ tables: { notes } })).toEqualTypeOf<Opened>();
-expectTypeOf(
-	root.openFolder({ directory: 'data:Notes', tables: { notes } }),
-).toEqualTypeOf<Opened>();
 expectTypeOf(root.openFolder).toEqualTypeOf(tauri.openFolder);
+expectTypeOf(tauri.openFolder<{ notes: typeof notes }>)
+	.parameter(0)
+	.toEqualTypeOf<contract.DefaultFolderOptions<{ notes: typeof notes }>>();
 
-// A browser has no directory to open, and Bun needs one.
+// Neither a browser nor a desktop page names a directory, and Bun needs one.
 // @ts-expect-error The browser entry opens this origin's default folder.
 browser.openFolder({ directory: '/tmp/notes', tables: { notes } });
+// @ts-expect-error The desktop entry opens the folder bound to this window.
+tauri.openFolder({ directory: 'data:Notes', tables: { notes } });
+// @ts-expect-error The automatic entry takes no directory either.
+root.openFolder({ directory: '/tmp/notes', tables: { notes } });
 // @ts-expect-error The Bun entry opens a directory by its path.
 bun.openFolder({ tables: { notes } });
 

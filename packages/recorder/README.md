@@ -25,10 +25,9 @@ contract.
 ```ts
 import { recoverRecordings, startRecording } from '@epicenter/recorder/browser'; // or /tauri
 
-const folder = { id: 'so.epicenter.whispering', write: opened.write };
-await recoverRecordings({ folder, under: 'recordings' });
+await recoverRecordings({ under: 'recordings' });
 const { data: recording, error } = await startRecording({
-	folder,
+	folder: { write: opened.files.write },
 	path: 'recordings/2026-10-15-0930',
 	input: { deviceId, label }, // optional; undefined is the system default
 });
@@ -36,9 +35,9 @@ const unsubscribe = recording.onLevel((level) => meter.set(level));
 const { data: stopped } = await recording.stop(); // { path, durationMs }, or recording.cancel()
 ```
 
-`folder` is the folder's ID, which names the scope the desktop shell granted
-the window, and its `write`, through which a browser writes. A handle from
-`@epicenter/folder` supplies both.
+`folder` is the `write` a browser writes the recording through; a handle
+from `@epicenter/folder` supplies it. On the desktop the shell records into
+the folder it bound to the recording window, and no call names a folder.
 
 | | Desktop | Browser |
 | --- | --- | --- |

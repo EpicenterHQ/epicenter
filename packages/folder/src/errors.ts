@@ -159,11 +159,6 @@ export const WriteError = {
  * for a refusal, and none opens another storage instead.
  */
 export const OpenFolderError = defineErrors({
-	/** A desktop folder's registered ID is empty. */
-	InvalidId: ({ id }: { id: string }) => ({
-		message: `'${id}' cannot name a folder`,
-		id,
-	}),
 	/** A desktop folder was asked for outside the desktop shell. */
 	NotTauri: () => ({
 		message:
@@ -180,29 +175,14 @@ export const OpenFolderError = defineErrors({
 		root,
 		cause,
 	}),
-	UnknownScope: ({ scope }: { scope: string }) => ({
-		message: `The desktop app has no folder registered as '${scope}'`,
-		scope,
-	}),
-	WindowNotPermitted: ({
-		scope,
-		window,
-	}: {
-		scope: string;
-		window: string;
-	}) => ({
-		message: `The window '${window}' may not use the folder '${scope}'`,
-		scope,
-		window,
-	}),
 	/**
-	 * A registered folder's directory is not there, perhaps moved or removed
-	 * since it was chosen. A fixed application default may be created on its
-	 * first grant; a later grant does not switch to an empty directory.
+	 * The desktop window's folder is not there anymore, perhaps moved or
+	 * removed since the window opened. Opening never makes it again: only
+	 * the shell's launch makes a fixed default.
 	 */
-	Missing: ({ root }: { root: string }) => ({
-		message: `There is no folder at ${root}; it may have been moved or removed.`,
-		root,
+	Missing: () => ({
+		message:
+			"This window's folder is not there anymore; it may have been moved or removed.",
 	}),
 	/**
 	 * `tables` named a table that cannot be one top-level directory: empty,
@@ -212,9 +192,9 @@ export const OpenFolderError = defineErrors({
 		message: `'${table}' cannot name a table: a table is one top-level directory`,
 		table,
 	}),
-	/** The desktop shell assigned no folder to this window. */
-	NotAssigned: () => ({
-		message: 'The desktop shell did not assign this window a folder',
+	/** The desktop shell bound no folder to this window. */
+	NotBound: () => ({
+		message: 'The desktop app did not open this window on a folder',
 	}),
 	/** The folder's storage could not be reached or made ready. */
 	Unavailable: ({ cause }: { cause: unknown }) => ({

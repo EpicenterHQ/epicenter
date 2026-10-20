@@ -2,9 +2,10 @@
  * Which apps the Folders window offers (ADR-0537).
  *
  * Every app Epicenter bundles, Todos, Capture, Honeycrisp, and Whispering, is
- * listed under Apps, where opening it hands it its default folder, and is
- * offered on every data folder as "Open with". Each opens the folder it is
- * handed through the schema it supplies to Folder.
+ * listed under Apps, where it opens on its default folder or on a folder the
+ * person chooses, and is offered on every data folder as "Open with". Each
+ * reads the folder bound to its window through the schema it supplies to
+ * Folder.
  */
 
 import type { BundledApp } from '../ui/bindings.gen';

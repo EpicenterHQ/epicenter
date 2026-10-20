@@ -15,7 +15,7 @@ links = "tauri-plugin-epicenter-recorder"
 tauri-plugin = { version = "2", features = ["build"] }
 
 [dependencies]
-# The folder a recording is written into: the granted root and the shared path rule.
+# The folder a recording is written into: the window's bound root and the shared path rule.
 epicenter-folder-core = { path = "../tauri-plugin-epicenter-folder/core" }
 tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
 cpal = "0.18.1"

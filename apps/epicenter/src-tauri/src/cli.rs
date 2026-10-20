@@ -802,6 +802,183 @@ pub async fn ai_key_state(webview: Webview, connection: String) -> Result<AiKeyS
 }
 
 // ---------------------------------------------------------------------------
+// Whispering's connection rows (ADR-0557): its two rows of `so.epicenter`'s
+// `connections` table, which the CLI reads and saves in the Epicenter folder
+// this shell names in `EPICENTER_FOLDER_DIR`. The page names an operation,
+// never a row, a folder, or a path, and opens no second folder for them.
+// ---------------------------------------------------------------------------
+
+/// Which of Whispering's two connections: a closed set, which the CLI maps
+/// to the row `whispering-transcription` or `whispering-text`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum WhisperingConnection {
+    Transcription,
+    Text,
+}
+
+impl WhisperingConnection {
+    fn arg(self) -> &'static str {
+        match self {
+            Self::Transcription => "transcription",
+            Self::Text => "text",
+        }
+    }
+}
+
+/// What a connection row's `kind` names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConnectionKind {
+    OpenaiCompatible,
+    Epicenter,
+    Local,
+}
+
+/// The only kind a Whispering save assigns; an `epicenter` or `local` row
+/// is Settings' to make.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssignedConnectionKind {
+    OpenaiCompatible,
+}
+
+/// Why a row does not read as a connection, as `@epicenter/folder` reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConnectionRowIssueKind {
+    NotText,
+    Frontmatter,
+    Schema,
+}
+
+/// One step of an issue's path: a field name or an index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(untagged)]
+pub enum IssuePathStep {
+    Field(String),
+    Index(u32),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct ConnectionRowIssue {
+    pub kind: ConnectionRowIssueKind,
+    pub message: String,
+    pub path: Vec<IssuePathStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+}
+
+/// A connection row's three schema fields, when it reads as one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct ConnectionRowFields {
+    pub kind: ConnectionKind,
+    pub title: String,
+    pub model: String,
+}
+
+/// One of Whispering's connection rows as the CLI read or sent it. `text`
+/// is the file's exact source; with `issues`, it is the next save's base.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct ConnectionRow {
+    pub text: String,
+    pub issues: Option<Vec<ConnectionRowIssue>>,
+    /// `null` when the row does not read; any other field stays in `text`.
+    pub fields: Option<ConnectionRowFields>,
+}
+
+/// The row a save starts from, as the page read it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionRowBase {
+    pub text: String,
+    pub issues: Option<Vec<ConnectionRowIssue>>,
+}
+
+/// The fields a Whispering save assigns. One left out keeps its value, and
+/// every field another program added survives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionRowAssignment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<AssignedConnectionKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// What `epicenter whispering-connection read|set` answers.
+#[derive(Deserialize)]
+struct RowAnswer<T> {
+    row: T,
+}
+
+async fn connection_read_with(
+    invocation: &Invocation,
+    connection: WhisperingConnection,
+) -> Result<Option<ConnectionRow>, CliError> {
+    let answer: RowAnswer<Option<ConnectionRow>> = invocation
+        .answer(
+            &["whispering-connection", "read", connection.arg(), "--json"],
+            None,
+        )
+        .await?;
+    Ok(answer.row)
+}
+
+async fn connection_set_with(
+    invocation: &Invocation,
+    connection: WhisperingConnection,
+    base: Option<&ConnectionRowBase>,
+    fields: &ConnectionRowAssignment,
+) -> Result<ConnectionRow, CliError> {
+    let input = serde_json::to_vec(&json!({ "base": base, "fields": fields }))
+        .map_err(|error| failed(error.to_string()))?;
+    let answer: RowAnswer<ConnectionRow> = invocation
+        .answer(
+            &["whispering-connection", "set", connection.arg(), "--json"],
+            Some(input),
+        )
+        .await?;
+    Ok(answer.row)
+}
+
+/// Read one of Whispering's connection rows in `so.epicenter`, through
+/// `epicenter whispering-connection read`; `null` when there is none.
+/// Reading creates nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn whispering_connection_read(
+    webview: Webview,
+    connection: WhisperingConnection,
+) -> Result<Option<ConnectionRow>, CliError> {
+    connection_read_with(&window_invocation(&webview)?, connection).await
+}
+
+/// Save `fields` to one of Whispering's connection rows, merged from `base`,
+/// the row as the page read it, or `null` for a new row, through
+/// `epicenter whispering-connection set`, which reads both on stdin. Answers
+/// the row as sent. A refusal changed nothing; a run that failed may or may
+/// not have saved.
+#[tauri::command]
+#[specta::specta]
+pub async fn whispering_connection_set(
+    webview: Webview,
+    connection: WhisperingConnection,
+    base: Option<ConnectionRowBase>,
+    fields: ConnectionRowAssignment,
+) -> Result<ConnectionRow, CliError> {
+    connection_set_with(
+        &window_invocation(&webview)?,
+        connection,
+        base.as_ref(),
+        &fields,
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
 // Account requests (ADR-0549, ADR-0556): a page's call to one of the
 // deployment's resources, which `epicenter send` makes with the app's grant.
 // The page names the resource by role and never holds the token.
@@ -1667,6 +1844,140 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
             events[0]
         );
         let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Through the real CLI over a new Epicenter folder: a missing row reads
+    /// as none and creates nothing; a save makes the row with only the
+    /// assigned fields; a row read through these types and saved from that
+    /// base keeps its byte-order mark, CRLF, comments, and unknown fields; and
+    /// a row whose frontmatter does not parse is refused, its bytes intact.
+    #[tokio::test]
+    async fn whispering_connection_rows_run_the_cli_over_the_shells_folder() {
+        let dir = scratch("connection-rows");
+        let invocation = invocation_in(cli_with_secrets(&dir, json!({})), &dir);
+        let epicenter = paths_in(&dir).folder_dir;
+        let row_file = epicenter.join("so.epicenter/connections/whispering-text.md");
+
+        assert_eq!(
+            connection_read_with(&invocation, WhisperingConnection::Text)
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(!epicenter.exists());
+
+        fs::create_dir_all(&epicenter).unwrap();
+        let assign = |model: &str, title: Option<&str>| ConnectionRowAssignment {
+            kind: Some(AssignedConnectionKind::OpenaiCompatible),
+            title: title.map(str::to_string),
+            model: Some(model.to_string()),
+        };
+        let made = connection_set_with(
+            &invocation,
+            WhisperingConnection::Text,
+            None,
+            &assign("chat", Some("Whispering text")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            made,
+            ConnectionRow {
+                text: "---\nkind: openai-compatible\nmodel: chat\ntitle: Whispering text\n---\n"
+                    .into(),
+                issues: None,
+                fields: Some(ConnectionRowFields {
+                    kind: ConnectionKind::OpenaiCompatible,
+                    title: "Whispering text".into(),
+                    model: "chat".into(),
+                }),
+            }
+        );
+        assert_eq!(fs::read_to_string(&row_file).unwrap(), made.text);
+
+        let source = "\u{feff}---\r\n# from Settings\r\nkind: openai-compatible\r\ntitle: Whispering text\r\nmodel: chat\r\nretries: 3\r\n---\r\nNotes.\r\n";
+        fs::write(&row_file, source).unwrap();
+        let read = connection_read_with(&invocation, WhisperingConnection::Text)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(read.text, source);
+        let base = ConnectionRowBase {
+            text: read.text,
+            issues: read.issues,
+        };
+        let saved = connection_set_with(
+            &invocation,
+            WhisperingConnection::Text,
+            Some(&base),
+            &assign("other", None),
+        )
+        .await
+        .unwrap();
+        let expected = source.replace("model: chat", "model: other");
+        assert_eq!(saved.text, expected);
+        assert_eq!(fs::read_to_string(&row_file).unwrap(), expected);
+
+        let broken = "---\nkind: [open\n---\n";
+        fs::write(&row_file, broken).unwrap();
+        let read = connection_read_with(&invocation, WhisperingConnection::Text)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(read.fields, None);
+        assert_eq!(
+            read.issues.as_ref().unwrap()[0].kind,
+            ConnectionRowIssueKind::Frontmatter
+        );
+        let refused = connection_set_with(
+            &invocation,
+            WhisperingConnection::Text,
+            Some(&ConnectionRowBase {
+                text: read.text,
+                issues: read.issues,
+            }),
+            &assign("other", None),
+        )
+        .await
+        .unwrap_err();
+        let message = match refused {
+            CliError::Refused { message } => message,
+            other => panic!("not a refusal: {other:?}"),
+        };
+        assert!(message.contains("was not changed"), "{message}");
+        assert_eq!(fs::read_to_string(&row_file).unwrap(), broken);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// A page names one of two operations and assigns only the closed
+    /// fields: a row id, another kind, a body, or any other member never
+    /// deserializes, so it never reaches the CLI.
+    #[test]
+    fn a_connection_save_outside_the_closed_contract_does_not_deserialize() {
+        assert_eq!(
+            serde_json::from_value::<WhisperingConnection>(json!("transcription")).unwrap(),
+            WhisperingConnection::Transcription
+        );
+        for refused in [json!("whispering-text"), json!("Text"), json!("../x")] {
+            assert!(serde_json::from_value::<WhisperingConnection>(refused).is_err());
+        }
+        assert!(serde_json::from_value::<ConnectionRowAssignment>(json!({ "model": "m" })).is_ok());
+        for refused in [
+            json!({ "kind": "epicenter" }),
+            json!({ "kind": "local" }),
+            json!({ "body": "text" }),
+            json!({ "endpoint": "https://x.test/v1" }),
+            json!({ "path": "/tmp/x.md" }),
+        ] {
+            assert!(
+                serde_json::from_value::<ConnectionRowAssignment>(refused.clone()).is_err(),
+                "{refused} deserialized"
+            );
+        }
+        assert!(serde_json::from_value::<ConnectionRowBase>(
+            json!({ "text": "", "issues": null, "path": "/tmp/x.md" })
+        )
+        .is_err());
     }
 
     /// Through the real CLI, with a keychain that holds nothing: status names

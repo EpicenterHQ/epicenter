@@ -36,7 +36,7 @@ import { whisperingTables } from '../definition.js';
 import { settle, transformationEditor } from '../edits.test-support.js';
 import { createTestLibrary } from '../library.test-support.js';
 import { deferred, openTestWorkspace } from '../workspace.test-support.js';
-import { WHISPERING_FOLDER_ID, type Workspace } from './types.js';
+import type { Workspace } from './types.js';
 
 let shell: GrantedShell;
 mock.module('@tauri-apps/api/core', () => ({
@@ -71,12 +71,7 @@ async function open(files: Record<string, string>, path = PATH) {
 	for (const [path, text] of Object.entries(files))
 		await shell.write(path, text);
 	const stubs = await openTestWorkspace();
-	const folder = expectOk(
-		await openTauriFolder({
-			directory: WHISPERING_FOLDER_ID,
-			tables: whisperingTables,
-		}),
-	);
+	const folder = expectOk(await openTauriFolder({ tables: whisperingTables }));
 	const workspace: Workspace = {
 		...stubs.workspace,
 		folder,

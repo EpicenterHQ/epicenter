@@ -1,12 +1,14 @@
 //! The desktop's one detector of changes made outside the page (ADR-0548):
-//! a watcher on each granted root that tells the scope's windows which
+//! a watcher on each opened root that tells the windows bound to it which
 //! paths may have changed.
 //!
-//! A root is watched from its first grant until `Folders::shutdown`, with
-//! the operating system's recommended watcher (FSEvents on macOS), and its
-//! events are debounced for `DEBOUNCE`. Each batch becomes one
+//! A root is watched from the first `open_folder` of a window bound to it
+//! until the last window bound to it is destroyed, or `Folders::shutdown`,
+//! with the operating system's recommended watcher (FSEvents on macOS), and
+//! its events are debounced for `DEBOUNCE`. Each batch becomes one
 //! `epicenter-folder://changed` event, `FolderChanged`, sent to every window
-//! permitted into the scope and to no other:
+//! bound to the root when the batch is reported. Pages use window-scoped
+//! listeners; Tauri's global listeners can also hear these events:
 //!
 //! - a path outside `.git` is reported as itself, relative to the root with
 //!   `/`, once per batch;
@@ -29,24 +31,24 @@
 //! files are the record. The page's own writes are seen too; at most that
 //! rereads a file whose content did not change.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Component, Path};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::time::{Duration, SystemTime};
+use std::sync::Arc;
+use std::time::Duration;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, NoCache};
 use serde::Serialize;
 use specta::Type;
 
-/// The Tauri event a window listens to, emitted to each permitted window.
+/// The Tauri event a window listens to, emitted to each window bound to the
+/// root.
 pub const FOLDER_CHANGED_EVENT: &str = "epicenter-folder://changed";
 
-/// What may have changed in a granted folder.
+/// What may have changed in the window's folder. A window has one folder,
+/// so the event names none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 pub struct FolderChanged {
-    /// The scope whose folder changed.
-    pub scope: String,
     /// The changed paths, relative to the root with `/` and sorted, or
     /// `null` when anything may have changed.
     pub paths: Option<Vec<String>>,
@@ -55,14 +57,7 @@ pub struct FolderChanged {
 /// How long the watcher waits for a burst of events to settle.
 const DEBOUNCE: Duration = Duration::from_millis(50);
 
-/// How often the clock is read to notice that the computer slept.
-const CLOCK_TICK: Duration = Duration::from_secs(5);
-
-/// How far past `CLOCK_TICK` the wall clock must move between two readings
-/// to count as a sleep.
-const SLEEP_GAP: Duration = Duration::from_secs(30);
-
-/// Delivers one batch for a scope: `Some(paths)`, or `None` for everything.
+/// Delivers one batch for a root: `Some(paths)`, or `None` for everything.
 pub(crate) type Report = Arc<dyn Fn(Option<Vec<String>>) + Send + Sync>;
 
 /// What one batch of events reports.
@@ -133,84 +128,15 @@ fn batch<'a>(root: &Path, events: impl IntoIterator<Item = &'a notify::Event>) -
     }
 }
 
-/// One watcher per granted scope, and the clock that notices a sleep.
-#[derive(Default)]
-pub(crate) struct Watchers {
-    shared: Arc<Shared>,
-}
-
-#[derive(Default)]
-struct Shared {
-    state: Mutex<State>,
-    /// Wakes the clock when the watchers stop.
-    stopping: Condvar,
-}
-
-#[derive(Default)]
-struct State {
-    watching: BTreeMap<String, Watching>,
-    stopped: bool,
-    clock_started: bool,
-}
-
-struct Watching {
-    /// Dropping it stops the watch.
+/// One root's native watcher and the callback the wake clock also uses.
+pub(crate) struct Watch {
     _debouncer: Debouncer<RecommendedWatcher, NoCache>,
-    report: Report,
-}
-
-impl Shared {
-    fn state(&self) -> MutexGuard<'_, State> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-}
-
-impl Watchers {
-    /// Watch `root`, the canonical root `scope` was granted, unless it is
-    /// watched already or the watchers have stopped. Once watching begins,
-    /// `report` hears everything once, then each batch.
-    pub(crate) fn watch(&self, scope: &str, root: &Path, report: Report) -> Result<(), String> {
-        let mut state = self.shared.state();
-        if state.stopped || state.watching.contains_key(scope) {
-            return Ok(());
-        }
-        let debouncer = start(root, Arc::clone(&report))?;
-        state.watching.insert(
-            scope.to_string(),
-            Watching {
-                _debouncer: debouncer,
-                report: Arc::clone(&report),
-            },
-        );
-        if !state.clock_started {
-            state.clock_started = true;
-            let shared = Arc::clone(&self.shared);
-            // Without the clock a sleep goes unreported; the watch still works.
-            let _ = std::thread::Builder::new()
-                .name("epicenter-folder-clock".to_string())
-                .spawn(move || keep_time(&shared));
-        }
-        drop(state);
-        report(None);
-        Ok(())
-    }
-
-    /// Stop every watch and the clock. Nothing is watched afterward.
-    pub(crate) fn shutdown(&self) {
-        let watching = {
-            let mut state = self.shared.state();
-            state.stopped = true;
-            std::mem::take(&mut state.watching)
-        };
-        self.shared.stopping.notify_all();
-        drop(watching);
-    }
+    pub(crate) report: Report,
 }
 
 /// Watch `root` and everything beneath it, without following links.
-fn start(root: &Path, report: Report) -> Result<Debouncer<RecommendedWatcher, NoCache>, String> {
+pub(crate) fn start(root: &Path, report: Report) -> Result<Watch, String> {
+    let handler = Arc::clone(&report);
     let watched = root.to_path_buf();
     let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher, NoCache>(
         DEBOUNCE,
@@ -223,8 +149,8 @@ fn start(root: &Path, report: Report) -> Result<Debouncer<RecommendedWatcher, No
             };
             match found {
                 Batch::Nothing => {}
-                Batch::Paths(paths) => report(Some(paths)),
-                Batch::Everything => report(None),
+                Batch::Paths(paths) => handler(Some(paths)),
+                Batch::Everything => handler(None),
             }
         },
         NoCache,
@@ -234,54 +160,10 @@ fn start(root: &Path, report: Report) -> Result<Debouncer<RecommendedWatcher, No
     debouncer
         .watch(root, RecursiveMode::Recursive)
         .map_err(|cause| format!("'{}' could not be watched: {cause}", root.display()))?;
-    Ok(debouncer)
-}
-
-/// Read the wall clock every `CLOCK_TICK` until the watchers stop, and
-/// report everything for every watched scope when it jumped: the computer
-/// slept between two readings, and a watcher may have missed what changed
-/// meanwhile, on a network volume or while its event stream was suspended.
-/// A wall clock set by hand reads the same, and costs one reread.
-fn keep_time(shared: &Shared) {
-    let mut last = SystemTime::now();
-    let mut state = shared.state();
-    loop {
-        if state.stopped {
-            return;
-        }
-        state = shared
-            .stopping
-            .wait_timeout(state, CLOCK_TICK)
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .0;
-        if state.stopped {
-            return;
-        }
-        let now = SystemTime::now();
-        let slept = woke(last, now);
-        last = now;
-        if slept {
-            let reports: Vec<Report> = state
-                .watching
-                .values()
-                .map(|watching| Arc::clone(&watching.report))
-                .collect();
-            drop(state);
-            for report in reports {
-                report(None);
-            }
-            state = shared.state();
-        }
-    }
-}
-
-/// Whether the wall clock moved from `last` to `now` by far more than the
-/// clock's tick, or backward.
-fn woke(last: SystemTime, now: SystemTime) -> bool {
-    match now.duration_since(last) {
-        Ok(elapsed) => elapsed > CLOCK_TICK + SLEEP_GAP,
-        Err(_) => true,
-    }
+    Ok(Watch {
+        _debouncer: debouncer,
+        report,
+    })
 }
 
 #[cfg(test)]
@@ -298,9 +180,9 @@ mod tests {
     }
 
     fn event(kind: EventKind, paths: &[&str]) -> Event {
-        paths
-            .iter()
-            .fold(Event::new(kind), |event, path| event.add_path(root().join(path)))
+        paths.iter().fold(Event::new(kind), |event, path| {
+            event.add_path(root().join(path))
+        })
     }
 
     fn paths(found: &[&str]) -> Batch {
@@ -317,11 +199,20 @@ mod tests {
                 EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
                 &["todos/c.md", "todos/d.md"],
             ),
-            event(EventKind::Remove(RemoveKind::File), &[".obsidian/workspace.json"]),
+            event(
+                EventKind::Remove(RemoveKind::File),
+                &[".obsidian/workspace.json"],
+            ),
         ];
         assert_eq!(
             batch(&root(), &events),
-            paths(&[".obsidian/workspace.json", "todos/a.md", "todos/b.md", "todos/c.md", "todos/d.md"])
+            paths(&[
+                ".obsidian/workspace.json",
+                "todos/a.md",
+                "todos/b.md",
+                "todos/c.md",
+                "todos/d.md"
+            ])
         );
     }
 
@@ -362,7 +253,8 @@ mod tests {
         {
             use std::os::unix::ffi::OsStrExt;
             let name = std::ffi::OsStr::from_bytes(b"caf\xe9.md");
-            let events = [Event::new(EventKind::Create(CreateKind::File)).add_path(root().join(name))];
+            let events =
+                [Event::new(EventKind::Create(CreateKind::File)).add_path(root().join(name))];
             assert_eq!(batch(&root(), &events), Batch::Everything);
         }
     }
@@ -371,8 +263,10 @@ mod tests {
     fn reads_and_paths_outside_the_root_report_nothing() {
         let events = [
             event(EventKind::Access(AccessKind::Any), &["todos/a.md"]),
-            Event::new(EventKind::Modify(ModifyKind::Any)).add_path(PathBuf::from("/folders/other/a.md")),
-            Event::new(EventKind::Modify(ModifyKind::Any)).add_path(PathBuf::from("/folders/notes2/a.md")),
+            Event::new(EventKind::Modify(ModifyKind::Any))
+                .add_path(PathBuf::from("/folders/other/a.md")),
+            Event::new(EventKind::Modify(ModifyKind::Any))
+                .add_path(PathBuf::from("/folders/notes2/a.md")),
             Event::new(EventKind::Create(CreateKind::File))
                 .add_path(PathBuf::from("/folders/.notes.epicenter-scratch/staged-1")),
         ];
@@ -383,19 +277,11 @@ mod tests {
     /// root over its path: only the path is reported.
     #[test]
     fn a_save_renamed_in_from_beside_the_root_reports_only_its_path() {
-        let events = [Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
-            .add_path(PathBuf::from("/folders/.notes.epicenter-scratch/staged-1"))
-            .add_path(root().join("todos/a.md"))];
+        let events = [
+            Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+                .add_path(PathBuf::from("/folders/.notes.epicenter-scratch/staged-1"))
+                .add_path(root().join("todos/a.md")),
+        ];
         assert_eq!(batch(&root(), &events), paths(&["todos/a.md"]));
-    }
-
-    #[test]
-    fn only_a_jump_of_the_wall_clock_counts_as_a_sleep() {
-        let last = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
-        assert!(!woke(last, last + CLOCK_TICK));
-        assert!(!woke(last, last + CLOCK_TICK + Duration::from_secs(1)));
-        assert!(woke(last, last + CLOCK_TICK + SLEEP_GAP + Duration::from_secs(1)));
-        assert!(woke(last, last + Duration::from_secs(3_600)));
-        assert!(woke(last, last - Duration::from_secs(60)));
     }
 }

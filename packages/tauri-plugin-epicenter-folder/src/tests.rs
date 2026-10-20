@@ -1,55 +1,63 @@
 //! The plugin through Tauri's real invoke path, on the mock runtime.
 //!
-//! Each test builds an app with the plugin installed, creates windows, and
+//! Each test builds an app with the plugin installed, binds directories to
+//! labels as a shell does before building a window, creates the windows, and
 //! sends `plugin:epicenter-folder|...` requests exactly as a page's `invoke`
 //! would. The folder is a real directory; a test makes its repository with
 //! the real `git`, which the plugin itself never runs (ADR-0559).
 //!
 //! Key behaviors:
 //! - The generated TypeScript bindings match the registered commands.
-//! - A scope is granted only to the windows registered or permitted for it,
-//!   each the same root, and a page never supplies a root.
-//! - Two windows of one scope racing to save one file over the same version
-//!   publish one at a time: exactly one lands, and the other is `stale`.
-//! - Storage reaches the data paths of the granted root and nothing else:
-//!   never `.git`, never another window's root, never through a link.
-//! - A grant adds nothing to the app's access control, so an app that
-//!   already scopes another permission grants and reads as any other does.
-//! - Changes land only after a grant, only under the root, and never in
-//!   Git's private state. A save stages beside the root and makes no
-//!   `.git`; a `.git` file or link opens and saves and is left as it is. A
-//!   grant sweeps staged files a stopped save left, and not an older shell's
-//!   in `.git/epicenter/scratch`.
+//! - Each window reaches the directory bound to its label and no other; a
+//!   page's arguments cannot name another root, and a window with no binding
+//!   is refused before anything is read or created.
+//! - A live label is never bound again; once unbound, as a destroyed window
+//!   is, its page is refused and the label may be bound to another folder.
+//!   A window whose construction failed leaves no binding behind.
+//! - Opening refuses a bound directory that is gone and does not make it
+//!   again.
+//! - Two windows bound to one root racing to save one file over the same
+//!   version publish one at a time: exactly one lands, and the other is
+//!   `stale`.
+//! - Storage reaches the data paths of the bound root and nothing else:
+//!   never `.git`, never another window's root, never through a link. A save
+//!   stages beside the root and makes no `.git`; a `.git` file or link opens
+//!   and saves and is left as it is. Opening sweeps staged files a stopped
+//!   save left, and not an older shell's in `.git/epicenter/scratch`.
 //! - A put takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw. A
 //!   refusal is a `StorageError` naming the page's `FileError`.
-//! - `granted_root` names a granted scope's root to its windows alone, for
-//!   the `epicenter` CLI the shell runs.
-//! - From its first grant a folder is watched: every window permitted into
-//!   its scope hears what changed outside it, as folder-relative paths, a
-//!   and everything when watching begins; Git's private changes and other
-//!   windows hear nothing.
-//! - `window_folder` answers each window the app and folder the shell handed
-//!   it, and `None` to a window it handed nothing; a page cannot set it.
-//! - After shutdown, a late change is refused.
+//! - Binding adds nothing to the app's access control, so an app that
+//!   already scopes another permission opens and reads as any other does.
+//! - From its first open a folder is watched: every window bound to its root
+//!   hears what changed outside it, as folder-relative paths, and everything
+//!   when watching begins; the event names no folder. Git's private changes
+//!   and windows bound elsewhere hear nothing.
+//! - A destroyed window's binding is removed as the plugin handler does. A
+//!   root is watched while a window bound to it is open: closing one
+//!   of two keeps the watch, closing the last stops it, and the next window
+//!   to open the root, even one removed and made again, starts another. An
+//!   open that finishes after its window closed, or whose window's build
+//!   failed, leaves no watch.
+//! - After shutdown, a late change and a late bind are refused.
 //! - A window without the plugin's permission cannot call it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 use tauri::http::{HeaderMap, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody, RuntimeAuthority};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
+use tauri::utils::acl::capability::Capability;
 use tauri::utils::acl::manifest::Manifest;
 use tauri::utils::acl::resolved::Resolved;
-use tauri::utils::acl::capability::Capability;
 use tauri::utils::acl::ExecutionContext;
 use tauri::utils::platform::Target;
 use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
-use crate::{init, FolderConfig, FolderExt, ScopeConfig, WindowFolder, COMMANDS};
+use crate::{init, BindError, Directory, FolderExt, COMMANDS};
 
 const BINDINGS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -102,6 +110,26 @@ struct Fixture {
     _directory: TempDirectory,
 }
 
+impl Fixture {
+    /// Bind the directory before building the window, as the shell does.
+    fn bound_window(&self, label: &str, path: &Path) -> WebviewWindow<MockRuntime> {
+        let folders = self.app.folders();
+        folders
+            .bind(label, Directory::create(path).unwrap())
+            .unwrap();
+        window(&self.app, label)
+    }
+}
+
+/// MockRuntime does not forward Destroyed to plugin event handlers. Apply
+/// the same unbind call as `init`'s handler after destroying the window.
+fn close(window: WebviewWindow<MockRuntime>) {
+    let label = window.label().to_string();
+    window.destroy().unwrap();
+    window.folders().unbind(&label);
+    assert!(window.folders().bound(&label).is_err());
+}
+
 struct TempDirectory(PathBuf);
 
 impl Drop for TempDirectory {
@@ -140,8 +168,8 @@ fn allow_plugin(context: &mut tauri::Context<MockRuntime>) {
     }
 }
 
-/// An app whose windows may call every plugin command, with the scope
-/// `notes` registered for the window `main`.
+/// An app whose windows may call every plugin command, and `notes`, an
+/// empty directory no window is bound to yet.
 fn fixture(label: &str) -> Fixture {
     fixture_in(label, context())
 }
@@ -149,22 +177,24 @@ fn fixture(label: &str) -> Fixture {
 fn fixture_in(label: &str, context: tauri::Context<MockRuntime>) -> Fixture {
     let directory = temp(label);
     let root = directory.0.join("notes");
+    std::fs::create_dir(&root).unwrap();
     let app = mock_builder()
         .plugin(init())
         .build(context)
         .expect("mock app");
-    app.folders()
-        .register(ScopeConfig {
-            scope: "notes".to_string(),
-            folder: FolderConfig::new(&root),
-            windows: vec!["main".to_string()],
-        })
-        .unwrap();
     Fixture {
         app,
         root,
         _directory: directory,
     }
+}
+
+/// The fixture with `main` bound to `notes` and opened.
+fn opened(label: &str) -> (Fixture, WebviewWindow<MockRuntime>) {
+    let fixture = fixture(label);
+    let main = fixture.bound_window("main", &fixture.root);
+    open(&main).unwrap();
+    (fixture, main)
 }
 
 fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
@@ -208,17 +238,17 @@ fn response(
     )
 }
 
+fn open(window: &WebviewWindow<MockRuntime>) -> Result<Value, Value> {
+    invoke(window, "open_folder", json!({}))
+}
+
 /// `read_folder_file` as `tauri-files.ts` asks for it: the bytes, which
 /// arrive raw, or the refusal.
-fn read_file(
-    window: &WebviewWindow<MockRuntime>,
-    scope: &str,
-    path: &str,
-) -> Result<Vec<u8>, Value> {
+fn read_file(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Vec<u8>, Value> {
     match response(
         window,
         "read_folder_file",
-        InvokeBody::Json(json!({ "scope": scope, "path": path })),
+        InvokeBody::Json(json!({ "path": path })),
         Default::default(),
     )? {
         InvokeResponseBody::Raw(bytes) => Ok(bytes),
@@ -226,11 +256,11 @@ fn read_file(
     }
 }
 
-fn children(window: &WebviewWindow<MockRuntime>, scope: &str, directory: &str) -> Result<Value, Value> {
+fn children(window: &WebviewWindow<MockRuntime>, directory: &str) -> Result<Value, Value> {
     invoke(
         window,
         "read_folder_children",
-        json!({ "scope": scope, "directory": directory }),
+        json!({ "directory": directory }),
     )
 }
 
@@ -251,15 +281,7 @@ fn put(
 }
 
 fn put_headers(path: &str, remove: bool, if_match: Option<&str>) -> HeaderMap {
-    let encoded = |value: &str| {
-        HeaderValue::from_str(
-            &percent_encoding::utf8_percent_encode(value, percent_encoding::NON_ALPHANUMERIC)
-                .to_string(),
-        )
-        .unwrap()
-    };
     let mut headers = HeaderMap::new();
-    headers.insert("scope", encoded("notes"));
     headers.insert("path", encoded(path));
     headers.insert("remove", encoded(&remove.to_string()));
     if let Some(if_match) = if_match {
@@ -268,15 +290,19 @@ fn put_headers(path: &str, remove: bool, if_match: Option<&str>) -> HeaderMap {
     headers
 }
 
+fn encoded(value: &str) -> HeaderValue {
+    HeaderValue::from_str(
+        &percent_encoding::utf8_percent_encode(value, percent_encoding::NON_ALPHANUMERIC)
+            .to_string(),
+    )
+    .unwrap()
+}
+
 fn text(value: &Value) -> String {
     value
         .as_str()
         .map(str::to_string)
         .unwrap_or_else(|| value.to_string())
-}
-
-fn grant(window: &WebviewWindow<MockRuntime>) -> Result<Value, Value> {
-    invoke(window, "grant_directory", json!({ "scope": "notes" }))
 }
 
 /// Write a file over whatever is there, as a page that just read it does.
@@ -297,17 +323,17 @@ fn write(
     Ok(landed)
 }
 
-/// Run the real `git` in the root `window` was granted for `notes`, as a
-/// person or the `epicenter` CLI would; the plugin runs none.
+/// Run the real `git` in the root bound to `window`, as a person or the
+/// `epicenter` CLI would; the plugin runs none.
 fn git(window: &WebviewWindow<MockRuntime>, args: &[&str]) -> Result<String, String> {
-    let root = window
+    let directory = window
         .folders()
-        .granted_root("notes", window.label())
+        .bound(window.label())
         .map_err(|refusal| format!("{refusal:?}"))?;
     let output = std::process::Command::new("git")
         .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
         .args(args)
-        .current_dir(root)
+        .current_dir(directory.root())
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
@@ -317,135 +343,168 @@ fn git(window: &WebviewWindow<MockRuntime>, args: &[&str]) -> Result<String, Str
 }
 
 #[test]
-fn a_scope_is_granted_to_its_windows_and_no_other() {
-    let fixture = fixture("grant");
-    let main = window(&fixture.app, "main");
-    let other = window(&fixture.app, "other");
-    let side = window(&fixture.app, "side");
-    assert_eq!(
-        grant(&other).unwrap_err(),
-        json!({ "name": "WindowNotPermitted", "scope": "notes", "window": "other" })
-    );
-    assert_eq!(
-        invoke(&main, "grant_directory", json!({ "scope": "elsewhere" })).unwrap_err(),
-        json!({ "name": "UnknownScope", "scope": "elsewhere" })
-    );
-    // Nothing reaches the folder before a grant, from any window.
-    let early = write(&fixture, &main, "a.md", "a").unwrap_err();
-    assert_eq!(early["name"], "Io", "{early}");
-    assert!(text(&early["message"]).contains("not been granted"), "{early}");
-    assert!(!fixture.root.exists());
+fn each_window_reaches_its_own_bound_folder_and_no_other() {
+    let fixture = fixture("isolation");
+    let other_root = fixture.root.with_file_name("other-notes");
+    std::fs::create_dir(&other_root).unwrap();
+    let main = fixture.bound_window("main", &fixture.root);
+    let other = fixture.bound_window("other", &other_root);
+    open(&main).unwrap();
+    open(&other).unwrap();
+    std::fs::write(fixture.root.join("mine.md"), b"main's").unwrap();
+    std::fs::write(other_root.join("mine.md"), b"other's").unwrap();
 
-    let granted = grant(&main).unwrap();
+    assert_eq!(read_file(&main, "mine.md").unwrap(), b"main's");
+    assert_eq!(read_file(&other, "mine.md").unwrap(), b"other's");
+    // Arguments a page adds name nothing: the root is the calling window's.
+    let other_path = other_root.to_str().unwrap();
+    let extra =
+        json!({ "path": "mine.md", "root": other_path, "scope": "other", "window": "other" });
+    let InvokeResponseBody::Raw(bytes) = response(
+        &main,
+        "read_folder_file",
+        InvokeBody::Json(extra),
+        Default::default(),
+    )
+    .unwrap() else {
+        panic!("the bytes came back as JSON");
+    };
+    assert_eq!(bytes, b"main's");
+    let mut headers = put_headers("mine.md", false, Some(&sha256(b"main's")));
+    headers.insert("root", encoded(other_path));
+    headers.insert("scope", encoded("other"));
+    request(
+        &main,
+        "put_folder_file",
+        InvokeBody::Raw(b"changed".to_vec()),
+        headers,
+    )
+    .unwrap();
     assert_eq!(
-        granted,
-        json!({ "root": fixture.root.to_str().unwrap() })
+        std::fs::read(fixture.root.join("mine.md")).unwrap(),
+        b"changed"
     );
-    // A reloaded page asks again and gets the same folder.
-    assert_eq!(grant(&main).unwrap(), granted);
-    assert!(text(&write(&fixture, &other, "a.md", "a").unwrap_err())
-        .contains("WindowNotPermitted"));
-
-    // A window the shell permits later gets the same folder, and both
-    // windows read and change it.
-    fixture.app.folders().permit("notes", "side").unwrap();
-    assert_eq!(grant(&side).unwrap(), granted);
-    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
-    write(&fixture, &main, "a.md", "main's\n").unwrap();
-    assert_eq!(read_file(&side, "notes", "a.md").unwrap(), b"main's\n");
-    write(&fixture, &side, "b.md", "side's\n").unwrap();
-    assert_eq!(read_file(&main, "notes", "b.md").unwrap(), b"side's\n");
-    assert!(text(&grant(&other).unwrap_err()).contains("WindowNotPermitted"));
+    assert_eq!(
+        std::fs::read(other_root.join("mine.md")).unwrap(),
+        b"other's"
+    );
 }
 
 #[test]
-fn each_window_is_answered_the_app_and_folder_the_shell_handed_it() {
-    let fixture = fixture("handed");
-    let todos = window(&fixture.app, "app:so_epicenter_todos:6e6f746573");
-    let settings = window(&fixture.app, "home");
-    let plain = window(&fixture.app, "main");
-    fixture.app.folders().hand(
-        todos.label(),
-        WindowFolder {
-            app: "so.epicenter.todos".into(),
-            folder: "notes".into(),
-        },
-    );
-    fixture.app.folders().hand(
-        settings.label(),
-        WindowFolder {
-            app: "so.epicenter".into(),
-            folder: "so.epicenter".into(),
-        },
-    );
-
-    assert_eq!(
-        invoke(&todos, "window_folder", json!({})).unwrap(),
-        json!({ "app": "so.epicenter.todos", "folder": "notes" })
-    );
-    assert_eq!(
-        invoke(&settings, "window_folder", json!({})).unwrap(),
-        json!({ "app": "so.epicenter", "folder": "so.epicenter" })
-    );
-    // A window the shell handed nothing runs no app.
-    assert_eq!(invoke(&plain, "window_folder", json!({})).unwrap(), Value::Null);
-    // The answer is the window's, whatever the page passes or navigates to.
-    assert_eq!(
-        invoke(&todos, "window_folder", json!({ "folder": "so.epicenter" })).unwrap()["folder"],
-        "notes"
-    );
+fn a_window_with_no_binding_is_refused_and_nothing_is_made() {
+    let fixture = fixture("unbound");
+    let stray = window(&fixture.app, "stray");
+    assert_eq!(open(&stray).unwrap_err(), json!({ "name": "NotBound" }));
+    for (command, args) in [
+        ("list_folder", json!({})),
+        ("read_folder_children", json!({ "directory": "" })),
+        ("make_folder_directory", json!({ "path": "todos" })),
+    ] {
+        let refused = invoke(&stray, command, args).unwrap_err();
+        assert_eq!(refused["name"], "Io", "{command}: {refused}");
+        assert!(text(&refused["message"]).contains("NotBound"), "{refused}");
+    }
+    assert!(text(&read_file(&stray, "a.md").unwrap_err()).contains("NotBound"));
+    assert!(text(&put(&stray, "a.md", Some(b"a"), None).unwrap_err()).contains("NotBound"));
+    assert_eq!(std::fs::read_dir(&fixture.root).unwrap().count(), 0);
 }
 
-/// A data folder is opened only as a person left it: a missing one is
-/// `Missing` and is not created, and one inside another repository's working
-/// tree is granted as it is. `granted_root` names it to its window alone,
-/// for the `epicenter` CLI, which refuses a nested `git init` itself.
+/// A live label keeps its folder: binding it again is refused, whichever
+/// directory. Once unbound, as the plugin does when a window is destroyed,
+/// the old page is refused, and the label may be bound to another folder.
 #[test]
-fn a_data_folder_is_never_created_or_given_a_nested_repository() {
-    let directory = temp("data-folder");
-    std::fs::create_dir(directory.0.join(".git")).unwrap();
-    let root = directory.0.join("vault");
-    let app = mock_builder()
-        .plugin(init())
-        .build(context())
-        .expect("mock app");
-    app.folders()
-        .register(ScopeConfig {
-            scope: "notes".to_string(),
-            folder: FolderConfig::data(&root),
-            windows: vec!["main".to_string()],
-        })
+fn a_binding_lasts_for_its_window_and_a_closed_label_is_refused() {
+    let (fixture, main) = opened("immutable");
+    let other_root = fixture.root.with_file_name("other-notes");
+    std::fs::create_dir(&other_root).unwrap();
+    std::fs::write(fixture.root.join("a.md"), b"first").unwrap();
+    std::fs::write(other_root.join("a.md"), b"second").unwrap();
+    let folders = fixture.app.folders();
+    for again in [&other_root, &fixture.root] {
+        assert_eq!(
+            folders.bind("main", Directory::existing(again).unwrap()),
+            Err(BindError::Bound {
+                label: "main".into()
+            })
+        );
+    }
+    assert_eq!(read_file(&main, "a.md").unwrap(), b"first");
+
+    folders.unbind("main");
+    assert_eq!(open(&main).unwrap_err(), json!({ "name": "NotBound" }));
+    assert!(text(&read_file(&main, "a.md").unwrap_err()).contains("NotBound"));
+
+    folders
+        .bind("main", Directory::existing(&other_root).unwrap())
         .unwrap();
-    let main = window(&app, "main");
-    assert_eq!(
-        grant(&main).unwrap_err(),
-        json!({ "name": "Missing", "root": root.to_str().unwrap() })
-    );
-    assert!(!root.exists());
-
-    std::fs::create_dir(&root).unwrap();
-    grant(&main).unwrap();
-    assert_eq!(
-        app.folders().granted_root("notes", "main").unwrap(),
-        std::fs::canonicalize(&root).unwrap()
-    );
-    assert!(app.folders().granted_root("notes", "other").is_err());
-    assert!(!root.join(".git").exists());
-    app.folders().shutdown();
+    open(&main).unwrap();
+    assert_eq!(read_file(&main, "a.md").unwrap(), b"second");
 }
 
-/// Two windows of one scope save the same file over the version both read,
-/// at once. The shell checks and renames under the root's mutex, so exactly
-/// one save lands and the other is `stale`, whichever wins.
+/// A window whose construction fails leaves no binding, and no watch its
+/// page started: the label is free for the next try, and the next window to
+/// open the root starts the watch. One built leaves its binding in place.
 #[test]
-fn two_windows_saving_one_file_over_the_same_version_publish_once() {
+fn a_failed_window_construction_unbinds_its_label() {
+    let fixture = fixture("rollback");
+    let folders = fixture.app.folders();
+    let directory = Directory::existing(&fixture.root).unwrap();
+    let failed: Result<(), BindError> =
+        folders.bind_while_building("main", directory.clone(), || Err(BindError::ShuttingDown));
+    assert_eq!(failed, Err(BindError::ShuttingDown));
+    assert!(folders.bound("main").is_err());
+    // This page opened its folder before its window's build failed.
+    let failed: Result<(), BindError> =
+        folders.bind_while_building("early", directory.clone(), || {
+            open(&window(&fixture.app, "early")).unwrap();
+            Err(BindError::ShuttingDown)
+        });
+    assert_eq!(failed, Err(BindError::ShuttingDown));
+    assert!(folders.bound("early").is_err());
+
+    let built = folders.bind_while_building("main", directory.clone(), || {
+        Ok::<_, BindError>(window(&fixture.app, "main"))
+    });
+    let main = built.unwrap();
+    let main_hears = hear(&main);
+    open(&main).unwrap();
+    assert_eq!(paths_of(&next_change(&main_hears)), None);
+    // A second construction on a live label is refused before it builds.
+    let mut built_again = false;
+    let refused = folders.bind_while_building("main", directory, || {
+        built_again = true;
+        Ok::<_, BindError>(())
+    });
+    assert_eq!(
+        refused,
+        Err(BindError::Bound {
+            label: "main".into()
+        })
+    );
+    assert!(!built_again);
+    assert!(folders.bound("main").is_ok());
+}
+
+/// A bound folder removed later is refused when the page opens it, and
+/// nothing makes it again: creating a default belongs to the shell's launch.
+#[test]
+fn opening_a_bound_folder_that_is_gone_is_refused_and_makes_nothing() {
+    let (fixture, main) = opened("gone");
+    std::fs::remove_dir(&fixture.root).unwrap();
+    assert_eq!(open(&main).unwrap_err(), json!({ "name": "Missing" }));
+    assert!(put(&main, "todos/a.md", Some(b"a"), None).is_err());
+    assert!(!fixture.root.exists());
+}
+
+/// Two windows bound to one root save the same file over the version both
+/// read, at once. The shell checks and renames under the folder's save lock, so
+/// exactly one save lands and the other is `stale`, whichever wins.
+#[test]
+fn two_windows_on_one_root_saving_one_file_over_the_same_version_publish_once() {
     const ROUNDS: usize = 8;
-    let fixture = fixture("two-editors");
-    fixture.app.folders().permit("notes", "side").unwrap();
-    let main = window(&fixture.app, "main");
-    let side = window(&fixture.app, "side");
-    grant(&main).unwrap();
-    grant(&side).unwrap();
+    let (fixture, main) = opened("two-editors");
+    let side = fixture.bound_window("side", &fixture.root);
+    open(&side).unwrap();
     git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     write(&fixture, &main, "a.md", "round 0\n").unwrap();
     for round in 1..=ROUNDS {
@@ -455,8 +514,11 @@ fn two_windows_saving_one_file_over_the_same_version_publish_once() {
             .into_iter()
             .map(|editor| {
                 let content = format!("round {round}\n{}\n", editor.label());
-                let (editor, start, expected) =
-                    (editor.clone(), std::sync::Arc::clone(&start), expected.clone());
+                let (editor, start, expected) = (
+                    editor.clone(),
+                    std::sync::Arc::clone(&start),
+                    expected.clone(),
+                );
                 std::thread::spawn(move || {
                     start.wait();
                     let outcome = put(&editor, "a.md", Some(content.as_bytes()), Some(&expected));
@@ -471,9 +533,14 @@ fn two_windows_saving_one_file_over_the_same_version_publish_once() {
             .collect();
         assert_eq!(landed.len(), 1, "round {round}: {outcomes:?}");
         let won = &landed[0].0;
-        assert_eq!(&std::fs::read_to_string(fixture.root.join("a.md")).unwrap(), won);
+        assert_eq!(
+            &std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
+            won
+        );
         assert!(
-            outcomes.iter().any(|(_, outcome)| *outcome == Ok(json!("stale"))),
+            outcomes
+                .iter()
+                .any(|(_, outcome)| *outcome == Ok(json!("stale"))),
             "round {round}: {outcomes:?}"
         );
         // The next round expects what landed, as an editor that read again
@@ -501,20 +568,17 @@ fn staged(fixture: &Fixture) -> Vec<String> {
 
 #[test]
 fn changes_land_under_the_root_and_never_in_git_state() {
-    let fixture = fixture("changes");
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
+    let (fixture, main) = opened("changes");
 
     invoke(
         &main,
         "make_folder_directory",
-        json!({ "scope": "notes", "path": "notes/sub" }),
+        json!({ "path": "notes/sub" }),
     )
     .unwrap();
     assert!(fixture.root.join("notes/sub").is_dir());
     assert_eq!(
-        invoke(&main, "remove_folder_directory", json!({ "scope": "notes", "path": "notes" }))
-            .unwrap_err(),
+        invoke(&main, "remove_folder_directory", json!({ "path": "notes" })).unwrap_err(),
         json!({ "name": "DirectoryNotEmpty", "path": "notes" })
     );
     put(&main, "notes/a.md", Some(b"first\n"), None).unwrap();
@@ -527,8 +591,7 @@ fn changes_land_under_the_root_and_never_in_git_state() {
         "landed"
     );
     for path in ["notes/sub", "notes"] {
-        invoke(&main, "remove_folder_directory", json!({ "scope": "notes", "path": path }))
-            .unwrap();
+        invoke(&main, "remove_folder_directory", json!({ "path": path })).unwrap();
     }
     assert!(!fixture.root.join("notes").exists());
     assert_eq!(staged(&fixture), Vec::<String>::new());
@@ -548,20 +611,30 @@ fn changes_land_under_the_root_and_never_in_git_state() {
 /// The lowercase hexadecimal SHA-256 the page computes.
 fn sha256(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 #[test]
 fn a_save_lands_only_on_what_the_page_expected() {
-    let fixture = fixture("expected");
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
+    let (fixture, main) = opened("expected");
     git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
-    assert_eq!(put(&main, "a.md", Some(b"first\n"), None).unwrap(), "landed");
+    assert_eq!(
+        put(&main, "a.md", Some(b"first\n"), None).unwrap(),
+        "landed"
+    );
     assert_eq!(put(&main, "a.md", Some(b"again\n"), None).unwrap(), "stale");
     let stale = sha256(b"stale\n");
-    assert_eq!(put(&main, "b.md", Some(b"b\n"), Some(&stale)).unwrap(), "stale");
-    assert_eq!(put(&main, "a.md", Some(b"mine\n"), Some(&stale)).unwrap(), "stale");
+    assert_eq!(
+        put(&main, "b.md", Some(b"b\n"), Some(&stale)).unwrap(),
+        "stale"
+    );
+    assert_eq!(
+        put(&main, "a.md", Some(b"mine\n"), Some(&stale)).unwrap(),
+        "stale"
+    );
     assert_eq!(put(&main, "a.md", None, Some(&stale)).unwrap(), "stale");
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
@@ -591,15 +664,19 @@ fn a_save_lands_only_on_what_the_page_expected() {
 
 #[test]
 fn a_put_takes_its_bytes_raw_and_its_path_percent_encoded() {
-    let fixture = fixture("raw-write");
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
+    let (fixture, main) = opened("raw-write");
 
     // Every byte value arrives as it is, and the path decodes whole: the
     // headers encode every `/`, `.`, and space in it.
     let bytes: Vec<u8> = (0..=255).collect();
-    assert_eq!(put(&main, "notes/all of it.bin", Some(&bytes), None).unwrap(), "landed");
-    assert_eq!(std::fs::read(fixture.root.join("notes/all of it.bin")).unwrap(), bytes);
+    assert_eq!(
+        put(&main, "notes/all of it.bin", Some(&bytes), None).unwrap(),
+        "landed"
+    );
+    assert_eq!(
+        std::fs::read(fixture.root.join("notes/all of it.bin")).unwrap(),
+        bytes
+    );
 
     // The bytes as a JSON array, Tauri's postMessage fallback, also land.
     request(
@@ -609,7 +686,10 @@ fn a_put_takes_its_bytes_raw_and_its_path_percent_encoded() {
         put_headers("fallback.bin", false, None),
     )
     .unwrap();
-    assert_eq!(std::fs::read(fixture.root.join("fallback.bin")).unwrap(), vec![0, 120, 255]);
+    assert_eq!(
+        std::fs::read(fixture.root.join("fallback.bin")).unwrap(),
+        vec![0, 120, 255]
+    );
 
     // Any other JSON body, or a header missing, is refused.
     let json = request(
@@ -620,11 +700,16 @@ fn a_put_takes_its_bytes_raw_and_its_path_percent_encoded() {
     )
     .unwrap_err();
     assert!(text(&json["message"]).contains("raw body"), "{json}");
-    for header in ["remove", "scope", "path"] {
+    for header in ["remove", "path"] {
         let mut headers = put_headers("refused.bin", false, None);
         headers.remove(header);
-        let missing = request(&main, "put_folder_file", InvokeBody::Raw(b"x".to_vec()), headers)
-            .unwrap_err();
+        let missing = request(
+            &main,
+            "put_folder_file",
+            InvokeBody::Raw(b"x".to_vec()),
+            headers,
+        )
+        .unwrap_err();
         assert!(text(&missing["message"]).contains(header), "{missing}");
     }
     assert!(!fixture.root.join("refused.bin").exists());
@@ -632,18 +717,13 @@ fn a_put_takes_its_bytes_raw_and_its_path_percent_encoded() {
 }
 
 #[test]
-fn storage_reaches_the_data_paths_of_the_granted_root_and_nothing_else() {
-    let fixture = fixture("reads");
-    let main = window(&fixture.app, "main");
-    // Nothing is read before a grant.
-    let early = invoke(&main, "list_folder", json!({ "scope": "notes" })).unwrap_err();
-    assert!(text(&early["message"]).contains("not been granted"), "{early}");
-    grant(&main).unwrap();
+fn storage_reaches_the_data_paths_of_the_bound_root_and_nothing_else() {
+    let (fixture, main) = opened("reads");
     git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     write(&fixture, &main, "todos/a.md", "first\n").unwrap();
     std::fs::create_dir(fixture.root.join("empty")).unwrap();
 
-    let mut listed = invoke(&main, "list_folder", json!({ "scope": "notes" })).unwrap();
+    let mut listed = invoke(&main, "list_folder", json!({})).unwrap();
     listed["directories"]
         .as_array_mut()
         .unwrap()
@@ -652,30 +732,30 @@ fn storage_reaches_the_data_paths_of_the_granted_root_and_nothing_else() {
         listed,
         json!({ "files": [{ "path": "todos/a.md", "size": 6 }], "directories": ["empty", "todos"] })
     );
-    let mut top = children(&main, "notes", "").unwrap();
-    top["directories"]
-        .as_array_mut()
-        .unwrap()
-        .sort_by_key(text);
-    assert_eq!(top, json!({ "files": [], "directories": ["empty", "todos"] }));
+    let mut top = children(&main, "").unwrap();
+    top["directories"].as_array_mut().unwrap().sort_by_key(text);
     assert_eq!(
-        children(&main, "notes", "todos").unwrap(),
+        top,
+        json!({ "files": [], "directories": ["empty", "todos"] })
+    );
+    assert_eq!(
+        children(&main, "todos").unwrap(),
         json!({ "files": ["a.md"], "directories": [] })
     );
     assert_eq!(
-        children(&main, "notes", "todos/a.md").unwrap_err(),
+        children(&main, "todos/a.md").unwrap_err(),
         json!({ "name": "NotADirectory", "path": "todos/a.md" })
     );
     // Every byte value arrives as it is, raw.
     let bytes: Vec<u8> = (0..=255).collect();
     std::fs::write(fixture.root.join("todos/all.bin"), &bytes).unwrap();
-    assert_eq!(read_file(&main, "notes", "todos/all.bin").unwrap(), bytes);
+    assert_eq!(read_file(&main, "todos/all.bin").unwrap(), bytes);
     assert_eq!(
-        read_file(&main, "notes", "todos/b.md").unwrap_err(),
+        read_file(&main, "todos/b.md").unwrap_err(),
         json!({ "name": "NotFound", "path": "todos/b.md" })
     );
     assert_eq!(
-        read_file(&main, "notes", "todos").unwrap_err(),
+        read_file(&main, "todos").unwrap_err(),
         json!({ "name": "NotAFile", "path": "todos" })
     );
 
@@ -691,17 +771,23 @@ fn storage_reaches_the_data_paths_of_the_granted_root_and_nothing_else() {
         format!("{root}2/a.md"),
         "todos/../../outside.md".to_string(),
     ] {
-        assert_eq!(read_file(&main, "notes", &path).unwrap_err()["name"], "InvalidPath", "{path}");
-        assert_eq!(children(&main, "notes", &path).unwrap_err()["name"], "InvalidPath", "{path}");
+        assert_eq!(
+            read_file(&main, &path).unwrap_err()["name"],
+            "InvalidPath",
+            "{path}"
+        );
+        assert_eq!(
+            children(&main, &path).unwrap_err()["name"],
+            "InvalidPath",
+            "{path}"
+        );
     }
 }
 
 #[cfg(unix)]
 #[test]
 fn a_path_through_a_link_or_naming_one_is_refused() {
-    let fixture = fixture("read-links");
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
+    let (fixture, main) = opened("read-links");
     let elsewhere = fixture.root.parent().unwrap().join("elsewhere");
     std::fs::create_dir_all(&elsewhere).unwrap();
     std::fs::write(elsewhere.join("secret.md"), b"theirs").unwrap();
@@ -716,52 +802,35 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
         })
     };
     for path in ["todos/secret.md", "a.md"] {
-        assert_eq!(read_file(&main, "notes", path).unwrap_err(), link(path));
-        assert_eq!(put(&main, path, Some(b"mine"), None).unwrap_err(), link(path));
+        assert_eq!(read_file(&main, path).unwrap_err(), link(path));
+        assert_eq!(
+            put(&main, path, Some(b"mine"), None).unwrap_err(),
+            link(path)
+        );
     }
-    assert_eq!(children(&main, "notes", "todos").unwrap_err(), link("todos"));
+    assert_eq!(children(&main, "todos").unwrap_err(), link("todos"));
     // A link is listed as a file, never followed.
-    let listed = children(&main, "notes", "").unwrap();
-    let mut files: Vec<String> = listed["files"].as_array().unwrap().iter().map(text).collect();
+    let listed = children(&main, "").unwrap();
+    let mut files: Vec<String> = listed["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(text)
+        .collect();
     files.sort();
     assert_eq!(files, ["a.md", "todos"]);
-    assert_eq!(std::fs::read(elsewhere.join("secret.md")).unwrap(), b"theirs");
-}
-
-#[test]
-fn two_windows_each_read_only_their_own_folder() {
-    let fixture = fixture("two-readers");
-    let other_root = fixture.root.parent().unwrap().join("other-notes");
-    fixture
-        .app
-        .folders()
-        .register(ScopeConfig {
-            scope: "other-notes".to_string(),
-            folder: FolderConfig::new(&other_root),
-            windows: vec!["other".to_string()],
-        })
-        .unwrap();
-    let main = window(&fixture.app, "main");
-    let other = window(&fixture.app, "other");
-    grant(&main).unwrap();
-    invoke(&other, "grant_directory", json!({ "scope": "other-notes" })).unwrap();
-    std::fs::write(fixture.root.join("mine.md"), b"main's").unwrap();
-    std::fs::write(other_root.join("mine.md"), b"other's").unwrap();
-
-    assert_eq!(read_file(&main, "notes", "mine.md").unwrap(), b"main's");
-    assert_eq!(read_file(&other, "other-notes", "mine.md").unwrap(), b"other's");
-    // Neither reaches the other's root by the other's scope.
-    assert!(text(&read_file(&main, "other-notes", "mine.md").unwrap_err())
-        .contains("WindowNotPermitted"));
-    assert!(text(&children(&other, "notes", "").unwrap_err()).contains("WindowNotPermitted"));
+    assert_eq!(
+        std::fs::read(elsewhere.join("secret.md")).unwrap(),
+        b"theirs"
+    );
 }
 
 /// A save that stopped before its rename leaves its staged file beside the
-/// folder. A grant removes the ones an hour old, and none younger, which
+/// folder. Opening removes the ones an hour old, and none younger, which
 /// another process's save may still be about to rename. What an older shell
 /// staged in `.git/epicenter/scratch` is left as it is.
 #[test]
-fn a_grant_sweeps_staged_files_a_stopped_save_left() {
+fn opening_sweeps_staged_files_a_stopped_save_left() {
     let fixture = fixture("sweep");
     let scratch = scratch(&fixture);
     let old_git_scratch = fixture.root.join(".git/epicenter/scratch");
@@ -779,7 +848,10 @@ fn a_grant_sweeps_staged_files_a_stopped_save_left() {
             value /= 36;
         }
         digits.reverse();
-        format!("{}-0123456789abcdef0123456789abcdef-0", String::from_utf8(digits).unwrap())
+        format!(
+            "{}-0123456789abcdef0123456789abcdef-0",
+            String::from_utf8(digits).unwrap()
+        )
     };
     let old = name(now - 2 * 60 * 60 * 1000);
     let young = name(now - 60 * 1000);
@@ -787,27 +859,35 @@ fn a_grant_sweeps_staged_files_a_stopped_save_left() {
         std::fs::write(scratch.join(staged), b"x").unwrap();
     }
     std::fs::write(old_git_scratch.join(&old), b"older shell").unwrap();
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
+    let main = fixture.bound_window("main", &fixture.root);
+    open(&main).unwrap();
     assert_eq!(staged(&fixture), [young]);
-    assert_eq!(std::fs::read(old_git_scratch.join(&old)).unwrap(), b"older shell");
+    assert_eq!(
+        std::fs::read(old_git_scratch.join(&old)).unwrap(),
+        b"older shell"
+    );
 }
 
 /// A linked worktree's or submodule's `.git` file, or a `.git` link, does
-/// not keep a folder from opening: the grant and a save go through, and
+/// not keep a folder from opening: the open and a save go through, and
 /// `.git` stays as it was.
 #[test]
 fn a_folder_with_a_git_file_or_link_opens_and_saves() {
     let worktree = fixture("git-file");
-    std::fs::create_dir_all(&worktree.root).unwrap();
     let gitdir = "gitdir: /elsewhere/.git/worktrees/notes\n";
     std::fs::write(worktree.root.join(".git"), gitdir).unwrap();
-    let main = window(&worktree.app, "main");
-    grant(&main).unwrap();
-    assert_eq!(put(&main, "todos/a.md", Some(b"milk\n"), None).unwrap(), "landed");
-    assert_eq!(std::fs::read_to_string(worktree.root.join(".git")).unwrap(), gitdir);
+    let main = worktree.bound_window("main", &worktree.root);
+    open(&main).unwrap();
     assert_eq!(
-        children(&main, "notes", "").unwrap(),
+        put(&main, "todos/a.md", Some(b"milk\n"), None).unwrap(),
+        "landed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(worktree.root.join(".git")).unwrap(),
+        gitdir
+    );
+    assert_eq!(
+        children(&main, "").unwrap(),
         json!({ "files": [], "directories": ["todos"] })
     );
     assert_eq!(staged(&worktree), Vec::<String>::new());
@@ -818,11 +898,13 @@ fn a_folder_with_a_git_file_or_link_opens_and_saves() {
         let linked = fixture("git-link");
         let repository = linked.root.with_file_name("repository");
         std::fs::create_dir_all(&repository).unwrap();
-        std::fs::create_dir_all(&linked.root).unwrap();
         std::os::unix::fs::symlink(&repository, linked.root.join(".git")).unwrap();
-        let main = window(&linked.app, "main");
-        grant(&main).unwrap();
-        assert_eq!(put(&main, "todos/a.md", Some(b"milk\n"), None).unwrap(), "landed");
+        let main = linked.bound_window("main", &linked.root);
+        open(&main).unwrap();
+        assert_eq!(
+            put(&main, "todos/a.md", Some(b"milk\n"), None).unwrap(),
+            "landed"
+        );
         assert!(std::fs::read_dir(&repository).unwrap().next().is_none());
         assert_eq!(staged(&linked), Vec::<String>::new());
         linked.app.folders().shutdown();
@@ -831,11 +913,11 @@ fn a_folder_with_a_git_file_or_link_opens_and_saves() {
 
 /// Before Tauri 2.12 a capability added at run time numbered its scopes from
 /// zero, so a grant that added one collided with a scope the app already
-/// had, and every read failed to deserialize its scope. A grant now adds
-/// nothing to the app's access control: here the app scopes a permission of
-/// another plugin, and the grant and its reads work as they do in any app.
+/// had. Binding adds nothing to the app's access control: here the app
+/// scopes a permission of another plugin, and opening and reading work as
+/// they do in any app.
 #[test]
-fn a_grant_in_an_app_that_already_scopes_a_permission_still_reads() {
+fn opening_in_an_app_that_already_scopes_a_permission_still_reads() {
     let mut context = mock_context(noop_assets());
     let permission = serde_json::from_value(json!({
         "identifier": "allow-fetch",
@@ -863,31 +945,38 @@ fn a_grant_in_an_app_that_already_scopes_a_permission_still_reads() {
         Target::current(),
     )
     .unwrap();
-    assert!(!resolved.command_scope.is_empty(), "the app scopes a permission");
+    assert!(
+        !resolved.command_scope.is_empty(),
+        "the app scopes a permission"
+    );
     *context.runtime_authority_mut() = RuntimeAuthority::new(acl, resolved);
     allow_plugin(&mut context);
     let fixture = fixture_in("scoped-app", context);
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
+    let main = fixture.bound_window("main", &fixture.root);
+    open(&main).unwrap();
     std::fs::write(fixture.root.join("a.md"), b"read").unwrap();
-    assert_eq!(read_file(&main, "notes", "a.md").unwrap(), b"read");
-    assert_eq!(children(&main, "notes", "").unwrap()["files"], json!(["a.md"]));
+    assert_eq!(read_file(&main, "a.md").unwrap(), b"read");
+    assert_eq!(children(&main, "").unwrap()["files"], json!(["a.md"]));
 }
 
 #[test]
-fn after_shutdown_a_late_change_is_refused() {
-    let fixture = fixture("shutdown");
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
+fn after_shutdown_a_late_change_and_a_late_bind_are_refused() {
+    let (fixture, main) = opened("shutdown");
     write(&fixture, &main, "kv.json", "{}\n").unwrap();
+    let directory = fixture.app.folders().bound("main").unwrap();
     fixture.app.folders().shutdown();
-    assert!(text(&write(&fixture, &main, "kv.json", "late\n").unwrap_err())
-        .contains("ShuttingDown"));
+    assert!(
+        text(&write(&fixture, &main, "kv.json", "late\n").unwrap_err()).contains("ShuttingDown")
+    );
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("kv.json")).unwrap(),
         "{}\n"
     );
-    assert_eq!(grant(&main).unwrap_err(), json!({ "name": "ShuttingDown" }));
+    assert_eq!(open(&main).unwrap_err(), json!({ "name": "ShuttingDown" }));
+    assert_eq!(
+        fixture.app.folders().bind("late", directory),
+        Err(BindError::ShuttingDown)
+    );
 }
 
 #[test]
@@ -899,44 +988,63 @@ fn a_window_without_the_permission_cannot_call_the_plugin() {
     let main = window(&app, "main");
     for command in COMMANDS {
         let refused = invoke(&main, command, json!({})).unwrap_err();
-        assert!(text(&refused).contains("not allowed"), "{command}: {refused}");
+        assert!(
+            text(&refused).contains("not allowed"),
+            "{command}: {refused}"
+        );
     }
 }
 
-/// The change events `window` hears: each one's scope and paths, `None` for
-/// everything.
-fn hear(window: &WebviewWindow<MockRuntime>) -> std::sync::mpsc::Receiver<(String, Option<Vec<String>>)> {
+/// The change events `window` hears, as sent.
+fn hear(window: &WebviewWindow<MockRuntime>) -> std::sync::mpsc::Receiver<Value> {
     use tauri::Listener;
     let (sender, receiver) = std::sync::mpsc::channel();
     window.listen(crate::FOLDER_CHANGED_EVENT, move |event| {
-        let change: Value = serde_json::from_str(event.payload()).unwrap();
-        let paths = change["paths"].as_array().map(|paths| {
-            paths
-                .iter()
-                .map(|path| path.as_str().unwrap().to_string())
-                .collect()
-        });
-        let _ = sender.send((change["scope"].as_str().unwrap().to_string(), paths));
+        if let Ok(change) = serde_json::from_str(event.payload()) {
+            let _ = sender.send(change);
+        }
     });
     receiver
+}
+
+/// The next change event `changes` hears.
+fn next_change(changes: &std::sync::mpsc::Receiver<Value>) -> Value {
+    changes
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("a change event")
+}
+
+/// One change event's paths, `None` for everything. An event names no
+/// folder: a window has one.
+fn paths_of(change: &Value) -> Option<Vec<String>> {
+    assert_eq!(
+        change.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["paths"],
+        "{change}"
+    );
+    change["paths"].as_array().map(|paths| {
+        paths
+            .iter()
+            .map(|path| path.as_str().unwrap().to_string())
+            .collect()
+    })
 }
 
 /// Every path `changes` reports until each of `expected` has been reported.
 /// A batch names each path once, sorted. A report of everything on the way
 /// is allowed: the operating system may ask for a rescan at any time.
 fn until_heard(
-    changes: &std::sync::mpsc::Receiver<(String, Option<Vec<String>>)>,
+    changes: &std::sync::mpsc::Receiver<Value>,
     expected: &[&str],
 ) -> std::collections::BTreeSet<String> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let mut heard = std::collections::BTreeSet::new();
     while !expected.iter().all(|path| heard.contains(*path)) {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
-        let Ok((scope, paths)) = changes.recv_timeout(left) else {
+        let Ok(change) = changes.recv_timeout(left) else {
             panic!("heard {heard:?}, never all of {expected:?}");
         };
-        assert_eq!(scope, "notes");
-        if let Some(paths) = paths {
+        if let Some(paths) = paths_of(&change) {
             assert!(paths.windows(2).all(|pair| pair[0] < pair[1]), "{paths:?}");
             heard.extend(paths);
         }
@@ -949,27 +1057,24 @@ fn settle() {
     std::thread::sleep(std::time::Duration::from_millis(300));
 }
 
-/// ADR-0548: from its first grant a folder is watched, and every window
-/// permitted into its scope, then or later, hears what changed outside it,
-/// relative to the root, and no other window hears anything. Watching
-/// begins with a report of everything.
+/// ADR-0548: from its first open a folder is watched, and every window bound
+/// to its root, then or later, hears what changed outside it, relative to
+/// the root, and a window bound elsewhere hears nothing. Watching begins
+/// with a report of everything.
 #[test]
-fn the_folder_watcher_reports_changes_to_the_scopes_windows_and_no_other() {
+fn the_folder_watcher_reports_changes_to_the_roots_windows_and_no_other() {
     let fixture = fixture("watch");
-    let main = window(&fixture.app, "main");
-    let other = window(&fixture.app, "other");
-    let side = window(&fixture.app, "side");
+    let elsewhere = fixture.root.with_file_name("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    let main = fixture.bound_window("main", &fixture.root);
+    let other = fixture.bound_window("other", &elsewhere);
     let main_hears = hear(&main);
     let other_hears = hear(&other);
-    let side_hears = hear(&side);
 
-    grant(&main).unwrap();
-    assert_eq!(
-        main_hears.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
-        ("notes".to_string(), None)
-    );
-    // A reloaded page's grant does not start a second watch.
-    grant(&main).unwrap();
+    open(&main).unwrap();
+    assert_eq!(paths_of(&next_change(&main_hears)), None);
+    // A reloaded page's open does not start a second watch.
+    open(&main).unwrap();
     settle();
 
     let root = &fixture.root;
@@ -994,13 +1099,17 @@ fn the_folder_watcher_reports_changes_to_the_scopes_windows_and_no_other() {
     assert!(heard.iter().all(|path| path == "kv.json"), "{heard:?}");
     assert!(!root.join(".git").exists());
 
-    // A window permitted later hears what changes from then on.
-    fixture.app.folders().permit("notes", "side").unwrap();
+    // A window bound to the root later hears what changes from then on.
+    let side = fixture.bound_window("side", &fixture.root);
+    let side_hears = hear(&side);
     std::fs::write(root.join("todos/d.md"), "d\n").unwrap();
     until_heard(&side_hears, &["todos/d.md"]);
 
     std::thread::sleep(std::time::Duration::from_millis(300));
-    assert!(other_hears.try_recv().is_err(), "a window outside the scope heard a change");
+    assert!(
+        other_hears.try_recv().is_err(),
+        "a window bound elsewhere heard a change"
+    );
     fixture.app.folders().shutdown();
 }
 
@@ -1008,9 +1117,9 @@ fn the_folder_watcher_reports_changes_to_the_scopes_windows_and_no_other() {
 #[test]
 fn the_folder_watcher_ignores_gits_private_changes() {
     let fixture = fixture("watch-git");
-    let main = window(&fixture.app, "main");
+    let main = fixture.bound_window("main", &fixture.root);
     let main_hears = hear(&main);
-    grant(&main).unwrap();
+    open(&main).unwrap();
     settle();
     git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     std::fs::write(fixture.root.join("a.md"), "a\n").unwrap();
@@ -1045,4 +1154,117 @@ fn the_folder_watcher_ignores_gits_private_changes() {
         "committing reported a change"
     );
     fixture.app.folders().shutdown();
+}
+
+/// A destroyed window's binding is removed. A root's watch lasts while a
+/// window bound to it is open: closing one of two keeps it for the other,
+/// and closing the last stops it. A root removed and made again meanwhile is
+/// watched afresh when a new window opens it, which begins with a report of
+/// everything, and that window hears what changes outside it.
+#[test]
+fn a_roots_watch_lasts_while_a_window_bound_to_it_is_open() {
+    let fixture = fixture("watch-lifetime");
+    let root = &fixture.root;
+    let main = fixture.bound_window("main", root);
+    let side = fixture.bound_window("side", root);
+    let main_hears = hear(&main);
+    let side_hears = hear(&side);
+    open(&main).unwrap();
+    assert_eq!(paths_of(&next_change(&main_hears)), None);
+    open(&side).unwrap();
+    settle();
+
+    close(main);
+    std::fs::write(root.join("a.md"), "a\n").unwrap();
+    until_heard(&side_hears, &["a.md"]);
+
+    close(side);
+    std::fs::remove_dir_all(root).unwrap();
+    std::fs::create_dir(root).unwrap();
+    settle();
+    let again = fixture.bound_window("again", root);
+    let again_hears = hear(&again);
+    open(&again).unwrap();
+    assert_eq!(paths_of(&next_change(&again_hears)), None);
+    settle();
+    std::fs::write(root.join("b.md"), "b\n").unwrap();
+    until_heard(&again_hears, &["b.md"]);
+}
+
+/// An open admitted before its window closed, whose blocking work reaches
+/// the watch only after, starts none: the next window to open the root
+/// starts the only watch, and so hears it begin.
+#[test]
+fn an_open_that_finishes_after_its_window_closed_starts_no_watch() {
+    let fixture = fixture("stale-open");
+    let folders = fixture.app.folders();
+    let main = fixture.bound_window("main", &fixture.root);
+    // What `open_folder` holds once admitted: the window's directory.
+    let admitted = folders.bound("main").unwrap();
+    close(main);
+    folders.watch(fixture.app.handle(), admitted.root());
+    settle();
+
+    let side = fixture.bound_window("side", &fixture.root);
+    let side_hears = hear(&side);
+    open(&side).unwrap();
+    assert_eq!(paths_of(&next_change(&side_hears)), None);
+}
+
+/// The last window on a root closing and a new window binding it, in either
+/// order. Bound first, the new window keeps the watch: its open begins no
+/// second one, and it hears what changes. Bound after, its open starts a new
+/// watch.
+#[test]
+fn a_root_whose_last_window_closes_is_watched_for_a_new_window_in_either_order() {
+    let fixture = fixture("rebind");
+    let folders = fixture.app.folders();
+    let main = fixture.bound_window("main", &fixture.root);
+    open(&main).unwrap();
+
+    let side = fixture.bound_window("side", &fixture.root);
+    let side_hears = hear(&side);
+    folders.unbind("main");
+    open(&side).unwrap();
+    assert!(
+        side_hears
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .is_err(),
+        "a second watch began"
+    );
+    std::fs::write(fixture.root.join("a.md"), "a\n").unwrap();
+    until_heard(&side_hears, &["a.md"]);
+
+    folders.unbind("side");
+    let third = fixture.bound_window("third", &fixture.root);
+    let third_hears = hear(&third);
+    open(&third).unwrap();
+    assert_eq!(paths_of(&next_change(&third_hears)), None);
+    settle();
+    std::fs::write(fixture.root.join("b.md"), "b\n").unwrap();
+    until_heard(&third_hears, &["b.md"]);
+    folders.shutdown();
+}
+
+/// Work admitted before a label is reused still writes to its original root.
+#[test]
+fn admitted_work_keeps_its_root_after_the_label_is_reused() {
+    let fixture = fixture("admitted-root");
+    let folders = fixture.app.folders();
+    folders
+        .bind("main", Directory::existing(&fixture.root).unwrap())
+        .unwrap();
+    let admitted = folders.bound("main").unwrap();
+    let other = fixture.root.join("other");
+    let next = Directory::create(&other).unwrap();
+    folders.unbind("main");
+    folders.bind("main", next).unwrap();
+    let landed =
+        epicenter_folder_core::storage::put(admitted.root(), "a.md", Some(b"first"), None, || {
+            admitted.publishing()
+        })
+        .unwrap();
+    assert_eq!(landed, epicenter_folder_core::storage::PutOutcome::Landed);
+    assert_eq!(std::fs::read(fixture.root.join("a.md")).unwrap(), b"first");
+    assert!(!other.join("a.md").exists());
 }

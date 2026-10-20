@@ -33,11 +33,7 @@ import {
 import { whisperingTables } from './definition.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
-import {
-	WHISPERING_FOLDER_ID,
-	type WhisperingFolder,
-	type Workspace,
-} from './workspace/types.js';
+import type { WhisperingFolder, Workspace } from './workspace/types.js';
 
 type TransformRequest = Parameters<Workspace['transform']>[0];
 type TranscribeRequest = Parameters<Workspace['transcribe']>[0];
@@ -120,13 +116,14 @@ function refusedConnection(
 }
 
 /**
- * A new directory named as Whispering's own folder, `WHISPERING_FOLDER_ID`,
- * in a temporary directory of its own. Remove `dirname` of it when done.
+ * A new directory named as Whispering's own folder in an earlier layout,
+ * `so.epicenter.whispering`, in a temporary directory of its own. Remove
+ * `dirname` of it when done.
  */
 export async function whisperingDirectory(prefix: string) {
 	const root = join(
 		await realpath(await mkdtemp(join(tmpdir(), prefix))),
-		WHISPERING_FOLDER_ID,
+		'so.epicenter.whispering',
 	);
 	await mkdir(root);
 	return root;
@@ -267,7 +264,6 @@ export async function openTestWorkspace({
 			),
 			text_runs: withResultFailures(folder.tables.text_runs, failures),
 		}),
-		folderId: WHISPERING_FOLDER_ID,
 		location: root,
 		capture: createFixtureDevice({
 			name: 'tone.wav',

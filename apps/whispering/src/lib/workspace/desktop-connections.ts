@@ -4,8 +4,14 @@
  * Each is a row of the `connections` table in Epicenter's own folder,
  * `so.epicenter`: `whispering-transcription` and `whispering-text`, holding
  * the kind, a title, and the model, so they follow the person to every
- * computer where that folder syncs. Opening Whispering's window permits it
- * into that folder, which it opens with that one table (`connectionsTables`).
+ * computer where that folder syncs. The page opens no folder for them and is
+ * permitted into none but its own. It names an operation, `transcription` or
+ * `text`, and Epicenter reads the row (`whispering_connection_read`) or saves
+ * the fields Whispering writes into it (`whispering_connection_set`) through
+ * the `epicenter` CLI, which opens `so.epicenter` for that one call. A save
+ * carries the row's exact source as the page read it, so an edit Settings
+ * made meanwhile is merged, not lost, and every field another program added
+ * survives.
  *
  * The endpoint and key are not in the row. They live in this computer's
  * keychain under the row's id, and only the `epicenter` CLI reads them: the
@@ -30,10 +36,9 @@
 
 import {
 	CONNECTIONS_FOLDER_ID,
-	connectionsTables,
+	WHISPERING_CONNECTION_IDS,
 } from '@epicenter/ai/connection-table';
 import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
-import type { Folder } from '@epicenter/folder';
 import { Channel } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -45,16 +50,11 @@ import {
 	type Operation,
 	type StoredConnection,
 } from '../connections.js';
-import { describeError } from '../files.js';
-import type { commands } from '../tauri/bindings.gen.js';
-
-export { CONNECTIONS_FOLDER_ID, connectionsTables };
+import type { ConnectionRow, commands } from '../tauri/bindings.gen.js';
 
 /** The rows Whispering uses, by operation: their stems in `so.epicenter/connections`. */
-export const CONNECTION_IDS: Record<Operation, string> = {
-	transcription: 'whispering-transcription',
-	text: 'whispering-text',
-};
+export const CONNECTION_IDS: Record<Operation, string> =
+	WHISPERING_CONNECTION_IDS;
 
 const TITLES: Record<Operation, string> = {
 	transcription: 'Whispering transcription',
@@ -71,7 +71,12 @@ const SET_IN_SETTINGS =
 /** The shell commands the connections use. */
 export type ConnectionCommands = Pick<
 	typeof commands,
-	'aiKeyState' | 'aiKeySet' | 'aiSend' | 'authStatus'
+	| 'aiKeyState'
+	| 'aiKeySet'
+	| 'aiSend'
+	| 'authStatus'
+	| 'whisperingConnectionRead'
+	| 'whisperingConnectionSet'
 >;
 
 /** How a connection sends: over its own endpoint and key, or with the app's sign-in. */
@@ -83,17 +88,15 @@ type Resolved = {
 	readonly connection: StoredConnection;
 };
 
-/** `so.epicenter` as Whispering opens it: through its `connections` table alone. */
-export type ConnectionsFolder = Pick<
-	Folder<typeof connectionsTables>,
-	'tables' | 'close'
->;
-
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
 
 const failureOf = (error: { name: string; message?: string }) =>
 	error.message ?? `the shell refused the request (${error.name})`;
+
+/** The row's file as a person finds it under the Epicenter folder. */
+const rowPath = (operation: Operation) =>
+	`${CONNECTIONS_FOLDER_ID}/connections/${CONNECTION_IDS[operation]}.md`;
 
 /**
  * Send one fetch-shaped request over `connection` through `ai_send`, and
@@ -126,51 +129,33 @@ async function sendThroughEpicenter(
 
 export type DesktopConnections = ReturnType<typeof createDesktopConnections>;
 
-/**
- * Whispering's connections in `so.epicenter`, opened when first read and
- * kept open until `close`.
- */
+/** Whispering's connections in `so.epicenter`, read and saved through Epicenter. */
 export function createDesktopConnections({
 	commands: native,
-	openConnections,
 }: {
+	/** Epicenter's commands; injected for tests. */
 	commands: ConnectionCommands;
-	/** Open `so.epicenter` with `connectionsTables`; injected for tests. */
-	openConnections: () => Promise<
-		Result<ConnectionsFolder, { readonly message: string }>
-	>;
 }) {
-	let opening: Promise<ConnectionsFolder> | undefined;
-	function folder() {
-		opening ??= openConnections().then(({ data, error }) => {
-			if (error !== null) {
-				opening = undefined;
-				throw new Error(
-					`Epicenter's folder, ${CONNECTIONS_FOLDER_ID}, did not open: ${error.message}`,
-				);
-			}
-			return data;
-		});
-		return opening;
-	}
-
 	/**
-	 * The connection `operation` uses now, or undefined when its row is
-	 * missing, is `local`, or names an endpoint this computer has no entry
+	 * The row `operation` names as Epicenter read it, or `null` when there
+	 * is none, with the connection it describes now: undefined when the row
+	 * is missing, is `local`, or names an endpoint this computer has no entry
 	 * for. An `epicenter` row's endpoint is the signed-in deployment's `/v1`,
-	 * and its key is present while the app is signed in.
+	 * and its key is present while the app is signed in. A row that does not
+	 * read is never taken for none.
 	 */
-	async function stored(operation: Operation): Promise<Resolved | undefined> {
+	async function stored(operation: Operation): Promise<{
+		readonly row: ConnectionRow | null;
+		readonly found: Resolved | undefined;
+	}> {
 		const id = CONNECTION_IDS[operation];
-		const { data: row, error } = await (await folder()).tables.connections.get(
-			id,
-		);
-		if (error !== null) throw new Error(error.message);
-		if (row === undefined) return undefined;
-		// A row that does not read is never taken for none.
-		if (row.issues !== null)
+		const { data: row, error } =
+			await native.whisperingConnectionRead(operation);
+		if (error !== null) throw new Error(failureOf(error));
+		if (row === null) return { row, found: undefined };
+		if (row.fields === null)
 			throw new Error(
-				`${CONNECTIONS_FOLDER_ID}/connections/${id}.md does not read as a connection: ${row.issues.map((issue) => issue.message).join('; ')}`,
+				`${rowPath(operation)} does not read as a connection: ${(row.issues ?? []).map((issue) => issue.message).join('; ')}. Fix that file in Epicenter’s own folder to use it.`,
 			);
 		const { kind, model } = row.fields;
 		if (kind === 'epicenter') {
@@ -180,24 +165,30 @@ export function createDesktopConnections({
 				(grant) => grant.grant === 'desktop' && grant.signedIn,
 			);
 			return {
-				target: 'epicenter',
-				connection: {
-					baseUrl: `${new URL(status.origin).origin}/v1`,
-					model,
-					...(signedIn && { apiKey: HELD_KEY }),
+				row,
+				found: {
+					target: 'epicenter',
+					connection: {
+						baseUrl: `${new URL(status.origin).origin}/v1`,
+						model,
+						...(signedIn && { apiKey: HELD_KEY }),
+					},
 				},
 			};
 		}
-		if (kind !== 'openai-compatible') return undefined;
+		if (kind !== 'openai-compatible') return { row, found: undefined };
 		const { data: state, error: stateError } = await native.aiKeyState(id);
 		if (stateError !== null) throw new Error(failureOf(stateError));
-		if (state.state === 'missing') return undefined;
+		if (state.state === 'missing') return { row, found: undefined };
 		return {
-			target: 'openai-compatible',
-			connection: {
-				baseUrl: state.endpoint,
-				model,
-				...(state.hasKey && { apiKey: HELD_KEY }),
+			row,
+			found: {
+				target: 'openai-compatible',
+				connection: {
+					baseUrl: state.endpoint,
+					model,
+					...(state.hasKey && { apiKey: HELD_KEY }),
+				},
 			},
 		};
 	}
@@ -215,9 +206,13 @@ export function createDesktopConnections({
 	}
 
 	async function read(): Promise<ConnectionsInfo> {
+		const [transcription, text] = await Promise.all([
+			stored('transcription'),
+			stored('text'),
+		]);
 		return {
-			transcription: infoOf(await stored('transcription')),
-			text: infoOf(await stored('text')),
+			transcription: infoOf(transcription.found),
+			text: infoOf(text.found),
 		};
 	}
 
@@ -226,7 +221,8 @@ export function createDesktopConnections({
 
 		/**
 		 * Save one connection: its endpoint and key in the keychain first, then
-		 * its row, made or updated in place.
+		 * its row, made or updated in place from the row as read. A save whose
+		 * reply never came back is reported as not confirmed, never as saved.
 		 */
 		async set(
 			operation: Operation,
@@ -234,7 +230,7 @@ export function createDesktopConnections({
 		): Promise<Result<ConnectionsInfo, string>> {
 			try {
 				const id = CONNECTION_IDS[operation];
-				const found = await stored(operation);
+				const { row, found } = await stored(operation);
 				if (found?.target === 'epicenter') return Err(SET_IN_SETTINGS);
 				const current = found?.connection;
 				const { data: next, error: changeError } = applyConnectionChange(
@@ -257,26 +253,25 @@ export function createDesktopConnections({
 					);
 					if (error !== null) return Err(failureOf(error));
 				}
-				const table = (await folder()).tables.connections;
-				const { data: row, error: readError } = await table.get(id);
-				if (readError !== null) return Err(readError.message);
 				// A new row has a title; an existing one keeps its own, and every
-				// field another program added.
-				const { error: writeError } = await table.set(
-					id,
-					row ?? null,
-					row === undefined
+				// field another program added. The save merges from the row as
+				// read, so an edit that landed since stays.
+				const { error: writeError } = await native.whisperingConnectionSet(
+					operation,
+					row && { text: row.text, issues: row.issues },
+					row === null
 						? {
-								fields: {
-									kind: 'openai-compatible',
-									title: TITLES[operation],
-									model: next.model,
-								},
-								body: '',
+								kind: 'openai-compatible',
+								title: TITLES[operation],
+								model: next.model,
 							}
-						: { fields: { kind: 'openai-compatible', model: next.model } },
+						: { kind: 'openai-compatible', model: next.model },
 				);
-				if (writeError !== null) return Err(describeError(writeError));
+				if (writeError?.name === 'Refused') return Err(writeError.message);
+				if (writeError !== null)
+					return Err(
+						`Epicenter did not confirm that the ${OPERATION_NAMES[operation]} connection was saved, so it may or may not be: ${failureOf(writeError)}`,
+					);
 				return Ok(await read());
 			} catch (cause) {
 				return Err(describe(cause));
@@ -296,7 +291,7 @@ export function createDesktopConnections({
 			  }
 			| undefined
 		> {
-			const found = await stored(operation);
+			const { found } = await stored(operation);
 			if (found === undefined) return undefined;
 			const id = CONNECTION_IDS[operation];
 			const { baseUrl, model } = found.connection;
@@ -317,16 +312,6 @@ export function createDesktopConnections({
 					);
 				},
 			};
-		},
-
-		/** Close `so.epicenter`, if it was opened. */
-		async close() {
-			const opened = opening;
-			opening = undefined;
-			await opened?.then(
-				(folder) => folder.close(),
-				() => {},
-			);
 		},
 	};
 }

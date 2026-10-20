@@ -1,7 +1,9 @@
 /**
- * Build the Folders window's page. The shell serves it on the
- * `epicenter-app` scheme below `/folders/` (ADR-0561), so this build emits
- * ordinary assets under that base.
+ * Build the Folders window's page and each folder editor window's page, which
+ * the route selects (`src/folders/main.ts`). The shell serves both on the
+ * `epicenter-app` scheme below `/folders/` (ADR-0561), the editor at
+ * `/folders/editor/` through the scheme's document fallback, so this build
+ * emits ordinary assets under that base.
  */
 
 import { fileURLToPath } from 'node:url';

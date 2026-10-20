@@ -84,13 +84,13 @@ export type FolderTable<TSchema extends Schema = Schema> = {
 	 */
 	set(
 		id: string,
-		from: Row<TSchema> | null,
+		from: Pick<Row, 'text' | 'issues'> | null,
 		change: RowChange,
 	): Promise<Result<{ sent: Row<TSchema> }, SaveError>>;
 	/** Delete only the row file. Adjacent files remain accessible through `folder.files`. */
 	delete(
 		id: string,
-		from: Row<TSchema> | null,
+		from: Pick<Row, 'text' | 'issues'> | null,
 	): Promise<Result<{ deleted: boolean }, SaveError>>;
 };
 
@@ -129,9 +129,10 @@ export type Folder<TTables extends Record<string, Schema>> = {
 export type FolderTables = Record<string, Schema>;
 
 /**
- * `openFolder({ tables })`: the runtime's default local folder. In a browser
- * it is this origin's one local folder, reopened under a fixed internal key.
- * In Tauri it is the directory the shell assigned to this window.
+ * `openFolder({ tables })`: the runtime's own folder. In a browser it is this
+ * origin's one local folder, reopened under a fixed internal key. In the
+ * desktop app it is the directory the shell bound to this window before the
+ * window existed; the page names none.
  */
 export type DefaultFolderOptions<TTables extends FolderTables> = {
 	readonly tables: TTables;
@@ -139,21 +140,18 @@ export type DefaultFolderOptions<TTables extends FolderTables> = {
 };
 
 /**
- * `openFolder({ directory, tables })`: an ordinary directory. In Bun it is a
- * path to an existing directory; in the desktop app it is the ID the shell
- * registered the directory under, never a path.
+ * `openFolder({ directory, tables })` in Bun: the existing directory at the
+ * filesystem path `directory`.
  */
 export type DirectoryFolderOptions<TTables extends FolderTables> = {
 	readonly directory: string;
 	readonly tables: TTables;
 };
 
-/** Either opening: the runtime's default, or an explicitly selected directory. */
-export type FolderOptions<TTables extends FolderTables> =
-	| DefaultFolderOptions<TTables>
-	| DirectoryFolderOptions<TTables>;
-
-/** The automatic entry's opener: the runtime decides which options it takes. */
+/**
+ * The opener of the browser, desktop, and automatic entries: each opens the
+ * runtime's own folder and takes no directory.
+ */
 export type OpenFolder = <const TTables extends FolderTables>(
-	options: FolderOptions<TTables>,
+	options: DefaultFolderOptions<TTables>,
 ) => Promise<Result<Folder<TTables>, OpenFolderError>>;

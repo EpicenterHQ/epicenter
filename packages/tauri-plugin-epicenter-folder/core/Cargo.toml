@@ -1,11 +1,11 @@
-# The folder grant without Tauri: scopes, the cross-process lock, the path
+# Folder file operations without Tauri: canonical directories, the save lock, the path
 # rule, and the checked file changes a page asks for. Its tests need only Bun,
 # so they run without building a webview runtime.
 # The plugin crate one directory up adds the IPC commands.
 [package]
 name = "epicenter-folder-core"
 version = "0.0.1"
-description = "The desktop shell's grant of an Epicenter folder: scopes, the lock, and checked file changes"
+description = "Canonical directories, the shared save lock, and checked file changes"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 publish = false
