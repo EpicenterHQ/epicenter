@@ -16,7 +16,7 @@
  * - Close refuses input and new actions, lets a started action write after an
  *   await, never waits for a reread, and answers copyable failures
  * - The binding re-runs a reader for its own path and its observed row,
- *   types over what the view last read, lets go of its subscription when no
+ *   reads the current projection, lets go of its subscription when no
  *   view reads it, and a reused view follows its path while input stays held
  *
  * See also:
@@ -323,7 +323,7 @@ test('close never waits for a reread that does not answer', async () => {
 	});
 });
 
-test('an app action is busy but not saving until a write of it is accepted', async () => {
+test('an app action does not enter Folder save status until its write is accepted', async () => {
 	const { folder, context } = await setup();
 	const releaseRequest = Promise.withResolvers<void>();
 	const action = context.run(async () => {
@@ -331,7 +331,6 @@ test('an app action is busy but not saving until a write of it is accepted', asy
 		await releaseRequest.promise;
 		return folder.files.write('action.txt', null, 'done');
 	});
-	expect(context.busy).toBe(true);
 	expect(context.saveState).toBe('saved');
 	expect(folder.status.saving).toBe(false);
 
@@ -345,7 +344,6 @@ test('an app action is busy but not saving until a write of it is accepted', asy
 	releaseRequest.resolve();
 	expect((await action).error).toBeNull();
 	expect(states).toEqual(['saving', 'saved']);
-	await until(() => !context.busy);
 	expect(context.saveState).toBe('saved');
 });
 
@@ -367,7 +365,6 @@ test('close lets a started action write after its await, and refuses a new one',
 		}),
 	).rejects.toThrow('The folder is closing');
 	expect(lateActionStarted).toBe(false);
-	expect(context.busy).toBe(true);
 	releaseAction.resolve();
 	expect((await action).error).toBeNull();
 	await closing;
@@ -471,33 +468,7 @@ test('a binding types over the row its getter answers when the person types', as
 	});
 });
 
-test('a binding types over what its view last read: older text merges, the held text read again can be reverted', async () => {
-	const { folder, cached } = await setup({
-		saveAfterMs: 60_000,
-		body: 'one\ntwo\nthree\n',
-	});
-	const edit = folder.tables.notes.edit('milk');
-	const row = cached();
-	const view = createRowEdit(edit, () => row);
-	expect(view.row.body).toBe('one\ntwo\nthree\n');
-	// Another view of the same row types first.
-	const elsewhere = createRowEdit(edit, () => row);
-	expect(elsewhere.row.body).toBe('one\ntwo\nthree\n');
-	elsewhere.change({ body: 'ONE\ntwo\nthree\n' });
-	// This view has not read again: its typing was over what it showed.
-	view.change({ body: 'one\ntwo\nthree typed\n' });
-	expect(edit.pending?.body).toBe('ONE\ntwo\nthree typed\n');
-
-	// Read again, it shows the held text, and a revert is a change.
-	expect(view.row.body).toBe('ONE\ntwo\nthree typed\n');
-	view.change({ body: 'one\ntwo\nthree typed\n' });
-	await edit.save();
-	expect(expectOk(await folder.tables.notes.get('milk'))?.body).toBe(
-		'one\ntwo\nthree typed\n',
-	);
-});
-
-test('`seen` is what the view showed, and composing from it never moves what a change names', async () => {
+test('a command composes over current held input without a separate last-read policy', async () => {
 	const { folder, cached } = await setup({
 		saveAfterMs: 60_000,
 		body: 'one\ntwo\n',
@@ -507,23 +478,24 @@ test('`seen` is what the view showed, and composing from it never moves what a c
 	const view = createRowEdit(edit, () => row);
 	const elsewhere = createRowEdit(edit, () => row);
 	expect(view.row.body).toBe('one\ntwo\n');
-	expect(elsewhere.row.body).toBe('one\ntwo\n');
-	elsewhere.change({ body: 'ONE\ntwo\n' });
-
-	// A command composes from `seen`: still the body this view showed.
-	expect(view.seen.body).toBe('one\ntwo\n');
-	view.change({ body: view.seen.body.replace('two', 'TWO') });
-	expect(edit.pending?.body).toBe('ONE\nTWO\n');
-	expect(view.seen.body).toBe('one\ntwo\n');
+	expectOk(elsewhere.change({ body: 'ONE\ntwo\n' }));
+	// A getter reads current input; reading it does not change future commands.
+	expect(view.row.body).toBe('ONE\ntwo\n');
+	expectOk(view.change({ body: view.row.body.replace('two', 'TWO') }));
+	expect(view.row.body).toBe('ONE\nTWO\n');
+	await view.save();
+	expect(expectOk(await folder.tables.notes.get('milk'))?.body).toBe(
+		'ONE\nTWO\n',
+	);
 });
 
-test('a binding no view displays names what it would show now on every command', async () => {
+test('a binding used without a view reads current input on every command', async () => {
 	const { folder, cached } = await setup({ saveAfterMs: 60_000 });
 	const edit = folder.tables.notes.edit('milk');
 	const row = cached();
 	const commands = createRowEdit(edit, () => row);
 	commands.change({ fields: { title: 'Oat milk' } });
-	expect(commands.seen.fields.title).toBe('Oat milk');
+	expect(commands.row.fields.title).toBe('Oat milk');
 	// The person sees the typed title and turns it back: a revert, not a merge.
 	commands.change({ fields: { title: 'Milk' } });
 	commands.change({ body: 'Two litres, typed\n' });

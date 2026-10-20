@@ -187,26 +187,27 @@ while showing a field without assertions or template constants:
 {/if}
 ```
 
+`observed` is the value the view reads from its query: a row, or the file's
+bytes through `fileBytes` or `rowBytes`. Getters and commands use the current
+projection of that source with held input and own saves. Reading a getter
+changes no command policy; there is no separate last-read snapshot or `seen`.
+A command that composes new content reads `row` or `text` and changes it
+synchronously. Delayed work that intentionally edits an earlier snapshot uses
+the core handle explicitly: keep `const shown = handle.shown(observed)` and
+later call `handle.change(shown.source, patch)`. The core merges changes from
+older snapshots into current input.
+
 `change` and `changeFields` return `Result<void, ChangeError>`: `Ok(undefined)`
 means accepted into memory, while `Err` explains the refusal. It does not mean
 saved. `save()` and `retry()` resolve after their attempt; `pending.error` and
 folder status report a storage failure. A missing observed row returns
 `ChangeError.NoSource`, leaving earlier input readable through `pending`.
 
-`observed` is the value the view reads from its query: a row, or the file's
-bytes through `fileBytes` or `rowBytes`. A command names what that binding
-last displayed, so typing over older text merges into held input and a
-revert to older text saves. Each view makes its own binding, so two views of
-one path each keep what they showed; making one reads and holds nothing, and
-a view whose row or path changes makes a new one. `pending` reads held input,
-`locked` whether input is refused, and `save`, `discard`, `delete`, `retry`
-and `exclusive` call the handle. A command that composes a change from the
-row, such as an app's document form, reads `seen`: the row the next `change`
-names, which reading neither moves nor tracks. Whether that row is still
-current is a separate question; a command that needs it asks the folder's
-answer for the latest read (`rowEdit.shown(latestRow)`), which moves no view. A read of a binding re-runs when input at
-that path changes, through a subscription that lives while an effect reads
-it.
+Each view makes its own binding; making one reads and holds nothing. Make a
+new one when its row or path changes. `pending` reads held input, `locked`
+reads the operation lock, and `save`, `discard`, `delete`, `retry` and
+`exclusive` call the handle. A getter re-runs when input at that path changes,
+through a subscription that lives while an effect reads it.
 
 Use `context.run(action)` for accepted app actions that may write after an
 await. The context counts them in `busy` and waits for them during close;

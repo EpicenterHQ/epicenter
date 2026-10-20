@@ -113,12 +113,50 @@ test('the capture text and Add a thought are saved to the file', async () => {
 	expect(harness.target.textContent).toContain(`Saved to ${PATH}`);
 });
 
+test('two mounted capture views update each other and an intentional revert is saved', async () => {
+	const harness = await setup({ [PATH]: saved('one\ntwo') }, 'capture', {
+		saveAfterMs: 60_000,
+	});
+	const second = document.createElement('main');
+	document.body.append(second);
+	const view = mount(ViewHost, {
+		target: second,
+		props: { captures: harness.captures },
+	});
+	try {
+		flushSync();
+		const a =
+			harness.target.querySelector<HTMLTextAreaElement>('#capture-text')!;
+		const b = second.querySelector<HTMLTextAreaElement>('#capture-text')!;
+		type(a, 'ONE\ntwo');
+		flushSync();
+		expect(b.value).toBe('ONE\ntwo');
+		type(b, b.value.replace('two', 'TWO'));
+		flushSync();
+		expect(a.value).toBe('ONE\nTWO');
+		type(a, 'one\nTWO');
+		flushSync();
+		expect(b.value).toBe('one\nTWO');
+		blur(a);
+		await settle(harness);
+		expect(await harness.text(PATH)).toBe(saved('one\nTWO'));
+	} finally {
+		await unmount(view);
+		second.remove();
+	}
+});
+
 test("another tab's change never replaces typing held here, and the save merges with it", async () => {
 	// Typing waits for its pause, or for the person to leave the text box.
-	const harness = await setup({ [PATH]: FILE }, 'capture', { saveAfterMs: 60_000 });
+	const harness = await setup({ [PATH]: FILE }, 'capture', {
+		saveAfterMs: 60_000,
+	});
 	type(field('capture-text'), 'Mine');
 	await harness.writeElsewhere(PATH, `${FILE}- theirs\n`);
-	await until(() => harness.cached('one')?.body.includes('theirs') ?? false, 'the other tab’s save');
+	await until(
+		() => harness.cached('one')?.body.includes('theirs') ?? false,
+		'the other tab’s save',
+	);
 	flushSync();
 	// The view shows the body typed here until it is saved.
 	expect(field('capture-text')?.value).toBe('Mine');
@@ -194,7 +232,10 @@ test('a file that is not a valid capture shows its issues, and opens as a captur
 	expect(await harness.text(PATH)).toBe(fixed);
 	expect(harness.target.textContent).not.toContain('Needs repair');
 	click(harness.target, 'Open as capture');
-	await until(() => harness.captures.opened?.mode === 'capture', 'the capture view');
+	await until(
+		() => harness.captures.opened?.mode === 'capture',
+		'the capture view',
+	);
 	await settle(harness);
 	expect(field('capture-text')?.value).toBe('Repaired');
 });

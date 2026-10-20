@@ -276,40 +276,6 @@ test('two views of one capture each type over what they show, and share the thou
 	expect(await harness.text(PATH)).toContain('- shared\n');
 });
 
-test('a view types over the body it showed, even after another view typed', async () => {
-	const harness = await openCaptures(
-		{ [PATH]: withBody('one\ntwo\n\n## Thoughts\n') },
-		{ saveAfterMs: 60_000 },
-	);
-	harnesses.push(harness);
-	const { captures, folder } = harness;
-	const stored = harness.cached('one');
-	if (stored?.issues !== null || stored === undefined)
-		throw new Error('one is not cached as a capture');
-	const edit = folder.tables.captures.edit('one');
-	const a = createRowEdit(edit, () => stored);
-	const b = createRowEdit(edit, () => stored);
-	// Both views show the stored body once.
-	expect(a.row.body).toBe('\none\ntwo\n\n## Thoughts\n');
-	expect(b.row.body).toBe('\none\ntwo\n\n## Thoughts\n');
-	const form = captures.formOf('one');
-	const inA = form.in(a);
-	const inB = form.in(b);
-
-	inA.inputText('ONE\ntwo');
-	// B still shows the stored body: its line merges into A's typing.
-	inB.inputText('one\nTWO');
-	expect(form.body).toBe('\nONE\nTWO\n\n## Thoughts\n');
-
-	// A shows both, and the person turns ONE back: the revert is kept.
-	expect(a.row.body).toBe('\nONE\nTWO\n\n## Thoughts\n');
-	inA.inputText('one\nTWO');
-	expect(form.body).toBe('\none\nTWO\n\n## Thoughts\n');
-	await form.flush();
-	await harness.quiet();
-	expect(await harness.text(PATH)).toBe(withBody('one\nTWO\n\n## Thoughts\n'));
-});
-
 /** Capture `one` with thoughts `a` and `b`, and two views that each showed it once. */
 async function twoViewsOfThoughts() {
 	const harness = await openCaptures(
@@ -508,7 +474,9 @@ test('close sends the edit held and refuses new input', async () => {
 	expect(captures.fenced).toBe(true);
 	form.inputText('Too late');
 	expect(form.body).toBeUndefined();
-	expect(expectErr(harness.folder.files.edit(PATH).change(bytes(HAND), 'x')).name).toBe('Locked');
+	expect(
+		expectErr(harness.folder.files.edit(PATH).change(bytes(HAND), 'x')).name,
+	).toBe('Locked');
 	captures.inputNewCapture('Too late');
 	expect(captures.newCapture).toBe('');
 	expect(expectErr(await captures.create('Too late')).name).toBe('NotStarted');

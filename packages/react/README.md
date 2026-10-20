@@ -61,7 +61,8 @@ command names the presentation of the render whose handler runs: React may
 render a newer row in a transition that suspends and never commits, and
 typing still sends what the person saw. `row` is already that render's
 snapshot, so a handler that composes a change from `row` composes over what
-the person saw; the Svelte binding's `seen` has no React counterpart.
+the person saw. Svelte reads the current projection at command time; React
+keeps the projection of the committed render that owns the event handler.
 
 Making a handle reads and holds nothing, so a view makes one each render, and
 a view whose path changes follows it. Unmounting lets go of the view's

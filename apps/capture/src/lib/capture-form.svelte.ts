@@ -12,16 +12,10 @@
  * it (`flush`). Saves run one at a time; text typed while one runs goes in
  * the next. A failed save keeps the edit and its error.
  *
- * Commands belong to one view (`form.in(view)`, over that view's own
- * binding). Each reads two bodies, for two different questions:
- *
- * - What the view showed (`view.seen`): the change is composed over it,
- *   encoded over it (`captureBody.encode`), and typed as a change of it, so
- *   a view that showed older input merges into what another view typed
- *   since, and a revert of what it showed is kept.
- * - The body now (the cache's row with held input and own saves over it,
- *   which moves no view): a command on a position checks it, so a thought
- *   deleted, moved, or changed since, in any view, refuses the command.
+ * Commands belong to one view (`form.in(view)`, over that view's binding).
+ * They compose and encode over `view.row`, the current projected body. A
+ * positional command also compares its supplied list with the current body,
+ * so a thought deleted, moved, or changed since refuses the command.
  *
  * A change the body cannot hold exactly is refused with the reason, and
  * nothing changes.
@@ -140,16 +134,16 @@ export function createCaptureForm(capture: {
 	function commands(view: CaptureView) {
 		/** Whether input is refused now: the folder closes, or the capture is deleted. */
 		const locked = () => view.locked;
-		/** The body the view showed, which a change is composed over and names. */
-		const seen = () => parse(view.seen?.body);
+		/** The current projected body this command composes over. */
+		const readView = () => parse(view.row?.body);
 
 		/**
-		 * Encode `value` over the body the view showed and type it; it saves
+		 * Encode `value` over this projected body and type it; it saves
 		 * at once unless `later`, when it saves after a pause. Answers whether
 		 * the change was taken.
 		 */
 		function write(
-			shown: NonNullable<ReturnType<typeof seen>>,
+			shown: NonNullable<ReturnType<typeof readView>>,
 			value: CaptureBody,
 			{ later = false } = {},
 		): boolean {
@@ -174,7 +168,7 @@ export function createCaptureForm(capture: {
 		 * position in it means the same thought in both.
 		 */
 		function current(shown: readonly string[]) {
-			const showed = seen();
+			const showed = readView();
 			const latest = now();
 			return showed !== undefined &&
 				latest !== undefined &&
@@ -190,9 +184,13 @@ export function createCaptureForm(capture: {
 			 * (`flush`). A refused change leaves the text in the file.
 			 */
 			inputText(value: string) {
-				const showed = seen();
+				const showed = readView();
 				if (locked() || showed === undefined) return;
-				write(showed, { text: value, thoughts: showed.thoughts }, { later: true });
+				write(
+					showed,
+					{ text: value, thoughts: showed.thoughts },
+					{ later: true },
+				);
 			},
 			inputNewThought(value: string) {
 				if (!locked()) newThought = value;
@@ -204,7 +202,7 @@ export function createCaptureForm(capture: {
 					refusal = 'Write something first.';
 					return false;
 				}
-				const showed = seen();
+				const showed = readView();
 				if (showed === undefined) return false;
 				if (
 					!write(showed, {
@@ -236,7 +234,7 @@ export function createCaptureForm(capture: {
 			commitEditing(id: object): boolean {
 				if (locked() || editing?.id !== id) return false;
 				const { index, original, text: edited } = editing;
-				const showed = seen();
+				const showed = readView();
 				if (
 					showed === undefined ||
 					showed.thoughts[index] !== original ||
@@ -314,7 +312,7 @@ export function createCaptureForm(capture: {
 		{
 			/**
 			 * The form as one view gives it: each command composes and types
-			 * over what `view`, that view's own binding, last showed. The
+			 * over the current projection of `view`, that view's binding. The
 			 * form's text, thought edit and refusal are the same for every view.
 			 */
 			in: commands,

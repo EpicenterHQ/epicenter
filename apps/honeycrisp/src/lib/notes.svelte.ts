@@ -21,8 +21,8 @@
  * history and has no rename or move, so Honeycrisp offers neither.
  */
 import { InstantString } from '@epicenter/definition';
-import { ancestors, joinPath } from '@epicenter/folder/file-browser';
 import { CLOSING, DELETING, type RowEdit } from '@epicenter/folder/edits';
+import { ancestors, joinPath } from '@epicenter/folder/file-browser';
 import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
@@ -220,7 +220,9 @@ export function createNotes(local: NotesFolder) {
 	/** A change of a note's fields and body. */
 	type NoteChange = { fields?: Partial<NoteFields>; body?: string };
 	/** What a change of a note is typed over: a view's binding, or the row a list shows. */
-	type NoteSource = NoteEntry | { change(change: NoteChange): ReturnType<RowEdit['change']> };
+	type NoteSource =
+		| NoteEntry
+		| { change(change: NoteChange): ReturnType<RowEdit['change']> };
 
 	/**
 	 * Type `change` into the note at `path` over `seen`: the binding of the
@@ -341,7 +343,9 @@ export function createNotes(local: NotesFolder) {
 		if (local.closing) return CLOSING;
 		// What is typed into any note lands first, so the listing shows its folder.
 		await Promise.all(
-			(rowsOf(NOTES) ?? []).map((note) => folder.tables.notes.edit(note.id).save()),
+			(rowsOf(NOTES) ?? []).map((note) =>
+				folder.tables.notes.edit(note.id).save(),
+			),
 		);
 		const listed = await folder.tables.notes.list();
 		if (listed.error !== null) return describeFailure(listed.error);
@@ -466,9 +470,9 @@ export function createNotes(local: NotesFolder) {
 		// State read reactively
 		// ------------------------------------------------------------------
 
-		/** Whether leaving the page now could lose something: typing held, or a save or action running. */
+		/** Whether the folder has an accepted change still saving. */
 		get busy() {
-			return local.busy;
+			return local.status.saving || local.status.unsaved.length > 0;
 		},
 		/** Whether everything typed is saved on this device, as the header says it. */
 		get saves() {
@@ -518,8 +522,8 @@ export function createNotes(local: NotesFolder) {
 		 * The note at `path` as one view shows it: the row shown now, read
 		 * reactively, with own saves and what is typed over it; whether it
 		 * takes edits; `edit`, which types a body as the rich-text editor
-		 * does; and `change` and `patch`, which type fields and body over what
-		 * this view last showed (`patch` saves at once). Each answers why it
+		 * does; and `change` and `patch`, which type fields and body over
+		 * the current projection (`patch` saves at once). Each answers why it
 		 * was refused, if it was.
 		 */
 		noteBody(path: string): NoteBody & {
@@ -547,9 +551,9 @@ export function createNotes(local: NotesFolder) {
 					return local.closing || edit.locked;
 				},
 				edit(body) {
-					// What this view showed, not a newer read: the rich-text editor
-					// checked its document against `row` before it typed.
-					const shown = withLineFeeds(edit.seen);
+					// The rich-text editor checked its document against `row`
+					// synchronously before this change.
+					const shown = withLineFeeds(edit.row);
 					if (shown === undefined) return false;
 					if (body === shown.body) return true;
 					return changeNote(path, { body }, edit) === undefined;
@@ -576,8 +580,7 @@ export function createNotes(local: NotesFolder) {
 			const why = mutationRefusal(path);
 			if (why !== undefined) return why;
 			const id = folderIdOf(path);
-			if (id === undefined || storedFolder(id) === undefined)
-				return NOT_LISTED;
+			if (id === undefined || storedFolder(id) === undefined) return NOT_LISTED;
 			const edit = folder.tables.folders.edit(id);
 			const changed = edit.change(seen, { fields });
 			if (changed.error !== null) return changed.error.message;
@@ -603,7 +606,7 @@ export function createNotes(local: NotesFolder) {
 		 * The whole text of `path` as one view shows and types it, over the
 		 * bytes `observed` answers, the view's own read of the file: held
 		 * text, else those bytes with this window's own saves its read may
-		 * not show yet. Typing names what the view last showed, and saves a
+		 * not show yet. Typing names the current projection, and saves a
 		 * second after the last change, or at once with `saveText`.
 		 */
 		fileText: (path: string, observed: () => Uint8Array | undefined) =>
@@ -682,6 +685,5 @@ export function createNotes(local: NotesFolder) {
 			});
 		},
 		delete: (deletion: Deletion) => runAction(() => deleteConfirmed(deletion)),
-
 	};
 }

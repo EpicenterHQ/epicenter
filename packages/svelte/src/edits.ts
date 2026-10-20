@@ -7,14 +7,12 @@
  * not show yet (`edit.shown`). A read re-runs when input at that path
  * changes, through a subscription that lives while some effect reads it.
  *
- * A change names what the view last showed: the `shown` value its last read
- * of `row` or `text` answered, so typing over what the person saw keeps
- * meaning that even when held input or the source moved on since. A
- * command that composes its change from the row reads `seen`, which is that
- * same row, so composing never moves what the change names. The
- * folder keeps the input, its timers, saves and failures, whatever views
- * come and go. Creating a binding reads and holds nothing, so a view whose
- * row or path changes makes a new one, for example in `$derived`.
+ * Getters read the current projection without remembering which one was
+ * read last. Commands use that same projection. Code that intentionally
+ * edits an older snapshot uses the core handle's explicit `shown().source`.
+ * The folder keeps input, timers, saves and failures as views come and go.
+ * Creating a binding reads and holds nothing; make a new binding when its
+ * row or path changes, for example in `$derived`.
  */
 import type { Row } from '@epicenter/folder';
 import type {
@@ -22,9 +20,7 @@ import type {
 	ExclusiveFile,
 	RowEdit,
 	RowEditChange,
-	RowShown,
 	TextEdit,
-	TextShown,
 } from '@epicenter/folder/edits';
 import { ChangeError } from '@epicenter/folder/edits';
 import { untrack } from 'svelte';
@@ -58,34 +54,18 @@ export function createRowEdit<
 	TObserved extends Row<TRowSchema> | undefined,
 >(edit: RowEdit<TRowSchema>, observed: () => TObserved) {
 	const track = tracker(edit);
-	/** What this view last showed: set only by a read of `row`. */
-	let displayed: RowShown<NonNullable<TObserved>> | undefined;
-	/** What `observed` would show now, recording nothing. */
-	function answer() {
+	function current() {
 		const row = observed();
 		return row === undefined
 			? undefined
 			: edit.shown(row as NonNullable<TObserved>);
 	}
-	/** What a command names: what this view last showed, else what it would show now. */
-	const named = () => displayed ?? untrack(answer);
 	return {
 		path: edit.path,
 		/** The observed row with own saves and held input over it. */
 		get row(): TObserved {
 			track();
-			const shown = answer();
-			if (shown !== undefined) displayed = shown;
-			return shown?.row as TObserved;
-		},
-		/**
-		 * The row the next `change` types over: what this view last showed,
-		 * or with nothing shown yet, what it would show now. Reading it shows
-		 * nothing and is not reactive, so a command can compose its change
-		 * from it without moving what the change names.
-		 */
-		get seen(): TObserved {
-			return named()?.row as TObserved;
+			return current()?.row as TObserved;
 		},
 		/** The held input, or `undefined`. */
 		get pending() {
@@ -98,13 +78,11 @@ export function createRowEdit<
 			return edit.locked;
 		},
 		/**
-		 * Type fields and body over the row this view last showed, as one
-		 * change. Answers whether it was taken.
+		 * Type fields and body over the current row, as one change. Answers
+		 * acceptance into memory or the refusal reason; saving happens later.
 		 */
 		change(change: RowEditChange<TRowSchema>): ChangeResult {
-			// No row is observed now: it is loading, or gone.
-			if (untrack(observed) === undefined) return ChangeError.NoSource();
-			const shown = named();
+			const shown = untrack(current);
 			return shown === undefined
 				? ChangeError.NoSource()
 				: edit.change(shown.source, change);
@@ -127,17 +105,13 @@ export function createTextEdit<TObserved extends Uint8Array | undefined>(
 	observed: () => TObserved,
 ) {
 	const track = tracker(edit);
-	/** What this view last showed: set only by a read of `text`. */
-	let displayed: TextShown | undefined;
-	/** What a command names: what this view last showed, else what it would show now. */
-	const named = () => displayed ?? untrack(() => edit.shown(observed()));
+	const current = () => edit.shown(observed());
 	return {
 		path: edit.path,
 		/** The held text or fields over the observed bytes, else those bytes as text. */
 		get text(): ShownText<TObserved> {
 			track();
-			const shown = edit.shown(observed());
-			displayed = shown;
+			const shown = current();
 			// Held fields that no longer apply leave the source to show.
 			return (shown.text ??
 				(shown.source === undefined
@@ -152,13 +126,13 @@ export function createTextEdit<TObserved extends Uint8Array | undefined>(
 			track();
 			return edit.locked;
 		},
-		/** Type the whole text over what this view last showed. Answers whether it was taken. */
+		/** Type the whole text over the current projection. Answers acceptance or the refusal reason. */
 		change(text: string): ChangeResult {
-			return edit.change(named().source, text);
+			return edit.change(untrack(current).source, text);
 		},
-		/** Type frontmatter fields over what this view last showed. */
+		/** Type frontmatter fields over the current projection. */
 		changeFields(fields: Readonly<Record<string, unknown>>): ChangeResult {
-			return edit.changeFields(named().source, fields);
+			return edit.changeFields(untrack(current).source, fields);
 		},
 		save: () => edit.save(),
 		retry: () => edit.retry(),
