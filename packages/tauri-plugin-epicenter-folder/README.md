@@ -19,7 +19,7 @@ bound to the calling WebView's label
 | Path | What it is |
 | --- | --- |
 | `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, and the page's storage (`storage.rs`). No Tauri; its tests need only `git` and `bun`. |
-| `src/` | The Tauri plugin: one binding and watch owner (`folders.rs`), shared window construction (`windows.rs`), the commands, and native event filtering (`watcher.rs`). |
+| `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 | `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
@@ -86,9 +86,7 @@ label and hide-on-close lifetime differ from app-and-folder windows. It binds
 before construction and rolls back a failed build; callers own that window's
 identity and reuse. Ordinary apps use `open_folder_window`.
 
-A root's watch lasts while a window bound to it is open (see Changes outside
-the page). Bindings and watches are runtime resources, not a persisted list
-of folder choices.
+Bindings are runtime resources, not a persisted list of folder choices.
 
 Several windows may be bound to one directory, as Settings and a folder
 editor are to `so.epicenter`. Each page runs its own engine over the
@@ -109,8 +107,7 @@ The page calls `open_folder()`, with no arguments. A window with no binding
 is refused `NotBound`, a bound directory that is gone `Missing`, and one that
 cannot be inspected `Unavailable`; nothing is made again here, since making a
 default belongs to the shell's launch. After shutdown the answer is
-`ShuttingDown`. From a root's first open the plugin watches it (see Changes
-outside the page).
+`ShuttingDown`. Opening starts no watcher or background worker.
 
 Every open also removes the staged files in `.<directory>.epicenter-scratch`
 beside the root that a stopped save left more than an hour ago
@@ -262,68 +259,20 @@ history command. Git's checks live in the CLI's runner,
 
 ## Changes outside the page
 
-From a root's first open, by whichever window, the plugin watches it
-([ADR-0548](../../docs/adr/0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md)),
-until the last window bound to it is destroyed, or shutdown or exit
-(`watcher.rs`). It uses notify's recommended watcher,
-FSEvents on macOS, and `notify-debouncer-full` with a 50 ms debounce; the full
-debouncer passes a rescan through, which the mini debouncer drops. Each batch
-is one Tauri event, `epicenter-folder://changed`, emitted to each window
-bound to the root when the batch is reported, by label. The Folder API uses
-window-scoped listeners to filter these reports. Tauri's global listeners
-can also receive them, so event targeting does not make relative filenames
-private to a window. A window has one folder, so the event names none:
-
-```ts
-type FolderChanged = { paths: string[] | null };
-```
-
-| What changed | `paths` |
-| --- | --- |
-| A path outside `.git` | The path, relative to the root with `/`; each once per batch, sorted |
-| Any path inside `.git`, including refs, objects, the index, logs, and an older shell's staged files | Nothing is reported |
-| A save's staged file, in the scratch directory beside the root | Nothing is reported; the path it is renamed to is |
-| Watching began, the operating system dropped events or asked for a rescan (notify's `Flag::Rescan`, FSEvents' `MustScanSubDirs`), a watch error arrived, the root itself changed, or the computer woke from sleep | `null`: anything may have changed |
-
-A sleep is noticed by a clock thread that reads the wall clock every 5
-seconds: a jump of more than 30 seconds past that, or a step backward, reports
-`null` for every watched root. A clock set by hand reads the same and costs
-one reread. Reading a file is not a change. The watch never follows a link and
-keeps no file ID cache, so nothing outside the root is watched or read, and an
-event naming a path outside the root is ignored.
-
-The event carries no content: a window rereads through the plugin's storage. A
-missed event costs a delay, never data. The page's own saves are reported too,
-which at most rereads a file whose content did not change. `FolderChanged` and
-`FOLDER_CHANGED_EVENT` are in the generated bindings as a type and a constant
-rather than through tauri-specta's events, which would name the event
-`plugin:epicenter-folder:<name>`.
-
-Tauri delivers an event emitted to a label to that window's listeners and to
-every listener registered for any target, in any window: a page should listen
-with `getCurrentWebviewWindow().listen(...)`, not the global `listen(...)`, or
-it hears other windows' folders too. A folder that cannot be watched still
-opens; the failure is logged and its windows hear no outside change.
-
-A watch belongs to the windows bound to its root. Closing one of several
-keeps it; closing the last stops it, and the next window to open the root
-starts a new one, which begins with `null`. A root deleted and made again
-while no window is bound to it is therefore watched again by the next
-window that opens it; one deleted and made again under a window that stays
-open is not watched again. An open whose window closes while it runs starts no watch.
-One `Folders` state lock protects both bindings and watches. Removing a
-binding and detaching its root's last watch happen together, so a new window
-either keeps the existing watch or starts another on open. Reports and
-watcher destruction run after releasing the lock. A stopped watch may still
-deliver one last batch to whatever windows are bound to the root then; that
-costs at most a reread.
+The plugin stores files and binds directories to windows. It keeps no watchers,
+change-event channel, or wake clock. The shared TypeScript folder context
+(`@epicenter/svelte/folder`) rereads active queries while their document is
+visible, with a delay proportional to the cost of the preceding read batch.
+Own writes still report precise paths inside the page's Folder engine.
+Other windows' and programs' edits appear on the next query refresh. A native
+Folder handle's `onChange` alone does not observe external programs.
 
 ## Shutdown
 
 Every put and directory change holds a clone of its window's directory while
 it runs; a read holds one too. When the app exits, or the shell calls
 `app.folders().shutdown()`, the plugin refuses new binds, opens, reads, and
-work, and stops watching. It waits for nothing: quitting is
+work. It waits for nothing: quitting is
 immediate ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
 Every save is an atomic rename, so a change cut off at exit leaves the old
 file or the new one. A late change is refused as `ShuttingDown` and writes nothing.
@@ -337,11 +286,6 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
   `.<directory>.epicenter-save-lock` beside the directory. The system
   releases it when the process ends, however it ends (`fcntl`, through
   SQLite). It is unreliable on some network filesystems.
-- A change made in the moment between an open and its watch starting is
-  reported only by the `null` that watching begins with, which a page that
-  subscribes after its open does not hear; it already reads after the open.
-  Conditional saves turn a stale write, another window's included, into a
-  conflict either way.
 - The expectation is checked under the folder's save lock. A program that
   takes no lock and changes a path between that check and the rename is not
   seen. Two windows bound to nested roots, one inside the other, take

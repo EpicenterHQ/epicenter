@@ -400,7 +400,7 @@ Tauri adapter for this window's bound folder. The generic editor is a desktop
 client; it adds no browser saved-view writer.
 
 Each change batch invalidates the editor's reads, including descendants of a
-changed directory. The shell watcher reports other windows' and processes'
+changed directory. The shared folder context polls visible queries for other windows' and processes'
 changes.
 
 ### Opening apps
@@ -461,8 +461,7 @@ and a digest of the canonical root: the same app on the same directory reveals i
 two directories with one name in different places are two windows. The page
 calls `openFolder({ tables })`, which opens the folder bound to its window;
 Whispering's recorder writes into the same folder, and no call names it. Two
-apps opened on one folder are two windows on one root, sharing its save lock
-and watch. A folder removed after its window opened is refused `Missing` when
+apps opened on one folder are two windows with separate bindings to one root, sharing its save lock. A folder removed after its window opened is refused `Missing` when
 the page opens it again; a later Open recreates only an app's fixed default.
 
 The native Folder reads ordinary files as they stand, merges row edits with

@@ -28,7 +28,7 @@ import {
 	type ReadError,
 	SaveError,
 } from '@epicenter/folder';
-import type { QueryClient } from '@tanstack/query-core';
+import type { InvalidateQueryFilters } from '@tanstack/query-core';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { Static, TSchema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -85,13 +85,13 @@ function unsavedOf({ table, id, fields, body, error }: Draft): Unsaved {
 
 export function createEdits<TTables extends Record<string, TSchema>>({
 	folder,
-	queryClient,
+	refresh,
 	rowsKey,
 	saveAfterMs = SAVE_AFTER_MS,
 }: {
 	folder: Folder<TTables>;
-	/** The page's cache, which a landed save reads again before its draft goes. */
-	queryClient: QueryClient;
+	/** Read affected queries after a save lands, before releasing its draft. */
+	refresh: (filters: InvalidateQueryFilters) => Promise<void>;
 	/** The query key of table `table`'s rows. */
 	rowsKey: (table: string) => readonly unknown[];
 	saveAfterMs?: number;
@@ -171,7 +171,7 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 				continue;
 			}
 			const { sent } = saved.data;
-			await queryClient.invalidateQueries({ queryKey: rowsKey(table) });
+			await refresh({ queryKey: rowsKey(table) });
 			const after = drafts.get(key);
 			if (after === undefined) return;
 			if (after.revision === revision) drafts.delete(key);
@@ -309,7 +309,7 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 							(removed.error === null && removed.data.deleted)
 						)
 							drafts.delete(key);
-						await queryClient.invalidateQueries({ queryKey: rowsKey(table) });
+						await refresh({ queryKey: rowsKey(table) });
 						return removed;
 					} finally {
 						deleting.delete(key);

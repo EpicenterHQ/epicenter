@@ -22,7 +22,7 @@ Each save names the word as it was when the typing started, and the folder merge
 
 A save that fails keeps the typing on the card with why it failed and **Try again**; further typing tries again too. When the word stops being listed as a word while its typing failed to save, Words names its file and keeps what was typed, with **Save again**, **Copy**, and **Discard**. A save sent to a word deleted elsewhere brings the word back with the edit: an edit beats a delete that never saw it.
 
-The list is read when the page opens. After that, the folder reports each committed save, from this page or another tab of Vocab in this browser, and the list reads the table again. Returning to the window reads nothing.
+The list is read when the page opens. After that, the folder reports each committed save, from this page or another tab of Vocab in this browser, and the list reads the table again. The shared folder context also polls active reads while visible and refreshes them when the page becomes visible again.
 
 A file in `entries/` that is not a valid word is named under the list with why, and is not offered as a word. **Repair as text** opens its exact text. What is typed is saved a second after the last keystroke, when the learner leaves it, and when the page is hidden, one write at a time, each merging by line with a change made elsewhere. The problems shown are those of the saved text, read again after each write. Once the saved text is a valid word, **Show note and stage** closes the repair and the list shows it as a word. A file that is gone or is not text says so and offers the text still typed to copy. A file that is not text at all is only named.
 

@@ -10,7 +10,7 @@
  * - No command names a scope, root, or window
  * - A save is one guarded put; a put another writer overtook reads and merges again
  * - A lost reply is the save landing only when the path holds what was sent
- * - The shell's watcher reaches listeners as `other-handle` until close
+ * - Own saves and peer handles report precise paths without a native event listener
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { existsSync, writeFileSync } from 'node:fs';
@@ -36,34 +36,12 @@ mock.module('@tauri-apps/api/core', () => ({
 	) => shell.invoke(cmd, body, options),
 }));
 
-const changeHandlers = new Set<(event: { payload: unknown }) => void>();
-
-/** The shell's watcher announcing a change, as the folder plugin emits it. */
-function emitChanged(payload: { paths: string[] | null }) {
-	for (const handler of [...changeHandlers]) handler({ payload });
-}
-
-mock.module('@tauri-apps/api/webviewWindow', () => ({
-	getCurrentWebviewWindow: () => ({
-		async listen(
-			_event: string,
-			handler: (event: { payload: unknown }) => void,
-		) {
-			changeHandlers.add(handler);
-			return () => {
-				changeHandlers.delete(handler);
-			};
-		},
-	}),
-}));
-
 const { openTauriFolder } = await import('./tauri.js');
 
 const notes = Type.Object({ title: Type.String() });
 
 beforeEach(() => {
 	shell = createGrantedShell('');
-	changeHandlers.clear();
 });
 
 async function granted(files: Record<string, string> = {}) {
@@ -127,7 +105,6 @@ test('every refused open is a refusal, and nothing opens or falls back', async (
 	expect(
 		expectErr(await openTauriFolder({ tables: { '.git': notes } })).name,
 	).toBe('InvalidTable');
-	expect(changeHandlers.size).toBe(0);
 	expect(shell.calls.map((call) => call.cmd)).toEqual(
 		Array(refusals.length + 1).fill('open_folder'),
 	);
@@ -257,18 +234,18 @@ test('a lost reply is the save landing only when the path holds what was sent', 
 	await folder.close();
 });
 
-test('the shell watcher reaches listeners as other-handle changes until close', async () => {
+test('own saves and page peers report paths without native watching', async () => {
 	const { folder } = await granted();
+	const peer = expectOk(await openTauriFolder({ tables: { notes } }));
 	const heard: FolderChange[] = [];
+	const others: FolderChange[] = [];
 	folder.onChange((change) => heard.push(change));
-	emitChanged({ paths: ['notes/milk.md'] });
-	emitChanged({ paths: null });
-	expect(heard).toEqual([
-		{ paths: ['notes/milk.md'], origin: 'other-handle' },
-		{ paths: null, origin: 'other-handle' },
-	]);
+	peer.onChange((change) => others.push(change));
 	expectOk(await folder.files.write('a.md', null, 'a'));
-	expect(heard.at(-1)).toEqual({ paths: ['a.md'], origin: 'this-handle' });
+	expect(heard).toEqual([{ paths: ['a.md'], origin: 'this-handle' }]);
+	expect(others).toEqual([{ paths: ['a.md'], origin: 'other-handle' }]);
 	await folder.close();
-	expect(changeHandlers.size).toBe(0);
+	expectOk(await peer.files.write('b.md', null, 'b'));
+	expect(heard).toHaveLength(1);
+	await peer.close();
 });

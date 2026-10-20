@@ -82,7 +82,7 @@
 		update: (change) => updateView(change),
 		exclusive: (action) => source.exclusive(action),
 		refreshed: async () => {
-			await context.queryClient.invalidateQueries(
+			await context.refresh(
 				{ queryKey: fileKey(context.queries.key, 'epicenter.json') },
 				{ throwOnError: true },
 			);
@@ -336,7 +336,8 @@
 								.message}</Alert.Description
 						>
 					</Alert.Root>
-				{:else if tree === undefined}
+				{/if}
+				{#if tree === undefined}
 					<p class="p-2 text-sm text-muted-foreground">Reading…</p>
 				{:else if tree.length === 0}
 					<p class="p-2 text-sm text-muted-foreground">This folder is empty.</p>

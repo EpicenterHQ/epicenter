@@ -1253,3 +1253,26 @@ fn storage_follows_the_shared_outcomes() {
     }
     assert!(ran >= 25, "only {ran} cases ran");
 }
+
+#[test]
+fn listing_tolerates_subdirectories_removed_during_its_walk_but_not_a_missing_root() {
+    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+    let (_temp, root) = folder("listing-churn", &[("keep.md", b"kept")]);
+    for n in 0..200 { fs::create_dir(root.join(format!("d{n}"))).unwrap(); }
+    let stopped = Arc::new(AtomicBool::new(false));
+    let removing = stopped.clone();
+    let changing = root.clone();
+    let worker = std::thread::spawn(move || {
+        while !removing.load(Ordering::Relaxed) {
+            for n in 0..200 {
+                let at=changing.join(format!("d{n}"));
+                fs::remove_dir(&at).unwrap(); fs::create_dir(&at).unwrap();
+            }
+        }
+    });
+    let results: Vec<_> = (0..100).map(|_| list(&root)).collect();
+    stopped.store(true, Ordering::Relaxed); worker.join().unwrap();
+    for result in results {assert!(result.unwrap().files.iter().any(|file|file.path=="keep.md"));}
+    fs::remove_dir_all(&root).unwrap();
+    assert!(list(&root).is_err());
+}

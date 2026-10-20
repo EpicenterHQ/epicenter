@@ -6,9 +6,8 @@
  * Every view reads the one rows query of the captures table: the timeline,
  * the capture view, and Edit as text, which shows a row's exact source.
  * Changes made outside this page (another tab of Capture) arrive on the
- * folder's change channel, which the context wires to the cache; nothing
- * here reads again on focus. The page's own saves read the rows again once
- * they land.
+ * folder's change channel, which the context wires to the cache. The shared
+ * context also polls visible reads. Own saves refresh their rows after they land.
  *
  * A capture's body is a document, so an edit of it is the row's draft in
  * the folder's edit layer (`edits.row`), which its form types into
@@ -223,7 +222,7 @@ export function createCaptures(context: CaptureFolder) {
 
 	const texts = createTextDrafts({
 		files: folder.files,
-		queryClient,
+		refresh: context.refresh,
 		rowsKey,
 		refused: (path) =>
 			edits.fenced || [...deleting].some((stem) => capturePath(stem) === path),
@@ -280,7 +279,7 @@ export function createCaptures(context: CaptureFolder) {
 			!edits.fenced
 		) {
 			await texts.text(capturePath(stem)).save();
-			await queryClient.refetchQueries({ queryKey: rowsKey, exact: true });
+			await context.refresh({ queryKey: rowsKey, exact: true });
 		}
 		let as = mode;
 		if (mode === 'capture') {
@@ -402,7 +401,7 @@ export function createCaptures(context: CaptureFolder) {
 				});
 				if (saved.error !== null) return saved;
 				// Listed before it opens, so the view never says it is gone.
-				await queryClient.invalidateQueries({ queryKey: rowsKey });
+				await context.refresh({ queryKey: rowsKey });
 				if (newCapture === text) newCapture = '';
 				// Text that does not read as text and thoughts opens as text.
 				await open(stem, 'capture');

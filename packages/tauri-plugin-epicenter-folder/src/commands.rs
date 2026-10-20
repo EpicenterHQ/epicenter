@@ -41,17 +41,16 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
 
 /// Open this window's folder: the directory the shell bound to it before
 /// the window existed. Refused for a window with none, and for a bound
-/// directory that is gone, which is never made again for the window. From
-/// the first open of a root it is watched while a window is bound to it, and
-/// every window bound to it hears `epicenter-folder://changed`. An open
-/// whose window closes while it runs starts no watch. Every open also
+/// directory that is gone, which is never made again for the window. Every open
 /// removes the staged files a stopped save left an hour or more ago
 /// (`storage::sweep_scratch`).
 #[tauri::command]
 #[specta::specta]
 pub async fn open_folder<R: Runtime>(webview: Webview<R>) -> Result<(), WindowError> {
-    let app = webview.app_handle().clone();
-    let directory = app.state::<Folders>().bound(webview.label())?;
+    let directory = webview
+        .app_handle()
+        .state::<Folders>()
+        .bound(webview.label())?;
     blocking(
         move || {
             let root = directory.root();
@@ -59,7 +58,6 @@ pub async fn open_folder<R: Runtime>(webview: Webview<R>) -> Result<(), WindowEr
                 PrepareError::Missing => WindowError::Missing,
                 PrepareError::Failed(message) => WindowError::Unavailable { message },
             })?;
-            app.state::<Folders>().watch(&app, root);
             storage::sweep_stale_scratch(root);
             Ok(())
         },

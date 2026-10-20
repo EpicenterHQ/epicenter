@@ -10,16 +10,13 @@
  * the bytes a save expects there under the directory's save lock, the one
  * Bun processes take too. The page reaches nothing else on disk.
  *
- * The shell's watcher reports changes to the directory (ADR-0548), as
- * `other-handle` changes. It sees this handle's own saves too, so a save
- * can also arrive that way; at most a listener rereads a file that did not
- * change.
+ * Outside edits are discovered by the page's query refresh policy. This
+ * handle still reports its own saves and other handles' saves in this page.
  */
 import { isTauri } from '@tauri-apps/api/core';
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import { hostStorage } from '../boundary.js';
-import { tauriChangeDetector } from '../changes-tauri.js';
 import { OpenFolderError } from '../errors.js';
 import type { DefaultFolderOptions, Folder } from '../folder.js';
 import { tauriHostFiles } from '../tauri-files.js';
@@ -80,30 +77,12 @@ export async function openTauriFolder<
 			return OpenFolderError.Unavailable({ cause: error });
 		return openRefusal(error);
 	}
-	// The shell sweeps a stopped save's staged files at each open.
-	const watch = tauriChangeDetector();
-	let heard: ((paths: readonly string[] | null) => void) | undefined;
-	const watching = watch((change) => {
-		if (change === 'everything') return heard?.(null);
-		heard?.(change);
-	});
-	// A change made once the handle is returned is heard.
-	await watching.ready;
 	return Ok(
 		createNativeFolder({
 			storage: hostStorage(tauriHostFiles()),
 			tables,
 			// Every handle in this page is over the window's one directory.
 			directory: 'tauri:window',
-			detector: (report) => {
-				heard = (paths) => report({ paths, origin: 'other-handle' });
-				return {
-					stop() {
-						heard = undefined;
-						watching.stop();
-					},
-				};
-			},
 		}),
 	);
 }

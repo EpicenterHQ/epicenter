@@ -695,4 +695,53 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await page.context.close();
 		}
 	});
+	test('a failed background table read keeps the focused cell and its draft mounted', async () => {
+		const disk = standIn({ 'todos/a.md': '---\ntitle: A\n---\n' });
+		const page = openEditor(disk.folder);
+		try {
+			await until(
+				() =>
+					[...page.target.querySelectorAll('button')].some(
+						(button) => button.textContent?.trim() === 'Tables',
+					),
+				'navigation',
+			);
+			press(
+				[...page.target.querySelectorAll('button')].find(
+					(button) => button.textContent?.trim() === 'Tables',
+				)!,
+			);
+			const cell = () =>
+				page.target.querySelector<HTMLInputElement>(
+					'input[aria-label="todos/a.md: title"]',
+				);
+			await until(() => cell() !== null, 'the table cell');
+			const original = cell()!;
+			original.focus();
+			type(original, 'Typed here');
+			flushSync();
+			disk.listing.failure = new Error('Folder temporarily unreadable');
+			await page.context.refresh({
+				queryKey: [...page.context.queries.key, 'documents'],
+			});
+			flushSync();
+			expect(cell()).toBe(original);
+			expect(document.activeElement).toBe(original);
+			expect(original.value).toBe('Typed here');
+			expect(page.target.textContent).toContain(
+				'Folder temporarily unreadable',
+			);
+		} finally {
+			await page.close();
+			let closed = false;
+			const closing = page.context.close().then(() => {
+				closed = true;
+			});
+			await until(() => {
+				disk.held.shift()?.answer(Err(new Error('disk full')));
+				return closed;
+			}, 'pending saves');
+			await closing;
+		}
+	});
 });

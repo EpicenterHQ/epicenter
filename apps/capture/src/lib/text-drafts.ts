@@ -23,8 +23,7 @@
  */
 import { type FolderFiles, SaveError } from '@epicenter/folder';
 import { SAVE_AFTER_MS } from '@epicenter/svelte/edits';
-import type { UnsavedFile } from '@epicenter/svelte/folder';
-import type { QueryClient } from '@tanstack/query-core';
+import type { FolderContext, UnsavedFile } from '@epicenter/svelte/folder';
 import { SvelteMap } from 'svelte/reactivity';
 import { createLogger } from 'wellcrafted/logger';
 
@@ -45,15 +44,15 @@ export type TextDrafts = ReturnType<typeof createTextDrafts>;
 
 export function createTextDrafts({
 	files,
-	queryClient,
+	refresh,
 	rowsKey,
 	refused,
 	saveAfterMs = SAVE_AFTER_MS,
 }: {
 	/** The folder's root files; a capture's path is `captures/<stem>.md`. */
 	files: FolderFiles;
-	/** The page's cache, which a landed save reads again before its draft goes. */
-	queryClient: QueryClient;
+	/** Refresh rows after a save lands, before releasing its draft. */
+	refresh: FolderContext['refresh'];
 	/** The key of the rows the text is read from. */
 	rowsKey: readonly unknown[];
 	/** Whether `path` takes no typing now: the folder closes, or it is deleted. */
@@ -123,7 +122,7 @@ export function createTextDrafts({
 				drafts.set(path, { ...settled, saving: false, error: saved.error });
 				continue;
 			}
-			await queryClient.invalidateQueries({ queryKey: rowsKey });
+			await refresh({ queryKey: rowsKey });
 			const after = drafts.get(path);
 			if (after === undefined) return;
 			if (after.revision === draft.revision) drafts.delete(path);

@@ -30,16 +30,6 @@
 //!   refusal is a `StorageError` naming the page's `FileError`.
 //! - Binding adds nothing to the app's access control, so an app that
 //!   already scopes another permission opens and reads as any other does.
-//! - From its first open a folder is watched: every window bound to its root
-//!   hears what changed outside it, as folder-relative paths, and everything
-//!   when watching begins; the event names no folder. Git's private changes
-//!   and windows bound elsewhere hear nothing.
-//! - A destroyed window's binding is removed as the plugin handler does. A
-//!   root is watched while a window bound to it is open: closing one
-//!   of two keeps the watch, closing the last stops it, and the next window
-//!   to open the root, even one removed and made again, starts another. An
-//!   open that finishes after its window closed, or whose window's build
-//!   failed, leaves no watch.
 //! - After shutdown, a late change and a late bind are refused.
 //! - A window without the plugin's permission cannot call it.
 
@@ -119,15 +109,6 @@ impl Fixture {
             .unwrap();
         window(&self.app, label)
     }
-}
-
-/// MockRuntime does not forward Destroyed to plugin event handlers. Apply
-/// the same unbind call as `init`'s handler after destroying the window.
-fn close(window: WebviewWindow<MockRuntime>) {
-    let label = window.label().to_string();
-    window.destroy().unwrap();
-    window.folders().unbind(&label);
-    assert!(window.folders().bound(&label).is_err());
 }
 
 struct TempDirectory(PathBuf);
@@ -441,9 +422,7 @@ fn a_binding_lasts_for_its_window_and_a_closed_label_is_refused() {
     assert_eq!(read_file(&main, "a.md").unwrap(), b"second");
 }
 
-/// A window whose construction fails leaves no binding, and no watch its
-/// page started: the label is free for the next try, and the next window to
-/// open the root starts the watch. One built leaves its binding in place.
+/// A failed window construction releases its binding, including an early page open.
 #[test]
 fn a_failed_window_construction_unbinds_its_label() {
     let fixture = fixture("rollback");
@@ -466,9 +445,7 @@ fn a_failed_window_construction_unbinds_its_label() {
         Ok::<_, BindError>(window(&fixture.app, "main"))
     });
     let main = built.unwrap();
-    let main_hears = hear(&main);
     open(&main).unwrap();
-    assert_eq!(paths_of(&next_change(&main_hears)), None);
     // A second construction on a live label is refused before it builds.
     let mut built_again = false;
     let refused = folders.bind_while_building("main", directory, || {
@@ -993,257 +970,6 @@ fn a_window_without_the_permission_cannot_call_the_plugin() {
             "{command}: {refused}"
         );
     }
-}
-
-/// The change events `window` hears, as sent.
-fn hear(window: &WebviewWindow<MockRuntime>) -> std::sync::mpsc::Receiver<Value> {
-    use tauri::Listener;
-    let (sender, receiver) = std::sync::mpsc::channel();
-    window.listen(crate::FOLDER_CHANGED_EVENT, move |event| {
-        if let Ok(change) = serde_json::from_str(event.payload()) {
-            let _ = sender.send(change);
-        }
-    });
-    receiver
-}
-
-/// The next change event `changes` hears.
-fn next_change(changes: &std::sync::mpsc::Receiver<Value>) -> Value {
-    changes
-        .recv_timeout(std::time::Duration::from_secs(5))
-        .expect("a change event")
-}
-
-/// One change event's paths, `None` for everything. An event names no
-/// folder: a window has one.
-fn paths_of(change: &Value) -> Option<Vec<String>> {
-    assert_eq!(
-        change.as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["paths"],
-        "{change}"
-    );
-    change["paths"].as_array().map(|paths| {
-        paths
-            .iter()
-            .map(|path| path.as_str().unwrap().to_string())
-            .collect()
-    })
-}
-
-/// Every path `changes` reports until each of `expected` has been reported.
-/// A batch names each path once, sorted. A report of everything on the way
-/// is allowed: the operating system may ask for a rescan at any time.
-fn until_heard(
-    changes: &std::sync::mpsc::Receiver<Value>,
-    expected: &[&str],
-) -> std::collections::BTreeSet<String> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    let mut heard = std::collections::BTreeSet::new();
-    while !expected.iter().all(|path| heard.contains(*path)) {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
-        let Ok(change) = changes.recv_timeout(left) else {
-            panic!("heard {heard:?}, never all of {expected:?}");
-        };
-        if let Some(paths) = paths_of(&change) {
-            assert!(paths.windows(2).all(|pair| pair[0] < pair[1]), "{paths:?}");
-            heard.extend(paths);
-        }
-    }
-    heard
-}
-
-/// Give a new watch a moment to start before the disk changes under it.
-fn settle() {
-    std::thread::sleep(std::time::Duration::from_millis(300));
-}
-
-/// ADR-0548: from its first open a folder is watched, and every window bound
-/// to its root, then or later, hears what changed outside it, relative to
-/// the root, and a window bound elsewhere hears nothing. Watching begins
-/// with a report of everything.
-#[test]
-fn the_folder_watcher_reports_changes_to_the_roots_windows_and_no_other() {
-    let fixture = fixture("watch");
-    let elsewhere = fixture.root.with_file_name("elsewhere");
-    std::fs::create_dir(&elsewhere).unwrap();
-    let main = fixture.bound_window("main", &fixture.root);
-    let other = fixture.bound_window("other", &elsewhere);
-    let main_hears = hear(&main);
-    let other_hears = hear(&other);
-
-    open(&main).unwrap();
-    assert_eq!(paths_of(&next_change(&main_hears)), None);
-    // A reloaded page's open does not start a second watch.
-    open(&main).unwrap();
-    settle();
-
-    let root = &fixture.root;
-    std::fs::create_dir_all(root.join("todos")).unwrap();
-    std::fs::write(root.join("todos/a.md"), "a\n").unwrap();
-    std::fs::write(root.join("todos/b.md"), "b\n").unwrap();
-    until_heard(&main_hears, &["todos/a.md", "todos/b.md"]);
-    std::fs::write(root.join("todos/a.md"), "a, changed\n").unwrap();
-    until_heard(&main_hears, &["todos/a.md"]);
-    std::fs::rename(root.join("todos/b.md"), root.join("todos/c.md")).unwrap();
-    until_heard(&main_hears, &["todos/b.md", "todos/c.md"]);
-    std::fs::remove_file(root.join("todos/c.md")).unwrap();
-    until_heard(&main_hears, &["todos/c.md"]);
-
-    // A save through the plugin stages beside the folder, outside the
-    // watch. The saved path is reported, and nothing else: the save made no
-    // `.git`, and the staged file is not in the folder.
-    settle();
-    while main_hears.try_recv().is_ok() {}
-    write(&fixture, &main, "kv.json", "{}\n").unwrap();
-    let heard = until_heard(&main_hears, &["kv.json"]);
-    assert!(heard.iter().all(|path| path == "kv.json"), "{heard:?}");
-    assert!(!root.join(".git").exists());
-
-    // A window bound to the root later hears what changes from then on.
-    let side = fixture.bound_window("side", &fixture.root);
-    let side_hears = hear(&side);
-    std::fs::write(root.join("todos/d.md"), "d\n").unwrap();
-    until_heard(&side_hears, &["todos/d.md"]);
-
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    assert!(
-        other_hears.try_recv().is_err(),
-        "a window bound elsewhere heard a change"
-    );
-    fixture.app.folders().shutdown();
-}
-
-/// Changes inside `.git`, including a ref moving, change no Folder read.
-#[test]
-fn the_folder_watcher_ignores_gits_private_changes() {
-    let fixture = fixture("watch-git");
-    let main = fixture.bound_window("main", &fixture.root);
-    let main_hears = hear(&main);
-    open(&main).unwrap();
-    settle();
-    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
-    std::fs::write(fixture.root.join("a.md"), "a\n").unwrap();
-    until_heard(&main_hears, &["a.md"]);
-    settle();
-    while main_hears.try_recv().is_ok() {}
-
-    // Staging writes objects and the index, which move no history.
-    let git_in_root = |args: &[&str]| {
-        let status = std::process::Command::new("git")
-            .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
-            .args(args)
-            .current_dir(&fixture.root)
-            .status()
-            .unwrap();
-        assert!(status.success(), "{args:?}");
-    };
-    git_in_root(&["add", "a.md"]);
-    assert!(
-        main_hears
-            .recv_timeout(std::time::Duration::from_secs(1))
-            .is_err(),
-        "staging reported a change"
-    );
-
-    // A commit moves the branch but no Folder file.
-    git_in_root(&["commit", "--quiet", "-m", "first"]);
-    assert!(
-        main_hears
-            .recv_timeout(std::time::Duration::from_secs(1))
-            .is_err(),
-        "committing reported a change"
-    );
-    fixture.app.folders().shutdown();
-}
-
-/// A destroyed window's binding is removed. A root's watch lasts while a
-/// window bound to it is open: closing one of two keeps it for the other,
-/// and closing the last stops it. A root removed and made again meanwhile is
-/// watched afresh when a new window opens it, which begins with a report of
-/// everything, and that window hears what changes outside it.
-#[test]
-fn a_roots_watch_lasts_while_a_window_bound_to_it_is_open() {
-    let fixture = fixture("watch-lifetime");
-    let root = &fixture.root;
-    let main = fixture.bound_window("main", root);
-    let side = fixture.bound_window("side", root);
-    let main_hears = hear(&main);
-    let side_hears = hear(&side);
-    open(&main).unwrap();
-    assert_eq!(paths_of(&next_change(&main_hears)), None);
-    open(&side).unwrap();
-    settle();
-
-    close(main);
-    std::fs::write(root.join("a.md"), "a\n").unwrap();
-    until_heard(&side_hears, &["a.md"]);
-
-    close(side);
-    std::fs::remove_dir_all(root).unwrap();
-    std::fs::create_dir(root).unwrap();
-    settle();
-    let again = fixture.bound_window("again", root);
-    let again_hears = hear(&again);
-    open(&again).unwrap();
-    assert_eq!(paths_of(&next_change(&again_hears)), None);
-    settle();
-    std::fs::write(root.join("b.md"), "b\n").unwrap();
-    until_heard(&again_hears, &["b.md"]);
-}
-
-/// An open admitted before its window closed, whose blocking work reaches
-/// the watch only after, starts none: the next window to open the root
-/// starts the only watch, and so hears it begin.
-#[test]
-fn an_open_that_finishes_after_its_window_closed_starts_no_watch() {
-    let fixture = fixture("stale-open");
-    let folders = fixture.app.folders();
-    let main = fixture.bound_window("main", &fixture.root);
-    // What `open_folder` holds once admitted: the window's directory.
-    let admitted = folders.bound("main").unwrap();
-    close(main);
-    folders.watch(fixture.app.handle(), admitted.root());
-    settle();
-
-    let side = fixture.bound_window("side", &fixture.root);
-    let side_hears = hear(&side);
-    open(&side).unwrap();
-    assert_eq!(paths_of(&next_change(&side_hears)), None);
-}
-
-/// The last window on a root closing and a new window binding it, in either
-/// order. Bound first, the new window keeps the watch: its open begins no
-/// second one, and it hears what changes. Bound after, its open starts a new
-/// watch.
-#[test]
-fn a_root_whose_last_window_closes_is_watched_for_a_new_window_in_either_order() {
-    let fixture = fixture("rebind");
-    let folders = fixture.app.folders();
-    let main = fixture.bound_window("main", &fixture.root);
-    open(&main).unwrap();
-
-    let side = fixture.bound_window("side", &fixture.root);
-    let side_hears = hear(&side);
-    folders.unbind("main");
-    open(&side).unwrap();
-    assert!(
-        side_hears
-            .recv_timeout(std::time::Duration::from_secs(1))
-            .is_err(),
-        "a second watch began"
-    );
-    std::fs::write(fixture.root.join("a.md"), "a\n").unwrap();
-    until_heard(&side_hears, &["a.md"]);
-
-    folders.unbind("side");
-    let third = fixture.bound_window("third", &fixture.root);
-    let third_hears = hear(&third);
-    open(&third).unwrap();
-    assert_eq!(paths_of(&next_change(&third_hears)), None);
-    settle();
-    std::fs::write(fixture.root.join("b.md"), "b\n").unwrap();
-    until_heard(&third_hears, &["b.md"]);
-    folders.shutdown();
 }
 
 /// Work admitted before a label is reused still writes to its original root.

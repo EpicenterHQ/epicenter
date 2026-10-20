@@ -85,6 +85,7 @@ export function createEntries({
 	folder,
 	queries,
 	queryClient,
+	refresh,
 	edits,
 	run,
 }: VocabContext) {
@@ -93,7 +94,7 @@ export function createEntries({
 	const repair = createRepair(folder, { fenced: () => edits.fenced });
 	const cachedRows = () => queryClient.getQueryData<EntryRows>(rowsKey) ?? [];
 	/** Read the words again, and answer once the list holds the read. */
-	const reread = () => queryClient.invalidateQueries({ queryKey: rowsKey });
+	const reread = () => refresh({ queryKey: rowsKey });
 
 	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
 	function canEdit(id: string) {

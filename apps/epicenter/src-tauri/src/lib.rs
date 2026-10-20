@@ -900,7 +900,7 @@ mod tests {
 
     /// A folder editor window, one per listed folder (`data_folders.rs`), is
     /// selected by `folder-editor.json` alone and holds the folder plugin, its
-    /// change event, read-only SQL, and destroying itself once typing saved: no
+    /// visible query refresh, read-only SQL, and destroying itself once typing saved: no
     /// listing, launch, account, AI, recorder, or model command.
     #[test]
     fn a_folder_editor_window_holds_files_and_read_only_sql() {
@@ -934,7 +934,7 @@ mod tests {
     }
 
     /// Whispering's windows hold what its page calls and nothing more: the
-    /// folder plugin and its change event; the recorder, which finalizes a
+    /// folder plugin; the recorder, which finalizes a
     /// recording when the window is destroyed (ADR-0543, ADR-0571); System
     /// Settings' privacy panes (ADR-0555); transcription with the active
     /// local model, its readiness, and opening Settings to fix it

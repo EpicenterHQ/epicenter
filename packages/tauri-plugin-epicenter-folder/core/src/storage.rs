@@ -484,7 +484,11 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
 /// link. A name that is not text is left out.
 pub fn list(root: &Path) -> Result<FileListing, StorageError> {
     fn visit(directory: &Path, prefix: &str, listing: &mut FileListing) -> io::Result<()> {
-        for entry in fs::read_dir(directory)? {
+        let entries = match fs::read_dir(directory) {
+            Err(cause) if !prefix.is_empty() && cause.kind() == ErrorKind::NotFound => return Ok(()),
+            result => result?,
+        };
+        for entry in entries {
             let entry = entry?;
             let Ok(name) = entry.file_name().into_string() else {
                 continue;

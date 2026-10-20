@@ -74,10 +74,26 @@ notice held by the app layout's toaster.
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
 initialization. The context contains `folder`, `queryClient`,
 `queries.rows(table)`, `edits`, `status`, `saveState`, `busy`, `leaving`, `run`,
-`registerWork`, `registerUnsent`, `settled`, `guardWindowClose`, and `close`. Its single `onChange` subscription
-invalidates reads for the paths reported by the folder. Reads stay fresh
-until that notification, do not refetch on focus, and do not retry a failed
-local read automatically.
+`registerWork`, `registerUnsent`, `settled`, `guardWindowClose`, `refresh`, and
+`close`. Own saves report paths and invalidate their table or exact file queries.
+`refresh(filters)` waits for an older active read, then invalidates without
+cancelling storage work. A save keeps its draft until that fresh read completes.
+
+One timer in the context rereads active folder queries while the document is
+visible. QueryClient selects the reads and joins those already running. The
+next poll waits at least two seconds and nine times the preceding batch's read
+duration, keeping periodic scanning near 10% of elapsed time. Large folders
+therefore update less often. Cached inactive queries are read on mount; becoming
+visible also refreshes active queries. Visibility is the document's state,
+not OS input focus: two visible desktop windows can both poll. No native focus
+listener, file watcher, or wake detector is needed. Closing stops the timer
+before draining saves. Failed local reads are shown without automatic retries
+inside that read; a later poll or visibility return can try again.
+
+Every context has its own QueryClient and `['folder']` query prefix. The prefix
+matches all folder queries in that client's cache. Exact file keys and table
+prefixes select smaller sets; query keys describe cached reads, not filesystem
+subscriptions.
 
 `saveState` is `saved` only when no draft or action is pending and no failure
 is held. A failed row or app-owned draft is `failed`. A storage failure with

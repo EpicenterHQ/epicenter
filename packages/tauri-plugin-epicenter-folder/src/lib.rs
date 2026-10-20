@@ -32,10 +32,7 @@
 //! than silently replaced (ADR-0562, ADR-0568). `Folders::shutdown` refuses
 //! new work without waiting for work already running (ADR-0542).
 //!
-//! From a window's first `open_folder` the plugin also watches its root,
-//! until the last window bound to that root is destroyed, and tells every
-//! window bound to it what changed outside it, as the Tauri event
-//! `epicenter-folder://changed` (`watcher`, ADR-0548).
+//! Pages refresh their visible reads through the shared TypeScript folder context.
 
 use tauri::plugin::TauriPlugin;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
@@ -46,12 +43,10 @@ pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
 mod command_names;
 mod commands;
 mod folders;
-mod watcher;
 mod windows;
 
 pub use command_names::COMMANDS;
 pub use folders::{BindError, Folders, WindowError};
-pub use watcher::{FolderChanged, FOLDER_CHANGED_EVENT};
 pub use windows::{FolderExt, OpenWindowError};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
@@ -62,11 +57,6 @@ const PLUGIN_NAME: &str = "epicenter-folder";
 /// which specta cannot type, so they are dispatched beside these (`init`)
 /// and left out of the bindings. `PutOutcome`, what `put_folder_file`
 /// answers, is exported for the page.
-///
-/// The change event is exported as its payload type, `FolderChanged`, and
-/// its name, `FOLDER_CHANGED_EVENT`, rather than through tauri-specta's
-/// events: those are named `plugin:epicenter-folder:<name>`, and the event
-/// is `epicenter-folder://changed`.
 fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
@@ -77,9 +67,7 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::make_folder_directory::<tauri::Wry>,
             commands::remove_folder_directory::<tauri::Wry>,
         ])
-        .typ::<FolderChanged>()
         .typ::<PutOutcome>()
-        .constant("FOLDER_CHANGED_EVENT", FOLDER_CHANGED_EVENT)
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
 

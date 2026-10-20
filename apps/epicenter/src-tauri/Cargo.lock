@@ -5431,8 +5431,6 @@ version = "0.0.1"
 dependencies = [
  "epicenter-folder-core",
  "log",
- "notify",
- "notify-debouncer-full",
  "percent-encoding",
  "serde",
  "serde_json",

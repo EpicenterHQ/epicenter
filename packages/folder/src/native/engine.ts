@@ -82,33 +82,22 @@ const validId = (table: string, id: string) =>
 
 /**
  * A process-wide registry of open handles by directory, so a save on one
- * handle reaches the others in this process at once. Another process's
- * saves reach a handle only through its host's detector.
+ * handle reaches the others in this process at once. Other processes' saves
+ * are discovered by readers, not reported as handle events.
  */
 const peers = new Map<string, Set<(change: FolderChange) => void>>();
 
-/** Hears changes made outside this handle; `stop` ends it at close. */
-export type NativeDetector = (report: (change: FolderChange) => void) => {
-	readonly stop: () => void;
-};
-
-/**
- * The handle over `storage`. `directory` keys the handles of one directory in
- * this process. `detector` is the host's detector of other programs' changes,
- * already listening.
- */
+/** The handle over `storage`; `directory` keys peer handles in this process. */
 export function createNativeFolder<
 	const TTables extends Record<string, Schema>,
 >({
 	storage,
 	tables,
 	directory,
-	detector,
 }: {
 	readonly storage: FolderStorage;
 	readonly tables: TTables;
 	readonly directory: string;
-	readonly detector?: NativeDetector;
 }): Folder<TTables> {
 	const listeners = new Set<(change: FolderChange) => void>();
 	function hear(change: FolderChange) {
@@ -119,7 +108,6 @@ export function createNativeFolder<
 	peers.set(directory, others);
 	const fromPeer = (change: FolderChange) => hear(change);
 	others.add(fromPeer);
-	const detected = detector?.(hear);
 
 	/** Tell this handle's listeners and every other handle of the directory. */
 	function landed(paths: readonly string[]) {
@@ -433,7 +421,6 @@ export function createNativeFolder<
 			others.delete(fromPeer);
 			if (others.size === 0 && peers.get(directory) === others)
 				peers.delete(directory);
-			detected?.stop();
 		},
 	};
 	return folderHandle(engine, tables);

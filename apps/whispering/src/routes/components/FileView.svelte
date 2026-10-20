@@ -57,13 +57,14 @@
 	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
 	/** The file's text as typed while an edit is unsaved, else as read. */
 	const text = $derived(
-		opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.text) : undefined,
+		library.editedText(path) ?? (opened.data?.kind === 'text' ? opened.data.text : undefined),
 	);
 	/** Why a row file, as last saved, is not a row yet. Typing saves after a pause, and this follows. */
 	const issues = $derived(
 		table === undefined || text === undefined ? undefined : (library.rowSource(table, path)?.issues ?? undefined),
 	);
 	const locked = $derived(library.locked(path));
+	const pending = $derived(table === undefined ? undefined : library.local.edits.row(table, rowIdOf(table, path) ?? path).pending);
 
 	async function show(source: boolean) {
 		const problem = source ? await library.editSource(path) : await library.useForm(path);
@@ -110,9 +111,15 @@
 		</Button>
 	</div>
 
-	{#if audio}
+	{#if transcript === undefined && pending !== undefined}
+		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
+		<div class="space-y-2 p-4" role="status">
+			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
+			<Textarea readonly aria-label="Unsaved file changes" value={JSON.stringify({fields: pending.fields, body: pending.body}, null, 2)} class="min-h-40 font-mono text-xs" />
+		</div>
+	{:else if audio}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4" data-testid="audio-file-view">
-			<AudioPlayer source={{ kind: 'file', files: library.folder.files, path, generation: library.generation }} label="Audio in {name}" />
+			<AudioPlayer source={{ kind: 'file', query: library.audioQuery(path) }} label="Audio in {name}" />
 			<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
 				<dt class="text-muted-foreground">Type</dt>
 				<dd>{details()} · {audioMimeTypeOf(path)}</dd>
@@ -205,6 +212,7 @@
 	{/if}
 
 	<FileNameBar
+		local={library.local}
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
 		onRename={(next) => library.rename(path, next)}

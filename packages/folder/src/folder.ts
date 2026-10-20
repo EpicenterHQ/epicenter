@@ -105,8 +105,9 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	readonly tables: { [TName in keyof TTables]: FolderTable<TTables[TName]> };
 	/**
 	 * Called after a save commits, whether this handle or another one made
-	 * it. The listener is not called for the current state. Returns the
-	 * function that stops listening.
+	 * it. Native handles report participating handles in this page/process,
+	 * not arbitrary external programs; UI queries poll for those edits.
+	 * The listener is not called for the current state. Returns the stop.
 	 */
 	onChange(listener: (change: FolderChange) => void): () => void;
 	readonly status: FolderStatus;

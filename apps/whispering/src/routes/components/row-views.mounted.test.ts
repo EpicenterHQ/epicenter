@@ -23,6 +23,7 @@
  */
 
 import { afterEach, expect, test } from 'bun:test';
+import { SaveError } from '@epicenter/folder';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Library, WriteNotice } from '../../lib/library.svelte.js';
@@ -314,3 +315,274 @@ test('a recording just stopped never reads as missing its audio while the folder
 	expect(seen).not.toContain('shown absent');
 	expect(library.audioOf(library.entries[0]!).kind).toBe('here');
 });
+
+test('failed file text stays visible when polling finds a binary replacement', async () => {
+	const path = 'draft.txt';
+	const { library, target, root } = await open({ [path]: 'Original text' });
+	await show(library, path);
+	const input = () =>
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of draft.txt"]',
+		);
+	expect(input()?.value).toBe('Original text');
+	type(input(), 'Keep this unsaved text');
+	flushSync();
+	const write = library.folder.files.write;
+	library.folder.files.write = async () =>
+		SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
+	await library.saveText(path);
+	flushSync();
+	library.folder.files.write = write;
+	await writeFile(join(root, path), new Uint8Array([0, 1, 2]));
+	await reportChanged(library);
+	flushSync();
+	expect(input()?.value).toBe('Keep this unsaved text');
+	expect(library.isUnsaved(path)).toBe(true);
+	expect(writeStatus(target)).toContain('Not saved');
+});
+
+for (const item of [
+	{
+		path: RECORDING,
+		text: recording('Take', 'Notes.\n'),
+		tab: 'recordings' as const,
+	},
+	{
+		path: RECIPE,
+		text: '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n',
+		tab: 'transformations' as const,
+	},
+]) {
+	for (const replacement of ['binary', 'missing', 'unreadable'] as const) {
+		test(`failed ${item.tab} source remains visible after a ${replacement} reread`, async () => {
+			const { library, target, root } = await open(
+				{ [item.path]: item.text },
+				item.tab,
+			);
+			await show(library, item.path);
+			expect(await library.editSource(item.path)).toBeUndefined();
+			await settle(library);
+			flushSync();
+			const source = () =>
+				field<HTMLTextAreaElement>(
+					target,
+					'textarea[aria-label="Markdown source"]',
+				);
+			expect(source()?.value).toBe(item.text);
+			type(source(), 'Keep this failed source');
+			flushSync();
+			const write = library.folder.files.write;
+			library.folder.files.write = async () =>
+				SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
+			await library.saveText(item.path);
+			library.folder.files.write = write;
+			flushSync();
+			const read = library.folder.files.read;
+			if (replacement === 'binary')
+				await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
+			if (replacement === 'missing') await rm(join(root, item.path));
+			if (replacement === 'unreadable')
+				library.folder.files.read = async (path) =>
+					path === item.path
+						? Promise.reject(new Error('Read unavailable'))
+						: read(path);
+			await reportChanged(library);
+			flushSync();
+			expect(source()?.value).toBe('Keep this failed source');
+			expect(library.isUnsaved(item.path)).toBe(true);
+			library.folder.files.read = read;
+		});
+	}
+}
+
+test('a slow audio read joins polling, keeps unchanged playback, and detects same-length replacements', async () => {
+	const path = 'audio/take.wav';
+	const { library, target, root } = await open({ [path]: 'First audio' });
+	const read = library.folder.files.read;
+	const gate = Promise.withResolvers<void>();
+	let started = 0,
+		active = 0,
+		maximum = 0;
+	library.folder.files.read = async (...args) => {
+		if (args[0] !== path) return read(...args);
+		started++;
+		active++;
+		maximum = Math.max(maximum, active);
+		try {
+			await gate.promise;
+			return await read(...args);
+		} finally {
+			active--;
+		}
+	};
+	cleanups.push(() => {
+		library.folder.files.read = read;
+		gate.resolve();
+	});
+	await library.open(path);
+	flushSync();
+	for (let n = 0; n < 100 && started === 0; n++) {
+		await Bun.sleep(5);
+		flushSync();
+	}
+	expect(started).toBe(1);
+	await Bun.sleep(2_300);
+	flushSync();
+	expect(started).toBe(1);
+	expect(maximum).toBe(1);
+	gate.resolve();
+	await settle(library);
+	flushSync();
+	const player = () => target.querySelector<HTMLAudioElement>('audio');
+	expect(player()).not.toBeNull();
+	const url = player()!.src;
+	await library.local.refresh({
+		queryKey: library.audioQuery(path).queryKey,
+		exact: true,
+	});
+	flushSync();
+	expect(player()!.src).toBe(url);
+	const playing = player();
+	library.folder.files.read = async (file) =>
+		file === path
+			? Promise.reject(new Error('Audio temporarily unreadable'))
+			: read(file);
+	await library.local.refresh({
+		queryKey: library.audioQuery(path).queryKey,
+		exact: true,
+	});
+	flushSync();
+	expect(player()).toBe(playing);
+	expect(player()!.src).toBe(url);
+	expect(target.textContent).toContain('Audio temporarily unreadable');
+	library.folder.files.read = read;
+	await writeFile(join(root, path), 'Other audio');
+	await library.local.refresh({
+		queryKey: library.audioQuery(path).queryKey,
+		exact: true,
+	});
+	flushSync();
+	expect(player()!.src).not.toBe(url);
+	expect(maximum).toBe(1);
+}, 8_000);
+
+for (const item of [
+	{
+		path: RECORDING,
+		text: recording('Take', 'Notes.\n'),
+		tab: 'recordings' as const,
+		table: 'recordings' as const,
+		id: 'take',
+		label: 'Unsaved recording changes',
+	},
+	{
+		path: RECIPE,
+		text: '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n',
+		tab: 'transformations' as const,
+		table: 'transformations' as const,
+		id: 'clean',
+		label: 'Unsaved transformation changes',
+	},
+]) {
+	for (const replacement of ['missing', 'binary'] as const) {
+		test(`failed ${item.tab} fields remain reachable after a ${replacement} reread`, async () => {
+			const { library, target, root } = await open(
+				{ [item.path]: item.text },
+				item.tab,
+			);
+			await show(library, item.path);
+			const table = library.folder.tables[item.table];
+			const set = table.set;
+			table.set = async () =>
+				SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
+			library.setFields(item.table, item.id, { title: 'Keep my title' });
+			await settle(library);
+			table.set = set;
+			expect(library.isUnsaved(item.path)).toBe(true);
+			if (replacement === 'missing') await rm(join(root, item.path));
+			else await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
+			await reportChanged(library);
+			flushSync();
+			const retained = target.querySelector<HTMLTextAreaElement>(
+				`textarea[aria-label="${item.label}"]`,
+			);
+			expect(retained?.value).toContain('Keep my title');
+			expect(writeStatus(target)).toContain('Not saved');
+		});
+	}
+}
+
+for (const item of [
+	{
+		path: RECORDING,
+		repaired: recording('Repaired', 'Notes.\n'),
+		tab: 'recordings' as const,
+	},
+	{
+		path: RECIPE,
+		repaired: '---\ntitle: Repaired\nmodel: null\n---\nTidy.\n',
+		tab: 'transformations' as const,
+	},
+]) {
+	for (const replacement of ['missing', 'repaired'] as const) {
+		test(`automatically opened ${item.tab} source keeps its failed draft after a ${replacement} reread`, async () => {
+			const { library, target, root } = await open(
+				{ [item.path]: 'Malformed row\n' },
+				item.tab,
+			);
+			await show(library, item.path);
+			const source = () =>
+				field<HTMLTextAreaElement>(
+					target,
+					'textarea[aria-label="Markdown source"]',
+				);
+			expect(source()?.value).toBe('Malformed row\n');
+			type(source(), 'Keep my automatic Source draft');
+			flushSync();
+			const write = library.folder.files.write;
+			library.folder.files.write = async () =>
+				SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
+			await library.saveText(item.path);
+			library.folder.files.write = write;
+			if (replacement === 'missing') await rm(join(root, item.path));
+			else await writeFile(join(root, item.path), item.repaired);
+			await reportChanged(library);
+			expect(source()?.value).toBe('Keep my automatic Source draft');
+			expect(library.isUnsaved(item.path)).toBe(true);
+		});
+	}
+}
+
+for (const replacement of ['missing', 'binary'] as const) {
+	test(`failed transcript body remains copyable after a ${replacement} reread`, async () => {
+		const { library, target, root } = await open({
+			[A]: transcript('Alpha.\n'),
+		});
+		await show(library, A);
+		const table = library.folder.tables.transcriptions;
+		const set = table.set;
+		table.set = async () =>
+			SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
+		type(
+			field<HTMLTextAreaElement>(
+				target,
+				'textarea[aria-label="Contents of a.md"]',
+			),
+			'Keep my transcript',
+		);
+		flushSync();
+		await library.saveBody(A);
+		table.set = set;
+		if (replacement === 'missing') await rm(join(root, A));
+		else await writeFile(join(root, A), new Uint8Array([0, 1, 2]));
+		await reportChanged(library);
+		expect(
+			field<HTMLTextAreaElement>(
+				target,
+				'textarea[aria-label="Unsaved file changes"]',
+			)?.value,
+		).toContain('Keep my transcript');
+		expect(writeStatus(target)).toContain('Not saved');
+	});
+}

@@ -52,6 +52,7 @@ import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ActiveCapture } from './capture.js';
+import { loadAudio, type LoadedAudio } from './audio-source.js';
 import type {
 	ConnectionChange,
 	ConnectionsInfo,
@@ -372,15 +373,19 @@ export function createLibrary(
 	// The context makes the rows a change names stale; the listing and the
 	// text of the files it names are this library's to read again.
 	const stopChanges = folder.onChange((change) => {
-		void queryClient.invalidateQueries({ queryKey: filesKey, exact: true });
-		if (change.paths === null)
-			void queryClient.invalidateQueries({ queryKey: textRoot });
+		void local.refresh({ queryKey: filesKey, exact: true });
+		if (change.paths === null) void local.refresh({ queryKey: textRoot });
 		else
-			for (const path of change.paths)
-				void queryClient.invalidateQueries({
+			for (const path of change.paths) {
+				void local.refresh({
 					queryKey: textKey(path),
 					exact: true,
 				});
+				void local.refresh({
+					queryKey: [...local.queries.key, 'audio', path],
+					exact: true,
+				});
+			}
 	});
 
 	const tables = [
@@ -484,7 +489,7 @@ export function createLibrary(
 	/** Read again everything the folder shows. */
 	async function invalidate() {
 		if (fenced) return;
-		await queryClient.invalidateQueries({ queryKey: local.queries.key });
+		await local.refresh({ queryKey: local.queries.key });
 	}
 
 	// --- drafts ----------------------------------------------------------------
@@ -492,7 +497,7 @@ export function createLibrary(
 	const texts = createTextDrafts({
 		files: folder.files,
 		saved: async (path) => {
-			await queryClient.invalidateQueries({
+			await local.refresh({
 				queryKey: textKey(path),
 				exact: true,
 			});
@@ -540,6 +545,7 @@ export function createLibrary(
 	 * Source, or one whose text does not read as a row.
 	 */
 	function showsText(path: string): boolean {
+		if (texts.held(path)) return true;
 		const table = rowTableOf(path);
 		if (table === undefined) return true;
 		if (asText.has(path)) return true;
@@ -879,8 +885,8 @@ export function createLibrary(
 			return selectedPath;
 		},
 		/**
-		 * What the recordings page shows. A recording the listing no longer has
-		 * is no selection: it was deleted, here or elsewhere.
+		 * What the recordings page shows. A missing recording stays selected
+		 * while it holds input that has not saved.
 		 */
 		get selection(): Selection | undefined {
 			const path = selectedPath;
@@ -888,7 +894,13 @@ export function createLibrary(
 			if (rowTableOf(path) !== RECORDINGS)
 				return { kind: 'file', path, entry: undefined };
 			const read = recordingsRead();
-			if (read !== undefined && !read.paths.has(path)) return undefined;
+			if (
+				read !== undefined &&
+				!read.paths.has(path) &&
+				!rowDraft(path)?.held &&
+				!texts.held(path)
+			)
+				return undefined;
 			return {
 				kind: 'recording',
 				path,
@@ -904,7 +916,13 @@ export function createLibrary(
 			if (path === undefined) return undefined;
 			const rows = listed(TRANSFORMATIONS);
 			const read = rows && transformationsOf(rows);
-			if (read !== undefined && !read.paths.has(path)) return undefined;
+			if (
+				read !== undefined &&
+				!read.paths.has(path) &&
+				!rowDraft(path)?.held &&
+				!texts.held(path)
+			)
+				return undefined;
 			return {
 				path,
 				entry: read?.entries.find((entry) => entry.path === path),
@@ -920,6 +938,21 @@ export function createLibrary(
 		// ------------------------------------------------------------------
 
 		textQuery,
+		/** Observed audio participates in the same bounded refresh batch as rows. */
+		audioQuery(path: string) {
+			const queryKey = [...local.queries.key, 'audio', path] as const;
+			return {
+				queryKey,
+				gcTime: 0,
+				structuralSharing: false as const,
+				queryFn: async () => {
+					const current = queryClient.getQueryData<LoadedAudio>(queryKey);
+					const result = await loadAudio(folder.files, path, current);
+					if (result.error !== null) throw new Error(result.error.message);
+					return result.data;
+				},
+			};
+		},
 		/**
 		 * The row of `table` at `path` as shown, read reactively: as the cache
 		 * holds it, with what is typed over it.
@@ -1275,11 +1308,6 @@ export function createLibrary(
 		get textRepairs() {
 			const rows = listed(TEXT_RUNS);
 			return rows ? textResultsOf(rows).repairs : [];
-		},
-		/** Changes each time the folder listing is read; audio players recheck their file on it. */
-		get generation() {
-			trackQueries();
-			return queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0;
 		},
 		/** The recording whose row names `path` as its audio, if one does. */
 		recordingNaming(path: string): RecordingEntry | undefined {

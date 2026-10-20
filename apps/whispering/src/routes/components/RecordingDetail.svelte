@@ -62,7 +62,7 @@
 	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
 	/** The file's text as typed while an edit is unsaved, else as read. */
 	const text = $derived(
-		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.text) : undefined,
+		asText ? (library.editedText(path) ?? (opened.data?.kind === 'text' ? opened.data.text : undefined)) : undefined,
 	);
 	/** Why the file, as last saved, is not a recording yet. Typing saves after a pause, and this follows. */
 	const issues = $derived(asText ? (library.rowSource(RECORDINGS, path)?.issues ?? undefined) : undefined);
@@ -70,6 +70,7 @@
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
+	const pending = $derived(library.local.edits.row(RECORDINGS, rowIdOf(RECORDINGS, path) ?? path).pending);
 
 	// The parent keys this view by the file. While it replaces the view, the
 	// prop already reads the next file, so what is sent as the view goes away
@@ -147,7 +148,12 @@
 		</div>
 	{/if}
 
-	{#if asText && opened.isError}
+	{#if row === undefined && pending !== undefined}
+		<div class="space-y-2 p-4" role="status">
+			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
+			<Textarea readonly aria-label="Unsaved recording changes" value={JSON.stringify({fields: pending.fields, body: pending.body}, null, 2)} class="min-h-40 font-mono text-xs" />
+		</div>
+	{:else if asText && text === undefined && opened.isError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">
 			<p>This recording’s file could not be opened: {opened.error.message}</p>
 			<Button size="sm" variant="outline" onclick={() => void opened.refetch()}>Try again</Button>
@@ -167,7 +173,7 @@
 					<AudioAbsent />
 				{:else if audioPath}
 					<AudioPlayer
-						source={{ kind: 'file', files: library.folder.files, path: audioPath, generation: library.generation }}
+						source={{ kind: 'file', query: library.audioQuery(audioPath) }}
 						label="Audio of {title || id}"
 					/>
 				{:else}

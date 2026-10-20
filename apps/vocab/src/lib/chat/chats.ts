@@ -52,7 +52,7 @@ export function listingOf(rows: readonly RowOf<'chats'>[]): ChatListing {
 export function createChats({
 	folder,
 	queries,
-	queryClient,
+	refresh,
 	edits,
 	run,
 }: VocabContext) {
@@ -81,7 +81,7 @@ export function createChats({
 			return run(async () => {
 				const started = await startChat(folder.tables.chats, focus);
 				if (started.error === null)
-					await queryClient.invalidateQueries({ queryKey: rowsKey });
+					await refresh({ queryKey: rowsKey });
 				return started;
 			});
 		},

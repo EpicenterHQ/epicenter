@@ -231,7 +231,8 @@
 			><Alert.Description>{reading.error.message}</Alert.Description
 			></Alert.Root
 		>
-	{:else if reading.isPending}
+	{/if}
+	{#if reading.isPending}
 		<p role="status">Reading…</p>
 	{:else if reading.data}
 		{#if reading.data.declarationProblem}

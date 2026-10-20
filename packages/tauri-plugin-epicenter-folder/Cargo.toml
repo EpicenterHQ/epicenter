@@ -18,11 +18,6 @@ tauri-plugin = { version = "2", features = ["build"] }
 [dependencies]
 epicenter-folder-core = { path = "core" }
 log = "0.4"
-# The folder watcher (`watcher.rs`): the operating system's recommended
-# watcher, FSEvents on macOS. The full debouncer passes a rescan through,
-# which the mini debouncer drops with every event that names no path.
-notify = "8"
-notify-debouncer-full = "0.5"
 serde = { version = "1", features = ["derive"] }
 specta = "=2.0.0-rc.26"
 specta-typescript = "=0.0.13"

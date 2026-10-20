@@ -220,9 +220,10 @@ each answered in the calling window's directory. No command names a root,
 scope, or window.
 The shell checks every path, stages and renames each save, and checks its
 expected bytes under the same save lock. A command whose reply was lost counts
-as landed only when the path holds what was sent. The shell's watcher reports
-changes to the directory as `other-handle` changes; history moving under
-`.git` is not a file change.
+as landed only when the path holds what was sent. Nothing watches the directory:
+`onChange` reports saves made through this page's handles. The shared UI context
+(`@epicenter/svelte/folder`) polls active queries while visible to discover edits
+from other windows and programs. Reading the handle directly always reads disk.
 
 ## Helpers
 
@@ -369,7 +370,7 @@ neither loads until a folder is opened. No engine carries isomorphic-git.
 | `src/local-folder.ts`, `src/browser/` | The browser's default local folder over the IndexedDB repository engine. |
 | `src/native/` | The directory engine (`engine.ts`), its Bun host and save lock (`bun.ts`, `directory.ts`), and its desktop host (`tauri.ts`, with `bindings.gen.ts` generated from the folder plugin; do not edit). |
 | `src/shared/` | The content merge and row reading every engine uses. |
-| `src/boundary.ts`, `directory-store.ts`, `directory-node.ts`, `directory-primitives.ts`, `tauri-files.ts`, `changes-tauri.ts` | Directory storage over `node:fs` and over the shell's commands, and the shell's change watcher. |
+| `src/boundary.ts`, `directory-store.ts`, `directory-node.ts`, `directory-primitives.ts`, `tauri-files.ts` | Directory storage over `node:fs` and over the shell's commands. |
 | `src/check-folder.ts`, `query-folder.ts`, `read-folder.ts`, `projection.ts`, `declaration.ts`, `definition.ts`, `row-text.ts`, `generate-declaration.ts` | The CLI's readers of `epicenter.json`; `row-text.ts` uses the shared row codec. |
 | `src/git/`, `history-wire.ts`, `write.ts` | Shared Git object and tree rules, the directory history engine `runHistory` runs, and the one write its Sync publishes through. |
 | `src/file-browser.ts` | File-browser helpers. |

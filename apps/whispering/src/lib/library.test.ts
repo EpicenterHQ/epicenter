@@ -555,9 +555,7 @@ test('audio replaced by bytes of the same length is noticed by its content', asy
 		await loadAudio(library.folder.files, path, undefined),
 	);
 
-	const before = library.generation;
 	await settle(library);
-	expect(library.generation).toBeGreaterThan(before);
 	expect(expectOk(await loadAudio(library.folder.files, path, first))).toBe(
 		first,
 	);

@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "todos",
-	"description": "The one standalone Todos window opens the whole app data directory bound by Rust before its WebView exists. The static page calls openFolder with its schema and passes no path. Folder selection belongs to Epicenter's launcher; standalone Todos has no picker or extra-folder windows. The page listens for changes, holds close until edits save, brings unfinished input forward, and may ask Rust to hand its bound default to Epicenter.",
+	"description": "The one standalone Todos window opens the whole app data directory bound by Rust before its WebView exists. The static page calls openFolder with its schema and passes no path. Folder selection belongs to Epicenter's launcher; standalone Todos has no picker or extra-folder windows. The page refreshes visible queries, holds close until edits save, brings unfinished input forward, and may ask Rust to hand its bound default to Epicenter.",
 	"local": true,
 	"windows": ["todos:*"],
 	"permissions": [

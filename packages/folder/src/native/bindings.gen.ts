@@ -7,10 +7,7 @@ export const commands = {
 	/**
 	 *  Open this window's folder: the directory the shell bound to it before
 	 *  the window existed. Refused for a window with none, and for a bound
-	 *  directory that is gone, which is never made again for the window. From
-	 *  the first open of a root it is watched while a window is bound to it, and
-	 *  every window bound to it hears `epicenter-folder://changed`. An open
-	 *  whose window closes while it runs starts no watch. Every open also
+	 *  directory that is gone, which is never made again for the window. Every open
 	 *  removes the staged files a stopped save left an hour or more ago
 	 *  (`storage::sweep_scratch`).
 	 */
@@ -37,9 +34,6 @@ export const commands = {
 	removeFolderDirectory: (path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { path })),
 };
 
-/* Constants */
-export const FOLDER_CHANGED_EVENT = "epicenter-folder://changed" as const;
-
 /* Types */
 /**
  *  A directory's immediate children by name: real subdirectories in
@@ -58,18 +52,6 @@ export type Children = {
 export type FileListing = {
 	files: ListedFile[],
 	directories: string[],
-};
-
-/**
- *  What may have changed in the window's folder. A window has one folder,
- *  so the event names none.
- */
-export type FolderChanged = {
-	/**
-	 *  The changed paths, relative to the root with `/` and sorted, or
-	 *  `null` when anything may have changed.
-	 */
-	paths: string[] | null,
 };
 
 /**  One file in a listing. */

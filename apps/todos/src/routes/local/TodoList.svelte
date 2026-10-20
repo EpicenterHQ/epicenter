@@ -24,7 +24,7 @@
 	} from '$lib/local-todos.js';
 	import TodoRow from './TodoRow.svelte';
 
-	const { folder, queries, queryClient, edits } = getFolder();
+	const { folder, queries, refresh, edits } = getFolder();
 
 	let {
 		open,
@@ -59,7 +59,7 @@
 			});
 			if (error !== null) throw error;
 			// Listed before it opens, so the detail never says it is gone.
-			await queryClient.invalidateQueries({ queryKey: queries.rows('todos').queryKey });
+			await refresh({ queryKey: queries.rows('todos').queryKey });
 			return id;
 		},
 		onError: (error: Parameters<typeof describeFailure>[0], typed: string) =>

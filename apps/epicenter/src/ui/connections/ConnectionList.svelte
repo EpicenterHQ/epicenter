@@ -49,7 +49,7 @@
 				problem = saveFailureText(error);
 				return;
 			}
-			await local.queryClient.invalidateQueries({
+			await local.refresh({
 				queryKey: local.queries.rows('connections').queryKey,
 			});
 			if (kind === 'openai-compatible') {

@@ -108,8 +108,8 @@
 		</Button>
 	</div>
 
-	{#if file.data?.kind === 'text'}
-		{@const shown = text ?? file.data.text}
+	{#if text !== undefined}
+		{@const shown = text}
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
@@ -151,7 +151,7 @@
 			<Empty.Title>This file is no longer in the folder</Empty.Title>
 			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 		</Empty.Root>
-	{:else if file.data !== undefined}
+	{:else if file.data !== undefined && file.data.kind !== 'text'}
 		<Empty.Root class="flex-1">
 			<Empty.Media><FileIcon class="size-8 text-muted-foreground" /></Empty.Media>
 			<Empty.Title>{details(file.data.size)}</Empty.Title>

@@ -16,7 +16,7 @@
 	import { onDestroy } from 'svelte';
 	import { createFileDrafts } from './drafts.svelte';
 	import FolderView from './FolderView.svelte';
-	import { fileKey } from './files';
+	import { listKey, fileKey } from './files';
 	import { updateSavedView } from '@epicenter/folder/tauri';
 	import type { ViewUpdater } from './views.svelte';
 	let { context, updateView = updateSavedView }: {
@@ -36,8 +36,8 @@
 		files: context.folder.files,
 		saved: async (path) => {
 			await Promise.all([
-				context.queryClient.invalidateQueries({ queryKey: fileKey(root, path) }),
-				context.queryClient.invalidateQueries({ queryKey: [...root, 'documents'] }),
+				context.refresh({ queryKey: fileKey(root, path) }),
+				context.refresh({ queryKey: [...root, 'documents'] }),
 			]);
 		},
 	});
@@ -54,7 +54,17 @@
 	// svelte-ignore state_referenced_locally
 	const stop = context.folder.onChange((change) => {
 		if (change.paths === null) return;
-		void context.queryClient.invalidateQueries({ queryKey: root });
+		void context.refresh({ queryKey: listKey(root) });
+		void context.refresh({ queryKey: [...root, 'documents'] });
+		for (const path of change.paths)
+			void context.refresh({
+				predicate: (query) => {
+					const key = query.queryKey;
+					return key[0] === root[0] && key[1] === 'file' &&
+						typeof key[2] === 'string' &&
+						(key[2] === path || key[2].startsWith(`${path}/`));
+				},
+			});
 	});
 	onDestroy(stop);
 </script>

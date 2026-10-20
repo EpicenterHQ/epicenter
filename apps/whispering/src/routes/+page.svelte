@@ -157,7 +157,7 @@
 					{:else if audioPath}
 						<div class="min-w-0 flex-1 basis-full sm:basis-0">
 							<AudioPlayer
-								source={{ kind: 'file', files: library.folder.files, path: audioPath, generation: library.generation }}
+								source={{ kind: 'file', query: library.audioQuery(audioPath) }}
 								label="Audio of {recordingTitle(latest)}"
 							/>
 						</div>

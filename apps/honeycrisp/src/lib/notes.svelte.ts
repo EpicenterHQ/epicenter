@@ -177,9 +177,9 @@ export function createNotes(local: NotesFolder) {
 	// too, so an action never rereads by hand.
 	const stopChanges = folder.onChange((change) => {
 		if (change.paths === null) return;
-		void queryClient.invalidateQueries({ queryKey: keys.files, exact: true });
+		void local.refresh({ queryKey: keys.files, exact: true });
 		for (const path of change.paths)
-			void queryClient.invalidateQueries({
+			void local.refresh({
 				queryKey: keys.text(path),
 				exact: true,
 			});
@@ -324,7 +324,7 @@ export function createNotes(local: NotesFolder) {
 				texts.set(path, { ...settled, saving: false, error });
 				return;
 			}
-			await queryClient.invalidateQueries({
+			await local.refresh({
 				queryKey: keys.text(path),
 				exact: true,
 			});
@@ -778,7 +778,7 @@ export function createNotes(local: NotesFolder) {
 					body: '',
 				});
 				if (created.error !== null) return describeFailure(created.error);
-				await queryClient.invalidateQueries({ queryKey: rowsKey(NOTES) });
+				await local.refresh({ queryKey: rowsKey(NOTES) });
 				open(rowFile(NOTES, id), 'note');
 				return undefined;
 			}),
@@ -790,7 +790,7 @@ export function createNotes(local: NotesFolder) {
 					body: '',
 				});
 				if (created.error !== null) return describeFailure(created.error);
-				await queryClient.invalidateQueries({ queryKey: rowsKey(FOLDERS) });
+				await local.refresh({ queryKey: rowsKey(FOLDERS) });
 				return undefined;
 			}),
 		/** A new empty text file, opened; it never replaces an existing one. */
@@ -801,7 +801,7 @@ export function createNotes(local: NotesFolder) {
 				const path = joinPath(directory, name);
 				const written = await folder.files.write(path, null, '');
 				if (written.error !== null) return describeFailure(written.error);
-				await queryClient.invalidateQueries({
+				await local.refresh({
 					queryKey: keys.files,
 					exact: true,
 				});

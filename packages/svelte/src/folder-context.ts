@@ -8,7 +8,7 @@
  * read with `getFolder()`. A test builds it over a folder it opened.
  *
  * The context owns every subscription it makes: the folder's change channel
- * marks the rows it names stale, and nothing else reads again. `close`
+ * marks the rows it names stale. Visible queries also poll for outside edits. `close`
  * settles the edits, stops that channel, cancels reads, closes the handle,
  * and clears the cache, in that order.
  *
@@ -22,7 +22,12 @@
  * edit layer it builds is a runes module.
  */
 import type { Folder, FolderStatus, Row } from '@epicenter/folder';
-import { QueryClient } from '@tanstack/query-core';
+import {
+	focusManager,
+	QueryClient,
+	type InvalidateQueryFilters,
+	type InvalidateOptions,
+} from '@tanstack/query-core';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
@@ -66,27 +71,48 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	folder: Folder<TTables>,
 	{ saveAfterMs }: { saveAfterMs?: number } = {},
 ) {
-	// Reads reach this device's storage, not a network, and the change
-	// channel is the one detector of outside change: a read is fresh until it
-	// reports one, and a failure is shown, not retried.
+	// Reads reach local storage. Own saves invalidate known paths immediately;
+	// outside edits appear on the next visible poll.
 	const queryClient = new QueryClient({
 		defaultOptions: {
 			queries: {
 				networkMode: 'always',
 				retry: false,
 				staleTime: Number.POSITIVE_INFINITY,
-				refetchOnWindowFocus: false,
+				// A second component shares the view's active read.
+				refetchOnMount: (query) =>
+					query.getObserversCount() > 1 ? true : 'always',
+				refetchOnWindowFocus: 'always',
 			},
 			mutations: { networkMode: 'always', retry: false },
 		},
 	});
 	queryClient.mount();
 	const rowsKey = (table: string) => [...KEY, 'rows', table] as const;
+	let closed = false;
+
+	// A save must refresh from bytes read after it landed. Join an older scan
+	// before invalidating, rather than abandoning I/O that cannot be cancelled.
+	async function refresh(
+		filters: InvalidateQueryFilters,
+		options?: InvalidateOptions,
+	) {
+		if (closed) return;
+		await queryClient.refetchQueries(
+			{ ...filters, type: 'active', fetchStatus: 'fetching' },
+			{ cancelRefetch: false },
+		);
+		if (closed) return;
+		await queryClient.invalidateQueries(filters, {
+			...options,
+			cancelRefetch: false,
+		});
+	}
 
 	// Wired before anything reads, so no change falls between.
 	const stopChanges = folder.onChange((change) => {
 		if (change.paths === null) {
-			void queryClient.invalidateQueries({ queryKey: KEY });
+			void refresh({ queryKey: KEY });
 			return;
 		}
 		// A table is a path's first segment; a root file names none.
@@ -95,15 +121,14 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		);
 		for (const table of tables)
 			if (Object.hasOwn(folder.tables, table))
-				void queryClient.invalidateQueries({ queryKey: rowsKey(table) });
+				void refresh({ queryKey: rowsKey(table) });
 	});
-	let closed = false;
 	const trackStatus = createSubscriber((update) =>
 		closed ? () => {} : folder.onStatusChange(update),
 	);
 	const edits: Edits<TTables> = createEdits({
 		folder,
-		queryClient,
+		refresh,
 		rowsKey,
 		saveAfterMs,
 	});
@@ -113,6 +138,29 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	let closing: Promise<WriteFailure[]> | undefined;
 	let stopWindow: (() => void) | undefined;
 	let guarding: Promise<void> | undefined;
+
+	// One context timer, not one per observer. Query selects active reads and
+	// joins any already running. A full scan gets nine times its read duration
+	// idle (at least two seconds), limiting repeated scans to roughly 10% duty.
+	let refreshTimer = setTimeout(() => void poll(), 2_000);
+	async function poll() {
+		const started = performance.now();
+		try {
+			if (focusManager.isFocused())
+				await queryClient.refetchQueries(
+					{ queryKey: KEY, type: 'active' },
+					{ cancelRefetch: false },
+				);
+		} catch (cause) {
+			log.error(new Error('The local folder could not refresh', { cause }));
+		} finally {
+			if (closing === undefined)
+				refreshTimer = setTimeout(
+					() => void poll(),
+					Math.max(2_000, (performance.now() - started) * 9),
+				);
+		}
+	}
 
 	async function settleWork(): Promise<{
 		files: UnsavedFile[];
@@ -184,6 +232,8 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	return {
 		folder,
 		queryClient,
+		/** Refresh matching reads after a committed change, without overlapping scans. */
+		refresh,
 		edits,
 		/** Keep an app's file action or text draft in this handle's lifetime. */
 		registerWork(item: FolderWork) {
@@ -289,6 +339,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		 */
 		close(): Promise<WriteFailure[]> {
 			closing ??= (async () => {
+				clearTimeout(refreshTimer);
 				// A window close from here on is the shell's own.
 				stopWindow?.();
 				// `edits.close` fences new input synchronously; app work already
