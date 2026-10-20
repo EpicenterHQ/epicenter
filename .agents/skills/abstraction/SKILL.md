@@ -29,9 +29,16 @@ where they read and reply. For each decision, give the options that matter,
 what each costs, and which you recommend, so they can answer in a word. A
 report that only restates what was done leaves the person to reconstruct what
 it means.
-When the person is judging a concrete change, include the actual code, wording,
-or visible result with enough context to inspect it. Show the complete change
-when they ask for it.
+
+When discussing a concrete change, show the relevant change alongside the
+explanation. Brevity should remove incidental details, not the material the
+person is trying to inspect. A summary, file link, or description of an effect
+may help orient them; include the actual code, wording, or visible result when
+that is what they are judging. Let the scope of their judgment determine how
+much to show, including the complete change when requested.
+
+Include the requested material in the current response, with enough context to
+understand it.
 
 Simplification fails when it hides uncertainty, makes deferred behavior look
 implemented, or collapses distinct owners. Extra detail fails when the person
