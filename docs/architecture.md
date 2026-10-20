@@ -1,172 +1,95 @@
 # Epicenter architecture
 
-Epicenter keeps a person's data in data folders: directories of Markdown and
-JSON files with Git history beside them. Apps read and write those files, a
-person or an agent can edit them with any tool, and a folder travels between
-machines only when someone syncs it over Git.
+Epicenter apps edit ordinary files through one public `@epicenter/folder`
+handle. A folder is one rooted set of files; tables are views of Markdown
+rows in those files. An app supplies the schemas it needs when it opens the
+folder. The schemas interpret source content and do not authorize writes or
+discard fields they do not recognize.
 
-This page is the five-minute map. Durable decisions live in
-[`docs/adr`](adr/README.md). Shared vocabulary lives in
-[`docs/CONTEXT.md`](CONTEXT.md). Package-owned behavior belongs in package
-READMEs and code; start with [`apps/README.md`](../apps/README.md) and the
-[folder package](../packages/folder/README.md).
+This page maps the current implementation. Read the
+[folder package](../packages/folder/README.md) for its contract, the
+[application guide](../apps/README.md) for composition, and
+[ADRs](adr/README.md) for the decisions behind them.
 
-## Data folders are the only data model
+## Opening a local folder
 
-A data folder is the one way an app keeps and syncs data
-([ADR-0534](adr/0534-data-folders-are-the-only-data-model.md)). The Yjs store,
-its sync Durable Objects, and the apps built only on it are deleted.
-
-```txt
-~/Epicenter/so.epicenter.todos/
-  epicenter.json        the folder's declaration: its tables
-  settings/<concern>.md settings, one row per concern (ADR-0576)
-  todos/<id>.md         one row per file: YAML frontmatter fields, Markdown body
-  recordings/...        one row per recording
-  audio/...             recordings' audio: declared local, never committed
-  .git/                 history, and the remote in remote.origin.url
+```ts
+const folder = await openFolder({ tables: { todos: todoSchema } });
 ```
 
-- **The files are the data.** No cache, event, or window state is
-  authoritative
-  ([ADR-0548](adr/0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md)).
-- **A folder is the directory its ID names.** In a browser that is
-  `<OPFS root>/<id>/`; on the desktop it is `~/Epicenter/<id>/`. No account,
-  scope, or marker is part of the address, so signing in or out opens the same
-  folder
-  ([ADR-0532](adr/0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)).
-- **A folder declares its shape and names no app.** An app opens any folder
-  whose `epicenter.json` contains the tables and fields it reads. Only the app
-  a folder is named after publishes its declaration; every other app reads it
-  through its definition and never rewrites it
-  ([ADR-0535](adr/0535-an-existing-folder-opens-with-its-own-declaration.md),
-  [ADR-0538](adr/0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md),
-  [ADR-0583](adr/0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md)).
-- **One write path.** `table.save` merges by field, and the body by line, when
-  the file changed since it was read, and reports what it replaced. Sync uses
-  the same merge and asks the person only about overlapping edits.
-- **Transfers happen only when a person syncs**
-  ([ADR-0489](adr/0489-folder-transfers-happen-only-when-a-person-syncs.md)).
-  Nothing syncs in real time. An incoming update that stops partway leaves
-  ordinary changed files, and the next Sync finishes it
-  ([ADR-0545](adr/0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md)).
+In a browser, this opens the origin's stable default in IndexedDB. In a
+Tauri page, it opens the directory that the shell assigned to that window
+before creating its WebView. A Bun process passes an existing path with
+`openFolder({ directory, tables })`; a Tauri page may pass the ID of another
+folder the shell has registered and permitted. Opening needs no account,
+network connection, Git repository, or `epicenter.json`, and it writes no
+authored file. A storage refusal is returned to the caller; another store is
+never opened in its place.
 
-## One folder engine, three hosts
+The browser's older OPFS folders remain on disk but the current default
+opener does not read them. The desktop shell leaves older authored
+directories intact and lists them as folders. Neither boundary silently
+migrates or removes data.
 
-`@epicenter/folder` is the engine: tables, files, history, merge, and Sync.
-Every host returns the same `Folder` handle
-([ADR-0533](adr/0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md)).
+## Editing and saving
 
-| Host | Entry | Storage | History |
-| --- | --- | --- | --- |
-| Browser tab | `@epicenter/folder` | the origin's private file system | isomorphic-git over a private `.git` |
-| Desktop page | `@epicenter/folder` | `~/Epicenter/<id>/`, through the shell | the system `git`, run by the shell |
-| Bun process (tests, scripts) | `@epicenter/folder/bun` | the directory it is given | the system `git`, run itself |
+`folder.files` reads and changes paths; `folder.tables` reads and changes
+rows at `<table>/<id>.md`. Every save supplies the file or row it started
+from. The engine compares that base with the current stored content and
+merges a complete submitted change. Frontmatter fields and regions of text
+use the same content rule in browser, Tauri, and Bun. Unknown fields,
+comments, and repairable source remain visible and survive unrelated edits.
 
-`openFolder` picks the browser or desktop adapter with `isTauri()` when it is
-called. A desktop page that cannot open its folder gets that refusal, never
-browser storage. Declarations come from `@epicenter/definition`.
+The browser commits a save in IndexedDB. The desktop shell and Bun stage
+bytes beside the directory, compare the expected file under a shared save
+lock, and replace one file. The native shell also checks every path and
+refuses links that could leave the granted root. A failed save leaves the
+previous file in place; the app retains its draft and shows the failure.
+`onChange` tells another view which paths to reread. `status` reports saves
+in progress and storage failures. Closing a handle finishes saves already
+started and releases its listeners and storage.
 
-## The shell grants the directory and checks every write
+Git exchange is separate from opening and local saving. The `epicenter`
+CLI retains history commands, while current product pages offer no Save
+version, Connect, or Sync action. The CLI's `epicenter.json` remains an
+optional authored schema and local-exclusion policy for its own tools;
+application opening does not publish one. Browser Git exchange lives inside
+the browser engine, outside the public `Folder` handle. Account access and
+inference have their own lifetimes.
 
-On the desktop the page runs the engine; the Tauri shell owns the disk
-([ADR-0531](adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-`tauri-plugin-epicenter-folder` grants each window the folders it may edit and
-then makes every read and every change itself:
+## Desktop launch and directory assignment
 
-- One path rule, shared by the engine (`pathProblem`) and the shell
-  (`path_problem`), refuses `.git`, `HEAD`, and any name that does not mean
-  only itself on every disk.
-- A change must be a data path, checked on disk with no link on the way. A
-  publish carries what the page expects at the path (nothing, a file, or a
-  SHA-256), and Rust checks it under one lock per root, so a save another
-  window overtook is a `Conflict` rather than a lost write.
-- Rust runs no `git`. A page's history (status, the log, Save version, and
-  Sync) runs in the `epicenter` CLI, one child per operation over a root the
-  window was granted, with hooks and fsmonitor off and a remote that must be
-  a network URL
-  ([ADR-0559](adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
-  A reload or a closed window ends that window's children.
-- One file watcher per granted root emits `epicenter-folder://changed` to the
-  windows that hold the folder, so an edit in one window reaches the others.
+Epicenter ships Settings, Folders, Todos, Capture, Honeycrisp, and
+Whispering in one Tauri bundle. The host has a closed table of bundled
+pages and serves them from one `epicenter-app://localhost` origin. It does
+not install or run app source from a repository. Old installer clones and
+build caches remain on disk, unused.
 
-Quitting is immediate. Every save is an atomic rename and long-running work
-writes into its folder from the start, so no window is asked before the app
-exits ([ADR-0542](adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md),
-[ADR-0543](adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
+The Folders window lists direct child directories of the Epicenter folder
+root. Opening a bundled app normally assigns its named default there, such
+as `~/Epicenter/Todos`. Choosing **Open with** assigns an existing listed
+directory to that app's new window. The shell records the assignment and
+grants that window the folder plugin's scoped file commands before the
+window loads. A selected directory that disappeared is refused; the shell
+does not recreate it as an empty default. The Folders window can open the
+same files as a text editor.
 
-## Epicenter opens to your folders
+Standalone Todos uses its whole platform application-data directory as
+its folder. Its shell computes and assigns that location at launch, so the
+page still calls `openFolder({ tables })`. Its rows land directly under
+`todos/` there. The path choice belongs to the launch context, not to an
+app ID or a path supplied by the WebView.
 
-The Epicenter desktop app (`apps/epicenter`) opens to its Folders window
-([ADR-0537](adr/0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md)).
-It lists every folder under `~/Epicenter` that holds an `epicenter.json`,
-opens one with its own declaration, edits its rows, and offers every installed
-app as "Open in"; an app refuses a folder its definition does not fit. Settings (the
-`home` window) keeps Chat and model administration.
+Each window owns its Folder handle, query cache, drafts, and close
+coordination. The shell owns directory permission and guarded publication.
+Whispering's recorder is a separate shell service that writes into the
+directory granted to its window. Settings and connection credentials are
+separate from the folder's local opening path.
 
-Epicenter's own folder is `~/Epicenter/so.epicenter`. What a person or agent
-edits lives in folders; what only Epicenter writes, such as the installed
-apps' clones, lives in app data; built bundles live in Caches
-([ADR-0539](adr/0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md)).
+## What to check next
 
-## Built-in and installed apps
-
-Epicenter compiles in only its Folders window, served below `/apps/<id>/`.
-Todos, Capture, Whispering, and Honeycrisp are installed apps
-([ADR-0552](adr/0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)).
-The Git lab and Vocab run in the browser.
-
-An installed app is a folder holding `epicenter.app.json` in a Git
-repository, the repository's root unless installing names another folder.
-Epicenter clones the repository's default branch bare into app data, and the
-clone's detached `HEAD` is the commit approved to run: fetching never moves
-it, and only a person's approval does
-([ADR-0597](adr/0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md)).
-Epicenter builds the approved commit and checks the build at every open. Approval trusts
-the app's code fully; it never makes a synced folder trusted
-([ADR-0540](adr/0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)).
-The first-party apps install from their folders in Epicenter's own
-repository, such as `apps/todos`.
-
-## Sync is Git
-
-A folder syncs over plain Git to the remote in its own Git configuration
-([ADR-0521](adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
-On the desktop that can be any Git remote. Epicenter's hosted Git keeps
-repositories in Cloudflare Artifacts (a disk store on the Bun entry), named by
-an immutable id, at `https://git.epicenter.so/<namespace>/<name>.git`. The
-first push creates a repository, and a request is allowed by the access token
-and the namespace membership
-([ADR-0546](adr/0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md),
-[ADR-0547](adr/0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md)).
-
-Unbuilt, decided:
-
-- Large files as files in the folder, with `.gitattributes` choosing LFS
-  ([ADR-0544](adr/0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)).
-  Until then, Whispering's audio is not committed: it stays on the machine
-  that recorded it, and only its transcript syncs
-  ([ADR-0577](adr/0577-audio-stays-on-the-machine-that-recorded-it.md)).
-  Epicenter hosts no separate blob store.
-
-## Auth and the hosted API
-
-`apps/api` is the hosted Cloudflare Worker, built on the shared Hono package
-`packages/server`: auth, hosted Git, AI, and billing. Billing is
-hosted-only and lives in `apps/api/worker/billing/`. The same app runs on Bun
-against Postgres (`apps/api/server.ts`), which is how someone self-hosts. Every
-resource accepts only opaque access tokens from one OAuth 2.1 authorization
-server, and the Better Auth session cookie serves only that server's own pages
-([ADR-0549](adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)).
-
-Epicenter hosts no MCP server. An agent on a machine uses the folder's files,
-Git, and the `epicenter` CLI; a person on a phone uses the browser apps, which
-push directly ([ADR-0578](adr/0578-epicenter-hosts-no-mcp-server.md)).
-Every OAuth client is a registered first-party app: there is no dynamic
-registration and no client ID metadata document.
-
-## Implementation status
-
-ADRs describe decisions, not a build report. Each recent ADR lists what is
-built and unbuilt in its header; check those lines and the affected code
-before treating a decision as shipped.
+The public surface and host-specific behavior are documented in
+[`packages/folder/README.md`](../packages/folder/README.md) and
+[`apps/epicenter/README.md`](../apps/epicenter/README.md). Run apps from the
+repository root with `bun dev:<app>`. For a browser Todos demo, use
+`bun dev:todos:ui`; for the native host, use `bun dev:epicenter`.
