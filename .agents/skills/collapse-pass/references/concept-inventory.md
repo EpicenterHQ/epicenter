@@ -29,6 +29,34 @@ that callers still need; hiding several concepts inside one object does not
 make them one. Compare counts on the same basis and explain uncertainty. A
 focused local transformation needs no subsystem inventory.
 
+## Follow broad names into the structure
+
+Use broad names such as `context`, `manager`, and `service` as starting points
+for structural investigation. Ask what the name leaves unexplained: what
+belongs together, who owns the work, and why callers need this object.
+Sometimes that investigation earns a more precise name. Follow it further when
+it reveals responsibilities split across layers, dependencies passed through
+intermediaries, or coordination that a different design could eliminate.
+Develop that alternative far enough to show what becomes simpler and what
+responsibilities remain.
+
+Pursue the strongest structural simplification the evidence supports. Trace the
+suspicious object through its construction, callers, state, and cleanup. Map
+how responsibilities and information move across the surrounding system,
+including which layers forward work and which decisions several owners repeat.
+Ask what makes that arrangement necessary, then develop an alternative that
+could make several parts unnecessary together. Before settling for a rename or
+local cleanup, explain whether a deeper change would simplify the whole
+workflow. Compare concrete caller code, ownership, lifetimes, and the complexity
+introduced as well as removed.
+
+Carry out this investigation independently. Bring the user a developed
+alternative and the consequences that require their judgment. Ask when a
+missing requirement or product choice would materially change the direction;
+resolve questions about the existing implementation through inspection.
+Keep changes within the task's authorized scope. A focused local transformation
+needs no subsystem inventory.
+
 ## Example: a hypothetical profile editor
 
 Suppose inspection finds these five named abstractions:
