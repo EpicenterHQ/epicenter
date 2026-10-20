@@ -1,8 +1,7 @@
 /**
  * How a folder editor window shows its folder's files and edits one exactly:
  * the tree a listing of paths shows (`fileTree`), the query keys its cache
- * uses, what a file's bytes are to the editor (`fileText`), and the text a
- * save sends (`savedText`).
+ * uses, and which files the editor can change as text (`fileText`).
  *
  * The editor opens its window's folder with no tables (`tables: {}`): it
  * Files edits each source as text. Tables separately interprets Markdown
@@ -85,11 +84,8 @@ export function fileTree(paths: readonly string[]): TreeRow[] {
 
 /** What one file is to the editor. */
 export type FileText =
-	/**
-	 * Text the editor can change: `text` with `\n` line endings, as a text box
-	 * holds it, and whether the file ends its lines with `\r\n`.
-	 */
-	| { readonly kind: 'text'; readonly text: string; readonly crlf: boolean }
+	/** Valid UTF-8 with line endings a textarea can preserve. */
+	| { readonly kind: 'text' }
 	/** Text whose line endings mix `\r\n` with `\n` or `\r`; a text box would rewrite them. */
 	| { readonly kind: 'mixed'; readonly text: string }
 	/** Not UTF-8 text, or text with a NUL byte. */
@@ -97,10 +93,7 @@ export type FileText =
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
-/**
- * What `bytes` are to the editor. A byte-order mark stays in the text, so
- * saving the text writes it back.
- */
+/** Whether `bytes` can be edited, or what to show when they cannot. */
 export function fileText(bytes: Uint8Array): FileText {
 	let text: string;
 	try {
@@ -114,15 +107,6 @@ export function fileText(bytes: Uint8Array): FileText {
 	const lf = (text.match(/\n/g) ?? []).length;
 	// Every `\r` begins a `\r\n`, and every `\n` ends one, or neither occurs.
 	if (cr === crlf && (crlf === 0 || lf === crlf))
-		return {
-			kind: 'text',
-			text: text.replaceAll('\r\n', '\n'),
-			crlf: crlf > 0,
-		};
+		return { kind: 'text' };
 	return { kind: 'mixed', text };
-}
-
-/** The text a save sends for `typed`, with the file's own line endings. */
-export function savedText(typed: string, crlf: boolean): string {
-	return crlf ? typed.replaceAll('\n', '\r\n') : typed;
 }

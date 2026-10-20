@@ -29,7 +29,7 @@
 	</p>
 	<Textarea
 		aria-label="SQL statement"
-		bind:value={() => sql, (value) => change(String(value))}
+		bind:value={() => sql, change}
 		class="font-mono"
 		spellcheck="false"
 	/>

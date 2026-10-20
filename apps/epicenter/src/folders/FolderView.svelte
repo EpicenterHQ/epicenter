@@ -24,13 +24,15 @@
 	let { updateView }: { updateView: ViewUpdater } = $props();
 
 	const context = getFolder();
+	const { folder, queries, getStatus, refresh } = context;
+	const status = $derived(getStatus());
 
-	const listing = createQuery(() => context.queries.files());
+	const listing = createQuery(() => queries.files());
 	const tree = $derived(
 		listing.data === undefined ? undefined : fileTree(listing.data),
 	);
 	/** The paths whose input the folder holds, saving or failed. */
-	const unsaved = $derived(context.getStatus().unsaved);
+	const unsaved = $derived(status.unsaved);
 	const held = $derived(new Set(unsaved));
 	const unlisted = $derived(
 		unsaved.filter((path) => listing.error || !listing.data?.includes(path)),
@@ -41,7 +43,7 @@
 		selected = path;
 		view = 'files';
 	}
-	const declaration = createQuery(() => context.queries.file('epicenter.json', sourceRead));
+	const declaration = createQuery(() => queries.file('epicenter.json', sourceRead));
 	const saved = $derived.by(() => {
 		try {
 			return readSavedViews(
@@ -58,7 +60,7 @@
 	});
 	// The declaration's source, fenced while a view setting is written to it.
 	const source = createTextEdit(
-		context.folder.files.edit('epicenter.json'),
+		folder.files.edit('epicenter.json'),
 		() => declaration.data ?? undefined,
 	);
 	const views = createViews({
@@ -70,7 +72,7 @@
 			return done.data;
 		},
 		refreshed: async () => {
-			await context.refresh(
+			await refresh(
 				['epicenter.json'],
 				{ throwOnError: true },
 			);
@@ -106,7 +108,6 @@
 		if (view === key) view = target;
 	}
 
-	const status = $derived(context.getStatus());
 </script>
 
 <section class="flex h-full min-h-0 flex-1 flex-col">
@@ -148,9 +149,9 @@
 		<span class="ml-auto text-sm text-muted-foreground" role="status">
 			{#if status.saving}
 				Saving…
-			{:else if context.getStatus().failures.length > 0}
+			{:else if status.failures.length > 0}
 				<span class="text-destructive">
-					Not saved: {context.getStatus().failures.map((failure) => failure.path).join(', ')}
+					Not saved: {status.failures.map((failure) => failure.path).join(', ')}
 				</span>
 			{:else if views.failed}<span class="text-destructive"
 					>View settings need attention. Choose the marked view to retry or copy

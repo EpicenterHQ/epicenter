@@ -6,8 +6,9 @@
 	import { onDestroy } from 'svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createTextEdit } from '@epicenter/svelte/edits';
+	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
-	import { fileText, savedText, sourceRead } from './files';
+	import { fileText, sourceRead } from './files';
 
 	/**
 	 * One file of the window's folder, edited as the exact text it holds.
@@ -23,16 +24,16 @@
 	 */
 	let { path: shownPath }: { path: string } = $props();
 
-	const context = getFolder();
+	const { folder, queries } = getFolder();
 
 	// The view keys this editor by its file; while it replaces one, the prop
 	// may already read the next file, so a save sent as it goes uses this.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
 
-	const stored = createQuery(() => context.queries.file(path, sourceRead));
+	const stored = createQuery(() => queries.file(path, sourceRead));
 	const edit = createTextEdit(
-		context.folder.files.edit(path),
+		folder.files.edit(path),
 		() => stored.data ?? undefined,
 	);
 	const shown = $derived(
@@ -47,8 +48,6 @@
 	const sourceLocked = $derived(pending?.kind !== 'text' && shown?.kind !== 'text');
 	/** Exact presented text, including held input and saves a read may not show yet. */
 	const text = $derived(edit.text);
-	/** The presented text determines the line endings of the next input. */
-	const crlf = $derived(text?.includes('\r\n') ?? false);
 	/** The text box's text: one line feed per line, as a text box holds it. */
 	const boxText = $derived(text?.replaceAll('\r\n', '\n') ?? '');
 
@@ -60,8 +59,8 @@
 	<header class="flex items-center gap-3 border-b px-4 py-2">
 		<h3 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h3>
 		<span class="text-xs text-muted-foreground" role="status">
-			{#if edit.locked && !context.closing}
-				Saving view settings; source editing resumes when it finishes.
+			{#if edit.locked}
+				Another operation is using this file.
 			{:else if pending !== undefined && pending.error === undefined}
 				Saving…
 			{:else if pending?.error !== undefined}
@@ -120,7 +119,7 @@
 			aria-label="Text of {path}"
 			spellcheck="false"
 			readonly={fieldsLocked || sourceLocked || edit.locked}
-			bind:value={() => boxText, (value) => edit.change(savedText(String(value), crlf))}
+			bind:value={() => boxText, (value) => edit.change(withFileNewlines(value, text ?? ''))}
 			onblur={() => void edit.save()}
 		/>
 	{/if}

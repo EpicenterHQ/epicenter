@@ -12,7 +12,8 @@
  * - Mixed line endings and binary files are not edited
  */
 import { describe, expect, test } from 'bun:test';
-import { fileText, fileTree, savedText } from './files';
+import { withFileNewlines } from '@epicenter/folder/file-browser';
+import { fileText, fileTree } from './files';
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
@@ -60,22 +61,19 @@ describe('fileText', () => {
 	test('UTF-8 text is editable as it is', () => {
 		expect(fileText(bytes('---\ntitle: A\n---\nBody\n'))).toEqual({
 			kind: 'text',
-			text: '---\ntitle: A\n---\nBody\n',
-			crlf: false,
 		});
 	});
 
 	test('a byte-order mark stays in the text, so saving keeps it', () => {
-		const read = fileText(bytes('﻿hello'));
-		expect(read).toEqual({ kind: 'text', text: '﻿hello', crlf: false });
-		if (read.kind !== 'text') throw new Error('not text');
-		expect(bytes(savedText(read.text, read.crlf))).toEqual(bytes('﻿hello'));
+		const text = '﻿hello';
+		expect(fileText(bytes(text))).toEqual({ kind: 'text' });
+		expect(bytes(withFileNewlines(text, text))).toEqual(bytes(text));
 	});
 
 	test('\\r\\n files edit as \\n text and save with \\r\\n', () => {
-		const read = fileText(bytes('a\r\nb\r\n'));
-		expect(read).toEqual({ kind: 'text', text: 'a\nb\n', crlf: true });
-		expect(savedText('a\nb\nc\n', true)).toBe('a\r\nb\r\nc\r\n');
+		const text = 'a\r\nb\r\n';
+		expect(fileText(bytes(text))).toEqual({ kind: 'text' });
+		expect(withFileNewlines('a\nb\nc\n', text)).toBe('a\r\nb\r\nc\r\n');
 	});
 
 	test('mixed line endings are shown, not edited', () => {

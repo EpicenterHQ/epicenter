@@ -23,8 +23,8 @@
 		view: TableView;
 		change: (value: TableView) => void;
 	} = $props();
-	const context = getFolder();
-	const reading = createQuery(() => context.queries.documents());
+	const { folder, queries, getStatus } = getFolder();
+	const reading = createQuery(() => queries.documents());
 	const directory = $derived(view.table);
 	const directories = $derived(
 		[
@@ -47,7 +47,7 @@
 		new Set(projection.documents.map((doc) => doc.path)),
 	);
 	/** The paths whose input the folder holds, saving or failed. */
-	const held = $derived(new Set(context.getStatus().unsaved));
+	const held = $derived(new Set(getStatus().unsaved));
 	const documents = $derived([
 		...projection.documents,
 		...members.filter((doc) => !included.has(doc.path) && held.has(doc.path)),
@@ -69,7 +69,7 @@
 		documents.map((doc) => {
 			// The document's bytes are the source each field edit names.
 			const edit = createTextEdit(
-				context.folder.files.edit(doc.path),
+				folder.files.edit(doc.path),
 				() => doc.content,
 			);
 			const text = edit.text;
