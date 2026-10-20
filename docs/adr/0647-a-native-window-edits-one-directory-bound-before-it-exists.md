@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-20
+- **Amended by:** [ADR-0649](0649-folders-json-selects-this-machines-folder-locations.md) at Settings' fixed records path and name-based protected-root descriptions: `folders.json` selects the records location independently of its name. Window binding and admission checks remain.
 - **Amends:** [ADR-0644](0644-the-shell-assigns-a-native-windows-default-folder.md) at "Explicit Tauri opening by registered directory ID remains available for windows that deliberately read several folders" and at the native opener asking the shell for the window's assignment: the shell binds the window's directory before the window exists, and no page opens a folder by ID. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at registering each folder for the windows that may edit it, permitting another window later, and the first `grant_directory` creating an application's directory: the shell binds one existing directory to each window label, creates a fixed default at launch, and keeps no registry of folders.
 - **Unbuilt:** remembering a picker choice across launches; direct opening from CLI or arguments; an editor window on a folder chosen in the picker; rearming a root's watch after the directory is deleted and made again while a window bound to it stays open; serializing saves between windows on nested roots.
 

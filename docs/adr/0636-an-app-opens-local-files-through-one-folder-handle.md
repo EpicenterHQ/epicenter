@@ -2,9 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
+- **Amended by:** [ADR-0643](0643-the-folder-package-owns-its-local-engine.md) at implementation ownership: the shared engine belongs inside `@epicenter/folder`, with one public `Folder` type and no enduring `@epicenter/data` package.
 - **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) only at requiring authored data beneath the Epicenter root: a standalone app may default to a durable directory inside its own app data; [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) only at the public `Folder` handle: it names rooted file paths, while a directory remains a physical filesystem location; [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at the planned `@epicenter/data` `open` and `Repository` app surface; and [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) at how each runtime selects local data independently of its remote.
 - **Relates:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (browser origin and OAuth identity), [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (reader-owned schemas), and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) (later desktop runner).
-- **Unbuilt:** the public `openFolder` contract over the new engine, a stable browser default and migration from current app storage, standalone native defaults and first-use tracking, missing-location handling, native directory opening, and migration of app callers. The later runner remains deferred.
+- **Unbuilt:** migration of older browser data, first-use tracking across native launches, and relocation/reselection workflows. The unified Folder API, native opening, standalone Todos default, and app caller migration are implemented. Current fixed-default launch behavior is recorded in ADR-0647; a missing already-bound directory is refused.
 
 ## Context
 

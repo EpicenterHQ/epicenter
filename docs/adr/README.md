@@ -855,7 +855,9 @@ When you add an ADR, add its row here.
 | [0640](0640-future-media-sync-uses-git-lfs-and-one-endpoint-pair.md) | Future media sync uses Git LFS and one endpoint pair | Proposed |
 | [0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) | Epicenter remembers folders as machine-local paths | Accepted (amends 0558) |
 | [0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) | Each desktop app selects its CLI independently of the terminal | Accepted (amends 0558) |
+| [0643](0643-the-folder-package-owns-its-local-engine.md) | The Folder package owns its local engine | Accepted (amends 0626 and 0636) |
 | [0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) | A native app hands Epicenter a directory path, and the person accepts it | Accepted (amended by 0647) |
 | [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Accepted (amends 0531 and 0644) |
 | [0648](0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md) | A folder's saved views live in its optional epicenter.json | Proposed (amends 0632) |
-| [0649](0649-folders-json-selects-this-machines-folder-locations.md) | Folders.json selects this machine's folder locations | Proposed (amends 0539 and 0641) |
+| [0649](0649-folders-json-selects-this-machines-folder-locations.md) | Folders.json selects this machine's folder locations | Proposed (amends 0539, 0641, and 0647) |
+| [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Proposed (amends 0628) |

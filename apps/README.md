@@ -27,10 +27,11 @@ files use directory writes, with the same row parsing and merge rules as the
 browser.
 
 The previous browser opener stored named folders in OPFS. The new browser
-opener checks for that data and refuses to show an empty IndexedDB folder in
-its place. It leaves the OPFS data intact. Importing those folders is a
-separate step. Existing native directory files remain in their directories;
-the new native opener can read and edit them without Git or `epicenter.json`.
+opener uses IndexedDB independently. It does not read, inspect, change, or
+remove the OPFS data, so a browser with only older data opens an empty current
+folder. Importing those folders is a separate step. Existing native directory
+files remain in their directories; the new native opener can read and edit
+them without Git or `epicenter.json`.
 
 ## Svelte app root
 

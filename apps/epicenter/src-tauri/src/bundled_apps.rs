@@ -23,12 +23,12 @@
 //!
 //! A folder that is missing, a file, or a link is refused, never created and
 //! never replaced by the default. A folder that overlaps Epicenter's own
-//! files is refused however it is reached: Settings' `so.epicenter` or
-//! anything in it, the app data, or a directory holding either, such as the
-//! folder root itself (`overlaps_epicenter_files`). The root's other direct
-//! children open. One app on one directory is one window: opening it again
-//! reveals that window. Whispering's AI connections are
-//! rows of `so.epicenter`, which its page reads and saves through two
+//! files is refused however it is reached: the selected records directory or
+//! anything in it, its save staging directory, the app data, or a directory
+//! holding any of these (`overlaps_epicenter_files`). Ordinary directories
+//! outside those protected roots open. One app on one directory is one window:
+//! opening it again reveals that window. Whispering's AI connections are rows of
+//! the selected records folder, which its page reads and saves through two
 //! commands by operation (`cli::whispering_connection_read` and `_set`),
 //! never as a second folder.
 //!

@@ -42,6 +42,11 @@ read schema does not fit. Writes do not validate against that schema.
 Each draft passes its starting source. A row save returns `sent`, the source
 that draft submitted, for its next save. Other writers' independent fields
 and body regions survive without becoming part of the draft's base.
+The public table `change` is a partial row edit. The content merge receives a
+complete candidate built from that edit: `base` is the caller's `from`,
+`current` is this save attempt's stored file, and internal `change` is that
+candidate. Browser Git sync uses the same content merge for competing file
+leaves after it compares trees; Git ancestry and tree entries are separate work.
 
 IndexedDB owns publication:
 

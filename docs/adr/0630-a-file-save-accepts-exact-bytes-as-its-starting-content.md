@@ -4,7 +4,7 @@
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at `Files.write` and `Files.delete` taking `from: string | null`, at `from: null` as a deliberate overwrite, and at the failures of a non-text row deletion.
 - **Relates:** [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) (writes remain text only).
-- **Unbuilt:** exposing these signatures through the public `@epicenter/data` opening API.
+- **Unbuilt:** reconciliation of this proposal's text-only changed-content restriction with the implemented byte-write contract. Exact-byte starting content is implemented in browser, Bun, and Tauri; see the current [Folder contract](../../packages/folder/README.md#saving).
 
 ## Context
 

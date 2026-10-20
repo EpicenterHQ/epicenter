@@ -2,8 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-20
-- **Amends:** [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) at the array format and list-only purpose of `folders.json`; [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at identifying Epicenter's portable records by the fixed directory name `so.epicenter`.
-- **Relates:** [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) keeps each editing window bound to one directory.
+- **Amends:** [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) at the array format and list-only purpose of `folders.json`; [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at identifying Epicenter's portable records by the fixed directory name `so.epicenter`; [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) at Settings' fixed records path and name-based descriptions of protected roots. Window binding and admission checks remain.
 - **Unbuilt:** a UI for choosing or relocating Epicenter's records folder and coordinated changes of that selection while Settings is open.
 
 ## Context

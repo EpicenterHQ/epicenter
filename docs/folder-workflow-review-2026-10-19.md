@@ -126,10 +126,9 @@ top-level path verbs act on files or Git. `add` requires an existing directory;
 plausible spellings but remove no responsibility. Do not ship aliases merely to
 preserve both sketches.
 
-Current `commands.ts` has 22 commands, 17 visible. The four proposed commands are
-absent from that implementation, although an older ADR reserved `open`.
-Recording the grammar deletes no runtime commands. Existing retirement plans
-and future additions need separate implementation accounting.
+At the time of this review, the folder-location grammar was a proposal.
+The October 20 delivery note records the commands now implemented; the
+remaining `open` command needs separate implementation accounting.
 
 ## Costs and alternatives
 
@@ -155,11 +154,13 @@ that invariant without inventing a shared-sign-in experience.
 ## Capture-to-Vault example
 
 A phone capture first needs sync or export before a desktop agent can inspect
-it. The agent can then read Capture and Vault, discuss a thought, and save the
-result under Vault's conventions. Vault's current `AGENTS.md` says ordinary
-extraction records the destination beside the contributing source and leaves
-that source in place; only an explicit migration pass may retire it. That is a
-workflow rule, not immutable Capture history or a folder-engine feature.
+it. The agent accesses the Capture folder and Vault as separate roots, discusses
+a thought, and saves the result under Vault's conventions. It follows Vault's
+provenance rules: retain exact contributing source in the destination's private
+bottom matter, record the destination beside the contributing source, and leave
+that source in place. Only an explicit migration pass may retire source. This is
+consumer evidence for access across folders, not immutable Capture history or a
+folder-engine feature.
 
 No source cleanup, provenance format, or review-state schema becomes universal
 Epicenter policy. Compatible apps may also deliberately share one disk folder;
@@ -191,3 +192,49 @@ reach it on desktop, and develop one thought into Vault while retaining its
 source. Native missing-folder and concurrent-writer checks accompany the native
 opening implementation. These are future verification tasks, not checks passed
 by this documentation landing.
+
+## Exploration closeout
+
+Commit `ce25ba03af` accepts ADRs 0636, 0641, and 0642. Those records and this
+review close the architecture exploration. Implementation can follow when the
+local-data integration is ready; another architecture panel is not a prerequisite.
+
+The concrete remaining requirements are:
+
+- Prove the complete local-data path above, including preservation of existing
+  and unsent work when opening, migrating storage, and first connecting sync.
+  Browser work needs sync or export before a disk agent can access it.
+- Verify native first-use tracking, visible failure for missing established
+  locations, and coordinated saves by clients sharing one directory. Preserve
+  drafts, starting source, and fields another reader does not interpret.
+- Integrate private CLI copies with compatible shared state: any shared rotating
+  grant needs one credential identity and refresh lock. Explicit public-command
+  installation must also account for existing Git credential-helper references
+  and repair after a selected bundle moves.
+
+The remembered-path commands, preference-file coordination, and native handoff
+were deferred at this exploration checkpoint. The October 20 implementation
+now supplies them under ADR-0646, ADR-0647, and ADR-0649. Recording bytes remain governed separately
+by the local-audio and future media-sync decisions; text delivery alone does not
+establish audio availability.
+
+
+## Delivery note: October 20, 2026
+
+The public Folder contract, browser and native engines, and migrated app callers
+are implemented. Epicenter opens Files editors and bundled apps; standalone
+Todos can hand its directory to Epicenter. Desktop and CLI share machine-local
+`folders.json` for added shortcuts and the selected records location under one
+save lock. `epicenter folders add|list|forget` exists; CLI `open` does not.
+These changes leave the review's path-based model intact.
+
+Existing browser data still needs import or export; current IndexedDB opening
+does not migrate old OPFS work. App-facing sync attachment and phone durability
+remain open. Native fixed defaults can be created again at launch; the
+first-use distinction discussed here is not delivered across launches.
+
+Current production binds one directory per native window under ADR-0647.
+Tabbed presentation could retain native windows or introduce child WebViews;
+this review selects neither implementation. Live bindings and unsaved input
+are runtime state. They belong in neither the folder-location file nor
+portable saved views.

@@ -402,13 +402,13 @@ Whispering's page calls:
 - `ai_send`, `ai_key_set`, `ai_key_state`, and `auth_status`, for its AI
   connections (ADR-0557, ADR-0558);
 - `whispering_connection_read` and `whispering_connection_set`, for its two
-  connection rows in `so.epicenter`. The page names `transcription` or
-  `text`; the shell runs `epicenter whispering-connection read|set`, which
-  opens `so.epicenter` under the folder root it inherits in
-  `EPICENTER_FOLDER_DIR`, reads or saves the one row under the folder's save
-  lock, and closes it. A save carries the row's exact source as its base and
-  assigns only `kind` (`openai-compatible`), `title`, and `model`. Settings
-  still opens `so.epicenter` as its own folder.
+  connection rows in the selected Epicenter records folder. The page names
+  `transcription` or `text`; the shell runs
+  `epicenter whispering-connection read|set`, which reads the selection from
+  AppData's `folders.json`, opens that directory, reads or saves the row under
+  its save lock, and closes it. A save carries the row's exact source as its
+  base and assigns only `kind` (`openai-compatible`), `title`, and `model`. Settings
+  opens the same selected records folder.
 
 No bundled app's window is granted folder history (`status`, `history`,
 `save_version`, `sync`), `account_send`, `ai_key_remove`, or model
@@ -509,7 +509,10 @@ The one trusted origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-i
 
 The shell keeps no AI connections and serves no `/_epicenter/ai` routes.
 [ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)
-makes each connection a row of a `connections` table in `so.epicenter`, keeps
-its key in this machine's keychain bound to the endpoint it was saved for, and
+makes each connection a row of a `connections` table in Epicenter's records
+folder, keeps its key in this machine's keychain bound to the endpoint it was saved for, and
 sends every AI request through `epicenter send`. Check that record's Unbuilt
 line for what has landed.
+[ADR-0649](../../docs/adr/0649-folders-json-selects-this-machines-folder-locations.md)
+makes that folder's location a machine-local selection; `so.epicenter` is the
+initial default name.

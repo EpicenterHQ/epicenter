@@ -4,145 +4,92 @@
 **Status**: In Progress
 **Owner**: Codex
 
-## One sentence
+## Outcome
 
-Replace browser folder storage with a Git-backed IndexedDB repository that
-preserves offline saves and merges independent edits across tabs and devices.
+Apps save local files before signing in, then can connect existing work to an
+ordinary Git remote without losing saved or unsent edits. Code consolidation is
+implemented. App-facing connection, stored-data migration, and phone durability
+remain delivery gates.
 
-## Current and target
+## Implemented
 
-`packages/folder/src/git/browser-backend.ts` still uses OPFS, a Git index,
-publishing refs, and Web Locks. The first local engine exists in
-`packages/data/`; its browser checks exercise production storage, merge and
-commit preparation. An internal sync trigger now exchanges ordinary Git with a
-local native server; automatic app integration and migration remain unbuilt.
+`@epicenter/folder` owns the public `Folder` contract and its browser and native
+engines. The former `packages/data` package and declaration-dependent OPFS
+opener are removed under
+[ADR-0643](../docs/adr/0643-the-folder-package-owns-its-local-engine.md).
+Browser `openFolder({ tables })` opens the origin's stable IndexedDB default.
+Bun opens an explicit existing directory; a native page opens the directory
+bound to its window. Both interpret rows and merge saves through the shared
+rules in `packages/folder/src/shared/`.
 
-Build `@epicenter/data` under `packages/data/` against ADR-0626 and ADR-0628.
-Keep existing applications on their current backend until the replacement and
-migration preserve their saved and unsent data. The public app API does not
-expose commits, sync scheduling, history, or an alternate legacy mode.
+Todos, Capture, Honeycrisp, Vocab, and Whispering use the Folder handle. The
+shared Svelte root owns local save status, drafts, and close. Epicenter hosts
+four bundled apps and a Files editor; standalone Todos uses the same host page
+on its own AppData directory. Opening requires no account, remote, Git history,
+or declaration file. These clients do not establish the later sync workflow.
 
-The browser stores inflated Git objects, confirmed and pending refs, newer
-pending edits, Git shallow-boundary metadata, first-fetch knowledge, and one
-publication revision.
-Saves merge from their actual starting source and acknowledge local transaction
-completion. Sync can wait for a pause; retained server history is the recovery
-boundary. No per-file bases, network ownership lease, or custom server protocol.
+The browser engine stores Git objects, retained snapshot refs, a pending commit,
+newer edits, shallow-boundary metadata, first-fetch knowledge, and a publication
+revision. Internal sync exchanges ordinary Git using isolated transfer
+workspaces. Revision-checked publication and object collection have desktop
+browser evidence. No public app API exposes repository internals or sync
+scheduling.
 
-## Implementation milestones
+The current browser opener leaves old OPFS data untouched and opens IndexedDB
+independently. A profile containing only older OPFS data shows an empty current
+folder. Removing old code did not migrate its stored data.
 
-1. **Local repository foundation.** Native-compatible object codec,
-   field and region merging, IndexedDB capture and atomic publication, offline
-   file and row operations, and exact pending commit preparation exist. The
-   [local evidence](../packages/data/evidence/local/RESULTS.md) covers two pages,
-   reopening, native objects, and the distinction between an unknown and empty
-   remote. This is an internal engine, not the public app opening API.
-2. **Git sync after scoped capture.** Point, prefix, immediate-row and commit
-   scopes now capture only C and the trees needed by the operation or E.
-   The 500-folder probe captures 3 trees for one path, down from 502; raw
-   directory occupancy and E prefix tombstones remain protected. All E values
-   and their ancestor trees are still read. A 500-edit, 2 MB backlog captures
-   502 trees in 19 to 38 ms on desktop; measure this on phones before adding
-   another storage mechanism. Ordinary Git exchange, exact uncertain commits,
-   all-parent ancestry, and isolated transfer workspaces now have
-   [native-server evidence](../packages/data/evidence/sync/RESULTS.md).
-   Native tests exercise actual incoming deltas, ordinary shallow push, lost
-   replies, later edits, stale operations and incomplete recovery. Three real
-   browser engines preserve fields and paragraphs while two pages save and
-   synchronize, then recover a lost acknowledgement after profile reopening.
-   Adoption commits the merged raw snapshot atomically instead of translating
-   it back into text-only E. Proven rejection first applies E's tombstones to
-   C as transient D, then merges B/remote/D and D/intermediate/local. This keeps
-   newer reversals and removes already-deleted rejected contributions.
-   Continue with hosted protocol gates. Multi-stage body-region trailer
-   positions still need projection validation before app
-   recovery tooling relies on their coordinates.
-3. **Retention.** Transfer workspaces stay isolated in memory; candidates stay
-   private until publication. Collection now marks both retained snapshot
-   closures and removes other stored objects in one IndexedDB write transaction.
-   It runs after snapshot publication or push acknowledgement and is best
-   effort. Focused tests cover shared blobs, incomplete closures, pending
-   commits, unsent edits, and concurrent publications; three desktop browser
-   engines cover collection during saves, reopening, and uncertain-push recovery
-   ([evidence](../packages/data/evidence/retention/RESULTS.md)). Phone durability
-   and quota behavior remain separate release gates.
-4. **Todos.** Integrate local opening before first sign-in, typed/raw rows,
-   `from`/`sent`, raw file repair, subscriptions, and a normal local-only status
-   under [ADR-0633](../docs/adr/0633-apps-open-local-data-before-connecting-services.md).
-   Then connect existing local work to a chosen hosted repository by stable ID,
-   with optional auth and automatic scheduled sync. Prove first use without an
-   account, offline saves and reopening unsent work, explicit combination with a
-   nonempty remote, sign-out
-   preserving local work, account replacement, reconnect, and native Git round-trip.
-   Apps supply read schemas without publishing schema files. CLI check and query
-   keep root epicenter.json discovery and migrate its format under
-   [ADR-0632](../docs/adr/0632-a-lens-belongs-to-its-reader.md).
-   Inference authorization is independent. The deferred Epicenter desktop app and its runner
-   are not integration gates (ADR-0634 and ADR-0635).
-5. **Migration and deletion.** Transfer committed and unsent legacy work, verify
-   readback, then remove the replaced OPFS/index/publication/locking machinery
-   and migrate remaining consumers. Retire this spec after implementation;
-   record completed work in `docs/spec-history.md`.
+## Remaining delivery gates
 
-## Acceptance and review
+1. **Connect existing app data.** Persist the chosen local-to-remote connection
+   and add the app-facing lifecycle under
+   [ADR-0633](../docs/adr/0633-apps-open-local-data-before-connecting-services.md).
+   Prove first attachment to a nonempty remote, consent to combination, offline
+   saves, sign-out, account replacement, reconnect, and native Git round-trip.
+   Current `Folder.status` reports local saving and storage failure, not the
+   planned synchronization states.
+2. **Preserve older work.** Import saved and unsent OPFS data without removing
+   source before verified readback. Define how a person discovers and opens
+   earlier work. A new empty IndexedDB folder is not evidence of migration.
+3. **Verify hosted exchange.** Establish conditional ref updates, initial
+   shallow fetches, and recovery negotiation in isolated hosted repositories.
+   Local native-server evidence does not establish the deployed protocol.
+4. **Verify phones and storage failures.** Exercise real iPhone persistence,
+   quota, forced termination, reopening, and saves during collection. Desktop
+   Chromium, WebKit, Firefox, and in-memory IndexedDB tests cannot establish
+   phone durability or latency.
+5. **Reconcile current file policy.** The public Folder API writes text and
+   bytes, while ADR-0621 and proposed ADR-0630 retain text-only restrictions.
+   Record the bounded policy change or deliberately restore the restriction.
+   Native fixed defaults can be recreated at launch under ADR-0647; first-use
+   tracking across launches from ADR-0636 is not implemented. Keep both
+   differences visible rather than describing them as completed parity.
+6. **Retire this spec.** When these gates are resolved, keep decisions in ADRs,
+   current contracts in READMEs, and evidence with its tests. Delete this spent
+   spec and add its dated entry to `docs/spec-history.md`.
 
-The local repository slice passes focused tests and real Chromium, WebKit and
-Firefox checks. In-memory IndexedDB tests establish transaction behavior in the
-test implementation, not phone durability. The cumulative focused suite passes
-137 tests with 527 assertions. The latest browser sync workload acknowledges
-162 saves against native Git. Retention passes local and sync browser checks
-in Chromium, WebKit, and Firefox; hosted protocol and phone gates remain
-separate.
+Generic Tables, declaration generation, and saved views follow
+[ADR-0648](../docs/adr/0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md).
+They reuse the same local file and draft lifetime. They do not gate proving
+browser sync, and this spec does not implement their document format.
 
-Claude Sonnet 5.5 delivered the object codec in an isolated clone. Codex reviewed
-and integrated it and reran its native Git checks. Independent Codex agents
-implemented the merge, raw tree helpers, and row codec. Codex owns IndexedDB
-publication, integration, and final verification.
+## Evidence and its limits
 
-The local checkpoint used independent GPT-6.1 Sol and Claude Opus 5.5 reviews,
-both with source and tests. Both retained B/C/E and revision publication. Repairs
-cover EOF frontmatter framing, exact byte bases, truthful gitlink deletion,
-raw directory occupancy, first-fetch knowledge, and an exact pending ref pair.
-The owner chose safe refusal of local file-directory replacements. A focused
-follow-up found no new blocker in prefix tombstones and opaque occupancy.
-These were informed implementation reviews, not blind design proposals.
+These files retain the conditions and results of recorded runs. Updating this
+spec does not rerun them or make their measured counts a current test total.
 
-Keep the three operation-specific retry loops; each owns a distinct transition.
-A generic planner protocol does not yet remove enough work to justify its new
-types and callbacks. Scoped capture adds no persistent index or cache. A focused
-Claude Opus 5.5 read-only pass found no missed-input or occupancy counterexample;
-Codex reproduced the covered behaviors and browser checks. Directory collision
-diagnostics may name a different existing case twin when native Git already
-contains several; refusal remains the same. An operation no longer checks
-unrelated subtrees for corruption. Capture is not an integrity audit.
-ADR-0629 through
-ADR-0631 record these local API and bootstrap clarifications as proposals.
+- [Local browser behavior](../packages/folder/evidence/browser-engine/local/RESULTS.md):
+  production local storage, concurrent pages, reopening, and source preservation.
+- [Native-server exchange](../packages/folder/evidence/browser-engine/sync/RESULTS.md):
+  ordinary Git exchange, concurrent local saves, and uncertain-push recovery.
+- [Retention](../packages/folder/evidence/browser-engine/retention/RESULTS.md):
+  collection across retained snapshots and concurrent publications.
+- [Revision contention](../packages/folder/evidence/revision/RESULTS.md):
+  bounded contention and the source commit of the retired experiment.
 
-The sync checkpoint preserved outcome-first independent GPT-6.1 Sol and Claude
-Opus 5.5 designs, followed by an informed challenge. Both retained B/C/E and
-revision checks. The deletion counterexample led to transient D; native
-regressions establish that correction alongside title reversal and namespace
-undo. Public isomorphic-git operations were chosen over a new packet/pack
-implementation for the first real transport. Reconsider bundle and temporary
-memory cost using measurements, without making a second transport path now.
-
-Hosted Git must separately establish conditional ref updates, initial shallow
-fetches, and recovery negotiation in an isolated test repository. Do not run
-production operations. Real iPhone persistence, quota, termination and reopening
-remain release gates; desktop results cannot satisfy them.
-
-## Active evidence
-
-- Accepted decisions: ADR-0613, ADR-0622, ADR-0623 as amended by ADR-0628,
-  ADR-0624, and ADR-0626.
-- `packages/folder/evidence/revision/RESULTS.md`: bounded contention results and
-  the source commit of the removed throwaway prototype.
-- `packages/data/evidence/local/RESULTS.md`: current production-source local
-  browser evidence and its limits.
-- `packages/folder/src/merge-file.ts`: existing pure merge evidence, with older
-  deletion and JSON behavior that must not be copied as the target policy.
-
-The new package must not depend on the old folder backend. Small pure codecs
-may temporarily coexist during migration; remove their replaced copies when
-their remaining legacy consumers move. Do not make a new abstraction solely
-to keep both engines permanently supported.
+The isolated working-tree prototype in `packages/folder/smoke/` explores
+replacing the edit overlay and tombstones with one working snapshot. Its
+measurements are mixed; it has not replaced production storage. Phone latency,
+quota and collection failures, complete Folder/sync behavior, and migration
+must be established before adoption. Keep storage representation changes
+separate from changes to conflict policy.
