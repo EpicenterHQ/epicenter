@@ -16,6 +16,8 @@
  *   global `submodule.recurse`, succeeds as a plain clone does
  * - Without a usable `git`, every history command exits 2 with `GitMissing`
  * - A sync runs only the `git` `locateGit` finds, never one from `PATH`
+ * - Only Epicenter's own folder may get a repository inside another
+ *   repository's working tree; a folder named by an app id is a data folder
  *
  * They run `src/bin.ts` under Bun, or the compiled binary `EPICENTER_BIN`
  * names.
@@ -37,6 +39,7 @@ import {
 	type HistoryResults,
 	holdingHistoryLock,
 } from '@epicenter/folder/bun';
+import { isApplicationFolder } from './history-commands.ts';
 
 const binary = process.env.EPICENTER_BIN;
 const command = binary
@@ -161,6 +164,25 @@ async function synced(files: Record<string, string | Uint8Array>) {
 }
 
 const bytes = (...values: number[]) => new Uint8Array(values);
+
+test("only Epicenter's own folder may get a repository inside another one; a folder named by an app id is a data folder", async () => {
+	const root = await realpath(
+		await mkdtemp(join(tmpdir(), 'epicenter-application-folder-')),
+	);
+	temporary.push(root);
+	for (const name of ['so.epicenter', 'so.epicenter.todos', 'Todos'])
+		await mkdir(join(root, name, 'inner'), { recursive: true });
+	expect(await isApplicationFolder(join(root, 'so.epicenter'), root)).toBe(
+		true,
+	);
+	for (const dir of [
+		join(root, 'so.epicenter.todos'),
+		join(root, 'Todos'),
+		join(root, 'so.epicenter', 'inner'),
+		join(root, 'missing'),
+	])
+		expect(await isApplicationFolder(dir, root)).toBe(false);
+});
 
 test('status, save-version, and history read and record the folder', async () => {
 	const { folder } = await synced({ 'notes/a.md': 'a\n' });

@@ -67,9 +67,11 @@ export const APPS = {
  * app's OAuth client id. A reader who met `AppId` here and grepped for it
  * found the wrong concept.
  *
- * A row carries an id only for an app that names itself from it. An installed
- * app (Todos, Capture, Whispering, Honeycrisp) reads its id from its own
- * `epicenter.app.json` instead (ADR-0560).
+ * A row carries an id only for an app that names itself from it. Todos,
+ * Capture, Whispering, and Honeycrisp carry none here: each browser build's
+ * id is its OAuth client in `apps/api/worker/oauth-registrations.ts`, and the
+ * Epicenter desktop app names the same id for each app it bundles
+ * (`BundledApp` in `apps/epicenter/src-tauri/src/bundled_apps.rs`).
  */
 export type AppKey = keyof typeof APPS;
 

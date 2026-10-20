@@ -17,8 +17,9 @@ import type { FirstPartyClient } from '@epicenter/server';
 import { isLocalDeployment } from './trusted-origins.js';
 
 /**
- * Each browser build signs in as its own app id. Installed apps read their id
- * from `epicenter.app.json` (ADR-0560); these are those ids.
+ * Each browser build signs in as its own app id; these are those ids. The
+ * Epicenter desktop app names the same ids for the apps it bundles
+ * (`BundledApp` in `apps/epicenter/src-tauri/src/bundled_apps.rs`).
  */
 const BROWSER_APPS = [
 	{ clientId: 'so.epicenter.todos', name: 'Todos', app: APPS.TODOS },

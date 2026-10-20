@@ -45,9 +45,10 @@ until you save a result on pasted text.
 These files are the data. The app and any other program edit the same paths;
 there is no export step and no second copy. Epicenter opens
 `<folder root>/Whispering` by default, or another folder you choose through
-"Open with…" in the Folders window. An earlier installed copy's
-`<folder root>/so.epicenter.whispering` remains on disk and can be opened
-through that same menu. Set `EPICENTER_FOLDER_DIR` when starting Epicenter to
+"Open with…" in the Folders window. The folder an earlier installed copy
+used, `<folder root>/so.epicenter.whispering`, remains on disk, is listed as a
+data folder, and opens through that same menu. Epicenter no longer installs
+apps. Set `EPICENTER_FOLDER_DIR` when starting Epicenter to
 use another root, such as a disposable one for a test.
 
 A recording's ID is its file stem, set when the recording starts
@@ -109,7 +110,7 @@ Checks, from `apps/whispering`:
 bun run typecheck                 # the page
 bun run test                      # workspace and workflow tests, then the mounted row views
 bun run build                     # the browser build, into build/
-bun run build:installed           # Epicenter's bundled page, into dist/
+bun run build:host                # Epicenter's bundled page, into dist/
 ```
 
 Epicenter's native checks cover what it grants Whispering:

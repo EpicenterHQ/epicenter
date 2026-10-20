@@ -9,13 +9,13 @@
  * whose competing units go to this folder (ADR-0576).
  *
  * Who commits comes from the folder's Git configuration, and otherwise is
- * `Epicenter <epicenter@localhost>`. History is recorded on `main`. An
- * application's own folder (`isApplicationFolder`) may get a repository
+ * `Epicenter <epicenter@localhost>`. History is recorded on `main`.
+ * Epicenter's own folder (`isApplicationFolder`) may get a repository
  * inside another repository's working tree; a data folder may not.
  */
 
-import { realpath, stat } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { basename, dirname } from 'node:path';
 import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import {
 	encodeHistory,
@@ -37,24 +37,22 @@ const AUTHOR = { name: 'Epicenter', email: 'epicenter@localhost' };
 
 /**
  * Whether `dir` is an application's own folder, by the shell's rule
- * (`data_folders.rs`): directly under the Epicenter folder root and named
- * `so.epicenter` or the id of an installed app. Any other folder
- * is a data folder.
+ * (`data_folders.rs`): Epicenter's own `so.epicenter`, directly under the
+ * Epicenter folder root. Any other folder is a data folder, including one
+ * named by the id of an app that was once installed.
  */
 export async function isApplicationFolder(
 	dir: string,
-	paths = resolveAppPaths(),
+	folderDir = resolveAppPaths().folderDir,
 ): Promise<boolean> {
 	const [resolved, folderRoot] = await Promise.all([
 		realpath(dir).catch(() => undefined),
-		realpath(paths.folderDir).catch(() => undefined),
+		realpath(folderDir).catch(() => undefined),
 	]);
-	if (resolved === undefined || dirname(resolved) !== folderRoot) return false;
-	const name = basename(resolved);
-	if (name === CONNECTIONS_FOLDER_ID) return true;
-	return stat(join(paths.appsDir, name)).then(
-		(found) => found.isDirectory(),
-		() => false,
+	return (
+		resolved !== undefined &&
+		dirname(resolved) === folderRoot &&
+		basename(resolved) === CONNECTIONS_FOLDER_ID
 	);
 }
 

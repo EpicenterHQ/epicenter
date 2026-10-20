@@ -51,18 +51,6 @@ const HANDLERS: Record<string, Run> = {
 		),
 	repos: async ({ json, grant }) =>
 		(await import('./repository-commands.ts')).repos(json, grant),
-	'app list': async ({ options, json }) =>
-		(await import('./app-commands.ts')).appList(options, json),
-	'app install': async ({ positionals: [source], options, json }) =>
-		(await import('./app-commands.ts')).appInstall(
-			source as string,
-			options,
-			json,
-		),
-	'app update': async ({ positionals: [id], options, json }) =>
-		(await import('./app-commands.ts')).appUpdate(id as string, options, json),
-	'app remove': async ({ positionals: [id], json }) =>
-		(await import('./app-commands.ts')).appRemove(id as string, json),
 	'auth key': async ({ positionals: [action, connection], json }) => {
 		const [{ authKey }, { keychain }] = await Promise.all([
 			import('./ai-commands.ts'),
@@ -139,19 +127,6 @@ EXPLAIN) over the files that conform and prints tab-separated rows. A file
 that does not conform is left out of every table and named on stderr (in
 "excluded" with --json); check says why. Exits 0 when it answers and 2 when
 the folder, the definition, or the statement cannot be used.`,
-	'app install': `Clones the repository's default branch bare into Epicenter's app data,
-the id read from the epicenter.app.json in --folder (the root by default).
-Nothing is approved yet: the command prints the fetched commit with its log
-and exits 1; approve it with app update <id> --commit <sha> --approve, which
-builds it with bun run build:installed from that commit's files alone.
---commit with --approve approves at install, when it names the fetched
-commit. --json prints NDJSON progress lines and one result line.`,
-	'app update': `Fetches the app's default branch, which never changes the approved commit,
-and prints a fetched commit waiting for approval with its log and diff stat.
---commit with --approve approves the commit shown, without fetching, and
-builds it; --approve alone is refused. --commit alone opens: it answers for
-the approved commit only, building it when it is not built and checking its
-build when it is.`,
 	'auth key': `Keeps an AI connection's endpoint and key in this computer's keychain,
 under the connection's id, the stem of its row in so.epicenter/connections
 (ADR-0557). set reads {"endpoint": "<url>", "key": "<key>"} as JSON on
@@ -217,18 +192,16 @@ function helpText(group?: string) {
 	const line = (c: CommandSpec) =>
 		`  ${usageLine(c).padEnd(width)}  ${c.summary}`;
 	const folder = visible.filter((c) => c.path.length === 1);
-	const app = visible.filter((c) => c.path[0] === 'app');
 	const auth = visible.filter((c) => c.path[0] === 'auth');
 	return [
 		`Usage: epicenter ${group ?? '<command>'} ... [--json]`,
 		...(folder.length
 			? ['', 'Folder commands take a folder by its path:', ...folder.map(line)]
 			: []),
-		...(app.length ? ['', 'Apps on this machine:', ...app.map(line)] : []),
 		...(auth.length ? ['', 'Your Epicenter account:', ...auth.map(line)] : []),
 		'',
 		'Every command takes --json: one JSON value on stdout, or NDJSON progress',
-		'lines ending in one result for sync, clone, app install, and app update.',
+		'lines ending in one result for sync, clone, and auth login.',
 		'Stderr is for people. Exit codes: 0 done, 1 a finding to act on, 2 input',
 		'the command cannot use.',
 		'',

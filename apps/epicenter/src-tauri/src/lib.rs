@@ -1,7 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::{mpsc, Mutex};
+use std::sync::Mutex;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use tauri::webview::NewWindowResponse;
 use tauri::{
     AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
@@ -22,7 +21,6 @@ mod bundled_apps;
 mod cli;
 mod data_folders;
 mod history;
-mod installed_apps;
 mod scheme;
 
 pub mod audio;
@@ -62,8 +60,7 @@ const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 
 /// Epicenter's own windows. Todos, Capture, Honeycrisp, and Whispering, which
 /// Epicenter bundles, open one window per folder through `open_bundled_app`
-/// (`bundled_apps.rs`); any other app is installed and opened with
-/// `open_installed_app` (ADR-0552).
+/// (`bundled_apps.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
@@ -146,12 +143,6 @@ macro_rules! shell_commands {
             history::save_version::<tauri::Wry>,
             history::sync::<tauri::Wry>,
             history::install_git,
-            installed_apps::list_installed_apps,
-            installed_apps::list_repository_apps,
-            installed_apps::install_app,
-            installed_apps::approve_app,
-            installed_apps::update_app,
-            installed_apps::open_installed_app,
             bundled_apps::open_bundled_app,
             get_unload_policy,
             set_unload_policy,
@@ -382,17 +373,12 @@ pub fn run() {
             // Git's configuration runs `~/.local/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
             cli::spawn_command_link_refresh(&desktop_paths);
-            // Every window's page comes from the scheme, which reads these.
-            app.manage(scheme::Roots {
-                pages: scheme::pages_dir(app.handle())?,
-                builds: desktop_paths.builds_dir(),
-            });
-            app.manage(InstalledWindowCommits::default());
+            // Every window's page comes from the scheme, which reads it.
+            app.manage(scheme::Pages(scheme::pages_dir(app.handle())?));
             // The active local model and the unload policy are device-local host
-            // state (ADR-0180), so they live in the app's data directory beside
-            // the installed apps' clones, never in a folder that could carry
-            // them to a machine without the model files or a compatible
-            // accelerator.
+            // state (ADR-0180), so they live in the app's data directory, never
+            // in a folder that could carry them to a machine without the model
+            // files or a compatible accelerator.
             let settings = LocalTranscriptionSettings::load(
                 desktop_paths.data_dir.join("local-transcription.json"),
             );
@@ -477,7 +463,7 @@ fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
 ///
 /// That is right for the callers that have nobody to answer to (startup, the
 /// tray, a deep link, macOS reopen, Settings asked for by the Folders window
-/// or an app). It is wrong for `open_installed_app`, where a person clicked
+/// or an app). It is wrong for `open_bundled_app`, where a person clicked
 /// and is owed an outcome, so that command waits on the main thread instead.
 fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
     let window_app = app.clone();
@@ -495,9 +481,8 @@ fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
 /// `epicenter://` to the Folders window, which is what opening Epicenter shows
 /// (ADR-0537).
 ///
-/// The segment is `app` because it is the same ID space as `/apps/<id>/`: a
-/// person pasting a link names the thing they want, not the frame it arrives
-/// in.
+/// The segment is `app`: a person pasting a link names the thing they want,
+/// not the frame it arrives in.
 fn parse_app_deep_link(url: &tauri::Url) -> Option<BuiltInApp> {
     if url.scheme() != "epicenter"
         || !url.username().is_empty()
@@ -642,211 +627,6 @@ fn create_app_window(
         .with_context(|| format!("create the {title} WebView"))
 }
 
-/// The window label of installed app `id` opened on `folder`: one window per
-/// app and folder. A label may hold only letters, digits, `-`, `/`, `:`, and
-/// `_`, so the id's dots become `_` (an id has no `_`) and the folder's scope
-/// is spelled in hex. Every installed app's window gets the one grant,
-/// `capabilities/installed-app.json`, which selects `app:*` (ADR-0570).
-fn installed_window_label(id: &str, folder: Option<&str>) -> String {
-    let mut label = format!("{INSTALLED_WINDOW_PREFIX}{}", id.replace('.', "_"));
-    if let Some(folder) = folder {
-        label.push(':');
-        for byte in folder.bytes() {
-            label.push_str(&format!("{byte:02x}"));
-        }
-    }
-    label
-}
-
-const INSTALLED_WINDOW_PREFIX: &str = "app:";
-
-/// The commit each installed app window was opened on, by window label,
-/// pinned before its WebView is made and forgotten when it is destroyed, and
-/// the app commits whose builds an open is restoring (ADR-0597). The page's
-/// own `history.pushState` cannot change a pin, as it can the window's URL.
-#[derive(Default)]
-pub(crate) struct InstalledWindowCommits(Mutex<WindowPins>);
-
-#[derive(Default)]
-struct WindowPins {
-    /// The commit each window was opened on, by label.
-    windows: HashMap<String, String>,
-    /// The `(app id, commit)` builds an open may replace while it runs.
-    restoring: HashSet<(String, String)>,
-}
-
-impl WindowPins {
-    /// Whether a window of installed app `id` is pinned to `commit`.
-    fn runs(&self, id: &str, commit: &str) -> bool {
-        let windows = installed_window_label(id, None);
-        let folder_windows = format!("{windows}:");
-        self.windows.iter().any(|(label, opened)| {
-            opened == commit && (label == &windows || label.starts_with(&folder_windows))
-        })
-    }
-}
-
-impl InstalledWindowCommits {
-    fn opened(&self, label: &str) -> Option<String> {
-        self.pins().windows.get(label).cloned()
-    }
-
-    /// Pin window `label` of app `id` to `commit` before its WebView is
-    /// made, so no restore replaces that build while the page loads.
-    /// Refused while another open is restoring that build; `restoring` says
-    /// the caller is the open that reserved it.
-    fn pin(&self, label: &str, id: &str, commit: &str, restoring: bool) -> bool {
-        let mut pins = self.pins();
-        let key = (id.to_string(), commit.to_string());
-        if !restoring && pins.restoring.contains(&key) {
-            return false;
-        }
-        pins.windows.insert(label.to_string(), commit.to_string());
-        true
-    }
-
-    fn forget(&self, label: &str) {
-        self.pins().windows.remove(label);
-    }
-
-    /// Reserve app `id`'s build of `commit` for an open that may replace
-    /// it: only when no window is pinned to it and no other open holds it.
-    /// The reservation lasts until `release`, which the open calls once its
-    /// own window is pinned or it gives up.
-    pub(crate) fn reserve(&self, id: &str, commit: &str) -> bool {
-        let mut pins = self.pins();
-        if pins.runs(id, commit) {
-            return false;
-        }
-        pins.restoring.insert((id.to_string(), commit.to_string()))
-    }
-
-    pub(crate) fn release(&self, id: &str, commit: &str) {
-        self.pins()
-            .restoring
-            .remove(&(id.to_string(), commit.to_string()));
-    }
-
-    fn pins(&self) -> std::sync::MutexGuard<'_, WindowPins> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-}
-
-/// An open's reservation of one app commit's build (`reserve`), released
-/// when it is dropped.
-pub(crate) struct BuildReservation {
-    app: DesktopAppHandle,
-    id: String,
-    commit: String,
-}
-
-impl BuildReservation {
-    /// Reserve app `id`'s build of `commit`, or `None` when a window runs it
-    /// or another open holds it.
-    pub(crate) fn take(app: &DesktopAppHandle, id: &str, commit: &str) -> Option<Self> {
-        app.state::<InstalledWindowCommits>()
-            .reserve(id, commit)
-            .then(|| Self {
-                app: app.clone(),
-                id: id.to_string(),
-                commit: commit.to_string(),
-            })
-    }
-}
-
-impl Drop for BuildReservation {
-    fn drop(&mut self) {
-        self.app
-            .state::<InstalledWindowCommits>()
-            .release(&self.id, &self.commit);
-    }
-}
-
-/// Open installed app `id`'s build of `commit`, served at
-/// `/apps/<id>/<commit>/`, in its own window on `folder`, a registered scope,
-/// or reveal the one already open on it when it runs that build
-/// (`reveal_on_build`). A window keeps the build it opened on until it is
-/// closed and opened again (ADR-0588). The
-/// window is permitted into the folder and into `so.epicenter`, and handed
-/// the folder (`data_folders::admit_installed_window`): the app's
-/// Folder opener asks the shell for it (`window_folder`) when the app calls
-/// `openFolder({ tables })`. The URL names no folder, so the page's navigation
-/// and reloads cannot lose or change it. Approving an app trusts it fully
-/// (ADR-0540), so the shell does not check its shape against the folder.
-pub(crate) fn open_installed_window(
-    app: &DesktopAppHandle,
-    id: &str,
-    commit: &str,
-    title: &str,
-    folder: &str,
-    reservation: Option<&BuildReservation>,
-) -> Result<()> {
-    let label = installed_window_label(id, Some(folder));
-    data_folders::admit_installed_window(app.folders(), &label, id, folder)
-        .map_err(|error| anyhow!("the app cannot open this folder: {error:?}"))?;
-    let path = scheme::installed_app_path(id, commit);
-    let name = title.to_string();
-    let title = format!("Epicenter: {title}");
-    let commit = commit.to_string();
-    let id = id.to_string();
-    let restoring = reservation.is_some();
-
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let window_app = app.clone();
-    app.run_on_main_thread(move || {
-        let commits = window_app.state::<InstalledWindowCommits>();
-        let result = match window_app.get_webview_window(&label) {
-            Some(window) => {
-                reveal_on_build(window, commits.opened(&label).as_deref(), &commit, &name)
-            }
-            None if !commits.pin(&label, &id, &commit, restoring) => Err(anyhow!(
-                "{name} is being restored by another open. Open it again."
-            )),
-            None => match create_app_window(&window_app, &label, &title, &path) {
-                Ok(window) => {
-                    let forgetting = window_app.clone();
-                    let closed = label.clone();
-                    window.on_window_event(move |event| {
-                        if let WindowEvent::Destroyed = event {
-                            forgetting.state::<InstalledWindowCommits>().forget(&closed);
-                        }
-                    });
-                    focus(window);
-                    Ok(())
-                }
-                Err(error) => {
-                    commits.forget(&label);
-                    Err(error)
-                }
-            },
-        };
-        let _ = sender.send(result);
-    })
-    .context("schedule the app window on the main thread")?;
-    receiver
-        .recv()
-        .context("the main thread stopped before opening the window")?
-}
-
-/// Reveal `window`, already open on an installed app's folder, when it was
-/// opened on `commit`. One opened on another commit keeps that build, so
-/// opening `commit` is refused, and the window left where it is, until it is
-/// closed, rather than showing the other build as if it were this one.
-fn reveal_on_build<R: Runtime>(
-    window: WebviewWindow<R>,
-    opened: Option<&str>,
-    commit: &str,
-    title: &str,
-) -> Result<()> {
-    if opened != Some(commit) {
-        bail!("{title} is open on another version. Close its window, then open it again.");
-    }
-    focus(window);
-    Ok(())
-}
-
 fn focus<R: Runtime>(window: WebviewWindow<R>) {
     let _ = window.unminimize();
     let _ = window.show();
@@ -861,89 +641,15 @@ mod tests {
 
     const FOLDERS: &str = include_str!("../capabilities/folders.json");
     const HOME: &str = include_str!("../capabilities/home.json");
-    const INSTALLED_APP: &str = include_str!("../capabilities/installed-app.json");
     const BUNDLED_APP: &str = include_str!("../capabilities/bundled-app.json");
     const WHISPERING: &str = include_str!("../capabilities/whispering.json");
 
     /// Every capability file, for checks that hold for all of them.
-    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, INSTALLED_APP, BUNDLED_APP, WHISPERING];
+    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, BUNDLED_APP, WHISPERING];
 
     /// The windows a bundled app's page opens in, on two folders.
     fn bundled_labels(app: BundledApp) -> [String; 2] {
         [app.window_label(app.name()), app.window_label("My notes")]
-    }
-
-    /// Opening an app whose window was opened on another commit is refused,
-    /// so that build is never shown as the one asked for; a window opened on
-    /// the commit asked for is revealed, wherever its page has since moved
-    /// its address with `history.pushState`.
-    #[test]
-    fn an_open_window_on_another_build_is_refused() {
-        let app = tauri::test::mock_builder()
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
-        let earlier = "a".repeat(40);
-        let approved = "b".repeat(40);
-        let window = WebviewWindowBuilder::new(
-            &app,
-            "app:com_example_board:61",
-            WebviewUrl::CustomProtocol(scheme::url("/todo/42").unwrap()),
-        )
-        .build()
-        .unwrap();
-        let commits = InstalledWindowCommits::default();
-        assert!(commits.pin(
-            "app:com_example_board:61",
-            "com.example.board",
-            &earlier,
-            false
-        ));
-        let opened = commits.opened("app:com_example_board:61");
-        let refused =
-            reveal_on_build(window.clone(), opened.as_deref(), &approved, "Board").unwrap_err();
-        assert_eq!(
-            refused.to_string(),
-            "Board is open on another version. Close its window, then open it again."
-        );
-        assert!(reveal_on_build(window.clone(), None, &approved, "Board").is_err());
-        assert!(reveal_on_build(window, opened.as_deref(), &earlier, "Board").is_ok());
-        commits.forget("app:com_example_board:61");
-        assert_eq!(commits.opened("app:com_example_board:61"), None);
-    }
-
-    /// A build is replaced only while no window is pinned to its commit, and
-    /// a window is pinned before its WebView loads, so no page loads a build
-    /// another open is replacing.
-    #[test]
-    fn a_build_is_reserved_for_restoring_only_while_no_window_runs_it() {
-        let board = "com.example.board";
-        let commit = "b".repeat(40);
-        let commits = InstalledWindowCommits::default();
-        assert!(commits.pin("app:com_example_board:61", board, &commit, false));
-        // A window on it, not another app's window or another commit,
-        // refuses the reservation.
-        assert!(commits.pin(
-            "app:com_example_boards:61",
-            "com.example.boards",
-            &commit,
-            false
-        ));
-        assert!(commits.pin("app:com_example_board:62", board, &"c".repeat(40), false));
-        assert!(!commits.reserve(board, &commit));
-        // Two opens of an intact build take no reservation, so both pin.
-        assert!(commits.pin("app:com_example_board:65", board, &commit, false));
-        commits.forget("app:com_example_board:61");
-        commits.forget("app:com_example_board:65");
-        assert!(commits.reserve(board, &commit));
-        // While a build is restored, one reservation at a time, and no window
-        // pins to it but the restoring open's.
-        assert!(!commits.reserve(board, &commit));
-        assert!(!commits.pin("app:com_example_board:63", board, &commit, false));
-        // The open holding it pins its own window, then releases it.
-        assert!(commits.pin("app:com_example_board:63", board, &commit, true));
-        commits.release(board, &commit);
-        assert!(!commits.reserve(board, &commit));
-        assert!(commits.pin("app:com_example_board:64", board, &commit, false));
     }
 
     #[test]
@@ -1003,7 +709,6 @@ mod tests {
                 "bundled-app.json",
                 "folders.json",
                 "home.json",
-                "installed-app.json",
                 "whispering.json"
             ]
         );
@@ -1022,111 +727,22 @@ mod tests {
             production["app"]["security"]["capabilities"],
             serde_json::json!(identifiers)
         );
+        // A page reads and changes only the directory a grant names: no fs
+        // plugin is installed, and its Git runs in the `epicenter` CLI.
+        assert!(
+            production["plugins"].get("fs").is_none(),
+            "no fs plugin is installed"
+        );
         let development: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
         assert!(development.get("app").is_none());
     }
 
-    /// Every installed app's window gets the one grant (ADR-0570): the
-    /// capability selects every label `open_installed_window` makes, for any
-    /// app id, with or without a folder, and none of Epicenter's own windows.
-    /// It grants the union of what any installed app's page calls: the folder
-    /// plugin and its history (ADR-0559), the recorder, which lists and opens
-    /// every microphone and asks for access first (ADR-0543, ADR-0571),
-    /// opening System Settings' privacy panes (ADR-0555), local
-    /// transcription and its readiness (ADR-0180), opening Settings, the AI
-    /// commands (ADR-0557), who the app is signed in as, and its account
-    /// request (ADR-0549, ADR-0556).
-    #[test]
-    fn every_installed_app_window_gets_one_grant() {
-        let capability: serde_json::Value = serde_json::from_str(INSTALLED_APP).unwrap();
-        assert_eq!(capability["windows"], serde_json::json!(["app:*"]));
-        for id in [
-            "so.epicenter.whispering",
-            "so.epicenter.todos",
-            "com.example.board",
-        ] {
-            for folder in [
-                None,
-                Some(id),
-                Some("data:Voice notes"),
-                Some("so.epicenter"),
-            ] {
-                let label = installed_window_label(id, folder);
-                assert!(selects(&capability, &label), "{label}");
-            }
-        }
-        for built_in in BuiltInApp::ALL {
-            assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
-        }
-        for label in BundledApp::ALL.into_iter().flat_map(bundled_labels) {
-            assert!(!selects(&capability, &label), "{label}");
-        }
-        #[cfg(all(target_os = "macos", feature = "dictation"))]
-        assert!(!selects(&capability, overlay::WINDOW_LABEL));
-        assert_eq!(
-            capability["permissions"],
-            serde_json::json!([
-                "epicenter-folder:default",
-                "core:event:allow-listen",
-                "core:event:allow-unlisten",
-                "core:window:allow-destroy",
-                "allow-status",
-                "allow-history",
-                "allow-save-version",
-                "allow-sync",
-                "epicenter-recorder:default",
-                {
-                    "identifier": "opener:allow-open-url",
-                    "allow": [{ "url": "x-apple.systempreferences:*" }]
-                },
-                "allow-list-inference-models",
-                "allow-transcribe-audio-bytes",
-                "allow-get-local-transcription-readiness",
-                "allow-open-home",
-                "allow-ai-send",
-                "allow-ai-key-set",
-                "allow-ai-key-remove",
-                "allow-ai-key-state",
-                "allow-auth-status",
-                "allow-account-send"
-            ])
-        );
-
-        // It reads and changes only the directory a grant names: no fs plugin
-        // is installed, and its Git runs in the `epicenter` CLI.
-        let config: serde_json::Value =
-            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert!(
-            config["plugins"].get("fs").is_none(),
-            "no fs plugin is installed"
-        );
-        for (id, folder, label) in [
-            ("com.example.board", None, "app:com_example_board"),
-            (
-                "com.example.board",
-                Some("data:My notes"),
-                "app:com_example_board:646174613a4d79206e6f746573",
-            ),
-        ] {
-            let made = installed_window_label(id, folder);
-            assert_eq!(made, label);
-            assert!(made.starts_with(INSTALLED_WINDOW_PREFIX));
-            assert!(made
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '/' | ':' | '_')));
-        }
-        assert_ne!(
-            installed_window_label("com.example.board", Some("a")),
-            installed_window_label("com.example.board", Some("b"))
-        );
-    }
-
-    /// The AI commands reach Settings, the Folders window, and every
-    /// installed app (ADR-0557, ADR-0570). Whispering, which Epicenter
-    /// bundles, sends over its connections, saves a key, and reads whether
-    /// one is saved; it removes none. The other bundled apps call none. Each
-    /// is one fixed CLI invocation that never hands a page a saved key.
+    /// The AI commands reach Settings and the Folders window (ADR-0557).
+    /// Whispering, which Epicenter bundles, sends over its connections, saves
+    /// a key, and reads whether one is saved; it removes none. The other
+    /// bundled apps call none. Each is one fixed CLI invocation that never
+    /// hands a page a saved key.
     #[test]
     fn ai_commands_are_granted_where_a_page_calls_them() {
         const AI: [&str; 4] = [
@@ -1159,7 +775,7 @@ mod tests {
     /// Todos, Capture, and Honeycrisp hold the folder plugin and its change
     /// event, and nothing else: no account, AI, history, recorder, or app
     /// command is on their path. No bundled capability selects Epicenter's
-    /// own windows or an installed app's.
+    /// own windows.
     #[test]
     fn each_bundled_apps_windows_hold_their_own_capability_alone() {
         let bundled: serde_json::Value = serde_json::from_str(BUNDLED_APP).unwrap();
@@ -1193,14 +809,6 @@ mod tests {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for built_in in BuiltInApp::ALL {
                 assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
-            }
-            for id in [
-                "so.epicenter.todos",
-                "so.epicenter.whispering",
-                "com.example.board",
-            ] {
-                let label = installed_window_label(id, Some("data:Todos"));
-                assert!(!selects(&capability, &label), "{label}");
             }
         }
     }
@@ -1256,9 +864,10 @@ mod tests {
         }
     }
 
-    /// An account request reaches every installed app; who Epicenter is
-    /// signed in as reaches every installed app, Settings, and Whispering;
-    /// signing in and out reaches Settings alone (ADR-0558).
+    /// Who Epicenter is signed in as reaches Settings and Whispering; signing
+    /// in and out reaches Settings alone (ADR-0558). No page makes an account
+    /// request now: `account_send` stays registered, and no capability grants
+    /// it until a page calls it.
     #[test]
     fn signing_in_and_out_is_granted_to_settings_alone() {
         for encoded in ALL_CAPABILITIES {
@@ -1267,12 +876,11 @@ mod tests {
             let grants = |permission: &str| permissions.contains(&serde_json::json!(permission));
             let identifier = capability["identifier"].as_str().unwrap();
             let settings = *encoded == HOME;
-            let installed = *encoded == INSTALLED_APP;
             let whispering = *encoded == WHISPERING;
-            assert_eq!(grants("allow-account-send"), installed, "{identifier}");
+            assert!(!grants("allow-account-send"), "{identifier}");
             assert_eq!(
                 grants("allow-auth-status"),
-                installed || settings || whispering,
+                settings || whispering,
                 "{identifier}"
             );
             for permission in ["allow-auth-login", "allow-auth-logout"] {
@@ -1477,12 +1085,11 @@ mod tests {
         }
     }
 
-    /// The folder history commands reach the Folders window and every
-    /// installed app's windows (`app:*`), and no other window;
-    /// each runs only for a folder the window was granted (ADR-0559).
+    /// The folder history commands reach the Folders window and no other
+    /// window; each runs only for a folder the window was granted (ADR-0559).
     /// Starting what installs `git` reaches the Folders window alone.
     #[test]
-    fn folder_history_is_granted_to_folders_and_installed_apps_alone() {
+    fn folder_history_is_granted_to_the_folders_window_alone() {
         const HISTORY: [&str; 4] = [
             "allow-status",
             "allow-history",
@@ -1496,12 +1103,10 @@ mod tests {
                 .iter()
                 .filter(|permission| permissions.contains(&serde_json::json!(permission)))
                 .count();
-            let windows = &capability["windows"];
-            let folders = windows == &serde_json::json!(["folders"]);
-            let expected = folders || windows == &serde_json::json!(["app:*"]);
+            let folders = capability["windows"] == serde_json::json!(["folders"]);
             assert_eq!(
                 granted,
-                if expected { HISTORY.len() } else { 0 },
+                if folders { HISTORY.len() } else { 0 },
                 "{}",
                 capability["identifier"]
             );
@@ -1547,12 +1152,10 @@ mod tests {
 
     /// The Folders window holds the folder plugin, its own listing, a granted
     /// folder's history through the CLI and starting what installs `git`
-    /// (ADR-0559), the AI commands
-    /// (ADR-0557), installing and opening apps, opening a bundled app
-    /// (`bundled_apps.rs`), and opening Settings (ADR-0537, ADR-0552), and
-    /// nothing else: it reaches
-    /// folders only through scopes the listing registered or permitted it
-    /// into, and it administers no model.
+    /// (ADR-0559), the AI commands (ADR-0557), opening a bundled app
+    /// (`bundled_apps.rs`), and opening Settings (ADR-0537), and nothing
+    /// else: it reaches folders only through scopes the listing registered or
+    /// permitted it into, it installs no app, and it administers no model.
     #[test]
     fn the_folders_window_holds_the_folder_plugin_and_its_listing() {
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
@@ -1573,12 +1176,6 @@ mod tests {
                 "allow-ai-key-set",
                 "allow-ai-key-remove",
                 "allow-ai-key-state",
-                "allow-list-installed-apps",
-                "allow-list-repository-apps",
-                "allow-install-app",
-                "allow-approve-app",
-                "allow-update-app",
-                "allow-open-installed-app",
                 "allow-open-bundled-app",
                 "allow-open-home"
             ]),
@@ -1603,10 +1200,6 @@ mod tests {
                     permission, "allow-open-bundled-app",
                     "opening a bundled app belongs to the Folders window alone"
                 );
-                assert!(
-                    !permission.ends_with("-app"),
-                    "installing and opening apps belong to the Folders window alone: {permission}"
-                );
             }
         }
     }
@@ -1628,8 +1221,8 @@ mod tests {
             "epicenter://surface/home",
             "epicenter://window/home",
             "epicenter://app/unknown",
-            // Bundled and installed apps are opened from the Folders window,
-            // which assigns a folder, not by link.
+            // Bundled apps are opened from the Folders window, which assigns
+            // a folder, not by link.
             "epicenter://app/todos",
             "epicenter://app/so.epicenter.todos",
             "epicenter://app/capture",

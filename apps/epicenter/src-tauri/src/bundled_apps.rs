@@ -5,8 +5,8 @@
 //! `dist/<page>/` and served by the scheme at `/<page>/`; its fixed default
 //! folder under `folder_dir`; the label its windows get, which selects their
 //! capability; and whether its windows also reach Epicenter's own folder.
-//! Opening one clones no repository and reads no `epicenter.app.json`, and no
-//! account, approval, or Git step is on the way. The Folders window calls
+//! Opening one clones, builds, and fetches nothing, and no account, approval,
+//! or Git step is on the way. The Folders window calls
 //! `open_bundled_app`; the shell permits the window into its folder and hands
 //! it that folder in trusted Rust before the WebView exists. Todos, Capture,
 //! and Honeycrisp call `openFolder({ tables })`; Whispering asks
@@ -32,9 +32,6 @@
 //! A window is destroyed when it closes, as Tauri closes any window: no
 //! handler hides it. The recorder finalizes a Whispering recording when its
 //! window is destroyed.
-//!
-//! This sits beside the installed-app path (`installed_apps.rs`) until that
-//! path is removed.
 
 use std::fs;
 use std::path::Path;
@@ -342,16 +339,11 @@ mod tests {
     impl Fixture {
         /// List the folder root as the Folders window does, by scope and title.
         fn list(&self) -> Vec<(String, String)> {
-            list_in(
-                &self.folder_dir,
-                &self.folder_dir.join("no-installed-apps"),
-                self.app.folders(),
-                &self.listed,
-            )
-            .unwrap()
-            .into_iter()
-            .map(|folder| (folder.id, folder.title))
-            .collect()
+            list_in(&self.folder_dir, self.app.folders(), &self.listed)
+                .unwrap()
+                .into_iter()
+                .map(|folder| (folder.id, folder.title))
+                .collect()
         }
 
         /// What `open_bundled_app` does before it makes the window.
@@ -548,6 +540,30 @@ mod tests {
             // Opening A again reuses its window and scope.
             assert_eq!(fixture.open(app, Some("data:A")).unwrap(), label_a);
             assert_eq!(open_assigned(&window_a, app), (scope_a, root_a));
+        }
+    }
+
+    /// A folder an earlier build's installed app opened, named by its id, is
+    /// listed as a data folder and opens in every bundled app, its files as
+    /// they are: nothing is cloned, built, or approved on the way.
+    #[test]
+    fn a_folder_named_by_an_installed_apps_id_opens_in_every_bundled_app() {
+        let fixture = fixture();
+        let old = fixture.folder_with_todo("so.epicenter.todos", "milk");
+        assert_eq!(
+            fixture.list(),
+            [(
+                "data:so.epicenter.todos".to_string(),
+                "so.epicenter.todos".to_string()
+            )]
+        );
+        for app in BundledApp::ALL {
+            let window =
+                fixture.window(&fixture.open(app, Some("data:so.epicenter.todos")).unwrap());
+            let (scope, root) = open_assigned(&window, app);
+            assert_eq!(scope, "data:so.epicenter.todos");
+            assert_eq!(root, old.to_str().unwrap());
+            assert_eq!(todo_files(&window, &scope), json!(["milk.md"]));
         }
     }
 
@@ -864,8 +880,7 @@ mod tests {
 
     /// No window but the ones assigned a folder is handed or granted it,
     /// except the Folders window, which holds the entry already: not another
-    /// app's window on another folder, not Settings, and not an installed
-    /// app's window.
+    /// app's window on another folder, and not Settings.
     #[test]
     fn no_other_window_is_handed_or_granted_a_bundled_apps_folder() {
         let fixture = fixture();
@@ -875,13 +890,7 @@ mod tests {
 
         let other_folder = Todos.window_label("B");
         let other_app = Capture.window_label("A");
-        for label in [
-            "home",
-            other_folder.as_str(),
-            other_app.as_str(),
-            "app:so_epicenter_whispering",
-            "app:so_epicenter_whispering:646174613a41",
-        ] {
+        for label in ["home", other_folder.as_str(), other_app.as_str()] {
             let window = fixture.window(label);
             assert_eq!(
                 invoke(&window, "window_folder", json!({})).unwrap(),

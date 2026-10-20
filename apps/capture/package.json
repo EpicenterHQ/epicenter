@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
-		"build:installed": "EPICENTER_HOST=1 bun run build",
+		"build:host": "EPICENTER_HOST=1 bun run build",
 		"preview": "vite preview",
 		"smoke:browser": "bun scripts/browser-smoke.ts",
 		"prepare": "svelte-kit sync || echo ''",

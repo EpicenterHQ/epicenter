@@ -2,7 +2,7 @@
 	/**
 	 * The Folders window, which is what opening Epicenter shows (ADR-0537):
 	 * every data folder under the Epicenter folder, the apps that open each,
-	 * every other app, and the one folder opened. The shell lists the folders
+	 * and the one folder opened. The shell lists the folders
 	 * (`list_data_folders`) and permits this window into each, so
 	 * `openFolder({ directory, tables: {} })` opens one by the scope the
 	 * listing names. The window knows no app's schema, so it opens every
@@ -22,26 +22,15 @@
 	 * `epicenter.json` (`DATA_FOLDERS_CHANGED`).
 	 *
 	 * "Open with" opens an app on that folder through the same verb as the
-	 * Apps list, which opens it on its default folder (ADR-0552). Every app
-	 * Epicenter bundles and every installed app that can run is offered on
-	 * every folder (`openers.ts`, ADR-0560); each app interprets it through
-	 * its own table schemas. The Settings button opens Settings with
+	 * Apps list, which opens it on its default folder. Every app Epicenter
+	 * bundles, Todos, Capture, Honeycrisp, and Whispering, is offered on
+	 * every folder but Epicenter's own (`openers.ts`); each app interprets it
+	 * through its own table schemas. Each opens with `open_bundled_app`: from
+	 * the Apps list on the app's default folder under the Epicenter folder,
+	 * and from "Open with" on the listed folder, which must still be there.
+	 * Nothing is installed, built, or approved, and the page passes only the
+	 * listed scope, never a path. The Settings button opens Settings with
 	 * `open_home`.
-	 *
-	 * Todos, Capture, Honeycrisp, and Whispering, which Epicenter bundles,
-	 * open with `open_bundled_app`: from the Apps list on the app's default
-	 * folder under the Epicenter folder, and from "Open with" on the listed
-	 * folder, which must still be there. Nothing is installed or approved
-	 * for them, and the page passes only the listed scope, never a path. An
-	 * installed copy of one of them is not listed.
-	 *
-	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
-	 * an app installed from a folder in a Git repository (`InstallApps`,
-	 * ADR-0552) is shown for approval before anything builds, and a commit
-	 * fetched from upstream is shown with its log and diff stat while the
-	 * approved commit keeps opening (ADR-0597). The `epicenter` CLI installs, updates, approves,
-	 * and builds (`app-commands.ts`, ADR-0556), and each step it reports is
-	 * said while it runs.
 	 */
 	import { openFolder } from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
@@ -53,23 +42,10 @@
 	import { createLogger } from 'wellcrafted/logger';
 	import { commands, type DataFolder } from '../ui/bindings.gen';
 	import { createLaunch } from '../ui/launch.svelte.ts';
-	import {
-		approveApp,
-		type InstalledApp,
-		listInstalledApps,
-		type Review,
-		updateApp,
-	} from './app-commands.ts';
 	import { fileKey, folderKey, listKey } from './files';
 	import { createFolderSwitch } from './folder-switch.svelte';
 	import FolderView from './FolderView.svelte';
-	import InstallApps from './InstallApps.svelte';
-	import {
-		bundledOpeners,
-		folderOpeners,
-		listedInstalledApps,
-		type Opener,
-	} from './openers.ts';
+	import { bundledOpeners, type Opener } from './openers.ts';
 
 	const log = createLogger('epicenter/folders');
 
@@ -132,27 +108,14 @@
 	/** Why Settings did not open, when it did not. */
 	let settingsProblem = $state<string | undefined>(undefined);
 
-	let installed = $state<InstalledApp[]>([]);
-	/** The installed apps listed under Apps: none is a bundled app's installed copy. */
-	const visibleInstalled = $derived(listedInstalledApps(installed));
-	let appsProblem = $state<string | undefined>(undefined);
-	/** The app whose approval is shown in place of a folder. */
-	let reviewing = $state<{ app: InstalledApp; review: Review } | undefined>(
-		undefined,
-	);
-	/** What the shell is doing for an app, said while it does it. */
-	let busy = $state<string | undefined>(undefined);
+	/** The app being opened, said while the shell opens it. */
+	let opening = $state<string | undefined>(undefined);
 
-	/** The apps every folder offers; each interprets the opened files through its own schemas. */
-	const openers = $derived(folderOpeners(installed));
 	/** Each listed folder with the apps it offers: no bundled app opens Epicenter's own. */
 	const listed = $derived(
 		(folders ?? []).map((folder) => ({
 			folder,
-			openers:
-				folder.id === EPICENTER_FOLDER
-					? openers.filter((opener) => opener.kind === 'installed')
-					: openers,
+			openers: folder.id === EPICENTER_FOLDER ? [] : bundledOpeners,
 		})),
 	);
 	/** Listings that resolve out of order keep only the newest. */
@@ -171,78 +134,15 @@
 		}
 	}
 
-	/** Read the installed apps. */
-	async function listInstalled() {
-		const { data, error } = await listInstalledApps();
-		if (error !== null) {
-			appsProblem = error;
-			return;
-		}
-		installed = data;
-	}
-
-	/** Show the approval of `app`'s commit waiting for one, when it has one. */
-	function review(app: InstalledApp) {
-		if (app.pending === null) return;
-		reviewing = { app, review: app.pending };
-	}
-
 	/**
-	 * Run one CLI action for an app, saying what it is doing meanwhile: first
-	 * `doing`, then each step the CLI reports.
-	 */
-	async function act(
-		doing: string,
-		action: (
-			onProgress: (message: string) => void,
-		) => Promise<{ data: InstalledApp | null; error: string | null }>,
-	): Promise<InstalledApp | undefined> {
-		busy = doing;
-		appsProblem = undefined;
-		try {
-			const { data, error } = await action((message) => (busy = message));
-			if (error !== null) appsProblem = error;
-			return data ?? undefined;
-		} catch (cause) {
-			appsProblem = cause instanceof Error ? cause.message : String(cause);
-			return undefined;
-		} finally {
-			busy = undefined;
-			await listInstalled();
-		}
-	}
-
-	/** Show the approval of an app `InstallApps` just cloned. */
-	async function showInstalled(app: InstalledApp) {
-		await listInstalled();
-		review(app);
-	}
-
-	async function approve(app: InstalledApp, shown: Review) {
-		const approved = await act(`Building ${app.title}…`, (onProgress) =>
-			approveApp(app.id, shown.commit, onProgress),
-		);
-		if (approved !== undefined) reviewing = undefined;
-	}
-
-	async function update(app: InstalledApp) {
-		const updated = await act(`Updating ${app.title}…`, (onProgress) =>
-			updateApp(app.id, onProgress),
-		);
-		if (updated !== undefined) review(updated);
-	}
-
-	/**
-	 * Open `application` on `folder`, or on its default folder, then read what
-	 * opening changed: a bundled app's default folder may be new, and an
-	 * installed app's commit may have been built.
+	 * Open `application` on `folder`, or on its default folder, then list the
+	 * folders again: its default folder may be new.
 	 */
 	async function launch(application: Opener, folder?: string) {
-		busy = `Opening ${application.title}…`;
+		opening = `Opening ${application.title}…`;
 		await launcher.launch(application, folder);
-		busy = undefined;
-		if (application.kind === 'bundled') await list();
-		else await listInstalled();
+		opening = undefined;
+		await list();
 	}
 
 	async function openSettings() {
@@ -258,7 +158,6 @@
 
 	/** Open folder `id`, the scope the shell listed it under. */
 	function open(id: string) {
-		reviewing = undefined;
 		void current.choose(id);
 	}
 
@@ -270,7 +169,6 @@
 			() => void list(),
 		);
 		void list();
-		void listInstalled();
 		return () => {
 			void stopListing.then((stop) => stop());
 			void current.close().then((unsaved) => {
@@ -337,7 +235,7 @@
 									{/snippet}
 								</DropdownMenu.Trigger>
 								<DropdownMenu.Content align="end">
-									{#each openers as application (application.id)}
+									{#each openers as application (application.app)}
 										<DropdownMenu.Item onclick={() => void launch(application, folder.id)}>
 											{application.title}
 										</DropdownMenu.Item>
@@ -351,15 +249,8 @@
 		{/if}
 
 		<h2 class="px-4 pt-2 pb-1 text-sm font-semibold">Apps</h2>
-		{#if appsProblem !== undefined}
-			<div class="px-3 pb-2">
-				<Alert.Root variant="destructive">
-					<Alert.Description>{appsProblem}</Alert.Description>
-				</Alert.Root>
-			</div>
-		{/if}
 		<ul class="flex flex-col gap-0.5 px-2 pb-1" aria-label="Apps">
-			{#each bundledOpeners as application (application.id)}
+			{#each bundledOpeners as application (application.app)}
 				<li class="flex items-center gap-1">
 					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm">
 						{application.title}
@@ -367,109 +258,21 @@
 					<Button
 						variant="ghost"
 						size="xs"
-						disabled={busy !== undefined}
+						disabled={opening !== undefined}
 						onclick={() => void launch(application)}
 					>
 						Open
 					</Button>
 				</li>
 			{/each}
-			{#each visibleInstalled as app (app.id)}
-				<li class="flex items-center gap-1">
-					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm" title={app.source}>
-						{app.title}
-						{#if app.state.kind === 'broken'}
-							<span class="block truncate text-xs text-destructive" title={app.state.problem}>
-								{app.state.problem}
-							</span>
-						{:else if app.state.kind === 'needsApproval'}
-							<span class="block text-xs text-muted-foreground">Waiting for approval</span>
-						{:else if app.pending !== null}
-							<span class="block text-xs text-muted-foreground">Update waiting for approval</span>
-						{/if}
-					</span>
-					{#if app.pending !== null && app.state.kind !== 'broken'}
-						<Button
-							variant="ghost"
-							size="xs"
-							disabled={busy !== undefined}
-							onclick={() => review(app)}
-						>
-							Review
-						</Button>
-					{/if}
-					{#if app.state.kind === 'ready' || app.state.kind === 'unbuilt'}
-						<Button
-							variant="ghost"
-							size="xs"
-							disabled={busy !== undefined}
-							onclick={() => void launch({ kind: 'installed', ...app })}
-						>
-							Open
-						</Button>
-					{/if}
-					{#if app.source !== '' && app.state.kind !== 'broken'}
-						<Button
-							variant="ghost"
-							size="xs"
-							disabled={busy !== undefined}
-							onclick={() => void update(app)}
-						>
-							Update
-						</Button>
-					{/if}
-				</li>
-			{/each}
 		</ul>
-		<div class="px-3 pb-3">
-			{#if busy !== undefined}
-				<p class="px-1 py-1.5 text-sm text-muted-foreground">{busy}</p>
-			{:else}
-				<InstallApps oninstalled={showInstalled} />
-			{/if}
-		</div>
+		{#if opening !== undefined}
+			<p class="px-4 pb-3 text-sm text-muted-foreground">{opening}</p>
+		{/if}
 	</nav>
 
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-		{#if reviewing !== undefined}
-			{@const { app, review: shown } = reviewing}
-			<section class="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6" aria-label="Approve {app.title}">
-				<header class="flex flex-col gap-1">
-					<h2 class="text-lg font-semibold">Approve {app.title}?</h2>
-					<p class="text-sm text-muted-foreground">
-						From {app.source}, at commit
-						<code class="font-mono">{shown.commit.slice(0, 12)}</code>
-					</p>
-				</header>
-				<Alert.Root>
-					<Alert.Description>{shown.statement}</Alert.Description>
-				</Alert.Root>
-				<div class="flex flex-col gap-1">
-					<h3 class="text-sm font-semibold">
-						{shown.from === null ? 'Commits' : 'New commits since you last approved it'}
-					</h3>
-					<pre class="overflow-auto rounded-md bg-muted p-3 font-mono text-xs">{shown.log || 'None'}</pre>
-				</div>
-				{#if shown.from !== null}
-					<div class="flex flex-col gap-1">
-						<h3 class="text-sm font-semibold">Changed files</h3>
-						<pre class="overflow-auto rounded-md bg-muted p-3 font-mono text-xs">{shown.diffStat || 'None'}</pre>
-					</div>
-				{/if}
-				<div class="flex gap-2">
-					<Button disabled={busy !== undefined} onclick={() => void approve(app, shown)}>
-						{busy ?? 'Approve and build'}
-					</Button>
-					<Button
-						variant="ghost"
-						disabled={busy !== undefined}
-						onclick={() => (reviewing = undefined)}
-					>
-						Not now
-					</Button>
-				</div>
-			</section>
-		{:else if current.problem !== undefined}
+		{#if current.problem !== undefined}
 			<div class="p-4">
 				<Alert.Root variant="destructive">
 					<Alert.Description>Could not open this folder: {current.problem}</Alert.Description>

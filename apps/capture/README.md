@@ -7,7 +7,7 @@ its rules are in [`packages/capture`](../../packages/capture/README.md).
 
 Capture opens one local folder with
 `openFolder({ tables: captureTables })` from `@epicenter/folder`. The browser
-build uses IndexedDB; the installed build uses a granted directory. The folder
+build uses IndexedDB; the host build Epicenter bundles uses a granted directory. The folder
 keeps no history and syncs nowhere yet: there is no
 Save version, Sync, or Connect.
 
@@ -147,7 +147,7 @@ one adapter.
 
 ## Desktop
 
-The installed build opens the directory Epicenter's shell grants its window.
+The host build opens the directory Epicenter's shell grants its window.
 It uses the same Folder row and merge rules as the browser, with guarded
 directory writes. A missing grant is shown as a refusal. Git and remote
 actions remain absent.
@@ -173,11 +173,11 @@ bun run --cwd apps/capture test             # unit tests, then the mounted compo
 bun run --cwd packages/capture typecheck
 bun run --cwd apps/capture typecheck        # the app and the scripts
 bun run --cwd apps/capture build            # browser
-bun run --cwd apps/capture build:installed  # the build Epicenter installs
+bun run --cwd apps/capture build:host       # the build Epicenter bundles
 bun scripts/check-ui-boundary.ts
 ```
 
-The browser build writes `build/` and serves a fallback page. The installed
+The browser build writes `build/` and serves a fallback page. The host
 build writes `dist/` here and prerenders each page with relative asset paths,
 so it runs below whatever path the host serves it at. The two builds share
 SvelteKit's output directory, so run them one after the other. The mounted

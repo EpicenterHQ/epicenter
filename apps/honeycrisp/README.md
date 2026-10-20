@@ -4,8 +4,8 @@ Honeycrisp is a Markdown notes app with a rich-text editor. Every note is one
 Markdown file in a folder, and that folder's files are the saved data. There
 is no account, no sync, and no database behind it.
 
-The browser build keeps notes in this origin's local folder; the installed
-build opens the directory Epicenter grants its window. Part of the
+The browser build keeps notes in this origin's local folder; the host build
+Epicenter bundles opens the directory Epicenter grants its window. Part of the
 [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. Licensed under
 AGPL-3.0-or-later.
 
@@ -18,9 +18,9 @@ From the repository root:
 | `bun dev:honeycrisp` | Starts the browser build on port 5175. Notes live in this browser's local folder (IndexedDB), not in a directory on disk. `bun dev:honeycrisp:ui` is the same. |
 | `bun build:honeycrisp:ui` | Builds the browser page into `apps/honeycrisp/build`. |
 
-The installed build (`bun run build:installed`, which Epicenter runs when it
-installs Honeycrisp from `epicenter.app.json`) uses the same rows and edits
-over the shell's granted directory. A missing grant is shown as a refusal.
+The host build (`bun run build:host`, which Epicenter's `build:bundled` runs
+from this folder) uses the same rows and edits over the shell's granted
+directory. A missing grant is shown as a refusal.
 
 Checks, from `apps/honeycrisp`:
 

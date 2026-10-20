@@ -22,7 +22,7 @@ export type OptionSpec = {
 
 /** One command as the parser and `--help` see it. */
 export type CommandSpec = {
-	/** `['check']`, or a group and its verb: `['app', 'install']`. */
+	/** `['check']`, or a group and its verb: `['auth', 'login']`. */
 	readonly path: readonly string[];
 	/** The positionals as `--help` prints them, such as `<dir> [<sql>]`. */
 	readonly args: string;

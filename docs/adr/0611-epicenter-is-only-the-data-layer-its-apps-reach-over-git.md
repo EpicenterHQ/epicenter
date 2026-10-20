@@ -87,7 +87,9 @@ Git operations include repos, clone, sync, status, login, and logout in the
 planned CLI. Existing auth key and send capabilities retain bring-your-own
 provider configuration and optional hosted inference. Credentials remain
 outside synchronized data. packages/cli/README.md documents implemented
-commands; the installed CLI still has legacy auth and app command groups.
+commands; the installed CLI still has the legacy auth group. Its app group,
+the source installer, was deleted on 2026-10-20 along with the desktop app's
+installer, manifests, and commit-pinned builds.
 External-schema flags are deferred; no public opening signature is implied to exist yet.
 
 **Standalone apps own their native capabilities.**

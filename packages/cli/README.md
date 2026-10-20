@@ -14,9 +14,9 @@ See [shared vocabulary](../../docs/CONTEXT.md) and
 The `epicenter` command. Each command is a thin wrapper over a function in a
 shared package; the CLI parses, prints, and picks the exit code, and holds no
 logic a page or the browser also needs (ADR-0556). Desktop-only work, such as
-installing apps and `install-command`, lives in the CLI's own modules. The
-implemented command surface retains ADR-0558's groups; ADR-0611 describes its
-planned reduction.
+`install-command`, lives in the CLI's own modules. The
+implemented command surface retains ADR-0558's `auth` group; its `app` group
+is deleted. ADR-0611 describes the planned reduction.
 
 ```sh
 bun run epicenter check path/to/folder          # from the repository root
@@ -24,8 +24,7 @@ bun packages/cli/src/bin.ts query path/to/folder 'SELECT stem FROM posts'
 ```
 
 The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
---cwd apps/epicenter build:sidecar`). That binary also runs as `bun` with
-`BUN_BE_BUN=1`; see
+--cwd apps/epicenter build:sidecar`); see
 [the epicenter binary](../../apps/epicenter/README.md#the-epicenter-binary).
 
 ## Commands
@@ -41,10 +40,6 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter sync <dir> [--to <namespace>/<name>]` | built | `runHistory`, `src/repository-commands.ts` |
 | `epicenter clone <namespace>/<name> \| <url> [<dir>]` | built | `src/repository-commands.ts` |
 | `epicenter repos` | built | `src/repository-commands.ts` |
-| `epicenter app list [--repository <url>]` | built | `src/installed-apps.ts` |
-| `epicenter app install <url> [--folder <path>] [--commit <sha>] [--approve]` | built | `src/installed-apps.ts` |
-| `epicenter app update <id> [--commit <sha>] [--approve]` | built | `src/installed-apps.ts` |
-| `epicenter app remove <id>` | built | `src/installed-apps.ts` |
 | `epicenter auth login` | built | `src/auth.ts` |
 | `epicenter auth logout` | built | `src/auth.ts` |
 | `epicenter auth status` | built | `src/auth.ts` |
@@ -54,10 +49,13 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
 
-`send`, `history`, `save-version`, `install-command`,
-`app update --restore`, `sync --allow-unrelated`,
+`send`, `history`, `save-version`, `install-command`, `sync --allow-unrelated`,
 and `--desktop` are left out of `--help`: the desktop app runs them.
-`--commit` is listed, and `--approve` requires it.
+
+The source installer, the `app` group, is deleted, with no alias: Epicenter
+bundles its apps. Clones an earlier build installed under `apps/` in the data
+directory, and builds under `builds/` in the cache directory, are left on
+disk, never read and never removed.
 
 ## Hosted repositories
 
@@ -94,11 +92,13 @@ the system `git` (ADR-0559), each a thin wrapper over `runHistory` in
 desktop shell runs them for a page, one child per operation, with `--json`;
 the one reply line is `history-wire.ts`'s encoding, which the page decodes.
 Git's own configuration names the author, and otherwise it is
-`Epicenter <epicenter@localhost>`; history is recorded on `main`. A folder
-directly under the Epicenter folder root named `so.epicenter` or an
-installed app's id is that app's own folder (`isApplicationFolder`), which
-may get a repository inside another repository's working tree; any other
-folder may not. When the shell ends the child (a page reloaded, or its
+`Epicenter <epicenter@localhost>`; history is recorded on `main`. Epicenter's
+own folder, `so.epicenter` directly under the Epicenter folder root
+(`isApplicationFolder`), may get a repository inside another repository's
+working tree; any other folder may not. That includes a folder named by the
+id of an app an earlier build installed, such as `so.epicenter.todos`: it is
+a data folder now, so its first commit is refused while it sits inside
+another repository's working tree. Its files read and open as before. When the shell ends the child (a page reloaded, or its
 window closed), the child ends every `git` it started, with their helpers
 (`src/stop.ts`).
 
@@ -213,51 +213,12 @@ Every built resource accepts only these tokens (ADR-0549): an Epicenter
 connection's `send` reaches `/v1` with an API token, and an account target
 reaches `/api/*` with a token for the audience it names.
 
-## Installing apps
+## Directories
 
-`app` installs, updates, lists, and removes apps on this machine (ADR-0540,
-ADR-0552, ADR-0560), in the directories the desktop shell uses: its
-`EPICENTER_DATA_DIR`, `EPICENTER_FOLDER_DIR`, and `EPICENTER_CACHE_DIR`, which
-the shell sets when it runs the CLI, or the release app's when they are unset
-(`src/app-paths.ts`). `app install` clones a repository's default branch
-bare into `apps/<app-id>/` in the data directory, reading the id from the
-`epicenter.app.json` in `--folder` (only `id` and `title`, nothing else).
-`app list --repository <url>` lists the apps a repository holds without
-installing any.
-
-The clone's detached `HEAD` is the approved commit (ADR-0597). A fresh
-install's `HEAD` is symbolic and approves nothing; `app update` fetches,
-which writes `refs/remotes/origin/<default>` and never `HEAD`. Without
-`--approve`, `install` and `update` print the fetched commit waiting for
-approval with its log and diff stat; `install` exits 1, since nothing is
-approved yet. Approving needs the commit that was shown:
-`app install --commit <sha> --approve` or `app update --commit <sha>
---approve` approves that commit, and only when it is the one waiting, with
-`git update-ref --no-deref HEAD`, so approving never covers a commit nobody
-saw. `--approve` without `--commit` is refused, approving fetches nothing,
-and `app install --commit` without `--approve` is refused, since installing
-approves nothing.
-
-Until publishing builds apps (ADR-0589), the approved commit is built from
-source: it is extracted with `git archive` into `sources/<app-id>/` in the
-cache directory, `bun install --frozen-lockfile --ignore-scripts` runs at its
-root and `bun run build:installed` in the app's folder, run by this binary as
-`bun` (`BUN_BE_BUN=1`). The regular files of its `dist/` are written into the
-clone as the tree `refs/epicenter/builds/<commit>`, which is extracted with
-`git archive` into `builds/<app-id>/<commit>/`. `app update --commit <sha>`
-without `--approve` is what the shell runs before every open: it answers only for the
-approved commit, builds it when it is not built, and checks its build
-directory against that tree by path and blob hash. A damaged build is
-reported (`state: damaged`) and left as it is, since a window may be running
-it; the shell, when no window runs that commit, adds the hidden `--restore`,
-which extracts the tree again, checks it, and swaps it in. From a terminal,
-opening the app in Epicenter restores it. `app remove` deletes the clone and
-leaves the builds for windows still running them. Clones from before this
-layout, in `~/Epicenter/Apps/`, are left on disk and never read.
-
-Git runs through `@epicenter/folder`'s runner (`createGitRunner`), with no
-hooks and the `ext` and `fd` transports refused. One install, update, or
-build runs at a time (`<cache>/apps.lock`, `holdingFileLock`).
+The CLI reads and writes where the desktop shell does
+(`src/app-paths.ts`): `EPICENTER_DATA_DIR` for the sign-in locks and
+`EPICENTER_FOLDER_DIR` for the Epicenter folder, which the shell sets when it
+runs the CLI, or the release app's directories when they are unset.
 
 ## Merging with plain Git
 
@@ -270,16 +231,14 @@ nothing configures a merge driver for them.
 ## Output and exit codes
 
 Every command but `auth git-credential` takes `--json`, and only `--json` switches the output: one JSON
-value on one line of stdout, or, for `sync`, `clone`, `app install`, and
-`app update`, `auth login`, NDJSON progress lines ending in one result line (for `app`,
-`{"progress": "<sentence>"}` lines, then `{"app": {...}}`, exit 0 when built
-and 1 while it waits for approval). Without it,
+value on one line of stdout, or, for `sync`, `clone`, and `auth login`,
+NDJSON progress lines ending in one result line. Without it,
 stdout is the answer and stderr is for people. A command that cannot do its
 work prints `{"error": "..."}` on stdout with `--json`, and the message on
 stderr without it.
 
 Exit codes are ADR-0520's: 0 done, 1 a finding a person acts on (a file that
-does not conform, an app waiting for approval, a sync that stopped), 2
+does not conform, a sync that stopped), 2
 input the command cannot use (a folder that is not one, a refused statement,
 an unknown option, no `git`).
 
@@ -303,9 +262,7 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/install-command.ts` | `install-command`: the one link Git's configuration runs. |
 | `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
 | `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names and the token for the deployment's Git. |
-| `src/app-commands.ts` | `app list`, `install`, `update`, and `remove`, printing what `src/installed-apps.ts` returns. |
-| `src/installed-apps.ts` | Installing apps: the manifest, approvals, clones, updates, and builds. |
-| `src/app-paths.ts` | Where installed apps, approvals, builds, the sign-in locks, and the command link live, by the shell's rule. |
+| `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the command link live, by the shell's rule. |
 | `src/ai-commands.ts` | `auth key` and `send`, printing what `@epicenter/ai/send` returns. |
 | `src/auth.ts` | The two grants: device and desktop sign-in, the one refresh, status, sign-out, and Git's credential helper. |
 | `src/auth-commands.ts` | `auth login`, `logout`, `status`, `token`, and `git-credential`, printing what `src/auth.ts` returns. |
@@ -327,12 +284,3 @@ compiled binary too.
 `src/auth.postgres.test.ts` signs in against `@epicenter/server`'s
 authorization server in process, on a disposable Postgres cluster (it needs
 `initdb` and `pg_ctl` on `PATH`), approving as the server's own checks do.
-`src/installed-apps.test.ts` installs apps from repositories it makes, and
-its last tests run `app` through the command. With `EPICENTER_MONOREPO` set
-to a clone of this repository, it also installs and builds Todos, Capture,
-Whispering, and Honeycrisp from their folders, which needs the network and a
-few minutes:
-
-```sh
-EPICENTER_MONOREPO=/path/to/epicenter-clone bun test src/installed-apps.test.ts
-```

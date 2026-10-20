@@ -158,47 +158,6 @@ export const commands = {
 	 */
 	installGit: () => typedError<null, string>(__TAURI_INVOKE("install_git")),
 	/**
-	 *  `epicenter app list --json`: every installed app, with whether it can
-	 *  run and any fetched commit waiting for approval.
-	 */
-	listInstalledApps: (onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("list_installed_apps", { onLine })),
-	/**
-	 *  The apps in the repository at `source`, a Git URL or a local path, each
-	 *  with the folder to install it from.
-	 */
-	listRepositoryApps: (source: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("list_repository_apps", { source, onLine })),
-	/**
-	 *  Clone the repository at `source` bare into app data, with the app at
-	 *  `folder` within it, or at its root when `folder` is empty. Nothing is
-	 *  approved yet: the CLI exits 1 with the fetched commit's review.
-	 */
-	installApp: (source: string, folder: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("install_app", { source, folder, onLine })),
-	/**
-	 *  Approve `commit` of app `id`, the commit the person was shown, and build
-	 *  it.
-	 */
-	approveApp: (id: string, commit: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("approve_app", { id, commit, onLine })),
-	/**
-	 *  Fetch app `id`'s default branch, which never moves its approved commit. A
-	 *  fetched commit waits for approval, reviewed in the result.
-	 */
-	updateApp: (id: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("update_app", { id, onLine })),
-	/**
-	 *  Open app `id` at `commit`, the commit the Folders window listed, in its own
-	 *  window titled `title`, served at `/apps/<id>/<commit>/`. The CLI is asked
-	 *  first, every time, and answers only for the approved commit, building it
-	 *  when it is not built and checking its build when it is. A build that
-	 *  changed on disk is restored only under a reservation, taken when no window
-	 *  runs that commit (`checked_open`); otherwise the open is refused. A window
-	 *  already open on the folder is revealed when it runs that build, and
-	 *  refused when it runs another. With
-	 *  `folder`, a scope the Folders window listed, the window is let into that
-	 *  folder and handed it, which the page asks for with `window_folder`.
-	 *  Without one, the app is handed its own folder, `<folder_dir>/<id>`, whose
-	 *  scope is its id (ADR-0552).
-	 */
-	openInstalledApp: (id: string, title: string, commit: string, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_installed_app", { id, title, commit, folder })),
-	/**
 	 *  Open bundled app `app` on its fixed default folder, or with `folder`, on a
 	 *  folder the Folders window listed under that scope. A window already open
 	 *  on the folder is revealed.

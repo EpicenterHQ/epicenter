@@ -16,7 +16,7 @@
 		"test": "bun test --isolate --path-ignore-patterns='src/routes/**' && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/routes",
 		"build": "NODE_ENV=production vite build",
-		"build:installed": "EPICENTER_HOST=1 bun run build",
+		"build:host": "EPICENTER_HOST=1 bun run build",
 		"check": "bun run typecheck",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",

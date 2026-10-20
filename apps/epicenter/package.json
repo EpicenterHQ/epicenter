@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/epicenter",
-	"description": "The Epicenter desktop app: Rust serves its pages, the apps it bundles, and every installed app from one origin.",
+	"description": "The Epicenter desktop app: Rust serves its pages and the apps it bundles from one origin.",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",

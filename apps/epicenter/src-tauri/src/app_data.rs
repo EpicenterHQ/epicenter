@@ -1,13 +1,14 @@
 //! Paths selected once at desktop startup and handed to the `epicenter` CLI.
 //!
-//! The running bundle identifier selects the native data directory, the cache
-//! directory, and a stable checkout folder name. Explicit overrides win before
-//! any platform lookup.
+//! The running bundle identifier selects the native data directory and a
+//! stable checkout folder name. Explicit overrides win before any platform
+//! lookup.
 //!
 //! What a person or an agent reads, edits, or versions lives under
 //! `folder_dir`; what only Epicenter writes, and what this machine alone
-//! needs, lives in `data_dir` or, when losing it costs only a rebuild, in
-//! `cache_dir` (ADR-0539).
+//! needs, lives in `data_dir` (ADR-0539). Installed-app clones an earlier
+//! build left under `data_dir/apps/`, and builds it left in the cache
+//! directory, are never read and never removed.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -20,8 +21,6 @@ use tauri::{AppHandle, Manager, Runtime};
 pub struct DesktopPaths {
     pub data_dir: PathBuf,
     pub folder_dir: PathBuf,
-    /// Disposable: built app bundles, which a rebuild makes again.
-    pub cache_dir: PathBuf,
 }
 
 impl DesktopPaths {
@@ -47,45 +46,18 @@ impl DesktopPaths {
                     .join(name))
             },
         )?;
-        let cache_dir = resolve_directory(
-            "EPICENTER_CACHE_DIR",
-            std::env::var_os("EPICENTER_CACHE_DIR").as_deref(),
-            || {
-                app.path()
-                    .app_cache_dir()
-                    .context("resolve the cache directory")
-            },
-        )?;
         // Paths must round-trip exactly through the CLI's environment; refuse
         // unrepresentable ones before anything touches a root.
-        for path in [&data_dir, &folder_dir, &cache_dir] {
+        for path in [&data_dir, &folder_dir] {
             path.to_str()
                 .context("desktop directories must be valid UTF-8")?;
         }
         Ok(Self {
             data_dir,
             folder_dir,
-            cache_dir,
         })
     }
-
-    /// Built app bundles, at `<app-id>/<commit>/`. The `epicenter` CLI
-    /// writes them, and the installed apps' clones in `data_dir`, from the
-    /// same directories, which the shell hands it (`installed_apps.rs`).
-    pub fn builds_dir(&self) -> PathBuf {
-        self.cache_dir.join("builds")
-    }
-
-    /// Installed apps, one bare clone each at `<app-id>/`, whose detached
-    /// `HEAD` is the approved commit (ADR-0597). Machine state, never inside
-    /// a data folder (ADR-0539).
-    pub fn apps_dir(&self) -> PathBuf {
-        self.data_dir.join(APPS_DIRECTORY)
-    }
 }
-
-/// The directory under the data directory that holds installed apps' clones.
-pub const APPS_DIRECTORY: &str = "apps";
 
 /// These names are durable destinations, independent of the app's display name.
 fn checkout_folder_name(identifier: &str) -> Result<&'static str> {
@@ -120,11 +92,7 @@ mod tests {
     #[test]
     fn an_absolute_override_wins_without_resolving_the_platform_directory() {
         let directory = std::env::temp_dir().join("epicenter-test");
-        for variable in [
-            "EPICENTER_DATA_DIR",
-            "EPICENTER_FOLDER_DIR",
-            "EPICENTER_CACHE_DIR",
-        ] {
+        for variable in ["EPICENTER_DATA_DIR", "EPICENTER_FOLDER_DIR"] {
             assert_eq!(
                 resolve_directory(variable, Some(directory.as_os_str()), || panic!(
                     "override wins"
@@ -137,11 +105,7 @@ mod tests {
 
     #[test]
     fn empty_overrides_use_the_default_and_relative_overrides_fail() {
-        for variable in [
-            "EPICENTER_DATA_DIR",
-            "EPICENTER_FOLDER_DIR",
-            "EPICENTER_CACHE_DIR",
-        ] {
+        for variable in ["EPICENTER_DATA_DIR", "EPICENTER_FOLDER_DIR"] {
             for value in [None, Some(OsStr::new(""))] {
                 assert_eq!(
                     resolve_directory(variable, value, || Ok(std::env::temp_dir())).unwrap(),
@@ -171,24 +135,10 @@ mod tests {
             let app = tauri::test::mock_builder().build(context).unwrap();
             let root = app.path().app_local_data_dir().unwrap();
             assert_eq!(root.file_name().unwrap(), identifier);
-            let cache = app.path().app_cache_dir().unwrap();
-            assert_eq!(cache.file_name().unwrap(), identifier);
-            assert_ne!(cache, root);
             assert_eq!(checkout_folder_name(identifier).unwrap(), folder);
-            roots.push((root, cache));
+            roots.push(root);
         }
         assert_ne!(roots[0], roots[1]);
         assert!(checkout_folder_name("unconfigured.app").is_err());
-    }
-
-    #[test]
-    fn machine_state_and_sources_split_by_what_they_cost_to_lose() {
-        let paths = DesktopPaths {
-            data_dir: PathBuf::from("/support/so.epicenter"),
-            folder_dir: PathBuf::from("/home/Epicenter"),
-            cache_dir: PathBuf::from("/caches/so.epicenter"),
-        };
-        assert_eq!(paths.builds_dir(), Path::new("/caches/so.epicenter/builds"));
-        assert_eq!(paths.apps_dir(), Path::new("/support/so.epicenter/apps"));
     }
 }

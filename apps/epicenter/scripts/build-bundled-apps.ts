@@ -4,11 +4,10 @@
  * serves each at `epicenter-app://localhost/<page>/` (`BundledApp` in
  * `src-tauri/src/bundled_apps.rs`).
  *
- * Each runs its own installed build in `apps/<page>` (`build:installed`),
- * which writes a single-page app with relative asset paths to
- * `apps/<page>/dist/`, and that output is copied here. The build consumes the
- * canonical app source: nothing is cloned and no `epicenter.app.json` is
- * read.
+ * Each runs its own host build in `apps/<page>` (`build:host`, which sets
+ * `EPICENTER_HOST=1`), which writes a single-page app with relative asset
+ * paths to `apps/<page>/dist/`, and that output is copied here. The build
+ * consumes the canonical app source: nothing is cloned, approved, or fetched.
  *
  * With page names as arguments it builds only those.
  */
@@ -32,14 +31,13 @@ const distDir = join(import.meta.dir, '..', 'dist');
 /** Build `page` from `apps/<page>` and copy it to `dist/<page>/`. */
 export async function buildBundledPage(page: BundledPage): Promise<void> {
 	const source = join(appsDir, page);
-	const build = Bun.spawn(['bun', 'run', 'build:installed'], {
+	const build = Bun.spawn(['bun', 'run', 'build:host'], {
 		cwd: source,
 		stdout: 'inherit',
 		stderr: 'inherit',
 	});
 	const code = await build.exited;
-	if (code !== 0)
-		throw new Error(`${page}'s build:installed exited with ${code}`);
+	if (code !== 0) throw new Error(`${page}'s build:host exited with ${code}`);
 
 	const served = join(distDir, page);
 	await rm(served, { recursive: true, force: true });

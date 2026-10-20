@@ -1,7 +1,6 @@
 /**
  * The compiled `epicenter` binary is the CLI (ADR-0556) and runs without a
- * system Bun on `PATH`, and with `BUN_BE_BUN=1` it is `bun`, which
- * `epicenter app` runs to install and build apps.
+ * system Bun on `PATH`.
  */
 
 import { expect, test } from 'bun:test';
@@ -34,7 +33,7 @@ async function run(
 	return { code, stdout };
 }
 
-test('the compiled binary is the CLI, and bun with BUN_BE_BUN=1', async () => {
+test('the compiled binary is the CLI, without a system Bun', async () => {
 	const build = Bun.spawn(['bun', 'run', 'build:sidecar'], {
 		cwd: appDir,
 		stdout: 'pipe',
@@ -53,8 +52,4 @@ test('the compiled binary is the CLI, and bun with BUN_BE_BUN=1', async () => {
 	const cli = await run([binary, '--version'], { PATH: '' });
 	expect(cli.code).toBe(0);
 	expect(cli.stdout).toStartWith('epicenter ');
-
-	const bun = await run([binary, '--version'], { PATH: '', BUN_BE_BUN: '1' });
-	expect(bun.code).toBe(0);
-	expect(bun.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
 }, 120_000);

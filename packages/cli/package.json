@@ -4,9 +4,6 @@
 	"private": true,
 	"description": "The epicenter command: thin wrappers over shared packages, compiled into the binary the desktop app ships.",
 	"type": "module",
-	"exports": {
-		".": "./src/index.ts"
-	},
 	"bin": {
 		"epicenter": "./src/bin.ts"
 	},

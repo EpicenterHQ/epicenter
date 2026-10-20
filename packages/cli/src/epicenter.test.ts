@@ -452,10 +452,13 @@ test('a command line the grammar refuses exits 2 and says why', async () => {
 		'epicenter sync does not take --onto',
 	);
 	expect(run('sync', folder, '--to').stderr).toContain('--to needs');
-	expect(run('app').exitCode).toBe(2);
-	expect(run('app', 'approve', 'x').stderr).toContain(
-		"Unknown command 'epicenter app approve'",
+	expect(run('auth').exitCode).toBe(2);
+	expect(run('auth', 'approve', 'x').stderr).toContain(
+		"Unknown command 'epicenter auth approve'",
 	);
+	// The source installer is gone, with no alias.
+	for (const verb of ['list', 'install', 'update', 'remove'])
+		expect(run('app', verb, 'x').stderr).toContain("Unknown command 'app'");
 });
 
 test('--help lists every command but send and install-command, and --json describes them', async () => {
@@ -465,10 +468,10 @@ test('--help lists every command but send and install-command, and --json descri
 	for (const usage of [
 		'epicenter query <dir> [<sql>]',
 		'epicenter sync <dir> [--to <namespace>/<name>]',
-		'epicenter app install <url> [--folder <path>] [--commit <sha>] [--approve]',
 		'epicenter auth git-credential get | store | erase',
 	])
 		expect(help.stdout).toContain(usage);
+	expect(help.stdout).not.toContain('epicenter app');
 	expect(help.stdout).not.toContain('epicenter send');
 	expect(help.stdout).not.toContain('install-command');
 	expect(help.stdout).not.toContain('--desktop');
@@ -481,10 +484,6 @@ test('--help lists every command but send and install-command, and --json descri
 		'sync',
 		'clone',
 		'repos',
-		'app list',
-		'app install',
-		'app update',
-		'app remove',
 		'auth login',
 		'auth logout',
 		'auth status',

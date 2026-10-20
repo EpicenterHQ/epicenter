@@ -8,10 +8,9 @@
 //!
 //! Every command starts the CLI through one [`Invocation`]: the bundled
 //! program, the deployment this shell is configured for in
-//! `EPICENTER_API_URL`, and this shell's directories in `EPICENTER_DATA_DIR`,
-//! `EPICENTER_FOLDER_DIR`, and `EPICENTER_CACHE_DIR`, so the CLI a command
-//! runs names the same deployment and files as the shell, whichever command
-//! it is. A command a page calls is that window's ([`CliChildren`]): its
+//! `EPICENTER_API_URL`, and this shell's directories in `EPICENTER_DATA_DIR`
+//! and `EPICENTER_FOLDER_DIR`, so the CLI a command runs names the same
+//! deployment and files as the shell, whichever command it is. A command a page calls is that window's ([`CliChildren`]): its
 //! child ends when the page reloads or the window closes.
 //!
 //! The runner writes stdin on its own task and drains stderr on another while
@@ -223,14 +222,6 @@ impl CliExit {
         value.get("error")?.as_str().map(str::to_string)
     }
 
-    /// Why `epicenter <what>` did not do what it was asked: its refusal, or
-    /// the end of what it wrote for people, or its exit code.
-    pub(crate) fn failure(&self, what: &str) -> String {
-        self.refusal()
-            .or_else(|| Some(self.stderr.trim().to_string()).filter(|text| !text.is_empty()))
-            .unwrap_or_else(|| format!("epicenter {what} exited with {}", self.code))
-    }
-
     /// The one JSON value a command that exited 0 answered. A refusal is
     /// [`CliError::Refused`]; anything else is a failure naming `what`.
     fn answer<T: serde::de::DeserializeOwned>(self, what: &str) -> Result<T, CliError> {
@@ -300,7 +291,6 @@ impl Invocation {
                     "EPICENTER_FOLDER_DIR".into(),
                     paths.folder_dir.clone().into(),
                 ),
-                ("EPICENTER_CACHE_DIR".into(), paths.cache_dir.clone().into()),
             ],
             desktop: false,
             owner: None,
@@ -1028,7 +1018,6 @@ mod tests {
         DesktopPaths {
             data_dir: dir.join("data"),
             folder_dir: dir.join("Epicenter"),
-            cache_dir: dir.join("cache"),
         }
     }
 
@@ -1080,7 +1069,6 @@ mod tests {
         let paths = DesktopPaths {
             data_dir: PathBuf::from("/support/so.epicenter"),
             folder_dir: PathBuf::from("/home/Epicenter"),
-            cache_dir: PathBuf::from("/caches/so.epicenter"),
         };
         let env = |code: &str| {
             Invocation::new(program.clone(), "https://api.example.test", &paths)
@@ -1232,9 +1220,9 @@ process.exitCode = 1;
     }
 
     /// Every command a page calls starts the CLI the same way: with the
-    /// shell's deployment and its three directories, and as that window's
+    /// shell's deployment and its two directories, and as that window's
     /// child, which ends with its page. The child stands in for a long
-    /// `epicenter app install`: it reports its environment and waits.
+    /// `epicenter sync`: it reports its environment and waits.
     #[cfg(unix)]
     #[tokio::test]
     async fn every_invocation_names_the_shells_deployment_and_directories_and_ends_with_its_page() {
@@ -1242,7 +1230,7 @@ process.exitCode = 1;
         let script = dir.join("child.sh");
         fs::write(
             &script,
-            "#!/bin/sh\nprintf '%s|%s|%s|%s|%s\\n' \"$*\" \"$EPICENTER_API_URL\" \"$EPICENTER_DATA_DIR\" \"$EPICENTER_FOLDER_DIR\" \"$EPICENTER_CACHE_DIR\"\nsleep 30 &\nwait\n",
+            "#!/bin/sh\nprintf '%s|%s|%s|%s\\n' \"$*\" \"$EPICENTER_API_URL\" \"$EPICENTER_DATA_DIR\" \"$EPICENTER_FOLDER_DIR\"\nsleep 30 &\nwait\n",
         )
         .unwrap();
         let program = Program {
@@ -1258,7 +1246,7 @@ process.exitCode = 1;
         let running = tokio::spawn(async move {
             let mut sender = Some(sender);
             invocation
-                .run(&["app".into(), "install".into()], None, move |line| {
+                .run(&["sync".into(), "notes".into()], None, move |line| {
                     if let Some(sender) = sender.take() {
                         let _ = sender.send(line);
                     }
@@ -1273,10 +1261,9 @@ process.exitCode = 1;
         assert_eq!(
             line,
             format!(
-                "app install --desktop|https://self.example.test|{}|{}|{}",
+                "sync notes --desktop|https://self.example.test|{}|{}",
                 paths.data_dir.display(),
-                paths.folder_dir.display(),
-                paths.cache_dir.display()
+                paths.folder_dir.display()
             )
         );
         assert_eq!(children.running("folders"), 1);

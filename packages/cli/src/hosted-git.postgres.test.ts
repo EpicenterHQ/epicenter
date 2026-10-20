@@ -166,7 +166,6 @@ beforeAll(async () => {
 		GIT_TERMINAL_PROMPT: '0',
 		EPICENTER_API_URL: origin,
 		EPICENTER_DATA_DIR: join(scratch, 'data'),
-		EPICENTER_CACHE_DIR: join(scratch, 'cache'),
 		EPICENTER_FOLDER_DIR: join(scratch, 'Epicenter'),
 		EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
 	};

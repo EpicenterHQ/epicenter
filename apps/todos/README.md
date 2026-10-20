@@ -1,6 +1,6 @@
 # Todos
 
-Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md). It opens without an account, a remote, or Git. The browser build uses this origin's IndexedDB folder. The installed build uses the directory its desktop shell grants its window: Epicenter's, or Todos's own window (`src-tauri/`). The native CLI opens an existing directory supplied on its command line. The same table schema interprets `todos/<id>.md` on both hosts.
+Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md). It opens without an account, a remote, or Git. The browser build uses this origin's IndexedDB folder. The host build (`build:host`) uses the directory its desktop shell grants its window: Epicenter's, or Todos's own window (`src-tauri/`). The native CLI opens an existing directory supplied on its command line. The same table schema interprets `todos/<id>.md` on both hosts.
 
 The current UI can add, edit, complete, and delete todos. A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name remain in the source when a row is edited. A file that does not read as a todo remains visible with its source for repair.
 Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
@@ -31,7 +31,7 @@ From the repository root:
 bun dev:todos:desktop
 ```
 
-This builds the installed page into `apps/todos/dist` and runs the Tauri shell in `src-tauri/`, which needs a Rust toolchain. The development identifier `so.epicenter.todos.dev` keeps its app-data Folder separate from the release app. The window opens without an account or network.
+This builds the host page into `apps/todos/dist` (`build:host`) and runs the Tauri shell in `src-tauri/`, which needs a Rust toolchain. The development identifier `so.epicenter.todos.dev` keeps its app-data Folder separate from the release app. The window opens without an account or network.
 
 To build a local macOS app that you can quit and reopen from Finder, run `bun build:todos:desktop` from the repository root. The result is `apps/todos/src-tauri/target/release/bundle/macos/Todos.app`. This local build is not a signed distribution.
 
@@ -66,7 +66,7 @@ From the repository root:
 bun run --cwd apps/todos test
 bun run --cwd apps/todos typecheck
 bun run --cwd apps/todos build
-bun run --cwd apps/todos build:installed
+bun run --cwd apps/todos build:host
 cargo test --manifest-path apps/todos/src-tauri/Cargo.toml
 bun build:todos:desktop
 ```

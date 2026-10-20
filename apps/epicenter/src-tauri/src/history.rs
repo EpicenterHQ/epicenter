@@ -251,7 +251,6 @@ mod tests {
             DesktopPaths {
                 data_dir: project.join("data"),
                 folder_dir: project.join("Epicenter"),
-                cache_dir: project.join("cache"),
             },
         );
         let folders = WebviewWindowBuilder::new(&app, "folders", Default::default())

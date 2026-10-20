@@ -90,48 +90,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: "the caller's repositories",
 	},
 	{
-		path: ['app', 'list'],
-		args: '',
-		minArgs: 0,
-		maxArgs: 0,
-		options: [{ name: 'repository', value: '<url>' }],
-		summary:
-			'the apps installed on this machine, or with --repository the apps in a repository',
-	},
-	{
-		path: ['app', 'install'],
-		args: '<url>',
-		minArgs: 1,
-		maxArgs: 1,
-		options: [
-			{ name: 'folder', value: '<path>' },
-			{ name: 'commit', value: '<sha>' },
-			{ name: 'approve' },
-		],
-		summary: 'install an app from a folder in a Git repository',
-		long: true,
-	},
-	{
-		path: ['app', 'update'],
-		args: '<id>',
-		minArgs: 1,
-		maxArgs: 1,
-		options: [
-			{ name: 'commit', value: '<sha>' },
-			{ name: 'approve' },
-			{ name: 'restore', hidden: true },
-		],
-		summary: 'update an installed app',
-		long: true,
-	},
-	{
-		path: ['app', 'remove'],
-		args: '<id>',
-		minArgs: 1,
-		maxArgs: 1,
-		summary: 'remove an installed app',
-	},
-	{
 		path: ['auth', 'login'],
 		args: '',
 		minArgs: 0,
