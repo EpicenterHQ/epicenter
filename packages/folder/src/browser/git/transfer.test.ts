@@ -35,7 +35,7 @@ import {
 const URL = 'https://git.example.com/user/repo.git';
 
 describe('fetchRemote', () => {
-	test('an initial fetch takes the tip alone and marks it shallow', async () => {
+	test('an initial fetch takes only the tip snapshot', async () => {
 		const h = await history();
 		const wanted = [...h.added.c3, h.d2, h.b2];
 		const pack = await packOf(h.objects, wanted);
@@ -49,10 +49,9 @@ describe('fetchRemote', () => {
 
 		const result = await fetchRemote({
 			url: URL,
-			input: {
-				objects: new Map(),
-				refs: { base: null, head: null, shallow: [] },
-			},
+			objects: new Map(),
+			shallow: [],
+			base: null,
 			initial: true,
 			request: answering.request,
 		});
@@ -62,7 +61,6 @@ describe('fetchRemote', () => {
 		for (const [oid, object] of result.objects) {
 			expect(object).toEqual(h.objects.get(oid)!);
 		}
-		expect(result.shallow).toEqual([h.c3]);
 		expect(answering.posts()[0]!.body).toContain('deepen 1');
 	});
 
@@ -80,17 +78,15 @@ describe('fetchRemote', () => {
 
 		const result = await fetchRemote({
 			url: URL,
-			input: {
-				objects: h.pick(h.added.c1),
-				refs: { base: h.c1, head: h.c1, shallow: [h.c1] },
-			},
+			objects: h.pick(h.added.c1),
+			shallow: [h.c1],
+			base: h.c1,
 			initial: false,
 			request: server.request,
 		});
 
 		expect(result.head).toBe(h.c3);
 		expect([...result.objects.keys()].sort()).toEqual([...wanted].sort());
-		expect(result.shallow).toEqual([h.c1]);
 		const body = server.posts()[0]!.body;
 		expect(body).toContain(`have ${h.c1}`);
 		expect(body).toContain(`shallow ${h.c1}`);
@@ -108,10 +104,9 @@ describe('fetchRemote', () => {
 		await expect(
 			fetchRemote({
 				url: URL,
-				input: {
-					objects: new Map(),
-					refs: { base: null, head: null, shallow: [] },
-				},
+				objects: new Map(),
+				shallow: [],
+				base: null,
 				initial: true,
 				request: server.request,
 			}),
@@ -129,10 +124,9 @@ describe('fetchRemote', () => {
 
 		const result = await fetchRemote({
 			url: URL,
-			input: {
-				objects: h.pick(h.added.c1),
-				refs: { base: h.c1, head: h.c1, shallow: [h.c1] },
-			},
+			objects: h.pick(h.added.c1),
+			shallow: [h.c1],
+			base: h.c1,
 			initial: false,
 			recover: true,
 			request: server.request,
@@ -140,7 +134,6 @@ describe('fetchRemote', () => {
 
 		expect(result.head).toBe(h.c3);
 		expect([...result.objects.keys()].sort()).toEqual([...everything].sort());
-		expect(result.shallow).toEqual([]);
 		const body = server.posts()[0]!.body;
 		expect(body).not.toContain('have ');
 		expect(body).not.toMatch(/shallow [0-9a-f]{40}/);
@@ -153,10 +146,9 @@ describe('fetchRemote', () => {
 			const server = remote({ refs });
 			const result = await fetchRemote({
 				url: URL,
-				input: {
-					objects: new Map(),
-					refs: { base: null, head: null, shallow: [] },
-				},
+				objects: new Map(),
+				shallow: [],
+				base: null,
 				initial: true,
 				request: server.request,
 			});
@@ -175,7 +167,9 @@ describe('fetchRemote', () => {
 		await expect(
 			fetchRemote({
 				url: URL,
-				input,
+				objects: input.objects,
+				shallow: input.refs.shallow,
+				base: input.refs.base,
 				initial: true,
 				request: remote({ refs: [], unauthorized: true }).request,
 			}),
@@ -184,7 +178,9 @@ describe('fetchRemote', () => {
 		await expect(
 			fetchRemote({
 				url: URL,
-				input,
+				objects: input.objects,
+				shallow: input.refs.shallow,
+				base: input.refs.base,
 				initial: true,
 				request: (async () => {
 					throw new TypeError('Failed to fetch');
@@ -197,7 +193,9 @@ describe('fetchRemote', () => {
 		await expect(
 			fetchRemote({
 				url: URL,
-				input,
+				objects: input.objects,
+				shallow: input.refs.shallow,
+				base: input.refs.base,
 				initial: true,
 				signal: aborted.signal,
 				request: remote({ refs: [] }).request,
@@ -215,10 +213,9 @@ describe('fetchRemote', () => {
 		await expect(
 			fetchRemote({
 				url: URL,
-				input: {
-					objects: new Map(),
-					refs: { base: null, head: null, shallow: [] },
-				},
+				objects: new Map(),
+				shallow: [],
+				base: null,
 				initial: true,
 				request: server.request,
 			}),
@@ -245,7 +242,8 @@ describe('pushRemote', () => {
 
 		const outcome = await pushRemote({
 			url: URL,
-			input,
+			objects: input.objects,
+			shallow: input.refs.shallow,
 			base: h.c1,
 			head: h.c2,
 			request: server.request,
@@ -267,10 +265,8 @@ describe('pushRemote', () => {
 
 		const outcome = await pushRemote({
 			url: URL,
-			input: {
-				objects: h.pick(h.added.c1),
-				refs: { base: null, head: h.c1, shallow: [] },
-			},
+			objects: h.pick(h.added.c1),
+			shallow: [],
 			base: null,
 			head: h.c1,
 			request: server.request,
@@ -292,7 +288,8 @@ describe('pushRemote', () => {
 			const server = remote({ refs, post: ok });
 			const outcome = await pushRemote({
 				url: URL,
-				input,
+				objects: input.objects,
+				shallow: input.refs.shallow,
 				base: h.c1,
 				head: h.c2,
 				request: server.request,
@@ -308,7 +305,8 @@ describe('pushRemote', () => {
 
 		const outcome = await pushRemote({
 			url: URL,
-			input,
+			objects: input.objects,
+			shallow: input.refs.shallow,
 			base: h.c1,
 			head: h.c2,
 			request: server.request,
@@ -328,7 +326,8 @@ describe('pushRemote', () => {
 			});
 			const outcome = await pushRemote({
 				url: URL,
-				input,
+				objects: input.objects,
+				shallow: input.refs.shallow,
 				base: h.c1,
 				head: h.c2,
 				request: server.request,
@@ -351,7 +350,8 @@ describe('pushRemote', () => {
 		await expect(
 			pushRemote({
 				url: URL,
-				input,
+				objects: input.objects,
+				shallow: input.refs.shallow,
 				base: h.c1,
 				head: h.c2,
 				request: server.request,
@@ -376,7 +376,8 @@ describe('pushRemote', () => {
 			const server = remote({ refs: [['refs/heads/main', h.c1]], post });
 			const outcome = await pushRemote({
 				url: URL,
-				input,
+				objects: input.objects,
+				shallow: input.refs.shallow,
 				base: h.c1,
 				head: h.c2,
 				request: server.request,
@@ -397,7 +398,8 @@ describe('pushRemote', () => {
 			await expect(
 				pushRemote({
 					url: URL,
-					input: { objects, refs: { base: h.c1, head: h.c3, shallow } },
+					objects: objects,
+					shallow: shallow,
 					base: h.c1,
 					head: h.c3,
 					request: server.request,
@@ -419,10 +421,8 @@ describe('pushRemote', () => {
 
 		const outcome = await pushRemote({
 			url: URL,
-			input: {
-				objects: h.pick([...h.added.c1, h.unrelated]),
-				refs: { base: h.c1, head: h.unrelated, shallow: [] },
-			},
+			objects: h.pick([...h.added.c1, h.unrelated]),
+			shallow: [],
 			base: h.c1,
 			head: h.unrelated,
 			request: server.request,
@@ -437,7 +437,8 @@ describe('pushRemote', () => {
 
 		const error = await pushRemote({
 			url: URL,
-			input,
+			objects: input.objects,
+			shallow: input.refs.shallow,
 			base: h.c1,
 			head: h.c3,
 			request: remote({ refs: [] }).request,

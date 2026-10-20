@@ -16,50 +16,73 @@
 >
 > **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
 
-**1463 specs ever** (2 still in tree, 1461 removed).
+**1493 specs ever** (2 still in tree, 1491 removed).
 
 
 ## 2026
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
+| 2026-10-19 | git-lfs-media-sync | in tree | specs/20261019T183449-git-lfs-media-sync.md |
+| 2026-10-19 | browser-repository-engine | removed | specs/20261019T190000-browser-repository-engine.md |
+| 2026-10-17 | nested-tables | removed | specs/nested-tables.md |
+| 2026-10-15 | the-folders-window-replaces-matter | removed | specs/20261015T120000-the-folders-window-replaces-matter.md |
 | 2026-10-15 | retire-the-rust-folder-owner | removed | specs/20261015T090000-retire-the-rust-folder-owner.md |
-| 2026-10-15 | the-folders-window-replaces-matter | in tree | specs/20261015T120000-the-folders-window-replaces-matter.md |
+| 2026-10-14 | matter-on-epicenter-data-folders | removed | specs/20261014T220000-matter-on-epicenter-data-folders.md |
+| 2026-10-14 | git-sync-collapse | removed | specs/20261014T120000-git-sync-collapse.md |
 | 2026-10-07 | definition-publication | removed | specs/20261007T104838-definition-publication.md |
+| 2026-10-05 | github-folder-pairing | removed | specs/20261005T134823-github-folder-pairing.md |
+| 2026-10-05 | complete-row-editing.adversarial-review.prompt | removed | specs/20261005T015758-complete-row-editing.adversarial-review.prompt.md |
 | 2026-10-05 | complete-row-editing | removed | specs/20261005T015758-complete-row-editing.md |
-| 2026-09-24 | self-hosted-bun-data-root | removed | specs/20260924T111837-self-hosted-bun-data-root.md |
+| 2026-10-01 | folder-api-rollout | removed | specs/20261001T191634-folder-api-rollout.md |
+| 2026-10-01 | personal-software-readme-draft | removed | specs/personal-software-readme-draft.md |
+| 2026-09-30 | personal-software-public-materials | removed | specs/20260930T210607-personal-software-public-materials.md |
+| 2026-09-30 | file-folder-conditional-editing | removed | specs/20260930T141133-file-folder-conditional-editing.md |
 | 2026-09-24 | vocab-words-first-conversations | removed | specs/20260924T145928-vocab-words-first-conversations.md |
+| 2026-09-24 | vocab-words-first-conversations.handoff | removed | specs/20260924T145928-vocab-words-first-conversations.handoff.md |
+| 2026-09-24 | self-hosted-bun-data-root | removed | specs/20260924T111837-self-hosted-bun-data-root.md |
+| 2026-09-24 | english-vocab-current-session | removed | specs/20260924T105827-english-vocab-current-session.md |
+| 2026-09-23 | capture-implementation | removed | specs/20260923T113039-capture-implementation.md |
 | 2026-09-23 | store-owned-sqlite-and-signout-cleanup.handoff | removed | specs/20260923T120725-store-owned-sqlite-and-signout-cleanup.handoff.md |
 | 2026-09-23 | store-owned-sqlite-and-signout-cleanup | removed | specs/20260923T120725-store-owned-sqlite-and-signout-cleanup.md |
-| 2026-09-23 | capture-implementation | removed | specs/20260923T113039-capture-implementation.md |
+| 2026-09-23 | store-relative-recordings.handoff | removed | specs/20260923T012158-store-relative-recordings.handoff.md |
+| 2026-09-23 | store-relative-recordings | removed | specs/20260923T012158-store-relative-recordings.md |
 | 2026-09-22 | whispering-recording-workflow | removed | specs/20260922-whispering-recording-workflow.md |
 | 2026-09-22 | page-owned-resources-and-direct-native-transcription.handoff | removed | specs/20260922T170434-page-owned-resources-and-direct-native-transcription.handoff.md |
 | 2026-09-22 | page-owned-resources-and-direct-native-transcription | removed | specs/20260922T170434-page-owned-resources-and-direct-native-transcription.md |
+| 2026-09-22 | blob-identity-copy-and-presentation.handoff | removed | specs/20260922T181710-blob-identity-copy-and-presentation.handoff.md |
+| 2026-09-22 | blob-identity-copy-and-presentation | removed | specs/20260922T181710-blob-identity-copy-and-presentation.md |
 | 2026-09-19 | runtime-lifetime-collapse | removed | specs/20260919T090341-runtime-lifetime-collapse.md |
 | 2026-09-18 | ready-app-page-lifetime | removed | specs/20260918T211222-ready-app-page-lifetime.md |
 | 2026-09-18 | app-runtime-and-admission | removed | specs/20260918T192656-app-runtime-and-admission.md |
 | 2026-09-17 | flat-extension-bearing-blobs | removed | specs/20260917T113309-flat-extension-bearing-blobs.md |
+| 2026-09-16 | refuse-media-sync-and-backups | removed | specs/20260916T023255-refuse-media-sync-and-backups.md |
+| 2026-09-12 | concurrent-native-capture | removed | specs/20260912T122859-concurrent-native-capture.md |
 | 2026-09-12 | app-hub-and-whispering-transcription-collapse | removed | specs/20260912T112824-app-hub-and-whispering-transcription-collapse.md |
 | 2026-09-12 | app-composition-greenfield.handoff | removed | specs/20260912T120000-app-composition-greenfield.handoff.md |
 | 2026-09-12 | app-composition-greenfield | removed | specs/20260912T120000-app-composition-greenfield.md |
-| 2026-09-12 | concurrent-native-capture | removed | specs/20260912T122859-concurrent-native-capture.md |
-| 2026-09-09 | library-ownership-execution | removed | specs/20260909T004225-library-ownership-execution.md |
+| 2026-09-10 | shared-ai-catalog-native-acceptance.handoff | removed | specs/20260910-shared-ai-catalog-native-acceptance.handoff.md |
 | 2026-09-09 | library-ownership-api.handoff | removed | specs/20260909T062714-library-ownership-api.handoff.md |
-| 2026-09-09 | library-ownership-api.review | removed | specs/20260909T062714-library-ownership-api.review.md |
 | 2026-09-09 | application-runtime-composition | removed | specs/20260909T085106-application-runtime-composition.md |
 | 2026-09-09 | ai-runtime-integration.handoff | removed | specs/20260909T171130-ai-runtime-integration.handoff.md |
-| 2026-09-08 | local-release-installation | removed | specs/20260908T120000-local-release-installation.md |
-| 2026-09-08 | fixed-library-page-lifetime | removed | specs/20260908T194801-fixed-library-page-lifetime.md |
-| 2026-09-08 | explicit-core-reads-and-blob-capabilities | removed | specs/20260908T204224-explicit-core-reads-and-blob-capabilities.md |
-| 2026-09-08 | whispering-call-time-app-composition | removed | specs/20260908T212054-whispering-call-time-app-composition.md |
+| 2026-09-09 | current-generation-restore.handoff | removed | specs/20260909T010040-current-generation-restore.handoff.md |
+| 2026-09-09 | current-generation-restore | removed | specs/20260909T010040-current-generation-restore.md |
+| 2026-09-09 | library-ownership-execution | removed | specs/20260909T004225-library-ownership-execution.md |
+| 2026-09-09 | library-ownership-api.review | removed | specs/20260909T062714-library-ownership-api.review.md |
 | 2026-09-08 | one-active-account.handoff | removed | specs/20260908T214916-one-active-account.handoff.md |
 | 2026-09-08 | one-active-account | removed | specs/20260908T214916-one-active-account.md |
+| 2026-09-08 | explicit-core-reads-and-blob-capabilities | removed | specs/20260908T204224-explicit-core-reads-and-blob-capabilities.md |
 | 2026-09-08 | local-mail-app-and-saved-queries.handoff | removed | specs/20260908T233656-local-mail-app-and-saved-queries.handoff.md |
 | 2026-09-08 | local-mail-app-and-saved-queries | removed | specs/20260908T233656-local-mail-app-and-saved-queries.md |
-| 2026-09-07 | direct-session-auth.handoff | removed | specs/20260907T214002-direct-session-auth.handoff.md |
-| 2026-09-07 | direct-session-auth | removed | specs/20260907T214002-direct-session-auth.md |
+| 2026-09-08 | whispering-call-time-app-composition | removed | specs/20260908T212054-whispering-call-time-app-composition.md |
+| 2026-09-08 | fixed-library-page-lifetime | removed | specs/20260908T194801-fixed-library-page-lifetime.md |
+| 2026-09-08 | unified-instance-account-client | removed | specs/20260908T020000-unified-instance-account-client.md |
+| 2026-09-08 | local-release-installation | removed | specs/20260908T120000-local-release-installation.md |
+| 2026-09-08 | hosted-account-deletion | removed | specs/20260908T020000-hosted-account-deletion.md |
 | 2026-09-07 | local-account-app-clean-break.handoff | removed | specs/20260907T231907-local-account-app-clean-break.handoff.md |
 | 2026-09-07 | local-account-app-clean-break | removed | specs/20260907T231907-local-account-app-clean-break.md |
+| 2026-09-07 | direct-session-auth.handoff | removed | specs/20260907T214002-direct-session-auth.handoff.md |
+| 2026-09-07 | direct-session-auth | removed | specs/20260907T214002-direct-session-auth.md |
 | 2026-09-05 | keyed-session-boot | removed | specs/20260905T005141-keyed-session-boot.md |
 | 2026-09-05 | account-exit-and-local-removal.execute | removed | specs/20260905T210735-account-exit-and-local-removal.execute.md |
 | 2026-09-05 | account-exit-and-local-removal | removed | specs/20260905T210735-account-exit-and-local-removal.md |
@@ -89,8 +112,10 @@
 | 2026-08-01 | local-mail-convergent-request-plane | removed | specs/20260801T173435-local-mail-convergent-request-plane.md |
 | 2026-08-01 | vocab-chinese-companion-clean-break | removed | specs/20260801T005746-vocab-chinese-companion-clean-break.md |
 | 2026-07-31 | vocab-chinese-conversation-companion | removed | specs/20260731T234500-vocab-chinese-conversation-companion.md |
+| 2026-07-20 | epicenter-database-clean-break | removed | specs/20260720T002337-epicenter-database-clean-break.md |
 | 2026-07-20 | epicenter-data-clean-break | removed | specs/20260720T002337-epicenter-data-clean-break.md |
 | 2026-07-20 | epicenter-data-clean-break.handoff | removed | specs/20260720T002337-epicenter-data-clean-break.handoff.md |
+| 2026-07-19 | workspace-lens-schema-opaque-owner-clean-break | removed | specs/20260719T130000-workspace-lens-schema-opaque-owner-clean-break.md |
 | 2026-07-19 | app-owned-workspace-lenses-clean-break | removed | specs/20260719T180000-app-owned-workspace-lenses-clean-break.md |
 | 2026-07-19 | one-app-catalog-clean-break | removed | specs/20260719T180000-one-app-catalog-clean-break.md |
 | 2026-07-19 | one-epicenter-clean-break | removed | specs/20260719T222716-one-epicenter-clean-break.md |
@@ -110,11 +135,14 @@
 | 2026-07-13 | agent-skill-surface-consolidation | removed | specs/20260713T195355-agent-skill-surface-consolidation.md |
 | 2026-07-11 | server-authoritative-sqlite-sync.handoff | removed | specs/20260711T103822-server-authoritative-sqlite-sync.handoff.md |
 | 2026-07-11 | server-authoritative-sqlite-sync | removed | specs/20260711T103822-server-authoritative-sqlite-sync.md |
+| 2026-07-10 | permanent-workspace-storage-contract | removed | specs/20260710T180954-permanent-workspace-storage-contract.md |
 | 2026-07-10 | epicenter-v8-desktop-release-transition | removed | specs/20260710T115550-epicenter-v8-desktop-release-transition.md |
 | 2026-07-10 | whispering-epicenter-capability-collapse | removed | specs/20260710T230000-whispering-epicenter-capability-collapse.md |
+| 2026-07-09 | local-photos-import-ledger | removed | specs/20260709T000000-local-photos-import-ledger.md |
 | 2026-07-09 | epicenter-desktop-host-production-integration | removed | specs/20260709T230000-epicenter-desktop-host-production-integration.md |
 | 2026-07-09 | rdev-tier1-keyboard-runtime-decision | removed | apps/whispering/specs/20260709T010000-rdev-tier1-keyboard-runtime-decision.md |
 | 2026-07-09 | provider-app-and-empty-launch | removed | apps/local-mail/specs/20260709-provider-app-and-empty-launch.md |
+| 2026-07-08 | multi-account-provider-architecture | removed | apps/local-mail/specs/20260708T000000-multi-account-provider-architecture.md |
 | 2026-07-08 | host-discovery-connect-device | removed | apps/super-chat/specs/host-discovery-connect-device.md |
 | 2026-07-07 | super-chat-attach-relay-proof | removed | specs/20260707T200000-super-chat-attach-relay-proof.md |
 | 2026-07-06 | cli-watcher-ipc-collapse | removed | specs/20260706T183000-cli-watcher-ipc-collapse.md |
@@ -145,10 +173,10 @@
 | 2026-06-30 | local-mail-tauri-cdc-mirror | removed | specs/20260630T150000-local-mail-tauri-cdc-mirror.md |
 | 2026-06-30 | capability-plane-greenfield-buildout | removed | specs/20260630T120000-capability-plane-greenfield-buildout.md |
 | 2026-06-28 | voice-cursor-intent-in-context | removed | apps/whispering/specs/20260628T003033-voice-cursor-intent-in-context.md |
+| 2026-06-27 | vocab-words-layer | removed | specs/20260627T221709-vocab-words-layer.md |
 | 2026-06-27 | matter-editable-views | removed | docs/specs/20260627T231500-matter-editable-views.md |
 | 2026-06-27 | vocab-terms-layer | removed | specs/20260627T221709-vocab-terms-layer.md |
 | 2026-06-27 | extract-recorder-vad-package | removed | specs/20260627T005829-extract-recorder-vad-package.md |
-| 2026-06-27 | vocab-words-layer | removed | specs/20260627T221709-vocab-words-layer.md |
 | 2026-06-27 | credential-identity-and-shared-secrets-facade | removed | specs/20260627T230812-credential-identity-and-shared-secrets-facade.md |
 | 2026-06-27 | whispering-optional-unified-auth | removed | specs/20260627T221642-whispering-optional-unified-auth.md |
 | 2026-06-27 | per-person-account-doc-device-layer | removed | specs/20260627T233000-per-person-account-doc-device-layer.md |
@@ -252,6 +280,8 @@
 | 2026-06-03 | second-brain-publishing-contract | removed | specs/20260603T120000-second-brain-publishing-contract.md |
 | 2026-06-03 | agents-read-projection-write-actions | removed | specs/20260603T164627-agents-read-projection-write-actions.md |
 | 2026-06-03 | wiki-pages-and-tags | removed | specs/20260603T180000-wiki-pages-and-tags.md |
+| 2026-06-02 | execution-prompt | removed | specs/20260602T200000-execution-prompt.md |
+| 2026-06-02 | app-archetypes-and-skills-export | removed | specs/20260602T210000-app-archetypes-and-skills-export.md |
 | 2026-06-02 | wiki-core-collections-traits-and-curation | removed | specs/20260602T120000-wiki-core-collections-traits-and-curation.md |
 | 2026-06-02 | composable-apps-islands-hosts-and-capabilities | removed | specs/20260602T233000-composable-apps-islands-hosts-and-capabilities.md |
 | 2026-06-02 | the-ark-anti-slop-doctrine | removed | specs/20260602T235900-the-ark-anti-slop-doctrine.md |

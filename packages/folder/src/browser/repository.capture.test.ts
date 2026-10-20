@@ -2,8 +2,8 @@
  * Scoped capture regressions
  *
  * Point reads, row lists and prefix lists avoid unrelated trees without losing
- * effective directory occupancy. Pending deletions may empty a directory, while
- * untouched raw occupancy and the current commit remain protected.
+ * directory occupancy. Deleting the last child prunes its directory immediately;
+ * current files do not require decoding either sync checkpoint.
  */
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
@@ -35,7 +35,8 @@ async function seed(repository: LocalRepository, files: [string, string][]) {
 	candidate.objects.set(head, commit);
 	expect(
 		await repository.storage.publish({
-			revision: 0,
+			expected: (await repository.storage.capture([])).state,
+			workingTree: candidate.tree,
 			objects: candidate.objects,
 			refs: { remoteBase: head, pendingCommit: null },
 		}),
@@ -49,7 +50,7 @@ const trees = (
 	[...snapshot.objects.values()].filter((object) => object.type === 'tree')
 		.length;
 
-test('one file captures its ancestor trees and commits without reading the unrelated archive', async () => {
+test('one file captures its ancestor trees without reading the unrelated archive', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	try {
 		await seed(
@@ -65,14 +66,6 @@ test('one file captures its ancestor trees and commits without reading the unrel
 		expectOk(
 			await repository.files.write('archive/0/file.txt', '0\n', 'changed\n'),
 		);
-		const commitInput = await repository.storage.capture('commit');
-		expect(trees(commitInput)).toBe(3);
-		expect(
-			[...commitInput.objects.values()].some(
-				(object) => object.type === 'blob',
-			),
-		).toBe(false);
-		expectOk(await repository.prepareCommit(author));
 		const after = await repository.storage.capture(['archive/0/file.txt']);
 		expect(trees(after)).toBe(3);
 		expect(
@@ -138,23 +131,23 @@ test('deleting the final child removes directory occupancy and its case twin bef
 			expectOk(await repository.files.delete('Notes/folder/file.txt', 'old')),
 		).toEqual({ deleted: true });
 		expectOk(await repository.files.write('notes', null, 'replacement'));
-		expectOk(await repository.prepareCommit(author));
+
 		expect(expectOk(await repository.files.list())).toEqual(['notes']);
 	} finally {
 		repository.close();
 	}
 });
 
-test('a pending current commit can be read without decoding its incorporated base', async () => {
+test('working files remain readable and editable without decoding the received checkpoint', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	try {
 		const fixture = await seed(repository, [['keep/file.txt', 'content']]);
 		const { state } = await repository.storage.capture([]);
-		// The old base's bytes are intentionally absent. Current-data operations
-		// require C; future reconciliation must explicitly obtain B when needed.
+		// B's bytes are intentionally absent. File operations need only W;
+		// synchronization must explicitly capture its checkpoints.
 		expect(
 			await repository.storage.publish({
-				revision: state.revision,
+				expected: state,
 				refs: {
 					remoteBase: 'a'.repeat(40),
 					pendingCommit: fixture.head,
@@ -167,10 +160,6 @@ test('a pending current commit can be read without decoding its incorporated bas
 			)!.content.text(),
 		).toBe('content');
 		expectOk(await repository.files.write('keep/file.txt', 'content', 'newer'));
-		expect(expectOk(await repository.prepareCommit(author))).toEqual({
-			base: 'a'.repeat(40),
-			head: fixture.head,
-		});
 	} finally {
 		repository.close();
 	}

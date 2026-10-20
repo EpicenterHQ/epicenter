@@ -1,6 +1,5 @@
 import type { TSchema as Schema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { type GitObject, hashObject, writeCommit } from '../git/raw-objects.js';
 import {
 	pathProblem,
 	readablePath,
@@ -14,21 +13,12 @@ import { changeSnapshot } from './git/snapshot.js';
 import {
 	openStorage,
 	type RepositorySnapshot,
-	type StorageChange,
 	StorageFailure,
-	shadowed,
 	snapshotContent,
-	snapshotDirectories,
 	snapshotObject,
-	snapshotPaths,
 } from './storage.js';
 
 export { ReadError, SaveError } from '../shared/errors.js';
-
-const encoder = new TextEncoder();
-
-/** Exact request identity captured by the transaction that published pending C. */
-export type PendingCommit = { base: string | null; head: string };
 
 const validPath = (path: string) =>
 	readablePath(path) && pathProblem(path) === undefined;
@@ -53,58 +43,29 @@ export const isTableName = (name: string) =>
 
 function caseTwin(
 	path: string,
-	paths: ReadonlySet<string>,
+	{ files, directories }: RepositorySnapshot,
 ): string | undefined {
-	if (paths.has(path)) return undefined;
+	if (files.has(path) || directories.has(path)) return undefined;
 	const parts = path.split('/');
-	for (const existing of paths) {
-		const other = existing.split('/');
-		for (let index = 0; index < Math.min(parts.length, other.length); index++) {
-			if (parts[index]!.toLowerCase() !== other[index]!.toLowerCase()) break;
-			if (parts[index] !== other[index])
-				return other.slice(0, index + 1).join('/');
+	for (const paths of [files.keys(), directories])
+		for (const existing of paths) {
+			const other = existing.split('/');
+			for (
+				let index = 0;
+				index < Math.min(parts.length, other.length);
+				index++
+			) {
+				if (parts[index]!.toLowerCase() !== other[index]!.toLowerCase()) break;
+				if (parts[index] !== other[index])
+					return other.slice(0, index + 1).join('/');
+			}
 		}
-	}
 	return undefined;
 }
 
-/** Normalize E against C, so restoring C removes a pending edit rather than adding work. */
-function editPatch(
-	snapshot: RepositorySnapshot,
-	changes: ReadonlyMap<string, FileContent | null>,
-) {
-	const patch = new Map<string, FileContent | null | undefined>();
-	const prospective = new Map([...snapshot.edits, ...changes]);
-	for (const [path, text] of changes) {
-		const entry = snapshot.head.files.get(path);
-		if (text === null) {
-			patch.set(
-				path,
-				entry === undefined && !snapshot.head.directories.has(path)
-					? undefined
-					: null,
-			);
-			continue;
-		}
-		const committed =
-			entry === undefined || entry.mode === '160000'
-				? null
-				: snapshotObject(snapshot, entry.oid).bytes;
-		const slash = path.lastIndexOf('/');
-		const parent = slash < 0 ? '' : path.slice(0, slash);
-		patch.set(
-			path,
-			sameContent(text, committed) && !shadowed(prospective, parent)
-				? undefined
-				: text,
-		);
-	}
-	return patch;
-}
-
 /**
- * Internal local engine, absent from the package exports. The public opener will
- * own the local handle; optional sync integration owns credentials and network work.
+ * Internal local engine, absent from the package exports. The public opener
+ * owns this handle; sync separately owns credentials and network work.
  */
 export async function openRepository<
 	const TTables extends Record<string, Schema> = Record<never, never>,
@@ -114,9 +75,8 @@ export async function openRepository<
 		if (!isTableName(name))
 			throw new Error(`Table name must be one filename segment: ${name}`);
 	const storage = await openStorage(id);
-	let closed = false;
 	function assertOpen() {
-		if (closed) throw new Error('Repository is closed');
+		if (storage.closed) throw new Error('Repository is closed');
 	}
 
 	async function read<T>(
@@ -163,12 +123,11 @@ export async function openRepository<
 			for (;;) {
 				// Trees identify structural collisions; only this path needs blob bytes.
 				const snapshot = await storage.capture([path]);
-				const paths = snapshotPaths(snapshot);
-				if (!validPath(path) && !paths.has(path))
+				if (!validPath(path) && !snapshot.files.has(path))
 					return SaveError.InvalidPath({ path });
 				if (change !== null) {
-					const directories = snapshotDirectories(snapshot);
-					const twin = caseTwin(path, new Set([...paths, ...directories]));
+					const directories = snapshot.directories;
+					const twin = caseTwin(path, snapshot);
 					if (twin !== undefined)
 						return SaveError.CaseTwin({ path, existing: twin });
 					if (directories.has(path))
@@ -183,7 +142,7 @@ export async function openRepository<
 						end = path.lastIndexOf('/', end - 1)
 					) {
 						const parent = path.slice(0, end);
-						if (paths.has(parent))
+						if (snapshot.files.has(parent))
 							return SaveError.Occupied({
 								path,
 								existing: parent,
@@ -204,16 +163,27 @@ export async function openRepository<
 					return Ok({
 						deleted:
 							merged.content === null &&
-							!paths.has(path) &&
-							!snapshotDirectories(snapshot).has(path),
+							!snapshot.files.has(path) &&
+							!snapshot.directories.has(path),
 					});
 				const changes = new Map<string, FileContent | null>([
 					[path, merged.content],
 				]);
+				const candidate = await changeSnapshot({
+					root: snapshot.state.workingTree,
+					edits: changes,
+					read: async (oid) => snapshotObject(snapshot, oid),
+				});
 				if (
 					await storage.publish({
-						revision: snapshot.state.revision,
-						edits: editPatch(snapshot, changes),
+						expected: snapshot.state.workingTree,
+						workingTree: candidate.tree,
+						objects: candidate.objects,
+						retiredBytes: [...snapshot.objects.values()].reduce(
+							(sum, object) => sum + object.bytes.byteLength,
+							0,
+						),
+						paths: [path],
 					})
 				) {
 					return Ok({ deleted: merged.content === null });
@@ -229,7 +199,7 @@ export async function openRepository<
 				return read(async () => {
 					const snapshot = await storage.capture({ rows: name });
 					const rows: Row<TSchema>[] = [];
-					for (const path of [...snapshotPaths(snapshot)].sort()) {
+					for (const path of [...snapshot.files.keys()].sort()) {
 						if (!path.startsWith(`${name}/`) || !path.endsWith('.md')) continue;
 						const id = path.slice(name.length + 1, -3);
 						if (!readableId(name, id)) continue;
@@ -249,35 +219,34 @@ export async function openRepository<
 					return content === null ? undefined : readRow(id, content, schema);
 				});
 			},
-			set(
+			async set(
 				id: string,
 				from: Pick<Row, 'text' | 'issues'> | null,
 				change: RowChange,
 			): Promise<Result<{ sent: Row<TSchema> }, SaveError>> {
-				return save(async () => {
-					if (!validId(name, id) && (from === null || !readableId(name, id)))
-						return SaveError.InvalidId({ id });
-					if (
-						change.body !== undefined &&
-						(typeof change.body !== 'string' ||
-							change.body.includes('\0') ||
-							!change.body.isWellFormed())
-					)
-						return SaveError.NotText();
-					if (from?.issues?.some((issue) => issue.kind === 'not-text'))
-						return SaveError.NotText();
-					const sent = rowChange(from, change);
-					if (sent.error !== null)
-						return SaveError.Unparseable({ reason: sent.error.reason });
-					const saved = await saveFile(
-						rowPath(id),
-						from?.text ?? null,
-						sent.data.text,
-						change.fields !== undefined,
-					);
-					if (saved.error !== null) return Err(saved.error);
-					return Ok({ sent: readRow(id, sent.data.text, schema) });
-				});
+				assertOpen();
+				if (!validId(name, id) && (from === null || !readableId(name, id)))
+					return SaveError.InvalidId({ id });
+				if (
+					change.body !== undefined &&
+					(typeof change.body !== 'string' ||
+						change.body.includes('\0') ||
+						!change.body.isWellFormed())
+				)
+					return SaveError.NotText();
+				if (from?.issues?.some((issue) => issue.kind === 'not-text'))
+					return SaveError.NotText();
+				const sent = rowChange(from, change);
+				if (sent.error !== null)
+					return SaveError.Unparseable({ reason: sent.error.reason });
+				const saved = await saveFile(
+					rowPath(id),
+					from?.text ?? null,
+					sent.data.text,
+					change.fields !== undefined,
+				);
+				if (saved.error !== null) return Err(saved.error);
+				return Ok({ sent: readRow(id, sent.data.text, schema) });
 			},
 			delete(
 				id: string,
@@ -299,15 +268,13 @@ export async function openRepository<
 					if (prefix !== '' && !readablePath(prefix.replace(/\/$/, '')))
 						return [];
 					const snapshot = await storage.capture({ prefix });
-					return [...snapshotPaths(snapshot)]
+					return [...snapshot.files.keys()]
 						.filter(
 							(path) =>
-								(snapshot.edits.has(path) ||
-									snapshot.head.files.get(path)?.mode !== '160000') &&
+								snapshot.files.get(path)?.mode !== '160000' &&
 								path.startsWith(prefix),
 						)
-						.sort()
-						.map((path) => path);
+						.sort();
 				});
 			},
 			read(path: string) {
@@ -315,9 +282,7 @@ export async function openRepository<
 					if (!readablePath(path)) return undefined;
 					const content = snapshotContent(await storage.capture([path]), path);
 					if (content === null) return undefined;
-					const bytes =
-						typeof content === 'string' ? encoder.encode(content) : content;
-					return { path, content: new Blob([new Uint8Array(bytes)]) };
+					return { path, content: new Blob([new Uint8Array(content)]) };
 				});
 			},
 			async write(
@@ -350,67 +315,9 @@ export async function openRepository<
 			[TName in keyof TTables]: ReturnType<typeof table<TTables[TName]>>;
 		},
 
-		/**
-		 * Build at most one pending commit. A retry reuses exact C, even if E has
-		 * grown since it was published. The network layer must settle C first.
-		 */
-		async prepareCommit(author: {
-			name: string;
-			email: string;
-			timestamp: number;
-		}): Promise<Result<PendingCommit | null, SaveError>> {
-			return save(async () => {
-				for (;;) {
-					const snapshot = await storage.capture('commit');
-					const { remoteBase, pendingCommit, revision } = snapshot.state;
-					if (remoteBase === undefined) return Ok(null);
-					if (pendingCommit !== null)
-						return Ok({ base: remoteBase, head: pendingCommit });
-					if (snapshot.edits.size === 0) return Ok(null);
-					const candidate = await changeSnapshot({
-						root: snapshot.head.root,
-						edits: snapshot.edits,
-						read: async (oid) => snapshotObject(snapshot, oid),
-					});
-					const commit: GitObject = {
-						type: 'commit',
-						bytes: writeCommit({
-							tree: candidate.tree,
-							parents: remoteBase === null ? [] : [remoteBase],
-							author,
-							message: 'Save repository changes\n',
-						}),
-					};
-					const oid = await hashObject(commit);
-					candidate.objects.set(oid, commit);
-					if (
-						await storage.publish({
-							revision,
-							objects: candidate.objects,
-							refs: { remoteBase, pendingCommit: oid },
-							edits: new Map(
-								[...snapshot.edits.keys()].map((path) => [path, undefined]),
-							),
-						})
-					)
-						return Ok({ base: remoteBase, head: oid });
-				}
-			});
-		},
-
-		/**
-		 * Listen for committed changes to file contents, from this handle or
-		 * another connection. The returned function stops it; `close` stops all.
-		 */
-		onChange(listener: (change: StorageChange) => void): () => void {
-			assertOpen();
-			return storage.subscribe(listener);
-		},
-
-		close() {
-			closed = true;
-			storage.close();
-		},
+		/** Listen for committed file changes; storage owns the connection lifetime. */
+		onChange: storage.subscribe,
+		close: storage.close,
 	};
 }
 

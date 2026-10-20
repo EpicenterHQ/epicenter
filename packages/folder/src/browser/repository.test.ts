@@ -9,6 +9,7 @@ import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { readCommit } from '../git/raw-objects.js';
 import { type LocalRepository, openRepository } from './repository.js';
+import { prepareCommit } from './sync.js';
 
 const author = { name: 'Test', email: 'test@example.com', timestamp: 1 };
 
@@ -21,7 +22,7 @@ async function observeEmpty(repository: LocalRepository) {
 	const { state } = await repository.storage.capture([]);
 	expect(
 		await repository.storage.publish({
-			revision: state.revision,
+			expected: state,
 			refs: { remoteBase: null, pendingCommit: null },
 		}),
 	).toBe(true);
@@ -36,18 +37,19 @@ test('independent fields survive two tabs while a pending commit retains exact i
 			'---\na: 0\nb: 0\n---\nFirst paragraph.\n\nLast paragraph.\n';
 		expectOk(await a.files.write('todos/one.md', null, initial));
 		await observeEmpty(a);
-		const base = expectOk(await a.prepareCommit(author))!;
+		const base = (await prepareCommit(a.storage, author))!;
 		expect(await a.storage.acknowledge(base.base, base.head)).toBe(true);
 		const changedA = initial.replace('a: 0', 'a: 1');
 		const changedB = initial.replace('b: 0', 'b: 1');
 		await Promise.all([
 			a.files.write('todos/one.md', initial, changedA).then(expectOk),
 			b.files.write('todos/one.md', initial, changedB).then(expectOk),
-			a.prepareCommit({ ...author, timestamp: 2 }).then(expectOk),
+			prepareCommit(a.storage, { ...author, timestamp: 2 }),
 		]);
-		const pending = expectOk(
-			await a.prepareCommit({ ...author, timestamp: 3 }),
-		)!;
+		const pending = (await prepareCommit(a.storage, {
+			...author,
+			timestamp: 3,
+		}))!;
 		expect(await text(a, 'todos/one.md')).toContain('a: 1\nb: 1');
 		// A still-unsent candidate is not rebased merely because a new save lands.
 		const prior = await text(b, 'todos/one.md');
@@ -58,16 +60,18 @@ test('independent fields survive two tabs while a pending commit retains exact i
 				prior!.replace('Last paragraph.', 'Other paragraph.'),
 			),
 		);
-		expect(
-			expectOk(await a.prepareCommit({ ...author, timestamp: 4 })),
-		).toEqual(pending);
-		const capture = await a.storage.capture();
+		expect(await prepareCommit(a.storage, { ...author, timestamp: 4 })).toEqual(
+			pending,
+		);
+		const capture = await a.storage.capture('sync');
 		expect(
 			readCommit(capture.objects.get(pending.head)!.bytes).parents,
 		).toEqual([base.head]);
 		expect(await a.storage.acknowledge(pending.base, pending.head)).toBe(true);
 		expect(await text(a, 'todos/one.md')).toContain('Other paragraph.');
-		expect((await a.storage.capture()).edits.size).toBeGreaterThan(0);
+		expect((await a.storage.capture('sync')).state.workingTree).not.toBe(
+			readCommit(capture.objects.get(pending.head)!.bytes).tree,
+		);
 	} finally {
 		a.close();
 		b.close();
@@ -84,17 +88,24 @@ test('reopen preserves offline edits before the first commit and a published com
 		repository.close();
 		repository = await openRepository(id);
 		expect(await text(repository, 'notes/one.md')).toBe('Offline first\n');
-		expect(expectOk(await repository.prepareCommit(author))).toBeNull();
-		expect((await repository.storage.capture()).edits.size).toBe(1);
+		expect(await prepareCommit(repository.storage, author)).toBeNull();
+		expect((await repository.storage.capture('sync')).files.size).toBe(1);
 		await observeEmpty(repository);
-		const commit = expectOk(await repository.prepareCommit(author));
+		const commit = await prepareCommit(repository.storage, author);
 		repository.close();
 		repository = await openRepository(id);
 		expect(await text(repository, 'notes/one.md')).toBe('Offline first\n');
 		expect(
-			expectOk(await repository.prepareCommit({ ...author, timestamp: 2 })),
+			await prepareCommit(repository.storage, { ...author, timestamp: 2 }),
 		).toEqual(commit);
-		expect((await repository.storage.capture()).edits.size).toBe(0);
+		const saved = await repository.storage.capture('sync');
+		expect(saved.state.workingTree).toBe(
+			readCommit(
+				saved.objects.get(
+					(saved.state.pendingCommit ?? saved.state.remoteBase)!,
+				)!.bytes,
+			).tree,
+		);
 	} finally {
 		repository.close();
 	}
@@ -167,7 +178,7 @@ test('path structure is representable, case twins and non-text input are refused
 			'keep.md',
 		]);
 		await observeEmpty(repository);
-		const head = expectOk(await repository.prepareCommit(author))!;
+		const head = (await prepareCommit(repository.storage, author))!;
 		expect(await repository.storage.acknowledge(head.base, head.head)).toBe(
 			true,
 		);
@@ -177,9 +188,10 @@ test('path structure is representable, case twins and non-text input are refused
 			deleted: true,
 		});
 		expectOk(await repository.files.write('docs', null, 'replace directory'));
-		const replacement = expectOk(
-			await repository.prepareCommit({ ...author, timestamp: 2 }),
-		)!;
+		const replacement = (await prepareCommit(repository.storage, {
+			...author,
+			timestamp: 2,
+		}))!;
 		expect(
 			await repository.storage.acknowledge(replacement.base, replacement.head),
 		).toBe(true);
@@ -195,9 +207,10 @@ test('path structure is representable, case twins and non-text input are refused
 			'docs/B.md',
 			'keep.md',
 		]);
-		const next = expectOk(
-			await repository.prepareCommit({ ...author, timestamp: 2 }),
-		);
+		const next = await prepareCommit(repository.storage, {
+			...author,
+			timestamp: 2,
+		});
 		expect(next?.head).not.toBe(head.head);
 		expect(await text(repository, 'keep.md')).toBe('keep');
 	} finally {
@@ -269,20 +282,27 @@ test('table and row-folder writes share the structural collision protection', as
 	}
 });
 
-test('restoring committed bytes clears E and creates no additional commit', async () => {
+test('restoring committed bytes restores the same root and creates no additional commit', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	try {
 		expectOk(await repository.files.write('one.md', null, 'base\n'));
 		await observeEmpty(repository);
-		const head = expectOk(await repository.prepareCommit(author))!;
+		const head = (await prepareCommit(repository.storage, author))!;
 		expect(await repository.storage.acknowledge(head.base, head.head)).toBe(
 			true,
 		);
 		expectOk(await repository.files.write('one.md', 'base\n', 'changed\n'));
 		expectOk(await repository.files.write('one.md', 'changed\n', 'base\n'));
-		expect((await repository.storage.capture()).edits.size).toBe(0);
+		const saved = await repository.storage.capture('sync');
+		expect(saved.state.workingTree).toBe(
+			readCommit(
+				saved.objects.get(
+					(saved.state.pendingCommit ?? saved.state.remoteBase)!,
+				)!.bytes,
+			).tree,
+		);
 		expect(
-			expectOk(await repository.prepareCommit({ ...author, timestamp: 2 })),
+			await prepareCommit(repository.storage, { ...author, timestamp: 2 }),
 		).toBeNull();
 	} finally {
 		repository.close();
@@ -383,7 +403,7 @@ test('row deletion keeps adjacent files and unseen row edits', async () => {
 		);
 		expectOk(await repository.files.write('keep.md', null, 'keep'));
 		await observeEmpty(repository);
-		const committed = expectOk(await repository.prepareCommit(author))!;
+		const committed = (await prepareCommit(repository.storage, author))!;
 		expect(
 			await repository.storage.acknowledge(committed.base, committed.head),
 		).toBe(true);
@@ -403,7 +423,7 @@ test('row deletion keeps adjacent files and unseen row edits', async () => {
 			'keep.md',
 			'notes/one/nested/a.txt',
 		]);
-		expectOk(await repository.prepareCommit({ ...author, timestamp: 2 }));
+		await prepareCommit(repository.storage, { ...author, timestamp: 2 });
 		expect(expectOk(await table.list())).toEqual([]);
 		expect(
 			expectErr(await repository.files.write('notes/../escape/x', null, 'no'))

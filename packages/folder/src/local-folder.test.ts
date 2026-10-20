@@ -14,7 +14,9 @@ import { beforeEach, expect, expectTypeOf, test } from 'bun:test';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { changeSnapshot } from './browser/git/snapshot.js';
 import { openRepository } from './browser/repository.js';
+import { snapshotObject } from './browser/storage.js';
 import { openFolder } from './browser.js';
 import type { Folder, FolderChange, FolderStatus } from './contract.js';
 import { openFolder as openAutomaticFolder } from './index.js';
@@ -430,13 +432,19 @@ test('browser writes refuse the same nonportable paths and row IDs as a director
 test('earlier nonportable browser paths remain readable for repair', async () => {
 	const earlier = await openRepository('default');
 	const snapshot = await earlier.storage.capture([]);
+	const candidate = await changeSnapshot({
+		root: snapshot.state.workingTree,
+		edits: new Map([
+			['notes/a: b.md', '---\ntitle: Kept\n---\nSource\n'],
+			['notes/.md', '---\ntitle: Empty stem\n---\nKept\n'],
+		]),
+		read: async (oid) => snapshotObject(snapshot, oid),
+	});
 	expect(
 		await earlier.storage.publish({
-			revision: snapshot.state.revision,
-			edits: new Map([
-				['notes/a: b.md', '---\ntitle: Kept\n---\nSource\n'],
-				['notes/.md', '---\ntitle: Empty stem\n---\nKept\n'],
-			]),
+			expected: snapshot.state,
+			workingTree: candidate.tree,
+			objects: candidate.objects,
 		}),
 	).toBe(true);
 	const folder = await open();
@@ -480,10 +488,16 @@ test('earlier nonportable browser paths remain readable for repair', async () =>
 test('an existing HEAD stays readable but cannot be changed into Git state', async () => {
 	const earlier = await openRepository('default');
 	const snapshot = await earlier.storage.capture([]);
+	const candidate = await changeSnapshot({
+		root: snapshot.state.workingTree,
+		edits: new Map([['HEAD', 'notes\n']]),
+		read: async (oid) => snapshotObject(snapshot, oid),
+	});
 	expect(
 		await earlier.storage.publish({
-			revision: snapshot.state.revision,
-			edits: new Map([['HEAD', 'notes\n']]),
+			expected: snapshot.state,
+			workingTree: candidate.tree,
+			objects: candidate.objects,
 		}),
 	).toBe(true);
 	const folder = await open();

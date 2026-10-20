@@ -1,7 +1,7 @@
 /**
  * Browser object retention tests.
  *
- * Collection preserves both published snapshots, pending edits, and a new
+ * Collection preserves both published snapshots, working files, and a new
  * publication from another handle while removing unreachable Git objects.
  * An incomplete live snapshot aborts the sweep without deleting anything.
  */
@@ -13,6 +13,7 @@ import {
 	writeCommit,
 	writeTree,
 } from '../git/raw-objects.js';
+import { emptyTree } from './git/snapshot.js';
 import { openStorage } from './storage.js';
 
 async function stored(type: GitObject['type'], bytes: Uint8Array) {
@@ -50,7 +51,7 @@ async function commit(root: string, parents: string[] = []) {
 }
 
 async function keys(id: string) {
-	const request = indexedDB.open(`epicenter.data.${id}`);
+	const request = indexedDB.open(`epicenter.folder.${id}`);
 	const database = await new Promise<IDBDatabase>((resolve, reject) => {
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () => reject(request.error);
@@ -69,7 +70,7 @@ async function keys(id: string) {
 	}
 }
 
-test('collection keeps shared snapshots, an uncertain commit, and unsent edits but drops old history', async () => {
+test('collection keeps shared snapshots, an uncertain commit, and unsent working files but drops old history', async () => {
 	const id = crypto.randomUUID();
 	const storage = await openStorage(id);
 	try {
@@ -90,6 +91,12 @@ test('collection keeps shared snapshots, an uncertain commit, and unsent edits b
 		});
 		const head = await commit(headTree.oid, [base.oid]);
 		const orphan = await blob('unpublished candidate');
+		const draft = await blob('saved but unsent');
+		const working = await tree({
+			'shared.md': shared.oid,
+			'head.md': headFile.oid,
+			'draft.md': draft.oid,
+		});
 		const entries = [
 			ancestorFile,
 			ancestorTree,
@@ -102,16 +109,18 @@ test('collection keeps shared snapshots, an uncertain commit, and unsent edits b
 			headTree,
 			head,
 			orphan,
+			draft,
+			working,
 		];
 		expect(
 			await storage.publish({
-				revision: 0,
+				expected: (await storage.capture([])).state,
 				objects: new Map(entries.map(({ oid, object }) => [oid, object])),
 				refs: { remoteBase: base.oid, pendingCommit: head.oid },
-				edits: new Map([['draft.md', 'saved but unsent']]),
+				workingTree: working.oid,
 			}),
 		).toBe(true);
-		expect(await storage.collect()).toBe(4);
+		expect(await storage.collect()).toBe(0); // Ref retirement already collected the garbage.
 		expect(new Set(await keys(id))).toEqual(
 			new Set([
 				shared.oid,
@@ -121,15 +130,18 @@ test('collection keeps shared snapshots, an uncertain commit, and unsent edits b
 				headFile.oid,
 				headTree.oid,
 				head.oid,
+				draft.oid,
+				working.oid,
 			]),
 		);
 		const snapshot = await storage.capture('sync');
 		expect(snapshot.state).toEqual({
 			remoteBase: base.oid,
 			pendingCommit: head.oid,
-			revision: 1,
+			workingTree: working.oid,
+			retiredBytes: 0,
 		});
-		expect(snapshot.edits.get('draft.md')).toBe('saved but unsent');
+		expect(snapshot.objects.has(draft.oid)).toBe(true);
 	} finally {
 		storage.close();
 	}
@@ -147,7 +159,8 @@ test('collection and another handle publishing a new head leave its complete sna
 			const oldObjects = [oldFile, oldTree, oldHead];
 			expect(
 				await first.publish({
-					revision: 0,
+					expected: (await first.capture([])).state,
+					workingTree: oldTree.oid,
 					objects: new Map(oldObjects.map(({ oid, object }) => [oid, object])),
 					refs: { remoteBase: oldHead.oid, pendingCommit: null },
 				}),
@@ -155,9 +168,11 @@ test('collection and another handle publishing a new head leave its complete sna
 			const newFile = await blob('new');
 			const newTree = await tree({ 'work.md': newFile.oid });
 			const newHead = await commit(newTree.oid, [oldHead.oid]);
+			const expected = (await first.capture()).state;
 			const publish = () =>
 				second.publish({
-					revision: 1,
+					expected,
+					workingTree: newTree.oid,
 					objects: new Map(
 						[newFile, newTree, newHead].map(({ oid, object }) => [oid, object]),
 					),
@@ -190,7 +205,7 @@ test('an incomplete live snapshot leaves every stored object untouched', async (
 		const broken = await commit(missingTree);
 		expect(
 			await storage.publish({
-				revision: 0,
+				expected: (await storage.capture([])).state,
 				objects: new Map([
 					[orphan.oid, orphan.object],
 					[broken.oid, broken.object],
@@ -199,7 +214,9 @@ test('an incomplete live snapshot leaves every stored object untouched', async (
 			}),
 		).toBe(true);
 		await expect(storage.collect()).rejects.toThrow(/is missing/);
-		expect(new Set(await keys(id))).toEqual(new Set([orphan.oid, broken.oid]));
+		expect(new Set(await keys(id))).toEqual(
+			new Set([emptyTree, orphan.oid, broken.oid]),
+		);
 	} finally {
 		storage.close();
 	}

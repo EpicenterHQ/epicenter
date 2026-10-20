@@ -47,8 +47,8 @@ export async function openLocalFolder<
 			{
 				files: repository.files,
 				tables: repository.tables as Record<string, FolderTable>,
-				subscribe: (listener) => repository.onChange(listener),
-				close: () => repository.close(),
+				subscribe: repository.onChange,
+				close: repository.close,
 			},
 			tables,
 		),

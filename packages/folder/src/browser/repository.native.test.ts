@@ -15,6 +15,7 @@ import {
 	writeTree,
 } from '../git/raw-objects.js';
 import { type LocalRepository, openRepository } from './repository.js';
+import { prepareCommit } from './sync.js';
 
 const encoder = new TextEncoder();
 const author = {
@@ -86,7 +87,8 @@ async function nativeFixture(repository: LocalRepository) {
 	);
 	expect(
 		await repository.storage.publish({
-			revision: 0,
+			expected: (await repository.storage.capture([])).state,
+			workingTree: root,
 			objects,
 			refs: { remoteBase: commit, pendingCommit: null },
 		}),
@@ -128,9 +130,9 @@ test('gitlinks stay structural leaves, report truthful deletion, and can be expl
 			deleted: false,
 		});
 		expectOk(await repository.files.write('plain.md', 'plain\n', 'changed\n'));
-		const pending = expectOk(await repository.prepareCommit(author))!;
+		const pending = (await prepareCommit(repository.storage, author))!;
 		expect(
-			(await repository.storage.capture([])).head.files.get('vendor')?.mode,
+			(await repository.storage.capture([])).files.get('vendor')?.mode,
 		).toBe('160000');
 		expect(
 			await repository.storage.acknowledge(pending.base, pending.head),
@@ -138,12 +140,12 @@ test('gitlinks stay structural leaves, report truthful deletion, and can be expl
 		repository.close();
 		repository = await openRepository(id);
 		expect(
-			(await repository.storage.capture([])).head.files.get('vendor')?.mode,
+			(await repository.storage.capture([])).files.get('vendor')?.mode,
 		).toBe('160000');
 		expectOk(await repository.files.write('vendor', null, 'regular file\n'));
-		expectOk(await repository.prepareCommit(author));
+		await prepareCommit(repository.storage, author);
 		expect(
-			(await repository.storage.capture([])).head.files.get('vendor')?.mode,
+			(await repository.storage.capture([])).files.get('vendor')?.mode,
 		).toBe('100644');
 	} finally {
 		repository.close();
@@ -156,7 +158,7 @@ test('subset capture omits unrelated blobs and preserves opaque directories and 
 		const native = await nativeFixture(repository);
 		const snapshot = await repository.storage.capture(['plain.md']);
 		expect(snapshot.objects.has(native.binary)).toBe(false);
-		expect(snapshot.head.opaqueDirectories.has('docs')).toBe(true);
+		expect(snapshot.directories.has('docs')).toBe(true);
 		expect(
 			expectErr(await repository.files.write('Docs/new.md', null, 'new')).name,
 		).toBe('CaseTwin');
@@ -166,9 +168,11 @@ test('subset capture omits unrelated blobs and preserves opaque directories and 
 			).name,
 		).toBe('Occupied');
 		expectOk(await repository.files.write('plain.md', 'plain\n', 'changed\n'));
-		expectOk(await repository.prepareCommit(author));
+		await prepareCommit(repository.storage, author);
 		const after = await repository.storage.capture([]);
-		const entries = readTree(after.objects.get(after.head.root!)!.bytes);
+		const entries = readTree(
+			after.objects.get(after.state.workingTree!)!.bytes,
+		);
 		const prior = readTree(native.objects.get(native.root)!.bytes);
 		for (const name of ['docs', 'link', 'vendor']) {
 			const named = (entry: TreeEntry) =>
@@ -190,11 +194,11 @@ test('row deletion keeps adjacent native names without decoding or rewriting the
 		expect(expectOk(await repository.tables.notes.delete('one', row))).toEqual({
 			deleted: true,
 		});
-		expectOk(await repository.prepareCommit(author));
+		await prepareCommit(repository.storage, author);
 		const snapshot = await repository.storage.capture([]);
-		expect(snapshot.head.files.has('notes/one.md')).toBe(false);
+		expect(snapshot.files.has('notes/one.md')).toBe(false);
 		const notes = readTree(
-			snapshot.objects.get(snapshot.head.root!)!.bytes,
+			snapshot.objects.get(snapshot.state.workingTree!)!.bytes,
 		).find((entry) => new TextDecoder().decode(entry.name) === 'notes')!;
 		const folder = readTree(snapshot.objects.get(notes.oid)!.bytes).find(
 			(entry) => new TextDecoder().decode(entry.name) === 'one',

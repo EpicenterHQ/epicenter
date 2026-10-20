@@ -39,13 +39,7 @@ function fixture() {
 		return result;
 	}
 	const text = async (root: string | null, path: string) => {
-		const commit: GitObject = {
-			type: 'commit',
-			bytes: new TextEncoder().encode(`tree ${root}\n\nTest\n`),
-		};
-		const oid = await hashObject(commit);
-		objects.set(oid, commit);
-		const snapshot = await readSnapshot(oid, read);
+		const snapshot = await readSnapshot(root, read);
 		const file = snapshot.files.get(path);
 		return file === undefined
 			? undefined

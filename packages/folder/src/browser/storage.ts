@@ -1,27 +1,19 @@
 import { createLogger } from 'wellcrafted/logger';
 import { type GitObject, readCommit, readTree } from '../git/raw-objects.js';
-import type { FileContent } from '../shared/merge.js';
 import { snapshotObjects } from './git/closure.js';
-import { readSnapshot } from './git/snapshot.js';
+import { emptyTree, readSnapshot } from './git/snapshot.js';
 
-/** The remote tip last incorporated locally and one exact unsettled commit. */
+/** One saved folder and the two checkpoints needed to settle Git exchange. */
 export type RepositoryState = {
+	workingTree: string;
 	/** undefined means no successful remote observation; null means observed empty. */
 	remoteBase: string | null | undefined;
 	pendingCommit: string | null;
-	revision: number;
+	/** Conservative upper bound on retired bytes since the last collection. */
+	retiredBytes: number;
 };
 
-export type RepositorySnapshot = {
-	state: RepositoryState;
-	edits: Map<string, FileContent | null>;
-	/** Operation-scoped committed head: unexpanded directories retain occupancy. */
-	head: Awaited<ReturnType<typeof readSnapshot>>;
-	/** Captured bytes remain usable after a later publication or collection. */
-	objects: Map<string, GitObject>;
-};
-
-const log = createLogger('data/storage');
+const log = createLogger('folder/storage');
 
 /**
  * A committed change to what the repository's files contain. `paths` lists the
@@ -51,9 +43,10 @@ export class StorageFailure extends Error {
 }
 
 const initialState = (): RepositoryState => ({
+	workingTree: emptyTree,
 	remoteBase: undefined,
 	pendingCommit: null,
-	revision: 0,
+	retiredBytes: 0,
 });
 
 function requested<T>(request: IDBRequest<T>): Promise<T> {
@@ -78,16 +71,20 @@ function completed(transaction: IDBTransaction): Promise<void> {
 export async function openStorage(id: string) {
 	let opening: IDBOpenDBRequest;
 	try {
-		opening = indexedDB.open(`epicenter.data.${id}`, 1);
+		opening = indexedDB.open(`epicenter.folder.${id}`, 1);
 	} catch (cause) {
 		if (!(cause instanceof DOMException)) throw cause;
 		throw new StorageFailure('IndexedDB could not be opened', cause);
 	}
 	opening.onupgradeneeded = () => {
 		const database = opening.result;
-		database.createObjectStore('meta');
-		database.createObjectStore('objects');
-		database.createObjectStore('edits');
+		database.createObjectStore('meta').put(initialState(), 'state');
+		const objects = database.createObjectStore('objects');
+		objects.createIndex('type', 'type');
+		objects.put(
+			{ type: 'tree', bytes: new Uint8Array() } satisfies GitObject,
+			emptyTree,
+		);
 	};
 	const database = await requested(opening);
 	// A future schema upgrade must not wait for a suspended page to close itself.
@@ -105,7 +102,7 @@ export async function openStorage(id: string) {
 		let transaction: IDBTransaction;
 		try {
 			transaction = database.transaction(
-				['meta', 'objects', 'edits'],
+				['meta', 'objects'],
 				mode,
 				mode === 'readwrite' ? { durability: 'strict' } : undefined,
 			);
@@ -150,7 +147,7 @@ export async function openStorage(id: string) {
 	const channel =
 		typeof BroadcastChannel === 'undefined'
 			? undefined
-			: new BroadcastChannel(`epicenter.data.${id}`);
+			: new BroadcastChannel(`epicenter.folder.${id}`);
 	if (channel !== undefined)
 		channel.onmessage = (event: MessageEvent) => {
 			const { paths } = (event.data ?? {}) as { paths?: unknown };
@@ -164,71 +161,67 @@ export async function openStorage(id: string) {
 			});
 		};
 
-	return {
+	/** Collection is maintenance after durable success; its failure costs space. */
+	async function maintain() {
+		try {
+			await storage.collect();
+		} catch (cause) {
+			log.warn(
+				new Error('Folder object collection failed after publication', {
+					cause,
+				}),
+			);
+		}
+	}
+
+	const storage = {
 		/**
-		 * Read refs, edits and required current-snapshot bytes in one transaction.
-		 * Omitted scope captures all files; [] captures all trees without blobs.
-		 * Point, prefix, row-list and commit scopes avoid unrelated subtrees. Every
-		 * pending-edit ancestor is expanded so deletions can remove its occupancy.
-		 * Only IndexedDB request promises are awaited while the transaction is live.
+		 * Capture working-tree inputs in one transaction. A sync capture also
+		 * includes complete checkpoint and working closures. Other scopes only
+		 * expand the trees they need; unexpanded entries retain occupancy.
+		 * Only IndexedDB requests are awaited while the transaction is live.
 		 */
 		capture(
 			scope?:
 				| readonly string[]
 				| { prefix: string }
 				| { rows: string }
-				| 'commit'
 				| 'sync',
-		): Promise<RepositorySnapshot> {
+		) {
 			return transact('readonly', async (transaction) => {
-				const meta = transaction.objectStore('meta');
+				const state = (await requested(
+					transaction.objectStore('meta').get('state'),
+				)) as RepositoryState;
 				const objectStore = transaction.objectStore('objects');
-				const editStore = transaction.objectStore('edits');
-				const [storedState, keys, values] = await Promise.all([
-					requested(meta.get('state')) as Promise<RepositoryState | undefined>,
-					requested(editStore.getAllKeys()),
-					requested(editStore.getAll()) as Promise<(FileContent | null)[]>,
-				]);
-				const state = storedState ?? initialState();
-				const edits = new Map(
-					keys.map((key, index) => [String(key), values[index]!]),
-				);
-				const objects = new Map<string, GitObject>();
-				async function read(oid: string): Promise<GitObject> {
-					const cached = objects.get(oid);
-					if (cached !== undefined) return cached;
+				async function load(oid: string): Promise<GitObject> {
 					const object = (await requested(objectStore.get(oid))) as
 						| GitObject
 						| undefined;
 					if (object === undefined)
 						throw new StorageFailure(`Repository object ${oid} is missing`);
+					return object;
+				}
+				// The complete closure map owns sync capture; do not populate a
+				// second cache alongside its traversal.
+				const objects =
+					scope === 'sync'
+						? await snapshotObjects(
+								[state.remoteBase, state.pendingCommit].filter(
+									(oid): oid is string => typeof oid === 'string',
+								),
+								load,
+								[state.workingTree],
+							)
+						: new Map<string, GitObject>();
+				async function read(oid: string): Promise<GitObject> {
+					const cached = objects.get(oid);
+					if (cached !== undefined) return cached;
+					const object = await load(oid);
 					objects.set(oid, object);
 					return object;
 				}
-				const full =
-					scope === undefined ||
-					scope === 'sync' ||
-					(Array.isArray(scope) && scope.length === 0);
-				if (scope === 'sync')
-					await snapshotObjects(
-						[state.remoteBase, state.pendingCommit].filter(
-							(oid): oid is string => typeof oid === 'string',
-						),
-						read,
-					);
-				const editAncestors = new Set<string>();
-				for (const path of edits.keys()) {
-					for (
-						let end = path.lastIndexOf('/');
-						end > 0;
-						end = path.lastIndexOf('/', end - 1)
-					)
-						editAncestors.add(path.slice(0, end));
-				}
 				function descend(path: string): boolean {
-					if (editAncestors.has(path)) return true;
-					if (scope === 'commit' || scope === 'sync' || scope === undefined)
-						return false;
+					if (scope === undefined || scope === 'sync') return true;
 					if ('prefix' in scope)
 						return (
 							path.startsWith(scope.prefix) ||
@@ -237,15 +230,19 @@ export async function openStorage(id: string) {
 					if ('rows' in scope) return path === scope.rows;
 					return scope.some((selected) => selected.startsWith(`${path}/`));
 				}
-				const head = await readSnapshot(
-					state.pendingCommit ?? state.remoteBase ?? null,
+				const full =
+					scope === undefined ||
+					scope === 'sync' ||
+					(Array.isArray(scope) && scope.length === 0);
+				const tree = await readSnapshot(
+					state.workingTree,
 					read,
 					full ? undefined : descend,
 				);
 				let selected: Iterable<string> = [];
-				if (scope === undefined) selected = head.files.keys();
+				if (scope === undefined) selected = tree.files.keys();
 				else if (typeof scope === 'object' && 'rows' in scope)
-					selected = [...head.files.keys()].filter(
+					selected = [...tree.files.keys()].filter(
 						(path) =>
 							path.startsWith(`${scope.rows}/`) &&
 							path.endsWith('.md') &&
@@ -254,104 +251,154 @@ export async function openStorage(id: string) {
 				else if (typeof scope === 'object' && !('prefix' in scope))
 					selected = scope;
 				for (const path of selected) {
-					const entry = head.files.get(path);
-					// A gitlink names another repository, not a local blob to load.
+					const entry = tree.files.get(path);
 					if (entry !== undefined && entry.mode !== '160000')
 						await read(entry.oid);
 				}
-				return { state, edits, head, objects };
+				return { state, ...tree, objects };
 			});
 		},
 
-		/** Hashes and merges happen before this transaction, never inside it. */
-		async publish(input: {
-			revision: number;
-			refs?: { remoteBase: string | null; pendingCommit: string | null };
-			objects?: ReadonlyMap<string, GitObject>;
-			/** undefined folds an incorporated edit into the published snapshot. */
-			edits?: ReadonlyMap<string, FileContent | null | undefined>;
-		}): Promise<boolean> {
-			const published = await transact('readwrite', async (transaction) => {
-				const meta = transaction.objectStore('meta');
-				const state =
-					((await requested(meta.get('state'))) as
-						| RepositoryState
-						| undefined) ?? initialState();
-				if (state.revision !== input.revision) return false;
-				const objectStore = transaction.objectStore('objects');
-				for (const [oid, object] of input.objects ?? [])
-					objectStore.put(object, oid);
-				const editStore = transaction.objectStore('edits');
-				for (const [path, text] of input.edits ?? []) {
-					if (text === undefined) editStore.delete(path);
-					else editStore.put(text, path);
-				}
-				meta.put(
-					{
+		/** Capture the exact checkpoint inputs without loading working files. */
+		checkpoint() {
+			return transact('readonly', async (transaction) => {
+				const state = (await requested(
+					transaction.objectStore('meta').get('state'),
+				)) as RepositoryState;
+				if (state.remoteBase == null || state.pendingCommit !== null)
+					return { state, baseTree: null };
+				const object = (await requested(
+					transaction.objectStore('objects').get(state.remoteBase),
+				)) as GitObject | undefined;
+				if (object?.type !== 'commit')
+					throw new StorageFailure(
+						`Confirmed commit ${state.remoteBase} is missing or has the wrong type`,
+					);
+				return { state, baseTree: readCommit(object.bytes).tree };
+			});
+		},
+
+		/** Hash outside this transaction. Local saves guard W; sync guards W/B/P. */
+		async publish(
+			input: {
+				workingTree?: string;
+				objects?: ReadonlyMap<string, GitObject>;
+				retiredBytes?: number;
+				paths?: readonly string[];
+			} & (
+				| { expected: string; refs?: never }
+				| {
+						expected: RepositoryState;
+						refs?: { remoteBase: string | null; pendingCommit: string | null };
+				  }
+			),
+		): Promise<boolean> {
+			async function publish() {
+				return transact('readwrite', async (transaction) => {
+					const meta = transaction.objectStore('meta');
+					const state = (await requested(meta.get('state'))) as RepositoryState;
+					const expected = input.expected;
+					if (
+						state.workingTree !==
+						(typeof expected === 'string' ? expected : expected.workingTree)
+					)
+						return null;
+					if (
+						typeof expected !== 'string' &&
+						(state.remoteBase !== expected.remoteBase ||
+							state.pendingCommit !== expected.pendingCommit)
+					)
+						return null;
+					const objects = transaction.objectStore('objects');
+					for (const [oid, object] of input.objects ?? [])
+						objects.put(object, oid);
+					const next = {
 						...state,
 						...input.refs,
-						revision: state.revision + 1,
-					},
-					'state',
-				);
-				return true;
-			});
-			if (!published) return false;
-			// Without refs, only the paths in E can differ (an undefined entry is a
-			// save that restored C). A snapshot change may differ anywhere.
-			const changed =
-				input.refs === undefined ? [...(input.edits?.keys() ?? [])] : null;
-			// A close during the transaction already released the channel.
-			if (!closed && (changed === null || changed.length > 0)) {
-				channel?.postMessage({ paths: changed });
-				notify({ origin: 'this-handle', paths: changed });
+						workingTree: input.workingTree ?? state.workingTree,
+						retiredBytes: state.retiredBytes + (input.retiredBytes ?? 0),
+					};
+					meta.put(next, 'state');
+					return {
+						changed: next.workingTree !== state.workingTree,
+						collect:
+							next.retiredBytes >= 8 * 1024 * 1024 ||
+							next.remoteBase !== state.remoteBase ||
+							(state.pendingCommit !== null &&
+								next.pendingCommit !== state.pendingCommit),
+					};
+				});
 			}
+			let result: Awaited<ReturnType<typeof publish>>;
+			try {
+				result = await publish();
+			} catch (cause) {
+				if (
+					!(cause instanceof StorageFailure) ||
+					!(cause.cause instanceof DOMException) ||
+					cause.cause.name !== 'QuotaExceededError'
+				)
+					throw cause;
+				await storage.collect();
+				result = await publish();
+			}
+			if (result === null) return false;
+			if (!closed && result.changed) {
+				const paths = input.paths ?? null;
+				channel?.postMessage({ paths });
+				notify({ origin: 'this-handle', paths });
+			}
+			if (result.collect) await maintain();
 			return true;
 		},
 
-		/** A network acknowledgement settles the exact pending commit, not newer edits. */
-		acknowledge(base: string | null, head: string): Promise<boolean> {
-			return transact('readwrite', async (transaction) => {
+		/** Settle the exact send while retaining the latest working tree. */
+		async acknowledge(base: string | null, head: string): Promise<boolean> {
+			const accepted = await transact('readwrite', async (transaction) => {
 				const meta = transaction.objectStore('meta');
-				const state =
-					((await requested(meta.get('state'))) as
-						| RepositoryState
-						| undefined) ?? initialState();
+				const state = (await requested(meta.get('state'))) as RepositoryState;
 				if (state.remoteBase !== base || state.pendingCommit !== head)
 					return false;
-				meta.put(
-					{
-						...state,
-						remoteBase: head,
-						pendingCommit: null,
-						revision: state.revision + 1,
-					},
-					'state',
-				);
+				meta.put({ ...state, remoteBase: head, pendingCommit: null }, 'state');
 				return true;
 			});
+			if (accepted) await maintain();
+			return accepted;
 		},
 
-		/** Mark both retained snapshots and delete other objects atomically. */
+		/** Keep W and both checkpoint snapshots, without traversing commit parents. */
 		collect(): Promise<number> {
 			return transact('readwrite', async (transaction) => {
 				const meta = transaction.objectStore('meta');
 				const objects = transaction.objectStore('objects');
-				const state =
-					((await requested(meta.get('state'))) as
-						| RepositoryState
-						| undefined) ?? initialState();
+				const state = (await requested(meta.get('state'))) as RepositoryState;
+				const blobs = new Set(
+					(await requested(objects.index('type').getAllKeys('blob'))).map(
+						String,
+					),
+				);
 				const live = new Set<string>();
-				const pending = [state.remoteBase, state.pendingCommit]
-					.filter((oid): oid is string => typeof oid === 'string')
-					.map((oid) => ({ oid, type: 'commit' as GitObject['type'] }));
+				const pending = [
+					{ oid: state.workingTree, type: 'tree' as GitObject['type'] },
+					...[state.remoteBase, state.pendingCommit]
+						.filter((oid): oid is string => typeof oid === 'string')
+						.map((oid) => ({ oid, type: 'commit' as GitObject['type'] })),
+				];
 				for (
 					let next = pending.pop();
 					next !== undefined;
 					next = pending.pop()
 				) {
 					const { oid, type } = next;
-					if (live.has(oid)) continue;
+					// Check every incoming edge's type, even for a previously visited hash.
+					if (type === 'blob') {
+						if (!blobs.has(oid))
+							throw new StorageFailure(
+								`Blob object ${oid} is missing or has the wrong type`,
+							);
+						live.add(oid);
+						continue;
+					}
 					const object = (await requested(objects.get(oid))) as
 						| GitObject
 						| undefined;
@@ -361,10 +408,11 @@ export async function openStorage(id: string) {
 						throw new StorageFailure(
 							`Expected ${type} object ${oid}, found ${object.type}`,
 						);
+					if (live.has(oid)) continue;
 					live.add(oid);
 					if (type === 'commit')
 						pending.push({ oid: readCommit(object.bytes).tree, type: 'tree' });
-					if (type === 'tree') {
+					if (type === 'tree')
 						for (const entry of readTree(object.bytes)) {
 							if (entry.mode === '160000') continue;
 							pending.push({
@@ -375,7 +423,6 @@ export async function openStorage(id: string) {
 										: 'blob',
 							});
 						}
-					}
 				}
 				let removed = 0;
 				for (const key of await requested(objects.getAllKeys())) {
@@ -383,16 +430,22 @@ export async function openStorage(id: string) {
 					objects.delete(key);
 					removed++;
 				}
+				meta.put({ ...state, retiredBytes: 0 }, 'state');
 				return removed;
 			});
 		},
 
 		/** Delivered after a publication commits, never before it is durable. */
 		subscribe(listener: (change: StorageChange) => void): () => void {
+			if (closed) throw new Error('Repository is closed');
 			listeners.add(listener);
 			return () => {
 				listeners.delete(listener);
 			};
+		},
+
+		get closed() {
+			return closed;
 		},
 
 		close() {
@@ -405,9 +458,14 @@ export async function openStorage(id: string) {
 			database.close();
 		},
 	};
+	return storage;
 }
 
 export type RepositoryStorage = Awaited<ReturnType<typeof openStorage>>;
+/** Consistent bytes remain usable after later saves or collection. */
+export type RepositorySnapshot = Awaited<
+	ReturnType<RepositoryStorage['capture']>
+>;
 
 export function snapshotObject(
 	snapshot: RepositorySnapshot,
@@ -419,57 +477,12 @@ export function snapshotObject(
 	return object;
 }
 
-/** Saved edits are relative to the committed head, including null tombstones. */
+/** File bytes from the captured working tree; gitlinks are structural leaves. */
 export function snapshotContent(
 	snapshot: RepositorySnapshot,
 	path: string,
-): string | Uint8Array | null {
-	if (snapshot.edits.has(path)) return snapshot.edits.get(path)!;
-	if (shadowed(snapshot.edits, path)) return null;
-	const entry = snapshot.head.files.get(path);
+): Uint8Array | null {
+	const entry = snapshot.files.get(path);
 	if (entry === undefined || entry.mode === '160000') return null;
 	return snapshotObject(snapshot, entry.oid).bytes;
-}
-
-export function snapshotPaths(snapshot: RepositorySnapshot): Set<string> {
-	const paths = new Set(
-		[...snapshot.head.files.keys()].filter(
-			(path) => !shadowed(snapshot.edits, path),
-		),
-	);
-	for (const [path, text] of snapshot.edits) {
-		if (text !== null) paths.add(path);
-	}
-	return paths;
-}
-
-/** An edit at an ancestor replaces that committed subtree; explicit child E wins. */
-export function shadowed(
-	edits: ReadonlyMap<string, unknown>,
-	path: string,
-): boolean {
-	for (let end = path.length; end > 0; end = path.lastIndexOf('/', end - 1)) {
-		if (edits.has(path.slice(0, end))) return true;
-	}
-	return false;
-}
-
-/** Raw or unexpanded occupancy survives when files alone cannot describe it. */
-export function snapshotDirectories(snapshot: RepositorySnapshot): Set<string> {
-	const directories = new Set<string>();
-	function addParents(path: string) {
-		for (
-			let end = path.lastIndexOf('/');
-			end > 0;
-			end = path.lastIndexOf('/', end - 1)
-		)
-			directories.add(path.slice(0, end));
-	}
-	for (const path of snapshotPaths(snapshot)) addParents(path);
-	for (const path of snapshot.head.opaqueDirectories) {
-		if (shadowed(snapshot.edits, path)) continue;
-		directories.add(path);
-		addParents(path);
-	}
-	return directories;
 }

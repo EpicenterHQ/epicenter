@@ -1,7 +1,9 @@
 /** Exercise production storage and sync from actual pages, with one network fault. */
 import { unwrap } from 'wellcrafted/result';
+import { emptyTree } from '../src/browser/git/snapshot.js';
 import { openRepository } from '../src/browser/repository.js';
 import { createSync } from '../src/browser/sync.js';
+import { readCommit } from '../src/git/raw-objects.js';
 import type { Row } from '../src/shared/row.js';
 
 const schema = {
@@ -38,7 +40,7 @@ async function set(field: 'a' | 'b' | 'extra', value: number) {
 async function run() {
 	const result = await sync.run();
 	return result.error === null
-		? { ok: true as const, outcome: result.data.outcome }
+		? { ok: true as const }
 		: { ok: false as const, message: result.error.message };
 }
 
@@ -98,13 +100,21 @@ export const client = {
 		loseReply = true;
 	},
 	async state() {
-		const snapshot = await repository.storage.capture('commit');
+		const snapshot = await repository.storage.capture('sync');
 		return {
 			refs: {
 				base: snapshot.state.remoteBase,
 				head: snapshot.state.pendingCommit ?? snapshot.state.remoteBase ?? null,
 			},
-			edits: snapshot.edits.size,
+			unsent:
+				snapshot.state.workingTree !==
+				((snapshot.state.pendingCommit ?? snapshot.state.remoteBase)
+					? readCommit(
+							snapshot.objects.get(
+								(snapshot.state.pendingCommit ?? snapshot.state.remoteBase)!,
+							)!.bytes,
+						).tree
+					: emptyTree),
 			row: unwrap(await repository.tables.notes.get('one')),
 			lostReply,
 			requests,

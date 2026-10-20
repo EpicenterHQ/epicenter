@@ -50,26 +50,14 @@ function createObjects() {
 	}
 	const tree = (entries: readonly TreeEntry[]) =>
 		add('tree', writeTree(entries));
-	const commit = (tree: string) =>
-		add(
-			'commit',
-			writeCommit({
-				tree,
-				parents: [],
-				author: { name: 'Test', email: 'test@example.com', timestamp: 1 },
-				message: 'snapshot\n',
-			}),
-		);
-	return { objects, reads, add, read, tree, commit };
+	return { objects, reads, add, read, tree };
 }
 
 test('null commit reads an empty snapshot without touching storage', async () => {
 	const store = createObjects();
 	expect(await readSnapshot(null, store.read)).toEqual({
-		root: null,
 		files: new Map(),
 		directories: new Set(),
-		opaqueDirectories: new Set(),
 	});
 	expect(store.reads).toEqual([]);
 });
@@ -103,12 +91,10 @@ test('reads complete nested trees, preserving leaf modes and BOM names without f
 		entry('vendor', linkedCommit, '160000'),
 		entry('\uFEFFname', blob),
 	]);
-	const commit = await store.commit(root);
-	const snapshot = await readSnapshot(commit, store.read);
+
+	const snapshot = await readSnapshot(root, store.read);
 	expect(snapshot).toEqual({
-		root,
 		directories: new Set(['docs']),
-		opaqueDirectories: new Set(),
 		files: new Map([
 			['docs/readme.md', { oid: blob, mode: '100644' }],
 			['docs/run', { oid: blob, mode: '100755' }],
@@ -117,7 +103,7 @@ test('reads complete nested trees, preserving leaf modes and BOM names without f
 			['\uFEFFname', { oid: blob, mode: '100644' }],
 		]),
 	});
-	expect(store.reads.sort()).toEqual([commit, root, nested].sort());
+	expect(store.reads.sort()).toEqual([root, nested].sort());
 });
 
 test('hidden and non-UTF8 names suppress exposure but their nested trees are read', async () => {
@@ -132,7 +118,7 @@ test('hidden and non-UTF8 names suppress exposure but their nested trees are rea
 		entry(new Uint8Array([255]), raw, '40000'),
 		entry('visible', blob),
 	]);
-	const snapshot = await readSnapshot(await store.commit(root), store.read);
+	const snapshot = await readSnapshot(root, store.read);
 	expect([...snapshot.files.keys()]).toEqual(['visible']);
 	expect(store.reads).toContain(hidden);
 	expect(store.reads).toContain(raw);
@@ -146,7 +132,7 @@ test('reads shared subtrees at both paths without rereading their object', async
 		entry('a', shared, '40000'),
 		entry('b', shared, '40000'),
 	]);
-	const snapshot = await readSnapshot(await store.commit(root), store.read);
+	const snapshot = await readSnapshot(root, store.read);
 	expect([...snapshot.files.keys()]).toEqual(['a/file', 'b/file']);
 	expect(store.reads.filter((oid) => oid === shared)).toHaveLength(1);
 });
@@ -237,10 +223,7 @@ test('new descendants replace ancestor files, and new files replace descendant t
 		read: store.read,
 	});
 	for (const [oid, object] of result.objects) store.objects.set(oid, object);
-	const snapshot = await readSnapshot(
-		await store.commit(result.tree),
-		store.read,
-	);
+	const snapshot = await readSnapshot(result.tree, store.read);
 	expect([...snapshot.files.keys()]).toEqual(['file/child.txt', 'folder']);
 	expect(store.objects.get(snapshot.files.get('folder')!.oid)?.bytes).toEqual(
 		encoder.encode('flat'),
@@ -285,10 +268,7 @@ test('deleting a final child prunes its tree while null ancestor plus a new chil
 		read: store.read,
 	});
 	for (const [oid, object] of result.objects) store.objects.set(oid, object);
-	const snapshot = await readSnapshot(
-		await store.commit(result.tree),
-		store.read,
-	);
+	const snapshot = await readSnapshot(result.tree, store.read);
 	expect([...snapshot.files.keys()]).toEqual(['replace/new']);
 });
 
@@ -335,17 +315,13 @@ test('conflicting non-null ancestor and descendant edits fail independently of i
 test('storage read failures propagate with their original identity', async () => {
 	const store = createObjects();
 	const root = await store.tree([]);
-	const commit = await store.commit(root);
+
 	const failure = new Error('storage boundary failure');
 	const fail = async () => {
 		throw failure;
 	};
-	await expect(readSnapshot(commit, fail)).rejects.toBe(failure);
-	await expect(
-		readSnapshot(commit, async (oid) =>
-			oid === commit ? store.read(oid) : fail(),
-		),
-	).rejects.toBe(failure);
+	await expect(readSnapshot(root, fail)).rejects.toBe(failure);
+
 	await expect(
 		changeSnapshot({ root, edits: new Map(), read: fail }),
 	).rejects.toBe(failure);
@@ -359,7 +335,7 @@ test('missing, wrong-type and malformed internal objects identify the failed obj
 	);
 	const blob = await store.add('blob', 'text');
 	await expect(readSnapshot(blob, store.read)).rejects.toThrow(
-		`Expected commit object ${blob}, found blob`,
+		`Expected tree object ${blob}, found blob`,
 	);
 	const malformed = await store.add('tree', new Uint8Array([52, 48, 48]));
 	await expect(
@@ -396,7 +372,15 @@ test('native Git accepts the changed nested tree including raw unknown names', a
 		read: store.read,
 	});
 	for (const [oid, object] of changed.objects) store.objects.set(oid, object);
-	const commit = await store.commit(changed.tree);
+	const commit = await store.add(
+		'commit',
+		writeCommit({
+			tree: changed.tree,
+			parents: [],
+			author: { name: 'Test', email: 'test@example.com', timestamp: 1 },
+			message: 'Native fixture\n',
+		}),
+	);
 	const dir = mkdtempSync(join(tmpdir(), 'epicenter-snapshot-native-'));
 	try {
 		const git = (args: string[], stdin?: Uint8Array) => {

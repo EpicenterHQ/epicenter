@@ -1,14 +1,16 @@
-/** Current files from a commit, and path edits applied without a checkout or index. */
+/** Current files from a tree, and path edits applied without a checkout or index. */
 
 import {
 	type GitObject,
 	hashObject,
-	readCommit,
 	readTree,
 	type TreeEntry,
 	writeTree,
 } from '../../git/raw-objects.js';
 import type { FileContent } from '../../shared/merge.js';
+
+/** Git's canonical empty tree, also used for an uncommitted empty folder. */
+export const emptyTree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 export type SnapshotFile = { oid: string; mode: string };
 
@@ -70,28 +72,16 @@ function entriesOf(oid: string, object: GitObject): TreeEntry[] {
  * Only valid UTF-8 paths outside .git enter files; links remain leaves.
  */
 export async function readSnapshot(
-	commit: string | null,
+	root: string | null,
 	read: (oid: string) => Promise<GitObject>,
 	descend?: (path: string) => boolean,
 ): Promise<{
-	root: string | null;
 	files: Map<string, SnapshotFile>;
 	directories: Set<string>;
-	opaqueDirectories: Set<string>;
 }> {
 	const files = new Map<string, SnapshotFile>();
 	const directories = new Set<string>();
-	// Raw or unexpanded occupancy cannot be reconstructed from exposed files.
-	const opaqueDirectories = new Set<string>();
-	if (commit === null)
-		return { root: null, files, directories, opaqueDirectories };
-	const object = await objectOf(commit, 'commit', read);
-	let root: string;
-	try {
-		root = readCommit(object.bytes).tree;
-	} catch (cause) {
-		throw new Error(`Malformed commit object ${commit}`, { cause });
-	}
+	if (root === null) return { files, directories };
 	const trees = new Map<string, TreeEntry[]>();
 	const ancestors = new Set<string>();
 	async function visit(oid: string, prefix: string | undefined) {
@@ -103,8 +93,6 @@ export async function readSnapshot(
 			trees.set(oid, entries);
 		}
 		ancestors.add(oid);
-		if (entries.length === 0 && prefix !== undefined && prefix !== '')
-			opaqueDirectories.add(prefix.slice(0, -1));
 		for (const entry of entries) {
 			const name = nameOf(entry.name);
 			const path =
@@ -113,20 +101,17 @@ export async function readSnapshot(
 				name.toLowerCase() !== '.git'
 					? `${prefix}${name}`
 					: undefined;
-			if (path === undefined && prefix !== undefined && prefix !== '')
-				opaqueDirectories.add(prefix.slice(0, -1));
 			if (isTree(entry.mode)) {
 				if (path !== undefined) directories.add(path);
 				if (descend === undefined || (path !== undefined && descend(path)))
 					await visit(entry.oid, path === undefined ? undefined : `${path}/`);
-				else if (path !== undefined) opaqueDirectories.add(path);
 			} else if (path !== undefined)
 				files.set(path, { oid: entry.oid, mode: entry.mode });
 		}
 		ancestors.delete(oid);
 	}
 	await visit(root, '');
-	return { root, files, directories, opaqueDirectories };
+	return { files, directories };
 }
 
 type PathEdit = {
@@ -253,4 +238,51 @@ export async function changeSnapshot({
 	const result = await build(root, patch);
 	for (const oid of known) objects.delete(oid);
 	return { tree: result.oid, objects };
+}
+
+/**
+ * Remove entries that disappeared between a checkpoint and the working tree.
+ * Keep checkpoint bytes for surviving leaves: a rejected send is rebased before
+ * newer replacements are applied. Raw names are compared as bytes.
+ */
+export async function withoutDeletedEntries({
+	root,
+	workingTree,
+	read,
+}: {
+	root: string;
+	workingTree: string;
+	read: (oid: string) => Promise<GitObject>;
+}) {
+	const objects = new Map<string, GitObject>();
+	const key = (name: Uint8Array) =>
+		Array.from(name, (byte) => byte.toString(16).padStart(2, '0')).join('');
+	async function prune(before: string, after: string): Promise<string | null> {
+		if (before === after) return before;
+		const entries = entriesOf(before, await objectOf(before, 'tree', read));
+		const current = new Map(
+			entriesOf(after, await objectOf(after, 'tree', read)).map((entry) => [
+				key(entry.name),
+				entry,
+			]),
+		);
+		const kept: TreeEntry[] = [];
+		for (const entry of entries) {
+			const next = current.get(key(entry.name));
+			if (next === undefined || isTree(entry.mode) !== isTree(next.mode))
+				continue;
+			if (!isTree(entry.mode)) {
+				kept.push(entry);
+				continue;
+			}
+			const oid = await prune(entry.oid, next.oid);
+			if (oid !== null) kept.push({ ...entry, oid });
+		}
+		if (kept.length === 0 && entries.length > 0) return null;
+		const object: GitObject = { type: 'tree', bytes: writeTree(kept) };
+		const oid = await hashObject(object);
+		if (oid !== before) objects.set(oid, object);
+		return oid;
+	}
+	return { tree: await prune(root, workingTree), objects };
 }

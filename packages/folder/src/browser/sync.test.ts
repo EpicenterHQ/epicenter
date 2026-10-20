@@ -10,7 +10,8 @@ import { createGitServer } from '../../smoke/git-server.js';
 import { readCommit } from '../git/raw-objects.js';
 import type { HttpRequest } from './git/transfer.js';
 import { openRepository } from './repository.js';
-import { createSync } from './sync.js';
+import { snapshotContent } from './storage.js';
+import { createSync, prepareCommit } from './sync.js';
 
 const author = () => ({
 	name: 'Browser',
@@ -45,7 +46,7 @@ test('offline-first edits push a native root commit to an empty server', async (
 			await f.repository.files.write('offline.txt', null, 'Saved offline'),
 		);
 		expect(
-			(await f.repository.storage.capture()).state.remoteBase,
+			(await f.repository.storage.capture('sync')).state.remoteBase,
 		).toBeUndefined();
 		expectOk(await f.sync.run());
 		expect(await f.server.git(['show', 'main:offline.txt'])).toBe(
@@ -54,7 +55,13 @@ test('offline-first edits push a native root commit to an empty server', async (
 		const snapshot = await f.repository.storage.capture('sync');
 		expect(typeof snapshot.state.remoteBase).toBe('string');
 		expect(snapshot.state.pendingCommit).toBeNull();
-		expect(snapshot.edits.size).toBe(0);
+		expect(snapshot.state.workingTree).toBe(
+			readCommit(
+				snapshot.objects.get(
+					snapshot.state.pendingCommit ?? snapshot.state.remoteBase!,
+				)!.bytes,
+			).tree,
+		);
 		expect(
 			readCommit(snapshot.objects.get(snapshot.state.remoteBase!)!.bytes)
 				.parents,
@@ -79,13 +86,15 @@ test('pull-only adoption collects superseded snapshots but an idle check does no
 		expectOk(await f.sync.run());
 		expect(sweeps).toBe(1);
 		sweeps = 0;
-		expect(expectOk(await f.sync.run()).outcome).toBe('unchanged');
+		expectOk(await f.sync.run());
 		expect(sweeps).toBe(0);
 		await f.server.commit(new Map([['notes/one.md', row('Remote update')]]));
-		expect(expectOk(await f.sync.run()).outcome).toBe('unchanged');
+		expectOk(await f.sync.run());
 		expect(sweeps).toBe(1);
 		expect(removed).toBeGreaterThan(0);
-		expect((await f.repository.storage.capture('sync')).edits.size).toBe(0);
+		expect(
+			(await f.repository.storage.capture('sync')).state.pendingCommit,
+		).toBeNull();
 	} finally {
 		await f.close();
 	}
@@ -107,11 +116,17 @@ test('initial shallow fetch and later rejected commit preserve independent field
 				fields: { title: 'b' },
 			}),
 		).sent;
-		expectOk(await f.repository.prepareCommit(author()));
+		await prepareCommit(f.repository.storage, author());
 		const pending = await f.repository.storage.capture('sync');
 		expect(pending.state.remoteBase).toBe(initial.state.remoteBase);
 		expect(pending.state.pendingCommit).not.toBe(pending.state.remoteBase);
-		expect(pending.edits.size).toBe(0);
+		expect(pending.state.workingTree).toBe(
+			readCommit(
+				pending.objects.get(
+					pending.state.pendingCommit ?? pending.state.remoteBase!,
+				)!.bytes,
+			).tree,
+		);
 		expectOk(
 			await f.repository.tables.notes.set('one', draft, {
 				fields: { title: 'a', local: 1 },
@@ -120,7 +135,9 @@ test('initial shallow fetch and later rejected commit preserve independent field
 		const newer = await f.repository.storage.capture('sync');
 		expect(newer.state.remoteBase).toBe(pending.state.remoteBase);
 		expect(newer.state.pendingCommit).toBe(pending.state.pendingCommit);
-		expect(newer.edits.get('notes/one.md')).toContain('local: 1');
+		expect(
+			new TextDecoder().decode(snapshotContent(newer, 'notes/one.md')!),
+		).toContain('local: 1');
 		const remote = await f.server.commit(
 			new Map([['notes/one.md', row('c', 'remote: 1\n')]]),
 		);
@@ -176,7 +193,13 @@ for (const secondParent of [false, true])
 			const pending = uncertain.state.pendingCommit!;
 			expect(uncertain.state.remoteBase).toBe(before);
 			expect(pending).not.toBe(before);
-			expect(uncertain.edits.size).toBe(0);
+			expect(uncertain.state.workingTree).toBe(
+				readCommit(
+					uncertain.objects.get(
+						uncertain.state.pendingCommit ?? uncertain.state.remoteBase!,
+					)!.bytes,
+				).tree,
+			);
 			expect((await f.server.git(['rev-parse', 'main'])).trim()).toBe(pending);
 			const native = await f.server.commit(
 				new Map([['notes/one.md', row('Green', 'remote: 1\n')]]),
@@ -211,7 +234,9 @@ for (const secondParent of [false, true])
 			const newer = await f.repository.storage.capture('sync');
 			expect(newer.state.remoteBase).toBe(before);
 			expect(newer.state.pendingCommit).toBe(pending);
-			expect(newer.edits.get('notes/one.md')).toContain('local: 1');
+			expect(
+				new TextDecoder().decode(snapshotContent(newer, 'notes/one.md')!),
+			).toContain('local: 1');
 			expectOk(await f.sync.run());
 			expect(
 				expectOk(await f.repository.tables.notes.get('one'))!.fields,
@@ -236,7 +261,7 @@ test('a rejected pending push retains its exact commit and newer save for reconc
 		expectOk(await f.sync.run());
 		const base = (await f.repository.storage.capture('sync')).state.remoteBase;
 		expectOk(await f.repository.files.write('pending.txt', null, 'Pending'));
-		expectOk(await f.repository.prepareCommit(author()));
+		await prepareCommit(f.repository.storage, author());
 		const pending = (await f.repository.storage.capture('sync')).state
 			.pendingCommit;
 		expect(pending).not.toBe(base);
@@ -256,12 +281,14 @@ test('a rejected pending push retains its exact commit and newer save for reconc
 			author,
 			request,
 		});
-		expect(expectOk(await rejected.run()).outcome).toBe('pending');
+		expectOk(await rejected.run());
 		expect(remote).toBeDefined();
 		const retained = await f.repository.storage.capture('sync');
 		expect(retained.state.remoteBase).toBe(base);
 		expect(retained.state.pendingCommit).toBe(pending);
-		expect(retained.edits.get('newer.txt')).toBe('Newer');
+		expect(
+			new TextDecoder().decode(snapshotContent(retained, 'newer.txt')!),
+		).toBe('Newer');
 		expect((await f.server.git(['rev-parse', 'main'])).trim()).toBe(remote!);
 		expectOk(await f.sync.run());
 		expect(await f.server.git(['show', 'main:pending.txt'])).toBe('Pending');
@@ -299,7 +326,9 @@ test('a request lost before acceptance retries the identical pending commit', as
 		const after = await f.repository.storage.capture('sync');
 		expect(after.state.remoteBase).toBe(pending);
 		expect(after.state.pendingCommit).toBeNull();
-		expect(after.edits.get('newer.txt')).toBe('Newer');
+		expect(new TextDecoder().decode(snapshotContent(after, 'newer.txt')!)).toBe(
+			'Newer',
+		);
 		expect((await f.server.git(['rev-parse', 'main'])).trim()).toBe(pending);
 	} finally {
 		await f.close();
@@ -326,9 +355,11 @@ test('a save between adoption capture and publication rejects cleanup and surviv
 			}
 			return publish(input);
 		};
-		expect(expectOk(await f.sync.run()).outcome).toBe('pending');
+		expectOk(await f.sync.run());
 		expect(
-			(await f.repository.storage.capture()).edits.get('new-path.txt'),
+			await expectOk(
+				await f.repository.files.read('new-path.txt'),
+			)!.content.text(),
 		).toBe('Saved during adoption');
 		expectOk(await f.sync.run());
 		expect(await f.server.git(['show', 'main:new-path.txt'])).toBe(
@@ -373,7 +404,7 @@ test('a suspended old push cannot rewind two tabs that already advanced and newe
 		const newest = (await f.server.git(['rev-parse', 'main'])).trim();
 		resume.resolve();
 		expectOk(await oldAttempt);
-		expect((await f.repository.storage.capture()).state.remoteBase).toBe(
+		expect((await f.repository.storage.capture('sync')).state.remoteBase).toBe(
 			newest,
 		);
 		expect((await f.server.git(['rev-parse', 'main'])).trim()).toBe(newest);
@@ -422,7 +453,7 @@ for (const existed of [false, true])
 			expectOk(
 				await f.repository.files.write('p.txt', existed ? 'a\n' : null, local),
 			);
-			expectOk(await f.repository.prepareCommit(author()));
+			await prepareCommit(f.repository.storage, author());
 			expectOk(await f.repository.files.delete('p.txt', local));
 			const remote = existed ? 'a\nline2\n' : 'line2\n';
 			await f.server.commit(new Map([['p.txt', remote]]));
@@ -439,7 +470,7 @@ test('undoing an added child does not resurrect its folder over an incoming file
 		await f.server.commit(new Map([['folder/x.txt', 'old']]));
 		expectOk(await f.sync.run());
 		expectOk(await f.repository.files.write('folder/new.txt', null, 'local'));
-		expectOk(await f.repository.prepareCommit(author()));
+		await prepareCommit(f.repository.storage, author());
 		expectOk(await f.repository.files.delete('folder/new.txt', 'local'));
 		await f.server.commit(
 			new Map([
@@ -466,7 +497,7 @@ test('a newer edit restoring the remote field removes the obsolete override trai
 				fields: { title: 'b' },
 			}),
 		).sent;
-		expectOk(await f.repository.prepareCommit(author()));
+		await prepareCommit(f.repository.storage, author());
 		expectOk(
 			await f.repository.tables.notes.set('one', draft, {
 				fields: { title: 'c', extra: 1 },
@@ -481,6 +512,121 @@ test('a newer edit restoring the remote field removes the obsolete override trai
 			'field="title"',
 		);
 	} finally {
+		await f.close();
+	}
+}, 20000);
+
+test('canceling a folder replacement carries no hidden deletion over an independent remote field', async () => {
+	const f = await fixture(row('Base', 'local: 0\n'));
+	try {
+		expectOk(await f.sync.run());
+		const initial = expectOk(await f.repository.tables.notes.get('one'))!;
+		const local = expectOk(
+			await f.repository.tables.notes.set('one', initial, {
+				fields: { local: 1 },
+			}),
+		).sent;
+		await prepareCommit(f.repository.storage, author());
+		const pending = await f.repository.storage.capture('sync');
+		expectOk(await f.repository.files.delete('notes/one.md', local.text));
+		expectOk(await f.repository.files.write('notes', null, 'temporary'));
+		expectOk(await f.repository.files.delete('notes', 'temporary'));
+		expectOk(await f.repository.files.write('notes/one.md', null, local.text));
+		expect((await f.repository.storage.capture()).state.workingTree).toBe(
+			pending.state.workingTree,
+		);
+		await f.server.commit(
+			new Map([['notes/one.md', row('Remote', 'local: 0\n')]]),
+		);
+		expectOk(await f.sync.run());
+		expect(
+			expectOk(await f.repository.tables.notes.get('one'))!.fields,
+		).toEqual({ title: 'Remote', local: 1 });
+		expect(await f.server.git(['show', 'main:notes/one.md'])).toContain(
+			'title: Remote',
+		);
+	} finally {
+		await f.close();
+	}
+}, 20000);
+
+test('observing an empty server with an empty working tree creates no commit', async () => {
+	const f = await fixture(null);
+	try {
+		const root = (await f.repository.storage.capture()).state.workingTree;
+		expectOk(await f.sync.run());
+		expect((await f.repository.storage.capture()).state).toMatchObject({
+			workingTree: root,
+			remoteBase: null,
+			pendingCommit: null,
+		});
+		expect(await prepareCommit(f.repository.storage, author())).toBeNull();
+		expect(await f.server.git(['for-each-ref', '--format=%(refname)'])).toBe(
+			'',
+		);
+	} finally {
+		await f.close();
+	}
+}, 20000);
+
+test('a fetch retains borrowed working bytes after another tab replaces and collects them', async () => {
+	const f = await fixture('remote base');
+	const other = await openRepository(f.id);
+	const resume = Promise.withResolvers<void>();
+	try {
+		// Before first observation there is no P to pin this local-only blob.
+		expectOk(await f.repository.files.write('draft.txt', null, 'shared bytes'));
+		await f.server.commit(new Map([['remote-copy.txt', 'shared bytes']]));
+		const held = Promise.withResolvers<void>();
+		let pause = true;
+		const request: HttpRequest = async (input, init) => {
+			const response = await fetch(input, init);
+			if (
+				pause &&
+				init?.method === 'POST' &&
+				String(input).endsWith('/git-upload-pack')
+			) {
+				pause = false;
+				const bytes = await response.arrayBuffer();
+				held.resolve();
+				await resume.promise;
+				return new Response(bytes, {
+					status: response.status,
+					headers: response.headers,
+				});
+			}
+			return response;
+		};
+		const attempt = createSync(f.repository, {
+			url: f.server.url,
+			author,
+			request,
+		}).run();
+		await held.promise;
+		expectOk(
+			await other.files.write('draft.txt', 'shared bytes', 'newer draft'),
+		);
+		expect(await other.storage.collect()).toBeGreaterThan(0);
+		resume.resolve();
+		expectOk(await attempt);
+		expect(
+			await expectOk(
+				await f.repository.files.read('remote-copy.txt'),
+			)!.content.text(),
+		).toBe('shared bytes');
+		expect(
+			await expectOk(
+				await f.repository.files.read('draft.txt'),
+			)!.content.text(),
+		).toBe('newer draft');
+		expect(await f.server.git(['show', 'main:remote-copy.txt'])).toBe(
+			'shared bytes',
+		);
+		expect(await f.server.git(['show', 'main:draft.txt'])).toBe('newer draft');
+		await f.server.git(['fsck', '--strict']);
+	} finally {
+		resume.resolve();
+		other.close();
 		await f.close();
 	}
 }, 20000);

@@ -9,7 +9,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createGitServer } from '../../smoke/git-server.js';
 import type { HttpRequest } from './git/transfer.js';
 import { openRepository } from './repository.js';
-import { createSync } from './sync.js';
+import { createSync, prepareCommit } from './sync.js';
 
 const author = () => ({
 	name: 'Wire',
@@ -153,8 +153,8 @@ test('a fetched snapshot held while another tab advances cannot rewind its newer
 		const newest = await server.commit(new Map([['file.txt', 'three']]));
 		expectOk(await fresh.run());
 		release.resolve();
-		expect(expectOk(await old).outcome).toBe('pending');
-		expect((await a.storage.capture()).state.remoteBase).toBe(newest);
+		expectOk(await old);
+		expect((await a.storage.capture('sync')).state.remoteBase).toBe(newest);
 		expect(await expectOk(await a.files.read('file.txt'))!.content.text()).toBe(
 			'three',
 		);
@@ -180,7 +180,7 @@ for (const incompleteRecovery of [false, true])
 					'---\ntitle: Local\n---\n',
 				),
 			);
-			expectOk(await repository.prepareCommit(author()));
+			await prepareCommit(repository.storage, author());
 			expectOk(await repository.files.write('newer.txt', null, 'newer'));
 			await server.commit(new Map([['middle.txt', 'middle']]));
 			await server.commit(new Map([['row.md', '---\ntitle: Remote\n---\n']]));
@@ -224,7 +224,7 @@ for (const incompleteRecovery of [false, true])
 				expect(expectErr(result).name).toBe('UnknownAncestry');
 				const after = await repository.storage.capture('sync');
 				expect(after.state).toEqual(before.state);
-				expect(after.edits).toEqual(before.edits);
+				expect(after.state.workingTree).toBe(before.state.workingTree);
 			} else {
 				expectOk(result);
 				expect(await server.git(['show', 'main:row.md'])).toContain(

@@ -67,7 +67,7 @@ try {
 				dataSmoke.abandonCandidate(),
 			);
 			check(
-				abandoned.persisted === null && abandoned.edits === 1,
+				abandoned.persisted === null && abandoned.files === 1,
 				'Unpublished computation changed durable refs',
 			);
 			await context.close();
@@ -83,7 +83,7 @@ try {
 			check(
 				reopened.row?.fields.a === 0 &&
 					reopened.state.pendingCommit === null &&
-					reopened.edits.length === 1,
+					reopened.unsent,
 				'Offline save missing after full browser reopen',
 			);
 			check(
@@ -119,7 +119,7 @@ try {
 			const afterPendingCollection = await a.evaluate(() => dataSmoke.state());
 			check(
 				afterPendingCollection.state.pendingCommit === pending.head &&
-					afterPendingCollection.edits.length > 0 &&
+					afterPendingCollection.unsent &&
 					afterPendingCollection.row?.fields.b === 101 &&
 					(await a.evaluate(() => dataSmoke.sharedText())) ===
 						'shared snapshot',
@@ -134,7 +134,7 @@ try {
 				afterAck.row?.fields.a === 101 && afterAck.row?.fields.b === 101,
 				'Independent final edit missing',
 			);
-			check(afterAck.edits.length > 0, 'Acknowledgement cleared newer work');
+			check(afterAck.unsent, 'Acknowledgement cleared newer work');
 			await Promise.all([
 				a.evaluate(() => dataSmoke.paragraph('First', 'From tab A')),
 				b.evaluate(() => dataSmoke.paragraph('Last', 'From tab B')),
@@ -229,7 +229,7 @@ try {
 				final.row?.fields.a === 101 &&
 					final.row?.fields.b === 101 &&
 					final.row?.body === 'From tab A\n\nFrom tab B\n' &&
-					final.edits.length === 0 &&
+					!final.unsent &&
 					final.state.remoteBase !== undefined &&
 					final.state.pendingCommit === null,
 				'Committed current data missing after browser reopen',
@@ -265,7 +265,7 @@ try {
 				afterCollection.state.remoteBase === final.state.remoteBase &&
 					afterCollection.state.pendingCommit === null &&
 					afterCollection.row?.fields.a === 102 &&
-					afterCollection.edits.length > 0,
+					afterCollection.unsent,
 				'Collection lost a concurrent saved edit or changed the committed head',
 			);
 			await context.close();
@@ -292,7 +292,7 @@ try {
 				browser: name,
 				version: context.browser()?.version(),
 				acknowledgedSaves: writes * 2 + 5,
-				failedRevisionChecks: aState.failedChecks + bState.failedChecks,
+				failedRootChecks: aState.failedChecks + bState.failedChecks,
 				saveP95Ms: latencies[Math.floor(latencies.length * 0.95)],
 				maxSaveMs: latencies.at(-1),
 				metadataProbe,
@@ -318,6 +318,7 @@ try {
 	}
 	const report = {
 		recordedAt: new Date().toISOString(),
+		bundleSha256: new Bun.CryptoHasher('sha256').update(script).digest('hex'),
 		scope:
 			'Production local engine. Local acknowledgement simulation, no network sync, forced process crash, or phone evidence.',
 		results,

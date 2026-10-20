@@ -1,15 +1,14 @@
 /** Production engine exercised from two real pages; no alternative state model. */
 
 import { unwrap } from 'wellcrafted/result';
-import { changeSnapshot } from '../src/browser/git/snapshot.js';
-import {
-	openRepository,
-	type PendingCommit,
-} from '../src/browser/repository.js';
+import { changeSnapshot, emptyTree } from '../src/browser/git/snapshot.js';
+import { openRepository } from '../src/browser/repository.js';
 import { snapshotObject } from '../src/browser/storage.js';
+import { prepareCommit } from '../src/browser/sync.js';
 import {
 	type GitObject,
 	hashObject,
+	readCommit,
 	writeCommit,
 } from '../src/git/raw-objects.js';
 import type { Row } from '../src/shared/row.js';
@@ -66,7 +65,7 @@ export const client = {
 			throw new Error('Not a new empty repository');
 		if (
 			!(await repository.storage.publish({
-				revision: state.revision,
+				expected: state,
 				refs: { remoteBase: null, pendingCommit: null },
 			}))
 		)
@@ -95,23 +94,33 @@ export const client = {
 	},
 	async commitLoop(count: number) {
 		for (let attempt = 0; attempt < count; attempt++) {
-			const pending = unwrap(await repository.prepareCommit(author()));
+			const pending = await prepareCommit(repository.storage, author());
 			await new Promise((resolve) => setTimeout(resolve, 2));
 			if (pending !== null)
 				await repository.storage.acknowledge(pending.base, pending.head);
 		}
 	},
 	async commit() {
-		return unwrap(await repository.prepareCommit(author()));
+		return await prepareCommit(repository.storage, author());
 	},
-	async accept(pending: PendingCommit) {
+	async accept(
+		pending: NonNullable<Awaited<ReturnType<typeof prepareCommit>>>,
+	) {
 		return repository.storage.acknowledge(pending.base, pending.head);
 	},
 	async state() {
-		const snapshot = await repository.storage.capture();
+		const snapshot = await repository.storage.capture('sync');
 		return {
 			state: snapshot.state,
-			edits: [...snapshot.edits],
+			unsent:
+				snapshot.state.workingTree !==
+				((snapshot.state.pendingCommit ?? snapshot.state.remoteBase)
+					? readCommit(
+							snapshot.objects.get(
+								(snapshot.state.pendingCommit ?? snapshot.state.remoteBase)!,
+							)!.bytes,
+						).tree
+					: emptyTree),
 			row: unwrap(await repository.tables.notes.get('one')),
 			failedChecks,
 			latencies,
@@ -122,15 +131,11 @@ export const client = {
 		const snapshot = await repository.storage.capture([]);
 		const current =
 			snapshot.state.pendingCommit ?? snapshot.state.remoteBase ?? null;
-		const candidate = await changeSnapshot({
-			root: snapshot.head.root,
-			edits: snapshot.edits,
-			read: async (oid) => snapshotObject(snapshot, oid),
-		});
+
 		const object: GitObject = {
 			type: 'commit',
 			bytes: writeCommit({
-				tree: candidate.tree,
+				tree: snapshot.state.workingTree,
 				parents: current === null ? [] : [current],
 				author: author(),
 				message: 'Unpublished\n',
@@ -139,11 +144,11 @@ export const client = {
 		return {
 			candidate: await hashObject(object),
 			persisted: current,
-			edits: snapshot.edits.size,
+			files: snapshot.files.size,
 		};
 	},
 	async nativeObjects() {
-		const snapshot = await repository.storage.capture();
+		const snapshot = await repository.storage.capture('sync');
 		return {
 			head: snapshot.state.pendingCommit ?? snapshot.state.remoteBase ?? null,
 			objects: [...snapshot.objects].map(([oid, object]) => ({
@@ -159,10 +164,10 @@ export const client = {
 			bytes: new TextEncoder().encode('unpublished browser candidate'),
 		};
 		const oid = await hashObject(orphan);
-		const { state } = await repository.storage.capture('commit');
+		const { state } = await repository.storage.capture([]);
 		if (
 			!(await repository.storage.publish({
-				revision: state.revision,
+				expected: state,
 				objects: new Map([[oid, orphan]]),
 			}))
 		)
@@ -171,7 +176,7 @@ export const client = {
 	},
 	collect: () => repository.storage.collect(),
 	async hasStoredObject(oid: string) {
-		const request = indexedDB.open(`epicenter.data.${repository.id}`);
+		const request = indexedDB.open(`epicenter.folder.${repository.id}`);
 		const database = await new Promise<IDBDatabase>((resolve, reject) => {
 			request.onsuccess = () => resolve(request.result);
 			request.onerror = () => reject(request.error);
@@ -217,7 +222,8 @@ export const client = {
 		candidate.objects.set(head, object);
 		if (
 			!(await repository.storage.publish({
-				revision: 0,
+				expected: (await repository.storage.capture([])).state,
+				workingTree: candidate.tree,
 				objects: candidate.objects,
 				refs: { remoteBase: head, pendingCommit: null },
 			}))
@@ -238,8 +244,7 @@ export const client = {
 			await repository.files.write('archive/0/file.txt', '0\n', 'edited\n'),
 		);
 		const saveMs = performance.now() - start;
-		// Distinguish current-tree scaling from the remaining cost of loading E
-		// and evaluating folders affected by a prolonged offline backlog.
+		// Compare scoped reads before and after a large offline save backlog.
 		const backlog = new Map(
 			Array.from(
 				{ length: folders },
@@ -250,11 +255,17 @@ export const client = {
 					] as const,
 			),
 		);
-		const { state } = await repository.storage.capture('commit');
+		const backlogBase = await repository.storage.capture();
+		const backlogTree = await changeSnapshot({
+			root: backlogBase.state.workingTree,
+			edits: backlog,
+			read: async (oid) => snapshotObject(backlogBase, oid),
+		});
 		if (
 			!(await repository.storage.publish({
-				revision: state.revision,
-				edits: backlog,
+				expected: backlogBase.state,
+				workingTree: backlogTree.tree,
+				objects: backlogTree.objects,
 			}))
 		)
 			throw new Error('Backlog seed raced');
@@ -269,7 +280,7 @@ export const client = {
 			captureMs: captures,
 			saveMs,
 			backlog: {
-				edits: backlog.size,
+				savedFiles: backlog.size,
 				utf8Bytes: [...backlog.values()].reduce(
 					(size, text) => size + new TextEncoder().encode(text).length,
 					0,

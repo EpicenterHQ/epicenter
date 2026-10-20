@@ -108,7 +108,7 @@ for (const [name, browserType] of Object.entries({
 			afterTabs.row?.fields.a === writes &&
 				afterTabs.row.fields.b === writes &&
 				afterTabs.row.body === 'From tab A\n\nFrom tab B\n' &&
-				afterTabs.edits === 0 &&
+				!afterTabs.unsent &&
 				afterTabs.refs.base === afterTabs.refs.head,
 			'Concurrent saves or paragraphs were lost',
 		);
@@ -156,7 +156,7 @@ for (const [name, browserType] of Object.entries({
 		await a.evaluate(() => dataSyncSmoke.collect());
 		const retainedEdits = await a.evaluate(() => dataSyncSmoke.state());
 		check(
-			retainedEdits.refs.head === pending && retainedEdits.edits > 0,
+			retainedEdits.refs.head === pending && retainedEdits.unsent,
 			'Collection lost the uncertain commit or newer unsent work',
 		);
 		await context.close();
@@ -169,7 +169,7 @@ for (const [name, browserType] of Object.entries({
 		await reopened.evaluate((id) => dataSyncSmoke.open(id), id);
 		const beforeRecovery = await reopened.evaluate(() => dataSyncSmoke.state());
 		check(
-			beforeRecovery.refs.head === pending && beforeRecovery.edits > 0,
+			beforeRecovery.refs.head === pending && beforeRecovery.unsent,
 			'Pending identity or newer local edit was lost across browser reopen',
 		);
 		await reopened.evaluate(() => dataSyncSmoke.syncLoop(4));
@@ -179,7 +179,7 @@ for (const [name, browserType] of Object.entries({
 				final.row.fields.b === writes &&
 				final.row.fields.extra === 999 &&
 				final.row.body === 'From tab A\n\nFrom tab B\n' &&
-				final.edits === 0 &&
+				!final.unsent &&
 				final.refs.base === final.refs.head,
 			'Recovery replayed an accepted edit or lost newer independent work',
 		);
@@ -231,6 +231,7 @@ for (const [name, browserType] of Object.entries({
 }
 const report = {
 	recordedAt: new Date().toISOString(),
+	bundleSha256: new Bun.CryptoHasher('sha256').update(script).digest('hex'),
 	scope:
 		'Production browser engine and Git transport against local native smart HTTP. Graceful profile reopen; no forced process crash, phone, quota, or hosted-service gate.',
 	results,

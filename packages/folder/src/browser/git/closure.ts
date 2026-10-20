@@ -4,12 +4,13 @@ import { type GitObject, readCommit, readTree } from '../../git/raw-objects.js';
 export async function snapshotObjects(
 	commits: readonly string[],
 	read: (oid: string) => Promise<GitObject>,
+	trees: readonly string[] = [],
 ): Promise<Map<string, GitObject>> {
 	const objects = new Map<string, GitObject>();
-	const pending = commits.map((oid) => ({
-		oid,
-		type: 'commit' as GitObject['type'],
-	}));
+	const pending = [
+		...commits.map((oid) => ({ oid, type: 'commit' as GitObject['type'] })),
+		...trees.map((oid) => ({ oid, type: 'tree' as GitObject['type'] })),
+	];
 	while (pending.length > 0) {
 		const { oid, type } = pending.pop()!;
 		const cached = objects.get(oid);

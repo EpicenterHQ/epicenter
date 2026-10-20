@@ -1,7 +1,7 @@
 /**
  * Ordinary Git smart-HTTP fetch and push for the inflated-object engine.
  *
- * The engine stores inflated objects, two refs and pending edits, not a Git
+ * The engine stores inflated objects, a working tree and two checkpoints, not a Git
  * directory. Each call here builds a bare repository in memory, seeds it with
  * the objects the caller already holds, lets isomorphic-git run the ordinary
  * transfer, reads the new objects back out, and throws the repository away.
@@ -31,19 +31,6 @@ import {
 	readTree,
 } from '../../git/raw-objects.js';
 import { createScratchFs, type ScratchFs } from './transfer-fs.js';
-
-/** Git transfer refs derived from the durable browser state. */
-type TransferRefs = {
-	base: string | null;
-	head: string | null;
-	shallow: readonly string[];
-};
-
-/** Every inflated object the caller holds for both snapshots. */
-export type TransferInput = {
-	objects: ReadonlyMap<string, GitObject>;
-	refs: TransferRefs;
-};
 
 /**
  * `transport`: the request, the reply, or the objects in it failed; nothing
@@ -119,7 +106,11 @@ function describe(error: unknown) {
 type Scratch = { fs: ScratchFs; cache: object };
 
 /** Builds the bare repository and puts everything the caller holds into it. */
-async function openScratch(input: TransferInput | null, ref: string | null) {
+async function openScratch(
+	objects: ReadonlyMap<string, GitObject> | null,
+	shallow: readonly string[],
+	ref: string | null,
+) {
 	const scratch: Scratch = { fs: createScratchFs(), cache: {} };
 	const { fs } = scratch;
 	await git.init({ fs, gitdir: GITDIR, bare: true, defaultBranch: BRANCH });
@@ -131,8 +122,8 @@ async function openScratch(input: TransferInput | null, ref: string | null) {
 		path: `remote.${REMOTE}.fetch`,
 		value: `+refs/heads/*:refs/remotes/${REMOTE}/*`,
 	});
-	if (input === null) return scratch;
-	for (const [oid, { type, bytes }] of input.objects) {
+	if (objects === null) return scratch;
+	for (const [oid, { type, bytes }] of objects) {
 		const written = await git.writeObject({
 			fs,
 			gitdir: GITDIR,
@@ -144,15 +135,12 @@ async function openScratch(input: TransferInput | null, ref: string | null) {
 			throw new Error(`object keyed ${oid} hashes to ${written}`);
 		}
 	}
-	if (input.refs.shallow.length > 0) {
+	if (shallow.length > 0) {
 		// Git reads the boundary from this file; it has no public writer.
-		await fs.promises.writeFile(
-			`${GITDIR}/shallow`,
-			`${input.refs.shallow.join('\n')}\n`,
-		);
+		await fs.promises.writeFile(`${GITDIR}/shallow`, `${shallow.join('\n')}\n`);
 	}
 	if (ref !== null) {
-		if (!input.objects.has(ref)) {
+		if (!objects.has(ref)) {
 			throw new Error(`commit ${ref} is not among the supplied objects`);
 		}
 		await git.writeRef({ fs, gitdir: GITDIR, ref: MAIN, value: ref });
@@ -372,7 +360,6 @@ async function readFetched(
 ) {
 	const boundary = await readShallow(scratch);
 	const objects = new Map<string, GitObject>();
-	const shallow = new Set<string>();
 	const commits = new Set<string>();
 	const queue = [head];
 	for (let oid = queue.pop(); oid !== undefined; oid = queue.pop()) {
@@ -390,10 +377,9 @@ async function readFetched(
 			objects.set(oid, commit);
 			await readFetchedTree(scratch, tree, known, objects);
 		}
-		if (boundary.has(oid)) shallow.add(oid);
-		else queue.push(...parents);
+		if (!boundary.has(oid)) queue.push(...parents);
 	}
-	return { objects, shallow: [...shallow] };
+	return objects;
 }
 
 async function readFetchedTree(
@@ -424,24 +410,28 @@ async function readFetchedTree(
  * `initial` asks for the tip commit alone. Otherwise the remote is asked for
  * everything newer than B, which the scratch repository advertises as its own
  * `main`, with the retained boundary declared shallow. `recover` ignores
- * `input` and asks an empty repository for the whole history, for when the
+ * supplied objects and asks an empty repository for the whole history, for when the
  * retained commits cannot reach the remote's. That history is returned like
  * any other result and is the caller's to discard.
  *
  * `head` is null only when the remote affirmatively has no `main`. `objects`
- * holds every commit, tree and blob the fetch added beyond `input`, and
- * `shallow` the commits reachable from `head` whose parents are not held.
+ * holds every commit, tree and blob the fetch added beyond the supplied objects.
+ * Ancestry checks use those objects; missing parents leave the proof unknown.
  */
 export async function fetchRemote({
 	url,
-	input,
+	objects,
+	base,
+	shallow,
 	initial,
 	signal,
 	request,
 	recover = false,
 }: {
 	url: string;
-	input: TransferInput;
+	objects: ReadonlyMap<string, GitObject>;
+	base: string | null;
+	shallow: readonly string[];
 	initial: boolean;
 	signal?: AbortSignal;
 	request?: HttpRequest;
@@ -449,15 +439,13 @@ export async function fetchRemote({
 }): Promise<{
 	head: string | null;
 	objects: Map<string, GitObject>;
-	shallow: readonly string[];
 }> {
 	assertLive(signal);
-	const known: ReadonlyMap<string, GitObject> = recover
-		? new Map()
-		: input.objects;
+	const known: ReadonlyMap<string, GitObject> = recover ? new Map() : objects;
 	const scratch = await openScratch(
-		recover ? null : input,
-		recover || initial ? null : input.refs.base,
+		recover ? null : objects,
+		shallow,
+		recover || initial ? null : base,
 	);
 	const http = createHttp(request, signal);
 	try {
@@ -485,16 +473,15 @@ export async function fetchRemote({
 				error.code === 'NotFoundError' &&
 				error.data?.what === MAIN
 			) {
-				return { head: null, objects: new Map(), shallow: [] };
+				return { head: null, objects: new Map() };
 			}
 			throw error;
 		}
 		if (fetched.fetchHead === null) {
-			return { head: null, objects: new Map(), shallow: [] };
+			return { head: null, objects: new Map() };
 		}
 		const head = fetched.fetchHead;
-		const { objects, shallow } = await readFetched(scratch, head, known);
-		return { head, objects, shallow };
+		return { head, objects: await readFetched(scratch, head, known) };
 	} finally {
 		http.close();
 		scratch.fs.clear();
@@ -502,15 +489,20 @@ export async function fetchRemote({
 }
 
 /** Whether `head` descends from `base` using only commits that are held. */
-function ancestry(input: TransferInput, head: string, base: string) {
-	const boundary = new Set(input.refs.shallow);
+function ancestry(
+	objects: ReadonlyMap<string, GitObject>,
+	shallow: readonly string[],
+	head: string,
+	base: string,
+) {
+	const boundary = new Set(shallow);
 	const seen = new Set<string>();
 	const queue = [head];
 	let complete = true;
 	for (let oid = queue.pop(); oid !== undefined; oid = queue.pop()) {
 		if (seen.has(oid)) continue;
 		seen.add(oid);
-		const commit = input.objects.get(oid);
+		const commit = objects.get(oid);
 		if (commit === undefined || commit.type !== 'commit') {
 			complete = false;
 			continue;
@@ -547,24 +539,26 @@ type Decision = 'pushed' | 'rejected' | 'limited';
  */
 export async function pushRemote({
 	url,
-	input,
+	objects,
+	shallow,
 	base,
 	head,
 	signal,
 	request,
 }: {
 	url: string;
-	input: TransferInput;
+	objects: ReadonlyMap<string, GitObject>;
+	shallow: readonly string[];
 	base: string | null;
 	head: string;
 	signal?: AbortSignal;
 	request?: HttpRequest;
 }): Promise<'pushed' | 'rejected'> {
 	assertLive(signal);
-	if (!input.objects.has(head)) {
+	if (!objects.has(head)) {
 		throw new Error(`commit ${head} is not among the supplied objects`);
 	}
-	const scratch = await openScratch(input, null);
+	const scratch = await openScratch(objects, shallow, null);
 	await git.writeRef({
 		fs: scratch.fs,
 		gitdir: GITDIR,
@@ -602,7 +596,7 @@ export async function pushRemote({
 							if (advertised === head) decision = 'pushed';
 							else if (advertised !== base) decision = 'rejected';
 							else if (base !== null) {
-								const found = ancestry(input, head, base);
+								const found = ancestry(objects, shallow, head, base);
 								if (found === 'diverges') decision = 'rejected';
 								else if (found === 'limited') decision = 'limited';
 							}
