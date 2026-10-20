@@ -297,19 +297,42 @@ canonical root>`, and opens that window at `/folders/editor/`, which the
 scheme serves from the Folders build; the route selects the editor's page. A
 second choice of the same folder reveals its window.
 
-The editor mounts `<FolderApp>` with no tables, which opens the window's
-folder with `openFolder({ tables: {} })`, owns its handle, and closes it when
-the window goes. Every source file appears in a file tree and opens as text
-when its bytes are editable text; byte-order marks, `\r\n` endings, and
-unknown fields are kept, and mixed line endings and binary files are shown,
-not edited. File drafts belong to the window, survive switching files, and
-are registered with the folder context: hiding the window sends what is
-typed and leaves it editable, and closing the window waits for its saves. A
-failed save keeps its text visible and keeps the window open until the person
-retries or discards it. Unsaved files stay reachable even when their disk
-entry disappears or the listing fails. Each change batch marks the editor's
-file reads stale, including descendants of a changed directory; the shell watcher reports changes from other windows and
-processes.
+The editor mounts `<FolderApp>` with no table schemas, so Files, Tables, and
+SQL share one open Folder and its window lifetime. Files opens exact source
+text, retaining byte-order marks and CRLF endings. Binary content and mixed
+line endings remain available without text editing.
+
+Tables reads root-level and nested Markdown through the same generic document
+reader as SQL. Columns combine observed fields with declared properties from
+optional `epicenter.json`. Missing frontmatter means empty fields; malformed
+source remains visible with diagnostics and a link to Files. Scalar cells are
+editable; nested JSON values remain readable through the grid and editable in
+Files. The folder's schema interprets values and never refuses a save.
+
+One path-keyed draft owner keeps unfinished text and field intent across view
+switches. Field intent overlays fresh reads, so another writer's body changes
+remain visible. Starting to type source text deliberately turns that draft into
+a whole-file edit. A failed field edit stays held for explicit retry or discard;
+source repair first requires copying or discarding that intent. Recovery shows
+the field patch separately from the current source, without keeping a stale
+whole-file preview. Hiding and
+closing settle pending work, while failed saves keep the window open. Unsaved
+files stay reachable when their disk entry disappears or the listing fails.
+
+The SQL console uses `documents(path, directory, stem, fields, body, issues)`.
+`fields` and `issues` contain JSON. Each run reads saved files into disposable
+Bun SQLite; it excludes unreadable and non-text files by name, retains readable
+malformed records with issues, and writes no query result back. Runs have a 15-second request deadline, and results stop at 1,000 rows or
+4 MiB of encoded row data. Unfinished query text and its running request survive
+switching views. The native command
+accepts SQL only; Rust derives the directory from the invoking window's
+existing binding and uses the owned CLI child lifetime. There is no browser
+SQL engine or page-supplied filesystem root. Public CLI `query` keeps its
+separate declared-table contract.
+
+Each change batch invalidates the editor's reads, including descendants of a
+changed directory. The shell watcher reports other windows' and processes'
+changes. Saved-view persistence and board presentation remain follow-up work.
 
 ### Opening apps
 

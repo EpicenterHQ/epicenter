@@ -1,5 +1,8 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
+	import { Button } from '@epicenter/ui/button';
+	import TablesView from './TablesView.svelte';
+	import SqlView from './SqlView.svelte';
 	import { getFolder } from '@epicenter/svelte/folder';
 	import { createQuery } from '@tanstack/svelte-query';
 	import type { FileDrafts } from './drafts.svelte';
@@ -41,13 +44,19 @@
 		drafts.held.filter((path) => listing.error || !listing.data?.includes(path)),
 	);
 	let selected = $state<string | undefined>(undefined);
+	let view = $state<'files' | 'tables' | 'sql'>('files');
+	function openSource(path: string) { selected = path; view = 'files'; }
 
 	const status = $derived(context.status);
 </script>
 
 <section class="flex h-full min-h-0 flex-1 flex-col">
 	<header class="flex flex-wrap items-center gap-3 border-b px-4 py-3">
-		<h1 class="text-lg font-semibold">Files</h1>
+		<nav class="flex gap-2" aria-label="Folder views">
+			<Button variant={view === 'files' ? 'secondary' : 'ghost'} aria-pressed={view === 'files'} onclick={() => (view = 'files')}>Files</Button>
+			<Button variant={view === 'tables' ? 'secondary' : 'ghost'} aria-pressed={view === 'tables'} onclick={() => (view = 'tables')}>Tables</Button>
+			<Button variant={view === 'sql' ? 'secondary' : 'ghost'} aria-pressed={view === 'sql'} onclick={() => (view = 'sql')}>SQL</Button>
+		</nav>
 		<span class="ml-auto text-sm text-muted-foreground" role="status">
 			{#if status.saving}
 				Saving…
@@ -61,6 +70,9 @@
 		</span>
 	</header>
 
+	{#if view === 'tables'}
+		<TablesView {drafts} {openSource} />
+	{:else if view === 'files'}
 	<div class="flex min-h-0 flex-1">
 		<nav class="w-72 shrink-0 overflow-auto border-r p-2" aria-label="Files">
 			{#if unlisted.length > 0}
@@ -129,4 +141,6 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
+	<div class:hidden={view !== 'sql'} class="min-h-0 flex-1 overflow-auto"><SqlView /></div>
 </section>

@@ -222,7 +222,7 @@ establish audio availability.
 ## Delivery note: October 20, 2026
 
 The public Folder contract, browser and native engines, and migrated app callers
-are implemented. Epicenter opens Files editors and bundled apps; standalone
+are implemented. Epicenter opens Files, a generic grid, read-only SQL, and bundled apps; standalone
 Todos can hand its directory to Epicenter. Desktop and CLI share machine-local
 `folders.json` for added shortcuts and the selected records location under one
 save lock. `epicenter folders add|list|forget` exists; CLI `open` does not.
@@ -233,8 +233,18 @@ does not migrate old OPFS work. App-facing sync attachment and phone durability
 remain open. Native fixed defaults can be created again at launch; the
 first-use distinction discussed here is not delivered across launches.
 
-Current production binds one directory per native window under ADR-0647.
-Tabbed presentation could retain native windows or introduce child WebViews;
-this review selects neither implementation. Live bindings and unsaved input
+Production binds one directory per native window under ADR-0647. On macOS,
+[ADR-0651](adr/0651-macos-tabs-group-existing-folder-windows.md) groups those
+ordinary windows as native tabs, retaining their page and directory lifetime. Live bindings and unsaved input
 are runtime state. They belong in neither the folder-location file nor
 portable saved views.
+
+
+The optional root `epicenter.json` has one TypeBox format owner, independently
+optional schemas and views, and section-preserving schema import and generation.
+Apps can explicitly export their own TypeBox schemas; imported copies travel
+with the folder. Files and grid share one draft owner, and SQL reads a disposable
+projection of saved Markdown through the same document reader. Named-view
+persistence, boards, browser SQL, and schema distribution remain separate work.
+See the [folder contract](../packages/folder/README.md#portable-schemas-and-generic-documents)
+and [desktop editor](../apps/epicenter/README.md#folder-editor-windows).

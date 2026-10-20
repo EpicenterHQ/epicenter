@@ -22,6 +22,7 @@ mod bundled_apps;
 mod cli;
 mod data_folders;
 mod folder_opening;
+mod folder_query;
 mod folder_windows;
 mod folders_config;
 #[cfg(target_os = "macos")]
@@ -143,6 +144,7 @@ macro_rules! shell_commands {
             folder_opening::list_remembered_folders,
             folder_opening::forget_remembered_folder,
             data_folders::open_folder_editor,
+            folder_query::folder_query,
             folder_opening::open_remembered_folder,
             cli::ai_send,
             cli::account_send,
@@ -897,10 +899,10 @@ mod tests {
 
     /// A folder editor window, one per listed folder (`data_folders.rs`), is
     /// selected by `folder-editor.json` alone and holds the folder plugin, its
-    /// change event, and destroying itself once what is typed saved: no
+    /// change event, read-only SQL, and destroying itself once typing saved: no
     /// listing, launch, account, AI, recorder, or model command.
     #[test]
-    fn a_folder_editor_window_holds_the_folder_plugin_alone() {
+    fn a_folder_editor_window_holds_files_and_read_only_sql() {
         let capability: serde_json::Value = serde_json::from_str(FOLDER_EDITOR).unwrap();
         assert_eq!(
             capability["windows"],
@@ -910,6 +912,7 @@ mod tests {
             capability["permissions"],
             serde_json::json!([
                 "epicenter-folder:default",
+                "allow-folder-query",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",

@@ -18,6 +18,7 @@ pub const COMMANDS: &[&str] = &[
     "take_pending_home_section",
     "list_data_folders",
     "open_folder_editor",
+    "folder_query",
     "pending_folder_openings",
     "accept_folder_opening",
     "dismiss_folder_opening",

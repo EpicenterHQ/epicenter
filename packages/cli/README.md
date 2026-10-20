@@ -1,15 +1,11 @@
 # @epicenter/cli
 
-This README describes implemented commands. `check` and `query` currently require
-root `epicenter.json`, and `generate` produces it from `epicenter.ts`. The
-chosen v1 direction keeps that root path for check and query, using a static
-schema obtained from a registry or authored directly. The schema format still
-needs migration; external-schema flags are deferred. Apps need no root schema
-file and never publish it by opening or saving. The old generation
-workflow is preserved in superseded
-[ADR-0527](../../docs/adr/0527-a-data-folder-may-keep-its-declaration-as-typescript.md).
-See [shared vocabulary](../../docs/CONTEXT.md) and
-[ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md).
+`check` and `query` require declared table schemas in root `epicenter.json`.
+`schema export` and `schema import` exchange those schemas explicitly. Apps
+keep their runtime TypeBox source and never publish declarations by opening or
+saving. `generate` retains the older trusted `epicenter.ts` workflow, with
+section-preserving writes. See [portable declarations](../folder/README.md#portable-schemas-and-generic-documents)
+and [shared vocabulary](../../docs/CONTEXT.md).
 
 The `epicenter` command. Each command is a thin wrapper over a function in a
 shared package; the CLI parses, prints, and picks the exit code, and holds no
@@ -34,6 +30,9 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter folders add <directory>` | built | Machine-local `folders.json` under the shared save lock |
 | `epicenter folders list` | built | Added paths and availability, plus `epicenter` with `--json` |
 | `epicenter folders forget <directory>` | built | Remove only the matching shortcut |
+| `epicenter schema export <dir>` | built | Export the declared `tables` as JSON |
+| `epicenter schema import <dir> <file\|-> [--replace]` | built | Import all tables from the source, preserving unrelated sections |
+| `epicenter documents-query <dir>` | built, hidden | Desktop saved-document SQL; statement on stdin |
 | `epicenter check <dir>` | built | `checkFolder` in `@epicenter/folder/bun` |
 | `epicenter query <dir> [<sql>]` | built | `checkFolder`, `queryFolder`, `describeTables` |
 | `epicenter generate <dir>` | built | `generateDefinition` |
@@ -53,7 +52,7 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter whispering-connection read \| set <transcription\|text>` | built, hidden | `src/connection-rows.ts` over `openFolder` in `@epicenter/folder/bun` |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
 
-`send`, `history`, `save-version`, `whispering-connection`, `install-command`,
+`documents-query`, `send`, `history`, `save-version`, `whispering-connection`, `install-command`,
 `sync --allow-unrelated`, and `--desktop` are left out of `--help`: the
 desktop app runs them.
 
@@ -61,6 +60,24 @@ The source installer, the `app` group, is deleted, with no alias: Epicenter
 bundles its apps. Clones an earlier build installed under `apps/` in the data
 directory, and builds under `builds/` in the cache directory, are left on
 disk, never read and never removed.
+
+## Exchange schemas
+
+```sh
+epicenter schema export SOURCE_FOLDER > app-schema.json
+epicenter schema import TARGET_FOLDER app-schema.json
+```
+
+Replace `SOURCE_FOLDER` and `TARGET_FOLDER` with existing directory paths.
+Import changes only the source document's table entries. A conflicting table
+requires `--replace`; case-colliding table names are refused. Use `-` as the
+source to read JSON from stdin. Neither operation executes folder code.
+Generation also preserves views and editor hints, and rechecks protective
+`local` rules on every conditional write attempt.
+
+The hidden desktop SQL operation uses the generic document reader and the
+`documents` relation. Public `query` retains its declared, conforming-row table
+projection. Both use the same read-only SQLite executor.
 
 ## Folder locations on this computer
 

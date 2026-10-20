@@ -63,7 +63,7 @@ export async function check(dir: string, json: boolean) {
 	}
 	if (hasSource)
 		writeErr(
-			`${DEFINITION_PATH} is generated from ${DEFINITION_SOURCE_PATH}; edit the .ts and run \`epicenter generate ${dir}\`, not the .json.`,
+			`${DEFINITION_PATH} is generated from ${DEFINITION_SOURCE_PATH}; edit tables, title, and local there and run \`epicenter generate ${dir}\`. Other JSON sections are preserved.`,
 		);
 	writeOut(
 		[

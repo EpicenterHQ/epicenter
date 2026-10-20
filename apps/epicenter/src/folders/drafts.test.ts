@@ -41,12 +41,13 @@ const failed = (message: string) =>
 function standIn() {
 	const held: HeldSave[] = [];
 	const files = {
+		read: async () => Ok(undefined),
 		write(path: string, _from: unknown, content: unknown) {
 			return new Promise<Saved>((answer) =>
 				held.push({ path, content, answer }),
 			);
 		},
-	} as unknown as Pick<FolderFiles, 'write'>;
+	} as unknown as Pick<FolderFiles, 'write' | 'read'>;
 	return {
 		files,
 		held,
@@ -223,4 +224,129 @@ describe('settling', () => {
 		expect(await settling).toEqual([]);
 		expect(drafts.busy).toBe(false);
 	});
+});
+
+// Field and text views share one path entry and one save queue.
+test('pending fields overlay fresh body edits and failed fields do not replay during view settlement', async () => {
+	let stored = '---\ntitle: before\n---\nbody before\n';
+	const writes: { from: unknown; content: unknown }[] = [];
+	let refuses = true;
+	const drafts = createFileDrafts({
+		files: {
+			read: async (path) => Ok({ path, content: new Blob([stored]) }),
+			write: async (_path, from, content) => {
+				writes.push({ from, content });
+				if (refuses) return failed('disk full') as Result<void, SaveError>;
+				stored = String(content);
+				return Ok(undefined);
+			},
+		},
+		saved: async () => {},
+	});
+	const draft = drafts.file('a.md');
+	const base = () => ({ content: stored, crlf: false });
+	expect(draft.change({ title: 'mine' }, base())).toBe(true);
+	stored = '---\ntitle: before\nother: remote\n---\nbody remote\n';
+	expect(draft.shown(base())).toContain('body remote');
+	expect(draft.shown(base())).toContain('title: mine');
+	const pending = draft.save();
+	const hidden = drafts.settle();
+	await pending;
+	await hidden;
+	expect(writes[0]?.content).toContain('other: remote');
+	expect(writes[0]?.content).toContain('body remote');
+	expect(draft.sourceLocked).toBe(true);
+	expect(draft.type('repair', base())).toBe(false);
+	await drafts.settle();
+	await draft.save();
+	expect(writes).toHaveLength(1);
+	refuses = false;
+	await draft.retry();
+	expect(draft.held).toBe(false);
+	expect(stored).toContain('title: mine');
+});
+
+test('switching from fields to text keeps the latest body and one draft, while malformed source preserves field intent', async () => {
+	let stored = '---\ntitle: before\n---\nbody\n';
+	const drafts = createFileDrafts({
+		files: {
+			read: async (path) => Ok({ path, content: new Blob([stored]) }),
+			write: async (_path, _from, content) => {
+				stored = String(content);
+				return Ok(undefined);
+			},
+		},
+		saved: async () => {},
+	});
+	const draft = drafts.file('a.md');
+	const base = () => ({ content: stored, crlf: false });
+	draft.change({ title: 'mine' }, base());
+	stored = '---\ntitle: before\n---\nnew body\n';
+	expect(draft.type(draft.shown(base())! + 'typed\n', base())).toBe(true);
+	await draft.save();
+	expect(stored).toContain('title: mine');
+	expect(stored).toContain('new body\ntyped\n');
+	draft.change({ title: 'second' }, base());
+	stored = '---\ntitle: [\n---\nbroken\n';
+	expect(draft.type('repair', base())).toBe(false);
+	expect(draft.sourceLocked).toBe(true);
+	expect(draft.fieldText).toContain('second');
+	expect(draft.text).toBeUndefined();
+	expect(draft.shown(base())).toBeUndefined();
+	expect((await drafts.settle())[0]?.text).not.toContain('body');
+	expect(draft.discard()).toBe(true);
+});
+
+test('source typing during a field save retains its displayed base and preserves an unseen external body change', async () => {
+	const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
+	const { tmpdir } = await import('node:os');
+	const { join } = await import('node:path');
+	const { openFolder } = await import('@epicenter/folder/bun');
+	const { expectOk } = await import('wellcrafted/testing');
+	const directory = await mkdtemp(
+		join(tmpdir(), 'epicenter-draft-transition-'),
+	);
+	const before = '---\ntitle: before\n---\nbody before\n';
+	await writeFile(join(directory, 'a.md'), before);
+	const folder = expectOk(await openFolder({ directory, tables: {} }));
+	let release: (() => void) | undefined;
+	let first = true;
+	const drafts = createFileDrafts({
+		files: {
+			read: folder.files.read,
+			async write(path, from, content) {
+				if (first) {
+					first = false;
+					await new Promise<void>((resolve) => {
+						release = resolve;
+					});
+				}
+				return folder.files.write(path, from, content);
+			},
+		},
+		saved: async () => {},
+	});
+	try {
+		const draft = drafts.file('a.md');
+		const base = { content: before, crlf: false };
+		draft.change({ title: 'mine' }, base);
+		await writeFile(
+			join(directory, 'a.md'),
+			'---\ntitle: before\n---\nbody from another writer\n',
+		);
+		const fieldSave = draft.save();
+		await until(() => release !== undefined);
+		draft.type(draft.shown(base)! + 'my appended line\n', base);
+		release!();
+		await fieldSave;
+		await draft.save();
+		const stored = await readFile(join(directory, 'a.md'), 'utf8');
+		expect(stored).toContain('title: mine');
+		expect(stored).toContain('body from another writer');
+		expect(stored).toContain('my appended line');
+	} finally {
+		await drafts.settle();
+		await folder.close();
+		await rm(directory, { recursive: true, force: true });
+	}
 });

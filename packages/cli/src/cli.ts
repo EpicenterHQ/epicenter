@@ -40,6 +40,11 @@ const HANDLERS: Record<string, Run> = {
 			options.replace === true,
 			json,
 		),
+	'documents-query': async ({ positionals: [directory], json }) =>
+		(await import('./document-commands.ts')).documentsQuery(
+			directory as string,
+			json,
+		),
 	'folders add': async ({ positionals: [directory], json }) =>
 		(await import('./folders.js')).foldersCommand('add', directory, json),
 	'folders list': async ({ positionals: [directory], json }) =>

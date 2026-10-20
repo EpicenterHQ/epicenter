@@ -2,14 +2,15 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-20
-- **Amends:** [ADR-0632](0632-a-lens-belongs-to-its-reader.md) at the folder declaration's schema-only purpose: generic views share that file, and the generic editor can interpret files without a declaration; the v1 CLI requirement for declared schemas remains.
+- **Amends:** [ADR-0632](0632-a-lens-belongs-to-its-reader.md) at the folder declaration's schema-only purpose: generic views share that file, and the generic editor can interpret files without a declaration; the v1 CLI requirement for declared schemas remains. Amends [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at deferring generic structured desktop tools: grid and read-only SQL are implemented optional clients.
 - **Relates:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) separates portable records from machine state; [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) keeps remembered paths on this machine; [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) binds one directory to a native editor window.
-- **Unbuilt:** the Tables UI, observed-column discovery, grid and board editing, desktop SQL, saved-view persistence, app-schema export and import, the canonical TypeBox declaration schema, and readers and writers that preserve independently optional tables and views.
+- **Unbuilt:** saved-view persistence and presentation, board grouping, column configuration, and a schema-distribution service. Grid, desktop SQL, explicit schema export/import, the canonical TypeBox format, and section-preserving writers are implemented.
 
 ## Context
 
 The general editor in `apps/epicenter/src/folders/Editor.svelte` opens a
-Folder with no table schemas and displays files. Apps such as Todos supply
+Folder with no table schemas. Its Files, Tables, and SQL presentations share
+that handle. Apps such as Todos supply
 TypeBox schemas from application code. The CLI's `check` and `query` read
 declared table schemas from the folder's root `epicenter.json`.
 
@@ -53,19 +54,18 @@ field references, SQL restrictions, or a local pattern matching the declaration
 itself, remains an explicit semantic check after structural validation.
 
 Before any writer adds `views`, existing readers must recognize that key and
-existing writers must preserve it. The current `generate` command replaces the
-whole declaration. It must preserve unrelated sections through the file's
-existing save protocol, or visibly refuse that replacement, before saved views
-are introduced. Schema import changes only the selected table definitions.
+existing writers must preserve it. The retained `generate` command and schema imports use conditional section
+updates. Each stale write rereads and reapplies its change. Generation also
+rechecks protective local rules on every attempt. Schema import changes only the selected table definitions.
 
 **Files and Tables use the same folder and its existing edit lifetime.**
 Files edits complete source text. Tables offers grid, board, and read-only
 SQL over one shared reading of Markdown records, including diagnostics.
 Without a declared schema, columns come from observed frontmatter fields;
 missing fields are absent values, and observation establishes no required
-fields or validation rules. Declared schemas add expectations and editor
-hints. Malformed files stay accessible in Files, and SQL reports files it
-omits. SQL results do not introduce another write path. A SQL run builds a
+fields or validation rules. Declared schemas add expectations, missing-property columns, and scalar editor
+hints. Malformed files stay accessible in Files, and SQL reports unreadable and non-text files it omits. Readable malformed
+frontmatter remains queryable with diagnostics. SQL results do not introduce another write path. A SQL run builds a
 disposable projection from saved files; it is not a continuously maintained
 database or a projection of unfinished typing.
 
@@ -75,6 +75,15 @@ the same files. A declaration contains no live handle, native label, open-tab
 position, or window layout. Placement and cleanup belong to the host. The
 current native binding is per window under ADR-0647; tabbed presentation must
 preserve the editing lifetime without changing this portable format.
+
+The generic SQL relation is `documents(path, directory, stem, fields, body,
+issues)`, with fields and issues encoded as JSON. This keeps arbitrary field
+names and mixed values without inventing SQL column types from observation.
+Grid and SQL use the same saved-document reader, including optional declared
+schema diagnostics. A declared table covers direct `<table>/<file>.md` rows,
+matching app and CLI membership; root and nested Markdown remain browsable
+without that schema. The native SQL capability takes a statement only; the shell
+derives the bound directory. SQL has no editable result path.
 
 The first delivery is grid and read-only SQL. Saved-view persistence follows;
 board grouping reuses the same table reading and edit machinery. The CLI's

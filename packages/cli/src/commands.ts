@@ -22,7 +22,15 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary:
 			'import every source table schema, preserving the rest of epicenter.json',
 	},
-
+	{
+		path: ['documents-query'],
+		args: '<dir>',
+		minArgs: 1,
+		maxArgs: 1,
+		hidden: true,
+		summary:
+			'query saved Markdown documents for the desktop editor, SQL on stdin',
+	},
 	{
 		path: ['folders', 'add'],
 		args: '<directory>',

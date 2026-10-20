@@ -61,6 +61,7 @@ export {
 	validateTableSchema,
 } from './declaration-schema.js';
 export { type Definition, defineFolder } from './definition.js';
+export { readDirectoryDocuments } from './directory-documents.js';
 export { nodeDirectoryPrimitives } from './directory-node.js';
 export {
 	GenerateDefinitionError,
@@ -95,6 +96,7 @@ export {
 export { holdingFileLock, holdingHistoryLock } from './native/directory.js';
 export { DEFINITION_PATH } from './paths.js';
 export { describeTables } from './projection.js';
+export { queryDocuments } from './query-documents.js';
 export {
 	type QueryAnswer,
 	QueryFolderError,

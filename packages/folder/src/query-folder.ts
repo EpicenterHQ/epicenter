@@ -27,6 +27,7 @@ export type QueryAnswer = {
 	columns: string[];
 	rows: Record<string, unknown>[];
 	excluded: string[];
+	truncated?: boolean;
 };
 
 /** The two calls the projection asks of a database, over `bun:sqlite`. */
@@ -55,12 +56,26 @@ export function queryFolder(
 		if (problem !== undefined)
 			return QueryFolderError.Refused({ reason: problem });
 	}
+	return queryProjection(
+		sql,
+		(db) => projectTables(sqlTarget(db), checked.tables),
+		excludedFiles(checked),
+	);
+}
+
+/** One executor owns SQLite read-only policy for every disposable projection. */
+export function queryProjection(
+	sql: string,
+	populate: (db: Database) => void,
+	excluded: string[] = [],
+	limits: { rows: number; bytes: number } | undefined = undefined,
+): Result<QueryAnswer, QueryFolderError> {
 	const problem = readingStatementProblem(sql);
 	if (problem !== undefined)
 		return QueryFolderError.Refused({ reason: problem });
 	const db = new Database(':memory:');
 	try {
-		projectTables(sqlTarget(db), checked.tables);
+		populate(db);
 		let statement: ReturnType<Database['query']>;
 		try {
 			statement = db.query(sql);
@@ -73,9 +88,33 @@ export function queryFolder(
 			return QueryFolderError.Refused({
 				reason: 'query runs one statement; remove everything after the first',
 			});
-		let rows: Record<string, unknown>[];
+		const rows: Record<string, unknown>[] = [];
+		let truncated = false;
 		try {
-			rows = statement.all() as Record<string, unknown>[];
+			let bytes = 0;
+			for (const row of statement.iterate() as Iterable<
+				Record<string, unknown>
+			>) {
+				const normalized =
+					limits === undefined
+						? row
+						: Object.fromEntries(
+								Object.entries(row).map(([key, value]) => [
+									key,
+									value instanceof Uint8Array ? Array.from(value) : value,
+								]),
+							);
+				if (limits !== undefined) {
+					bytes += new TextEncoder().encode(
+						JSON.stringify(normalized),
+					).byteLength;
+					if (rows.length >= limits.rows || bytes > limits.bytes) {
+						truncated = true;
+						break;
+					}
+				}
+				rows.push(normalized);
+			}
 		} catch (cause) {
 			return QueryFolderError.Refused({
 				reason: cause instanceof Error ? cause.message : String(cause),
@@ -84,7 +123,8 @@ export function queryFolder(
 		return Ok({
 			columns: statement.columnNames,
 			rows,
-			excluded: excludedFiles(checked),
+			...(limits === undefined ? {} : { truncated }),
+			excluded,
 		});
 	} finally {
 		db.close();

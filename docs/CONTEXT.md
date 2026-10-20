@@ -2,9 +2,9 @@
 
 Epicenter is a toolkit for local-first apps over files, with optional Git
 synchronization and inference. Apps open local data before sign-in. The CLI
-can inspect ordinary files. The Epicenter desktop app opens Files editors and
-a fixed set of bundled apps; generic Tables and a personal-tool runner remain
-future work.
+can inspect ordinary files. The Epicenter desktop app offers Files, a generic grid, read-only SQL, and
+a fixed set of bundled apps. Saved views, boards, and a personal-tool runner
+remain future work.
 
 Use these names for the current API and the named remaining work. Source names
 in the implementation table remain exact. Package READMEs describe the available
@@ -97,11 +97,12 @@ private files from commits. Unusable table schemas must not disable those
 rules. Schema disagreements retain raw source.
 
 ADR-0648 records optional table schemas, shared saved views, and explicit
-app-schema import. These declaration changes, generic Tables and SQL, and
-schema distribution remain unbuilt. Existing app callers already use Folder;
+app-schema import. The canonical TypeBox format, whole-table readers, section-preserving writers,
+explicit schema exchange, grid, and desktop SQL are implemented. Saved-view
+persistence, board presentation, and a schema-distribution service remain open. Existing app callers already use Folder;
 migration of older stored browser data is separate. The CLI retains its
 required-schema `check` and `query`, plus executable `epicenter.ts` generation,
-until those readers and writers change explicitly.
+with generation preserving unrelated declaration sections.
 
 Use schema for row expectations and declaration for the whole portable
 `epicenter.json` document. Retire lens, description, and shape as competing

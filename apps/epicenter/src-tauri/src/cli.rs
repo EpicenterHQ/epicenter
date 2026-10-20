@@ -339,7 +339,7 @@ impl Invocation {
     }
 
     /// Run `epicenter <args>` that answers one JSON value, and read it.
-    async fn answer<T: serde::de::DeserializeOwned>(
+    pub(crate) async fn answer<T: serde::de::DeserializeOwned>(
         &self,
         args: &[&str],
         stdin: Option<Vec<u8>>,

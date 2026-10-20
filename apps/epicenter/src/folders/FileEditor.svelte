@@ -4,6 +4,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
+	import { Textarea } from '@epicenter/ui/textarea';
 	import type { FileDrafts } from './drafts.svelte';
 	import { fileKey, fileText } from './files';
 
@@ -82,8 +83,9 @@
 		<Alert.Root variant="destructive" class="rounded-none border-x-0 border-t-0">
 			<Alert.Description>
 				<p>Your edit was not saved: {draft.error.message}</p>
+				{#if draft.sourceLocked}<p>Copy the field changes or discard them before repairing the source.</p><pre class="whitespace-pre-wrap font-mono text-xs">{draft.fieldText}</pre>{/if}
 				<div class="mt-1 flex gap-2">
-					<Button size="xs" variant="outline" onclick={() => void draft.save()}>Try again</Button>
+					<Button size="xs" variant="outline" onclick={() => void draft.retry()}>Try again</Button>
 					<Button size="xs" variant="ghost" onclick={() => draft.discard()}>
 						Discard edit
 					</Button>
@@ -119,13 +121,13 @@
 				This file was deleted elsewhere. Saving puts your text back in it.
 			</p>
 		{/if}
-		<textarea
+		<Textarea
 			class="min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm outline-none"
 			aria-label="Text of {path}"
 			spellcheck="false"
-			value={draft.text ?? (shown?.kind === 'text' ? shown.text : '')}
-			oninput={(event) => draft.type(event.currentTarget.value, base)}
+			readonly={draft.sourceLocked}
+			bind:value={() => draft.shown(base) ?? (shown?.kind === 'text' ? shown.text : ''), (value) => draft.type(String(value), base)}
 			onblur={() => void draft.save()}
-		></textarea>
+		/>
 	{/if}
 </section>

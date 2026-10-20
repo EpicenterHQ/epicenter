@@ -6,23 +6,27 @@
 	 * folder context, so hiding the window sends it and closing the window
 	 * waits for its saves, and a failed save keeps the window with its text.
 	 *
-	 * The context marks row reads stale on each change; this editor reads no
-	 * rows, so each batch marks all its reads stale too. A directory change
+	 * The context marks row reads stale on each change; the generic editor
+	 * marks its file and document reads stale too. A directory change
 	 * can affect any descendant file. A change that names no path reaches every read
 	 * through the context, below whose key these reads sit.
 	 */
 	import { getFolder } from '@epicenter/svelte/folder';
 	import { onDestroy } from 'svelte';
 	import { createFileDrafts } from './drafts.svelte';
-	import { fileKey } from './files';
 	import FolderView from './FolderView.svelte';
+	import { fileKey } from './files';
 
 	const context = getFolder<Record<never, never>>();
 	const root = context.queries.key;
 	const drafts = createFileDrafts({
 		files: context.folder.files,
-		saved: (path) =>
-			context.queryClient.invalidateQueries({ queryKey: fileKey(root, path) }),
+		saved: async (path) => {
+			await Promise.all([
+				context.queryClient.invalidateQueries({ queryKey: fileKey(root, path) }),
+				context.queryClient.invalidateQueries({ queryKey: [...root, 'documents'] }),
+			]);
+		},
 	});
 	context.registerWork({
 		get busy() {

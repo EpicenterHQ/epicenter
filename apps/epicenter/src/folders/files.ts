@@ -5,8 +5,8 @@
  * save sends (`savedText`).
  *
  * The editor opens its window's folder with no tables (`tables: {}`): it
- * knows no app's schema, so it edits each file as the text it holds and
- * never interprets a row. A file that is not UTF-8 text, or whose line endings a
+ * Files edits each source as text. Tables separately interprets Markdown
+ * through optional declarations on the same open handle. A file that is not UTF-8 text, or whose line endings a
  * text box would rewrite, is shown and left as it is.
  */
 

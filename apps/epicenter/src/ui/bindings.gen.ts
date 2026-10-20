@@ -123,6 +123,7 @@ export const commands = {
 	 *  path; the shell finds the directory again and binds it to the window.
 	 */
 	openFolderEditor: (name: string) => typedError<null, string>(__TAURI_INVOKE("open_folder_editor", { name })),
+	folderQuery: (sql: string) => typedError<QueryAnswer, CliError>(__TAURI_INVOKE("folder_query", { sql })),
 	/**  Open a currently remembered or this-run accepted path in its own editor. */
 	openRememberedFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_remembered_folder", { path })),
 	/**
@@ -618,6 +619,16 @@ export type ModelInfo = {
 	recommended: boolean,
 	downloaded: boolean,
 };
+
+export type QueryAnswer = {
+	columns: string[],
+	rows: { [key in string]: QueryCell }[],
+	excluded: string[],
+	warnings: string[],
+	truncated: boolean,
+};
+
+export type QueryCell = null | number | null | string | number[];
 
 /**  One remembered folder, or one accepted this run. */
 export type RememberedFolder = {

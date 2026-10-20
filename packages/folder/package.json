@@ -10,6 +10,7 @@
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
 		"./file-browser": "./src/file-browser.ts",
+		"./documents": "./src/documents.ts",
 		"./declaration": "./src/declaration/index.ts"
 	},
 	"scripts": {

@@ -330,4 +330,67 @@ describe.skipIf(!browser)('folder editor', async () => {
 			}
 		},
 	);
+	test('a declared missing field can be edited in Tables and the same failed draft stays visible in Files', async () => {
+		const stored = {
+			'todos/a.md': 'body\n',
+			'epicenter.json': JSON.stringify({
+				tables: {
+					todos: {
+						type: 'object',
+						properties: { title: { type: 'string' } },
+						required: ['title'],
+					},
+				},
+			}),
+		};
+		const disk = standIn(stored);
+		const page = openEditor(disk.folder);
+		const button = (name: string) =>
+			[...page.target.querySelectorAll('button')].find(
+				(node) => node.textContent?.trim() === name,
+			) ?? null;
+		try {
+			press(button('Tables'));
+			await until(
+				() =>
+					page.target.querySelector('input[aria-label="todos/a.md: title"]') !==
+					null,
+				'the declared repair cell',
+			);
+			const cell = page.target.querySelector(
+				'input[aria-label="todos/a.md: title"]',
+			) as HTMLInputElement;
+			type(cell, 'mine');
+			blur(cell);
+			await until(() => disk.held.length === 1, 'the field save');
+			disk.held.shift()!.answer(Err(new Error('disk full')) as Saved);
+			await until(
+				() => page.target.textContent?.includes('disk full') === true,
+				'the held error',
+			);
+			press(button('Files'));
+			await until(() => page.file('todos/a.md') !== null, 'the Files view');
+			press(page.file('todos/a.md'));
+			await until(
+				() => page.box()?.value.includes('title: mine') === true,
+				'the shared draft',
+			);
+			expect(page.box()?.readOnly).toBe(true);
+			const sql = page.target.querySelector(
+				'textarea[aria-label="SQL statement"]',
+			) as HTMLTextAreaElement;
+			type(sql, 'SELECT body FROM documents');
+			press(button('SQL'));
+			press(button('Files'));
+			press(button('SQL'));
+			expect(sql.value).toBe('SELECT body FROM documents');
+			press(button('Files'));
+			await until(() => button('Discard edit') !== null, 'the shared failure');
+			press(button('Discard edit'));
+			await until(() => !page.context.busy, 'discard');
+		} finally {
+			await page.close();
+			await page.context.close();
+		}
+	});
 });

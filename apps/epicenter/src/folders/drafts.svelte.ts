@@ -1,101 +1,97 @@
 /**
- * What a person typed into the files of the window's folder and has not
- * saved, held by the window for as long as the folder is open, not by the
- * editor that shows a file. Choosing another file keeps the typing; choosing
- * it again shows it, with why its save failed.
- *
- * - **Drafts.** One draft per file holds the text typed since the file last
- *   saved, and the content it started from. A reread never replaces it. It
- *   saves `SAVE_AFTER_MS` after the last keystroke, and at once on `save()`.
- * - **A landed save.** The folder merges the draft, by line, with whatever
- *   was saved meanwhile. The draft is held until the file was read again,
- *   then let go, unless typing changed it meanwhile: that typing stays,
- *   starting from the content this save sent. Saves of one file run one at
- *   a time.
- * - **A failed save** keeps the draft and its error. `save()` tries again;
- *   so does further typing, after its pause. `discard()` lets it go, and
- *   only when the person asks.
- * - **Settling** sends every draft now and waits for every save started,
- *   and answers the drafts still held. It refuses no input: the window
- *   settles when it is hidden and when it is asked to close, and typing goes
- *   on afterward as before. The folder context closes the handle only after
- *   its work settled, once the editor is gone.
- *
- * The folder editor builds one for its window and registers it with the
- * folder context (`registerWork`).
+ * One path-keyed draft and save queue above Files and Tables. Text edits keep
+ * their exact starting bytes. Field intent overlays fresh source at display
+ * and save time, so unrelated changes stay visible. Failed intent remains
+ * copyable and is retried only explicitly or by further input.
  */
 import type { FileContent, FolderFiles, SaveError } from '@epicenter/folder';
-import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-import { savedText } from './files';
+import { documentChange, readDocument } from '@epicenter/folder/documents';
+import { SvelteMap } from 'svelte/reactivity';
+import { fileText, savedText } from './files';
 
-/** How long after the last keystroke a draft saves. */
 export const SAVE_AFTER_MS = 1000;
-
-/** What a draft starts from: the file's content, and whether it ends its lines with `\r\n`. */
 export type DraftBase = {
 	readonly content: FileContent;
 	readonly crlf: boolean;
 };
-
-/** One file's typing that has not saved. */
-type Draft = DraftBase & {
-	readonly text: string;
-	/** Changes with each keystroke, so a landed save knows whether typing followed it. */
+type Intent =
+	| ({ kind: 'text'; text: string } & DraftBase)
+	| { kind: 'fields'; fields: Record<string, unknown> };
+type Draft = {
+	readonly intent: Intent;
 	readonly revision: number;
-	readonly saving: boolean;
-	/** Why the last save failed, until one lands. */
 	readonly error: SaveError | Error | undefined;
 };
-
-/** A draft still held once a settle finished, as `settle` answers it. */
 export type Unsaved = {
 	readonly path: string;
+	/** Text intent, or an explicit set/remove patch for field intent. */
 	readonly text: string;
 	readonly error: SaveError | Error | undefined;
 };
+
+function applyFields(
+	path: string,
+	content: FileContent,
+	fields: Record<string, unknown>,
+) {
+	const bytes =
+		typeof content === 'string' ? new TextEncoder().encode(content) : content;
+	return documentChange(readDocument(path, bytes), { fields });
+}
+
+function recoveryText(intent: Intent): string {
+	if (intent.kind === 'text') return intent.text;
+	return JSON.stringify(
+		{
+			set: Object.fromEntries(
+				Object.entries(intent.fields).filter(
+					([, value]) => value !== undefined,
+				),
+			),
+			remove: Object.keys(intent.fields).filter(
+				(key) => intent.fields[key] === undefined,
+			),
+		},
+		null,
+		2,
+	);
+}
 
 export function createFileDrafts({
 	files,
 	saved,
 	saveAfterMs = SAVE_AFTER_MS,
 }: {
-	files: Pick<FolderFiles, 'write'>;
-	/** Read `path` again once a save of it landed, before its draft goes. */
+	files: Pick<FolderFiles, 'write' | 'read'>;
+	/** Reread saved source before releasing the draft. */
 	saved: (path: string) => Promise<void>;
 	saveAfterMs?: number;
 }) {
 	const drafts = new SvelteMap<string, Draft>();
-	/** Files whose save waits for the pause after typing. */
-	const waiting = new SvelteSet<string>();
-	const timers = new Map<string, ReturnType<typeof setTimeout>>();
-	/** The save loop of each file with one running. */
+	const timers = new SvelteMap<string, ReturnType<typeof setTimeout>>();
 	const running = new SvelteMap<string, Promise<void>>();
-	/** Files asked to save again while a save of them ran. */
 	const again = new Set<string>();
 	let revisions = 0;
 
 	function clearTimer(path: string) {
 		clearTimeout(timers.get(path));
 		timers.delete(path);
-		waiting.delete(path);
 	}
-
 	function schedule(path: string) {
 		clearTimer(path);
-		waiting.add(path);
 		timers.set(
 			path,
 			setTimeout(() => {
-				timers.delete(path);
-				waiting.delete(path);
+				clearTimer(path);
 				void flush(path);
 			}, saveAfterMs),
 		);
 	}
-
-	/** Send the file's draft now; resolves once no save of it runs. */
-	function flush(path: string): Promise<void> {
+	function flush(path: string, retry = false): Promise<void> {
 		clearTimer(path);
+		const held = drafts.get(path);
+		if (!retry && held?.intent.kind === 'fields' && held.error !== undefined)
+			return Promise.resolve();
 		const run = running.get(path);
 		if (run !== undefined) {
 			again.add(path);
@@ -105,94 +101,176 @@ export function createFileDrafts({
 		running.set(path, started);
 		return started;
 	}
-
 	async function drain(path: string) {
 		do {
 			again.delete(path);
 			const draft = drafts.get(path);
 			if (draft === undefined) return;
-			const { content: from, crlf, text, revision } = draft;
-			const content = savedText(text, crlf);
-			drafts.set(path, { ...draft, saving: true });
-			let error: SaveError | Error | null;
+			let content: string;
+			let error: SaveError | Error | null = null;
 			try {
+				let from: FileContent;
+				if (draft.intent.kind === 'text') {
+					from = draft.intent.content;
+					content = savedText(draft.intent.text, draft.intent.crlf);
+				} else {
+					const read = await files.read(path);
+					if (read.error !== null) throw read.error;
+					if (read.data === undefined)
+						throw new Error(
+							'The file no longer exists; discard the field edit before recreating it',
+						);
+					from = new Uint8Array(await read.data.content.arrayBuffer());
+					const changed = applyFields(path, from, draft.intent.fields);
+					if (changed.error !== null) throw new Error(changed.error.reason);
+					content = changed.data.text;
+				}
 				({ error } = await files.write(path, from, content));
 			} catch (cause) {
-				// A closed handle throws instead of saving.
 				error = cause instanceof Error ? cause : new Error(String(cause));
 			}
 			const settled = drafts.get(path);
 			if (settled === undefined) return;
 			if (error !== null) {
-				drafts.set(path, { ...settled, saving: false, error });
+				drafts.set(path, {
+					...settled,
+					error: settled.revision === draft.revision ? error : undefined,
+				});
+				if (settled.revision === draft.revision) again.delete(path);
 				continue;
 			}
 			await saved(path).catch(() => {});
 			const after = drafts.get(path);
 			if (after === undefined) return;
-			if (after.revision === revision) drafts.delete(path);
-			else
-				drafts.set(path, {
-					...after,
-					content,
-					saving: false,
-					error: undefined,
-				});
+			if (after.revision === draft.revision) {
+				drafts.delete(path);
+				continue;
+			}
+			let intent = after.intent;
+			if (intent.kind === 'fields' && draft.intent.kind === 'fields') {
+				const sent = draft.intent.fields;
+				const fields = Object.fromEntries(
+					Object.entries(intent.fields).filter(
+						([key, value]) =>
+							!Object.hasOwn(sent, key) || !Object.is(sent[key], value),
+					),
+				);
+				if (Object.keys(fields).length === 0) {
+					drafts.delete(path);
+					continue;
+				}
+				intent = { kind: 'fields', fields };
+			} else if (intent.kind === 'text' && draft.intent.kind === 'text') {
+				intent = { ...intent, content: content! };
+			}
+			// Field-to-text keeps the displayed base: sent source may contain an
+			// external body change the person never saw. The next merge keeps it.
+			drafts.set(path, { ...after, intent, error: undefined });
 		} while (again.has(path));
 	}
-
-	const unsavedOf = (path: string, { text, error }: Draft): Unsaved => ({
+	const unsavedOf = (path: string, draft: Draft): Unsaved => ({
 		path,
-		text,
-		error,
+		text: recoveryText(draft.intent),
+		error: draft.error,
 	});
-
 	return {
-		/** The typing of file `path`; asking again answers the same typing. */
 		file(path: string) {
 			return {
-				/** The text typed and not saved, or `undefined` when none is held. */
 				get text() {
-					return drafts.get(path)?.text;
+					const intent = drafts.get(path)?.intent;
+					return intent?.kind === 'text' ? intent.text : undefined;
 				},
-				/** Whether typing is held that has not saved. */
+				get fieldText() {
+					const intent = drafts.get(path)?.intent;
+					return intent?.kind === 'fields' ? recoveryText(intent) : undefined;
+				},
+				shown(base: DraftBase | undefined): string | undefined {
+					const intent = drafts.get(path)?.intent;
+					if (intent?.kind === 'text') return intent.text;
+					if (intent === undefined || base === undefined) return undefined;
+					const changed = applyFields(path, base.content, intent.fields);
+					return changed.error === null
+						? changed.data.text.replaceAll('\r\n', '\n')
+						: undefined;
+				},
+				get sourceLocked() {
+					const draft = drafts.get(path);
+					return draft?.intent.kind === 'fields' && draft.error !== undefined;
+				},
 				get held() {
 					return drafts.has(path);
 				},
-				/** Whether a save of it runs or waits for the pause after typing. */
 				get saving() {
-					return (drafts.get(path)?.saving ?? false) || waiting.has(path);
+					return running.has(path) || timers.has(path);
 				},
-				/** Why its last save failed, while the typing is held. */
 				get error() {
 					return drafts.get(path)?.error;
 				},
-				/**
-				 * Type `text`; it saves after a pause. The first keystroke of a
-				 * draft starts from `base`, the file as shown, and is refused
-				 * without one. Answers whether it was taken.
-				 */
+				change(fields: Record<string, unknown>, base: DraftBase): boolean {
+					const draft = drafts.get(path);
+					const textIntent =
+						draft?.intent.kind === 'text' ? draft.intent : undefined;
+					const patch = {
+						...(draft?.intent.kind === 'fields' ? draft.intent.fields : {}),
+						...fields,
+					};
+					const changed = applyFields(
+						path,
+						textIntent === undefined
+							? base.content
+							: savedText(textIntent.text, textIntent.crlf),
+						patch,
+					);
+					if (changed.error !== null) return false;
+					const shown = fileText(new TextEncoder().encode(changed.data.text));
+					if (shown.kind !== 'text') return false;
+					const intent: Intent =
+						textIntent === undefined
+							? { kind: 'fields', fields: patch }
+							: { ...textIntent, text: shown.text };
+					drafts.set(path, {
+						intent,
+						revision: ++revisions,
+						error: undefined,
+					});
+					schedule(path);
+					return true;
+				},
 				type(text: string, base: DraftBase | undefined): boolean {
 					const draft = drafts.get(path);
-					const from = draft ?? base;
+					if (draft?.intent.kind === 'fields' && draft.error !== undefined)
+						return false;
+					const from = draft?.intent.kind === 'text' ? draft.intent : base;
 					if (from === undefined) return false;
+					if (draft?.intent.kind === 'fields') {
+						const preview = applyFields(
+							path,
+							from.content,
+							draft.intent.fields,
+						);
+						if (preview.error !== null) {
+							drafts.set(path, {
+								...draft,
+								error: new Error(preview.error.reason),
+							});
+							return false;
+						}
+					}
 					drafts.set(path, {
-						content: from.content,
-						crlf: from.crlf,
-						text,
+						intent: {
+							kind: 'text',
+							content: from.content,
+							crlf: from.crlf,
+							text,
+						},
 						revision: ++revisions,
-						saving: draft?.saving ?? false,
 						error: draft?.error,
 					});
 					schedule(path);
 					return true;
 				},
-				/** Save what is typed now; resolves once no save of it runs. */
 				save: () => flush(path),
-				/**
-				 * Let go of typing that did not save, as the person asked.
-				 * Refused while a save of it runs.
-				 */
+				retry: () => flush(path, true),
 				discard(): boolean {
 					if (running.has(path) || !drafts.has(path)) return false;
 					clearTimer(path);
@@ -201,38 +279,24 @@ export function createFileDrafts({
 				},
 			};
 		},
-
-		/** The files whose typing is held, sorted. */
 		get held(): string[] {
 			return [...drafts.keys()].sort();
 		},
-
-		/** The drafts whose last save failed and that no save is retrying. */
 		get failures(): Unsaved[] {
 			return [...drafts]
-				.filter(([, draft]) => draft.error !== undefined && !draft.saving)
+				.filter(
+					([path, draft]) => draft.error !== undefined && !running.has(path),
+				)
 				.map(([path, draft]) => unsavedOf(path, draft));
 		},
-
-		/**
-		 * Whether closing now could lose something: typing is held, which a
-		 * failed save keeps, or a save runs.
-		 */
 		get busy(): boolean {
 			return drafts.size > 0 || running.size > 0;
 		},
-
-		/**
-		 * Send every draft now and wait for every save started, refusing no
-		 * input. Answers the drafts still held: those whose save failed, and
-		 * typing that arrived meanwhile.
-		 */
 		async settle(): Promise<Unsaved[]> {
-			await Promise.allSettled([...drafts.keys()].map(flush));
+			await Promise.allSettled([...drafts.keys()].map((path) => flush(path)));
 			await Promise.allSettled([...running.values()]);
 			return [...drafts].map(([path, draft]) => unsavedOf(path, draft));
 		},
 	};
 }
-
 export type FileDrafts = ReturnType<typeof createFileDrafts>;

@@ -167,10 +167,11 @@ only after IndexedDB committed it, and other tabs of the origin hear it on
 `onChange`. A web origin holds one ordinary app; separately isolated apps
 need separate origins.
 
-The older declaration-dependent opener kept folders in the origin private
-file system (OPFS). The default folder opens IndexedDB independently. It
-does not read, inspect, change, or remove the older OPFS data. An origin with
-only older OPFS data therefore opens an empty current folder.
+The current saved folder is one immutable working tree, sharing objects with
+received and exact-sending Git checkpoints. Local saves create no Git commit.
+This is a clean break under a zero-user assumption: there is no migration from
+the earlier IndexedDB overlay or declaration-dependent OPFS folders. Those
+older stores are not opened or changed.
 
 ## Native directories
 
@@ -230,6 +231,35 @@ classification keeps the file's byte-order mark; invalid UTF-8 and NUL bytes
 open as binary details, and a file larger than `maxBytes` is `tooLarge`
 without being read.
 
+## Portable schemas and generic documents
+
+`@epicenter/folder/declaration` owns `DeclarationSchema`, its derived types,
+and purpose-specific readers. The generated [JSON Schema](epicenter.schema.json)
+comes from that TypeBox source. Regenerate it with `bun run schema:generate` in this
+package. The root declaration has independently optional `tables` and `views`.
+Each table retains its complete object schema, including `$defs`, required
+properties, and annotations. The supported schema grammar rejects unknown
+assertion keywords, runtime callbacks, and unresolved references.
+
+Apps keep their TypeBox source and inferred types. To distribute a schema,
+call `exportTables(appTables)` from the declaration entry in a trusted build
+script and serialize its successful result. An explicit import copies those table definitions into a
+data folder. Opening or updating an app publishes nothing. Imported JSON cannot
+supply new compile-time TypeScript types to application source.
+
+`@epicenter/folder/documents` reads saved Markdown through an existing handle's
+files, with optional declared schemas. Root-relative paths identify documents;
+root-level and nested Markdown are included. Missing frontmatter means empty
+fields and the full body. Malformed frontmatter retains source and diagnostics.
+This reader leaves the stricter app table contract unchanged.
+
+Schema imports and generation patch selected declaration sections with
+conditional writes. A stale write rereads and reapplies its change; JSON line
+merge cannot safely preserve two section changes sharing a line. Duplicate keys
+and numeric values that cannot survive serialization stop a replacement, with
+the original source available for repair. Ordinary source editing and Git merge
+still merge JSON by line.
+
 ## CLI tools
 
 `@epicenter/folder/bun` also holds what the `epicenter` CLI runs over a
@@ -238,14 +268,15 @@ directory it is given (ADR-0520). None of it opens a `Folder`.
 | Export | Does |
 | --- | --- |
 | `checkFolder`, `queryFolder`, `readFolder` | Read the root `epicenter.json` and every table it declares, sort what does not conform, and answer one read-only SQL statement over the rows that do (ADR-0632). |
-| `defineFolder`, `defineTable`, `field`, `formatDefinition`, `parseDefinition`, `DEFINITION_PATH`, `describeTables` | The `epicenter.json` grammar: each table one JSON Schema object, plus optional `title` and `local`. |
-| `generateDefinition` | The older `epicenter generate`: runs a folder's `epicenter.ts` and writes its `epicenter.json` (ADR-0527), until its callers migrate. It refuses, writing nothing, when that would drop a `local` pattern the current file lists as read just before the write; the read and the write take no lock, so generate while nothing else edits the file. |
+| `defineFolder`, `defineTable`, `field`, `formatDefinition` | The retained TypeScript authoring workflow used by `generate`. |
+| `exportFolderSchemas`, `importFolderSchemas` | Explicit table-schema exchange through the root declaration. |
+| `generateDefinition` | The older `epicenter generate`: runs a folder's `epicenter.ts` and writes its `epicenter.json` (ADR-0527), until its callers migrate. It preserves unrelated sections and refuses to drop any existing `local` pattern. Each conditional write rereads and rechecks after a concurrent change. |
 | `runHistory`, `historyExitCode`, `encodeHistory`, `holdingHistoryLock` | One history operation (`status`, `log`, `saveVersion`, `sync`) over the system `git`, as the CLI runs it (ADR-0559). |
 | `holdingFileLock`, `createGitRunner`, `runGit`, `locateGit`, `GitMissingError`, `neutralizeAttributes`, `basicAuthorization`, `nodeDirectoryPrimitives` | The lock, `git`, and file helpers the CLI's other commands share. |
 
-`readFolder` requires `epicenter.json`: a directory without it is
-`NotDataFolder`, and one that cannot be read or prepared is
-`InvalidDefinition`. It writes nothing, takes no lock, and follows no link.
+`readFolder` requires declared `tables` in `epicenter.json`. A directory without
+the file is `NotDataFolder`; absent or unusable tables are `InvalidDefinition`.
+Unusable views or local rules stay with their own readers. It writes nothing, takes no lock, and follows no link.
 
 Git is not on a `Folder`'s lifetime (ADR-0636). The history engine under
 `src/git/` stays for exchange: `runHistory` opens a directory's history for
