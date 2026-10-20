@@ -21,7 +21,7 @@ type Handler = (event: CloseRequested) => void | Promise<void>;
 const handlers = new Set<Handler>();
 
 export const nativeDialog = {
-	answer: false,
+	answer: false as boolean | Promise<boolean>,
 	count: 0,
 	reset() {
 		this.answer = false;

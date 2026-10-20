@@ -34,15 +34,21 @@ export async function reportFolderSaveStatus(
 		import('@tauri-apps/api/window'),
 	]);
 	const label = getCurrentWindow().label;
-	return listen<number>('epicenter://quit-check', ({ payload }) => {
-		void emit('epicenter://quit-status', {
-			id: payload,
-			label,
-			pending: pendingSave(),
-		}).catch((cause: unknown) =>
-			log.error(new Error('Could not report the folder save status', { cause })),
-		);
-	}, { target: { kind: 'WebviewWindow', label } });
+	return listen<number>(
+		'epicenter://quit-check',
+		({ payload }) => {
+			void emit('epicenter://quit-status', {
+				id: payload,
+				label,
+				pending: pendingSave(),
+			}).catch((cause: unknown) =>
+				log.error(
+					new Error('Could not report the folder save status', { cause }),
+				),
+			);
+		},
+		{ target: { kind: 'WebviewWindow', label } },
+	);
 }
 
 /** Tell the person why the window did what it did. */
@@ -74,46 +80,27 @@ export async function holdWindowClose(
 	holding = true;
 	let answering = false;
 	let stopped = false;
-	const listening = import('@tauri-apps/api/window').then(
-		({ getCurrentWindow }) => {
-			const current = getCurrentWindow();
-			return current.onCloseRequested(async (event) => {
-				event.preventDefault();
-				await answer(current);
-			});
-		},
-	);
 
 	async function answer(current: Window) {
 		if (answering || stopped) return;
 		answering = true;
 		try {
-			let pending: boolean;
-			try {
-				pending = pendingSave();
-			} catch (cause) {
-				log.error(
-					new Error('The window could not check its save status', { cause }),
-				);
-				pending = true;
-			}
-			if (stopped) return;
-			if (pending) {
-				try {
-					await current.setFocus();
-					const { confirm } = await import('@tauri-apps/plugin-dialog');
-					// A fast save may finish while the dialog module loads.
-					if (pendingSave() && !(await confirm(message, {
+			if (pendingSave()) {
+				await current.setFocus();
+				const { confirm } = await import('@tauri-apps/plugin-dialog');
+				if (stopped) return;
+				// A fast save may finish while the dialog module loads.
+				if (pendingSave()) {
+					const confirmed = await confirm(message, {
 						title: 'Close window?',
 						kind: 'warning',
 						okLabel: 'Close Anyway',
 						cancelLabel: 'Cancel',
-					}))) return;
-				} catch (cause) {
-					log.error(new Error('The window could not ask about its pending save', { cause }));
-					return;
+					});
+					if (!confirmed) return;
 				}
 			}
+			if (stopped) return;
 			// A refused destroy restores the page.
 			const page = globalThis.document?.documentElement;
 			const wasInert = page?.inert;
@@ -130,23 +117,28 @@ export async function holdWindowClose(
 			} finally {
 				if (page) page.inert = wasInert ?? false;
 			}
+		} catch (cause) {
+			log.error(new Error('The window could not confirm closing', { cause }));
 		} finally {
 			answering = false;
 		}
 	}
 
-	let unlisten: () => void;
 	try {
-		unlisten = await listening;
+		const { getCurrentWindow } = await import('@tauri-apps/api/window');
+		const current = getCurrentWindow();
+		const unlisten = await current.onCloseRequested(async (event) => {
+			event.preventDefault();
+			await answer(current);
+		});
+		return () => {
+			if (stopped) return;
+			stopped = true;
+			holding = false;
+			unlisten();
+		};
 	} catch (cause) {
 		holding = false;
 		throw cause;
 	}
-	function stop() {
-		if (stopped) return;
-		stopped = true;
-		holding = false;
-		unlisten();
-	}
-	return stop;
 }
