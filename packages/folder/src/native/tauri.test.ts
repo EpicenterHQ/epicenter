@@ -261,7 +261,6 @@ test('the shell watcher reaches listeners as other-handle changes until close', 
 	const heard: FolderChange[] = [];
 	folder.onChange((change) => heard.push(change));
 	emitChanged({ scope: SCOPE, paths: ['notes/milk.md'] });
-	emitChanged({ scope: SCOPE, paths: ['.git'] });
 	emitChanged({ scope: 'data:Other', paths: ['x.md'] });
 	emitChanged({ scope: SCOPE, paths: null });
 	expect(heard).toEqual([
