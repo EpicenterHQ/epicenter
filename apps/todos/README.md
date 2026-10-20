@@ -74,3 +74,17 @@ bun run --cwd apps/todos build:host
 cargo test --manifest-path apps/todos/src-tauri/Cargo.toml
 bun build:todos:desktop
 ```
+
+## Export the table schema
+
+The app's TypeBox module owns both runtime validation and developer types.
+To distribute a portable copy without opening a data folder:
+
+```sh
+bun run --cwd apps/todos schema:export > todos-schema.json
+epicenter schema import FOLDER todos-schema.json
+```
+
+Replace `FOLDER` with an existing data directory. Importing writes only the
+exported table definitions in `epicenter.json`; opening or updating Todos
+publishes no schema. A conflicting definition requires `--replace`.

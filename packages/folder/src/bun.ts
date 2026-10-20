@@ -88,6 +88,10 @@ export {
 	type HistoryState,
 } from './history-wire.js';
 export { openBunFolder as openFolder } from './native/bun.js';
+export {
+	exportFolderSchemas,
+	importFolderSchemas,
+} from './native/declaration.js';
 export { holdingFileLock, holdingHistoryLock } from './native/directory.js';
 export { DEFINITION_PATH } from './paths.js';
 export { describeTables } from './projection.js';

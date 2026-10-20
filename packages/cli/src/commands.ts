@@ -7,6 +7,23 @@ import type { CommandSpec } from './parse.ts';
 
 export const COMMANDS: readonly CommandSpec[] = [
 	{
+		path: ['schema', 'export'],
+		args: '<dir>',
+		minArgs: 1,
+		maxArgs: 1,
+		summary: "print the folder's declared table schemas as JSON",
+	},
+	{
+		path: ['schema', 'import'],
+		args: '<dir> <file|->',
+		minArgs: 2,
+		maxArgs: 2,
+		options: [{ name: 'replace' }],
+		summary:
+			'import every source table schema, preserving the rest of epicenter.json',
+	},
+
+	{
 		path: ['folders', 'add'],
 		args: '<directory>',
 		minArgs: 1,

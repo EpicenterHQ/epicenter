@@ -28,6 +28,18 @@ type Run = (
  * `--version` and `--help` start without the folder engine.
  */
 const HANDLERS: Record<string, Run> = {
+	'schema export': async ({ positionals: [directory], json }) =>
+		(await import('./schema-commands.ts')).exportSchemas(
+			directory as string,
+			json,
+		),
+	'schema import': async ({ positionals: [directory, input], options, json }) =>
+		(await import('./schema-commands.ts')).importSchemas(
+			directory as string,
+			input as string,
+			options.replace === true,
+			json,
+		),
 	'folders add': async ({ positionals: [directory], json }) =>
 		(await import('./folders.js')).foldersCommand('add', directory, json),
 	'folders list': async ({ positionals: [directory], json }) =>
@@ -201,6 +213,14 @@ It may import @epicenter/folder, @epicenter/definition, typebox, and their
 subpaths, which resolve to this binary's own copies. Exits 0, or 2 when
 epicenter.ts cannot be used. To confirm the file is current, run generate
 and then git diff --exit-code -- <dir>/epicenter.json.`,
+	'schema export': `Prints one JSON document containing only the declared tables from
+<dir>/epicenter.json. It executes no code and changes no files. The exported
+copy can be imported into another folder. Output is JSON with or without --json.`,
+	'schema import': `Reads a JSON document with a tables section from <file>, or stdin for -.
+Imports those tables into <dir>/epicenter.json, creating the file when absent.
+Preserves other tables, saved views, title, local rules, and editor schema hints.
+A different existing table schema requires --replace. Invalid or duplicate-key
+JSON remains unchanged. Opening or updating an app never imports its schema.`,
 };
 
 const name = (command: CommandSpec) => command.path.join(' ');
@@ -214,6 +234,7 @@ function helpText(group?: string) {
 		`  ${usageLine(c).padEnd(width)}  ${c.summary}`;
 	const folder = visible.filter((c) => c.path.length === 1);
 	const folders = visible.filter((c) => c.path[0] === 'folders');
+	const schema = visible.filter((c) => c.path[0] === 'schema');
 	const auth = visible.filter((c) => c.path[0] === 'auth');
 	return [
 		`Usage: epicenter ${group ?? '<command>'} ... [--json]`,
@@ -222,6 +243,9 @@ function helpText(group?: string) {
 			: []),
 		...(folders.length
 			? ['', 'Folders on this computer:', ...folders.map(line)]
+			: []),
+		...(schema.length
+			? ['', 'Portable table schemas:', ...schema.map(line)]
 			: []),
 		...(auth.length ? ['', 'Your Epicenter account:', ...auth.map(line)] : []),
 		'',
