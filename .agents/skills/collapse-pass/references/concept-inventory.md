@@ -18,8 +18,9 @@ real caller or interaction, and check that it still does what matters. Use
 [rethink](../../rethink/SKILL.md) when this changes ownership, lifecycle, APIs,
 or package boundaries.
 
-Show the methods and concepts before and after (current and proposed for a
-review), what disappears, and where its information and responsibilities go.
+Show the methods, concepts, and relationships before and after (current and
+proposed for a review), what disappears, and where its information and
+responsibilities go.
 Explain why the remaining distinctions matter. A rename or move may be the
 right repair, and keeping the model is valid when the alternative makes things
 harder.
@@ -56,6 +57,36 @@ missing requirement or product choice would materially change the direction;
 resolve questions about the existing implementation through inspection.
 Keep changes within the task's authorized scope. A focused local transformation
 needs no subsystem inventory.
+
+## Replace unnecessary flexibility with stronger invariants
+
+Look for stronger invariants that make independently maintained relationships
+unnecessary. What determines what, how many things can belong to each owner,
+and for how long? If actual use supports one resource per owner, one selection
+per lifetime, or one identity for two concepts, ask whether construction,
+containment, or derivation can replace mappings, identifiers, switching, and
+synchronization. Name the behavior the stronger rule would disallow and the
+machinery it removes. Preserve useful sharing and genuinely different
+information; one-to-one pairing alone does not justify merging concepts.
+Count the independent choices and coordination eliminated, rather than
+treating fewer maps as the goal.
+
+Identify where the stronger invariant is established and enforced; explain
+which downstream decisions become unnecessary because callers can rely on it.
+
+For example, could each editor window edit one folder for its lifetime?
+Handles and operations in that window could inherit the choice instead of
+selecting folders independently. Page-level root IDs, per-call folder
+selection, and folder switching could disappear. Another folder would open
+another window. A folder could still have several windows or views: each
+window determining one folder does not require a folder to have only one
+window. A native window-to-folder binding may still be needed to record the
+actual choice; the invariant removes the independent choices around it.
+
+Ownership and lifetime can reveal these opportunities, but the current
+relationships are candidates too. Changing them may simplify the whole model.
+Do not merely hide the same independently variable relationships inside one
+object, or remove a real workflow to obtain a cleaner count.
 
 ## Example: a hypothetical profile editor
 
