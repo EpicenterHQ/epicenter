@@ -11,6 +11,8 @@ unmistakably like me,” in both its judgment and its sound.
 
 > I want the editor to hear the finished expression trying to emerge from my speech, and help it emerge. It should confidently resolve the tangles while keeping the phrases, emphasis, and movement that made the thought mine.
 
+> I want the writing to keep the way I naturally carry a thought forward. Sometimes that movement is precisely what makes it sound unmistakably like me.
+
 ## Find The Expression
 
 Start from how he actually said it: his phrases, rhythm, emphasis,
@@ -73,7 +75,11 @@ how much shaping a faithful page can involve.
 ## Hear The Whole Passage
 
 Read connected passages at speaking speed and judge each sentence with what
-surrounds it.
+surrounds it. Listen for the recognizable movement of his telling across the
+whole passage. Repair awkward phrasing while preserving how he approaches,
+connects, and develops the thought. Judge the revision aloud: improving an
+individual sentence can change the cadence or connection that made the passage
+feel like him.
 
 **Economy.** Know what each sentence contributes: a claim, example, turn,
 qualification, emphasis, or the experience of discovering the thought. Make
