@@ -630,7 +630,7 @@ fn is_hosted_account_url(url: &tauri::Url, config: &AuthConfiguration) -> bool {
         )
 }
 
-fn open_account_website(app: &DesktopAppHandle, url: &tauri::Url) -> NewWindowResponse<Wry> {
+fn open_account_website<R: Runtime>(app: &AppHandle<R>, url: &tauri::Url) -> NewWindowResponse<R> {
     if configured_auth_server().is_ok_and(|server| is_hosted_account_url(url, &server)) {
         if let Err(error) = app.opener().open_url(url.as_str(), None::<String>) {
             log::warn!("could not open the account website: {error}");
@@ -653,7 +653,13 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     }
 
     let build = || {
-        let builder = app_window_builder(app, built_in.id(), built_in.title(), built_in.path())?;
+        let builder = WebviewWindowBuilder::new(
+            app,
+            built_in.id(),
+            WebviewUrl::CustomProtocol(scheme::url(built_in.path())?),
+        );
+        let builder =
+            configure_app_window(builder, app, built_in.title(), built_in.path().to_owned());
         // These singleton windows hide on close and stay outside folder tab groups.
         #[cfg(target_os = "macos")]
         let builder = builder.tabbing_identifier(built_in.id());
@@ -680,29 +686,24 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     Ok(())
 }
 
-/// One window on the `epicenter-app` origin (ADR-0561), opened at `path`.
-/// Navigation stays below `path`; a link that opens a new window reaches the
+/// Configure a window on the `epicenter-app` origin (ADR-0561).
+/// Navigation stays below `prefix`; a link that opens a new window reaches the
 /// system browser only when it is a hosted account page. Closing it destroys
 /// it; only `ensure_window` makes Epicenter's own windows hide instead.
-fn app_window_builder<'a>(
-    app: &'a DesktopAppHandle,
-    label: &str,
+fn configure_app_window<'a, R: Runtime>(
+    builder: WebviewWindowBuilder<'a, R, AppHandle<R>>,
+    app: &AppHandle<R>,
     title: &str,
-    path: &str,
-) -> Result<WebviewWindowBuilder<'a, Wry, DesktopAppHandle>> {
+    prefix: String,
+) -> WebviewWindowBuilder<'a, R, AppHandle<R>> {
     let account_opener = app.clone();
-    let url = scheme::url(path)?;
-    let prefix = path.to_string();
-    Ok(
-        WebviewWindowBuilder::new(app, label, WebviewUrl::CustomProtocol(url))
-            .title(title)
-            // The caller finishes native setup before revealing the window.
-            .visible(false)
-            .inner_size(1100.0, 760.0)
-            .min_inner_size(680.0, 480.0)
-            .on_navigation(move |url| scheme::is_allowed_navigation(&prefix, url))
-            .on_new_window(move |url, _| open_account_website(&account_opener, &url)),
-    )
+    builder
+        .title(title)
+        .visible(false)
+        .inner_size(1100.0, 760.0)
+        .min_inner_size(680.0, 480.0)
+        .on_navigation(move |url| scheme::is_allowed_navigation(&prefix, url))
+        .on_new_window(move |url, _| open_account_website(&account_opener, &url))
 }
 
 fn focus<R: Runtime>(window: WebviewWindow<R>) {
@@ -729,8 +730,8 @@ mod tests {
     /// The windows a page with label prefix `prefix` opens in, on two folders.
     fn folder_labels(prefix: &str) -> [String; 2] {
         [
-            crate::folder_windows::label(prefix, std::path::Path::new("/Epicenter/Todos")),
-            crate::folder_windows::label(prefix, std::path::Path::new("/elsewhere/My notes")),
+            format!("{prefix}:first-directory"),
+            format!("{prefix}:second-directory"),
         ]
     }
 

@@ -8,13 +8,10 @@
 
 use std::error::Error;
 
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_epicenter_folder::{Directory, FolderExt, Folders};
 use tauri_plugin_opener::OpenerExt;
-
-/// The one standalone window, selected by `capabilities/todos.json`.
-const WINDOW: &str = "todos";
 
 pub fn run() {
     tauri::Builder::default()
@@ -29,18 +26,16 @@ pub fn run() {
                 let directory = Directory::create(&root)?;
                 // Keep WebView runtime files outside the editable default on Linux.
                 let webview_data = app.path().app_cache_dir()?.join("webview");
-                app.folders().bind_while_building(
-                    WINDOW,
+                app.open_folder_window(
+                    "todos",
                     directory,
-                    || -> Result<_, Box<dyn Error>> {
-                        Ok(
-                            WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::default())
-                                .title("Todos")
-                                .inner_size(960.0, 720.0)
-                                .min_inner_size(480.0, 400.0)
-                                .data_directory(webview_data)
-                                .build()?,
-                        )
+                    WebviewUrl::default(),
+                    move |builder| {
+                        Ok(builder
+                            .title("Todos")
+                            .inner_size(960.0, 720.0)
+                            .min_inner_size(480.0, 400.0)
+                            .data_directory(webview_data))
                     },
                 )?;
                 Ok(())
@@ -109,7 +104,7 @@ mod tests {
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
     use tauri::utils::acl::ExecutionContext;
     use tauri::webview::InvokeRequest;
-    use tauri::{App, WebviewWindow};
+    use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
     use super::*;
 
@@ -131,12 +126,12 @@ mod tests {
         fn launch(&self) -> String {
             let directory = Directory::create(&self.root).unwrap();
             self.app
-                .folders()
-                .bind_while_building(WINDOW, directory, || -> Result<_, Box<dyn Error>> {
-                    Ok(WebviewWindowBuilder::new(&self.app, WINDOW, Default::default()).build()?)
+                .open_folder_window("todos", directory, Default::default(), |builder| {
+                    Ok(builder)
                 })
-                .unwrap();
-            WINDOW.into()
+                .unwrap()
+                .label()
+                .to_owned()
         }
 
         fn window(&self, label: &str) -> WebviewWindow<MockRuntime> {
@@ -225,7 +220,7 @@ mod tests {
         let fixture = fixture();
         fixture.launch();
         assert_eq!(
-            epicenter_link(fixture.app.folders(), WINDOW).unwrap(),
+            epicenter_link(fixture.app.folders(), &fixture.launch()).unwrap(),
             format!(
                 "epicenter://open?path={}",
                 encode_path(fixture.root.to_str().unwrap())
@@ -293,7 +288,7 @@ mod tests {
     fn the_capability_selects_the_one_standalone_window() {
         let capability: Value =
             serde_json::from_str(include_str!("../capabilities/todos.json")).unwrap();
-        assert_eq!(capability["windows"], json!([WINDOW]));
+        assert_eq!(capability["windows"], json!(["todos:*"]));
         assert_eq!(capability["local"], true);
         assert_eq!(
             capability["permissions"],

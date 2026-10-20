@@ -45,7 +45,7 @@ use tauri_plugin_epicenter_folder::Directory;
 
 use crate::app_data::DesktopPaths;
 use crate::data_folders::{listed_folder, overlaps_epicenter_files};
-use crate::folder_windows::{self, FolderWindow};
+use crate::folder_windows;
 use crate::DesktopAppHandle;
 
 /// An app Epicenter bundles. The page API names it by its page.
@@ -142,7 +142,7 @@ pub async fn open_bundled_app(
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let target = folder.map_or(AppFolder::Default, AppFolder::Listed);
-        open_on(&handle, app, target, build_app_window(app)).map(|_| ())
+        open_on(&handle, app, target).map(|_| ())
     })
     .await
     .map_err(|error| format!("the {} window could not be opened: {error}", app.name()))?
@@ -168,20 +168,10 @@ pub async fn choose_folder_for_app(
             .map(|picked| picked.into_path())
             .transpose()
             .map_err(|error| format!("The chosen folder could not be read: {error}"))?;
-        open_chosen(&handle, app, picked, build_app_window(app))
+        open_chosen(&handle, app, picked)
     })
     .await
     .map_err(|error| format!("the {} window could not be opened: {error}", app.name()))?
-}
-
-/// Builds the WebView of an app's window, at the app's page.
-fn build_app_window(
-    app: BundledApp,
-) -> impl FnOnce(&DesktopAppHandle, &str, &str) -> anyhow::Result<WebviewWindow<tauri::Wry>>
-       + Send
-       + 'static {
-    let path = app.path();
-    move |handle, label, title| folder_windows::build(handle, label, title, &path)
 }
 
 /// Open `app` on what the picker answered, or nothing when the person
@@ -190,12 +180,11 @@ pub(crate) fn open_chosen<R: Runtime>(
     handle: &AppHandle<R>,
     app: BundledApp,
     picked: Option<PathBuf>,
-    build: impl FnOnce(&AppHandle<R>, &str, &str) -> anyhow::Result<WebviewWindow<R>> + Send + 'static,
 ) -> Result<bool, String> {
     let Some(path) = picked else {
         return Ok(false);
     };
-    open_on(handle, app, AppFolder::Chosen(path), build).map(|_| true)
+    open_on(handle, app, AppFolder::Chosen(path)).map(|_| true)
 }
 
 /// Resolve `target` for `app`, then reveal its window or bind and build it.
@@ -203,20 +192,21 @@ pub(crate) fn open_on<R: Runtime>(
     handle: &AppHandle<R>,
     app: BundledApp,
     target: AppFolder,
-    build: impl FnOnce(&AppHandle<R>, &str, &str) -> anyhow::Result<WebviewWindow<R>> + Send + 'static,
-) -> Result<(), String> {
-    let window = app_window(&handle.state::<DesktopPaths>(), app, target)?;
-    folder_windows::show(handle, window, build).map_err(|error| format!("{error:#}"))
+) -> Result<WebviewWindow<R>, String> {
+    let directory = app_directory(&handle.state::<DesktopPaths>(), app, target)?;
+    let title = app.window_title(&folder_windows::directory_name(&directory));
+    folder_windows::open(handle, app.page(), directory, title, &app.path())
+        .map_err(|error| format!("{error:#}"))
 }
 
-/// The window `app` opens `target` in, with its directory resolved: made
+/// The directory `app` opens `target` in: made
 /// when it is the fixed default, found as it is otherwise, and refused when
 /// it overlaps Epicenter's own files.
-fn app_window(
+fn app_directory(
     paths: &DesktopPaths,
     app: BundledApp,
     target: AppFolder,
-) -> Result<FolderWindow, String> {
+) -> Result<Directory, String> {
     let folder_dir = &paths.folder_dir;
     let (path, create) = match target {
         AppFolder::Default => (folder_dir.join(default_name(folder_dir, app.name())), true),
@@ -236,8 +226,7 @@ fn app_window(
             app.name()
         ));
     }
-    let title = app.window_title(&folder_windows::directory_name(&directory));
-    Ok(FolderWindow::new(app.page(), title, directory))
+    Ok(directory)
 }
 
 /// The name the default folder `default` has on disk. A case-insensitive
@@ -282,7 +271,7 @@ mod tests {
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
     use tauri::utils::acl::ExecutionContext;
     use tauri::webview::InvokeRequest;
-    use tauri::{App, WebviewWindowBuilder};
+    use tauri::App;
     use tauri_plugin_epicenter_folder::FolderExt;
 
     use super::*;
@@ -304,23 +293,16 @@ mod tests {
         }
     }
 
-    /// A mock window in place of the app's WebView.
-    fn mock_window(
-        app: &AppHandle<MockRuntime>,
-        label: &str,
-        _title: &str,
-    ) -> anyhow::Result<WebviewWindow<MockRuntime>> {
-        Ok(WebviewWindowBuilder::new(app, label, Default::default()).build()?)
-    }
-
     impl Fixture {
         /// Open `app` on `target` as the commands do. The boolean records
         /// whether its window already existed before this call.
         fn open(&self, app: BundledApp, target: AppFolder) -> Result<(String, bool), String> {
-            let paths = self.app.state::<DesktopPaths>();
-            let label = app_window(&paths, app, target.clone())?.label;
-            let was_open = self.app.get_webview_window(&label).is_some();
-            open_on(self.app.handle(), app, target, mock_window).map(|()| (label, was_open))
+            let before = self.app.webview_windows().len();
+            let window = open_on(self.app.handle(), app, target)?;
+            Ok((
+                window.label().to_owned(),
+                self.app.webview_windows().len() == before,
+            ))
         }
 
         fn listed(&self, app: BundledApp, name: &str) -> Result<String, String> {
@@ -582,8 +564,7 @@ mod tests {
             }
             for path in &chosen {
                 assert_eq!(
-                    open_chosen(fixture.app.handle(), app, Some(path.clone()), mock_window)
-                        .unwrap_err(),
+                    open_chosen(fixture.app.handle(), app, Some(path.clone())).unwrap_err(),
                     refusal(app),
                     "{path:?}"
                 );
@@ -775,19 +756,11 @@ mod tests {
         let home_notes = fixture.folder_with_todo(&home, "Notes", "milk");
         let work_notes = fixture.folder_with_todo(&work, "Notes", "eggs");
 
-        assert_eq!(
-            open_chosen(fixture.app.handle(), Todos, None, mock_window),
-            Ok(false)
-        );
+        assert_eq!(open_chosen(fixture.app.handle(), Todos, None), Ok(false));
         assert!(fixture.app.webview_windows().is_empty());
 
         assert_eq!(
-            open_chosen(
-                fixture.app.handle(),
-                Todos,
-                Some(home_notes.clone()),
-                mock_window
-            ),
+            open_chosen(fixture.app.handle(), Todos, Some(home_notes.clone())),
             Ok(true)
         );
         let (home_label, was_open) = fixture
@@ -826,13 +799,7 @@ mod tests {
         fs::write(&file, "").unwrap();
         for refused in [&gone, &file] {
             assert!(
-                open_chosen(
-                    fixture.app.handle(),
-                    Honeycrisp,
-                    Some(refused.clone()),
-                    mock_window
-                )
-                .is_err(),
+                open_chosen(fixture.app.handle(), Honeycrisp, Some(refused.clone())).is_err(),
                 "{refused:?}"
             );
         }
@@ -853,23 +820,6 @@ mod tests {
                 .unwrap();
             assert_eq!(bound_root(&fixture, &label), real.join("notes"));
         }
-    }
-
-    /// A window whose WebView could not be built leaves no binding: the next
-    /// open of the same folder builds it.
-    #[test]
-    fn a_window_that_fails_to_build_leaves_its_label_free() {
-        let fixture = fixture();
-        fixture.listed_with_todo("A", "milk");
-        let failed = open_on(
-            fixture.app.handle(),
-            Todos,
-            AppFolder::Listed("A".into()),
-            |_, _, _| anyhow::bail!("no WebView"),
-        );
-        assert!(failed.unwrap_err().contains("no WebView"));
-        let label = fixture.listed(Todos, "A").unwrap();
-        assert_eq!(todo_files(&fixture.window(&label)), json!(["milk.md"]));
     }
 
     /// The default is one directory with one window whatever its spelling on

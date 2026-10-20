@@ -19,7 +19,7 @@ bound to the calling WebView's label
 | Path | What it is |
 | --- | --- |
 | `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, and the page's storage (`storage.rs`). No Tauri; its tests need only `git` and `bun`. |
-| `src/` | The Tauri plugin: one binding and watch owner (`folders.rs`), the commands, and native event filtering (`watcher.rs`). |
+| `src/` | The Tauri plugin: one binding and watch owner (`folders.rs`), shared window construction (`windows.rs`), the commands, and native event filtering (`watcher.rs`). |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 | `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
@@ -30,21 +30,20 @@ This crate has no JavaScript package of its own. A page reaches it through
 ## Binding a window's folder
 
 Install the plugin once. A shell decides which directory a window edits in
-trusted Rust, resolves it, and binds it to the window's label before it builds
-the WebView:
+trusted Rust and resolves it. The shared opener chooses its identity and binds
+the directory before building the WebView:
 
 ```rust
+use tauri::{Manager, WebviewUrl};
 use tauri_plugin_epicenter_folder::{Directory, FolderExt};
 
 tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
-        let folders = app.folders();
         // A fixed default the shell computes: made when it is missing.
         let directory = Directory::create(&app.path().app_data_dir()?)?;
-        let label = "todos";
-        folders.bind_while_building(label, directory, || {
-            WebviewWindowBuilder::new(app, label, WebviewUrl::default()).build()
+        app.open_folder_window("todos", directory, WebviewUrl::default(), |builder| {
+            Ok(builder.title("Todos"))
         })?;
         Ok(())
     })
@@ -63,17 +62,33 @@ alike, and the shell never changes `.git`. Git state that would send history
 writes elsewhere is the `epicenter` CLI's to refuse, before each history
 operation.
 
-`Folders::bind_while_building(label, directory, build)` binds the directory
-before building the window. A live label is never bound again, whichever
-directory: a second bind is `BindError::Bound`. The plugin removes the binding
-when the window is destroyed, and a failed build removes it too, so the label
-is free for a later try. Epicenter chooses labels from the app and a digest
-of the canonical root, so opening the same app on the same directory finds
-the existing window. Standalone Todos uses the fixed label `todos`. The
-plugin accepts the shell's labels and does not compute window identities.
+`FolderExt::open_folder_window(application, directory, url, configure)` opens
+one window per application key and canonical root. Both standalone Todos and
+Epicenter supply `"todos"`; the plugin computes `todos:<digest>` internally.
+Opening the same pair reveals its existing window without configuring it
+again. Different apps can open the same root in separate windows. Labels are
+local to a Tauri runtime, so standalone and hosted windows do not collide.
+A digest match alone never grants access: reuse also requires the existing
+window's complete directory binding to match.
+
+The opener runs lookup, binding, configuration, and construction on Tauri's
+main thread. Call it from setup or a blocking worker, never an async executor
+thread. `configure` receives Tauri's actual builder and must preserve that
+builder's application and window identity. It may set the title, navigation,
+size, or native tab identifier. A configuration or construction failure
+releases the binding; a presentation failure retains the live window and its
+binding so another open can reveal it. Destruction removes the binding.
+Shutdown refuses both new windows and reuse.
+
+`Folders::bind_while_building(label, directory, build)` remains for a
+role-based singleton such as Epicenter's Settings window, whose fixed `home`
+label and hide-on-close lifetime differ from app-and-folder windows. It binds
+before construction and rolls back a failed build; callers own that window's
+identity and reuse. Ordinary apps use `open_folder_window`.
+
 A root's watch lasts while a window bound to it is open (see Changes outside
-the page); watches are runtime resources, not a persisted list of folder
-choices.
+the page). Bindings and watches are runtime resources, not a persisted list
+of folder choices.
 
 Several windows may be bound to one directory, as Settings and a folder
 editor are to `so.epicenter`. Each page runs its own engine over the
@@ -84,7 +99,7 @@ other Epicenter processes, and Bun writers use the same lock
 ([ADR-0568](../../docs/adr/0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md)).
 
 A shell must also give the window the plugin's commands in a capability:
-`{ "windows": ["todos"], "permissions": ["epicenter-folder:default"] }`.
+`{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default"] }`.
 That is all the window needs; no fs plugin is installed. The capability only
 lets a window call the plugin. Which directory it reaches is its binding.
 

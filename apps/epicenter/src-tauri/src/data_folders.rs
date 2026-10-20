@@ -166,7 +166,9 @@ pub async fn open_folder_editor(handle: DesktopAppHandle, name: String) -> Resul
     tauri::async_runtime::spawn_blocking(move || {
         let paths = handle.state::<DesktopPaths>();
         let directory = listed_directory(&paths.folder_dir, &name)?;
-        folder_windows::show_editor(&handle, directory).map_err(|error| format!("{error:#}"))
+        folder_windows::open_editor(&handle, directory)
+            .map(|_| ())
+            .map_err(|error| format!("{error:#}"))
     })
     .await
     .map_err(|error| format!("the folder could not be opened: {error}"))?
@@ -311,7 +313,6 @@ mod tests {
     //! The listing over a real directory, and the editor window the folder
     //! plugin's real commands reach on the mock runtime.
 
-    use crate::folder_windows::FolderWindow;
     use crate::folders_config::DEFAULT_EPICENTER_FOLDER;
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
@@ -342,14 +343,16 @@ mod tests {
 
         /// What `open_folder_editor` does, with a mock window for the WebView.
         fn open_editor(&self, name: &str) -> Result<(String, bool), String> {
-            let window = FolderWindow::editor(listed_directory(&self.folder_dir, name)?);
-            let label = window.label.clone();
-            let was_open = self.app.get_webview_window(&label).is_some();
-            folder_windows::show(self.app.handle(), window, |app, label, _| {
-                Ok(WebviewWindowBuilder::new(app, label, Default::default()).build()?)
-            })
+            let before = self.app.webview_windows().len();
+            let window = folder_windows::open_editor(
+                self.app.handle(),
+                listed_directory(&self.folder_dir, name)?,
+            )
             .map_err(|error| format!("{error:#}"))?;
-            Ok((label, was_open))
+            Ok((
+                window.label().to_owned(),
+                self.app.webview_windows().len() == before,
+            ))
         }
 
         fn window(&self, label: &str) -> WebviewWindow<MockRuntime> {

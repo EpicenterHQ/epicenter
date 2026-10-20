@@ -2,17 +2,16 @@
 //! edits it.
 //!
 //! A shell installs the plugin once. Before it builds a window's WebView, it
-//! resolves the directory that window edits and binds it to the label, in
-//! trusted Rust:
+//! resolves the directory that window edits in trusted Rust. The shared opener
+//! chooses the window identity and binds before construction:
 //!
 //! ```ignore
 //! tauri::Builder::default()
 //!     .plugin(tauri_plugin_epicenter_folder::init())
 //!     .setup(|app| {
-//!         let folders = app.folders();
 //!         let directory = Directory::create(&app.path().app_data_dir()?)?;
-//!         folders.bind_while_building(&label, directory, || {
-//!             WebviewWindowBuilder::new(app, &label, url).build()
+//!         app.open_folder_window("todos", directory, url, |builder| {
+//!             Ok(builder.title("Todos"))
 //!         })?;
 //!         Ok(())
 //!     })
@@ -48,22 +47,14 @@ mod command_names;
 mod commands;
 mod folders;
 mod watcher;
+mod windows;
 
 pub use command_names::COMMANDS;
 pub use folders::{BindError, Folders, WindowError};
 pub use watcher::{FolderChanged, FOLDER_CHANGED_EVENT};
+pub use windows::{FolderExt, OpenWindowError};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
-
-pub trait FolderExt<R: Runtime> {
-    fn folders(&self) -> &Folders;
-}
-
-impl<R: Runtime, T: Manager<R>> FolderExt<R> for T {
-    fn folders(&self) -> &Folders {
-        self.state::<Folders>().inner()
-    }
-}
 
 /// The typed command contract. The TypeScript bindings in
 /// `../folder/src/native/bindings.gen.ts` are generated from this builder.

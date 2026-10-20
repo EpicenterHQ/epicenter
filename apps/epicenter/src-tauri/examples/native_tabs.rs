@@ -36,6 +36,16 @@ mod smoke {
         receive.recv_timeout(Duration::from_secs(30)).unwrap()
     }
 
+    // Logical fixture names are titles. Native labels now come exclusively
+    // from the production app-and-directory opener.
+    fn find_window(app: &AppHandle, name: &str) -> Option<WebviewWindow> {
+        app.get_webview_window(name).or_else(|| {
+            app.webview_windows()
+                .into_values()
+                .find(|window| window.title().is_ok_and(|title| title == name))
+        })
+    }
+
     fn native(window: &WebviewWindow) -> &NSWindow {
         assert!(MainThreadMarker::new().is_some());
         // Tauri owns this pointer for the lifetime of the borrowed window.
@@ -46,10 +56,7 @@ mod smoke {
         let label = label.to_owned();
         let script = format!("nativeTabsSmoke({})", serde_json::to_string(body).unwrap());
         main_thread(app, move |app| {
-            app.get_webview_window(&label)
-                .unwrap()
-                .eval(script)
-                .unwrap()
+            find_window(app, &label).unwrap().eval(script).unwrap()
         });
         let report = reports.recv_timeout(Duration::from_secs(30)).unwrap();
         assert!(report.get("error").is_none(), "{report}");
@@ -69,7 +76,7 @@ mod smoke {
 
     fn alive(app: &AppHandle, label: &str) -> bool {
         let label = label.to_owned();
-        main_thread(app, move |app| app.get_webview_window(&label).is_some())
+        main_thread(app, move |app| find_window(app, &label).is_some())
     }
 
     fn open(
@@ -91,37 +98,33 @@ mod smoke {
         let label = label.to_owned();
         let opening = label.clone();
         main_thread(app, move |app| {
-            let window = app
-                .folders()
-                .bind_while_building(&opening, admitted, || {
-                    super::macos_tabs::build(
-                        WebviewWindowBuilder::new(
-                            app,
-                            &opening,
-                            WebviewUrl::App("/?todo=milk".into()),
-                        )
-                        .title(&opening)
-                        .visible(false)
-                        .data_directory(cache)
-                        .initialization_script(include_str!("native-tabs/driver.js"))
-                        .on_navigation(move |url| {
-                            if url.host_str() == Some("native-tabs.invalid") {
-                                let value = url
-                                    .query_pairs()
-                                    .find(|(key, _)| key == "result")
-                                    .unwrap()
-                                    .1;
-                                send.send(serde_json::from_str(&value).unwrap()).unwrap();
-                                false
-                            } else {
-                                true
-                            }
-                        }),
-                    )
-                })
-                .unwrap();
-            window.show().unwrap();
-            window.set_focus().unwrap();
+            app.open_folder_window(
+                "todos",
+                admitted,
+                WebviewUrl::App("/?todo=milk".into()),
+                move |builder| {
+                    Ok(super::macos_tabs::configure(
+                        builder
+                            .title(&opening)
+                            .data_directory(cache)
+                            .initialization_script(include_str!("native-tabs/driver.js"))
+                            .on_navigation(move |url| {
+                                if url.host_str() == Some("native-tabs.invalid") {
+                                    let value = url
+                                        .query_pairs()
+                                        .find(|(key, _)| key == "result")
+                                        .unwrap()
+                                        .1;
+                                    send.send(serde_json::from_str(&value).unwrap()).unwrap();
+                                    false
+                                } else {
+                                    true
+                                }
+                            }),
+                    ))
+                },
+            )
+            .unwrap();
         });
         // The page renders editable children only after its real close guard is registered.
         let ready = js(
@@ -144,14 +147,14 @@ mod smoke {
     fn group(app: &AppHandle, label: &str, expected: usize) {
         let label = label.to_owned();
         main_thread(app, move |app| {
-            let window = app.get_webview_window(&label).unwrap();
+            let window = find_window(app, &label).unwrap();
             native(&window).mergeAllWindows(None);
             assert_eq!(
                 native(&window).tabGroup().unwrap().windows().len(),
                 expected
             );
             for label in ["folders", "home"] {
-                let builtin = app.get_webview_window(label).unwrap();
+                let builtin = find_window(app, label).unwrap();
                 assert!(native(&builtin)
                     .tabGroup()
                     .is_none_or(|group| group.windows().len() == 1));
@@ -162,7 +165,7 @@ mod smoke {
     fn close_group(app: &AppHandle, label: &str) {
         let label = label.to_owned();
         main_thread(app, move |app| {
-            let window = app.get_webview_window(&label).unwrap();
+            let window = find_window(app, &label).unwrap();
             window.set_focus().unwrap();
             // Activate the installed native menu item, including muda/Tauri
             // dispatch and its lookup of the current native window.
@@ -223,7 +226,7 @@ mod smoke {
     fn red_button(app: &AppHandle, label: &str) {
         let label = label.to_owned();
         main_thread(app, move |app| {
-            let window = app.get_webview_window(&label).unwrap();
+            let window = find_window(app, &label).unwrap();
             window.set_focus().unwrap();
             // The standard close button invokes its native AppKit action.
             unsafe {
@@ -241,6 +244,48 @@ mod smoke {
         root: &Path,
         send: mpsc::Sender<Value>,
     ) -> Value {
+        until(|| !alive(app, "todos:setup"));
+        // Concurrent first opens from blocking workers must configure once and
+        // return the same real window, while setup above tests the inline path.
+        let concurrent = Directory::create(&root.join("concurrent")).unwrap();
+        let configured = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let workers: Vec<_> = (0..6)
+            .map(|_| {
+                let handle = app.clone();
+                let directory = concurrent.clone();
+                let configured = configured.clone();
+                std::thread::spawn(move || {
+                    handle
+                        .open_folder_window(
+                            "todos",
+                            directory,
+                            WebviewUrl::App("/".into()),
+                            move |builder| {
+                                configured.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                Ok(super::macos_tabs::configure(
+                                    builder.title("todos:concurrent"),
+                                ))
+                            },
+                        )
+                        .unwrap()
+                        .label()
+                        .to_owned()
+                })
+            })
+            .collect();
+        let labels: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        assert!(labels.iter().all(|label| label == &labels[0]));
+        assert_eq!(configured.load(std::sync::atomic::Ordering::SeqCst), 1);
+        main_thread(app, |app| {
+            find_window(app, "todos:concurrent")
+                .unwrap()
+                .close()
+                .unwrap()
+        });
+        until(|| !alive(app, "todos:concurrent"));
         let title = "section[aria-label=\"Todo\"] input[aria-label=\"Title\"]";
         let new_title = "[aria-label=\"New todo title\"]";
         open(app, reports, root, "todos:clean", send.clone());
@@ -258,9 +303,12 @@ mod smoke {
             "return nativeTabsSmokeInstance;",
         );
         main_thread(app, |app| {
-            native(&app.get_webview_window("todos:unsent").unwrap()).moveTabToNewWindow(None)
+            native(&find_window(app, "todos:unsent").unwrap()).moveTabToNewWindow(None)
         });
-        assert!(app.folders().bound("todos:unsent").is_ok());
+        main_thread(app, |app| {
+            let window = find_window(app, "todos:unsent").unwrap();
+            assert!(app.folders().bound(window.label()).is_ok());
+        });
         group(app, "todos:clean", 3);
         let after = js(
             app,
@@ -279,7 +327,7 @@ mod smoke {
             "Saved during group close",
         );
         main_thread(app, |app| {
-            app.get_webview_window("todos:clean")
+            find_window(app, "todos:clean")
                 .unwrap()
                 .set_focus()
                 .unwrap()
@@ -309,7 +357,7 @@ mod smoke {
         assert_eq!(held["instance"], before);
         assert_eq!(held["input"], "Unsubmitted bread");
         let selected = main_thread(app, |app| {
-            let window = app.get_webview_window("todos:unsent").unwrap();
+            let window = find_window(app, "todos:unsent").unwrap();
             native(&window)
                 .tabGroup()
                 .unwrap()
@@ -343,10 +391,7 @@ mod smoke {
             "Kept after filesystem failure",
         );
         main_thread(app, |app| {
-            app.get_webview_window("todos:peer")
-                .unwrap()
-                .set_focus()
-                .unwrap()
+            find_window(app, "todos:peer").unwrap().set_focus().unwrap()
         });
         close_group(app, "todos:peer");
         until(|| !alive(app, "todos:peer"));
@@ -436,7 +481,11 @@ mod smoke {
                     "return document.querySelector('[aria-label=\"New todo title\"]').value;",
                 );
                 assert_eq!(value, format!("Unsubmitted {label}"));
-                assert!(app.folders().bound(label).is_ok());
+                let checking = label.to_owned();
+                main_thread(app, move |app| {
+                    let window = find_window(app, &checking).unwrap();
+                    assert!(app.folders().bound(window.label()).is_ok());
+                });
                 type_input(app, reports, label, new_title, "");
             }
             close_group(app, "todos:gesture-a");
@@ -446,22 +495,14 @@ mod smoke {
                     && !alive(app, "todos:gesture-c")
             });
         }
-        for label in [
-            "todos:clean",
-            "todos:delayed",
-            "todos:unsent",
-            "todos:peer",
-            "todos:failed",
-        ] {
-            assert!(
-                app.folders().bound(label).is_err(),
-                "binding leaked: {label}"
-            );
-        }
+        assert!(main_thread(app, |app| app
+            .webview_windows()
+            .keys()
+            .all(|label| !label.starts_with("todos:"))));
         json!({ "passed": true, "unsentRetained": held, "refusedTabSelected": selected,
             "sameInstanceAfterDetachAndMerge": before == after,
             "delayedSaveCompletedBeforeDestruction": true, "failedSaveRetried": true,
-            "launcherExcluded": true, "bindingsRemoved": true, "redButtonPreservesInput": true, "windowMenuTitles": menus })
+            "launcherExcluded": true, "bindingsRemoved": true, "setupAndConcurrentOpening": true, "redButtonPreservesInput": true, "windowMenuTitles": menus })
     }
 
     pub fn run() {
@@ -495,6 +536,10 @@ mod smoke {
                         .title(format!("{label} (test fixture)"))
                         .tabbing_identifier(label).data_directory(root.join(format!("{label}-cache"))).build()?;
                 }
+                let startup = Directory::create(&root.join("setup"))?;
+                app.open_folder_window("todos", startup, WebviewUrl::App("/".into()), |builder| {
+                    Ok(super::macos_tabs::configure(builder.title("todos:setup")))
+                })?.close()?;
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| exercise(&handle, &reports, &root, send)));
@@ -502,8 +547,10 @@ mod smoke {
                     let ordered = events.iter().enumerate().all(|(index, event)| {
                         event["event"] != "Destroyed" || events[..index].iter().any(|before| before["label"] == event["label"] && before["event"] == "CloseRequested")
                     });
-                    let passed = result.is_ok() && ordered;
-                    let result = json!({"result": result.unwrap_or_else(|_| json!({"passed":false})), "closeRequestedBeforeDestruction": ordered, "events": events, "root": root});
+                    let cleaned = events.iter().filter(|event| event["event"] == "Destroyed")
+                        .all(|event| handle.folders().bound(event["label"].as_str().unwrap()).is_err());
+                    let passed = result.is_ok() && ordered && cleaned;
+                    let result = json!({"result": result.unwrap_or_else(|_| json!({"passed":false})), "closeRequestedBeforeDestruction": ordered, "destroyedBindingsRemoved": cleaned, "events": events, "root": root});
                     fs::write(root.join("results.json"), serde_json::to_vec_pretty(&result).unwrap()).unwrap();
                     println!("{}", serde_json::to_string_pretty(&result).unwrap());
                     handle.exit(if passed { 0 } else { 1 });

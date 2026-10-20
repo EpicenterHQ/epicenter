@@ -5,24 +5,25 @@ use anyhow::Context;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSApplication, NSWindow};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, WINDOW_SUBMENU_ID};
-use tauri::{AppHandle, Runtime, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Runtime, WebviewWindowBuilder};
 
 const FOLDER_TABS: &str = "so.epicenter.folder-windows";
 const MERGE: &str = "merge-folder-windows";
 const DETACH: &str = "detach-folder-tab";
 const CLOSE_GROUP: &str = "close-folder-tab-group";
 
-pub(crate) fn build<R: Runtime>(
+pub(crate) fn configure<R: Runtime>(
     builder: WebviewWindowBuilder<'_, R, AppHandle<R>>,
-) -> anyhow::Result<WebviewWindow<R>> {
-    let main =
-        MainThreadMarker::new().context("folder windows must be built on the main thread")?;
-    // Tauri turns this process-wide setting off when any window has no
-    // tabbing identifier, including the optional dictation overlay. Restore it
-    // before showing a folder window, while
-    // leaving Automatic mode to honor the person's macOS tab preference.
-    NSWindow::setAllowsAutomaticWindowTabbing(true, main);
-    Ok(builder.tabbing_identifier(FOLDER_TABS).build()?)
+) -> WebviewWindowBuilder<'_, R, AppHandle<R>> {
+    // Production reaches this only inside open_folder_window's main-thread
+    // task. None occurs under MockRuntime, which does not drive AppKit.
+    if let Some(main) = MainThreadMarker::new() {
+        // An id-less native window, such as the dictation overlay, can make
+        // Tauri disable this process-wide setting. Restore automatic tabbing
+        // while respecting the person's macOS tab preference.
+        NSWindow::setAllowsAutomaticWindowTabbing(true, main);
+    }
+    builder.tabbing_identifier(FOLDER_TABS)
 }
 
 pub(crate) fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {

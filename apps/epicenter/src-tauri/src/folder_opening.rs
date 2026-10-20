@@ -326,7 +326,7 @@ pub async fn accept_folder_opening(
             let openings = app.state::<FolderOpenings>();
             let paths = app.state::<DesktopPaths>();
             let directory = requested_directory(&openings, &paths, &path)?;
-            crate::folder_windows::show_editor(&app, directory)
+            crate::folder_windows::open_editor(&app, directory)
                 .map_err(|error| format!("{error:#}"))?;
             Ok(remember_accepted(&openings, &paths, &path))
         })();
@@ -347,7 +347,9 @@ pub async fn open_remembered_folder(app: DesktopAppHandle, path: String) -> Resu
             &app.state::<DesktopPaths>(),
             &path,
         )?;
-        crate::folder_windows::show_editor(&app, directory).map_err(|error| format!("{error:#}"))
+        crate::folder_windows::open_editor(&app, directory)
+            .map(|_| ())
+            .map_err(|error| format!("{error:#}"))
     })
     .await
     .map_err(|error| format!("the folder could not be opened: {error}"))?
@@ -421,21 +423,10 @@ mod tests {
             Ok(self.editor(directory))
         }
         fn editor(&self, directory: Directory) -> String {
-            let label = crate::folder_windows::label(
-                crate::folder_windows::EDITOR_PREFIX,
-                directory.root(),
-            );
-            if self.app.get_webview_window(&label).is_none() {
-                self.app
-                    .folders()
-                    .bind_while_building(&label, directory, || {
-                        WebviewWindowBuilder::new(&self.app, &label, Default::default())
-                            .build()
-                            .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })
-                    })
-                    .unwrap();
-            }
-            label
+            crate::folder_windows::open_editor(self.app.handle(), directory)
+                .unwrap()
+                .label()
+                .to_owned()
         }
         fn listed(&self) -> RememberedFolders {
             remembered(&self.openings, &self.paths)

@@ -384,9 +384,11 @@ The Folders window opens one in three ways, each deciding the folder in Rust:
   created. Epicenter's own folder is refused however it is reached. No page
   passes a path, and no page is granted the dialog plugin.
 
-The shell binds the directory to the app's window before the WebView exists
-(`folder_windows.rs`) and labels the window by the app and a digest of the
-canonical root: the same app on the same directory reveals its window, and
+The shell passes the app key, admitted directory, page URL, and builder
+configuration to the folder plugin's `open_folder_window`
+(`folder_windows.rs`). The plugin binds before the WebView exists and owns
+identity, reuse, construction, and cleanup. Its label combines the app key
+and a digest of the canonical root: the same app on the same directory reveals its window, and
 two directories with one name in different places are two windows. The page
 calls `openFolder({ tables })`, which opens the folder bound to its window;
 Whispering's recorder writes into the same folder, and no call names it. Two
