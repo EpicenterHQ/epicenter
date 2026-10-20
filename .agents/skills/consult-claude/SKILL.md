@@ -145,8 +145,9 @@ and secure-storage overrides in the child environment. Native `auth status`
 must identify the expected paid claude.ai account and configuration directory
 before the brief is sent. Restricted settings apply to both preflight and prompt;
 managed policy still applies. Claude resolves `--resume` in the selected profile
-and fails if it cannot find the session. Dry-run previews the selection without
-checking login and prints removed variable names, never credential values.
+and fails if it cannot find the session. The launcher does not inspect transcript
+files. Dry-run previews the selection without checking login and prints removed
+variable names, never credential values.
 
 Claude owns login, Keychain storage, refresh, and history. For a new work login,
 remove conflicting authentication overrides and run the native login with the
@@ -157,7 +158,8 @@ CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude auth login --claudeai --email "wor
 ```
 
 The user completes browser login and verifies its Claude email. Keep profile
-login changes out of active launches. Do not copy credentials between profiles
+login changes out of active launches: preflight does not lock the login while
+Claude runs. Do not copy credentials between profiles
 or log out of the default account. Explicitly setting `CLAUDE_CONFIG_DIR` to
 `~/.claude` selects a different Keychain entry from leaving it unset, so the
 launcher preserves the unset default for personal. See the official

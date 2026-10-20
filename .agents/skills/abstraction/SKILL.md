@@ -44,4 +44,4 @@ comparing them helps resolve the uncertainty. Otherwise present the strongest
 current account and what remains unresolved.
 
 Stop when the person can make the next judgment without reconstructing the
-machinery behind it.
+machinery behind it or asking for the material needed to judge it.
