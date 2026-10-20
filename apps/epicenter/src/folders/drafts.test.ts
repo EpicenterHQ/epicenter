@@ -342,15 +342,16 @@ test('switching from fields to text keeps the latest body and one draft, while m
 
 // A successful field save must acknowledge its own fields in the text base.
 // Remove the expected-failure marker when that provenance rule is implemented.
-for (const { revert, refuseFirst } of [
+for (const { revert, refuseFirst, aliases = false } of [
 	{ revert: false, refuseFirst: false },
 	{ revert: true, refuseFirst: false },
 	{ revert: false, refuseFirst: true },
+	{ revert: false, refuseFirst: false, aliases: true },
 ]) {
 	test.failingIf(revert)(
 		revert
 			? 'reverting a field in Files survives its earlier field save (known failure)'
-			: `field-to-text preserves external body (refused first write: ${refuseFirst})`,
+			: `field-to-text preserves external body (refused first write: ${refuseFirst}, aliases: ${aliases})`,
 		async () => {
 			const { mkdtemp, writeFile, readFile, rm } = await import(
 				'node:fs/promises'
@@ -362,7 +363,10 @@ for (const { revert, refuseFirst } of [
 			const directory = await mkdtemp(
 				join(tmpdir(), 'epicenter-draft-transition-'),
 			);
-			const before = '---\ntitle: before\n---\nbody before\n';
+			const before = '---\ntitle: before\nlink: before\n---\nbody before\n';
+			const external = aliases
+				? '---\ntitle: &a before\nlink: *a\n---\nbody from another writer\n'
+				: before.replace('body before', 'body from another writer');
 			await writeFile(join(directory, 'a.md'), before);
 			const folder = expectOk(await openFolder({ directory, tables: {} }));
 			let release: (() => void) | undefined;
@@ -389,16 +393,28 @@ for (const { revert, refuseFirst } of [
 			try {
 				const draft = drafts.file('a.md');
 				const base = { content: before, crlf: false };
-				draft.change({ title: 'mine' }, base);
-				await writeFile(
-					join(directory, 'a.md'),
-					'---\ntitle: before\n---\nbody from another writer\n',
-				);
+				draft.change(aliases ? { title: undefined } : { title: 'mine' }, base);
+				if (!aliases) await writeFile(join(directory, 'a.md'), external);
 				const fieldSave = draft.save();
 				await until(() => release !== undefined);
-				draft.type(draft.shown(base)! + 'my appended line\n', base);
+				if (aliases) {
+					// The accumulated patch resolves the alias after removing its anchor.
+					draft.change({ link: 'independent' }, base);
+					await writeFile(join(directory, 'a.md'), external);
+				}
+				const observed = aliases ? { content: external, crlf: false } : base;
+				const preview = draft.shown(observed);
+				if (preview === undefined)
+					throw new Error('The field overlay was lost');
+				expect(draft.type(`${preview}my appended line\n`, observed)).toBe(true);
 				release!();
 				await fieldSave;
+				if (aliases) {
+					const committed = await readFile(join(directory, 'a.md'));
+					expect(readDocument('a.md', committed).fields).toEqual({
+						link: 'before',
+					});
+				}
 				expect(draft.error).toBeUndefined();
 				if (revert) {
 					const held = draft.text;
@@ -410,7 +426,11 @@ for (const { revert, refuseFirst } of [
 				await draft.save();
 				if (refuseFirst) expect(bases[1]).toBe(before);
 				const stored = await readFile(join(directory, 'a.md'), 'utf8');
-				expect(stored).toContain(revert ? 'title: before' : 'title: mine');
+				if (aliases)
+					expect(
+						readDocument('a.md', new TextEncoder().encode(stored)).fields,
+					).toEqual({ link: 'independent' });
+				else expect(stored).toContain(revert ? 'title: before' : 'title: mine');
 				expect(stored).toContain('body from another writer');
 				expect(stored).toContain('my appended line');
 			} finally {
