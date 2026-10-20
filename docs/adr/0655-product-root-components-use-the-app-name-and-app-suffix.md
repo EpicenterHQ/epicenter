@@ -14,7 +14,7 @@ a screen or a layout wrapper.
 ## Decision
 
 **Name a product's root component `<Product>App`.** The product root receives
-the opened folder context or session, installs providers during initialization,
+the opened folder context, installs providers during initialization,
 and composes product state and UI.
 
 | Product | Component |
@@ -32,9 +32,11 @@ such as Epicenter's `FolderEditor`.
 
 `FolderApp` remains the shared folder lifecycle component. It invokes the
 app-supplied opener, prepares its context, and closes it on departure.
-Whispering's layout continues to acquire and release its richer session;
-`WhisperingApp` provides that session to its pages. The naming convention
-changes neither acquisition nor cleanup ownership.
+Whispering uses the same shared root in its persistent layout. `WhisperingApp`
+installs the exact context it receives and owns recording, inference, forms,
+and view state across route changes. It registers workflow teardown as an app
+action before `FolderApp` closes storage. Folder owns accepted file edits and
+their persistence; the UI context connects it to queries and window behavior.
 
 ## Consequences
 
@@ -44,7 +46,7 @@ requires updating its root component name.
 
 Existing product roots keep their state and behavior. A component needs no
 additional wrapper merely to satisfy the naming convention. Folder contexts
-retain the `context` prop; Whispering retains its `session` prop.
+retain the `context` prop, including Whispering.
 
 ## Considered alternatives
 

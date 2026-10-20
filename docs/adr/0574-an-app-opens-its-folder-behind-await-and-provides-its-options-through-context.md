@@ -2,166 +2,122 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
-- **Relates:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) (one read path, one channel of change), [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) (`folderOptions`, writes keep the cache in step), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md), [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) (one opener)
-- **Unbuilt:** Whispering mounts `<FolderApp>`; it still opens its folder inside its own `Workspace` (`#platform/workspace`), and builds the same edit layer itself (`createEdits`). The generic editor's field and body editors (`FieldEditor`, `RowBody`) still hold their own typed text over the folder's writes. The app stores (`createTodos`, `createNotes`, `createCaptures`, `createVocab`) still wrap the context's `queries` for their views, rather than each component building its queries from `getFolder()`. `FolderContext` still carries `isOwn`, which goes with ownership ([ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md)). `<FolderApp>` still takes `app={manifest}` and passes `manifest.id` to `openFolder`.
+- **Relates:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) (shared reads and changes), [ADR-0654](0654-visible-folder-queries-refresh-without-native-watchers.md) (visible query polling), [ADR-0655](0655-product-root-components-use-the-app-name-and-app-suffix.md) (product roots).
+- **Amended by:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md) (Proposed): Folder owns accepted file edits and persistence from construction until close; context connects that owner to the page.
+- **Built:** `FolderApp` and `createFolderContext` in `@epicenter/svelte`; app-local typed `getFolder`/`setFolder`; the Todos, Capture, Honeycrisp, Vocab, and Whispering roots.
 
 ## Context
 
-Every app opened its folder in its own root page behind `{#await}`, built
-its own store around `folderOptions(folder)`, and repeated the rest:
+Each app repeated opening, loading and refusal screens, query-cache setup,
+change subscriptions, and teardown. Apps also kept separate editing queues.
+That made view lifetime determine whether pending input participated in closing.
+Whispering added session and workspace wrappers that forwarded storage closure.
 
-- a loading screen and a refusal screen, each worded differently;
-- the machinery under each store for text typed and not saved: drafts by
-  path, a debounced save, offering the text of a file deleted elsewhere, a
-  lock while a rename or delete runs, a close fence, "settle every write,
-  then commit", and parsing TanStack mutation keys back into paths to know
-  which file a write was for. The copies already disagreed: one settle
-  looped until no draft saved, another ran once and also waited on Sync;
-- a `QueryClient`: Todos made its own with `retry: false`,
-  `networkMode: 'always'` and `staleTime: Infinity`, while Honeycrisp,
-  Capture and Vocab put a default one in the layout;
-- `invalidateOnChange`, in the store in three apps and in the page in
-  Capture;
-- a write-failure type whose unsaved text was `unsaved`, `unsaved` and
-  `kept`, `text`, or `lost` and `retry`, and a "Could not save" toast that
-  each app wrote again, so one app could drop the copy-your-text handoff;
-- a `describeError` (five copies, each covering a different part of
-  `WriteError`) and a `NotStarted` error (four copies);
-- closing the folder on teardown.
-
-Todos, Honeycrisp and Capture also kept a browser leaf and a desktop leaf of
-`#platform/folder` that differed only in the entry they imported, and Vocab
-aliased `@epicenter/folder` to the browser entry. After ADR-0583 the root
-`openFolder` opens the folder the shell handed the window on the desktop and
-the app's own in a browser, so the leaves had nothing left to choose.
+The common page integration belongs in one component. Persistence must also
+work for a plain JavaScript caller, so creating that integration cannot activate
+another editing lifetime.
 
 ## Decision
 
-**The root page mounts `<FolderApp>` from `@epicenter/svelte` with the app's
-definition.** It starts opening when it mounts, with
-`openFolder({ definition })` from `@epicenter/folder`, which opens the
-window's folder: the `folder` parameter of the window's first URL, kept in
-`sessionStorage`, or the app's default folder without one
-([ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md)), and
-waits with `{#await}`. Loading is one `Loading` screen; a folder that cannot
-open is one `Empty` screen, worded per `OpenFolderError`
-(`describeOpenRefusal`), with "Try again" only for a refusal that may pass.
-Nothing opens on import, and nothing else opens in a refused folder's place.
-
-```svelte
-<!-- +page.svelte -->
-<FolderApp definition={reading}><ReadingView /></FolderApp>
-```
-
-**`<FolderApp>` owns the page's cache and the folder's lifetime.** It builds
-the context with `createFolderContext(folder, { writeFailed })` and provides
-it with `<FolderProvider>`:
-
-- one `QueryClient` with one policy: `staleTime: Infinity` and no refetch on
-  focus, because the folder's change channel is the one detector of outside
-  change (ADR-0548); `networkMode: 'always'`, because reads and writes reach
-  files; `retry: false`, because a failure is shown, not retried;
-- `queries`, the folder's reads (`folderOptions(folder)`), with
-  `invalidateOnChange` wired once, before anything reads;
-- `edits`, the one edit layer (`createEdits` from `@epicenter/svelte/edits`)
-  every write and every piece of typed text goes through. It writes through
-  `folderWrites(folder, queryClient)`, the folder's writes as Result-returning
-  functions that keep the cache in step, so writes to one file run in one
-  order whoever made them, with no TanStack mutation scope and no focus
-  manager override. It holds a row's body, a file's text, and a typed field
-  by path until each is in the file: saved a second after the last change
-  and when the view leaves it, kept on screen when a save fails, and let go
-  with its text offered when the file was deleted elsewhere. `exclusive`
-  runs a rename or delete once the drafts of its paths (a rename's source
-  and destination) landed, and lets go of what was held there once it
-  succeeded; `settled` tries every draft once and waits for every write,
-  again until none is left, before Save version and Sync, and answers the
-  paths whose typing did not save. A path's unsaved typing blocks anything
-  that would move past it on that path: a rename or delete of it, Save
-  version, and typing the path another way are refused until it saves or
-  the person discards it. Sync goes ahead, since it claims nothing about
-  the edit on screen;
-- `writeFailed`, one toast for a failed save: `Could not save <path>`, the
-  error worded by `describeWriteError`, and "Copy your text" for the unsaved
-  text. The toast is the only place that text exists, so it stays up until
-  the clipboard took the text or the person dismisses it, and a refused copy
-  shows the text to select by hand. "Save again" appears when the edit is
-  still on screen, with "Discard your edit"; `retry` answers whether a save
-  started, and when none did the toast comes back with only the text. A failed field set offers the
-  field the person typed, such as a title, and no text for a click, a move,
-  or a delete;
-- closing when the page goes away: the edit layer fences input when close
-  is called and sends what is typed, then every write, rename, delete, and
-  app action lands, the change wiring stops, and the folder is released.
-
-```ts
-// @epicenter/svelte/folder
-type FolderContext<TDefinition> = {
-	folder: Folder<TDefinition, Definition>;
-	queries: FolderOptions<TDefinition>;
-	edits: Edits<Folder<TDefinition, Definition>['tables']>;
-	queryClient: QueryClient;
-	writeFailed: (failure: WriteFailure) => void;
-	close: () => Promise<void>;
-};
-type WriteFailure = { path: string; error: DescribedError | OtherError; unsaved: string; retry?: () => boolean };
-```
-
-**Every component reads and writes through `getFolder()`.** It builds its
-queries on `queries` and its edits on `edits`, and receives no folder as a
-prop.
+`FolderApp` from `@epicenter/svelte/folder-app` receives a zero-argument opener.
+The opener selects tables and save policy. Importing it opens nothing.
+`FolderApp` calls it on mount, renders loading or a refusal while it waits,
+and provides the opened context to the product root through its child snippet.
+A retry opens a fresh handle. Changing the callback does not replace an active
+folder; choosing another folder requires a new root lifetime.
 
 ```svelte
 <script lang="ts">
-	let { stem } = $props();
-	const { queries, edits } = getFolder<typeof reading>();
-	const books = createQuery(() => queries.books.list.queryOptions());
-	const title = edits.field('books', stem, 'title');
+	import { openFolder } from '@epicenter/folder';
+	import FolderApp from '@epicenter/svelte/folder-app';
+	import { notesTables } from '$lib/definition.js';
+	import NotesApp from './NotesApp.svelte';
 </script>
+
+<FolderApp open={() => openFolder({ tables: notesTables, saveAfterMs: 1000 })}>
+	{#snippet children(context)}
+		<NotesApp {context} />
+	{/snippet}
+</FolderApp>
 ```
 
-**Text typed into a file's field, body, or text is a draft in `edits`;
-other input that is not yet committed is local `$state`, bound with
-`bind:value`.** Local state covers a new-item box and a search. A committed
-value lives only in its file and the queries over it.
+The app binds its context type once:
 
-An app module adds only what `queries` does not offer, such as a compound
-action, and takes the context from `getFolder()` too. It is named for its
-rows, never for the opened folder: Todos' `createTodos`, Honeycrisp's
-`createNotes`, Capture's `createCaptures`.
+```ts
+import type { FolderContext } from '@epicenter/svelte/folder';
+import { createContext } from 'svelte';
+import type { notesTables } from './definition.js';
+
+export const [getFolder, setFolder] =
+	createContext<FolderContext<typeof notesTables>>();
+```
+
+Its product root calls `setFolder(context)` and
+`setQueryClientContext(context.queryClient)` during initialization. Descendants
+call `getFolder()` during their initialization; no generic argument or separate
+provider component is needed. The build selects the folder engine. On desktop
+the shell binds the directory before the window exists; no URL or page chooses
+a native path. A refused native open never opens browser storage instead.
+
+The context contains the opened Folder and one TanStack Query client. Its
+`queries` factory supplies shared keys and readers. Folder's `onChange` marks
+affected queries stale after storage commits, including successful no-op saves.
+Visible queries poll for outside edits. Display reads stay outside persistence;
+a failed or blocked reread cannot turn a successful save into a failure or
+prevent Folder from closing.
+
+Each view binds its actual observed source to Folder's passive editing entry
+points:
+
+```ts
+const { folder, queries } = getFolder();
+const notes = createQuery(() => queries.rows('notes'));
+const observedRow = $derived(notes.data?.find((row) => row.id === id));
+const edit = $derived(
+	createRowEdit(folder.tables.notes.edit(id), () => observedRow),
+);
+// The control displays edit.row and submits through the same binding.
+edit.change({ fields: { title: nextTitle }, body: nextBody });
+```
+
+There is no context editing namespace or attachment step. Folder retains
+accepted input, timing, write ordering, and failures beyond every view's
+subscriptions. A new-item form, connection form, selection, or search stays
+with the app. Product capabilities and workflows also stay outside Folder.
+
+`context.run(action)` counts accepted app work that may write after an await.
+It affects `busy` and closing; `saveState` comes from Folder status alone.
+`registerUnsent` identifies forms that would be lost on departure without
+submitting them for the person.
+
+On teardown the product stops its workflows and registers their final writes
+synchronously through `context.run`. Context refuses new app actions, finishes
+accepted actions, stops change subscriptions and reads, then calls
+`folder.close()`. Folder fences new input, settles accepted edits, releases
+storage, and returns recoverable failures. `FolderApp` offers their unsaved
+input for copying. The desktop window guard settles before destruction and
+keeps the window open for failures or unsubmitted forms. Application Quit,
+Force Quit, and a crash cannot provide that asynchronous guarantee.
 
 ## Consequences
 
-- An app keeps its tables, views and domain actions. The open, the
-  screens, the query client, the change wiring, the edit layer, the
-  write-failure toast and closing are written once.
-- A save that fails reaches the person with its unsaved text: an app
-  reports `{ path, error, unsaved }` and cannot word the toast without the
-  copy action, and nothing closes the toast before the text is copied. A
-  text an app does not report, such as a field another view still holds,
-  is outside this guarantee.
-- Apps keep no `#platform/folder` leaves. The installed build still resolves
-  `@epicenter/folder` to the desktop entry through `installedAppViteConfig`,
-  and a page in the desktop app is refused rather than given browser storage
-  (`packages/folder/src/entries.test.ts`). Vocab's browser build now carries
-  the desktop adapter as a chunk it never loads.
-- Honeycrisp sets up no table directories in its own folder: a table's
-  directory appears with its first file, as it always did in a browser, and
-  Git keeps no empty directory.
-- A component outside `<FolderApp>` or `<FolderProvider>` cannot call
-  `getFolder()`. Tests build the context over a test folder with
-  `createFolderContext` and mount views inside `<FolderProvider>`.
+- Apps share opening, query integration, page/window behavior, and recovery
+  presentation. Folder owns persistence whether a UI context exists or not.
+- Each mounted product retains its forms, selections, recording, and inference
+  state across routes. Whispering's platform workspace supplies capabilities
+  over the opened Folder and does not open or close another storage lifetime.
+- Tests can construct context over a test Folder. Mounted root tests cover
+  opening, startup failure, unmount during reads, and final workflow writes
+  before storage closure.
 
 ## Considered alternatives
 
-- **Opening in a `+layout.ts` load function.** A load function has no
-  teardown, so nothing could wait for writes and close the folder when the
-  page goes away, and a refusal would leave the component tree.
-- **Passing the folder or its options as props.** Every component between the
-  root and a reader would carry it.
-- **Each app keeping its own toast and passing `onWriteFailed`.** Four
-  shapes of the unsaved text existed; one app dropping the copy action was a
-  silent loss of typed text.
-- **Reading the new-item box from `FormData` on submit.** It needs no state,
-  but the form cannot react to what is typed, such as disabling "Add" while
-  the box is empty, and two patterns for one kind of input would coexist.
+- **Opening in a route load function.** Load has no component teardown to
+  initiate closure after accepted work finishes.
+- **A separate provider or setter prop.** The existing product root can install
+  its typed context and the query client directly.
+- **Keeping persistence in the UI context.** Plain JavaScript callers would
+  lack autosave and pending-input ownership; attaching later creates a second
+  lifecycle boundary.
+- **Keeping app session and workspace close forwarding.** Those wrappers add
+  another storage lifetime without preserving additional product state.

@@ -6,12 +6,12 @@
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { basename } from '@epicenter/folder/file-browser';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import FileView from '../components/FileView.svelte';
 	import RecordingDetail from '../components/RecordingDetail.svelte';
 	import RecordingList from '../components/RecordingList.svelte';
 
-	const { library, view } = getSession();
+	const { library, view } = getWhispering();
 
 	/**
 	 * The table is the page. Opening a recording shows its details: beside the

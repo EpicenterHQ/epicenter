@@ -8,6 +8,7 @@
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import type { Library } from '$lib/library.svelte.js';
+	import { setFolder } from '$lib/folder.js';
 	import FileView from '../FileView.svelte';
 	import RecordingDetail from '../RecordingDetail.svelte';
 	import TransformationDetail from '../TransformationDetail.svelte';
@@ -17,9 +18,12 @@
 	let applyTo = $state<string | undefined>();
 	let applySource = $state<'transcript' | 'pasted'>('transcript');
 	let pastedText = $state('');
+	// The test mounts the same opened context as the product root.
+	// svelte-ignore state_referenced_locally
+	setFolder(library.local);
 </script>
 
-<QueryClientProvider client={library.queryClient}>
+<QueryClientProvider client={library.local.queryClient}>
 <Tooltip.Provider>
 	{#if page.shown && page.tab === 'recordings'}
 		{@const selection = library.selection}

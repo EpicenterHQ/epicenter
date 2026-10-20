@@ -22,6 +22,8 @@
  * - `desktop.test.ts` for the workspace over the shell and the host
  * - `editing.test.ts` for editing over a directory this process opens
  */
+import { closeTestLibrary, createTestLibrary } from '../library.test-support.js';
+
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
@@ -34,7 +36,7 @@ import {
 } from '../../../../../packages/folder/src/granted-shell.test-support.js';
 import { whisperingTables } from '../definition.js';
 import { settle, transformationEditor } from '../edits.test-support.js';
-import { createTestLibrary } from '../library.test-support.js';
+
 import { deferred, openTestWorkspace } from '../workspace.test-support.js';
 import type { Workspace } from './types.js';
 
@@ -74,15 +76,11 @@ async function open(files: Record<string, string>, path = PATH) {
 	const folder = expectOk(await openTauriFolder({ tables: whisperingTables }));
 	const workspace: Workspace = {
 		...stubs.workspace,
-		folder,
-		close: async () => {
-			await folder.close();
-		},
 	};
-	const library = await createTestLibrary(workspace);
+	const library = await createTestLibrary({ workspace, folder });
 	cleanups.push(async () => {
-		await library.close();
-		await stubs.workspace.close();
+		await closeTestLibrary(library);
+		await stubs.folder.close();
 		await stubs.remove();
 		await rm(root, { recursive: true, force: true });
 	});

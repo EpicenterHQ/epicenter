@@ -33,6 +33,8 @@
  *   recording and transformation files keep their names
  * - Closing waits for accepted work
  */
+import { closeTestLibrary, openTestLibrary } from './library.test-support.js';
+
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -47,7 +49,6 @@ import { describeDeletion } from './deletion.js';
 import { openText, settle } from './edits.test-support.js';
 import { readBytes } from './files.js';
 import type { Library } from './library.svelte.js';
-import { openTestLibrary } from './library.test-support.js';
 import { quiet } from './query.test-support.js';
 import { filesLine } from './status.js';
 import type { Workspace } from './workspace/types.js';
@@ -126,8 +127,30 @@ async function open({
 		join(directory, 'recordings'),
 		{ creates: failRowWrites },
 	);
-	const workspace: Workspace = {
-		kind: 'native',
+	const test = {
+		workspace: {
+			kind: 'native',
+
+			location: directory,
+			capture: createFixtureDevice({
+				name: 'tone.wav',
+				load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
+			}),
+			recoverRecordings: async () => undefined,
+			async transcribe(request) {
+				transcribed.push(request);
+				if (transcribe !== undefined) return transcribe(request);
+				return Ok({ text: 'a steady tone' });
+			},
+			transform: async ({ input }) => Ok({ text: input }),
+			transformNote: 'test',
+			localTranscription: undefined,
+			connections: device.member,
+			preferences: {
+				microphone: async () => undefined,
+				setMicrophone: async () => undefined,
+			},
+		} satisfies Workspace,
 		folder: replaceTables(
 			folder,
 			{
@@ -145,36 +168,14 @@ async function open({
 			},
 			files,
 		),
-		location: directory,
-		capture: createFixtureDevice({
-			name: 'tone.wav',
-			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
-		}),
-		captureNotice: undefined,
-		async transcribe(request) {
-			transcribed.push(request);
-			if (transcribe !== undefined) return transcribe(request);
-			return Ok({ text: 'a steady tone' });
-		},
-		transform: async ({ input }) => Ok({ text: input }),
-		transformNote: 'test',
-		localTranscription: undefined,
-		connections: device.member,
-		preferences: {
-			microphone: async () => undefined,
-			setMicrophone: async () => undefined,
-		},
-		close: async () => {
-			await folder.close();
-		},
 	};
-	const library = await openTestLibrary(workspace);
+	const library = await openTestLibrary(test);
 	opened.push(library);
 	return { library, root: directory, transcribed, failures, device };
 }
 
 afterEach(async () => {
-	for (const library of opened.splice(0)) await library.close();
+	for (const library of opened.splice(0)) await closeTestLibrary(library);
 	for (const root of roots.splice(0))
 		await rm(dirname(root), { recursive: true, force: true });
 });
@@ -198,7 +199,7 @@ const status = (library: Library) =>
 /** Close `library` in the test, so the next opening reads what it left. */
 async function reopen(library: Library, root: string) {
 	opened.splice(opened.indexOf(library), 1);
-	await library.close();
+	await closeTestLibrary(library);
 	return open({ root });
 }
 
@@ -297,11 +298,11 @@ test('record and stop leave a row naming the audio’s exact bytes, and reopenin
 		fields,
 	]);
 	expect(
-		expectOk(await readBytes(second.library.folder, fields.audioPath)),
+		expectOk(await readBytes(second.library.local.folder, fields.audioPath)),
 	).toEqual(toneWav());
 	// The player reads the same bytes, typed as the container they are.
 	const audio = expectOk(
-		await loadAudio(second.library.folder.files, fields.audioPath, undefined),
+		await loadAudio(second.library.local.folder.files, fields.audioPath, undefined),
 	);
 	expect(audio.blob.type).toBe('audio/wav');
 	expect<Uint8Array>(new Uint8Array(await audio.blob.arrayBuffer())).toEqual(
@@ -327,9 +328,9 @@ test('a recording being captured, and once it stops, has its audio here, never a
 
 test('a completed recording leaves settling after an unchanged listing reread', async () => {
 	const { library } = await open();
-	const write = library.folder.files.write;
+	const write = library.local.folder.files.write;
 	// A capture reports completion but leaves no audio file. The paths do not change.
-	library.folder.files.write = (path, from, content) =>
+	library.local.folder.files.write = (path, from, content) =>
 		path.startsWith('audio/')
 			? Promise.resolve(Ok(undefined))
 			: write(path, from, content);
@@ -337,13 +338,13 @@ test('a completed recording leaves settling after an unchanged listing reread', 
 		await library.startRecording();
 		await settle(library);
 		const key = library.local.queries.files().queryKey;
-		const before = library.queryClient.getQueryData<string[]>(key);
+		const before = library.local.queryClient.getQueryData<string[]>(key);
 		await library.stopRecording();
 		await library.readAgain();
-		expect(library.queryClient.getQueryData<string[]>(key)).toBe(before);
+		expect(library.local.queryClient.getQueryData<string[]>(key)).toBe(before);
 		expect(library.audioOf(library.entries[0]!).kind).toBe('absent');
 	} finally {
-		library.folder.files.write = write;
+		library.local.folder.files.write = write;
 	}
 });
 
@@ -525,7 +526,7 @@ test('files an earlier version left in an ordinary directory read as they are, e
 	expect(library.resultsFor('kept').map((item) => item.row.body)).toEqual([
 		'hello there\n',
 	]);
-	expect(expectOk(await readBytes(library.folder, 'audio/kept.wav'))).toEqual(
+	expect(expectOk(await readBytes(library.local.folder, 'audio/kept.wav'))).toEqual(
 		toneWav(),
 	);
 
@@ -593,11 +594,11 @@ test('audio replaced by bytes of the same length is noticed by its content', asy
 	await record(library);
 	const path = library.entries[0]!.row.fields.audioPath;
 	const first = expectOk(
-		await loadAudio(library.folder.files, path, undefined),
+		await loadAudio(library.local.folder.files, path, undefined),
 	);
 
 	await settle(library);
-	expect(expectOk(await loadAudio(library.folder.files, path, first))).toBe(
+	expect(expectOk(await loadAudio(library.local.folder.files, path, first))).toBe(
 		first,
 	);
 
@@ -606,7 +607,7 @@ test('audio replaced by bytes of the same length is noticed by its content', asy
 	await writeFile(join(root, path), replaced);
 	await settle(library);
 
-	const next = expectOk(await loadAudio(library.folder.files, path, first));
+	const next = expectOk(await loadAudio(library.local.folder.files, path, first));
 	expect(next).not.toBe(first);
 	expect<Uint8Array>(new Uint8Array(await next.blob.arrayBuffer())).toEqual(
 		replaced,
@@ -645,7 +646,7 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	expect(second.library.resultsFor(entry.stem)[0]!.row.body).toBe(
 		'a steady tone\n',
 	);
-	expect(expectOk(await readBytes(second.library.folder, audioPath))).toEqual(
+	expect(expectOk(await readBytes(second.library.local.folder, audioPath))).toEqual(
 		toneWav(),
 	);
 });
@@ -920,7 +921,7 @@ test('deleting the audio a recording names keeps the recording, and the missing 
 	expect(library.entries[0]!.row.fields.audioPath).toBe(audioPath);
 	expect(library.audioOf(library.entries[0]!).kind).toBe('absent');
 	const { error: loadError } = await loadAudio(
-		library.folder.files,
+		library.local.folder.files,
 		audioPath,
 		undefined,
 	);
@@ -1108,9 +1109,10 @@ test('close drains accepted work and refuses new work', async () => {
 	const first = library.createFile('', 'first.txt');
 	await reached.promise;
 	let closed = false;
-	const closing = library.close().then(() => {
+	const closing = closeTestLibrary(library).then(() => {
 		closed = true;
 	});
+	await Promise.resolve();
 	expect(await library.createFile('', 'late.txt')).toContain('closing');
 	await Bun.sleep(10);
 	expect(closed).toBe(false);
@@ -1138,7 +1140,7 @@ test('close waits for a rename still copying, and the rename finishes before the
 	const renaming = library.rename('notes.md', 'renamed.md');
 	await reached.promise;
 	let closed = false;
-	const closing = library.close().then(() => {
+	const closing = closeTestLibrary(library).then(() => {
 		closed = true;
 	});
 	await Bun.sleep(10);

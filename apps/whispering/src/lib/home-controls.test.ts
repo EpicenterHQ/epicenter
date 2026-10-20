@@ -1,13 +1,13 @@
 /**
  * Home controls tests: post-processing choice and the settings draft
  *
- * Drives a real session over a real directory with stubbed endpoints that
+ * Drives a real whispering over a real directory with stubbed endpoints that
  * count every request. No component is mounted, so these establish what the
  * controls' state does and what reaches the folder and the endpoints, not how
  * the controls look.
  *
  * Key behaviors:
- * - A session starts with post-processing set to None and no transformation
+ * - The app starts with post-processing set to None and no transformation
  *   in the folder
  * - Choosing a transformation, recording, stopping, and transcribing send no
  *   transformation request; only an explicit run does, once
@@ -21,9 +21,13 @@
  *   typed, refuses to keep a key for another endpoint, and asks no endpoint
  *   anything
  */
+import {
+	openTestWhispering,
+	closeTestWhispering,
+} from './library.test-support.js';
+
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { quiet } from './query.test-support.js';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Err, Ok } from 'wellcrafted/result';
@@ -31,7 +35,8 @@ import { expectOk } from 'wellcrafted/testing';
 import type { ConnectionChange } from './connections.js';
 import { STARTER_TRANSFORMATIONS } from './definition.js';
 import { settle, transformationEditor } from './edits.test-support.js';
-import type { Session } from './session.svelte.js';
+import { quiet } from './query.test-support.js';
+import type { Whispering } from './whispering.svelte.js';
 import type { Workspace } from './workspace/types.js';
 import {
 	deferred,
@@ -39,8 +44,6 @@ import {
 	TEST_BASE_URL,
 	type TestWorkspaceOptions,
 } from './workspace.test-support.js';
-
-const { openSession } = await import('./session.svelte.ts');
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -53,17 +56,15 @@ async function open(
 ) {
 	const test = await openTestWorkspace(options);
 	const workspace = change(test.workspace);
-	const session: Session = expectOk(
-		await openSession(async () => Ok(workspace)),
-	);
+	const whispering = await openTestWhispering({ ...test, workspace });
 	cleanups.push(async () => {
-		await session.close();
+		await closeTestWhispering(whispering);
 		await test.remove();
 	});
 	return {
-		session,
-		library: session.library,
-		view: session.view,
+		whispering,
+		library: whispering.library,
+		view: whispering.view,
 		...test,
 	};
 }
@@ -72,8 +73,8 @@ const names = (root: string, directory: string) =>
 	readdir(join(root, directory)).catch(() => [] as string[]);
 
 /** Create the cleanup starter, optionally with the model a run needs. */
-async function cleanup(session: Session, model?: string) {
-	const { library } = session;
+async function cleanup(whispering: Whispering, model?: string) {
+	const { library } = whispering;
 	expect(
 		await library.createTransformation(STARTER_TRANSFORMATIONS[0]!),
 	).toBeUndefined();
@@ -87,23 +88,23 @@ async function cleanup(session: Session, model?: string) {
 	return library.transformations[0]!;
 }
 
-test('a session starts with post-processing set to None and seeds no transformation', async () => {
-	const { session, library, view, root, transformed } = await open();
+test('the app starts with post-processing set to None and seeds no transformation', async () => {
+	const { whispering, library, view, root, transformed } = await open();
 
 	expect(view.postProcessing).toBeUndefined();
-	expect(session.postProcessing).toEqual({ kind: 'none' });
+	expect(whispering.postProcessing).toEqual({ kind: 'none' });
 	expect(library.transformations).toEqual([]);
 	expect(await names(root, 'transformations')).toEqual([]);
 	expect(transformed).toEqual([]);
 });
 
 test('choosing, recording, stopping, and transcribing send nothing to the transformation; an explicit run sends it once', async () => {
-	const { session, library, view, root, transformed, transcribed } =
+	const { whispering, library, view, root, transformed, transcribed } =
 		await open();
-	const profile = await cleanup(session, 'chat-model');
+	const profile = await cleanup(whispering, 'chat-model');
 
 	view.postProcessing = profile.path;
-	expect(session.postProcessing.kind).toBe('ready');
+	expect(whispering.postProcessing.kind).toBe('ready');
 	await library.startRecording();
 	await library.stopRecording();
 	// Nothing is transcribed by recording either.
@@ -113,8 +114,8 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 
 	expect(transformed).toEqual([]);
 	expect(await names(root, 'transformation_runs')).toEqual([]);
-	// The choice is the session's: a page change builds nothing new, so it is still chosen.
-	expect(session.view.postProcessing).toBe(profile.path);
+	// The choice is the app's: a page change builds nothing new, so it is still chosen.
+	expect(whispering.view.postProcessing).toBe(profile.path);
 
 	const transcript = library.resultsFor(library.entries[0]!.stem)[0]!;
 	const before = await readFile(join(root, transcript.path));
@@ -136,14 +137,17 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 });
 
 test('a chosen transformation with no text connection to run over cannot run, and one that was deleted is missing; neither is run', async () => {
-	const { session, library, view, root, transformed } = await open(undefined, {
-		connections: {},
-	});
-	const profile = await cleanup(session);
+	const { whispering, library, view, root, transformed } = await open(
+		undefined,
+		{
+			connections: {},
+		},
+	);
+	const profile = await cleanup(whispering);
 	view.postProcessing = profile.path;
 
 	// A new transformation uses the text connection, and none is set up.
-	expect(session.postProcessing).toMatchObject({
+	expect(whispering.postProcessing).toMatchObject({
 		kind: 'repair',
 		reason: 'Set up the text connection in Settings to run this.',
 	});
@@ -154,7 +158,7 @@ test('a chosen transformation with no text connection to run over cannot run, an
 	await rm(join(root, profile.path));
 	await settle(library);
 
-	expect(session.postProcessing).toEqual({
+	expect(whispering.postProcessing).toEqual({
 		kind: 'missing',
 		path: profile.path,
 	});
@@ -169,7 +173,7 @@ test('the folder being read is reported while it is read, and not after', async 
 	expect(library.refreshing).toBe(false);
 
 	// A change the folder reports makes the recordings stale, and they are read again.
-	const reading = library.queryClient.invalidateQueries({
+	const reading = library.local.queryClient.invalidateQueries({
 		queryKey: library.local.queries.rows('recordings').queryKey,
 	});
 	expect(library.refreshing).toBe(true);
@@ -180,9 +184,9 @@ test('the folder being read is reported while it is read, and not after', async 
 });
 
 test('the settings draft saves a connection on the device only, keeps the saved key when none is typed, and asks no endpoint anything', async () => {
-	const { session, library, root, transcribed, transformed, device } =
+	const { whispering, library, root, transcribed, transformed, device } =
 		await open(undefined, { connections: {} });
-	const draft = session.settings.transcription;
+	const draft = whispering.settings.transcription;
 	// Not set up: the form starts from the defaults, and nothing is saved.
 	expect(draft.saved).toBeUndefined();
 	expect(draft.baseUrl).toBe('https://api.openai.com/v1');
@@ -218,12 +222,12 @@ test('the settings draft saves a connection on the device only, keeps the saved 
 });
 
 test('a changed endpoint cannot keep the saved key: the draft says why and the device refuses it', async () => {
-	const { session, device } = await open(undefined, {
+	const { whispering, device } = await open(undefined, {
 		connections: {
 			text: { baseUrl: TEST_BASE_URL, model: 'chat-model', apiKey: 'text-key' },
 		},
 	});
-	const draft = session.settings.text;
+	const draft = whispering.settings.text;
 	expect(draft.keyAction).toBe('keep');
 
 	// Same origin, another path: another endpoint.
@@ -249,7 +253,7 @@ test('a changed endpoint cannot keep the saved key: the draft says why and the d
 });
 
 test('a connection the device refuses is reported, its typed key stays, and nothing changes', async () => {
-	const { session, device } = await open((workspace) => ({
+	const { whispering, device } = await open((workspace) => ({
 		...workspace,
 		connections: {
 			...workspace.connections,
@@ -257,7 +261,7 @@ test('a connection the device refuses is reported, its typed key stays, and noth
 				Err('The transcription connection comes from the environment.'),
 		},
 	}));
-	const draft = session.settings.transcription;
+	const draft = whispering.settings.transcription;
 	draft.keyAction = 'replace';
 	draft.key = 'typed-key';
 
@@ -270,31 +274,31 @@ test('a connection the device refuses is reported, its typed key stays, and noth
 	expect(device.stored.transcription?.apiKey).toBeUndefined();
 });
 
-test.each([
-	true,
-	false,
-])('saving another connection preserves unsaved settings with configured connections: %s', async (configured) => {
-	const { session } = await open(
-		undefined,
-		configured ? {} : { connections: {} },
-	);
-	const { text, transcription } = session.settings;
-	text.baseUrl = 'http://127.0.0.1:9001/v1';
-	text.model = 'unsaved-text-model';
-	text.keyAction = 'remove';
-	transcription.model = 'changed-transcription-model';
+test.each([true, false])(
+	'saving another connection preserves unsaved settings with configured connections: %s',
+	async (configured) => {
+		const { whispering } = await open(
+			undefined,
+			configured ? {} : { connections: {} },
+		);
+		const { text, transcription } = whispering.settings;
+		text.baseUrl = 'http://127.0.0.1:9001/v1';
+		text.model = 'unsaved-text-model';
+		text.keyAction = 'remove';
+		transcription.model = 'changed-transcription-model';
 
-	expect(await transcription.save()).toBeUndefined();
-	expect(text.baseUrl).toBe('http://127.0.0.1:9001/v1');
-	expect(text.model).toBe('unsaved-text-model');
-	expect(text.keyAction).toBe('remove');
-});
+		expect(await transcription.save()).toBeUndefined();
+		expect(text.baseUrl).toBe('http://127.0.0.1:9001/v1');
+		expect(text.model).toBe('unsaved-text-model');
+		expect(text.keyAction).toBe('remove');
+	},
+);
 
 test('saving uses the submitted key and keeps typing done while the save is under way', async () => {
 	const started = deferred<void>();
 	const finish = deferred<void>();
 	const changes: ConnectionChange[] = [];
-	const { session } = await open((workspace) => ({
+	const { whispering } = await open((workspace) => ({
 		...workspace,
 		connections: {
 			...workspace.connections,
@@ -306,7 +310,7 @@ test('saving uses the submitted key and keeps typing done while the save is unde
 			},
 		},
 	}));
-	const draft = session.settings.transcription;
+	const draft = whispering.settings.transcription;
 	draft.keyAction = 'replace';
 	draft.key = 'submitted-fixture-key';
 	const saving = draft.save();

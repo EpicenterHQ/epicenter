@@ -21,6 +21,7 @@
  *
  * jsdom has no layout, focus, selection, or IME; see svelte-dom.test-support.
  */
+import { closeTestLibrary } from '../../lib/library.test-support.js';
 
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
@@ -69,7 +70,7 @@ async function open(
 	});
 	for (const [path, text] of Object.entries(files))
 		await Bun.write(join(root, path), text);
-	const library = await createTestLibrary(stubs.workspace);
+	const library = await createTestLibrary(stubs);
 	await library.start();
 	const notices: WriteNotice[] = [];
 	library.onWriteNotice((notice) => notices.push(notice));
@@ -79,7 +80,7 @@ async function open(
 	const host = mount(Host, { target, props: { library, page } });
 	cleanups.push(async () => {
 		unmount(host);
-		await library.close();
+		await closeTestLibrary(library);
 		await stubs.remove();
 		await rm(dirname(root), { recursive: true, force: true });
 	});
@@ -126,13 +127,13 @@ test('saved file text stays shown when the reread fails, and typing on keeps it'
 			'textarea[aria-label="Contents of draft.txt"]',
 		);
 	expect(input()?.value).toBe('Original text');
-	const read = library.folder.files.read;
-	library.folder.files.read = async (file) =>
+	const read = library.local.folder.files.read;
+	library.local.folder.files.read = async (file) =>
 		file === path
 			? ReadError.StorageFailed({ cause: new Error('read refused') })
 			: read(file);
 	cleanups.push(() => {
-		library.folder.files.read = read;
+		library.local.folder.files.read = read;
 	});
 	type(input(), 'Committed words');
 	flushSync();
@@ -157,11 +158,11 @@ test('a saved transcript stays shown when the reread fails, and typing on keeps 
 	const body = () =>
 		field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]');
 	expect(body()?.value).toBe('Alpha.\n');
-	const list = library.folder.tables.transcriptions.list;
-	library.folder.tables.transcriptions.list = async () =>
+	const list = library.local.folder.tables.transcriptions.list;
+	library.local.folder.tables.transcriptions.list = async () =>
 		ReadError.StorageFailed({ cause: new Error('read refused') });
 	cleanups.push(() => {
-		library.folder.tables.transcriptions.list = list;
+		library.local.folder.tables.transcriptions.list = list;
 	});
 	type(body(), 'Alpha, saved.\n');
 	flushSync();
@@ -447,12 +448,12 @@ for (const item of [
 			await library.saveText(item.path);
 			disk.refusing = false;
 			flushSync();
-			const read = library.folder.files.read;
+			const read = library.local.folder.files.read;
 			if (replacement === 'binary')
 				await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
 			if (replacement === 'missing') await rm(join(root, item.path));
 			if (replacement === 'unreadable')
-				library.folder.files.read = async (path) =>
+				library.local.folder.files.read = async (path) =>
 					path === item.path
 						? Promise.reject(new Error('Read unavailable'))
 						: read(path);
@@ -460,7 +461,7 @@ for (const item of [
 			flushSync();
 			expect(source()?.value).toBe('Keep this failed source');
 			expect(library.isUnsaved(item.path)).toBe(true);
-			library.folder.files.read = read;
+			library.local.folder.files.read = read;
 		});
 	}
 }
@@ -468,12 +469,12 @@ for (const item of [
 test('a slow audio read joins polling, keeps unchanged playback, and detects same-length replacements', async () => {
 	const path = 'audio/take.wav';
 	const { library, target, root } = await open({ [path]: 'First audio' });
-	const read = library.folder.files.read;
+	const read = library.local.folder.files.read;
 	const gate = Promise.withResolvers<void>();
 	let started = 0,
 		active = 0,
 		maximum = 0;
-	library.folder.files.read = async (...args) => {
+	library.local.folder.files.read = async (...args) => {
 		if (args[0] !== path) return read(...args);
 		started++;
 		active++;
@@ -486,7 +487,7 @@ test('a slow audio read joins polling, keeps unchanged playback, and detects sam
 		}
 	};
 	cleanups.push(() => {
-		library.folder.files.read = read;
+		library.local.folder.files.read = read;
 		gate.resolve();
 	});
 	await library.open(path);
@@ -510,7 +511,7 @@ test('a slow audio read joins polling, keeps unchanged playback, and detects sam
 	flushSync();
 	expect(player()!.src).toBe(url);
 	const playing = player();
-	library.folder.files.read = async (file) =>
+	library.local.folder.files.read = async (file) =>
 		file === path
 			? Promise.reject(new Error('Audio temporarily unreadable'))
 			: read(file);
@@ -519,7 +520,7 @@ test('a slow audio read joins polling, keeps unchanged playback, and detects sam
 	expect(player()).toBe(playing);
 	expect(player()!.src).toBe(url);
 	expect(target.textContent).toContain('Audio temporarily unreadable');
-	library.folder.files.read = read;
+	library.local.folder.files.read = read;
 	await writeFile(join(root, path), 'Other audio');
 	await library.local.refresh([path]);
 	flushSync();

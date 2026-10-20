@@ -6,18 +6,18 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import type { KeyAction } from '$lib/settings-draft.svelte.js';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 
 	/**
 	 * One connection: where its requests go, the model used when a request
-	 * names none, and its key. It edits the session's draft, so every place
+	 * names none, and its key. It edits the app's draft, so every place
 	 * this form is shown has the same typing and one save. Saving keeps
 	 * everything on this device and sends nothing: the model is whatever the
 	 * person types, and the endpoint is never asked anything.
 	 */
 	let { operation }: { operation: 'transcription' | 'text' } = $props();
 
-	const { library, settings } = getSession();
+	const { library, settings } = getWhispering();
 	const draft = $derived(settings[operation]);
 	const readOnly = $derived(draft.readOnlyReason !== undefined);
 	const id = $derived(`connection-${operation}`);

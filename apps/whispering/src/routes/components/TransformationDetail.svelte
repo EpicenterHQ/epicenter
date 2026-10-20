@@ -7,6 +7,7 @@
 	the row it started from. Run sends what is typed first.
 -->
 <script lang="ts">
+	import { getFolder } from '$lib/folder.js';
 	import { textRead } from '$lib/file-reads.js';
 
 	import { Badge } from '@epicenter/ui/badge';
@@ -49,11 +50,11 @@
 		path: string;
 		/** The listed row, or undefined when the file left the folder. */
 		entry: TransformationEntry | undefined;
-		/** The transcription this is tried on, by row path. Kept by the session across pages. */
+		/** The transcription this is tried on, by row path. Kept by the app across pages. */
 		applyTo: string | undefined;
-		/** Whether this is tried on a saved transcript or on pasted text. Kept by the session. */
+		/** Whether this is tried on a saved transcript or on pasted text. Kept by the app. */
 		applySource: 'transcript' | 'pasted';
-		/** The pasted text. Kept by the session, so it stays across pages and transformations. */
+		/** The pasted text. Kept by the app, so it stays across pages and transformations. */
 		pastedText: string;
 		/** Shown on narrow windows, where the list and the editor take turns. */
 		onBack?: () => void;
@@ -72,7 +73,8 @@
 	 */
 	// svelte-ignore state_referenced_locally
 	const rowView = library.rowView(TRANSFORMATIONS, own);
-	const opened = createQuery(() => ({ ...library.local.queries.file(path, textRead), enabled: asText }));
+	const context = getFolder();
+	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
 	// svelte-ignore state_referenced_locally
 	const textView = library.textView(own, () =>
 		opened.data?.kind === 'text' ? opened.data.bytes : undefined,

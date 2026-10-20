@@ -10,6 +10,7 @@
 	not saved, and the view closes.
 -->
 <script lang="ts">
+	import { getFolder } from '$lib/folder.js';
 	import { textRead, audioRead } from '$lib/file-reads.js';
 
 	import { Badge } from '@epicenter/ui/badge';
@@ -70,7 +71,8 @@
 	 */
 	// svelte-ignore state_referenced_locally
 	const rowView = library.rowView(RECORDINGS, own);
-	const opened = createQuery(() => ({ ...library.local.queries.file(path, textRead), enabled: asText }));
+	const context = getFolder();
+	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
 	// svelte-ignore state_referenced_locally
 	const textView = library.textView(own, () =>
 		opened.data?.kind === 'text' ? opened.data.bytes : undefined,
@@ -183,7 +185,7 @@
 					<AudioAbsent />
 				{:else if audioPath}
 					<AudioPlayer
-						source={{ kind: 'file', query: library.local.queries.file(audioPath, audioRead) }}
+						source={{ kind: 'file', query: context.queries.file(audioPath, audioRead) }}
 						label="Audio of {title || id}"
 					/>
 				{:else}

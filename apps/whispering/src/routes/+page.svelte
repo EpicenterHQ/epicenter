@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { audioRead } from '$lib/file-reads.js';
+	import { getFolder } from '$lib/folder.js';
 
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -11,7 +12,7 @@
 	import { resolve } from '$app/paths';
 	import { audioPathIn } from '$lib/definition.js';
 	import { transformationName } from '$lib/post-processing.js';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './components/AudioAbsent.svelte';
 	import AudioPlayer from './components/AudioPlayer.svelte';
 	import { confirmDelete, copyText, formatTime, openItem, recordingTitle } from './components/file-actions.js';
@@ -19,8 +20,9 @@
 	import ResultStatus from './components/ResultStatus.svelte';
 	import TransformationOutput from './components/TransformationOutput.svelte';
 
-	const session = getSession();
-	const { library, view } = session;
+	const whispering = getWhispering();
+	const context = getFolder();
+	const { library, view } = whispering;
 
 	/** The newest saved recording. A capture still being saved is in the notice under the header. */
 	const latest = $derived(library.entries[0]);
@@ -35,7 +37,7 @@
 	const model = $derived(library.connections?.transcription?.model);
 
 	/** The transformation chosen beside the recorder, as the folder and the text connection have it now. */
-	const postProcessing = $derived(session.postProcessing);
+	const postProcessing = $derived(whispering.postProcessing);
 	/** Whether a transformation of the newest transcript is under way. Its result shows below once its file is written. */
 	const postRunning = $derived(
 		transcript !== undefined && library.recipeRuns.some((item) => item.transcriptionId === transcript.stem),
@@ -159,7 +161,7 @@
 					{:else if audioPath}
 						<div class="min-w-0 flex-1 basis-full sm:basis-0">
 							<AudioPlayer
-								source={{ kind: 'file', query: library.local.queries.file(audioPath, audioRead) }}
+								source={{ kind: 'file', query: context.queries.file(audioPath, audioRead) }}
 								label="Audio of {recordingTitle(latest)}"
 							/>
 						</div>

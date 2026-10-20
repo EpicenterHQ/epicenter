@@ -14,7 +14,7 @@ import { toneWav } from '../capture.js';
 import { whisperingTables } from '../definition.js';
 import { readBytes } from '../files.js';
 import { openTestWorkspace } from '../workspace.test-support.js';
-import type { Workspace } from './types.js';
+import type { WhisperingFolder } from './types.js';
 
 // Compile the Vite build flag for this adapter test; no microphone is opened.
 Bun.plugin({
@@ -30,7 +30,7 @@ Bun.plugin({
 	},
 });
 
-let folder: Workspace['folder'];
+let folder: WhisperingFolder;
 /** What the next opening answers instead of the folder, when set. */
 let refusal: Result<never, OpenFolderError> | undefined;
 mock.module('@epicenter/folder/browser', () => ({
@@ -40,7 +40,7 @@ mock.module('@epicenter/folder/browser', () => ({
 		return refusal ?? Ok(folder);
 	},
 }));
-const { openWorkspace: openBrowserWorkspace } = await import('./browser.js');
+const { openWhisperingFolder, createWorkspace } = await import('./browser.js');
 const originalStorage = Object.getOwnPropertyDescriptor(
 	globalThis,
 	'localStorage',
@@ -64,7 +64,7 @@ afterEach(async () => {
 
 async function preferences(getItem: (key: string) => string | null) {
 	const workspace = await openTestWorkspace();
-	folder = workspace.workspace.folder;
+	folder = workspace.folder;
 	Object.defineProperty(globalThis, 'localStorage', {
 		configurable: true,
 		value: { getItem },
@@ -73,9 +73,9 @@ async function preferences(getItem: (key: string) => string | null) {
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
-	const browser = expectOk(await openBrowserWorkspace());
+	const browser = createWorkspace(expectOk(await openWhisperingFolder()));
 	cleanups.push(async () => {
-		await browser.close();
+		await folder.close();
 		await workspace.remove();
 	});
 	return browser.preferences;
@@ -84,27 +84,27 @@ async function preferences(getItem: (key: string) => string | null) {
 test('browser storage failure is reported without opening another folder', async () => {
 	refusal = OpenFolderError.Unavailable({ cause: new Error('storage denied') });
 
-	const refused = expectErr(await openBrowserWorkspace());
+	const refused = expectErr(await openWhisperingFolder());
 
-	expect(refused.name).toBe('BrowserFolder');
+	expect(refused.name).toBe('Unavailable');
 	expect(refused.message).toContain('storage denied');
 });
 
 test('a recording’s audio is read back from the folder as its exact bytes for transcription', async () => {
 	const workspace = await openTestWorkspace();
-	folder = workspace.workspace.folder;
+	folder = workspace.folder;
 	Object.defineProperty(globalThis, 'location', {
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
 	expectOk(await folder.files.write('audio/take.webm', null, toneWav()));
-	const browser = expectOk(await openBrowserWorkspace());
+	const browser = createWorkspace(expectOk(await openWhisperingFolder()));
 	cleanups.push(async () => {
-		await browser.close();
+		await folder.close();
 		await workspace.remove();
 	});
 
-	expect(expectOk(await readBytes(browser.folder, 'audio/take.webm'))).toEqual(
+	expect(expectOk(await readBytes(folder, 'audio/take.webm'))).toEqual(
 		toneWav(),
 	);
 });
@@ -153,7 +153,7 @@ const prepared = (expectedBaseUrl: string) => ({
 /** A browser workspace over storage held in `stored`, with every request it sends recorded. */
 async function browserWithStorage(stored: Map<string, string>) {
 	const workspace = await openTestWorkspace();
-	folder = workspace.workspace.folder;
+	folder = workspace.folder;
 	Object.defineProperty(globalThis, 'localStorage', {
 		configurable: true,
 		value: {
@@ -181,10 +181,10 @@ async function browserWithStorage(stored: Map<string, string>) {
 		});
 		return Response.json({ choices: [{ message: { content: 'ok' } }] });
 	}) as unknown as typeof fetch;
-	const browser = expectOk(await openBrowserWorkspace());
+	const browser = createWorkspace(expectOk(await openWhisperingFolder()));
 	cleanups.push(async () => {
 		globalThis.fetch = originalFetch;
-		await browser.close();
+		await folder.close();
 		await workspace.remove();
 	});
 	return { browser, sent };

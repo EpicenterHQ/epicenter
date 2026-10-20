@@ -36,7 +36,7 @@ import {
 } from './definition.js';
 import { describeError } from './files.js';
 import type { RecipeRow, ResolvedRecipe } from './recipe.js';
-import type { Workspace } from './workspace/types.js';
+import type { WhisperingFolder, Workspace } from './workspace/types.js';
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -117,6 +117,7 @@ const unread = (row: Row) =>
 	row.issues?.map((issue) => issue.message).join(' ') ?? '';
 
 export function createRuns({
+	folder,
 	workspace,
 	makeId,
 	refused,
@@ -128,6 +129,7 @@ export function createRuns({
 	track,
 }: {
 	workspace: Workspace;
+	folder: WhisperingFolder;
 	makeId: MakeId;
 	/** Why nothing new starts now, if it does not. */
 	refused: () => string | undefined;
@@ -153,7 +155,6 @@ export function createRuns({
 	 */
 	track: <T>(work: () => Promise<T>, scope?: string) => Promise<T>;
 }) {
-	const { folder } = workspace;
 	/** A result table, read and written as rows whatever its fields. */
 	const tableOf = (name: ResultTable): FolderTable => folder.tables[name];
 	/** Transcribe presses, by recording ID: one under way, or why one sent nothing. */

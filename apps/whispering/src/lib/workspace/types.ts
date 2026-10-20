@@ -1,17 +1,9 @@
 /**
- * The one boundary between Whispering and where its files live.
- *
- * Inside Epicenter, Whispering reaches an ordinary directory Epicenter's
- * shell grants it, and its connections and local transcription through
- * Epicenter; a browser tab keeps this site's local folder in the browser.
- * Both are the same `Folder` (`@epicenter/folder`): rows read through
- * Whispering's tables, rooted files, change notification, and save status.
- * Everything above this type is the same code for both. Capabilities a
- * storage cannot offer are `undefined` here, not emulated: a browser has no
- * local model.
+ * What this build offers beside the folder FolderApp opened: capture,
+ * inference, connections, preferences, and recording recovery. The workspace
+ * holds no folder lifetime. Unsupported capabilities are undefined.
  */
 import type { Folder, OpenFolderError } from '@epicenter/folder';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
 import type {
@@ -34,38 +26,14 @@ import type { LocalTranscription } from './local-transcription.js';
 /** Whispering's folder: its files, read through Whispering's tables. */
 export type WhisperingFolder = Folder<WhisperingTables>;
 
-/**
- * Why no workspace could be opened. The message is what the person is shown.
- * Neither storage is tried in place of the other: a browser folder that is
- * refused is not replaced by a desktop one, and inside a desktop app nothing
- * that is missing or refuses is replaced by browser storage.
- */
-export const WorkspaceError = defineErrors({
-	/** This browser's storage refused or could not be opened. */
-	BrowserFolder: ({ refusal }: { refusal: OpenFolderError }) => ({
-		message:
-			refusal.name === 'InsideTauri'
-				? 'This window is inside a desktop app. Browser storage is not used inside a desktop app, so there is no folder to open here.'
-				: refusal.message,
-		refusal,
-	}),
-	/** The desktop shell refused this window its folder, or the folder could not be opened. */
-	DesktopFolder: ({ refusal }: { refusal: OpenFolderError }) => ({
-		message: refusal.message,
-		refusal,
-	}),
-});
-export type WorkspaceError = InferErrors<typeof WorkspaceError>;
-
 export type Workspace = {
 	readonly kind: 'native' | 'browser';
-	readonly folder: WhisperingFolder;
 	/** Where the files are, as the person is told it. */
 	readonly location: string;
-	/** What this session records from. Fixed when the workspace opens. */
+	/** What this app records from. Fixed when the workspace is constructed. */
 	readonly capture: CaptureDevice;
-	/** Something the person should know about capture, such as a refused fixture. */
-	readonly captureNotice: string | undefined;
+	/** Repair recordings a quit or crash cut off before anything reads them; report when they could not be checked. */
+	recoverRecordings(): Promise<string | undefined>;
 	/**
 	 * Send the audio a row names over the transcription connection, only while
 	 * that connection is still the base URL the request was prepared for.
@@ -118,13 +86,11 @@ export type Workspace = {
 			microphone: MicrophonePreference | undefined,
 		): Promise<string | undefined>;
 	};
-	/** Release the folder and everything else the workspace opened. Saves already started finish first. */
-	close(): Promise<void>;
 };
 
-/**
- * Opens the build's workspace: the desktop leaf in the build Epicenter serves,
- * the browser leaf otherwise (`#platform/workspace` in `package.json`). A
- * refusal is returned as it is; a leaf never opens another storage instead.
- */
-export type OpenWorkspace = () => Promise<Result<Workspace, WorkspaceError>>;
+/** Open the folder for FolderApp; importing the platform seam is inert. */
+export type OpenWhisperingFolder = () => Promise<
+	Result<WhisperingFolder, OpenFolderError>
+>;
+/** Construct the capabilities this build offers beside the opened folder, without I/O or owning its lifetime. */
+export type CreateWorkspace = (folder: WhisperingFolder) => Workspace;

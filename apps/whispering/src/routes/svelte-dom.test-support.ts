@@ -113,6 +113,12 @@ Bun.plugin({
 		build.onResolve({ filter: /^\$lib(\/|$)/ }, ({ path }) => ({
 			path: join(lib, path.slice('$lib'.length)).replace(/\.js$/, '.ts'),
 		}));
+		build.module('$app/state', () => ({
+			exports: {
+				page: { url: new URL('http://localhost/'), route: { id: '/' } },
+			},
+			loader: 'object',
+		}));
 		build.module('$app/paths', () => ({
 			exports: { base: '', resolve: (route: string) => route },
 			loader: 'object',

@@ -206,9 +206,9 @@ mechanism matters. Launcher describes opening an app; it adds no component.
 Record can explain a row to a person; it does not introduce a second stored
 object. Workspace should not become an alias for a folder, local selection,
 or repository. Name the actual object unless a separate grouping feature exists.
-Whispering's existing `Workspace` is an app session that combines its folder,
-capture device, inference, connections, preferences, and closing lifetime. It
-is not another data store and should not be renamed to folder.
+Whispering's `Workspace` supplies platform capabilities beside the opened
+folder: capture, inference, connections, preferences, and recording recovery.
+It holds no folder or closing lifetime.
 
 ## Current implementation names
 

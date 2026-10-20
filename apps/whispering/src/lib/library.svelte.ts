@@ -1,5 +1,5 @@
 /**
- * The Whispering product state over one opened workspace, kept in the local
+ * The Whispering product state over one opened folder, kept in the local
  * folder context's TanStack Query cache (`@epicenter/svelte/folder`).
  *
  * The context owns row and file-list queries, generates each file key, and
@@ -19,8 +19,8 @@
  *
  * Every other action is tracked work closing waits for: a recording's row and
  * its length, a transcript or a result, create, rename, delete, and
- * settings. Closing stops new work, then waits for the drafts and until
- * nothing is under way.
+ * settings. The library stops product work and finishes its final writes
+ * before FolderApp closes Folder and its accepted file edits.
  *
  * A recording is in the folder from the moment it starts (ADR-0543): its row
  * is written then, naming its audio, and on the desktop the audio is written
@@ -40,8 +40,7 @@ import type {
 } from '@epicenter/folder/edits';
 import type { RecordingFolder } from '@epicenter/recorder';
 import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
-import type { FolderContext } from '@epicenter/svelte/folder';
-import type { WriteFailure } from '@epicenter/svelte/write-failure';
+import { unsavedText, type WriteFailure } from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
 	type QueryFunctionContext,
@@ -83,6 +82,7 @@ import {
 	runDeletion,
 } from './deletion.js';
 import { describeError, listingOf, nameProblem, readBytes } from './files.js';
+import type { WhisperingContext } from './folder.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import {
 	type RecipeRow,
@@ -92,6 +92,8 @@ import {
 import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { createRuns } from './runs.svelte.js';
 import type { Workspace } from './workspace/index.js';
+
+export const STOPPED = 'Whispering stopped before it finished starting.';
 
 export type Library = ReturnType<typeof createLibrary>;
 
@@ -291,11 +293,8 @@ function perListing<TListing extends object, TValue>(
 	};
 }
 
-export function createLibrary(
-	workspace: Workspace,
-	local: FolderContext<WhisperingTables>,
-) {
-	const { folder } = workspace;
+export function createLibrary(workspace: Workspace, local: WhisperingContext) {
+	const { folder } = local;
 	const { queryClient } = local;
 	const keys = whisperingKeys;
 	const { defineMutation } = createQueryFactories(queryClient);
@@ -305,8 +304,10 @@ export function createLibrary(
 		for (const listener of noticeListeners) listener(notice);
 	}
 
-	/** Set by `close`: nothing new starts from then on. Work accepted before finishes. */
+	/** Set by `stop`: nothing new starts from then on. Work accepted before finishes. */
 	let fenced = $state(false);
+	let stopping: Promise<void> | undefined;
+	let captureNotice = $state<string | undefined>();
 	/** Why nothing new starts now, if it does not. */
 	const refused = () => (fenced ? CLOSING : undefined);
 	/** Files being renamed or deleted: typing into them waits. */
@@ -590,9 +591,12 @@ export function createLibrary(
 
 	async function readConnections() {
 		try {
-			connections = await workspace.connections.read();
+			const read = await workspace.connections.read();
+			if (fenced) return;
+			connections = read;
 			connectionsError = undefined;
 		} catch (cause) {
+			if (fenced) return;
 			connections = undefined;
 			connectionsError = describe(cause);
 		}
@@ -639,6 +643,7 @@ export function createLibrary(
 	});
 
 	const runs = createRuns({
+		folder,
 		workspace,
 		makeId: recordingId,
 		refused,
@@ -814,9 +819,7 @@ export function createLibrary(
 
 	return {
 		workspace,
-		folder,
-		queryClient,
-		/** The local folder context: row drafts, rows, and save status. */
+		/** The opened folder context and its query cache. */
 		local,
 		/** The microphone the next recording uses, and the test of it. */
 		input,
@@ -1070,16 +1073,13 @@ export function createLibrary(
 		 * undefined when nothing was held or a save of it is running.
 		 */
 		discard(path: string): string | undefined {
-			const discarded = folder.files.edit(path).discard();
-			const text = discarded?.kind === 'text' ? discarded.text : undefined;
-			const row = rowEditAt(path)?.discard();
-			if (row === undefined) return text;
-			const fields = Object.entries(row.fields).map(
-				([name, value]) => `${name}: ${JSON.stringify(value)}`,
-			);
-			return [text, ...fields, row.body]
-				.filter((part) => part !== undefined && part !== '')
-				.join('\n');
+			const discarded =
+				folder.files.edit(path).discard() ?? rowEditAt(path)?.discard();
+			if (discarded === undefined) return undefined;
+			// A body alone stays plain text for copying back into its control.
+			if (discarded.kind === 'row' && Object.keys(discarded.fields).length === 0)
+				return discarded.body;
+			return unsavedText(discarded);
 		},
 		/** Whether a save runs, or typing waits to be sent; read reactively. */
 		get saving() {
@@ -1174,11 +1174,16 @@ export function createLibrary(
 		 * failed, or before a step that goes by what is listed now.
 		 */
 		readAgain: (paths?: readonly string[]) => invalidate(paths),
-		/**
-		 * First read after opening: the folder, then what this device has set
-		 * up. Nothing is created and nothing is sent.
-		 */
+		/** Why recordings cut off by a quit or crash could not be checked. */
+		get captureNotice() {
+			return captureNotice;
+		},
+		/** Repair interrupted recordings before the first folder and device reads. */
 		async start() {
+			if (fenced) throw new Error(STOPPED);
+			const notice = await local.run(() => workspace.recoverRecordings());
+			if (fenced) throw new Error(STOPPED);
+			captureNotice = notice;
 			// A read that answers with an error is shown as that listing's
 			// problem; one that throws means the folder cannot be read at all,
 			// and the opening fails with it.
@@ -1201,12 +1206,15 @@ export function createLibrary(
 				),
 			);
 			if (thrown.length > 0) throw thrown[0];
+			if (fenced) throw new Error(STOPPED);
 			// Observed from now on, so what the folder reports changed is read again.
 			stopObserving = shownQueries().map((options) =>
 				new QueryObserver(queryClient, options).subscribe(() => {}),
 			);
+			if (fenced) throw new Error(STOPPED);
 			await readConnections();
 			// The saved choice only: no microphone is opened or listed at launch.
+			if (fenced) throw new Error(STOPPED);
 			await input.load();
 		},
 
@@ -1584,30 +1592,30 @@ export function createLibrary(
 			}
 		},
 		/**
-		 * Stop new work, finish a recording that is running, save what is
-		 * typed, wait until nothing is under way, then release the folder. An
+		 * Stop new work, finish a recording that is running, wait for accepted
+		 * workflow work, then stop observers. Folder settles accepted file edits
+		 * and closes storage after this finishes. An
 		 * answer whose file could not be written ends with the page, and its
 		 * row stays unfinished.
 		 */
-		async close() {
-			fenced = true;
-			runs.stop();
-			// The microphone first: nothing still being written may keep it open.
-			input.close();
-			starting?.abort();
-			starting = undefined;
-			// Kept, never deleted: a recording is in the folder from its start.
-			await finishRecording();
-			await Promise.allSettled([...pending]);
-			await input.saved();
-			for (const stop of stopObserving) stop();
-			stopListening();
-			stopTelling();
-			recordingsListed.clear();
-			noticeListeners.clear();
-			// Saves the row drafts, then closes the folder and clears the cache.
-			await local.close();
-			await workspace.close();
+		stop(): Promise<void> {
+			return (stopping ??= (async () => {
+				fenced = true;
+				runs.stop();
+				// The microphone first: nothing still being written may keep it open.
+				input.close();
+				starting?.abort();
+				starting = undefined;
+				// Kept, never deleted: a recording is in the folder from its start.
+				await finishRecording();
+				await Promise.allSettled([...pending]);
+				await input.saved();
+				for (const stop of stopObserving) stop();
+				stopListening();
+				stopTelling();
+				recordingsListed.clear();
+				noticeListeners.clear();
+			})());
 		},
 	};
 }

@@ -124,8 +124,8 @@
 	</p>
 {/if}
 
-{#if library.workspace.captureNotice}
-	<p class="text-center text-sm text-warning" role="status" data-testid="capture-notice">{library.workspace.captureNotice}</p>
+{#if library.captureNotice}
+	<p class="text-center text-sm text-warning" role="status" data-testid="capture-notice">{library.captureNotice}</p>
 {/if}
 {#if library.recorderError}
 	<p class="text-center text-sm text-destructive" role="alert" data-testid="recorder-error">{library.recorderError}</p>

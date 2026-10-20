@@ -10,7 +10,7 @@
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import { untrack } from 'svelte';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { returnFocusToTrigger } from './option-popover-focus.js';
 
 	/**
@@ -24,7 +24,7 @@
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
-	const { library } = getSession();
+	const { library } = getWhispering();
 
 	/** A recording keeps the microphone it opened, so the choice waits for it to end. */
 	const locked = $derived(library.recorder.phase !== 'idle');

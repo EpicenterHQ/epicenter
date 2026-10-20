@@ -373,10 +373,9 @@ history and does not sync its folder. Save version, Connect, and Sync are not
 in this build.
 
 - Terminal commands and other programs edit the files directly.
-- The folder reports what changes in it: on the desktop the shell watches the
-  data folder, so a change another program or the terminal makes appears
-  within a moment; in a browser tab, another tab's saves are reported the same
-  way. A save over a file that changed since your edit started merges with the
+- Folder reports saves made through its handles, including another browser
+  tab's saves. Visible queries poll for edits from other programs or a
+  terminal. A save over a file that changed since your edit started merges with the
   change (see [Editing](#editing)).
 - If the folder is a Git repository you manage, `git` works on it as on any
   directory. Whispering commits nothing, and nothing keeps `audio/` out of
@@ -417,10 +416,15 @@ row and audio and says so.
 
 ### Closing and quitting
 
-Closing the window and quitting are immediate. Nothing is asked and nothing
-is waited for, because nothing that matters lives only in the window: a
-recording is in the folder from the moment it starts, and a transcription or
-transformation writes its file before its request goes out.
+Closing a desktop window first settles accepted file edits and app work. A
+failed save or an unfinished settings form or pasted text keeps it open for
+retry, copying, or clearing. When the page unmounts, Whispering finishes its
+recording and final metadata writes before Folder closes storage.
+
+Application Quit, Force Quit, a crash, and power loss cannot wait for that
+asynchronous cleanup. A recording is in the desktop folder from its start;
+a transcription or transformation writes its result file before sending a
+request.
 
 - In Epicenter a recording keeps its audio up to the moment the app
   closed, and the next time the folder opens its header is repaired so it
@@ -430,12 +434,10 @@ transformation writes its file before its request goes out.
 - A change typed in the last instant before quitting can be lost, as it can
   be in any app. Every earlier change is already in its file.
 
-Force Quit, a crash, and power loss leave the folder the same way.
-
-Moving between Home, Recordings, and Transformations never asks either. In a
-browser tab (`bun dev:whispering:ui`) the browser's own leave warning appears
-while a change is not in its file yet, and reloading or closing the tab loses
-a recording in progress.
+Moving between Home, Recordings, and Transformations keeps the mounted app
+and never prompts. In a browser tab (`bun dev:whispering:ui`), the browser's
+leave warning appears while accepted work or unsubmitted input would be lost.
+Reloading or closing the tab loses a browser recording in progress.
 
 ### Editing
 
@@ -467,8 +469,8 @@ the table shows the row once it is saved.
   it is fixed. Nothing you typed is refused.
 - A field you change leaves the rest of the file's bytes as they were. Notes,
   transcripts, and instructions you type are saved with LF line endings.
-- The lists are read when the page opens, after this window's own actions,
-  and when the folder reports that files changed.
+- Folder change notifications refresh affected lists after saves, and visible
+  queries poll for outside changes. Save completion does not wait for reads.
 
 A recording, transcript, or transformation file whose text does not read as a
 row is listed under "Needs repair" with why, and opens as its text with the

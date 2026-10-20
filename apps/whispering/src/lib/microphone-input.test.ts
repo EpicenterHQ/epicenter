@@ -28,6 +28,8 @@
  *   same name is not taken for it, and a recording with it refuses
  * - Fixture mode has no input: nothing is listed, tested, or asked for
  */
+import { closeTestLibrary, createTestLibrary } from './library.test-support.js';
+
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile } from 'node:fs/promises';
@@ -42,7 +44,7 @@ import {
 	type MicrophonePreference,
 	toneWav,
 } from './capture.js';
-import { createTestLibrary } from './library.test-support.js';
+
 import type { Workspace } from './workspace/types.js';
 import {
 	deferred,
@@ -223,17 +225,50 @@ async function open({
 } = {}) {
 	const test = await openTestWorkspace();
 	const library = await createTestLibrary({
-		...test.workspace,
-		capture: microphone.device,
-		preferences: device.preferences,
+		folder: test.folder,
+		workspace: {
+			...test.workspace,
+			capture: microphone.device,
+			preferences: device.preferences,
+		},
 	});
 	cleanups.push(async () => {
-		await library.close();
+		await closeTestLibrary(library);
 		await test.remove();
 	});
 	await library.start();
 	return { library, input: library.input, microphone, device, root: test.root };
 }
+
+test.each(['choice', 'failure'])('a saved microphone %s arriving after close changes nothing', async (outcome) => {
+	const { createMicrophoneInput } = await import('./microphone-input.svelte.js');
+	const gate = Promise.withResolvers<MicrophonePreference | undefined>();
+	const microphone = scriptedMicrophone();
+	const { preferences } = devicePreferences();
+	let reads = 0;
+	preferences.microphone = () => {
+		reads++;
+		return gate.promise;
+	};
+	const input = createMicrophoneInput({
+		capture: microphone.device,
+		preferences,
+		recording: () => false,
+	});
+	const loading = input.load();
+	input.close();
+	if (outcome === 'choice') gate.resolve(USB);
+	else gate.reject(new Error('preference read lost'));
+	await loading;
+	await input.load();
+	expect(reads).toBe(1);
+	expect(input.choice).toBeUndefined();
+	expect(input.preferenceProblem).toBeUndefined();
+	expect(input.list).toEqual({ kind: 'unread' });
+	expect(microphone.calls.list).toBe(0);
+	expect(microphone.calls.meter).toEqual([]);
+	expect(microphone.changeListeners.size).toBe(0);
+});
 
 test('opening a session reads the saved choice and opens, lists, and asks for nothing', async () => {
 	const { input, microphone } = await open({ device: devicePreferences(USB) });
@@ -408,7 +443,7 @@ test('choosing another input and closing the session each release a running test
 
 	await input.startTest();
 	expect(microphone.calls.meter).toEqual([undefined, USB]);
-	await library.close();
+	await closeTestLibrary(library);
 
 	expect(microphone.open.meters).toBe(0);
 	expect(microphone.changeListeners.size).toBe(0);
@@ -428,7 +463,7 @@ test('a recording closed or cancelled while its microphone is opening releases i
 
 		const starting = library.startRecording();
 		if (end === 'cancel') library.cancelRecording();
-		const closing = end === 'close' ? library.close() : undefined;
+		const closing = end === 'close' ? closeTestLibrary(library) : undefined;
 		held.resolve();
 		await starting;
 		await closing;
@@ -598,7 +633,8 @@ test('closing the session withdraws a pending enable at once', async () => {
 	microphone.gate.next = held.promise;
 	const enabling = input.allow();
 
-	const closing = library.close();
+	const closing = closeTestLibrary(library);
+	await Promise.resolve();
 
 	expect(microphone.calls.allowSignals[0]?.aborted).toBe(true);
 	expect(input.allowing).toBe(false);
@@ -613,11 +649,9 @@ test('closing releases the microphone at once, while a file command that was acc
 		const microphone = scriptedMicrophone();
 		const test = await openTestWorkspace();
 		const writing = deferred<void>();
-		const { folder } = test.workspace;
+		const { folder } = test;
 		const { files } = folder;
 		const library = await createTestLibrary({
-			...test.workspace,
-			capture: microphone.device,
 			folder: replaceTables(
 				folder,
 				{},
@@ -629,9 +663,13 @@ test('closing releases the microphone at once, while a file command that was acc
 					},
 				},
 			),
+			workspace: {
+				...test.workspace,
+				capture: microphone.device,
+			},
 		});
 		cleanups.push(async () => {
-			await library.close();
+			await closeTestLibrary(library);
 			await test.remove();
 		});
 		await library.start();
@@ -645,9 +683,10 @@ test('closing releases the microphone at once, while a file command that was acc
 		const created = library.createFile('', 'note.txt');
 
 		let closed = false;
-		const closing = library.close().then(() => {
+		const closing = closeTestLibrary(library).then(() => {
 			closed = true;
 		});
+		await Promise.resolve();
 
 		// Nothing waits for the write: the microphone is released now.
 		expect(microphone.open).toEqual({ meters: 0, captures: 0 });
@@ -727,22 +766,26 @@ test('choices are saved one at a time in the order chosen, and an older save tha
 	]);
 });
 
-test('closing while a choice is being saved releases the microphone at once and closes the workspace only after the save', async () => {
+test('closing while a choice is being saved releases the microphone at once and closes the folder only after the save', async () => {
 	const held = heldPreferences();
 	const microphone = scriptedMicrophone();
 	const test = await openTestWorkspace();
 	const order: string[] = [];
+	const closeFolder = test.folder.close;
+	test.folder.close = async () => {
+		order.push('folder closed');
+		return await closeFolder();
+	};
 	const library = await createTestLibrary({
-		...test.workspace,
-		capture: microphone.device,
-		preferences: held.preferences,
-		async close() {
-			order.push('workspace closed');
-			await test.workspace.close();
+		folder: test.folder,
+		workspace: {
+			...test.workspace,
+			capture: microphone.device,
+			preferences: held.preferences,
 		},
 	});
 	cleanups.push(async () => {
-		await library.close();
+		await closeTestLibrary(library);
 		await test.remove();
 	});
 	await library.start();
@@ -752,7 +795,8 @@ test('closing while a choice is being saved releases the microphone at once and 
 	await input.startTest();
 	expect(microphone.open.meters).toBe(1);
 
-	const closing = library.close();
+	const closing = closeTestLibrary(library);
+	await Promise.resolve();
 
 	expect(microphone.open.meters).toBe(0);
 	// A choice made after closing is not accepted.
@@ -772,7 +816,7 @@ test('closing while a choice is being saved releases the microphone at once and 
 	expect(order).toEqual([
 		'first save answered',
 		'latest save answered',
-		'workspace closed',
+		'folder closed',
 	]);
 	expect(held.saves.map((save) => save.microphone)).toEqual([USB, BUILT_IN]);
 });
@@ -781,11 +825,14 @@ test('fixture mode has no input: nothing is listed, tested, enabled, or chosen',
 	const test = await openTestWorkspace();
 	const device = devicePreferences(USB);
 	const library = await createTestLibrary({
-		...test.workspace,
-		preferences: device.preferences,
+		folder: test.folder,
+		workspace: {
+			...test.workspace,
+			preferences: device.preferences,
+		},
 	});
 	cleanups.push(async () => {
-		await library.close();
+		await closeTestLibrary(library);
 		await test.remove();
 	});
 	await library.start();

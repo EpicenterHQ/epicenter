@@ -34,12 +34,12 @@
 		transcriptExcerpt,
 		transcriptsToCopy,
 	} from '$lib/recording-collection.js';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { copyText, formatTime, openItem } from './file-actions.js';
 
 	/**
 	 * Every recording in the folder as one table: search, sort, tick, and act
-	 * on several. The search text, the order, and the ticks are the session's,
+	 * on several. The search text, the order, and the ticks are the app's,
 	 * so they are as they were after a visit to another page. Activating a row
 	 * opens that recording's details; ticking one does not.
 	 */
@@ -48,7 +48,7 @@
 		onOpen: () => void;
 	} = $props();
 
-	const { library, view } = getSession();
+	const { library, view } = getWhispering();
 
 	const rows = $derived(shownRows(library, view.recordingQuery, view.recordingSort));
 	const hidden = $derived(library.entries.length - rows.length);

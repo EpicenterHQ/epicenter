@@ -34,7 +34,6 @@
  * unknown, never as "not sent", and nothing is sent again on its own.
  */
 
-import type { Folder, OpenFolderError } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/tauri';
 import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -42,7 +41,6 @@ import { audioMimeTypeOf } from '../audio-format.js';
 import {
 	AUDIO,
 	DEFAULT_TRANSCRIPTION_CONNECTION,
-	type WhisperingTables,
 	whisperingTables,
 } from '../definition.js';
 import { readBytes } from '../files.js';
@@ -67,43 +65,28 @@ import {
 	type LocalTranscriptionCommands,
 } from './local-transcription.js';
 import { localPreferences } from './microphone-preference.js';
-import { type OpenWorkspace, type Workspace, WorkspaceError } from './types.js';
+import type {
+	CreateWorkspace,
+	OpenWhisperingFolder,
+	WhisperingFolder,
+	Workspace,
+} from './types.js';
 
 type Route = Awaited<ReturnType<DesktopConnections['route']>>;
 
-/**
- * Opens this window's folder with Whispering's tables:
- * `@epicenter/folder/tauri`'s `openFolder({ tables })`. Injected for tests.
- */
-export type OpenWindowFolder = () => Promise<
-	Result<Folder<WhisperingTables>, OpenFolderError>
->;
-
-const openWindowFolder: OpenWindowFolder = () =>
+export const openWhisperingFolder: OpenWhisperingFolder = () =>
 	openFolder({ tables: whisperingTables });
 
-export async function openDesktopWorkspace({
-	openFolder: open = openWindowFolder,
-	commands: native = commands,
-	connectionCommands = commands,
-}: {
-	/** How this window's folder is opened; injected for tests. */
-	openFolder?: OpenWindowFolder;
-	commands?: LocalTranscriptionCommands;
-	/** The AI connection commands and connection rows; injected for tests. */
-	connectionCommands?: ConnectionCommands;
-} = {}): Promise<Result<Workspace, WorkspaceError>> {
-	const opened = await open();
-	if (opened.error !== null)
-		return WorkspaceError.DesktopFolder({ refusal: opened.error });
-	const folder = opened.data;
-	// Repair the recordings a quit or a crash cut off, before anything reads
-	// them. A failure keeps the folder open and is shown beside the recorder.
-	const { error: recoverError } = await recoverRecordings({ under: AUDIO });
-	const captureNotice =
-		recoverError === null
-			? undefined
-			: `Recordings a quit cut off could not be checked: ${recoverError.message}`;
+export function createDesktopWorkspace(
+	folder: WhisperingFolder,
+	{
+		commands: native = commands,
+		connectionCommands = commands,
+	}: {
+		commands?: LocalTranscriptionCommands;
+		connectionCommands?: ConnectionCommands;
+	} = {},
+): Workspace {
 	const connections = createDesktopConnections({
 		commands: connectionCommands,
 	});
@@ -122,12 +105,16 @@ export async function openDesktopWorkspace({
 		});
 	}
 
-	return Ok({
+	return {
 		kind: 'native',
-		folder,
 		location: 'The folder opened in Epicenter',
 		capture: createDesktopMicrophone(),
-		captureNotice,
+		async recoverRecordings() {
+			const { error } = await recoverRecordings({ under: AUDIO });
+			return error === null
+				? undefined
+				: `Recordings a quit cut off could not be checked: ${error.message}`;
+		},
 		async transcribe(request) {
 			let route: Route;
 			const answered = await transcribeOverConnection(
@@ -178,16 +165,8 @@ export async function openDesktopWorkspace({
 			set: connections.set,
 		},
 		preferences: localPreferences,
-		// Closing waits for the saves already under way.
-		close: async () => {
-			await folder.close();
-		},
-	});
+	};
 }
 
-/**
- * The `#platform/workspace` leaf of the build Epicenter serves: open the
- * folder the shell bound to this window. A window bound to none is refused,
- * and nothing else is opened.
- */
-export const openWorkspace: OpenWorkspace = () => openDesktopWorkspace();
+export const createWorkspace: CreateWorkspace = (folder) =>
+	createDesktopWorkspace(folder);

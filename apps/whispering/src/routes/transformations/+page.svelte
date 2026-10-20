@@ -8,12 +8,12 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { basename } from '@epicenter/folder/file-browser';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import TransformationDetail from '../components/TransformationDetail.svelte';
 	import TransformationList from '../components/TransformationList.svelte';
 	import { openItem } from '../components/file-actions.js';
 
-	const { library, view } = getSession();
+	const { library, view } = getWhispering();
 
 	/** Below this width, the list and the editor take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');

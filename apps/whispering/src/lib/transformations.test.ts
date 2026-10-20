@@ -35,6 +35,12 @@
  *   request and one result, while another pair and a later run stay separate;
  *   a row run again twice at once is sent once
  */
+import {
+	closeTestLibrary,
+	createTestLibrary,
+	headerLine,
+} from './library.test-support.js';
+
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { chmodSync } from 'node:fs';
@@ -50,7 +56,6 @@ import {
 	transformationEditor,
 } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
-import { createTestLibrary, headerLine } from './library.test-support.js';
 import { quiet } from './query.test-support.js';
 import { TransformationError } from './transformation.js';
 import {
@@ -71,9 +76,9 @@ const CLEANUP = STARTER_TRANSFORMATIONS[0]!;
 
 async function open(options: TestWorkspaceOptions = {}) {
 	const test = await openTestWorkspace(options);
-	const library = await createTestLibrary(test.workspace);
+	const library = await createTestLibrary(test);
 	cleanups.push(async () => {
-		await library.close();
+		await closeTestLibrary(library);
 		await test.remove();
 	});
 	await library.start();
@@ -170,7 +175,7 @@ test('editing a transformation keeps fields the app does not know and the person
 
 	const written = await readFile(path, 'utf8');
 	const row = expectOk(
-		await library.folder.tables.transformations.get('mine'),
+		await library.local.folder.tables.transformations.get('mine'),
 	)!;
 	expect<Record<string, unknown>>(row.fields).toEqual({
 		title: 'Renamed',
@@ -779,7 +784,7 @@ test('an answer for a row someone filled meanwhile stands after their text, and 
 async function fillRace(typed: string) {
 	const answer =
 		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
-	const { library, root, workspace, transformed } = await open({
+	const { library, root, folder, transformed } = await open({
 		transform: () => answer.promise,
 	});
 	const { transcript } = await transcribed(library, root);
@@ -788,7 +793,7 @@ async function fillRace(typed: string) {
 	await eventually(() => transformed.length === 1);
 	const { output } = await newestResult(library, transcript.stem);
 	const path = join(root, output.path);
-	const table = workspace.folder.tables.transformation_runs;
+	const table = folder.tables.transformation_runs;
 	const get = table.get;
 	let filled = false;
 	(table as { get: typeof get }).get = async (stem) => {
@@ -846,11 +851,10 @@ async function openHoldingReads(
 ) {
 	const test = await openTestWorkspace(options);
 	const reads: { hold?: Promise<void>; waiting: number } = { waiting: 0 };
-	const { tables } = test.workspace.folder;
+	const { tables } = test.folder;
 	const table = tables[held];
 	const library = await createTestLibrary({
-		...test.workspace,
-		folder: replaceTables(test.workspace.folder, {
+		folder: replaceTables(test.folder, {
 			[held]: {
 				...table,
 				async get(stem: string) {
@@ -860,9 +864,12 @@ async function openHoldingReads(
 				},
 			},
 		}),
+		workspace: {
+			...test.workspace,
+		},
 	});
 	cleanups.push(async () => {
-		await library.close();
+		await closeTestLibrary(library);
 		await test.remove();
 	});
 	await library.start();

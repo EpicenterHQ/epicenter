@@ -25,6 +25,11 @@
  *   on transcripts are listed apart; a malformed `text_runs/` file never holds
  *   up a recording's deletion; a failed listing is reported, not shown empty
  */
+import {
+	openTestWhispering,
+	closeTestWhispering,
+} from './library.test-support.js';
+
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
@@ -50,8 +55,6 @@ import {
 	replaceTables,
 } from './workspace.test-support.js';
 
-const { createSession } = await import('./session.svelte.ts');
-
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -63,20 +66,20 @@ const PASTED = 'so um this is pasted text\n';
 
 type Hooks = {
 	list?: () => Promise<
-		| Awaited<ReturnType<Library['folder']['tables']['text_runs']['list']>>
+		| Awaited<ReturnType<Library['local']['folder']['tables']['text_runs']['list']>>
 		| undefined
 	>;
 };
 
-/** A session over a test workspace whose `text_runs/` listings run `hooks` first. */
+/** Product state over a test workspace whose `text_runs/` listings run `hooks` first. */
 async function open(options: TestWorkspaceOptions = {}) {
 	const test = await openTestWorkspace(options);
 	const hooks: Hooks = {};
-	const { tables } = test.workspace.folder;
+	const { tables } = test.folder;
 	const textRuns = tables.text_runs;
-	const session = await createSession({
-		...test.workspace,
-		folder: replaceTables(test.workspace.folder, {
+	const whispering = await openTestWhispering({
+		workspace: test.workspace,
+		folder: replaceTables(test.folder, {
 			text_runs: {
 				...textRuns,
 				async list() {
@@ -86,10 +89,10 @@ async function open(options: TestWorkspaceOptions = {}) {
 		}),
 	});
 	cleanups.push(async () => {
-		await session.close();
+		await closeTestWhispering(whispering);
 		await test.remove();
 	});
-	return { session, library: session.library, hooks, ...test };
+	return { whispering, library: whispering.library, hooks, ...test };
 }
 
 const names = (root: string, directory: string) =>
@@ -190,7 +193,7 @@ test('the resolver uses the text connection and lets a recipe name its model', (
 });
 
 test('the Run check, the post-processing choice, the menu, and the run agree about every recipe', async () => {
-	const { session, library, root, transformed } = await open();
+	const { whispering, library, root, transformed } = await open();
 	const { transcript } = await transcribed(library);
 	const fresh = await recipe(library);
 	const own = await recipeFile(root, 'own', { model: 'old-model' });
@@ -206,8 +209,8 @@ test('the Run check, the post-processing choice, the menu, and the run agree abo
 		// The draft on the recipe's page is read by the same resolver.
 		await library.open(path);
 		const shown = library.resolve(transformationEditor(library).draft);
-		session.view.postProcessing = path;
-		const chosen = session.postProcessing;
+		whispering.view.postProcessing = path;
+		const chosen = whispering.postProcessing;
 		const before = transformed.length;
 		const problem = await library.transform(transcript.path, path);
 
@@ -485,14 +488,14 @@ test('a transcript’s failed run is not sent again over a connection that moved
 });
 
 test('pasted text stays across pages and guards departure until cleared', async () => {
-	const { open: openWorkspace, remove } = await openTestWorkspace();
-	const { openSession } = await import('./session.svelte.ts');
-	const session = expectOk(await openSession(openWorkspace));
+	const test = await openTestWorkspace();
+	const { remove } = test;
+	const whispering = await openTestWhispering(test);
 	cleanups.push(async () => {
-		await session.close();
+		await closeTestWhispering(whispering);
 		await remove();
 	});
-	const { library, view } = session;
+	const { library, view } = whispering;
 	const path = await recipe(library);
 	const stem = selectedStem(library);
 	view.applySource = 'pasted';
@@ -504,10 +507,10 @@ test('pasted text stays across pages and guards departure until cleared', async 
 	expect(view.pastedText).toBe(PASTED);
 	await quiet(library);
 	expect(library.textOutputsOf(stem)).toHaveLength(1);
-	expect(session.blocksNavigation({ willUnload: false })).toBe(false);
-	expect(session.blocksNavigation({ willUnload: true })).toBe(true);
+	expect(whispering.blocksNavigation({ willUnload: false })).toBe(false);
+	expect(whispering.blocksNavigation({ willUnload: true })).toBe(true);
 	view.pastedText = '';
-	expect(session.blocksNavigation({ willUnload: true })).toBe(false);
+	expect(whispering.blocksNavigation({ willUnload: true })).toBe(false);
 });
 
 test('a text_runs/ file that does not read never holds up a recording’s deletion, and a failed listing is reported, not shown empty', async () => {

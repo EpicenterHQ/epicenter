@@ -35,14 +35,15 @@ them without Git or `epicenter.json`.
 
 ## Svelte app root
 
-`<FolderApp>` calls the app's opener when the route mounts and closes the handle after
-pending work settles. It provides the handle, one TanStack Query cache, local
-save status, and change invalidation to its children through `getFolder()`.
-The folder handle itself holds typed input from open to close
-(`folder.tables.<t>.edit(id)`, `folder.files.edit(path)`; see
-[ADR-0656](../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)),
-and a failed save keeps it. A page counts its file actions with
-`context.run` so close waits for them too.
+`<FolderApp>` calls the app's opener and provides one UI context. Each app
+installs that exact context for descendants to read through `getFolder()`.
+Folder owns accepted edits, autosave, save status, and storage closure. The
+context connects it to one TanStack Query cache, change invalidation, app
+actions, and window behavior. Failed saves retain input in Folder. Accepted
+app actions use `context.run()` so their final writes finish before storage
+closes; unfinished forms remain with the app.
+
+The editing lifecycle is recorded in [ADR 0656](../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md).
 
 ```svelte
 <script lang="ts">
@@ -91,9 +92,9 @@ binds each window's folder; standalone Todos binds its own.
 
 Name each product root `<Product>App`: `TodosApp`, `CaptureApp`,
 `HoneycrispApp`, `VocabApp`, and `WhisperingApp`. This component receives the
-opened folder context or session, installs its providers, and composes the
-product's state and interface. `FolderApp` owns the shared folder lifecycle;
-Whispering's layout owns its session lifecycle.
+opened folder context, installs its providers, and composes the product's
+state and interface. Whispering's root also receives its platform workspace.
+`FolderApp` owns the folder lifecycle for every product.
 
 Use `Shell` for surrounding layout and `View` for a screen or representation.
 Keep a specific tool name such as `FolderEditor` for a window within a larger

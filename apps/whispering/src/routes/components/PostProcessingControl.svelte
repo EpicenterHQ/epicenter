@@ -11,7 +11,7 @@
 	import WandIcon from '@lucide/svelte/icons/wand';
 	import { resolve } from '$app/paths';
 	import { transformationName } from '$lib/post-processing.js';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { returnFocusToTrigger } from './option-popover-focus.js';
 
 	/**
@@ -25,10 +25,10 @@
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
-	const session = getSession();
-	const { library, view } = session;
+	const whispering = getWhispering();
+	const { library, view } = whispering;
 
-	const choice = $derived(session.postProcessing);
+	const choice = $derived(whispering.postProcessing);
 	const name = $derived(
 		choice.kind === 'none' ? 'None' : choice.kind === 'missing' ? 'Not in the folder' : transformationName(choice.entry),
 	);

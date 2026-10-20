@@ -2,7 +2,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Separator } from '@epicenter/ui/separator';
 	import type { Operation } from '$lib/connections.js';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import ConnectionForm from './ConnectionForm.svelte';
 
 	/**
@@ -12,7 +12,7 @@
 	 */
 	let { only }: { only?: Operation } = $props();
 
-	const { library } = getSession();
+	const { library } = getWhispering();
 	const operations = $derived<Operation[]>(only ? [only] : ['transcription', 'text']);
 </script>
 

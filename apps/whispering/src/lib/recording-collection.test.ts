@@ -29,9 +29,14 @@
  * - A recording that left the folder is unticked when a listing confirms it,
  *   so a file made later at its path is not ticked; a search and a failed
  *   listing untick nothing
- * - Once the session is closing, nothing new is opened, and a recording still
+ * - Once the app is closing, nothing new is opened, and a recording still
  *   waiting its turn to be transcribed is not sent
  */
+import {
+	openTestWhispering,
+	closeTestWhispering,
+} from './library.test-support.js';
+
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -56,8 +61,8 @@ import {
 	transcriptExcerpt,
 	transcriptsToCopy,
 } from './recording-collection.js';
-import type { Session } from './session.svelte.js';
-import type { Workspace } from './workspace/types.js';
+import type { Whispering } from './whispering.svelte.js';
+import type { WhisperingFolder, Workspace } from './workspace/types.js';
 import {
 	deferred,
 	eventually,
@@ -71,8 +76,6 @@ const recordingFiles = async (root: string) =>
 		...(await readdir(join(root, 'recordings')).catch(() => [] as string[])),
 		...(await readdir(join(root, 'audio')).catch(() => [] as string[])),
 	].sort();
-
-const { openSession } = await import('./session.svelte.ts');
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -95,12 +98,11 @@ type Transcribe = Workspace['transcribe'];
  */
 async function history(
 	transcribe?: Transcribe,
-	/** Put something in the way of the folder the session is given, after the history is written. */
-	folderOf: (folder: Workspace['folder']) => Workspace['folder'] = (given) =>
-		given,
+	/** Put something in the way of the folder the app is given, after the history is written. */
+	folderOf: (folder: WhisperingFolder) => WhisperingFolder = (given) => given,
 ) {
 	const test = await openTestWorkspace();
-	const { folder } = test.workspace;
+	const { folder } = test;
 	const sent: Parameters<Transcribe>[0][] = [];
 	const recording = async (
 		stem: string,
@@ -185,28 +187,26 @@ async function history(
 		'Second take, cleaner. Ideas for the garden layout and the path.\n',
 	);
 
-	const session: Session = expectOk(
-		await openSession(async () =>
-			Ok({
-				...test.workspace,
-				folder: folderOf(test.workspace.folder),
-				async transcribe(request) {
-					sent.push(request);
-					return transcribe
-						? transcribe(request)
-						: Ok({ text: `words from ${request.audioPath}` });
-				},
-			}),
-		),
-	);
+	const whispering = await openTestWhispering({
+		folder: folderOf(test.folder),
+		workspace: {
+			...test.workspace,
+			async transcribe(request) {
+				sent.push(request);
+				return transcribe
+					? transcribe(request)
+					: Ok({ text: `words from ${request.audioPath}` });
+			},
+		},
+	});
 	cleanups.push(async () => {
-		await session.close();
+		await closeTestWhispering(whispering);
 		await test.remove();
 	});
 	return {
-		session,
-		library: session.library,
-		view: session.view,
+		whispering,
+		library: whispering.library,
+		view: whispering.view,
 		sent,
 		root: test.root,
 	};
@@ -216,7 +216,7 @@ const path = (stem: string) => `recordings/${stem}.md`;
 const stems = (rows: readonly { entry: { stem: string } }[]) =>
 	rows.map((row) => row.entry.stem);
 /** One recording's row as the table has it now. */
-function rowOf(library: Session['library'], stem: string) {
+function rowOf(library: Whispering['library'], stem: string) {
 	const row = shownRows(library, '', DEFAULT_SORT).find(
 		(item) => item.entry.stem === stem,
 	);
@@ -715,8 +715,8 @@ test('typing over a transcript changed outside, before the window read it again,
 	expect(library.selectedPath).toBe(path('standup'));
 });
 
-test('closing the details and changing page lose no typing: the draft is the session’s and saves as typed', async () => {
-	const { session, library, view, root } = await history();
+test('closing the details and changing page lose no typing: the draft belongs to the app and saves as typed', async () => {
+	const { whispering, library, view, root } = await history();
 	await library.open(path('standup'));
 	view.showingDetail = true;
 	const draft = transcriptEditor(library, TRANSCRIPT);
@@ -727,10 +727,10 @@ test('closing the details and changing page lose no typing: the draft is the ses
 
 	// Closing the pane, then a change of page: neither unloads the document.
 	view.showingDetail = false;
-	expect(session.blocksNavigation({ willUnload: false })).toBe(false);
+	expect(whispering.blocksNavigation({ willUnload: false })).toBe(false);
 	expect(library.selectedPath).toBe(path('standup'));
 	// Leaving the app is what is held back while the save runs.
-	expect(session.blocksNavigation({ willUnload: true })).toBe(true);
+	expect(whispering.blocksNavigation({ willUnload: true })).toBe(true);
 
 	await settle(library);
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
@@ -806,7 +806,7 @@ test('a selected recording that left the folder is unticked once a listing confi
 
 test('nothing is opened or read after closing', async () => {
 	const reads: string[] = [];
-	const { session, library } = await history(undefined, (folder) => {
+	const { whispering, library } = await history(undefined, (folder) => {
 		const { files } = folder;
 		return replaceTables(
 			folder,
@@ -821,7 +821,7 @@ test('nothing is opened or read after closing', async () => {
 		);
 	});
 	await library.open(path('standup'));
-	await session.close();
+	await closeTestWhispering(whispering);
 	expect(library.closing).toBe(true);
 	const before = reads.length;
 	await library.open('transcriptions/walk-t2.md');
@@ -831,12 +831,12 @@ test('nothing is opened or read after closing', async () => {
 });
 
 test('typing in a transcript that was opened before closing is saved before the folder closes', async () => {
-	const { session, library, root } = await history();
+	const { whispering, library, root } = await history();
 	transcriptEditor(library, TRANSCRIPT).edit((row) => {
 		row.body = 'Typed just before quitting.\n';
 	});
 
-	await session.close();
+	await closeTestWhispering(whispering);
 
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
 		'Typed just before quitting.',
@@ -845,7 +845,9 @@ test('typing in a transcript that was opened before closing is saved before the 
 
 test('closing while several are being transcribed sends nothing more: the one under way ends as it ends, the rest are reported as not sent', async () => {
 	const first = deferred<Awaited<ReturnType<Transcribe>>>();
-	const { session, library, sent, root } = await history(() => first.promise);
+	const { whispering, library, sent, root } = await history(
+		() => first.promise,
+	);
 
 	const running = transcribeRows(library, [
 		path('dentist'),
@@ -858,7 +860,7 @@ test('closing while several are being transcribed sends nothing more: the one un
 		'audio/dentist.wav',
 	]);
 
-	await session.close();
+	await closeTestWhispering(whispering);
 	first.resolve(Ok({ text: 'arrived after the close' }));
 	const outcome = await running;
 
@@ -878,7 +880,7 @@ test('closing while several are being transcribed sends nothing more: the one un
 	]);
 	// The one that was sent is not called transcribed: its answer arrived
 	// after the folder closed, so its file could not be written. Its row stays
-	// without a body, unfinished on the next open. The session released what
+	// without a body, unfinished on the next open. The app released what
 	// it listed when it closed, so the row is read from disk.
 	expect(outcome.transcribed).toEqual([]);
 	expect(outcome.failed.map((item) => item.title)).toEqual([

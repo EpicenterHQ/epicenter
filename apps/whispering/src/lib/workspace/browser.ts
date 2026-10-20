@@ -7,10 +7,9 @@
  * the endpoint must allow this origin.
  *
  * The opener is the browser one, named explicitly. It refuses inside a
- * desktop app, when browser storage cannot be opened, and when this browser
- * still holds an earlier version's recordings, which it leaves untouched.
- * Any refusal is what the person is shown: nothing else is opened in its
- * place.
+ * desktop app or when browser storage cannot be opened. Older OPFS
+ * recordings are left untouched and are not read by this opener. A refusal
+ * is shown without opening different storage in its place.
  */
 import { openFolder } from '@epicenter/folder/browser';
 import { Err, Ok } from 'wellcrafted/result';
@@ -37,7 +36,7 @@ import {
 } from '../transformation.js';
 import { createWebViewMicrophone } from '../webview-microphone.js';
 import { localPreferences } from './microphone-preference.js';
-import { type OpenWorkspace, WorkspaceError } from './types.js';
+import type { CreateWorkspace, OpenWhisperingFolder } from './types.js';
 
 /** This tab's two connections, keys included, as one JSON object. */
 const CONNECTIONS_STORAGE = 'whispering.connections';
@@ -100,90 +99,81 @@ function wantsToneFixture(): boolean {
 }
 
 /** The `#platform/workspace` leaf of every build Epicenter does not serve. */
-export const openWorkspace: OpenWorkspace = async () => {
-	const { data: folder, error: openError } = await openFolder({
-		tables: whisperingTables,
-	});
-	if (openError !== null)
-		return WorkspaceError.BrowserFolder({ refusal: openError });
+export const openWhisperingFolder: OpenWhisperingFolder = () =>
+	openFolder({ tables: whisperingTables });
 
-	return Ok({
-		kind: 'browser',
-		folder,
-		location: 'This browser’s storage for this site',
-		capture: wantsToneFixture()
-			? createFixtureDevice({
-					name: 'generated tone',
-					load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
-				})
-			: createWebViewMicrophone(),
-		captureNotice: undefined,
-		transcribe: (request) =>
-			transcribeOverConnection(
-				async () => storedConnection('transcription'),
-				request,
-				async () => {
-					const { audioPath } = request;
-					const { data: bytes, error: readError } = await readBytes(
-						folder,
-						audioPath,
-					);
-					if (readError !== null) return Err(readError);
-					return Ok({
-						bytes,
-						filename: audioPath.slice(audioPath.lastIndexOf('/') + 1),
-						mimeType: audioMimeTypeOf(audioPath) ?? 'application/octet-stream',
-					});
-				},
-			),
-		async transform(request) {
-			const answered = await transformOverConnection(
-				async () => storedConnection('text'),
-				request,
-			);
-			// A browser reports a refused cross-origin request only as a failed
-			// fetch, so say what a tab needs that the desktop app does not.
-			const { error: transformError } = answered;
-			if (transformError?.name === 'Unreachable')
-				return TransformationError.Unreachable({
-					url: transformError.url,
-					reason: `${transformError.reason}. In a browser tab the endpoint must allow requests from ${location.origin} (CORS). Whispering in Epicenter sends from Epicenter and has no such limit`,
+export const createWorkspace: CreateWorkspace = (folder) => ({
+	kind: 'browser',
+	location: 'This browser’s storage for this site',
+	capture: wantsToneFixture()
+		? createFixtureDevice({
+				name: 'generated tone',
+				load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
+			})
+		: createWebViewMicrophone(),
+	recoverRecordings: async () => undefined,
+	transcribe: (request) =>
+		transcribeOverConnection(
+			async () => storedConnection('transcription'),
+			request,
+			async () => {
+				const { audioPath } = request;
+				const { data: bytes, error: readError } = await readBytes(
+					folder,
+					audioPath,
+				);
+				if (readError !== null) return Err(readError);
+				return Ok({
+					bytes,
+					filename: audioPath.slice(audioPath.lastIndexOf('/') + 1),
+					mimeType: audioMimeTypeOf(audioPath) ?? 'application/octet-stream',
 				});
-			return answered;
-		},
-		transformNote: `Requests are sent from this browser tab over the text connection in Settings, so its endpoint must allow requests from ${location.origin} (CORS). Most hosted providers refuse that; a local endpoint or Whispering in Epicenter works.`,
-		localTranscription: undefined,
-		// One synchronous read and write per change, so a key never sits beside
-		// a base URL it was not saved for.
-		connections: {
-			storedIn: 'this browser’s local storage for this site',
-			defaults: {
-				transcription: DEFAULT_TRANSCRIPTION_CONNECTION,
-				text: { baseUrl: DEFAULT_TRANSCRIPTION_CONNECTION.baseUrl, model: '' },
 			},
-			read: async () => readConnections(),
-			async set(operation, change) {
-				try {
-					const stored = storedConnections();
-					const { data: next, error: changeError } = applyConnectionChange(
-						operation,
-						storedConnection(operation),
-						change,
-					);
-					if (changeError !== null) return Err(changeError);
-					localStorage.setItem(
-						CONNECTIONS_STORAGE,
-						JSON.stringify({ ...stored, [operation]: next }),
-					);
-					return Ok(readConnections());
-				} catch (cause) {
-					return Err(describe(cause));
-				}
-			},
+		),
+	async transform(request) {
+		const answered = await transformOverConnection(
+			async () => storedConnection('text'),
+			request,
+		);
+		// A browser reports a refused cross-origin request only as a failed
+		// fetch, so say what a tab needs that the desktop app does not.
+		const { error: transformError } = answered;
+		if (transformError?.name === 'Unreachable')
+			return TransformationError.Unreachable({
+				url: transformError.url,
+				reason: `${transformError.reason}. In a browser tab the endpoint must allow requests from ${location.origin} (CORS). Whispering in Epicenter sends from Epicenter and has no such limit`,
+			});
+		return answered;
+	},
+	transformNote: `Requests are sent from this browser tab over the text connection in Settings, so its endpoint must allow requests from ${location.origin} (CORS). Most hosted providers refuse that; a local endpoint or Whispering in Epicenter works.`,
+	localTranscription: undefined,
+	// One synchronous read and write per change, so a key never sits beside
+	// a base URL it was not saved for.
+	connections: {
+		storedIn: 'this browser’s local storage for this site',
+		defaults: {
+			transcription: DEFAULT_TRANSCRIPTION_CONNECTION,
+			text: { baseUrl: DEFAULT_TRANSCRIPTION_CONNECTION.baseUrl, model: '' },
 		},
-		preferences: localPreferences,
-		close: async () => {
-			await folder.close();
+		read: async () => readConnections(),
+		async set(operation, change) {
+			try {
+				const stored = storedConnections();
+				const { data: next, error: changeError } = applyConnectionChange(
+					operation,
+					storedConnection(operation),
+					change,
+				);
+				if (changeError !== null) return Err(changeError);
+				localStorage.setItem(
+					CONNECTIONS_STORAGE,
+					JSON.stringify({ ...stored, [operation]: next }),
+				);
+				return Ok(readConnections());
+			} catch (cause) {
+				return Err(describe(cause));
+			}
 		},
-	});
-};
+	},
+	preferences: localPreferences,
+});

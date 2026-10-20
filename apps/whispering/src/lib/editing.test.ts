@@ -29,6 +29,8 @@
  *   results, keeping its audio
  * - Close waits for a save being written
  */
+import { closeTestLibrary, openTestLibrary } from './library.test-support.js';
+
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
@@ -43,7 +45,7 @@ import {
 } from './edits.test-support.js';
 import { readBytes } from './files.js';
 import type { Library } from './library.svelte.js';
-import { openTestLibrary } from './library.test-support.js';
+
 import {
 	openGatedTestFolder,
 	openTestWorkspace,
@@ -54,7 +56,7 @@ const opened: { library: Library; remove: () => Promise<void> }[] = [];
 
 afterEach(async () => {
 	for (const { library, remove } of opened.splice(0)) {
-		await library.close();
+		await closeTestLibrary(library);
 		await remove();
 	}
 });
@@ -98,7 +100,7 @@ async function open() {
 	const root = await whisperingDirectory('whispering-editing-');
 	const { folder, control } = gated(root);
 	const fixture = await openTestWorkspace({ folder });
-	const library = await openTestLibrary(fixture.workspace);
+	const library = await openTestLibrary(fixture);
 	opened.push({
 		library,
 		remove: async () => {
@@ -192,7 +194,7 @@ test('a field typed is saved; the listing takes the saved row, and the audio lin
 	expect(library.isSaving(editor.path)).toBe(false);
 	expect(library.unsaved).toBe(false);
 	// The audio is exactly what was recorded.
-	expect(expectOk(await readBytes(library.folder, audioPath)).length).toBe(
+	expect(expectOk(await readBytes(library.local.folder, audioPath)).length).toBe(
 		32044,
 	);
 });
@@ -339,6 +341,29 @@ test('Discard lets go of typing that did not save, hands it back, and leaves the
 	expect(await text(root, editor.path)).toBe(before);
 });
 
+test('discarded field input preserves removals, literal values and the body for copying', async () => {
+	const { library, root, failWrites } = await open();
+	const editor = await record(library);
+	const before = await text(root, editor.path);
+	const observed = library.rowSource('recordings', editor.path)!;
+	const edit = library.local.folder.tables.recordings.edit(observed.id);
+	failWrites(editor.path);
+	expect(edit.change(observed, {
+		fields: { title: '[remove field]', durationMs: undefined },
+		body: 'Kept notes.\n',
+	})).toBe(true);
+	await edit.save();
+
+	expect(JSON.parse(library.discard(editor.path)!)).toEqual({
+		set: { title: '[remove field]' },
+		remove: ['durationMs'],
+		body: 'Kept notes.\n',
+	});
+	expect(edit.pending).toBeUndefined();
+	expect(await text(root, editor.path)).toBe(before);
+	failWrites();
+});
+
 test('typing into a recording deleted elsewhere brings its row back: an unseen deletion never erases an edit', async () => {
 	const { library, root } = await open();
 	const editor = await record(library);
@@ -370,7 +395,7 @@ test('a recording deleted elsewhere with nothing typed stays deleted, and its au
 	expect(library.entries).toEqual([]);
 	expect(library.selection).toBeUndefined();
 	expect(await text(root, path)).toBeUndefined();
-	expect(expectOk(await readBytes(library.folder, audioPath)).length).toBe(
+	expect(expectOk(await readBytes(library.local.folder, audioPath)).length).toBe(
 		32044,
 	);
 });
@@ -532,7 +557,7 @@ test('a deletion saves the typing first, then removes the recording and its resu
 	await settle(library);
 	expect(await text(root, path)).toBeUndefined();
 	expect(await text(root, result.path)).toBeUndefined();
-	expect(expectOk(await readBytes(library.folder, audioPath)).length).toBe(
+	expect(expectOk(await readBytes(library.local.folder, audioPath)).length).toBe(
 		32044,
 	);
 	expect(library.entries).toEqual([]);
@@ -570,7 +595,7 @@ test('close waits for a save being written, and it lands before the folder close
 	});
 	await held;
 	let closed = false;
-	const closing = library.close().then(() => {
+	const closing = closeTestLibrary(library).then(() => {
 		closed = true;
 	});
 	await Bun.sleep(10);

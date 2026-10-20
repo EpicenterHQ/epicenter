@@ -263,7 +263,7 @@ export async function openTestWorkspace({
 	folder: given,
 }: TestWorkspaceOptions = {}) {
 	const root = await whisperingDirectory('whispering-workspace-');
-	const folder = given ?? (await openTestFolder(root));
+	let folder = given ?? (await openTestFolder(root));
 	const failures: ResultFailures = {
 		starts: failResultStarts,
 		answers: failAnswerWrites,
@@ -275,25 +275,28 @@ export async function openTestWorkspace({
 	let opens = 0;
 	let closes = 0;
 
+	folder = replaceTables(folder, {
+		transcriptions: withResultFailures(folder.tables.transcriptions, failures),
+		transformation_runs: withResultFailures(
+			folder.tables.transformation_runs,
+			failures,
+		),
+		text_runs: withResultFailures(folder.tables.text_runs, failures),
+	});
+	const closeFolder = folder.close.bind(folder);
+	folder.close = async () => {
+		closes++;
+		return await closeFolder();
+	};
 	const workspace: Workspace = {
 		kind: 'native',
-		folder: replaceTables(folder, {
-			transcriptions: withResultFailures(
-				folder.tables.transcriptions,
-				failures,
-			),
-			transformation_runs: withResultFailures(
-				folder.tables.transformation_runs,
-				failures,
-			),
-			text_runs: withResultFailures(folder.tables.text_runs, failures),
-		}),
+
 		location: root,
 		capture: createFixtureDevice({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
-		captureNotice: undefined,
+		recoverRecordings: async () => undefined,
 		// Each stub decides the connection as the host does, at entry, and only a
 		// request that would go out is counted as sent.
 		async transcribe(request) {
@@ -339,21 +342,18 @@ export async function openTestWorkspace({
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
 		},
-		async close() {
-			closes += 1;
-			await folder.close();
-		},
 	};
 
 	return {
 		root,
+		folder,
 		workspace,
 		/** Result row writes still to fail; a test may arm more. */
 		failures,
-		/** What `openSession` is given: it counts how many times a folder was opened. */
+		/** What `FolderApp` is given: it counts how many times a folder was opened. */
 		open: async () => {
 			opens += 1;
-			return Ok(workspace);
+			return Ok(folder);
 		},
 		/** Every transformation request the endpoint stub received, in order. */
 		transformed,

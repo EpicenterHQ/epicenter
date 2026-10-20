@@ -13,7 +13,7 @@
  * sources, so a violation names its file.
  *
  * The same reading establishes who owns the folder: the app layout opens one
- * session, and pages only receive it.
+ * whispering, and pages only receive it.
  */
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -146,13 +146,14 @@ test('the page imports no Yjs store, sync, history, or account module', () => {
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
 				// Rows are edited through the local folder context's cache and the
-				// folder's edit handles (ADR-0528, ADR-0632): no edit session,
+				// folder's edit handles (ADR-0528, ADR-0632): no edit whispering,
 				// open-item slot, admission, or save bar. The other shared views are
 				// the header status and the failed-save toast.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
 						'@epicenter/svelte/edits',
 						'@epicenter/svelte/folder',
+						'@epicenter/svelte/folder-app',
 						'@epicenter/svelte/folder-queries',
 						'@epicenter/svelte/write-failure',
 						'@epicenter/svelte/write-failure-toast',
@@ -175,26 +176,35 @@ function callers(name: string) {
 	return files.filter((file) => call.test(file.text)).map((file) => file.path);
 }
 
-test('the app layout is the only place a session is opened', () => {
-	// One folder for the mounted layout, kept across its routes: no page or
-	// component opens a workspace or builds product state of its own.
-	expect(callers('mountSession')).toEqual(['routes/+layout.svelte']);
-	expect(callers('openSession')).toEqual(['lib/session.svelte.ts']);
-	expect(callers('createSession')).toEqual(['lib/session.svelte.ts']);
-	expect(callers('createLibrary')).toEqual(['lib/session.svelte.ts']);
-	// `openSession` takes the opener as a value; nothing else calls it.
-	expect(callers('openWorkspace')).toEqual([]);
+test('FolderApp owns the folder and WhisperingApp owns product state', () => {
+	expect(callers('createWhispering')).toEqual([
+		'routes/components/WhisperingApp.svelte',
+	]);
+	expect(callers('createLibrary')).toEqual(['lib/whispering.svelte.ts']);
+	expect(callers('createFolderContext')).toEqual([]);
+	expect(callers('createWorkspace')).toEqual(['routes/+layout.svelte']);
+	expect(callers('openWhisperingFolder')).toEqual([]);
+	expect(importers((s) => s === '@epicenter/svelte/folder-app')).toEqual([
+		'routes/+layout.svelte imports @epicenter/svelte/folder-app',
+		'routes/components/test-fixtures/WhisperingRoot.svelte imports @epicenter/svelte/folder-app',
+	]);
+	expect(callers('setFolder')).toEqual([
+		'routes/components/WhisperingApp.svelte',
+		'routes/components/test-fixtures/SelectionHost.svelte',
+	]);
 });
 
-test('every page takes the session from context, and only the app root guards navigation', () => {
+test('every page takes product state from context, and only the app root guards navigation', () => {
 	const pages = files.filter((file) => /\+page\.svelte$/.test(file.path));
 	expect(pages.map((file) => file.path).sort()).toEqual([
 		'routes/+page.svelte',
 		'routes/recordings/+page.svelte',
 		'routes/transformations/+page.svelte',
 	]);
-	for (const file of pages) expect(file.text).toContain('getSession()');
-	expect(callers('setSession')).toEqual(['routes/components/WhisperingApp.svelte']);
+	for (const file of pages) expect(file.text).toContain('getWhispering()');
+	expect(callers('setWhispering')).toEqual([
+		'routes/components/WhisperingApp.svelte',
+	]);
 	expect(callers('beforeNavigate')).toEqual([
 		'routes/components/WhisperingApp.svelte',
 	]);

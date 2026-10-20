@@ -82,13 +82,17 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 	getCurrentWebviewWindow: () => ({ listen: async () => () => {} }),
 }));
 
-const { openWorkspace: openBrowserWorkspace } = await import('./browser.js');
-const { openDesktopWorkspace, openWorkspace } = await import('./desktop.js');
+const { openWhisperingFolder: openBrowserFolder } = await import(
+	'./browser.js'
+);
+const { createDesktopWorkspace, openWhisperingFolder } = await import(
+	'./desktop.js'
+);
 
 const ORIGIN = 'epicenter-app://localhost';
 const ENDPOINT = 'http://127.0.0.1:18080/v1';
 
-const cleanups: (() => Promise<void> | void)[] = [];
+const cleanups: (() => unknown)[] = [];
 
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -145,9 +149,19 @@ const noCommands: LocalTranscriptionCommands = {
 };
 
 /** The desktop workspace over the scripted shell. */
-const openDesktop = (
-	options: Parameters<typeof openDesktopWorkspace>[0] = {},
-) => openDesktopWorkspace({ commands: noCommands, ...options });
+async function openDesktop(
+	options: Parameters<typeof createDesktopWorkspace>[1] = {},
+) {
+	const folder = expectOk(await openWhisperingFolder());
+	cleanups.push(() => folder.close());
+	return {
+		folder,
+		workspace: createDesktopWorkspace(folder, {
+			commands: noCommands,
+			...options,
+		}),
+	};
+}
 
 /** Whether a command named a folder, a root, or a window. */
 const namesAFolder = (call: Call) =>
@@ -337,11 +351,8 @@ const openWith = (host: Epicenter) =>
 
 test('the browser workspace refuses inside a desktop app, and opens nothing in its place', async () => {
 	setup();
-	const inside = expectErr(await openBrowserWorkspace());
-	expect(inside.name).toBe('BrowserFolder');
-	if (inside.name === 'BrowserFolder')
-		expect(inside.refusal.name).toBe('InsideTauri');
-	expect(inside.message).toContain('Browser storage is not used');
+	const inside = expectErr(await openBrowserFolder());
+	expect(inside.name).toBe('InsideTauri');
 	expect(calls).toEqual([]);
 });
 
@@ -353,7 +364,7 @@ test('the page opens its window folder naming no folder, and opening writes noth
 	setup();
 	const { root } = await granted();
 
-	const workspace = expectOk(await openWorkspace());
+	const { workspace, folder: workspaceFolder } = await openDesktop();
 
 	// The window opens the folder bound to it; no root, scope, author, or branch.
 	expect(calls[0]).toEqual({ cmd: 'open_folder', args: {} });
@@ -363,7 +374,7 @@ test('the page opens its window folder naming no folder, and opening writes noth
 	expect(workspace.capture.source).toBe('microphone');
 	// No declaration, ignore file, or repository is made.
 	expect(await readdir(root)).toEqual([]);
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 test('a refusal from the shell is returned, and nothing is opened in its place', async () => {
@@ -381,13 +392,11 @@ test('a refusal from the shell is returned, and nothing is opened in its place',
 			throw refusal;
 		};
 
-		const refused = expectErr(await openWorkspace());
+		const refused = expectErr(await openWhisperingFolder());
 
-		expect(refused.name).toBe('DesktopFolder');
-		if (refused.name === 'DesktopFolder')
-			expect<string>(refused.refusal.name).toBe(
-				typeof refusal === 'string' ? 'Unavailable' : refusal.name,
-			);
+		expect<string>(refused.name).toBe(
+			typeof refusal === 'string' ? 'Unavailable' : refusal.name,
+		);
 		expect(calls.map((call) => call.cmd)).toEqual(['open_folder']);
 	}
 });
@@ -396,7 +405,7 @@ test('a refusal from the shell is returned, and nothing is opened in its place',
 // The folder is the shell's
 // ============================================================================
 
-test('opening repairs the recordings a quit cut off, and a repair that fails is the capture notice', async () => {
+test('recovery repairs recordings a quit cut off and reports a repair failure', async () => {
 	setup();
 	const granting = await granted();
 	const invoke = granting.invoke;
@@ -410,33 +419,37 @@ test('opening repairs the recordings a quit cut off, and a repair that fails is 
 		return [];
 	};
 
-	const repaired = expectOk(await openDesktop());
+	const { workspace: repaired, folder: repairedFolder } = await openDesktop();
 	// The recorder repairs the window's folder; the page names none.
+	expect(asked).toEqual([]);
+	const notice = await repaired.recoverRecordings();
 	expect(asked).toEqual([{ under: 'audio' }]);
-	expect(repaired.captureNotice).toBeUndefined();
-	await repaired.close();
+	expect(notice).toBeUndefined();
+	await repairedFolder.close();
 
 	refuse = true;
-	const unrepaired = expectOk(await openDesktop());
-	expect(unrepaired.captureNotice).toContain('could not be checked');
-	expect(unrepaired.captureNotice).toContain('the disk is gone');
-	await unrepaired.close();
+	const { workspace: unrepaired, folder: unrepairedFolder } =
+		await openDesktop();
+	const refusedNotice = await unrepaired.recoverRecordings();
+	expect(refusedNotice).toContain('could not be checked');
+	expect(refusedNotice).toContain('the disk is gone');
+	await unrepairedFolder.close();
 });
 
 test('saves go through the shell: audio lands as its exact bytes, and a row as text', async () => {
 	setup();
 	const { root } = await granted();
-	const workspace = expectOk(await openDesktop());
+	const { workspace, folder: workspaceFolder } = await openDesktop();
 	const audio = new Uint8Array([1, 2, 3, 0, 255]);
 
-	expectOk(await workspace.folder.files.write('audio/a.wav', null, audio));
+	expectOk(await workspaceFolder.files.write('audio/a.wav', null, audio));
 	expectOk(
-		await workspace.folder.tables.transformations.set('clean', null, {
+		await workspaceFolder.tables.transformations.set('clean', null, {
 			fields: { title: 'Clean up', model: null },
 			body: 'Tidy.\n',
 		}),
 	);
-	expect(expectOk(await workspace.folder.files.read('missing.md'))).toBe(
+	expect(expectOk(await workspaceFolder.files.read('missing.md'))).toBe(
 		undefined,
 	);
 
@@ -449,13 +462,13 @@ test('saves go through the shell: audio lands as its exact bytes, and a row as t
 	expect(new Uint8Array(await readFile(join(root, 'audio', 'a.wav')))).toEqual(
 		audio,
 	);
-	expect(expectOk(await readBytes(workspace.folder, 'audio/a.wav'))).toEqual(
+	expect(expectOk(await readBytes(workspaceFolder, 'audio/a.wav'))).toEqual(
 		audio,
 	);
 	expect(
 		await readFile(join(root, 'transformations', 'clean.md'), 'utf8'),
 	).toContain('title: Clean up');
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 test('a row save whose reply the shell never sent is confirmed by what landed, and is not reported saved when that cannot be read', async () => {
@@ -463,8 +476,8 @@ test('a row save whose reply the shell never sent is confirmed by what landed, a
 	const granting = await granted();
 	const PATH = 'transformations/clean.md';
 	await granting.write(PATH, '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
-	const workspace = expectOk(await openDesktop());
-	const table = workspace.folder.tables.transformations;
+	const { workspace, folder: workspaceFolder } = await openDesktop();
+	const table = workspaceFolder.tables.transformations;
 	const stored = expectOk(await table.get('clean'))!;
 
 	// The shell writes, and its reply never reaches the page. The page reads
@@ -492,7 +505,7 @@ test('a row save whose reply the shell never sent is confirmed by what landed, a
 	granting.control.failReads.delete(PATH);
 	const landed = expectOk(await table.get('clean'));
 	expect(landed?.body).toBe('Tidy it again.\n');
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 // ============================================================================
@@ -503,7 +516,7 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	setup();
 	await granted();
 	const host = await epicenter();
-	const first = expectOk(await openWith(host));
+	const { workspace: first, folder: firstFolder } = await openWith(host);
 	expect(await first.connections.read()).toEqual({
 		transcription: undefined,
 		text: undefined,
@@ -550,10 +563,10 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	expect(
 		JSON.parse((await host.keychain.get('whispering-text'))!).endpoint,
 	).toBe(ENDPOINT);
-	await first.close();
+	await firstFolder.close();
 
 	// Another window reads the same row; removing the key keeps the endpoint.
-	const second = expectOk(await openWith(host));
+	const { workspace: second, folder: secondFolder } = await openWith(host);
 	expect((await second.connections.read()).text?.keyPresent).toBe(true);
 	const removed = expectOk(
 		await second.connections.set('text', {
@@ -574,14 +587,14 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	expect(
 		await readFile(join(host.root, 'connections/whispering-text.md'), 'utf8'),
 	).toContain('title: Whispering text');
-	await second.close();
+	await secondFolder.close();
 
 	// A row synced from another computer is not set up here until this
 	// computer saves its endpoint.
 	await host.keychain.delete('whispering-text');
-	const third = expectOk(await openWith(host));
+	const { workspace: third, folder: thirdFolder } = await openWith(host);
 	expect((await third.connections.read()).text).toBeUndefined();
-	await third.close();
+	await thirdFolder.close();
 });
 
 test('a connection row that does not read is reported, never taken for none', async () => {
@@ -593,7 +606,7 @@ test('a connection row that does not read is reported, never taken for none', as
 		join(host.root, 'connections/whispering-text.md'),
 		'---\nkind: [open\n---\n',
 	);
-	const workspace = expectOk(await openWith(host));
+	const { workspace, folder: workspaceFolder } = await openWith(host);
 
 	await expect(workspace.connections.read()).rejects.toThrow(
 		'connections/whispering-text.md does not read as a connection',
@@ -609,14 +622,14 @@ test('a connection row that does not read is reported, never taken for none', as
 	expect(
 		await readFile(join(host.root, 'connections/whispering-text.md'), 'utf8'),
 	).toBe('---\nkind: [open\n---\n');
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 test('an edit Settings saved while Whispering saved a connection is kept beside Whispering’s', async () => {
 	setup();
 	await granted();
 	const host = await epicenter();
-	const workspace = expectOk(await openWith(host));
+	const { workspace, folder: workspaceFolder } = await openWith(host);
 	const change = (model: string) => ({
 		baseUrl: ENDPOINT,
 		model,
@@ -649,14 +662,14 @@ test('an edit Settings saved while Whispering saved a connection is kept beside 
 	expect(text).toContain('title: Renamed in Settings');
 	expect(text).toContain('note: kept');
 	expect(text).toContain('model: second-model');
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 test('a connection save whose reply Epicenter never delivered is not reported as saved', async () => {
 	setup();
 	await granted();
 	const host = await epicenter();
-	const workspace = expectOk(await openWith(host));
+	const { workspace, folder: workspaceFolder } = await openWith(host);
 	host.loseSave(true);
 
 	const lost = await workspace.connections.set('text', {
@@ -671,7 +684,7 @@ test('a connection save whose reply Epicenter never delivered is not reported as
 	// Reading again shows what landed.
 	host.loseSave(false);
 	expect((await workspace.connections.read()).text?.model).toBe('chat-model');
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 test('a transcription reads the audio through the shell and Epicenter sends it with the key, only while the connection is the one it was prepared for', async () => {
@@ -679,7 +692,7 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 	const granting = await granted();
 	await granting.write('audio/take.wav', toneWav());
 	const host = await epicenter();
-	const workspace = expectOk(await openWith(host));
+	const { workspace, folder: workspaceFolder } = await openWith(host);
 	const request = {
 		audioPath: 'audio/take.wav',
 		expectedBaseUrl: ENDPOINT,
@@ -734,7 +747,7 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 	});
 	expect(unreadable?.name).toBe('AudioUnreadable');
 	expect(host.provider).toHaveLength(1);
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 test('a reply Epicenter never delivered is reported as unknown, never as not sent, and nothing is sent again', async () => {
@@ -742,7 +755,7 @@ test('a reply Epicenter never delivered is reported as unknown, never as not sen
 	const granting = await granted();
 	await granting.write('audio/take.wav', toneWav());
 	const host = await epicenter();
-	const workspace = expectOk(await openWith(host));
+	const { workspace, folder: workspaceFolder } = await openWith(host);
 	for (const operation of ['transcription', 'text'] as const)
 		expectOk(
 			await workspace.connections.set(operation, {
@@ -785,7 +798,7 @@ test('a reply Epicenter never delivered is reported as unknown, never as not sen
 		text: 'A steady tone.',
 	});
 	expect(host.provider).toHaveLength(3);
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 // ============================================================================
@@ -796,16 +809,16 @@ test('the chosen microphone is kept in the origin’s storage and survives a new
 	const stored = setup();
 	await granted();
 	const usb = { deviceId: 'usb-id', label: 'USB Microphone' };
-	const first = expectOk(await openDesktop());
+	const { workspace: first, folder: firstFolder } = await openDesktop();
 	expect(await first.preferences.microphone()).toBeUndefined();
 	expect(await first.preferences.setMicrophone(usb)).toBeUndefined();
-	await first.close();
+	await firstFolder.close();
 
-	const second = expectOk(await openDesktop());
+	const { workspace: second, folder: secondFolder } = await openDesktop();
 	expect(await second.preferences.microphone()).toEqual(usb);
 	expect(await second.preferences.setMicrophone(undefined)).toBeUndefined();
 	expect(stored.has('whispering.microphone')).toBe(false);
-	await second.close();
+	await secondFolder.close();
 });
 
 // ============================================================================
@@ -869,7 +882,9 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 	const granting = await granted();
 	await granting.write('audio/take.wav', toneWav());
 	const local = localModel({ active: 'parakeet-tdt-0.6b-v3' });
-	const workspace = expectOk(await openDesktop({ commands: local.commands }));
+	const { workspace, folder: workspaceFolder } = await openDesktop({
+		commands: local.commands,
+	});
 	const transcriber = workspace.localTranscription!;
 
 	expect(await transcriber.readiness()).toEqual({ ready: true });
@@ -889,7 +904,7 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 
 	await transcriber.openSettings();
 	expect(local.opened).toEqual(['transcription']);
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 test('with no active local model nothing is transcribed, and the reason names Settings', async () => {
@@ -897,7 +912,9 @@ test('with no active local model nothing is transcribed, and the reason names Se
 	const granting = await granted();
 	await granting.write('audio/take.wav', toneWav());
 	const local = localModel({ active: undefined });
-	const workspace = expectOk(await openDesktop({ commands: local.commands }));
+	const { workspace, folder: workspaceFolder } = await openDesktop({
+		commands: local.commands,
+	});
 	const transcriber = workspace.localTranscription!;
 
 	expect(await transcriber.readiness()).toEqual({
@@ -908,7 +925,7 @@ test('with no active local model nothing is transcribed, and the reason names Se
 	expect(error?.name).toBe('ConnectionUnavailable');
 	expect(error?.message).toContain('Epicenter’s Settings');
 	expect(local.asked).toEqual([]);
-	await workspace.close();
+	await workspaceFolder.close();
 });
 
 test('a local model that fails is reported as that failure, and an empty recording is an empty transcript', async () => {
@@ -931,21 +948,25 @@ test('a local model that fails is reported as that failure, and an empty recordi
 		],
 	] as const) {
 		const local = localModel({ active: 'whisper-small', outcome });
-		const workspace = expectOk(await openDesktop({ commands: local.commands }));
+		const { workspace, folder: workspaceFolder } = await openDesktop({
+			commands: local.commands,
+		});
 		const { error } =
 			await workspace.localTranscription!.transcribe('audio/take.wav');
 		expect(error?.name).toBe(expected);
 		expect(error?.message).toContain(outcome.error.message);
-		await workspace.close();
+		await workspaceFolder.close();
 	}
 
 	const empty = localModel({
 		active: 'whisper-small',
 		outcome: { outcome: 'empty-audio' },
 	});
-	const workspace = expectOk(await openDesktop({ commands: empty.commands }));
+	const { workspace, folder: workspaceFolder } = await openDesktop({
+		commands: empty.commands,
+	});
 	expect(
 		expectOk(await workspace.localTranscription!.transcribe('audio/take.wav')),
 	).toEqual({ text: '', model: 'whisper-small' });
-	await workspace.close();
+	await workspaceFolder.close();
 });
