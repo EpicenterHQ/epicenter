@@ -19,10 +19,12 @@ not the default destination for the improvement.
 
 ## Establish the purpose and evidence
 
-Use [dialectic](../dialectic/SKILL.md) to develop the diagnosis with the user.
-Begin by articulating what they want this review to improve, drawing on their
-request and the available conversation. Establish shared intent before
-recommending changes.
+**Use [dialectic](../dialectic/SKILL.md) to develop a shared understanding of what
+went wrong before proposing skill changes.** Offer an explanation grounded in
+the conversation and the skills actually invoked. Let the user's reactions
+help locate and revise the diagnosis. Once that understanding is established,
+develop the corresponding skill change and show what it would produce. Revisit
+the diagnosis if considering the change exposes something it missed.
 
 Read the referenced conversation through the available conversation tools. For
 Codex chat references, use `read_thread` and follow pagination far enough to
@@ -51,11 +53,9 @@ or failure to apply guidance already present. **Loading a skill does not
 establish that it caused the mistake.** If the record cannot support attribution,
 keep the diagnosis provisional rather than assigning blame or adding a rule.
 
-Make the suspected cause and proposed remedy concrete enough for the user to
-correct. Show what the changed guidance would produce on the same request,
-using only context available at that turn. Their reaction may change the
-diagnosis, the responsible owner, or the proposed edit. Preserve what they
-recognize and synthesize the next attempt yourself.
+Make the suspected cause concrete enough for the user to correct. Their
+reaction may change the diagnosis or the responsible owner. Preserve what
+they recognize and synthesize the next attempt yourself.
 
 ## Improve the responsible skills
 
@@ -63,6 +63,9 @@ Use [agent-instructions](../agent-instructions/SKILL.md) to place and make the
 resulting skill edits. Prefer changing the existing owner and removing guidance
 that encouraged the failure over adding compensating rules. Do not spread the
 same lesson across every skill involved. Some findings warrant no skill change.
+
+Show what the changed guidance would produce on the same request, using only
+context available at that turn.
 
 **Show the actual skill changes and the behavioral consequence together.** For
 prose, show the exact wording changed; for scripts or configuration, show the
