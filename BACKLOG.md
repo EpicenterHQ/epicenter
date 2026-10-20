@@ -19,9 +19,9 @@ refining its internal API. Other product ideas below remain conditional.
 
 | Stage | Outcome | Continuation and finish |
 | --- | --- | --- |
-| Core design reviewed; implementation next | Framework-independent editing and revision-specific read acknowledgement | “Assess migration readiness”, `01a1591c-e525-7a03-9383-f126c140cef0`, owns the core. Honeycrisp's prerequisite landed in `640599af5b`. Preserve committed input for display after failed reads, without retrying successful writes or holding close on refresh. |
+| Implementation underway; not landed | Framework-independent editing core and framework bindings | “Clarify editor framework direction”, `01a159a0-8bc6-76f1-88a6-323f8fd98f63`, is implementing the core, bindings, and ADR. Standardize on its passive `.edit()` handles and explicit observed values. Preserve revision-specific read acknowledgement and the generic editor's acceptance contract below. |
 | Acceptance underway; migration follows the core | [One editing queue per path in the generic editor](#land-the-shared-editor-queue) | “Summarize app hosting vision”, `01a1589b-3f09-7b81-a529-44f8a37cd028`, owns generic-editor migration and acceptance. Preserve field/text transitions and the saved-view source fence; delete the separate queue only when the shared core replaces their behavior. |
-| Design reviewed | Passive edit handles and explicit observed source | “Clarify editor framework direction”, `01a159a0-8bc6-76f1-88a6-323f8fd98f63`. Proposed `.edit()` handles select identity and interpretation; shared reads supply the observed row or bytes explicitly. Avoid a competing read owner. Root context setup already landed. |
+| Reviewing alignment | Honeycrisp follows the shared edit-handle shape | “Assess migration readiness”, `01a1591c-e525-7a03-9383-f126c140cef0`, is checking the framework direction. Its prerequisite landed in `640599af5b`; coordinate with the implementation above rather than starting a parallel core extraction. |
 | Underway, independent | Shared file queries and path refresh | “Summarize Folder API demo”, `01a15760-42b7-76d2-8dc0-86c774ece1f1`, owns generated representation keys, shared readers, refresh matching, and removing app listeners. Coordinate refresh acknowledgement with the core owner; preserve pending input. |
 | Next | [Prove unfinished input survives failures and closing](#prove-unfinished-input-survives-failures-and-closing) | Recheck the editing changes above before starting; preserve any remaining recovery gap in their shared owner. |
 | Underway, independent | [Preserve local-only files during Git exchange](#preserve-local-only-files-during-git-exchange) and bound transfer costs | “Explain index CB and folder client”, `01a158ac-1ca5-75e2-94c2-4c220bd1eae8`, is implementing ordinary `.gitignore` semantics in Folder and declaration code. Keep queue changes out of that storage work. |
@@ -42,9 +42,19 @@ The remaining duplication is between
 [`createFileDrafts`](apps/epicenter/src/folders/drafts.svelte.ts) and
 [`createEdits`](packages/svelte/src/edits.svelte.ts).
 
-The user assigned core implementation to the Honeycrisp chat and generic-editor
-migration and acceptance to this chat. Query refresh stays with its existing
-owner. Reconcile overlapping context edits before staging. Land in this order:
+The framework-direction chat now implements the shared core and bindings.
+Honeycrisp contributes its migration and recovery requirements; this chat owns
+generic-editor migration and acceptance. Query refresh stays with its existing
+owner. Reconcile overlapping context edits before staging.
+
+Use passive `folder.tables.<table>.edit(id)` and `folder.files.edit(path)` handles.
+The JavaScript core accepts the observed row or bytes explicitly when changing
+input. Framework bindings supply that source: Svelte receives a reactive accessor,
+and React receives the value associated with its render. Keep shared reads
+separate; do not require a source getter or another snapshot object in the core.
+These are the agreed target shapes, not APIs currently available in Folder.
+
+Land in this order:
 
 1. The core owner captures its reproduced loss: a confirmed write followed by a
    failed reread exposes old text that later typing can overwrite. Distinguish
