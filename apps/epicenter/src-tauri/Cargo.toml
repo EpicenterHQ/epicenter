@@ -48,6 +48,9 @@ glob = "0.3"
 
 [dependencies]
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+# The folder save lock, which also takes turns on `folders.json` with any
+# other writer of it (`remembered_folders.rs`).
+epicenter-folder-core = { path = "../../../packages/tauri-plugin-epicenter-folder/core" }
 tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
 anyhow = "1"
 base64 = "0.22"
@@ -59,6 +62,7 @@ notify = "8"
 notify-debouncer-full = "0.5"
 percent-encoding = "2"
 rubato = "0.15"
+same-file = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

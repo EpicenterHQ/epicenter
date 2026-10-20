@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-accept-folder-opening"
+description = "Enables the accept_folder_opening command without any pre-configured scope."
+commands.allow = ["accept_folder_opening"]
+
+[[permission]]
+identifier = "deny-accept-folder-opening"
+description = "Denies the accept_folder_opening command without any pre-configured scope."
+commands.deny = ["accept_folder_opening"]

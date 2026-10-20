@@ -31,6 +31,13 @@
 	 * Nothing is installed, built, or approved, and the page passes only the
 	 * listed scope, never a path. The Settings button opens Settings with
 	 * `open_home`.
+	 *
+	 * Another app's "Open in Epicenter" shows here as a request naming a
+	 * directory (`openings.svelte.ts`, ADR-0646). Nothing reads it until the
+	 * person opens it; then the shell grants it to this window alone and
+	 * remembers it in `folders.json`. "Opened folders" lists what it
+	 * remembers, including folders that are not there now, which can be
+	 * forgotten. No bundled app is offered on them.
 	 */
 	import { openFolder } from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
@@ -46,6 +53,11 @@
 	import { createFolderSwitch } from './folder-switch.svelte';
 	import FolderView from './FolderView.svelte';
 	import { bundledOpeners, type Opener } from './openers.ts';
+	import {
+		createFolderOpenings,
+		FOLDER_OPENINGS_CHANGED,
+		folderName,
+	} from './openings.svelte';
 
 	const log = createLogger('epicenter/folders');
 
@@ -103,6 +115,17 @@
 		saved: (id, path) =>
 			queryClient.invalidateQueries({ queryKey: fileKey(id, path) }),
 	});
+
+	const openings = createFolderOpenings({ host: commands, current });
+
+	/** The name the open folder `id` is listed under. */
+	function titleOf(id: string) {
+		const listed = folders?.find((folder) => folder.id === id);
+		if (listed !== undefined) return listed.title;
+		const opened = openings.remembered?.folders.find((folder) => folder.id === id);
+		if (opened !== undefined) return folderName(opened.path);
+		return id.startsWith('opened:') ? 'Opened folder' : id;
+	}
 
 	const launcher = createLaunch();
 	/** Why Settings did not open, when it did not. */
@@ -180,9 +203,18 @@
 			DATA_FOLDERS_CHANGED,
 			() => void list(),
 		);
-		void list();
+		const stopRequests = getCurrentWebviewWindow().listen(
+			FOLDER_OPENINGS_CHANGED,
+			() => void openings.refresh(),
+		);
+		// Subscribe before the first read so a new request cannot arrive between
+		// the read and the listener becoming active.
+		void stopListing.then(() => list(), () => list());
+		void stopRequests.then(() => openings.refresh(), () => openings.refresh());
+		void openings.list();
 		return () => {
 			void stopListing.then((stop) => stop());
+			void stopRequests.then((stop) => stop());
 			void current.close().then((unsaved) => {
 				for (const draft of unsaved)
 					log.warn(
@@ -216,6 +248,51 @@
 				<Alert.Root variant="destructive">
 					<Alert.Title>Could not open</Alert.Title>
 					<Alert.Description>{launcher.failure ?? settingsProblem}</Alert.Description>
+				</Alert.Root>
+			</div>
+		{/if}
+		{#each openings.requests as path (path)}
+			<div class="px-3 pb-3">
+				<Alert.Root>
+					<Alert.Title>Open this folder?</Alert.Title>
+					<Alert.Description>
+						<p>
+							An app asked Epicenter to open
+							<span class="font-mono break-all">{path}</span>. Epicenter reads nothing
+							there until you open it.
+						</p>
+						<div class="mt-2 flex gap-2">
+							<Button
+								size="sm"
+								disabled={openings.accepting !== undefined}
+								onclick={() => void openings.accept(path)}
+							>
+								{openings.accepting === path ? 'Opening…' : 'Open'}
+							</Button>
+							<Button
+								variant="ghost"
+								size="sm"
+								disabled={openings.accepting !== undefined}
+								onclick={() => void openings.dismiss(path)}
+							>
+								Dismiss
+							</Button>
+						</div>
+					</Alert.Description>
+				</Alert.Root>
+			</div>
+		{/each}
+		{#if openings.failure !== undefined}
+			<div class="px-3 pb-3">
+				<Alert.Root variant="destructive">
+					<Alert.Description>{openings.failure}</Alert.Description>
+				</Alert.Root>
+			</div>
+		{/if}
+		{#if openings.notice !== undefined}
+			<div class="px-3 pb-3">
+				<Alert.Root>
+					<Alert.Description>{openings.notice}</Alert.Description>
 				</Alert.Root>
 			</div>
 		{/if}
@@ -261,6 +338,50 @@
 									{/each}
 								</DropdownMenu.Content>
 							</DropdownMenu.Root>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
+		{#if openings.remembered !== undefined && (openings.remembered.folders.length > 0 || openings.remembered.problem !== null)}
+			<h2 class="px-4 pt-2 pb-1 text-sm font-semibold">Opened folders</h2>
+			{#if openings.remembered.problem !== null}
+				<p class="px-4 pb-1 text-xs text-destructive">{openings.remembered.problem}</p>
+			{/if}
+			<ul class="flex flex-col gap-0.5 px-2 pb-3" aria-label="Opened folders">
+				{#each openings.remembered.folders as entry (entry.path)}
+					<li class="flex items-center gap-1" title={entry.path}>
+						{#if entry.id !== null}
+							{@const id = entry.id}
+							<button
+								type="button"
+								aria-current={id === current.chosen ? 'page' : undefined}
+								class={[
+									'min-w-0 flex-1 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted',
+									id === current.chosen && 'bg-muted font-medium',
+								]}
+								onclick={() => open(id)}
+							>
+								<span class="block truncate">{folderName(entry.path)}</span>
+								<span class="block truncate text-xs text-muted-foreground">
+									{entry.remembered ? entry.path : 'Opened this time only'}
+								</span>
+							</button>
+						{:else}
+							<div class="min-w-0 flex-1 px-2 py-1.5 text-sm">
+								<span class="block truncate text-muted-foreground">
+									{folderName(entry.path)}
+								</span>
+								<span class="block truncate text-xs text-muted-foreground">
+									{entry.problem ?? entry.path}
+								</span>
+							</div>
+						{/if}
+						{#if entry.remembered}
+							<Button variant="ghost" size="xs" onclick={() => void openings.forget(entry.path)}>
+								Forget
+							</Button>
 						{/if}
 					</li>
 				{/each}
@@ -315,7 +436,7 @@
 					{folder}
 					{drafts}
 					scope={id}
-					title={folders?.find((listed) => listed.id === id)?.title ?? id}
+					title={titleOf(id)}
 				/>
 			{/key}
 		{:else}

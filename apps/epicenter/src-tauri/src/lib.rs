@@ -20,6 +20,8 @@ pub mod app_data;
 mod bundled_apps;
 mod cli;
 mod data_folders;
+mod folder_opening;
+mod remembered_folders;
 mod scheme;
 
 pub mod audio;
@@ -129,6 +131,11 @@ macro_rules! shell_commands {
             open_home,
             take_pending_home_section,
             data_folders::list_data_folders,
+            folder_opening::pending_folder_openings,
+            folder_opening::accept_folder_opening,
+            folder_opening::dismiss_folder_opening,
+            folder_opening::list_remembered_folders,
+            folder_opening::forget_remembered_folder,
             cli::ai_send,
             cli::account_send,
             cli::ai_key_set,
@@ -322,6 +329,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(PendingHomeSection::default())
         .manage(data_folders::DataFolderScopes::default())
+        .manage(folder_opening::FolderOpenings::default())
         .manage(cli::CliChildren::default())
         .manage(DownloadManager::default());
 
@@ -396,8 +404,8 @@ pub fn run() {
             let mut opened_window = false;
             if let Some(urls) = current {
                 for url in &urls {
-                    if let Some(built_in) = parse_app_deep_link(url) {
-                        request_window(app.handle(), built_in);
+                    if let Some(link) = parse_deep_link(url) {
+                        follow_deep_link(app.handle(), link);
                         opened_window = true;
                     }
                 }
@@ -418,36 +426,64 @@ pub fn run() {
 }
 
 fn open_forwarded_deep_links(app: &DesktopAppHandle, arguments: &[String]) {
-    let built_ins = apps_from_arguments(arguments);
-    if built_ins.is_empty() {
+    let links = links_from_arguments(arguments);
+    if links.is_empty() {
         request_window(app, BuiltInApp::Folders);
     } else {
-        for built_in in built_ins {
-            request_window(app, built_in);
+        for link in links {
+            follow_deep_link(app, link);
         }
     }
 }
 
-fn apps_from_arguments(arguments: &[String]) -> Vec<BuiltInApp> {
-    let mut built_ins = Vec::new();
+fn links_from_arguments(arguments: &[String]) -> Vec<DeepLink> {
+    let mut links = Vec::new();
     for argument in arguments {
         let Ok(url) = tauri::Url::parse(argument) else {
             continue;
         };
-        let Some(built_in) = parse_app_deep_link(&url) else {
+        let Some(link) = parse_deep_link(&url) else {
             continue;
         };
-        if !built_ins.contains(&built_in) {
-            built_ins.push(built_in);
+        if !links.contains(&link) {
+            links.push(link);
         }
     }
-    built_ins
+    links
 }
 
 fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
     for url in urls {
-        if let Some(built_in) = parse_app_deep_link(url) {
-            request_window(app, built_in);
+        if let Some(link) = parse_deep_link(url) {
+            follow_deep_link(app, link);
+        }
+    }
+}
+
+/// What an `epicenter://` link asks for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum DeepLink {
+    /// Show a built-in window (`parse_app_deep_link`).
+    Window(BuiltInApp),
+    /// Ask the person to open a directory another app named
+    /// (`folder_opening::parse_open_link`).
+    OpenDirectory(String),
+}
+
+fn parse_deep_link(url: &tauri::Url) -> Option<DeepLink> {
+    parse_app_deep_link(url)
+        .map(DeepLink::Window)
+        .or_else(|| folder_opening::parse_open_link(url).map(DeepLink::OpenDirectory))
+}
+
+/// Show the window `link` names. A directory is only queued for the person
+/// to accept in the Folders window, which is shown; nothing reads it yet.
+fn follow_deep_link(app: &DesktopAppHandle, link: DeepLink) {
+    match link {
+        DeepLink::Window(built_in) => request_window(app, built_in),
+        DeepLink::OpenDirectory(directory) => {
+            folder_opening::receive(app, directory);
+            request_window(app, BuiltInApp::Folders);
         }
     }
 }
@@ -1111,11 +1147,20 @@ mod tests {
     }
 
     /// The Folders window holds the folder plugin, its own listing, opening a
-    /// bundled app (`bundled_apps.rs`), and opening Settings (ADR-0537). It
-    /// reaches folders only through scopes the listing registered or permitted
-    /// it into, and administers no model or connection.
+    /// bundled app (`bundled_apps.rs`), opening Settings (ADR-0537), and
+    /// accepting a directory another app asked to open, with the remembered
+    /// folders (`folder_opening.rs`, ADR-0646). It reaches folders only
+    /// through scopes the listing or an acceptance registered or permitted it
+    /// into, and administers no model or connection.
     #[test]
     fn the_folders_window_holds_the_folder_plugin_and_its_listing() {
+        const OPENING: [&str; 5] = [
+            "allow-pending-folder-openings",
+            "allow-accept-folder-opening",
+            "allow-dismiss-folder-opening",
+            "allow-list-remembered-folders",
+            "allow-forget-remembered-folder",
+        ];
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
         assert_eq!(capability["windows"], serde_json::json!(["folders"]));
         assert_eq!(
@@ -1126,7 +1171,12 @@ mod tests {
                 "core:event:allow-unlisten",
                 "allow-list-data-folders",
                 "allow-open-bundled-app",
-                "allow-open-home"
+                "allow-open-home",
+                OPENING[0],
+                OPENING[1],
+                OPENING[2],
+                OPENING[3],
+                OPENING[4]
             ]),
             "folders"
         );
@@ -1148,6 +1198,10 @@ mod tests {
                 assert_ne!(
                     permission, "allow-open-bundled-app",
                     "opening a bundled app belongs to the Folders window alone"
+                );
+                assert!(
+                    !OPENING.contains(&permission),
+                    "accepting an opening belongs to the Folders window alone: {permission}"
                 );
             }
         }
@@ -1225,7 +1279,7 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_arguments_extract_valid_unique_app_links() {
+    fn forwarded_arguments_extract_valid_unique_links() {
         let arguments = [
             "/Applications/Epicenter.app/Contents/MacOS/Epicenter",
             "epicenter://app/home",
@@ -1233,12 +1287,45 @@ mod tests {
             "epicenter://app/todos",
             "epicenter://app/home",
             "epicenter://app/whispering",
+            "epicenter://open?path=%2FUsers%2Fme%2FNotes",
+            "epicenter://open?path=relative",
+            "epicenter://open?path=%2FUsers%2Fme%2FNotes",
             "epicenter://",
         ]
         .map(String::from);
         assert_eq!(
-            apps_from_arguments(&arguments),
-            vec![BuiltInApp::Home, BuiltInApp::Folders]
+            links_from_arguments(&arguments),
+            vec![
+                DeepLink::Window(BuiltInApp::Home),
+                DeepLink::OpenDirectory("/Users/me/Notes".into()),
+                DeepLink::Window(BuiltInApp::Folders),
+            ]
         );
+    }
+
+    /// An opening link is its own form: it never names a built-in or bundled
+    /// window, and the built-in table takes no query.
+    #[test]
+    fn an_opening_link_and_a_window_link_are_read_apart() {
+        assert_eq!(
+            parse_deep_link(
+                &"epicenter://open?path=%2FUsers%2Fme%2FNotes"
+                    .parse()
+                    .unwrap()
+            ),
+            Some(DeepLink::OpenDirectory("/Users/me/Notes".into()))
+        );
+        assert_eq!(
+            parse_deep_link(&"epicenter://app/folders".parse().unwrap()),
+            Some(DeepLink::Window(BuiltInApp::Folders))
+        );
+        for denied in [
+            "epicenter://app/folders?path=%2FUsers%2Fme%2FNotes",
+            "epicenter://app/todos?path=%2FUsers%2Fme%2FNotes",
+            "epicenter://?path=%2FUsers%2Fme%2FNotes",
+            "epicenter://open/todos?path=%2FUsers%2Fme%2FNotes",
+        ] {
+            assert_eq!(parse_deep_link(&denied.parse().unwrap()), None, "{denied}");
+        }
     }
 }

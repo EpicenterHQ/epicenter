@@ -214,7 +214,8 @@ browser.
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
 it. It lists your data folders, offers "Open with…" on every folder for each
-bundled app, lists the bundled apps under Apps, and opens Settings from its
+bundled app, lists the folders other apps asked it to open under "Opened
+folders", lists the bundled apps under Apps, and opens Settings from its
 Settings button with `open_home`. Opening an app opens its own window; the OS
 is the switcher from there, and closing the Folders window leaves everything
 it opened running.
@@ -231,6 +232,10 @@ open 'epicenter://'
 open 'epicenter://app/folders'
 open 'epicenter://app/home'
 ```
+
+A standalone app asks Epicenter to open a directory with
+`epicenter://open?path=<percent-encoded absolute directory>`
+([Opening a folder from another app](#opening-a-folder-from-another-app)).
 
 ## The Folders window
 
@@ -280,6 +285,71 @@ scope to the app window; the app interprets its files through its own
 schemas. Opening a bundled app from the Apps list hands it its default
 folder. The Folders view does not use `epicenter.json` to authorize either
 action.
+
+### Opening a folder from another app
+
+Standalone Todos's **Open in Epicenter** sends the directory its own window
+was granted (ADR-0646):
+
+```bash
+open 'epicenter://open?path=%2FUsers%2Fme%2FLibrary%2FApplication%20Support%2Fso.epicenter.todos'
+```
+
+`src-tauri/src/folder_opening.rs` reads the link and nothing else. The link
+must have the host `open`, no path, and exactly one `path=` pair: `&`, `;`,
+`=`, a raw `+`, and a broken `%` escape are refused. The decoded path must be
+absolute, with no `.` or `..` segment and no doubled or trailing `/`. Any
+other form is ignored. A cold start, a running Epicenter, and a second launch
+that forwards its arguments all deliver it the same way.
+
+Receiving a link only holds the path and shows the Folders window. The window
+shows "Open this folder?" with the full path, **Open**, and **Dismiss**.
+Nothing reads, grants, or remembers the directory until the person chooses
+**Open** (`accept_folder_opening`). Then the shell admits it only if it is an
+existing real directory, never creating it. It must not be, hold, or lie
+inside `so.epicenter` or Epicenter's app data. The shell registers it with
+`FolderConfig::data` at the checked resolved directory as `opened:<n>` for the
+`folders` window alone. Accepting the same resolved directory again returns
+the same scope. No bundled app is offered on it,
+and `open_bundled_app` refuses its scope. The window opens it through the
+same folder switch as any other choice. The switch waits for unfinished edits
+to save and keeps the current folder and its drafts open if a save fails.
+
+An accepted path is remembered in `<data_dir>/folders.json`
+(`~/Library/Application Support/so.epicenter/folders.json` in release macOS
+builds), a JSON array of absolute paths with no IDs (ADR-0641):
+
+```json
+[
+  "/Users/me/Library/Application Support/so.epicenter.todos"
+]
+```
+
+An absent file is an empty list. Each change takes
+`.folders.json.epicenter-save-lock` beside it, the same SQLite save lock
+folder saves use, reads the list, and renames a whole new file over it, so a
+future CLI writer that takes the lock cannot lose another writer's entry.
+Content that is not an array of strings is reported under "Opened folders" and
+left byte-identical; adding and forgetting wait until it is repaired. If the
+write fails, the folder still opens, the window reports that the remembered
+list could not be updated, and it is listed as "Opened this time only" unless
+it was already remembered.
+
+Folder saves take their own save lock beside the selected directory. For an
+external folder such as `~/Notes`, saving may create `~/.Notes.epicenter-save-lock`.
+If its parent cannot be written, the save fails and the Folders window keeps
+the draft for retry or repair. This lock location lets standalone Todos and
+Epicenter coordinate writes to the same directory.
+
+"Opened folders" lists `folders.json` and this run's acceptances
+(`list_remembered_folders`). After a restart, each remembered directory that
+is still there opens without a new request, under the same refusal rules. A
+missing one stays listed with its problem. **Forget**
+(`forget_remembered_folder`) removes the stored path and deletes no files.
+
+The link names no app, schema, or folder ID. The Folders window opens every
+folder with no tables and shows its files as text, so the path is all it
+needs.
 
 ## Bundled apps
 

@@ -101,6 +101,31 @@ export const commands = {
 	 */
 	listDataFolders: () => typedError<DataFolder[], string>(__TAURI_INVOKE("list_data_folders")),
 	/**
+	 *  The directories apps asked Epicenter to open that the person has not
+	 *  accepted or dismissed, oldest first. Reads none of them.
+	 */
+	pendingFolderOpenings: () => __TAURI_INVOKE<string[]>("pending_folder_openings"),
+	/**
+	 *  Open the directory `path` an app asked for, now that the person accepted:
+	 *  only then is it checked, granted to the Folders window, and remembered.
+	 *  Granted to the Folders window alone. Off the main thread, since it reads
+	 *  the disk.
+	 */
+	acceptFolderOpening: (path: string) => typedError<AcceptedOpening, string>(__TAURI_INVOKE("accept_folder_opening", { path })),
+	/**  Let go of an app's request to open `path` without reading it. */
+	dismissFolderOpening: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_opening", { path }),
+	/**
+	 *  The folders `folders.json` remembers and those accepted this run, each
+	 *  with the scope it opens by while it is there. Off the main thread, since
+	 *  it reads the disk.
+	 */
+	listRememberedFolders: () => __TAURI_INVOKE<RememberedFolders>("list_remembered_folders"),
+	/**
+	 *  Forget the remembered path `path`, exactly as listed, whether or not it is
+	 *  there. Deletes no files. A folder open now stays open.
+	 */
+	forgetRememberedFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("forget_remembered_folder", { path })),
+	/**
 	 *  Send one request over an AI connection with the key saved on this
 	 *  computer, through `epicenter send` (ADR-0557). Each line of its NDJSON
 	 *  (the response's head, its body in base64 chunks, and `end`, or an
@@ -196,6 +221,17 @@ export const events = {
 };
 
 /* Types */
+/**
+ *  An accepted opening: the scope the Folders window opens it by, and why
+ *  Epicenter could not remember it, when it could not.
+ */
+export type AcceptedOpening = {
+	/**  The scope to pass as `directory` to `openFolder`. */
+	id: string,
+	/**  Why `folders.json` was not updated; the folder is open regardless. */
+	rememberProblem: string | null,
+};
+
 /**
  *  The deployment's resources an account request may carry a token for, by
  *  role: `api` for the profile read, `git` for Git and the folder connect
@@ -445,6 +481,24 @@ export type ModelInfo = {
 	supportsLanguage: boolean,
 	recommended: boolean,
 	downloaded: boolean,
+};
+
+/**  One remembered folder, or one accepted this run. */
+export type RememberedFolder = {
+	/**  The absolute path as stored, which `forget_remembered_folder` matches. */
+	path: string,
+	/**  The scope to pass as `directory` to `openFolder`, while it can open. */
+	id: string | null,
+	/**  Whether `folders.json` holds it; `false` when remembering it failed. */
+	remembered: boolean,
+	/**  Why it cannot open now, such as a folder that is not there. */
+	problem: string | null,
+};
+
+export type RememberedFolders = {
+	folders: RememberedFolder[],
+	/**  Why `folders.json` could not be read; it is left as it is. */
+	problem: string | null,
 };
 
 /**
