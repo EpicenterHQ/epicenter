@@ -316,15 +316,18 @@ test.skipIf(process.platform === 'win32')(
 		other.run('BEGIN EXCLUSIVE');
 		const saving = folder.files.write('shared.md', 'old\n', 'secret\n');
 		let staged: string[] = [];
-		for (let tries = 0; staged.length === 0 && tries < 200; tries++) {
+		let stagedText = '';
+		for (let tries = 0; stagedText !== 'secret\n' && tries < 200; tries++) {
 			await Bun.sleep(10);
 			staged = await readdir(staging);
+			if (staged.length === 1)
+				stagedText = await readFile(join(staging, staged[0]!), 'utf8');
 		}
 		expect(staged).toHaveLength(1);
 		const file = join(staging, staged[0]!);
 		expect(await mode(staging)).toBe(0o700);
 		expect(await mode(file)).toBe(0o600);
-		expect(await readFile(file, 'utf8')).toBe('secret\n');
+		expect(stagedText).toBe('secret\n');
 		expect(await text(root, 'shared.md')).toBe('old\n');
 		other.run('ROLLBACK');
 		other.close();
