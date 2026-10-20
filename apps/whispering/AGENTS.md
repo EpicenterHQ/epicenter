@@ -1,6 +1,6 @@
 # Whispering App
 
-Shared UI and workflows for Whispering installed in Epicenter (ADR-0493,
+Shared UI and workflows for Whispering bundled in Epicenter (ADR-0493,
 ADR-0552) and for the browser build. Recordings, transcripts, and transformations
 are files in one folder; those files are the data. Read `README.md` for current
 behavior and delivery status, and `ARCHITECTURE.md` for structure.
@@ -18,18 +18,15 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   asks where it runs. `src/lib/page-boundary.test.ts` enforces
   these boundaries; keep it passing without granting native reach to components.
 - **One folder, one opener.** Inside Epicenter the shell's
-  `tauri-plugin-epicenter-folder` grants Whispering's window its own folder,
-  `so.epicenter.whispering`, and holds its lock, and the page's folder engine
+  `tauri-plugin-epicenter-folder` grants Whispering's window its assigned folder,
+  `Whispering` by default or one opened with "Open with…", and the page's folder engine
   (`@epicenter/folder/tauri`) is the only thing that opens it. The page names
-  only the folder's ID. Do not add a second path by which the page reads or
+  only the folder's scope. Do not add a second path by which the page reads or
   writes folder files, and do not copy the plugins' bindings into this app.
-- **Quitting is immediate** (ADR-0542). Closing the window or quitting asks
-  nothing and waits for nothing: a recording streams into the folder from its
-  start (ADR-0543), and a run writes its result row before the request goes
-  out. Do not add a close handshake, a quit prompt, or a wait on exit; keep
-  long-running work in the folder from its start instead. A save still
-  running when the process ends is lost, which is a dropped keystroke, not
-  lost work.
+- **Closing settles drafts.** The page sends pending text and waits for local
+  saves before its desktop window closes. A failed save keeps the window and
+  its draft open. A recording streams into the folder from its start
+  (ADR-0543), and a run writes its result row before the request goes out.
 - **A folder that cannot be opened is reported, not replaced.** Opening
   returns a `Result`. Inside a desktop app, a shell that refuses the folder is
   shown as that refusal; browser storage is never opened there. The build
@@ -44,8 +41,8 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   ownership.
 - **Native services are Epicenter's.** Whispering has no desktop shell or
   host process of its own (ADR-0493). A native service it needs is an
-  Epicenter command, granted to every installed app's windows in
-  `apps/epicenter/src-tauri/capabilities/installed-app.json` (ADR-0570), and
+  Epicenter command, granted to Whispering's windows in
+  `apps/epicenter/src-tauri/capabilities/whispering.json` (ADR-0570), and
   exposed through the workspace with a browser
   implementation or an explicit `undefined`. Load the `tauri` skill before
   changing a grant. No other native service opens the folder or initializes
@@ -101,12 +98,12 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 
 From `apps/whispering`: `bun run typecheck`, `bun run test` (which runs the
 mounted views under the browser runtime after the rest), `bun run build`, and
-`bun run build:installed`. For a change to what Epicenter grants Whispering,
+`bun run build:host`. For a change to what Epicenter grants Whispering,
 also `cargo test --manifest-path ../epicenter/src-tauri/Cargo.toml`. Tests
 establish logic and what reaches disk. The TypeScript tests grant a real
 directory through a scripted shell
 (`packages/folder/src/granted-shell.test-support.ts`) or open it with the Bun
-opener; they never run the Rust shell. Only installing Whispering in
+opener; they never run the Rust shell. Only opening Whispering in
 `bun dev:epicenter` and using it establishes that the desktop app works.
 
 `src/lib/tauri/bindings.gen.ts` is written by Epicenter's Rust tests. Do not

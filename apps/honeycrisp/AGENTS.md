@@ -105,7 +105,7 @@ verify it against the code. The constraints below apply to every edit here.
   which each build aliases to its one adapter entry in `vite.config.ts`.
   Do not add another folder engine or fall back to other browser storage
   when opening fails.
-- The installed build opens the directory the desktop shell grants this
+- The bundled host build opens the directory the desktop shell grants this
   window through the same `<FolderApp>`. Never route it to the old
   declaration-based opener or to browser storage.
 - Tests fault the folder's storage stand-in (`fake-indexeddb`), never a

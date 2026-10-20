@@ -35,7 +35,7 @@ This builds the host page into `apps/todos/dist` (`build:host`) and runs the Tau
 
 To build a local macOS app that you can quit and reopen from Finder, run `bun build:todos:desktop` from the repository root. The result is `apps/todos/src-tauri/target/release/bundle/macos/Todos.app`. This local build is not a signed distribution.
 
-The folder is the whole application data directory, `~/Library/Application Support/so.epicenter.todos` on macOS. Todos rows land at `todos/<id>.md` directly in it; there is no child directory and no marker file. The shell creates the directory at the first open when it is missing. The save lock is `.so.epicenter.todos.epicenter-save-lock` beside it. The first save also creates `.git/epicenter/scratch` inside it to stage files; that is not a repository until something commits.
+The folder is the whole application data directory, `~/Library/Application Support/so.epicenter.todos` on macOS. Todos rows land at `todos/<id>.md` directly in it; there is no child directory and no marker file. The shell creates the directory at the first open when it is missing. The save lock and scratch directory sit beside it, named `.so.epicenter.todos.epicenter-save-lock` and `.so.epicenter.todos.epicenter-scratch`.
 
 The shell registers that directory for the `todos` window in trusted Rust code and hands the window its scope. The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` gives the window the folder plugin's commands and its change event, and nothing else.
 

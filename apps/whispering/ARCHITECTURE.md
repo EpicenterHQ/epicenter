@@ -1,18 +1,17 @@
 # Whispering architecture
 
-Whispering is a page. On the desktop it is an app installed in Epicenter
+Whispering is a page. On the desktop it is an app bundled with Epicenter
 (ADR-0493, ADR-0552), and Epicenter's shell and host do what a page cannot;
 in a browser tab it keeps its folder in browser storage. Exactly one thing
 opens the data folder: the page's own folder engine.
 
 ```text
 src/                        the page      the UI; opens the folder it is granted
-epicenter.app.json          the manifest  id so.epicenter.whispering and the title
 ```
 
 ```text
 ┌───────────── Epicenter's shell (Rust) ─────────────┐
-│ grants so.epicenter.whispering to Whispering's     │
+│ grants the assigned folder to Whispering's window │
 │ window; tauri-plugin-epicenter-folder makes        │
 │ checked reads and changes under its save lock      │
 │ tauri-plugin-epicenter-recorder: audio into folder │
@@ -42,8 +41,8 @@ Git's private state, and lands it only while the path still holds the bytes
 the save read. This app has no folder code of its own on the desktop: no copy
 of the plugin's bindings and no second transport.
 
-Every other native service is Epicenter's, granted to every installed app's
-windows (`installed-app.json` in `apps/epicenter/src-tauri/capabilities`):
+Every other native service is Epicenter's, granted to Whispering's windows
+(`whispering.json` in `apps/epicenter/src-tauri/capabilities`):
 the recorder, local transcription with Epicenter's active model, and the AI
 commands. The two connections are rows of Epicenter's own folder
 `so.epicenter`, whose endpoints and keys stay in this computer's keychain; a
@@ -129,20 +128,17 @@ implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
 
 | | Desktop, in Epicenter (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
-| Folder | The directory Epicenter registered as `so.epicenter.whispering`, opened by that ID with Whispering's tables (`openFolder({ directory, tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); earlier OPFS folders are not read or changed |
+| Folder | The directory Epicenter assigned to this window, opened by its scope with Whispering's tables (`openFolder({ directory, tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); earlier OPFS folders are not read or changed |
 | Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
 | Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
 | Connections and keys | Rows of `so.epicenter`'s `connections` table; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
 | Local transcription | Epicenter's active local model (`local-transcription.ts`) | None |
 | Chosen microphone | `localStorage` | `localStorage` |
 
-The desktop workspace asks the shell for the directory registered as
-`so.epicenter.whispering` (`grant_directory`), Whispering's own folder, and
-opens it with Whispering's tables. Moving between Whispering's routes or
-reloading keeps that folder. It writes nothing on opening: no declaration, no
-ignore file, no repository. The folder another window was handed with "Open
-in Whispering" is not consulted, because no public helper names it yet; this
-build opens Whispering's own folder in every window. Recordings are written
+The desktop workspace asks the shell which folder this window was handed
+(`window_folder`) and opens its scope with Whispering's tables. Moving between
+Whispering's routes or reloading keeps that folder. It writes nothing on
+opening: no declaration, no ignore file, no repository. Recordings are written
 under the ID opened (`Workspace.folderId`). The shell's refusal (an unknown
 scope, a window the scope does not list, a missing permission) is
 `DesktopFolder`, with the shell's own reason, as is a granted folder the
@@ -156,7 +152,7 @@ desktop app is replaced by browser storage, and the browser opener itself
 refuses there (`InsideTauri`).
 
 Page code names types and helpers from `@epicenter/folder`.
-`installedAppViteConfig` (from `@epicenter/vite-config`, which `vite.config.ts`
+`hostAppViteConfig` (from `@epicenter/vite-config`, which `vite.config.ts`
 builds on) aliases that exact specifier to `@epicenter/folder/tauri` in the
 host build and to `@epicenter/folder/browser` otherwise, so a browser build carries no
 desktop adapter or Epicenter's generated bindings, and the host build no
@@ -168,20 +164,18 @@ a Node or Bun module, imports a Tauri module other than the `Channel` the
 desktop connections stream on, imports the bindings outside the desktop
 workspace, or imports the Yjs store, sync, or an account module.
 
-## Installed in Epicenter
+## Bundled in Epicenter
 
-`epicenter.app.json` names the app `so.epicenter.whispering`, which
-`WHISPERING_FOLDER_ID` imports, and its title. Epicenter runs
-`bun run build:installed`, which writes `dist/` (ADR-0560).
-`build:installed` sets `EPICENTER_HOST=1`: adapter-static writes `dist/` with
+Epicenter's `BundledApp::Whispering` names the page and its default `Whispering`
+folder. Epicenter runs `bun run build:host`, which writes `dist/` (ADR-0560).
+`build:host` sets `EPICENTER_HOST=1`: adapter-static writes `dist/` with
 relative asset paths, and every page is prerendered (`src/routes/+layout.ts`),
 so the build runs wherever Epicenter serves it, at
-`epicenter-app://localhost/apps/so.epicenter.whispering/`. Links go through `resolve` from
+`epicenter-app://localhost/whispering/`. Links go through `resolve` from
 `$app/paths`.
 
-Epicenter opens the app's window with the label `app:so_epicenter_whispering`
-(or, on another folder, that label plus the folder's scope in hex). One
-capability, `installed-app.json`, selects every installed app's labels and
+Epicenter opens the app's window with a `whispering:<folder name in hex>`
+label. The `whispering.json` capability selects those labels and
 grants the folder plugin, the recorder, local transcription and its
 readiness, opening Settings, and the AI commands. Epicenter's README states
 the rule.
@@ -279,7 +273,7 @@ change resets.
 Leaving is guarded in one place, the shell. `beforeNavigate` holds a navigation
 only when it unloads the document while a change is still being written; a navigation between
 routes is never held. In a browser tab that raises the browser's own leave
-warning. The desktop app does not raise it, and quitting there is immediate;
+warning. The desktop window settles edits before it closes;
 see "Closing".
 
 Every page is prerendered in Epicenter's build, and Epicenter serves the app's
@@ -549,10 +543,10 @@ the drafts, and never asks to discard.
 
 ## Closing
 
-Closing the window and quitting are immediate, with Tauri's ordinary
-behavior: the shell asks nothing, waits for nothing, and shows no dialog
-([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
-Nothing that matters lives only in the page:
+Closing the desktop window first sends pending text and waits for local saves.
+A failed save or an unfinished setting or pasted text keeps the window open so
+the person can retry, copy, or clear it. Recorded audio and started requests
+have their own lifetimes:
 
 - A recording is in the folder from its start
   ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
@@ -563,8 +557,8 @@ Nothing that matters lives only in the page:
 - A transcription or recipe run writes its result row before the request goes
   out. An answer that has not arrived when the app quits is lost, and the row
   stays unfinished, to run again.
-- Every edit is written as it is typed. One cut off mid-save is lost like a
-  dropped keystroke.
+- File edits autosave while the window is open. The close guard waits for
+  their result before allowing destruction.
 
 A save is staged and then renamed over its path by the shell, so one cut off
 between them leaves the path as it was and a staged copy, which a later
@@ -630,5 +624,4 @@ their modules until public entries export them.
 | `src/routes/` | The layout that owns the session, and the three pages. |
 | `src/routes/components/` | The shell, navigation, header, recorder, recording and transformation lists and details, file browser and view. |
 | `src/lib/assets/` | The microphone mark from the earlier Whispering. |
-| `epicenter.app.json` | The installed app's manifest: its id and title. |
 | `src/lib/tauri/bindings.gen.ts` | Epicenter's typed commands, generated by its Rust tests. Only the desktop workspace imports it. |

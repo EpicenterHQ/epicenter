@@ -97,13 +97,13 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 
 | App | Status | Notes |
 | --- | --- | --- |
-| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes, installed in Epicenter or in a browser tab. Metadata stays in frontmatter and logical folders preserve note identity. |
+| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes, bundled with Epicenter or in a browser tab. Metadata stays in frontmatter and logical folders preserve note identity. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted Git, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are local files. |
 | [Todos](apps/todos) | Runs, development milestone | Opens a local folder without sign-in; saves on this device. |
 | [Vocab](apps/vocab) | Runs, development | Words and chats in a folder, with AI over `@epicenter/ai`. |
-| [Epicenter](apps/epicenter) | Runs, development | Desktop host for installed apps and a generic native file view. |
+| [Epicenter](apps/epicenter) | Runs, development | Desktop host for bundled folder apps and a generic native file view. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 
 ### Packages
@@ -156,7 +156,7 @@ Every app starts from the repo root. `bun dev:<app>` runs every process the app 
 | `bun dev:landing` | Landing site, standalone | 4321 |
 | `bun dev:posthog-reverse-proxy` | PostHog reverse proxy Worker | wrangler default |
 
-`bun dev:whispering` runs Whispering's page in a browser tab; on the desktop it, like Honeycrisp, is installed into Epicenter. `bun dev:todos`, `bun dev:vocab`, and `bun dev:epicenter` run those apps.
+`bun dev:whispering` runs Whispering's page in a browser tab; on the desktop it, like Honeycrisp, is bundled with Epicenter. `bun dev:todos`, `bun dev:vocab`, and `bun dev:epicenter` run those apps.
 
 The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Epicenter. Local Books and Local Mail run their own multi-process dev flows; their READMEs document them.
 

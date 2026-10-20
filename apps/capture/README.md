@@ -141,7 +141,7 @@ whole file, so its drafts are Capture's own (`src/lib/text-drafts.ts`),
 saved through the folder's files. The context's close does not know them,
 so `CaptureApp` sends them when the page hides and when it goes away.
 
-`installedAppViteConfig` (from `@epicenter/vite-config`) points the bare
+`hostAppViteConfig` (from `@epicenter/vite-config`) points the bare
 `@epicenter/folder` specifier at one entry per build, so each build emits
 one adapter.
 

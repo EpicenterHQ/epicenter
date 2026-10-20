@@ -100,7 +100,7 @@ the keychain and mints access tokens per resource. No WebView holds a token
 (ADR-0549's desktop row). Compile the shell with `EPICENTER_SERVER_ORIGIN` for
 a self-hosted build; the default is Cloud.
 
-An installed app's window uses `createDesktopAccountAuth` from
+A bundled app's window uses `createDesktopAccountAuth` from
 `@epicenter/auth/desktop` over three shell commands its desktop leaf binds:
 `auth_status` for who the desktop grant belongs to, `account_send` for each
 account request, and `open_home` to send the person to Settings to sign in.

@@ -341,8 +341,8 @@ A permitted label stays in the entry until the process exits.
 
 The native Folder reads ordinary files as they stand, merges row edits with
 current bytes, and lands one guarded file change per save. Opening writes
-nothing and does not start Git. The shell retains separate Git commands for
-CLI use; no current product page exposes them as a Folder action. See Todos'
+nothing and does not start Git. The separate `epicenter` CLI retains Git
+commands; no current product page exposes them as a Folder action. See Todos'
 [README](../todos/README.md) and Capture's [README](../capture/README.md) for
 app-specific files.
 
@@ -379,8 +379,8 @@ editing never wait for sign-in.
 
 The save lock, `.<directory name>.epicenter-save-lock`, sits beside the folder
 in the folder root; WebView data and the page builds live in the application
-data and resource directories. The current Folder engine still stages a
-save's bytes in `.git/epicenter/scratch` inside the folder. Whispering's own
+data and resource directories. The Folder engine stages a save's bytes in
+`.<directory name>.epicenter-scratch` beside the folder. Whispering's own
 folder was `so.epicenter.whispering` when it was installed; that folder stays
 listed and opens with "Open with…", and nothing moves it.
 
