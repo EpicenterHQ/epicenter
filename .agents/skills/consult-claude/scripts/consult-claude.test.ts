@@ -231,7 +231,7 @@ test('wrong account identity or subscription stops before the prompt', () => {
 		{ authMethod: 'api_key' },
 		{ apiProvider: 'bedrock' },
 		{ subscriptionType: null },
-		{ subscriptionType: ['max'] },
+		{ subscriptionType: 'unknown-plan' },
 		{ configDirectory: '/other/profile' },
 	]) {
 		writeFileSync(trace, '');
