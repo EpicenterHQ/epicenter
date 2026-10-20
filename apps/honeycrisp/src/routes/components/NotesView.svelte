@@ -44,7 +44,6 @@
 	onbeforeunload={(event) => {
 		if (notes.busy) event.preventDefault();
 	}}
-	onpagehide={() => void notes.saveTexts()}
 	onkeydown={async (event) => {
 		const mod = event.metaKey || event.ctrlKey;
 		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && notes.busy) {
@@ -64,11 +63,7 @@
 		}
 	}}
 />
-<svelte:document
-	onvisibilitychange={() => {
-		if (document.visibilityState === 'hidden') void notes.saveTexts();
-	}}
-/>
+
 
 {#await loading}
 <Loading class="h-dvh" label="Reading your notes…" />

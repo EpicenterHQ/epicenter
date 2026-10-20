@@ -100,7 +100,7 @@ is held. A failed row or app-owned draft is `failed`. A storage failure with
 no held draft is `recent-failure`. The app chooses the words shown to a
 person, such as "Saved on this device".
 
-## Row edits and file work
+## Row and whole-file edits
 
 `edits.row(table, id)` holds a row's typed fields and body with the source it
 started from. `shown(row)` overlays the held draft on a fresh read. `change`
@@ -110,15 +110,29 @@ meanwhile. A failed save keeps the draft and its error until a successful
 retry or an explicit discard. `edits.delete` waits for the row's save and
 refuses to discard a failed draft.
 
-A view that edits whole files keeps its own draft and calls
-`context.registerWork({ busy, failed, settle })`. Use `context.run(action)`
-for started file actions. The context counts both in `saveState` and waits
-for them before it closes the Folder handle. Whole-file work returns the path,
-exact unsaved text, and error from `settle()` when a save fails. `close()`
-fences row input, sends drafts, waits for work already started, releases the
-change listener, and clears the query cache. It returns one copyable failure
-shape for row and whole-file drafts that did not save; `<FolderApp>` offers them
-after unmount.
+`edits.text(path, queryKey)` holds exact whole-file text. `change(from, text)`
+captures the source bytes or text the person edited; `save()` sends it now.
+The query key names the app's cached file read. A successful save refreshes
+that read and the affected table before releasing its draft. Reads must not
+wait for saves, since a save waits for its refreshed reads.
+
+Row patches and whole-file text share one draft, save queue, and deletion
+fence per path. A change cannot replace the other kind of pending input.
+Before switching representations, save the current input and check that it
+is no longer held. Failed input remains available for retry, copying, or
+explicit discard. `edits.failures` retains its row shape; `textFailures`
+reports the path, exact text, and error for whole-file failures.
+`edits.deleteFile(path)` drains either kind before conditionally deleting a
+file from its current bytes.
+
+Use `context.run(action)` for started file actions. Apps with other pending
+work can still use `context.registerWork({ busy, failed, settle })`; text
+edits owned by `edits` need no registration. The context includes all edits
+and registered work in `saveState` and waits for them before closing the
+Folder handle. `close()` fences input, sends drafts, waits for accepted work,
+releases the change listener, and clears the cache. It returns copyable
+failures, including exact whole-file text, which `<FolderApp>` offers after
+unmount.
 
 The status UI helpers (`status-line`, `status-popover`, `status-row`) render
 app-owned status text. `write-failure` and `write-failure-toast` offer the

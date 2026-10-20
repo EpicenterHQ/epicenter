@@ -18,7 +18,10 @@ import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
-import { type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import {
+	button,
+	type,
+} from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import {
 	desktop,
 	nativeWindow,
@@ -148,6 +151,27 @@ test('a failed save keeps the window and the title; the next close saves and des
 
 	await requestClose();
 
+	expect(nativeWindow.destroyed).toBe(1);
+	expect(await storedTitles()).toEqual(['Groceries']);
+});
+
+test('a failed whole-file save keeps the window and exact input until close can save it', async () => {
+	const page = await windowOnNewNote();
+	button(document.body, 'Edit as file').click();
+	const contents =
+		'section[aria-label="File"] textarea[aria-label^="Contents of"]';
+	await until(() => page.get(contents) !== null, 'the whole file');
+	const input = page.get(contents);
+	if (input === null) throw new Error('The file must be editable');
+	const changed = input.value.replace('title: ""', 'title: Groceries');
+	expect(changed).not.toBe(input.value);
+	type(input, changed);
+	const restore = fillDisk();
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(page.get(contents)?.value).toBe(changed);
+	restore();
+	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await storedTitles()).toEqual(['Groceries']);
 });

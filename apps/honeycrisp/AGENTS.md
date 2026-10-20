@@ -32,9 +32,11 @@ verify it against the code. The constraints below apply to every edit here.
   last change, or at once when the view leaves it or a list action asks;
   `table.set` merges it with whatever was saved meanwhile. A failed save keeps
   the draft and its error. A read never replaces a draft.
-- While a file is open as text, its typing is a text draft held in
-  `createNotes`, saved through `folder.files.write` from the text it started
-  from, and row edits of it are refused. The edit layer holds rows only.
+- Whole-file input belongs to the shared `edits` owner, alongside row
+  patches. Keep one pending representation and one save queue per path.
+  Switching representations must preserve failed input for retry, copying,
+  or explicit discard. Selecting another file does not release that input.
+  Reads must not initiate saves or wait for them.
 - A save moves no timestamp (ADR-0573). Do not add a last-edited field or
   write `updatedAt`; the list orders and groups notes by `createdAt`.
 - The folder refuses text that is not well-formed, so the title, Source, and
@@ -86,8 +88,8 @@ verify it against the code. The constraints below apply to every edit here.
 - `<FolderApp>` closes the folder when the page goes away: the edit
   layer refuses new input (`notes.fenced`), sends every draft, waits for the
   saves, then closes the handle. Views send their own drafts as they go away,
-  and `NotesView` sends file text when the page is hidden. A new way to
-  change a file must check `fenced`, and a control in a menu, popover, or
+  and the shared root sends pending edits when the page is hidden. A new way
+  to change a file must check `fenced`, and a control in a menu, popover, or
   dialog must also be `disabled`, because those render outside the inert
   root.
 - Keep the reload and in-page navigation guards in `NotesView`

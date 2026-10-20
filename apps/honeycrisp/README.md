@@ -77,6 +77,13 @@ between them saves nothing and discards nothing. **Edit as file** opens the
 note's whole text instead; while it is open that way, its text is what saves,
 and list actions on it are refused.
 
+Row and whole-file edits share one save owner per file path. **Edit as file**
+first saves the note's pending changes; a failed save keeps the note open.
+**Open as note** waits for whole-file text to save. A failed text edit remains
+available when selecting the note again. Whole-file input also stays visible
+if another writer deletes or replaces the saved file. It can be retried,
+copied, or explicitly discarded.
+
 The body is edited with line feeds (ADR-0572): a note whose file has CRLF line
 endings shows normally, and its first edit saves it with line feeds.
 
@@ -145,7 +152,7 @@ and the browser asks first. Closing the page sends what is typed.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's draft before it is shown, and semantic state replacement when the note's body changes. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
-| `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: the file queries, note and folder edits over the edit layer, file text drafts, creates and deletes, and what the detail shows. |
+| `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: the file queries, note and folder edits over the edit layer, whole-file edits through the shared edit layer, creates and deletes, and what the detail shows. |
 | `src/lib/status.ts` | The header's save line and the words for a failure. |
 | `src/routes/+page.svelte` | `<FolderApp>` over `honeycrispTables`, with `NotesView` inside it. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |

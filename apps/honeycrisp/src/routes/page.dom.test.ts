@@ -51,7 +51,9 @@ function leave() {
 }
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { default: PageHost } = await import('../lib/page-host.test-support.svelte');
+const { default: PageHost } = await import(
+	'../lib/page-host.test-support.svelte'
+);
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
@@ -137,7 +139,10 @@ test('a new note, its title, and its text persist across close and reopen', asyn
 	// Typed and not yet saved: a reload is held back.
 	expect(leave()).toBe(true);
 	blur(first.get(TITLE));
-	await until(() => /Saved to/.test(first.text('[data-testid="write-status"]')), 'the title');
+	await until(
+		() => /Saved to/.test(first.text('[data-testid="write-status"]')),
+		'the title',
+	);
 	expect(leave()).toBe(false);
 	await until(() => first.text(LIST).includes('Groceries'), 'the list');
 
@@ -157,7 +162,10 @@ test('a new note, its title, and its text persist across close and reopen', asyn
 	}
 
 	const second = await openPage();
-	await until(() => second.text(LIST).includes('Groceries'), 'the note after reopening');
+	await until(
+		() => second.text(LIST).includes('Groceries'),
+		'the note after reopening',
+	);
 	expect(second.text(LIST)).toContain('Milk');
 });
 
@@ -168,7 +176,10 @@ test('a note that does not read as one is repaired as its file and opens as a no
 		'---\ntitle: Broken\nfolderId: null\npinned: maybe\ncreatedAt: "2026-10-01T00:00:00.000Z"\ndeletedAt: null\n---\nText\n';
 	expectOk(await tab.files.write('notes/broken.md', null, broken));
 	const page = await openPage();
-	await until(() => page.text(LIST).includes('Needs repair'), 'the repair list');
+	await until(
+		() => page.text(LIST).includes('Needs repair'),
+		'the repair list',
+	);
 
 	page
 		.get('[data-note="notes/broken.md"]')
@@ -177,14 +188,73 @@ test('a note that does not read as one is repaired as its file and opens as a no
 	await until(() => page.target.querySelector(contents) !== null, 'the file');
 	expect(page.text('[data-testid="row-issues"]')).toContain('Needs repair');
 
-	type(page.get<HTMLTextAreaElement>(contents), broken.replace('maybe', 'false'));
+	type(
+		page.get<HTMLTextAreaElement>(contents),
+		broken.replace('maybe', 'false'),
+	);
 	blur(page.get(contents));
-	await until(() => page.target.querySelector('[data-testid="row-issues"]') === null, 'the repair');
-	expect(await stored('notes/broken.md')).toBe(broken.replace('maybe', 'false'));
+	await until(
+		() => page.target.querySelector('[data-testid="row-issues"]') === null,
+		'the repair',
+	);
+	expect(await stored('notes/broken.md')).toBe(
+		broken.replace('maybe', 'false'),
+	);
 
 	button(page.target, 'Open as note').dispatchEvent(
 		new MouseEvent('click', { bubbles: true }),
 	);
 	await until(() => page.get(TITLE).value === 'Broken', 'the note');
 	expect(page.text(LIST)).not.toContain('Needs repair');
+});
+
+test('failed whole-file input survives Open as note and another tab deleting the file', async () => {
+	globalThis.indexedDB = new IDBFactory();
+	const tab = await otherTab();
+	const source =
+		'---\ntitle: Alpha\nfolderId: null\npinned: false\ncreatedAt: "2026-10-01T00:00:00.000Z"\ndeletedAt: null\n---\nBody\n';
+	expectOk(await tab.files.write('notes/a.md', null, source));
+	const page = await openPage();
+	page
+		.get('[data-note="notes/a.md"]')
+		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	await until(() => page.target.querySelector(TITLE) !== null, 'the note');
+	button(page.target, 'Edit as file').click();
+	const selector = 'textarea[aria-label="Contents of a.md"]';
+	await until(() => page.target.querySelector(selector) !== null, 'the file');
+	const put = IDBObjectStore.prototype.put;
+	cleanup.push(() => {
+		IDBObjectStore.prototype.put = put;
+	});
+	IDBObjectStore.prototype.put = () => {
+		throw new DOMException('Full', 'QuotaExceededError');
+	};
+	const changed = source.replace('Body', 'Keep this text');
+	type(page.get<HTMLTextAreaElement>(selector), changed);
+	blur(page.get(selector));
+	await until(
+		() => page.text('[data-testid="write-status"]').includes('Not saved'),
+		'the failed save',
+	);
+	button(page.target, 'Open as note').click();
+	await until(
+		() => page.text('[data-testid="write-status"]').includes('Not saved'),
+		'the refused mode switch',
+	);
+	expect(page.target.querySelector(TITLE)).toBeNull();
+	expect(page.get<HTMLTextAreaElement>(selector).value).toBe(changed);
+	IDBObjectStore.prototype.put = put;
+	expect(expectOk(await tab.files.delete('notes/a.md', source)).deleted).toBe(
+		true,
+	);
+	await until(
+		() => !page.text(LIST).includes('Alpha'),
+		'the external deletion',
+	);
+	expect(page.get<HTMLTextAreaElement>(selector).value).toBe(changed);
+	button(page.target, 'Discard changes').click();
+	await until(
+		() => page.target.querySelector(selector) === null,
+		'discarding the failed text',
+	);
 });

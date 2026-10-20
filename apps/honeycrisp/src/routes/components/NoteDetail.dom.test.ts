@@ -53,6 +53,32 @@ afterEach(async () => {
 	for (const stop of cleanup.splice(0).reverse()) await stop();
 });
 
+test('Edit as file keeps a note whose body changes failed to save', async () => {
+	const { notes, target, failSaves } = await view({ saveAfterMs: 60_000 });
+	const body = 'Keep this body\n';
+	notes.editBody(PATH, body);
+	failSaves();
+	click(target, 'Edit as file');
+	await until(() => notes.isUnsaved(PATH), 'the refused body save');
+	expect(notes.selected?.as).toBe('note');
+	expect(notes.noteBody(PATH).row?.body).toBe(body);
+	failSaves(false);
+	click(target, 'Edit as file');
+	await until(() => notes.selected?.as === 'text', 'the saved file opening');
+});
+
+test('a finishing Edit as file save does not reopen a note after selecting another', async () => {
+	const { notes, target, write } = await view({ saveAfterMs: 60_000 });
+	await write('notes/b.md', noteText({ title: 'Beta' }));
+	notes.editBody(PATH, 'A pending body\n');
+	click(target, 'Edit as file');
+	notes.open('notes/b.md');
+	await notes.saveRow(PATH);
+	await quiet(notes);
+	expect(notes.selected?.path).toBe('notes/b.md');
+	expect(notes.selected?.as).toBe('note');
+});
+
 /**
  * Note `a` open in the notes state, and its view mounted as the page renders
  * it. Typing saves `saveAfterMs` after the last change.

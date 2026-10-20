@@ -75,6 +75,18 @@
 
 	/** Whether typing here did not save, with no save running. */
 	const unsaved = $derived(notes.isUnsaved(path));
+	const pendingText = $derived(notes.typedText(path));
+
+	async function editAsFile() {
+		const selected = notes.selected;
+		await draft.save();
+		if (notes.selected !== selected) return;
+		if (draft.held) {
+			toast.warning('The note changes have not saved', { description: 'Save them again or copy and discard them before editing the whole file.' });
+			return;
+		}
+		notes.open(path, 'text');
+	}
 
 	async function report(action: string, problem: string | undefined) {
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
@@ -97,7 +109,13 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#if note.data?.issues === null && body.row !== undefined}
+	{#if pendingText !== undefined}
+		<div class="space-y-3 p-4">
+			<p>This file has text changes that have not saved. Return to the file to save them again or discard them.</p>
+			<Textarea readonly aria-label="Unsaved file changes" value={pendingText} class="min-h-40 font-mono text-xs" />
+			<Button onclick={() => notes.open(path, 'text')}>Return to file</Button>
+		</div>
+	{:else if note.data?.issues === null && body.row !== undefined}
 		{@const row = body.row}
 		{@const folderId = row.fields.folderId}
 		{@const pinned = row.fields.pinned}
@@ -188,7 +206,8 @@
 				size="sm"
 				variant="ghost"
 				tooltip="Edit the whole file as text, including keys Honeycrisp does not show"
-				onclick={() => notes.open(path, 'text')}
+				disabled={locked}
+				onclick={() => void editAsFile()}
 			>
 				Edit as file
 			</Button>

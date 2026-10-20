@@ -1,11 +1,11 @@
 /**
- * `@epicenter/svelte/edits`: what a person typed into the rows of a
+ * `@epicenter/svelte/edits`: what a person typed into the files of a
  * local folder (`openFolder({ tables })`) and has not saved.
  *
- * - **Drafts.** One draft per row holds the fields and body typed since the
- *   row last saved, and the row it started from. A reread never replaces
- *   it: a view shows `shown(row)`, the row with the draft over it. It saves
- *   `SAVE_AFTER_MS` after the last change, and at once on `save()`.
+ * - **Drafts.** One draft per path holds row fields/body and their starting
+ *   row, or exact whole-file text and its starting bytes. A reread never
+ *   replaces pending input. `shown(row)` overlays row patches on fresh rows.
+ *   Input saves `SAVE_AFTER_MS` after the last change, or at once on `save()`.
  * - **A landed save.** The engine merges the draft with whatever was saved
  *   meanwhile (`table.set(id, from, change)`). The draft is held until the
  *   save committed and the cache was read again, then let go, unless typing
@@ -22,6 +22,7 @@
  * `createFolderContext` builds one per opened folder.
  */
 import {
+	type FileContent,
 	type Folder,
 	type Row as FolderRow,
 	type FolderTable,
@@ -41,11 +42,11 @@ export const SAVE_AFTER_MS = 1000;
 export const CLOSING = 'The folder is closing, so nothing was changed.';
 
 /** Why a row's edits and a second delete wait while it is deleted. */
-export const DELETING = 'This row is being deleted.';
+export const DELETING = 'This file is being deleted.';
 
 /** A delete cannot throw away typing that storage refused to save. */
 export const UNSAVED =
-	'This row has unsaved changes. Save them before deleting it.';
+	'This file has unsaved changes. Save them before deleting it.';
 
 /** A change typed into one row: fields to set, and the whole body. */
 export type RowChange<TRowSchema extends TSchema = TSchema> = {
@@ -54,7 +55,8 @@ export type RowChange<TRowSchema extends TSchema = TSchema> = {
 };
 
 /** One row's typing that has not saved. */
-type Draft = {
+type RowDraft = {
+	readonly kind: 'row';
 	readonly table: string;
 	readonly id: string;
 	/** The row the typing started from, or the row its last save sent. */
@@ -68,6 +70,25 @@ type Draft = {
 	readonly error: SaveError | undefined;
 };
 
+/** Whole-file input has its own exact source, rather than a field/body patch. */
+type TextDraft = {
+	kind: 'text';
+	from: FileContent;
+	text: string;
+	readonly queryKey: readonly unknown[];
+	revision: number;
+	saving: boolean;
+	error: SaveError | undefined;
+};
+type Draft = RowDraft | TextDraft;
+
+/** Exact text retained after a save failed. */
+export type UnsavedText = {
+	path: string;
+	text: string;
+	error: SaveError | undefined;
+};
+
 /** A draft that did not save, as `settled` and `close` report it. */
 export type Unsaved = {
 	readonly table: string;
@@ -79,7 +100,7 @@ export type Unsaved = {
 
 const keyOf = (table: string, id: string) => `${table}/${id}.md`;
 
-function unsavedOf({ table, id, fields, body, error }: Draft): Unsaved {
+function unsavedOf({ table, id, fields, body, error }: RowDraft): Unsaved {
 	return { table, id, fields, body, error };
 }
 
@@ -110,7 +131,7 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 	const actions = new Set<Promise<unknown>>();
 	let revisions = 0;
 	let fenced = $state(false);
-	let closing: Promise<Unsaved[]> | undefined;
+	let closing: Promise<(Unsaved | UnsavedText)[]> | undefined;
 
 	function clearTimer(key: string) {
 		clearTimeout(timers.get(key));
@@ -156,11 +177,20 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 			again.delete(key);
 			const draft = drafts.get(key);
 			if (draft === undefined) return;
-			const { table, id, base, fields, body, revision } = draft;
+			const { revision } = draft;
 			drafts.set(key, { ...draft, saving: true });
-			let saved: Result<{ sent: FolderRow }, SaveError>;
+			let saved: Result<FolderRow | string, SaveError>;
 			try {
-				saved = await tableOf(table).set(id, base, { fields, body });
+				if (draft.kind === 'row') {
+					const result = await tableOf(draft.table).set(draft.id, draft.base, {
+						fields: draft.fields,
+						body: draft.body,
+					});
+					saved = result.error !== null ? result : Ok(result.data.sent);
+				} else {
+					const result = await folder.files.write(key, draft.from, draft.text);
+					saved = result.error !== null ? result : Ok(draft.text);
+				}
 			} catch (cause) {
 				saved = SaveError.StorageFailed({ cause });
 			}
@@ -168,30 +198,93 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 			if (settled === undefined) return;
 			if (saved.error !== null) {
 				drafts.set(key, { ...settled, saving: false, error: saved.error });
-				continue;
+				// A second request for the same failed input is not a retry loop.
+				if (settled.revision !== revision && again.has(key)) continue;
+				return;
 			}
-			const { sent } = saved.data;
-			await refresh({ queryKey: rowsKey(table) });
+			const table = key.slice(0, Math.max(key.indexOf('/'), 0));
+			await Promise.all([
+				refresh({ queryKey: rowsKey(table) }),
+				...(draft.kind === 'text'
+					? [
+							refresh({
+								queryKey: draft.queryKey,
+								exact: true,
+							}),
+						]
+					: []),
+			]);
 			const after = drafts.get(key);
 			if (after === undefined) return;
 			if (after.revision === revision) drafts.delete(key);
-			else
-				drafts.set(key, {
-					...after,
-					base: sent,
-					saving: false,
-					error: undefined,
-				});
+			else {
+				const sent = saved.data;
+				if (after.kind === 'row' && typeof sent !== 'string')
+					drafts.set(key, {
+						...after,
+						base: sent,
+						saving: false,
+						error: undefined,
+					});
+				else if (after.kind === 'text' && typeof sent === 'string')
+					drafts.set(key, {
+						...after,
+						from: sent,
+						saving: false,
+						error: undefined,
+					});
+			}
 		} while (again.has(key));
 	}
 
-	/** Every draft at `keys`, sent once; answers the ones that still did not save. */
-	async function settle(keys: readonly string[]): Promise<Unsaved[]> {
+	/** Send each path once, retaining either kind of failed input. */
+	async function settle(
+		keys: readonly string[],
+	): Promise<(Unsaved | UnsavedText)[]> {
 		await Promise.allSettled(keys.map((key) => flush(key)));
-		return keys.flatMap((key) => {
+		return keys.flatMap((key): (Unsaved | UnsavedText)[] => {
 			const draft = drafts.get(key);
-			return draft === undefined ? [] : [unsavedOf(draft)];
+			if (draft === undefined) return [];
+			return [
+				draft.kind === 'row'
+					? unsavedOf(draft)
+					: {
+							path: key,
+							text: draft.text,
+							error: draft.error,
+						},
+			];
 		});
+	}
+
+	/** Fence both representations before the first await, then drain and delete. */
+	function remove(
+		key: string,
+		action: () => Promise<Result<{ deleted: boolean }, SaveError | ReadError>>,
+	): Promise<
+		Result<{ deleted: boolean }, SaveError | ReadError | ActionError>
+	> {
+		if (fenced)
+			return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
+		if (deleting.has(key))
+			return Promise.resolve(ActionError.NotStarted({ reason: DELETING }));
+		deleting.add(key);
+		clearTimer(key);
+		return track(
+			(async () => {
+				try {
+					await running.get(key);
+					if (drafts.has(key)) {
+						await flush(key, true);
+						if (drafts.has(key))
+							return ActionError.NotStarted({ reason: UNSAVED });
+					}
+					return await action();
+				} finally {
+					deleting.delete(key);
+				}
+			})(),
+		);
 	}
 
 	return {
@@ -206,7 +299,7 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 				/** `row` with what is typed over it; a reread never replaces the typing. */
 				shown<TRow extends Row>(row: TRow): TRow {
 					const draft = drafts.get(key);
-					if (draft === undefined) return row;
+					if (draft?.kind !== 'row') return row;
 					return {
 						...row,
 						fields: { ...row.fields, ...draft.fields },
@@ -222,7 +315,9 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 				change(row: Row, change: RowChange<TTables[TName]>): boolean {
 					if (fenced || deleting.has(key)) return false;
 					const draft = drafts.get(key);
+					if (draft?.kind === 'text') return false;
 					drafts.set(key, {
+						kind: 'row',
 						table,
 						id,
 						base: draft?.base ?? row,
@@ -236,29 +331,32 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 					return true;
 				},
 				/** Save what is typed now; resolves once no save of it runs. */
-				save: () => flush(key),
+				save: () =>
+					drafts.get(key)?.kind === 'row' ? flush(key) : Promise.resolve(),
 				/** Whether typing is held that has not saved. */
 				get held() {
-					return drafts.has(key);
+					return drafts.get(key)?.kind === 'row';
 				},
 				/** Whether a save of it runs. */
 				get saving() {
-					return drafts.get(key)?.saving ?? false;
+					const draft = drafts.get(key);
+					return draft?.kind === 'row' && draft.saving;
 				},
 				/** Why its last save failed, while the typing is held. */
 				get error() {
-					return drafts.get(key)?.error;
+					const draft = drafts.get(key);
+					return draft?.kind === 'row' ? draft.error : undefined;
 				},
 				/** The typed fields and body remain available even if a later read fails. */
 				get pending() {
 					const draft = drafts.get(key);
-					return draft === undefined ? undefined : unsavedOf(draft);
+					return draft?.kind === 'row' ? unsavedOf(draft) : undefined;
 				},
 				/** Deliberately let go of unsaved typing; the caller can copy the returned change first. */
 				discard(): Unsaved | undefined {
 					if (fenced || deleting.has(key) || running.has(key)) return undefined;
 					const draft = drafts.get(key);
-					if (draft === undefined) return undefined;
+					if (draft?.kind !== 'row') return undefined;
 					clearTimer(key);
 					drafts.delete(key);
 					return unsavedOf(draft);
@@ -268,6 +366,71 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 					return fenced || deleting.has(key);
 				},
 			};
+		},
+
+		/** Whole-file text, held above its view. The key identifies its cached read. */
+		text(path: string, queryKey: readonly unknown[]) {
+			const pending = () => {
+				const draft = drafts.get(path);
+				return draft?.kind === 'text' ? draft : undefined;
+			};
+			return {
+				get text() {
+					return pending()?.text;
+				},
+				get held() {
+					return pending() !== undefined;
+				},
+				get saving() {
+					return pending()?.saving ?? false;
+				},
+				get error() {
+					return pending()?.error;
+				},
+				/** Capture the exact source once. Newer typing keeps that save base. */
+				change(from: FileContent, text: string): boolean {
+					if (fenced || deleting.has(path)) return false;
+					const draft = drafts.get(path);
+					if (draft?.kind === 'row') return false;
+					drafts.set(path, {
+						kind: 'text',
+						queryKey,
+						from:
+							draft?.from ?? (typeof from === 'string' ? from : from.slice()),
+						text,
+						revision: ++revisions,
+						saving: draft?.saving ?? false,
+						error: draft?.error,
+					});
+					schedule(path);
+					return true;
+				},
+				save: () => (pending() === undefined ? Promise.resolve() : flush(path)),
+				discard(): UnsavedText | undefined {
+					if (fenced || deleting.has(path) || running.has(path))
+						return undefined;
+					const draft = pending();
+					if (draft === undefined) return undefined;
+					clearTimer(path);
+					drafts.delete(path);
+					return { path, text: draft.text, error: draft.error };
+				},
+				/** Mutation fence shared with row edits and deletion. */
+				get locked() {
+					return fenced || deleting.has(path);
+				},
+			};
+		},
+
+		/** Delete any file after its accepted edits save, using its current bytes. */
+		deleteFile(path: string) {
+			return remove(path, async () => {
+				const stored = await folder.files.read(path);
+				if (stored.error !== null) return stored;
+				if (stored.data === undefined) return Ok({ deleted: false });
+				const bytes = new Uint8Array(await stored.data.content.arrayBuffer());
+				return folder.files.delete(path, bytes);
+			});
 		},
 
 		/**
@@ -282,53 +445,29 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 			Result<{ deleted: boolean }, SaveError | ReadError | ActionError>
 		> {
 			const key = keyOf(table, id);
-			if (fenced)
-				return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
-			if (deleting.has(key))
-				return Promise.resolve(ActionError.NotStarted({ reason: DELETING }));
-			deleting.add(key);
-			clearTimer(key);
-			return track(
-				(async () => {
-					try {
-						await running.get(key);
-						if (drafts.has(key)) {
-							await flush(key, true);
-							if (drafts.has(key))
-								return ActionError.NotStarted({ reason: UNSAVED });
-						}
-						const stored = await tableOf(table).get(id);
-						if (stored.error !== null) return stored;
-						// Already gone, here or elsewhere: nothing is left to type into.
-						const removed =
-							stored.data === undefined
-								? Ok({ deleted: false })
-								: await tableOf(table).delete(id, stored.data);
-						if (
-							stored.data === undefined ||
-							(removed.error === null && removed.data.deleted)
-						)
-							drafts.delete(key);
-						await refresh({ queryKey: rowsKey(table) });
-						return removed;
-					} finally {
-						deleting.delete(key);
-						// Typing kept by a delete that did not happen saves as usual.
-						if (drafts.has(key) && !fenced) schedule(key);
-					}
-				})(),
-			);
+			return remove(key, async () => {
+				const stored = await tableOf(table).get(id);
+				if (stored.error !== null) return stored;
+				const removed =
+					stored.data === undefined
+						? Ok({ deleted: false })
+						: await tableOf(table).delete(id, stored.data);
+				await refresh({ queryKey: rowsKey(table) });
+				return removed;
+			});
 		},
 
 		/**
 		 * Send every draft, or the drafts of `table`, once, and wait for their
 		 * saves. Answers the drafts that still did not save.
 		 */
-		settled(table?: keyof TTables & string): Promise<Unsaved[]> {
+		settled(
+			table?: keyof TTables & string,
+		): Promise<(Unsaved | UnsavedText)[]> {
 			return settle(
-				[...drafts.values()]
-					.filter((draft) => table === undefined || draft.table === table)
-					.map((draft) => keyOf(draft.table, draft.id)),
+				[...drafts.keys()].filter(
+					(key) => table === undefined || key.startsWith(`${table}/`),
+				),
 			);
 		},
 
@@ -340,8 +479,20 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 		/** The drafts whose last save failed and that no save is retrying. */
 		get failures(): Unsaved[] {
 			return [...drafts.values()]
-				.filter((draft) => draft.error !== undefined && !draft.saving)
+				.filter(
+					(draft): draft is RowDraft =>
+						draft.kind === 'row' && draft.error !== undefined && !draft.saving,
+				)
 				.map(unsavedOf);
+		},
+
+		/** Whole-file failures retain exact text for retry or copying. */
+		get textFailures(): UnsavedText[] {
+			return [...drafts].flatMap(([path, draft]) =>
+				draft.kind === 'text' && draft.error !== undefined && !draft.saving
+					? [{ path, text: draft.text, error: draft.error }]
+					: [],
+			);
 		},
 
 		/** Whether close was called: no input is taken from then on. */
@@ -354,7 +505,7 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 		 * and delete. Answers the drafts that did not save. Every call answers
 		 * the same completion.
 		 */
-		close(): Promise<Unsaved[]> {
+		close(): Promise<(Unsaved | UnsavedText)[]> {
 			closing ??= (async () => {
 				fenced = true;
 				await Promise.allSettled([...actions]);

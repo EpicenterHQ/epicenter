@@ -36,25 +36,21 @@ export function describeFailure(
 
 /**
  * The header's line: whether everything typed is saved on this device.
- * Row drafts report through `state` and `failures`; file text typed in the
- * text view reports through `texts`.
+ * Pending row and whole-file edits share `state` and `failures`.
  */
 export function saveLine({
 	state,
 	failures,
 	storageFailure,
-	texts,
 }: {
 	state: SaveState;
 	failures: readonly { readonly error: SaveError | undefined }[];
 	storageFailure: SaveError | null;
-	texts: { readonly held: boolean; readonly failures: readonly string[] };
 }): StatusLine {
 	const reasons = [
 		...failures.flatMap(({ error }) => (error ? [describeFailure(error)] : [])),
-		...texts.failures,
 	];
-	if (state === 'failed' || texts.failures.length > 0)
+	if (state === 'failed')
 		return {
 			label: 'Not saved',
 			detail:
@@ -62,7 +58,7 @@ export function saveLine({
 				'A save failed. The edit is still on screen, and it saves again with your next change or Save again.',
 			tone: 'error',
 		};
-	if (state === 'saving' || texts.held) return { label: 'Saving…', tone: 'busy' };
+	if (state === 'saving') return { label: 'Saving…', tone: 'busy' };
 	if (state === 'recent-failure')
 		return {
 			label: 'A save failed',

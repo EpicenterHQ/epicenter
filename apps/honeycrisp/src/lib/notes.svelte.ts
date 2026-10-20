@@ -15,9 +15,8 @@
  * (`edits.row`): what is typed shows at once, saves a second after the last
  * change or at once when the view leaves it, keeps on screen when a save
  * fails, and merges with whatever was saved meanwhile. A file open as its
- * exact text (Edit as file, repair, any other file) is a text draft held
- * here, saved the same way through `folder.files`, because the edit layer
- * holds rows only.
+ * exact text (Edit as file, repair, any other file) uses `edits.text`.
+ * Row patches and exact text share one save queue and deletion fence per path.
  *
  * Create, delete, and deleting a folder are actions. The folder keeps no
  * history and has no rename or move, so Honeycrisp offers neither.
@@ -31,7 +30,7 @@ import {
 } from '@epicenter/folder/file-browser';
 import { CLOSING, DELETING } from '@epicenter/svelte/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
-import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	FOLDERS,
@@ -88,14 +87,9 @@ const OPEN_AS_TEXT =
 const NOT_LISTED = 'This file is not in the list, so nothing was changed.';
 const NOT_A_NOTE =
 	'This file does not read as a note. Repair it as text first.';
-const UNSAVED =
-	'This file has changes that did not save. Save them before deleting it.';
 const KEPT =
 	'It changed while it was being deleted, here or in another tab, so it was kept.';
 const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
-
-/** How long after the last keystroke a file's text saves. */
-const SAVE_TEXT_AFTER_MS = 1000;
 
 const reasonOf = (row: { issues: readonly { message: string }[] }) =>
 	row.issues.map((issue) => issue.message).join(' ');
@@ -147,18 +141,6 @@ function rowAt(path: string): { table: TableName; id: string } | undefined {
 	return undefined;
 }
 
-/** One file's text typed and not yet saved. */
-type TextDraft = {
-	/** The content the typing started from, or the text its last save sent. */
-	readonly from: string;
-	readonly text: string;
-	/** Changes with each keystroke, so a landed save knows whether typing followed it. */
-	readonly revision: number;
-	readonly saving: boolean;
-	/** Why the last save failed, until one lands. */
-	readonly error: string | undefined;
-};
-
 export function createNotes(local: NotesFolder) {
 	const { folder, queryClient, edits } = local;
 	const trackQueries = createSubscriber((update) =>
@@ -169,6 +151,8 @@ export function createNotes(local: NotesFolder) {
 		files: [...local.queries.key, 'files'] as const,
 		text: (path: string) => [...local.queries.key, 'file', path] as const,
 	};
+	// Associate the app's cached file read with the shared text editor.
+	const textAt = (path: string) => edits.text(path, keys.text(path));
 	const rowsKey = (table: TableName) => local.queries.rows(table).queryKey;
 
 	// The context reads the rows again when the folder reports a change, and
@@ -199,15 +183,6 @@ export function createNotes(local: NotesFolder) {
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
 
-	const texts = new SvelteMap<string, TextDraft>();
-	/** Files other than text-readable rows being deleted. */
-	const deleting = new SvelteSet<string>();
-	const timers = new Map<string, ReturnType<typeof setTimeout>>();
-	/** The save loop of each file with one running. */
-	const running = new Map<string, Promise<void>>();
-	const again = new Set<string>();
-	let revisions = 0;
-
 	/** Whether `path` is open as its exact text, so its text is what saves. */
 	const asText = (path: string) =>
 		selected?.path === path && selected.as === 'text';
@@ -231,14 +206,17 @@ export function createNotes(local: NotesFolder) {
 		return row?.issues === null ? row : undefined;
 	}
 
-	/**
-	 * Why the note `id` takes no change now, if it does not: closing, a
-	 * delete, the file open as text, or a row the list does not hold as a
-	 * note.
-	 */
+	/** Why a file refuses a structured change: closing, whole-file input, or deletion. */
+	function mutationRefusal(path: string): string | undefined {
+		if (edits.fenced) return CLOSING;
+		if (asText(path) || textAt(path).held) return OPEN_AS_TEXT;
+		if (textAt(path).locked) return DELETING;
+		return undefined;
+	}
+
 	function noteRefusal(id: string): string | undefined {
-		if (edits.row(NOTES, id).locked) return edits.fenced ? CLOSING : DELETING;
-		if (asText(rowFile(NOTES, id))) return OPEN_AS_TEXT;
+		const why = mutationRefusal(rowFile(NOTES, id));
+		if (why !== undefined) return why;
 		const row = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		if (row === undefined) return NOT_LISTED;
 		if (row.issues !== null) return NOT_A_NOTE;
@@ -280,98 +258,6 @@ export function createNotes(local: NotesFolder) {
 			: edits.row(at.table, at.id).save();
 	}
 
-	// ------------------------------------------------------------------
-	// Text drafts
-	// ------------------------------------------------------------------
-
-	function clearTimer(path: string) {
-		clearTimeout(timers.get(path));
-		timers.delete(path);
-	}
-
-	/** Send the text typed at `path` now; resolves once no save of it runs. */
-	function flushText(path: string): Promise<void> {
-		clearTimer(path);
-		const run = running.get(path);
-		if (run !== undefined) {
-			again.add(path);
-			return run;
-		}
-		if (!texts.has(path)) return Promise.resolve();
-		const started = drainText(path).finally(() => running.delete(path));
-		running.set(path, started);
-		return started;
-	}
-
-	async function drainText(path: string) {
-		do {
-			again.delete(path);
-			const draft = texts.get(path);
-			if (draft === undefined) return;
-			const { from, text, revision } = draft;
-			texts.set(path, { ...draft, saving: true });
-			let error: string | undefined;
-			try {
-				const written = await folder.files.write(path, from, text);
-				if (written.error !== null) error = describeFailure(written.error);
-			} catch (cause) {
-				// A save after the folder closed: the typing stays to copy.
-				error = cause instanceof Error ? cause.message : String(cause);
-			}
-			const settled = texts.get(path);
-			if (settled === undefined) return;
-			if (error !== undefined) {
-				texts.set(path, { ...settled, saving: false, error });
-				return;
-			}
-			await local.refresh({
-				queryKey: keys.text(path),
-				exact: true,
-			});
-			const after = texts.get(path);
-			if (after === undefined) return;
-			if (after.revision === revision) texts.delete(path);
-			else
-				texts.set(path, {
-					...after,
-					from: text,
-					saving: false,
-					error: undefined,
-				});
-		} while (again.has(path));
-	}
-
-	/** The file at `path` as the cache holds it, when it opens as text. */
-	function shownText(path: string): string | undefined {
-		const read = queryClient.getQueryData<FileRead>(keys.text(path));
-		return read?.kind === 'text' ? read.text : undefined;
-	}
-
-	/** Every text typed and not yet saved, sent once. */
-	function saveTexts(): Promise<void> {
-		return Promise.allSettled([...texts.keys()].map(flushText)).then(
-			() => undefined,
-		);
-	}
-	local.registerWork({
-		get busy() {
-			return texts.size > 0 || running.size > 0;
-		},
-		get failed() {
-			return [...texts.values()].some((draft) => draft.error !== undefined);
-		},
-		async settle() {
-			await saveTexts();
-			await Promise.allSettled([...running.values()]);
-			return [...texts].map(([path, draft]) => ({
-				path,
-				text: draft.text,
-				...(draft.error === undefined
-					? {}
-					: { error: { name: 'NotSaved', message: draft.error } }),
-			}));
-		},
-	});
 	/** Give a refused action its app-level reason even after the context closes. */
 	function runAction(action: () => Promise<string | undefined>) {
 		return edits.fenced ? Promise.resolve(CLOSING) : local.run(action);
@@ -383,6 +269,7 @@ export function createNotes(local: NotesFolder) {
 
 	/** How a path opens when nothing says: a note as a note, unless its text is not one. */
 	function defaultAs(path: string): OpenAs {
+		if (textAt(path).held) return 'text';
 		const id = noteIdOf(path);
 		if (id === undefined) return 'text';
 		const row = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
@@ -437,8 +324,9 @@ export function createNotes(local: NotesFolder) {
 		for (const note of notesOf(listed.data)) {
 			if (note.fields.folderId !== entry.id) continue;
 			const path = rowFile(NOTES, note.id);
-			if (asText(path))
-				return `A note could not be moved out of the folder: ${OPEN_AS_TEXT}`;
+			const why = mutationRefusal(path);
+			if (why !== undefined)
+				return `A note could not be moved out of the folder: ${why}`;
 			const draft = edits.row(NOTES, note.id);
 			if (!draft.change(note, { fields: { folderId: null } })) return CLOSING;
 			await draft.save();
@@ -481,42 +369,27 @@ export function createNotes(local: NotesFolder) {
 				: (at.table === NOTES ? rowsOf(NOTES) : rowsOf(FOLDERS))?.find(
 						(candidate) => candidate.id === at.id,
 					);
-		if (at !== undefined && row !== undefined && !notText(row)) {
-			await flushText(path);
-			if (texts.has(path)) return UNSAVED;
-			const removed = await edits.delete(at.table, at.id);
-			if (removed.error !== null) return describeFailure(removed.error);
-			if (!removed.data.deleted) {
-				const still = await folder.tables[at.table].get(at.id);
-				if (still.error === null && still.data !== undefined) return KEPT;
-			}
-			deleted(path);
-			return undefined;
+		const removed =
+			at !== undefined && row !== undefined && !notText(row)
+				? await edits.delete(at.table, at.id)
+				: await edits.deleteFile(path);
+		if (removed.error !== null) {
+			return describeFailure(removed.error);
 		}
-		deleting.add(path);
-		try {
-			await flushText(path);
-			if (texts.has(path)) return UNSAVED;
-			const read = await folder.files.read(path);
-			if (read.error !== null) return describeFailure(read.error);
-			if (read.data !== undefined) {
-				const bytes = new Uint8Array(await read.data.content.arrayBuffer());
-				const removed = await folder.files.delete(path, bytes);
-				if (removed.error !== null) return describeFailure(removed.error);
-				if (!removed.data.deleted) return KEPT;
-			}
-			deleted(path);
-			return undefined;
-		} finally {
-			deleting.delete(path);
+		if (!removed.data.deleted) {
+			const still = await folder.files.read(path);
+			if (still.error !== null) return describeFailure(still.error);
+			if (still.data !== undefined) return KEPT;
 		}
+		deleted(path);
+		return undefined;
 	}
 
 	return {
 		/** The opened folder; `<FolderApp>` closes it. */
 		folder,
 		queryClient,
-		/** The context's edit layer: every row draft and row delete. */
+		/** The context's edit layer: row and whole-file edits and deletion. */
 		edits,
 
 		// ------------------------------------------------------------------
@@ -542,9 +415,6 @@ export function createNotes(local: NotesFolder) {
 			return {
 				queryKey: keys.text(path),
 				queryFn: async (): Promise<FileRead> => {
-					// A row opened as its file while its draft saves is read once that
-					// save lands, never under it.
-					await saveRow(path);
 					const read = await folder.files.read(path);
 					if (read.error !== null) throw read.error;
 					if (read.data === undefined) return { kind: 'missing' };
@@ -592,51 +462,40 @@ export function createNotes(local: NotesFolder) {
 
 		/** Whether leaving the page now could lose something: typing held, or a save or action running. */
 		get busy() {
-			return local.busy || texts.size > 0 || deleting.size > 0;
+			return local.busy;
 		},
 		/** Whether everything typed is saved on this device, as the header says it. */
 		get saves() {
 			return saveLine({
 				state: local.saveState,
-				failures: edits.failures,
+				failures: [...edits.failures, ...edits.textFailures],
 				storageFailure: local.status.storageFailure,
-				texts: {
-					held: texts.size > 0,
-					failures: [...texts.values()].flatMap((draft) =>
-						draft.error !== undefined && !draft.saving ? [draft.error] : [],
-					),
-				},
 			});
 		},
 		/** Whether a save at `path` runs, or typing there waits to be sent. */
 		isWriting(path: string) {
 			const at = rowAt(path);
 			const row = at === undefined ? undefined : edits.row(at.table, at.id);
-			const text = texts.get(path);
+			const text = textAt(path);
 			return (
 				(row?.held === true && row.error === undefined) ||
 				row?.saving === true ||
-				(text !== undefined && (text.error === undefined || text.saving))
+				(text.held && (text.error === undefined || text.saving))
 			);
 		},
 		/** Whether typing at `path` did not save, with no save running. */
 		isUnsaved(path: string) {
 			const at = rowAt(path);
 			const row = at === undefined ? undefined : edits.row(at.table, at.id);
-			const text = texts.get(path);
+			const text = textAt(path);
 			return (
 				(row?.error !== undefined && !row.saving) ||
-				(text?.error !== undefined && !text.saving)
+				(text.error !== undefined && !text.saving)
 			);
 		},
 		/** Whether edits of `path` are refused now: closing, or a delete runs. */
 		isLocked(path: string) {
-			const at = rowAt(path);
-			return (
-				edits.fenced ||
-				deleting.has(path) ||
-				(at !== undefined && edits.row(at.table, at.id).locked)
-			);
+			return textAt(path).locked;
 		},
 		/** Whether input and actions are held back because the notes are closing. */
 		get fenced() {
@@ -710,6 +569,8 @@ export function createNotes(local: NotesFolder) {
 		restoreNote: (path: string) => patchNote(path, { deletedAt: null }),
 		/** Set a folder's fields and save at once; answers why not, if not. */
 		patchFolder(path: string, fields: Partial<FolderFields>) {
+			const why = mutationRefusal(path);
+			if (why !== undefined) return why;
 			const id = folderIdOf(path);
 			const stored = id === undefined ? undefined : storedFolder(id);
 			if (id === undefined || stored === undefined) return NOT_LISTED;
@@ -724,39 +585,24 @@ export function createNotes(local: NotesFolder) {
 		// ------------------------------------------------------------------
 
 		/** The text typed into `path` and not yet saved, read reactively. */
-		typedText: (path: string) => texts.get(path)?.text,
+		typedText: (path: string) => textAt(path).text,
 		/** Why the last save of the text typed into `path` failed, while it is held. */
-		textError: (path: string) => texts.get(path)?.error,
+		textError: (path: string) => {
+			const error = textAt(path).error;
+			return error === undefined ? undefined : describeFailure(error);
+		},
 		/**
 		 * Type `text` as the whole text of `path`; it saves a second after the
 		 * last change, or at once with `saveText`. Answers whether it was taken.
 		 */
 		editText(path: string, text: string): boolean {
-			if (edits.fenced || deleting.has(path)) return false;
-			const draft = texts.get(path);
-			const from = draft?.from ?? shownText(path);
+			const read = queryClient.getQueryData<FileRead>(keys.text(path));
+			const from = read?.kind === 'text' ? read.bytes : textAt(path).text;
 			if (from === undefined) return false;
-			texts.set(path, {
-				from,
-				text,
-				revision: ++revisions,
-				saving: draft?.saving ?? false,
-				error: draft?.error,
-			});
-			clearTimer(path);
-			timers.set(
-				path,
-				setTimeout(() => {
-					timers.delete(path);
-					void flushText(path);
-				}, SAVE_TEXT_AFTER_MS),
-			);
-			return true;
+			return textAt(path).change(from, text);
 		},
-		/** Save the text typed into `path` now, as leaving it does; resolves once no save of it runs. */
-		saveText: flushText,
-		/** Save every text typed and not yet saved, as hiding the page does. */
-		saveTexts,
+		/** Send the whole-file text held at this path. */
+		saveText: (path: string) => textAt(path).save(),
 
 		// ------------------------------------------------------------------
 		// Actions; each answers what the person is told, if anything
@@ -825,9 +671,8 @@ export function createNotes(local: NotesFolder) {
 		},
 		delete: (deletion: Deletion) => runAction(() => deleteConfirmed(deletion)),
 
-		/** Send the text still typed, and stop following the folder's changes; the context closes the folder. */
+		/** Stop following file changes; the context settles edits and closes the folder. */
 		stop() {
-			void saveTexts();
 			stopChanges();
 		},
 	};

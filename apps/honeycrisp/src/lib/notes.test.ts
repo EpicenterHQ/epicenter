@@ -360,7 +360,61 @@ test('closing after a failed file save returns the exact text for recovery', asy
 	failSaves();
 	const unsaved = await local.close();
 	expect(unsaved).toMatchObject([
-		{ path: A, unsaved: changed, error: { name: 'NotSaved' } },
+		{ path: A, unsaved: changed, error: { name: 'StorageFailed' } },
 	]);
 	expect(await text(A)).not.toBe(changed);
+});
+
+test('a failed file edit stays visible and blocks list actions after selecting another note', async () => {
+	const { notes, observe, failSaves } = await setup({
+		[A]: noteText(),
+		'notes/b.md': noteText({ title: 'B' }),
+	});
+	notes.open(A, 'text');
+	observe(A);
+	await quiet(notes);
+	const changed = noteText({ body: 'Keep this unfinished file\n' });
+	notes.editText(A, changed);
+	failSaves();
+	await notes.saveText(A);
+	notes.open('notes/b.md');
+	expect(notes.patchNote(A, { pinned: true })).toContain('open as text');
+	notes.open(A);
+	expect(notes.selected?.as).toBe('text');
+	expect(notes.typedText(A)).toBe(changed);
+	failSaves(false);
+	await notes.saveText(A);
+	expect(notes.patchNote(A, { pinned: true })).toContain('open as text');
+	notes.open(A, 'note');
+	expect(notes.patchNote(A, { pinned: true })).toBeUndefined();
+});
+
+test('reading a file never sends pending body changes', async () => {
+	const { notes, saves, text } = await setup();
+	notes.editBody(A, 'Unsent body\n');
+	const read = await notes.textQuery(A).queryFn();
+	expect(read.kind).toBe('text');
+	expect(saves(A)).toBe(0);
+	expect(await text(A)).toContain('Body.');
+	expect(notes.noteBody(A).row?.body).toBe('Unsent body\n');
+});
+
+test('a folder rename reports its held text rather than claiming the app is closing', async () => {
+	const path = 'folders/f.md';
+	const source = folderText('First');
+	const { notes, observe, failSaves } = await setup({
+		[A]: noteText(),
+		[path]: source,
+	});
+	notes.open(path, 'text');
+	observe(path);
+	await quiet(notes);
+	notes.editText(path, source.replace('First', 'Keep this name'));
+	failSaves();
+	await notes.saveText(path);
+	notes.open(A);
+	expect(notes.patchFolder(path, { name: 'Other name' })).toContain(
+		'open as text',
+	);
+	expect(notes.typedText(path)).toContain('Keep this name');
 });

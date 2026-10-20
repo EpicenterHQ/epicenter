@@ -213,7 +213,11 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		const reasons: string[] = [];
 		if (!didSettle)
 			reasons.push('A save could not finish. Your input is still here.');
-		if (edits.failures.length > 0 || [...work].some((item) => item.failed))
+		if (
+			edits.failures.length > 0 ||
+			edits.textFailures.length > 0 ||
+			[...work].some((item) => item.failed)
+		)
 			reasons.push(NOT_SAVED);
 		else if (
 			edits.busy ||
@@ -319,7 +323,11 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		/** Whether everything is saved on this device, read reactively. */
 		get saveState(): SaveState {
 			trackStatus();
-			if (edits.failures.length > 0 || [...work].some((item) => item.failed))
+			if (
+				edits.failures.length > 0 ||
+				edits.textFailures.length > 0 ||
+				[...work].some((item) => item.failed)
+			)
 				return 'failed';
 			if (
 				edits.busy ||
@@ -344,25 +352,34 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 				stopWindow?.();
 				// `edits.close` fences new input synchronously; app work already
 				// started can then finish before the handle closes.
-				const rowSettling = edits.close();
+				const editSettling = edits.close();
 				const { files } = await settleWork();
 				const missingSave = {
 					name: 'Unsaved',
 					message: 'The edit did not save.',
 				};
 				const unsaved: WriteFailure[] = [
-					...(await rowSettling).map((draft) => ({
-						path: `${draft.table}/${draft.id}.md`,
-						error: draft.error ?? missingSave,
-						unsaved: JSON.stringify(
-							{
-								fields: draft.fields,
-								...(draft.body === undefined ? {} : { body: draft.body }),
-							},
-							(_key, value) => (value === undefined ? '[remove field]' : value),
-							2,
-						),
-					})),
+					...(await editSettling).map((draft) =>
+						'path' in draft
+							? {
+									path: draft.path,
+									error: draft.error ?? missingSave,
+									unsaved: draft.text,
+								}
+							: {
+									path: `${draft.table}/${draft.id}.md`,
+									error: draft.error ?? missingSave,
+									unsaved: JSON.stringify(
+										{
+											fields: draft.fields,
+											...(draft.body === undefined ? {} : { body: draft.body }),
+										},
+										(_key, value) =>
+											value === undefined ? '[remove field]' : value,
+										2,
+									),
+								},
+					),
 					...files.map((draft) => ({
 						path: draft.path,
 						error: draft.error ?? missingSave,
