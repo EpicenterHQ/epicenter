@@ -1,0 +1,21 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Todos",
+	"version": "0.0.1",
+	"identifier": "so.epicenter.todos",
+	"build": {
+		"devUrl": "http://127.0.0.1:5186",
+		"frontendDist": "../dist"
+	},
+	"app": {
+		"windows": [],
+		"security": {
+			"capabilities": ["todos"],
+			"csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+		}
+	},
+	"bundle": {
+		"active": true,
+		"icon": ["icons/icon.png"]
+	}
+}

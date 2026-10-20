@@ -1,0 +1,33 @@
+[package]
+name = "epicenter-todos"
+version = "0.0.1"
+description = "Todos as a desktop window over its own local Folder"
+authors = ["Epicenter"]
+repository = "https://github.com/EpicenterHQ/epicenter"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+name = "todos_lib"
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+tauri = { version = "2.12", features = [] }
+
+[dev-dependencies]
+# The mock runtime drives the folder plugin's real commands in tests.
+tauri = { version = "2.12", features = ["test"] }
+serde_json = "1"
+tempfile = "3.8"
+
+# The same pins as the folder plugin and apps/epicenter/src-tauri/Cargo.toml.
+[patch.crates-io]
+specta = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-macros = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-serde = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-util = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }

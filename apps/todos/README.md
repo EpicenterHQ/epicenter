@@ -1,6 +1,6 @@
 # Todos
 
-Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md). It opens without an account, a remote, or Git. The browser build uses this origin's IndexedDB folder. The installed build uses the directory Epicenter's shell grants its window. The native CLI opens an existing directory supplied on its command line. The same table schema interprets `todos/<id>.md` on both hosts.
+Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md). It opens without an account, a remote, or Git. The browser build uses this origin's IndexedDB folder. The installed build uses the directory its desktop shell grants its window: Epicenter's, or Todos's own window (`src-tauri/`). The native CLI opens an existing directory supplied on its command line. The same table schema interprets `todos/<id>.md` on both hosts.
 
 The current UI can add, edit, complete, and delete todos. A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name remain in the source when a row is edited. A file that does not read as a todo remains visible with its source for repair.
 Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
@@ -22,6 +22,24 @@ bun run --cwd apps/todos demo:local
 ```
 
 The demo uses a fresh browser profile. It exercises editing, reopening, two tabs, offline edits after load, source preservation, and a controlled failed save that retains the draft. It also checks the browser's IndexedDB storage, so an unchanged looking screen cannot conceal the former OPFS engine.
+
+## Run the desktop app
+
+From the repository root:
+
+```sh
+bun dev:todos:desktop
+```
+
+This builds the installed page into `apps/todos/dist` and runs the Tauri shell in `src-tauri/` with `cargo`, which needs a Rust toolchain. The window opens without an account or network. Each launch rebuilds the page.
+
+To build a local macOS app that you can quit and reopen from Finder, run `bun build:todos:desktop` from the repository root. The result is `apps/todos/src-tauri/target/release/bundle/macos/Todos.app`. This local build is not a signed distribution.
+
+The folder is the whole application data directory, `~/Library/Application Support/so.epicenter.todos` on macOS. Todos rows land at `todos/<id>.md` directly in it; there is no child directory and no marker file. The shell creates the directory at the first open when it is missing. The save lock is `.so.epicenter.todos.epicenter-save-lock` beside it. The first save also creates `.git/epicenter/scratch` inside it to stage files; that is not a repository until something commits.
+
+The shell registers that directory for the `todos` window in trusted Rust code and hands the window its scope. The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` gives the window the folder plugin's commands and its change event, and nothing else.
+
+On the tested macOS build, opening and saving left only `.git/` and `todos/` in the Folder root. Linux and Windows have not been run; their WebView data locations must be checked before treating the whole app-data root as a supported default there.
 
 ## Native directory example
 
@@ -49,4 +67,6 @@ bun run --cwd apps/todos test
 bun run --cwd apps/todos typecheck
 bun run --cwd apps/todos build
 bun run --cwd apps/todos build:installed
+cargo test --manifest-path apps/todos/src-tauri/Cargo.toml
+bun build:todos:desktop
 ```

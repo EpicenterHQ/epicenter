@@ -1,0 +1,12 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "todos",
+	"description": "The Todos window opens the folder the shell handed it with the page's own engine through the folder plugin, and listens for the plugin's change event, epicenter-folder://changed. The shell registered that folder for this window alone; the page names no path.",
+	"local": true,
+	"windows": ["todos"],
+	"permissions": [
+		"epicenter-folder:default",
+		"core:event:allow-listen",
+		"core:event:allow-unlisten"
+	]
+}
