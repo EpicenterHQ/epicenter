@@ -219,6 +219,7 @@ test('sync --to creates the repository, clone and sync carry it to another folde
 	const folder = join(scratch, 'notes');
 	await mkdir(folder, { recursive: true });
 	await writeFile(join(folder, 'a.md'), 'one\n');
+	await writeFile(join(folder, 'epicenter.json'), '{"local":[]}\n');
 
 	const url = `${origin}/git/${person.personal}/notes.git`;
 	const globalBefore = await readFile(globalConfig, 'utf8');
@@ -282,6 +283,7 @@ test('sync --to refuses a name that is not <namespace>/<name>, and another folde
 	const other = join(scratch, 'other-notes');
 	await mkdir(other, { recursive: true });
 	await writeFile(join(other, 'z.md'), 'z\n');
+	await writeFile(join(other, 'epicenter.json'), '{"local":[]}\n');
 	await git(other, 'init', '--quiet', '--initial-branch=main');
 	await git(other, 'add', '--all');
 	await git(
