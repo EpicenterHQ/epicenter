@@ -532,7 +532,6 @@ export function createEditOwner({
 	const presentations = new WeakMap<object, Presentation>();
 	/** What the handle's reads are noted under (`shared/observation.ts`). */
 	const self = {};
-	let fenced = false;
 	let revisions = 0;
 	let versions = 0;
 	/** How many saves of this handle have landed, its own no-op saves included. */
@@ -616,7 +615,7 @@ export function createEditOwner({
 	}
 
 	const isLocked = (state: PathState | undefined) =>
-		fenced || state?.action !== undefined;
+		closing !== undefined || state?.action !== undefined;
 
 	function rowsOf(table: string) {
 		const rows = tables[table];
@@ -667,7 +666,7 @@ export function createEditOwner({
 	 * the asker waits for close, which sends held input once itself.
 	 */
 	function requested(path: string, retry = false): Promise<void> {
-		if (fenced) return close().then(() => {});
+		if (closing !== undefined) return close().then(() => {});
 		const state = states.get(path);
 		if (
 			retry &&
@@ -684,7 +683,7 @@ export function createEditOwner({
 		}
 		// Clearing the error publishes: a listener may have saved, changed,
 		// discarded, fenced or closed meanwhile. Never reinstall that input.
-		if (fenced) return close().then(() => {});
+		if (closing !== undefined) return close().then(() => {});
 		return flush(path);
 	}
 
@@ -992,7 +991,7 @@ export function createEditOwner({
 				else await landed(path, state, input, prepared, at);
 				// Close drains eligible input accepted before its fence, including
 				// input a listener added as this attempt finished.
-			} while (state.again || fenced);
+			} while (state.again || closing !== undefined);
 		} finally {
 			// Stop accepting joins in the same turn that draining ends. A
 			// queued listener can then start the next save, never join a dead one.
@@ -1026,7 +1025,7 @@ export function createEditOwner({
 		reason: string,
 		action: (file: ExclusiveFile) => Promise<T>,
 	): Promise<Result<T, ActionError>> {
-		if (fenced)
+		if (closing !== undefined)
 			return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
 		const state = stateOf(path);
 		if (state.action !== undefined)
@@ -1482,7 +1481,6 @@ export function createEditOwner({
 		// answers this same promise.
 		const completion = Promise.withResolvers<Pending[]>();
 		closing = completion.promise;
-		fenced = true;
 		publish(undefined);
 		settle().then(completion.resolve, completion.reject);
 		return closing;
