@@ -30,8 +30,10 @@ launch no child agents. The following setup belongs to the coordinating agent.
 The coordinating agent appoints two fresh read-only Codex subagents using the
 runtime's available GPT-6 model, each with `fork_turns: "none"` and
 `reasoning_effort: "high"`. Explicit user choices override this default.
-Use [consult-claude](../consult-claude/SKILL.md) when the user requests a Claude
-review; Claude access is not required for this workflow. Ordinary final checks
+When the user requests Claude, use [consult-claude](../consult-claude/SKILL.md)
+for one of the two reviewer seats unless the user specifies different staffing;
+do not automatically add a third reviewer. Claude access is not required for
+the default workflow. Ordinary final checks
 remain local under post-implementation-review.
 
 Give both reviewers the same evidence and whole design, with different starting
@@ -80,6 +82,15 @@ Codex owns any requested experiments.
 For a proposal without implementation, supply the proposal and any existing
 system it would replace. Distinguish observed behavior from design assumptions;
 name what a prototype or caller would need to establish.
+
+For an explicitly blind first pass, supply the outcome, constraints, actual
+callers and existing system first, withholding the proposed API and implementer's
+reasoning. After the initial answer, supply the proposal and reasoning in the
+same session for evaluation. Choose this extra turn when anchoring is the risk;
+it is not required for an ordinary design consultation. This skill owns the
+briefing choice. A Claude reviewer may use host-provided read-only Codex evidence
+assistance, while retaining the review judgment and checking deciding sources.
+That helper is an evidence gatherer, not an additional independent reviewer.
 
 Hold the reviewed surface stable until the available reviewers return. Use that
 interval for verification preparation or an independent question outside the surface.

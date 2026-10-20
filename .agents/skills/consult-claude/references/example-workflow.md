@@ -5,7 +5,7 @@ or a transcript of executed tests. The named example files belong to a fictional
 fixture. A real brief includes excerpts and paths from the actual checkout.
 
 This is a standalone Claude consultation, so the proposal appears in the first
-brief. The adversarial-review workflow uses a proposal-free initial pass.
+brief. An explicitly blind review withholds the proposal for its initial pass; adversarial-review owns that choice.
 
 ## User to Codex
 
@@ -160,7 +160,7 @@ before integrating. I see no reason to retain the broader Runtime contract.
 
 Run the same bounded task against the previous and updated skills in separate
 contexts. Keep the source fixture and model fixed. Record the brief, responses,
-commands, changes, elapsed time, and unmet checks. The scripted conversation
+commands, changes, deciding evidence, quality of the result, and unmet checks. The scripted conversation
 above illustrates the target; it is not a measured result or an answer key.
 
 | Case | Observable success |
@@ -169,12 +169,16 @@ above illustrates the target; it is not a measured result or an answer key.
 | Sound proposal | Reviewer may keep it; no invented redesign or repeated reviews to force disagreement. |
 | Reviewer requests a benchmark | Codex receives a specific discriminating check; Claude does not execute it or create a laboratory. |
 | Advice-only request | Codex returns the proposed check without silently authorizing implementation. |
-| Follow-up with new evidence | Same native session recalls the question, revises its judgment, and retains read-only access. |
+| Follow-up with new evidence | Existing task notes preserve the native session locator, account, checkout, model and effort. The same native session recalls the assignment; capability and source changes are stated explicitly. An older Sonnet session can continue as Opus without a new conversation. |
+| Claude-owned evidence gathering | With explicit host-provided Codex assistance, Claude asks a bounded source question, inspects deciding sources, and returns its own judgment. The consultation cannot request implementation. |
+| Claude-owned delivery with Codex implementation | In the current checkout or an explicitly selected standalone clone, Claude briefs, inspects and corrects Codex work. Only the Codex helper has code-writing tools; the coordinating Codex pauses its edits and performs focused acceptance. Current-checkout delivery needs no copy step; only a clone delivery requires transferring accepted changes. |
 | Named personal/work subscription | Native preflight verifies the selected profile and expected Claude email; conflicting API/provider overrides cannot send the brief under another billing method. Claude resolves resumes in the selected profile and rejects missing sessions; the launcher does not inspect transcript layout. |
-| Adversarial design review without a reviewer restriction | Coordinator gets one fresh GPT-6.1 Sol and one read-only Opus review. Each first sees the outcome, requirements, callers, and existing system without the proposal; the coordinator shares the proposal after their independent initial answers. |
+| Adversarial design review without a reviewer restriction | Coordinator gets two fresh Codex reviewers. When Claude is requested, it occupies one reviewer seat unless the user specifies otherwise. Both receive the full evidence; only an explicitly blind pass withholds the proposal initially. |
 | Ordinary final code check | Uses post-implementation-review locally; does not launch the reviewer pair. |
 | Bounded read-only caller map or documentation draft | Claude returns the finished artifact with source evidence; Codex checks decisive claims without launching a panel. |
-| Explicit implementation or benchmark delegation | Uses delegate-claude in a dedicated clone; Claude runs checks and returns actual artifacts; Codex verifies and integrates. |
+| Explicit implementation or benchmark delegation | Uses delegate-claude in the current checkout by default; Claude applies changes and runs checks; Codex inspects the diff and reproduces deciding checks without repeating the investigation. |
+| Delegation target inside or containing the checkout, an external linked worktree, or consultation with `--workspace` | The launcher refuses before sending the brief. |
+| Helper-backed skill edit | The coordinator selects `--codex-write-root` for each assigned skill directory on every turn; consultation, direct delegation, paths outside `.agents/skills` and symlink escapes are refused before launch. |
 | Standalone request for Claude's opinion | Consults Claude without automatically launching a Codex reviewer. |
 | Explicit Codex-only adversarial review | Honors the restriction and does not enlist Claude. |
 | Reviewers agree without evidence of a shared blind spot | Coordinator verifies and reconciles findings; agreement alone does not trigger a third review. |
@@ -189,3 +193,54 @@ Count a consultation as useful when it improves the decision or its supporting
 evidence. More objections, longer reports, and agreement between models are not
 success metrics. A full skill-quality A/B remains distinct from the launcher's
 runtime acceptance checks.
+
+## Runtime acceptance: 2026-10-20
+
+Actual local runs used Claude Code 2.1.302 and Codex CLI 0.154.0, with native
+Claude Max and ChatGPT logins. Claude's native usage identified Sonnet 5.5 at
+medium effort; the Codex helper was explicitly requested as GPT-6.1 Sol at
+medium effort. Tests used a disposable three-file Git fixture and its standalone
+clone outside the repository, with no dependencies to install in the fixture.
+Those runs predate current-checkout delivery, when a standalone clone was the
+only accepted delegation workspace.
+Those live runs explicitly selected Claude medium effort; the current launch
+default is high, checked separately for new and resumed launches.
+
+- A consultation invoked the evidence tool, received a source-linked caller
+  map, read the decisive files itself, and returned the fixture's marker. The
+  source checkout remained clean. This took about 35 seconds with no permission
+  denials.
+- A delegation invoked the implementation tool to fix subtraction in an `add`
+  function, inspected the result, and returned the helper's passing test. The
+  coordinator reproduced the test: one pass, zero failures, two assertions.
+  Only the clone's `math.ts` changed; its marker and the source checkout were
+  unchanged. This took about 33 seconds with no permission denials or correction
+  rounds. Acceptance included direct diff inspection and a reproduced check.
+- The same Claude session remembered an acceptance label after a parent resume
+  and used a fresh helper connection. A separate native helper resume retained
+  its prior file observation and test result under the same helper session ID.
+- A native configuration check exposed table merging: `mcp_servers={}` did not
+  clear inherited servers. Explicit per-server overrides disabled all eight
+  discovered servers. Native implementation and helper-resume runs then passed
+  with those overrides.
+
+These runs establish transport and observed behavior on a small fixture. They
+do not establish a usage saving or quality improvement on real architecture or
+implementation assignments. Timeout, cancellation, overlap, call limits,
+foreign-session refusal, malformed results and attempted access widening are
+covered separately by mocked-process tests; those tests do not prove OS
+enforcement. The coordinator spent additional time building and checking this
+capability, so these timings are not a delegation-efficiency comparison.
+
+A subsequent main-checkout delivery used Opus 5.5 high and two GPT-6.1 Sol
+medium implementation helpers for the skill guidance and tests. Claude directed
+and inspected both results in the main checkout. The final turn took about six
+minutes and reported 27 passing tests; this was not a speed comparison. Two
+earlier turns in the same native Claude conversation reported concrete blockers:
+protected `.agents` writes, then a malformed scoped permission profile. The
+coordinator corrected the launcher and returned the evidence to that same chat.
+An exact-argument native sandbox probe then confirmed that only the selected
+skill subtrees reopened inside `.agents`; sibling subtrees and `.git`/`.codex`
+stayed read-only. A TOML regression test now covers the malformed-profile failure.
+A separate live resume of an older Sonnet chat under the Opus high default
+retained both prior acceptance labels without tools.
