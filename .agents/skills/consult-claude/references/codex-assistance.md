@@ -9,8 +9,10 @@ alone does not earn a handoff.
 The objective is better reasoning, design judgment, and delivered work. Prefer
 Claude for choices where its reasoning or taste can improve the result; Codex
 absorbs supporting work while Claude retains the understanding needed to judge
-it. Claude defaults to Opus 5.5 high and Codex helpers to medium. Elapsed time,
-attention, and usage are context rather than objectives for this workflow.
+it. Claude defaults to Opus 5.5 high and Codex helpers to medium. Respect the
+user's priorities for speed, attention, and usage. Minimize serial handoffs and
+repeated investigation while preserving required verification; additional
+agents must earn their coordination cost.
 
 ## Enable the capability
 

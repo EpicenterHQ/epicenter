@@ -16,10 +16,16 @@ change can warrant Claude when the choice matters. Keep purely mechanical
 changes with Codex. Give Claude a coherent outcome and observable acceptance
 criteria, including the investigation needed to deliver it.
 
-Choose the division of work for the quality of the result. Claude retains the
-judgment and understanding needed to inspect supporting work; Codex helpers
-handle bounded evidence gathering or implementation. Elapsed time, attention,
-and usage are context rather than objectives for this workflow.
+Choose the execution route before launching. For substantial implementation,
+default to `--codex --codex-model <selected-model>`. Claude owns the design
+judgment, assigns bounded investigation and implementation to Codex, inspects
+the resulting changes, and directs corrections. For a small edit tightly
+coupled to Claude's reasoning, keep the direct route. Use direct delivery when
+handing off would require repeating most of the investigation.
+
+Respect the user's priorities for speed, attention, and usage. When speed
+matters, minimize serial handoffs and repeated investigation while preserving
+required verification. Additional agents must earn their coordination cost.
 
 The user's request to delegate, or authorization to complete the parent task,
 bounds the assignment. Delegation does not authorize publishing, deploying,
@@ -118,13 +124,20 @@ consultation. New and resumed delegations default to Opus 5.5 high; explicit
 helper model at medium reasoning. Sonnet is an explicit choice for routine
 bounded work.
 
+For substantial implementation, enable Codex assistance and select its model
+explicitly; this example uses `gpt-6.1-sol`:
+
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts \
   --account personal --account-email claude@example.com \
+  --codex --codex-model gpt-6.1-sol \
   --mode delegate <<'ASSIGNMENT'
 [Result, consumers, requirements, baseline, allowed paths, checks, stop.]
 ASSIGNMENT
 ```
+
+For a small edit tightly coupled to Claude's reasoning, omit both `--codex`
+and `--codex-model` to use direct delivery.
 
 Add `--workspace /absolute/path/to/standalone-clone` to select a clone.
 
@@ -141,14 +154,11 @@ them between checkouts. Claude's instructions prohibit child agents, commits,
 remote changes, publishing, and access changes.
 Those instruction boundaries are separate from filesystem enforcement.
 
-For substantial implementation that Claude should direct and inspect, add
-`--codex --codex-model <selected-model>`. Claude then has Read, Glob, Grep and
-the host's evidence and implementation tools, with no Edit, Write or Bash.
+With `--codex`, Claude has Read, Glob, Grep and the host's evidence and
+implementation tools, with no Edit, Write or Bash.
 Codex is the sole code writer in the assigned checkout. Claude chooses specific
 evidence requests, defines bounded implementation assignments, reads deciding
 source and resulting edits, checks reported verification, and directs corrections.
-For a small edit tightly coupled to Claude's reasoning, keep the direct route
-above. Do not add a Sonnet or Codex handoff merely because editing begins.
 Read [Codex assistance](../consult-claude/references/codex-assistance.md) before
 enabling it. Host limits and sandboxing apply independently to the helper;
 neither its execution nor external-provider usage is bounded by Claude's budget.
@@ -173,11 +183,13 @@ model usage. A zero process exit alone does not establish completion. Monitor
 yielded processes and keep the user informed. Resume the same session for
 the same assignment in the same checkout, repeating any `--workspace`, `--codex`
 and write-root choices. New evidence, a failed check, or a correction does not
-need a new conversation:
+need a new conversation. This example resumes helper-backed delivery; direct
+sessions omit both Codex flags:
 
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts \
   --account personal --account-email claude@example.com \
+  --codex --codex-model gpt-6.1-sol \
   --mode delegate --resume <session_id> <<'FOLLOWUP'
 [Failed acceptance check, raw evidence, and focused correction.]
 FOLLOWUP
