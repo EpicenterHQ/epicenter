@@ -37,9 +37,17 @@ To build a local macOS app that you can quit and reopen from Finder, run `bun bu
 
 The folder is the whole application data directory, `~/Library/Application Support/so.epicenter.todos` on macOS. Todos rows land at `todos/<id>.md` directly in it; there is no child directory and no marker file. The shell creates the directory at the first open when it is missing. The save lock and scratch directory sit beside it, named `.so.epicenter.todos.epicenter-save-lock` and `.so.epicenter.todos.epicenter-scratch`.
 
-The shell registers that directory for the `todos` window in trusted Rust code and hands the window its scope. The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` gives the window the folder plugin's commands and its change event, and nothing else.
+The shell registers that directory for the `todos` window in trusted Rust code and hands the window its scope. The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` gives the window the folder plugin's commands and change event, its app identifier, and `open_in_epicenter`.
 
 On the tested macOS build, opening and saving left only `.git/` and `todos/` in the Folder root. The shell assigns WebView runtime storage to its cache directory, outside the Folder. Linux and Windows packaged builds have not been run.
+
+### Open in Epicenter
+
+The desktop header offers **Open in Epicenter** (`src/routes/local/open-in-epicenter.ts`, ADR-0646). The page asks the shell's `open_in_epicenter` command, which reads the root the folder plugin granted the window and asks the operating system to open `epicenter://open?path=<that directory, percent-encoded>`. The page passes no path, and the window holds no opener permission. The shell sends whatever directory its grant names, not a path derived from the app's identifier.
+
+When the opener call succeeds, the header says that Todos asked the computer to open Epicenter. The detached system opener cannot confirm that Epicenter received the link, so the person checks its Folders window and chooses **Open** there. If the opener call itself fails, the header shows the reason. The link carries no app ID, schema, or manifest: Epicenter's Folders window shows the files as text and needs only the path.
+
+The action appears only when `getIdentifier()` answers `so.epicenter.todos` or `so.epicenter.todos.dev` (`core:app:allow-identifier` in `capabilities/todos.json`). The browser build has no Tauri shell. Todos bundled in Epicenter runs under Epicenter's identifier, and its windows are not granted the lookup.
 
 ## Native directory example
 
@@ -58,7 +66,7 @@ Earlier Todos builds kept named folders in OPFS. This build opens its IndexedDB 
 
 ## Boundaries and checks
 
-`src/routes/+page.svelte` mounts one `FolderApp` with `todosTables`. The root owns the Folder handle, query cache, drafts, status, and close. `src/routes/local/` contains the UI; it reads the handle through the Svelte context. `scripts/native.ts` uses the same public Folder operations over a directory. Todos has no account, inference, or sync action.
+`src/routes/+page.svelte` mounts one `FolderApp` with `todosTables`. The root owns the Folder handle, query cache, drafts, status, and close. `src/routes/local/` contains the UI; it reads the handle through the Svelte context. `scripts/native.ts` uses the same public Folder operations over a directory. Todos has no account, inference, or sync action. Its one native action beyond the Folder is Open in Epicenter, in standalone Todos only.
 
 From the repository root:
 

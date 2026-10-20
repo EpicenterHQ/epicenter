@@ -280,6 +280,7 @@
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
+        "@tauri-apps/api": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },

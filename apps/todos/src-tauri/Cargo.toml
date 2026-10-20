@@ -16,6 +16,8 @@ tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+# Opens `epicenter://open?path=…` for Open in Epicenter, from Rust only.
+tauri-plugin-opener = "2.5"
 tauri = { version = "2.12", features = [] }
 
 [dev-dependencies]

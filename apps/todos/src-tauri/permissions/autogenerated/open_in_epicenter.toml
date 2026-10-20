@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-in-epicenter"
+description = "Enables the open_in_epicenter command without any pre-configured scope."
+commands.allow = ["open_in_epicenter"]
+
+[[permission]]
+identifier = "deny-open-in-epicenter"
+description = "Denies the open_in_epicenter command without any pre-configured scope."
+commands.deny = ["open_in_epicenter"]
