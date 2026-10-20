@@ -73,11 +73,40 @@ notice held by the app layout's toaster.
 
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
 initialization. The context contains `folder`, `queryClient`,
-`queries.rows(table)`, `edits`, `status`, `saveState`, `busy`, `leaving`, `run`,
+`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `edits`, `status`, `saveState`, `busy`, `leaving`, `run`,
 `registerWork`, `registerUnsent`, `settled`, `guardWindowClose`, `refresh`, and
-`close`. Own saves report paths and invalidate their table or exact file queries.
-`refresh(filters)` waits for an older active read, then invalidates without
-cancelling storage work. A save keeps its draft until that fresh read completes.
+`close`. Own saves report paths to the context's only change listener.
+`refresh([path])` refreshes every representation at that path, descendants when
+it names a directory, matching row tables, and whole-folder reads such as the
+listing and documents. `refresh()` refreshes everything; `refresh([])` does
+nothing. A save waits for older reads, then rereads without cancelling storage
+work, before releasing its draft. Affected unobserved file entries are forgotten
+so reopening a deleted or recreated file cannot show an old save base. Disabled
+observers remain attached.
+
+Define each app-specific file representation once:
+
+```ts
+import { defineFileRead } from '@epicenter/svelte/folder-queries';
+
+const sourceRead = defineFileRead('source', async (files, path) => {
+	const read = await files.read(path);
+	if (read.error !== null) throw read.error;
+	return read.data === undefined ? null : await read.data.content.text();
+});
+
+const source = createQuery(() => context.queries.file(path, sourceRead));
+const paths = createQuery(() => context.queries.files());
+await context.refresh([path]);
+```
+
+The factory generates the key and query function together. Representation names
+must be unique within a context: one name always identifies the same cached data
+shape and read policy. A representation can own `gcTime` and `structuralSharing`;
+view options such as `enabled` and `select` stay at the observer. The key carries
+the decoded data type into `queryClient.getQueryData(options.queryKey)`. There is
+no reader registry or options cache. Query functions never change an existing
+file's bytes.
 
 One timer in the context rereads active folder queries while the document is
 visible. QueryClient selects the reads and joins those already running. The
@@ -90,10 +119,12 @@ listener, file watcher, or wake detector is needed. Closing stops the timer
 before draining saves. Failed local reads are shown without automatic retries
 inside that read; a later poll or visibility return can try again.
 
-Every context has its own QueryClient and `['folder']` query prefix. The prefix
-matches all folder queries in that client's cache. Exact file keys and table
-prefixes select smaller sets; query keys describe cached reads, not filesystem
-subscriptions.
+Every context has its own QueryClient and `['folder']` query prefix. Generated
+keys are `['folder', 'rows', table]`, `['folder', 'files']`,
+`['folder', 'documents']`, and `['folder', 'file', path, representation]`.
+Query prefixes match array elements. The context separately handles filesystem
+descendants when refreshing paths. Apps neither build these keys nor subscribe
+to folder changes.
 
 `saveState` is `saved` only when no draft or action is pending and no failure
 is held. A failed row or app-owned draft is `failed`. A storage failure with
@@ -110,11 +141,10 @@ meanwhile. A failed save keeps the draft and its error until a successful
 retry or an explicit discard. `edits.delete` waits for the row's save and
 refuses to discard a failed draft.
 
-`edits.text(path, queryKey)` holds exact whole-file text. `change(from, text)`
+`edits.text(path)` holds exact whole-file text. `change(from, text)`
 captures the source bytes or text the person edited; `save()` sends it now.
-The query key names the app's cached file read. A successful save refreshes
-that read and the affected table before releasing its draft. Reads must not
-wait for saves, since a save waits for its refreshed reads.
+A successful save calls `refresh([path])` before releasing its draft. Reads
+must not wait for saves, since a save waits for its refreshed reads.
 
 Row patches and whole-file text share one draft, save queue, and deletion
 fence per path. A change cannot replace the other kind of pending input.

@@ -10,6 +10,14 @@
  * text box would rewrite, is shown and left as it is.
  */
 
+import { defineFileRead } from '@epicenter/svelte/folder-queries';
+
+export const sourceRead = defineFileRead('source', async (files, path) => {
+	const read = await files.read(path);
+	if (read.error !== null) throw read.error;
+	return read.data === undefined ? null : new Uint8Array(await read.data.content.arrayBuffer());
+});
+
 /** One line of the tree: a directory, or a file to open. */
 export type TreeRow = {
 	readonly kind: 'directory' | 'file';
@@ -72,16 +80,6 @@ export function fileTree(paths: readonly string[]): TreeRow[] {
 	walk('', 0);
 	return rows;
 }
-
-/**
- * The query key of the folder's list of files, below `root`, the folder
- * context's key (`context.queries.key`). Below it, a change the folder
- * cannot name invalidates every read, and closing cancels them.
- */
-export const listKey = (root: readonly unknown[]) => [...root, 'list'] as const;
-/** The query key of one file's bytes, below the folder context's key. */
-export const fileKey = (root: readonly unknown[], path: string) =>
-	[...root, 'file', path] as const;
 
 /** What one file is to the editor. */
 export type FileText =

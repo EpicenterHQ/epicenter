@@ -9,6 +9,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import { QueryObserver } from '@tanstack/query-core';
+import { defineFileRead } from './folder-queries.js';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
@@ -27,14 +28,11 @@ async function setup(source = initial, saveAfterMs = 60_000) {
 	expectOk(await folder.files.write(path, null, source));
 	const context = createFolderContext(folder, { saveAfterMs });
 	cleanup.push(() => context.close());
-	const queryKey = [...context.queries.key, 'file', path];
-	const query = new QueryObserver(context.queryClient, {
-		queryKey,
-		queryFn: async () => {
-			const file = expectOk(await folder.files.read(path));
-			return file === undefined ? undefined : file.content.text();
-		},
+	const reader = defineFileRead('text', async (files, path) => {
+		const file = expectOk(await files.read(path));
+		return file === undefined ? null : await file.content.text();
 	});
+	const query = new QueryObserver(context.queryClient, context.queries.file(path, reader));
 	cleanup.push(query.subscribe(() => {}));
 	await context.queryClient.fetchQuery(context.queries.rows('notes'));
 	const other = expectOk(await openFolder({ tables }));
@@ -44,7 +42,7 @@ async function setup(source = initial, saveAfterMs = 60_000) {
 		context,
 		other,
 		query,
-		text: context.edits.text(path, queryKey),
+		text: context.edits.text(path),
 	};
 }
 

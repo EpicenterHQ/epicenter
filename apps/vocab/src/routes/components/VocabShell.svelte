@@ -109,7 +109,7 @@
 
 	/** Read both lists again, after a read that failed. */
 	function readAgain() {
-		void context.refresh({ queryKey: vocab.queries.key });
+		void context.refresh();
 	}
 </script>
 

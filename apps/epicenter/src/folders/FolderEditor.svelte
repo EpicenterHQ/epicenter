@@ -6,17 +6,13 @@
 	 * folder context, so hiding the window sends it and closing the window
 	 * waits for its saves, and a failed save keeps the window with its text.
 	 *
-	 * The context marks row reads stale on each change; the generic editor
-	 * marks its file and document reads stale too. A directory change
-	 * can affect any descendant file. A change that names no path reaches every read
-	 * through the context, below whose key these reads sit.
+	 * The context refreshes each changed path and its dependents, including
+	 * directory descendants and document reads. This editor owns no change listener.
 	 */
 	import { type getFolder, setFolder } from './context.js';
 	import { setQueryClientContext } from '@tanstack/svelte-query';
-	import { onDestroy } from 'svelte';
 	import { createFileDrafts } from './drafts.svelte';
 	import FolderView from './FolderView.svelte';
-	import { listKey, fileKey } from './files';
 	import { updateSavedView } from '@epicenter/folder/tauri';
 	import type { ViewUpdater } from './views.svelte';
 	let { context, updateView = updateSavedView }: {
@@ -30,16 +26,9 @@
 	// svelte-ignore state_referenced_locally
 	setQueryClientContext(context.queryClient);
 	// svelte-ignore state_referenced_locally
-	const root = context.queries.key;
-	// svelte-ignore state_referenced_locally
 	const drafts = createFileDrafts({
 		files: context.folder.files,
-		saved: async (path) => {
-			await Promise.all([
-				context.refresh({ queryKey: fileKey(root, path) }),
-				context.refresh({ queryKey: [...root, 'documents'] }),
-			]);
-		},
+		saved: (path) => context.refresh([path]),
 	});
 	// svelte-ignore state_referenced_locally
 	context.registerWork({
@@ -51,22 +40,6 @@
 		},
 		settle: () => drafts.settle(),
 	});
-	// svelte-ignore state_referenced_locally
-	const stop = context.folder.onChange((change) => {
-		if (change.paths === null) return;
-		void context.refresh({ queryKey: listKey(root) });
-		void context.refresh({ queryKey: [...root, 'documents'] });
-		for (const path of change.paths)
-			void context.refresh({
-				predicate: (query) => {
-					const key = query.queryKey;
-					return key[0] === root[0] && key[1] === 'file' &&
-						typeof key[2] === 'string' &&
-						(key[2] === path || key[2].startsWith(`${path}/`));
-				},
-			});
-	});
-	onDestroy(stop);
 </script>
 
 <FolderView {drafts} {updateView} />

@@ -16,11 +16,11 @@
 	let { notes }: { notes: Notes } = $props();
 
 	const noteRows = createQuery(() => ({
-		...notes.rowsQuery(NOTES),
+		...notes.queries.rows(NOTES),
 		select: notesOf,
 	}));
 	const folderRows = createQuery(() => ({
-		...notes.rowsQuery(FOLDERS),
+		...notes.queries.rows(FOLDERS),
 		select: foldersOf,
 	}));
 	const folders = $derived(

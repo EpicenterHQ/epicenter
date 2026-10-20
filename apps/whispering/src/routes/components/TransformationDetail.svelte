@@ -7,6 +7,8 @@
 	the row it started from. Run sends what is typed first.
 -->
 <script lang="ts">
+	import { textRead } from '$lib/file-reads.js';
+
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
@@ -61,7 +63,7 @@
 	const asText = $derived(library.showsText(path));
 	/** The transformation as shown, while its fields are what is edited: as typed, or as the cache holds it. */
 	const row = $derived(asText ? undefined : library.rowAt(TRANSFORMATIONS, path));
-	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
+	const opened = createQuery(() => ({ ...library.local.queries.file(path, textRead), enabled: asText }));
 	/** The file's text as typed while an edit is unsaved, else as read. */
 	const source = $derived(
 		asText ? (library.editedText(path) ?? (opened.data?.kind === 'text' ? opened.data.text : undefined)) : undefined,

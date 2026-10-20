@@ -10,6 +10,8 @@
 	not saved, and the view closes.
 -->
 <script lang="ts">
+	import { textRead, audioRead } from '$lib/file-reads.js';
+
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -59,7 +61,7 @@
 	const asText = $derived(library.showsText(path));
 	/** The recording as shown, while its fields are what is edited: as typed, or as the cache holds it. */
 	const row = $derived(asText ? undefined : library.rowAt(RECORDINGS, path));
-	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
+	const opened = createQuery(() => ({ ...library.local.queries.file(path, textRead), enabled: asText }));
 	/** The file's text as typed while an edit is unsaved, else as read. */
 	const text = $derived(
 		asText ? (library.editedText(path) ?? (opened.data?.kind === 'text' ? opened.data.text : undefined)) : undefined,
@@ -173,7 +175,7 @@
 					<AudioAbsent />
 				{:else if audioPath}
 					<AudioPlayer
-						source={{ kind: 'file', query: library.audioQuery(audioPath) }}
+						source={{ kind: 'file', query: library.local.queries.file(audioPath, audioRead) }}
 						label="Audio of {title || id}"
 					/>
 				{:else}

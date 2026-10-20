@@ -8,6 +8,8 @@
 	save, and is repaired here; a note that reads opens as a note again.
 -->
 <script lang="ts">
+	import { textRead } from '$lib/file-reads.js';
+
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
@@ -40,7 +42,7 @@
 	const path = shownPath;
 	onDestroy(() => void notes.saveText(path));
 
-	const file = createQuery(() => notes.textQuery(path));
+	const file = createQuery(() => notes.queries.file(path, textRead));
 	const name = basename(path);
 	const noteId = noteIdOf(path);
 	const folderId = folderIdOf(path);
@@ -51,12 +53,12 @@
 	const pendingRow = $derived(rowDraft?.pending);
 	/** The row this file is, as its table last read it, when it is a note or folder file. */
 	const note = createQuery(() => ({
-		...notes.rowsQuery(NOTES),
+		...notes.queries.rows(NOTES),
 		enabled: noteId !== undefined,
 		select: (rows: NoteRow[]) => rows.find((row) => row.id === noteId),
 	}));
 	const folder = createQuery(() => ({
-		...notes.rowsQuery(FOLDERS),
+		...notes.queries.rows(FOLDERS),
 		enabled: folderId !== undefined,
 		select: (rows: FolderRow[]) => rows.find((row) => row.id === folderId),
 	}));
@@ -167,7 +169,7 @@
 			{#if failed !== undefined && !notes.isWriting(path)}
 				Not saved: {failed}
 				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => void notes.saveText(path)}>Save again</Button>
-				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => notes.edits.text(path, notes.textQuery(path).queryKey).discard()}>Discard changes</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => notes.edits.text(path).discard()}>Discard changes</Button>
 			{:else}
 				{notes.isWriting(path) ? 'Saving…' : 'Saved'}
 			{/if}

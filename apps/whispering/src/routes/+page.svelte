@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { audioRead } from '$lib/file-reads.js';
+
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as SectionHeader from '@epicenter/ui/section-header';
@@ -157,7 +159,7 @@
 					{:else if audioPath}
 						<div class="min-w-0 flex-1 basis-full sm:basis-0">
 							<AudioPlayer
-								source={{ kind: 'file', query: library.audioQuery(audioPath) }}
+								source={{ kind: 'file', query: library.local.queries.file(audioPath, audioRead) }}
 								label="Audio of {recordingTitle(latest)}"
 							/>
 						</div>

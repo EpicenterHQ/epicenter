@@ -59,7 +59,7 @@
 			});
 			if (error !== null) throw error;
 			// Listed before it opens, so the detail never says it is gone.
-			await refresh({ queryKey: queries.rows('todos').queryKey });
+			await refresh([`todos/${id}.md`]);
 			return id;
 		},
 		onError: (error: Parameters<typeof describeFailure>[0], typed: string) =>

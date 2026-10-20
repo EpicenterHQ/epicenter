@@ -43,11 +43,11 @@
 	const path = shownPath;
 	const id = noteIdOf(path) ?? '';
 	const note = createQuery(() => ({
-		...notes.rowsQuery(NOTES),
+		...notes.queries.rows(NOTES),
 		select: (rows: NoteRow[]) => rows.find((row) => row.id === id),
 	}));
 	const folders = createQuery(() => ({
-		...notes.rowsQuery('folders'),
+		...notes.queries.rows('folders'),
 		select: foldersOf,
 	}));
 	/** What is typed into the note and not yet saved. */

@@ -66,8 +66,8 @@ nor an app chooses a native path, and no URL carries one. A refused open
 shows the refusal; the app does not open different storage as a fallback.
 
 Folder methods return the current source with every row. A view keeps the
-source it edited as its save base, listens to `onChange` for affected paths,
-and reports "Saved on this device" only after the storage save succeeds and
+source it edited as its save base. The shared folder context owns query keys
+and the one `onChange` listener that refreshes affected paths. The view reports "Saved on this device" only after the storage save succeeds and
 no draft remains. Account, inference, and future Git exchange have separate
 lifetimes. They do not gate local opening or saving.
 

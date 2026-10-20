@@ -223,7 +223,6 @@ export function createCaptures(context: CaptureFolder) {
 	const texts = createTextDrafts({
 		files: folder.files,
 		refresh: context.refresh,
-		rowsKey,
 		refused: (path) =>
 			edits.fenced || [...deleting].some((stem) => capturePath(stem) === path),
 	});
@@ -279,7 +278,7 @@ export function createCaptures(context: CaptureFolder) {
 			!edits.fenced
 		) {
 			await texts.text(capturePath(stem)).save();
-			await context.refresh({ queryKey: rowsKey, exact: true });
+			await context.refresh([capturePath(stem)]);
 		}
 		let as = mode;
 		if (mode === 'capture') {
@@ -401,7 +400,7 @@ export function createCaptures(context: CaptureFolder) {
 				});
 				if (saved.error !== null) return saved;
 				// Listed before it opens, so the view never says it is gone.
-				await context.refresh({ queryKey: rowsKey });
+				await context.refresh([capturePath(stem)]);
 				if (newCapture === text) newCapture = '';
 				// Text that does not read as text and thoughts opens as text.
 				await open(stem, 'capture');

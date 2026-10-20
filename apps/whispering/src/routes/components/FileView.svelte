@@ -5,6 +5,8 @@
 	started from and is written at once, one write at a time for this file.
 -->
 <script lang="ts">
+	import { textRead, audioRead } from '$lib/file-reads.js';
+
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
@@ -54,7 +56,7 @@
 	const transcript = $derived(
 		table === TRANSCRIPTIONS && !asText ? library.rowAt(TRANSCRIPTIONS, path) : undefined,
 	);
-	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
+	const opened = createQuery(() => ({ ...library.local.queries.file(path, textRead), enabled: asText }));
 	/** The file's text as typed while an edit is unsaved, else as read. */
 	const text = $derived(
 		library.editedText(path) ?? (opened.data?.kind === 'text' ? opened.data.text : undefined),
@@ -119,7 +121,7 @@
 		</div>
 	{:else if audio}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4" data-testid="audio-file-view">
-			<AudioPlayer source={{ kind: 'file', query: library.audioQuery(path) }} label="Audio in {name}" />
+			<AudioPlayer source={{ kind: 'file', query: library.local.queries.file(path, audioRead) }} label="Audio in {name}" />
 			<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
 				<dt class="text-muted-foreground">Type</dt>
 				<dd>{details()} · {audioMimeTypeOf(path)}</dd>

@@ -11,7 +11,9 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/bun';
+import type { DocumentReading } from '@epicenter/folder/documents';
 import { QueryObserver } from '@tanstack/query-core';
+import { defineFileRead } from './folder-queries.js';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -126,16 +128,15 @@ test('a known path refresh leaves unrelated file queries alone', async () => {
 	const reads = { a: 0, b: 0 };
 	for (const path of ['a', 'b'] as const) {
 		const observer = new QueryObserver(context.queryClient, {
-			queryKey: [...context.queries.key, 'file', path],
-			queryFn: async () => ++reads[path],
+			...context.queries.file(
+				path,
+				defineFileRead('text', async () => ++reads[path]),
+			),
 		});
 		cleanup.push(observer.subscribe(() => {}));
 	}
 	await until(() => reads.a === 1 && reads.b === 1);
-	await context.refresh({
-		queryKey: [...context.queries.key, 'file', 'a'],
-		exact: true,
-	});
+	await context.refresh(['a']);
 	expect(reads).toEqual({ a: 2, b: 1 });
 });
 
@@ -210,3 +211,146 @@ test('multiple observers share one periodic read and expensive reads get idle ti
 	await Bun.sleep(2_300);
 	expect(reads()).toBe(before + 1);
 }, 8_000);
+
+test('a path refresh covers every representation and aggregate, leaving unrelated files alone', async () => {
+	const { context, folder, directory, cached } = await setup();
+	const reads = { text: 0, size: 0, other: 0 };
+	const text = defineFileRead('text', async (files, path) => {
+		reads.text++;
+		const file = expectOk(await files.read(path));
+		return file ? await file.content.text() : null;
+	});
+	const size = defineFileRead('size', async (files, path) => {
+		reads.size++;
+		return expectOk(await files.read(path))?.content.size ?? 0;
+	});
+	const other = defineFileRead('other', async () => ++reads.other);
+	const textOptions = context.queries.file('notes/milk.md', text);
+	const observers = [
+		new QueryObserver(context.queryClient, textOptions),
+		new QueryObserver(
+			context.queryClient,
+			context.queries.file('notes/milk.md', size),
+		),
+		new QueryObserver(
+			context.queryClient,
+			context.queries.file('notes-other/milk.md', other),
+		),
+		new QueryObserver(context.queryClient, context.queries.files()),
+		new QueryObserver(context.queryClient, context.queries.documents()),
+	];
+	for (const observer of observers) cleanup.push(observer.subscribe(() => {}));
+	await until(() => context.queryClient.isFetching() === 0);
+	const before = { ...reads };
+	await writeFile(
+		join(directory, 'notes/milk.md'),
+		initial.replace('Milk', 'Changed'),
+	);
+	await context.refresh(['notes']);
+	expect(cached().fields.title).toBe('Changed');
+	const changed = context.queryClient.getQueryData(textOptions.queryKey);
+	expect(changed ?? '').toContain('Changed');
+	expect(reads).toEqual({
+		text: before.text + 1,
+		size: before.size + 1,
+		other: before.other,
+	});
+	expect(
+		context.queryClient.getQueryData<string[]>(
+			context.queries.files().queryKey,
+		),
+	).toEqual(['notes/milk.md']);
+	expect(
+		context.queryClient.getQueryData<DocumentReading>(
+			context.queries.documents().queryKey,
+		)?.documents[0]?.fields.title,
+	).toBe('Changed');
+	// Actual committed writes use the context's listener, without app listeners.
+	const from = expectOk(await folder.files.read('notes/milk.md'))!;
+	expectOk(
+		await folder.files.write(
+			'notes/milk.md',
+			new Uint8Array(await from.content.arrayBuffer()),
+			initial.replace('Milk', 'Own save'),
+		),
+	);
+	await until(
+		() =>
+			cached().fields.title === 'Own save' &&
+			context.queryClient
+				.getQueryData(textOptions.queryKey)
+				?.includes('Own save') === true,
+	);
+	const settled = { ...reads };
+	await context.refresh([]);
+	expect(reads).toEqual(settled);
+});
+
+test('refresh forgets unobserved files while disabled observers stay attached', async () => {
+	const { context, folder } = await setup();
+	const reader = defineFileRead('text', async (files, path) => {
+		const file = expectOk(await files.read(path));
+		return file ? await file.content.text() : null;
+	});
+	const options = context.queries.file('notes/milk.md', reader);
+	const initialText = await context.queryClient.fetchQuery(options);
+	expect(initialText ?? '').toContain('Milk');
+	await context.refresh(['notes/milk.md']);
+	expect(context.queryClient.getQueryState(options.queryKey)).toBeUndefined();
+	const disabled = new QueryObserver(context.queryClient, {
+		...options,
+		enabled: false,
+	});
+	cleanup.push(disabled.subscribe(() => {}));
+	const query = context.queryClient
+		.getQueryCache()
+		.find({ queryKey: options.queryKey, exact: true });
+	await context.refresh(['notes/milk.md']);
+	expect(
+		context.queryClient
+			.getQueryCache()
+			.find({ queryKey: options.queryKey, exact: true }),
+	).toBe(query);
+	const before = expectOk(await folder.files.read('notes/milk.md'))!;
+	expectOk(
+		await folder.files.delete(
+			'notes/milk.md',
+			new Uint8Array(await before.content.arrayBuffer()),
+		),
+	);
+	await context.refresh(['notes/milk.md']);
+	expectOk(await folder.files.write('notes/milk.md', null, 'New empty file'));
+	await context.refresh(['notes/milk.md']);
+	disabled.setOptions(options);
+	await until(() => disabled.getCurrentResult().data === 'New empty file');
+	expect(disabled.getCurrentResult().data).toBe('New empty file');
+});
+
+test('refresh joins an unobserved prefetch before forgetting its old file bytes', async () => {
+	const { context, directory } = await setup();
+	const gate = Promise.withResolvers<void>();
+	let reading = false;
+	const reader = defineFileRead('text', async (files, path) => {
+		const file = expectOk(await files.read(path))!;
+		const text = await file.content.text();
+		reading = true;
+		await gate.promise;
+		return text;
+	});
+	const options = context.queries.file('notes/milk.md', reader);
+	const fetching = context.queryClient.fetchQuery(options);
+	cleanup.push(() => gate.resolve());
+	await until(() => reading);
+	await writeFile(join(directory, 'notes/milk.md'), 'Changed during prefetch');
+	let finished = false;
+	const refreshing = context.refresh(['notes/milk.md']).then(() => {
+		finished = true;
+	});
+	await Bun.sleep(0);
+	expect(finished).toBe(false);
+	gate.resolve();
+	await Promise.all([fetching, refreshing]);
+	expect(context.queryClient.getQueryState(options.queryKey)).toBeUndefined();
+	const freshText = await context.queryClient.fetchQuery(options);
+	expect(freshText).toBe('Changed during prefetch');
+});

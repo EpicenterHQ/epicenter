@@ -29,7 +29,6 @@ import {
 	type ReadError,
 	SaveError,
 } from '@epicenter/folder';
-import type { InvalidateQueryFilters } from '@tanstack/query-core';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { Static, TSchema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -75,7 +74,6 @@ type TextDraft = {
 	kind: 'text';
 	from: FileContent;
 	text: string;
-	readonly queryKey: readonly unknown[];
 	revision: number;
 	saving: boolean;
 	error: SaveError | undefined;
@@ -107,14 +105,11 @@ function unsavedOf({ table, id, fields, body, error }: RowDraft): Unsaved {
 export function createEdits<TTables extends Record<string, TSchema>>({
 	folder,
 	refresh,
-	rowsKey,
 	saveAfterMs = SAVE_AFTER_MS,
 }: {
 	folder: Folder<TTables>;
 	/** Read affected queries after a save lands, before releasing its draft. */
-	refresh: (filters: InvalidateQueryFilters) => Promise<void>;
-	/** The query key of table `table`'s rows. */
-	rowsKey: (table: string) => readonly unknown[];
+	refresh: (paths?: readonly string[]) => Promise<void>;
 	saveAfterMs?: number;
 }) {
 	// A draft keeps the row it started from without its table's schema type.
@@ -202,18 +197,7 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 				if (settled.revision !== revision && again.has(key)) continue;
 				return;
 			}
-			const table = key.slice(0, Math.max(key.indexOf('/'), 0));
-			await Promise.all([
-				refresh({ queryKey: rowsKey(table) }),
-				...(draft.kind === 'text'
-					? [
-							refresh({
-								queryKey: draft.queryKey,
-								exact: true,
-							}),
-						]
-					: []),
-			]);
+			await refresh([key]);
 			const after = drafts.get(key);
 			if (after === undefined) return;
 			if (after.revision === revision) drafts.delete(key);
@@ -368,8 +352,8 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 			};
 		},
 
-		/** Whole-file text, held above its view. The key identifies its cached read. */
-		text(path: string, queryKey: readonly unknown[]) {
+		/** Whole-file text held above its view; saving refreshes every read of the path. */
+		text(path: string) {
 			const pending = () => {
 				const draft = drafts.get(path);
 				return draft?.kind === 'text' ? draft : undefined;
@@ -394,7 +378,6 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 					if (draft?.kind === 'row') return false;
 					drafts.set(path, {
 						kind: 'text',
-						queryKey,
 						from:
 							draft?.from ?? (typeof from === 'string' ? from : from.slice()),
 						text,
@@ -452,7 +435,7 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 					stored.data === undefined
 						? Ok({ deleted: false })
 						: await tableOf(table).delete(id, stored.data);
-				await refresh({ queryKey: rowsKey(table) });
+				await refresh([key]);
 				return removed;
 			});
 		},
