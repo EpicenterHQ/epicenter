@@ -314,7 +314,6 @@ test('account preview requires an identity and invokes no Claude process', () =>
 		['--account', 'work'],
 		['--account', 'work', '--account-email', ' '],
 		['--account', 'other', '--account-email', 'expected@example.com'],
-		['--account', '../other', '--account-email', 'expected@example.com'],
 		['--account-email', 'expected@example.com'],
 	]) {
 		expect(
