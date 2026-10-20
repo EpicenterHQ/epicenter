@@ -20,7 +20,6 @@ pub mod app_data;
 mod bundled_apps;
 mod cli;
 mod data_folders;
-mod history;
 mod scheme;
 
 pub mod audio;
@@ -138,11 +137,6 @@ macro_rules! shell_commands {
             cli::auth_login::<tauri::Wry>,
             cli::auth_status,
             cli::auth_logout,
-            history::status::<tauri::Wry>,
-            history::history::<tauri::Wry>,
-            history::save_version::<tauri::Wry>,
-            history::sync::<tauri::Wry>,
-            history::install_git,
             bundled_apps::open_bundled_app,
             get_unload_policy,
             set_unload_policy,
@@ -728,7 +722,7 @@ mod tests {
             serde_json::json!(identifiers)
         );
         // A page reads and changes only the directory a grant names: no fs
-        // plugin is installed, and its Git runs in the `epicenter` CLI.
+        // plugin is installed, and Git is a separate CLI concern.
         assert!(
             production["plugins"].get("fs").is_none(),
             "no fs plugin is installed"
@@ -738,7 +732,7 @@ mod tests {
         assert!(development.get("app").is_none());
     }
 
-    /// The AI commands reach Settings and the Folders window (ADR-0557).
+    /// The AI commands reach Settings and Whispering (ADR-0557).
     /// Whispering, which Epicenter bundles, sends over its connections, saves
     /// a key, and reads whether one is saved; it removes none. The other
     /// bundled apps call none. Each is one fixed CLI invocation that never
@@ -756,9 +750,9 @@ mod tests {
             let permissions = capability["permissions"].as_array().unwrap();
             for permission in AI {
                 let expected = match *encoded {
-                    BUNDLED_APP => false,
+                    HOME => true,
                     WHISPERING => permission != "allow-ai-key-remove",
-                    _ => true,
+                    _ => false,
                 };
                 assert_eq!(
                     permissions.contains(&serde_json::json!(permission)),
@@ -1085,40 +1079,6 @@ mod tests {
         }
     }
 
-    /// The folder history commands reach the Folders window and no other
-    /// window; each runs only for a folder the window was granted (ADR-0559).
-    /// Starting what installs `git` reaches the Folders window alone.
-    #[test]
-    fn folder_history_is_granted_to_the_folders_window_alone() {
-        const HISTORY: [&str; 4] = [
-            "allow-status",
-            "allow-history",
-            "allow-save-version",
-            "allow-sync",
-        ];
-        for encoded in ALL_CAPABILITIES {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let permissions = capability["permissions"].as_array().unwrap();
-            let granted = HISTORY
-                .iter()
-                .filter(|permission| permissions.contains(&serde_json::json!(permission)))
-                .count();
-            let folders = capability["windows"] == serde_json::json!(["folders"]);
-            assert_eq!(
-                granted,
-                if folders { HISTORY.len() } else { 0 },
-                "{}",
-                capability["identifier"]
-            );
-            assert_eq!(
-                permissions.contains(&serde_json::json!("allow-install-git")),
-                folders,
-                "{}",
-                capability["identifier"]
-            );
-        }
-    }
-
     /// Whether `capability` applies to the window labelled `label`, decided as
     /// Tauri decides it: each `windows` entry is a `glob::Pattern` matched
     /// against the label (`tauri::ipc::authority`).
@@ -1150,12 +1110,10 @@ mod tests {
         assert_ne!(production["identifier"], development["identifier"]);
     }
 
-    /// The Folders window holds the folder plugin, its own listing, a granted
-    /// folder's history through the CLI and starting what installs `git`
-    /// (ADR-0559), the AI commands (ADR-0557), opening a bundled app
-    /// (`bundled_apps.rs`), and opening Settings (ADR-0537), and nothing
-    /// else: it reaches folders only through scopes the listing registered or
-    /// permitted it into, it installs no app, and it administers no model.
+    /// The Folders window holds the folder plugin, its own listing, opening a
+    /// bundled app (`bundled_apps.rs`), and opening Settings (ADR-0537). It
+    /// reaches folders only through scopes the listing registered or permitted
+    /// it into, and administers no model or connection.
     #[test]
     fn the_folders_window_holds_the_folder_plugin_and_its_listing() {
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
@@ -1167,15 +1125,6 @@ mod tests {
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
                 "allow-list-data-folders",
-                "allow-status",
-                "allow-history",
-                "allow-save-version",
-                "allow-sync",
-                "allow-install-git",
-                "allow-ai-send",
-                "allow-ai-key-set",
-                "allow-ai-key-remove",
-                "allow-ai-key-state",
                 "allow-open-bundled-app",
                 "allow-open-home"
             ]),

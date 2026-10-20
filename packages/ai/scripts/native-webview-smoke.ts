@@ -1,7 +1,7 @@
 /**
- * Real macOS Wry WebView, the installed-app capability's grants, direct transcriber, and cached model.
+ * Real macOS Wry WebView, Whispering's capability grants, direct transcriber, and cached model.
  * Builds only a temporary native example against the existing Cargo target cache.
- * It also checks that the installed-app grants refuse model administration
+ * It also checks that Whispering's grants refuse model administration
  * and that the page runs with no CSP violation, under a copy of the policy
  * the shell's scheme serves (`content_security_policy` in
  * apps/epicenter/src-tauri/src/scheme.rs); change both together.
@@ -136,21 +136,21 @@ try {
 	config.productName = 'Native AI Evidence';
 	config.build = {};
 	config.bundle = { active: false, icon: ['icons/icon.png'] };
-	// The installed-app grants, served to this loopback page: the shell's own
+	// Whispering's grants, served to this loopback page: the shell's own
 	// pages are local on the `epicenter-app` scheme, which this fixture does
 	// not register.
-	const installedApp = await Bun.file(
-		join(native, 'capabilities/installed-app.json'),
+	const whispering = await Bun.file(
+		join(native, 'capabilities/whispering.json'),
 	).json();
 	await Bun.write(
-		join(native, 'capabilities/installed-app.json'),
+		join(native, 'capabilities/whispering.json'),
 		JSON.stringify({
-			...installedApp,
+			...whispering,
 			local: false,
 			remote: { urls: [origin] },
 		}),
 	);
-	config.app.security.capabilities = ['installed-app'];
+	config.app.security.capabilities = ['whispering'];
 	await Bun.write(join(native, 'tauri.conf.json'), JSON.stringify(config));
 	await Bun.write(
 		join(native, 'examples/ai_runtime_webview.rs'),
@@ -171,7 +171,7 @@ fn main() {
   .manage(cache)
   .invoke_handler(tauri::generate_handler![epicenter_lib::transcription::list_inference_models,epicenter_lib::transcription::transcribe_audio_bytes,epicenter_lib::transcription::get_active_model])
   .setup(move |app| {
-   WebviewWindowBuilder::new(app, "app:so_epicenter_whispering", WebviewUrl::External(std::env::var("EPICENTER_EVIDENCE_URL").unwrap().parse().unwrap()))
+   WebviewWindowBuilder::new(app, "whispering:evidence", WebviewUrl::External(std::env::var("EPICENTER_EVIDENCE_URL").unwrap().parse().unwrap()))
     .title("Native inference acceptance").incognito(true).visible(false).build()?;
    let handle = app.handle().clone();
    std::thread::spawn(move || {

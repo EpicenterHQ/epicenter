@@ -36,7 +36,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, Webview};
-use tauri_plugin_epicenter_folder::GrantError;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Notify;
@@ -251,8 +250,6 @@ impl CliExit {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(tag = "name")]
 pub enum CliError {
-    /// This window holds no grant for the folder.
-    NotGranted { grant: GrantError },
     /// The CLI refused the input with exit code 2 and said why on stdout:
     /// an id, an endpoint, or a keychain it cannot use.
     Refused { message: String },

@@ -72,9 +72,7 @@ export function connectionId(title: string, taken: ReadonlySet<string>) {
 
 /** What a person is told when a key command did not run or was refused. */
 export function failureText(error: CliError) {
-	return error.name === 'NotGranted'
-		? 'This window was not granted the folder.'
-		: error.message;
+	return error.message;
 }
 
 /** What a person is told when a connection's file did not read or save. */

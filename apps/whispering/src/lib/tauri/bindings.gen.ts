@@ -141,22 +141,6 @@ export const commands = {
 	 *  keychain. A terminal's `epicenter auth login` is left signed in.
 	 */
 	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
-	/**  The folder's changed files, its head, and its remote, ahead and behind. */
-	status: (scope: string, appLocal: string[]) => typedError<CliExit, CliError>(__TAURI_INVOKE("status", { scope, appLocal })),
-	/**  The folder's last `depth` versions. */
-	history: (scope: string, depth: number) => typedError<CliExit, CliError>(__TAURI_INVOKE("history", { scope, depth })),
-	/**  Record the folder's edits as a version, with `message` when a person gave one. */
-	saveVersion: (scope: string, message: string | null, appLocal: string[]) => typedError<CliExit, CliError>(__TAURI_INVOKE("save_version", { scope, message, appLocal })),
-	/**
-	 *  Record the folder's edits, fetch, merge by each file's kind into one
-	 *  merge commit, and push (ADR-0576). Sync asks the person nothing.
-	 */
-	sync: (scope: string, remote: string | null, allowUnrelated: boolean, appLocal: string[]) => typedError<CliExit, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated, appLocal })),
-	/**
-	 *  Start the Command Line Tools installer, which gives this Mac a `git`,
-	 *  after the CLI answered `GitMissing` (ADR-0559). It is a one-time step.
-	 */
-	installGit: () => typedError<null, string>(__TAURI_INVOKE("install_git")),
 	/**
 	 *  Open bundled app `app` on its fixed default folder, or with `folder`, on a
 	 *  folder the Folders window listed under that scope. A window already open
@@ -344,8 +328,6 @@ export type CatalogError = { name: "UnknownModel"; message: string } | { name: "
 
 /**  Why a command did not run the CLI, or the CLI did not finish. */
 export type CliError = 
-/**  This window holds no grant for the folder. */
-{ name: "NotGranted"; grant: GrantError } | 
 /**
  *  The CLI refused the input with exit code 2 and said why on stdout:
  *  an id, an endpoint, or a keychain it cannot use.
@@ -395,25 +377,6 @@ export type DownloadProgress = {
 	/**  Grand total bytes for the whole model (sum of the catalog file sizes). */
 	totalBytes: number | null,
 };
-
-/**
- *  Why a window was not given a folder, or a change for it was not
- *  admitted.
- */
-export type GrantError = 
-/**  The shell registered no folder under this scope. */
-{ name: "UnknownScope"; scope: string } | 
-/**  The scope exists, but is not registered for this window. */
-{ name: "WindowNotPermitted"; scope: string; window: string } | 
-/**
- *  The registered directory is missing. The shell creates a fixed
- *  application folder when its original parent is still in place.
- */
-{ name: "Missing"; root: string } | 
-/**  The folder could not be prepared or reached. */
-{ name: "Unavailable"; message: string } | 
-/**  The shell is shutting its folders down. */
-{ name: "ShuttingDown" };
 
 /**
  *  A section of Epicenter Home an application can ask the shell to open.

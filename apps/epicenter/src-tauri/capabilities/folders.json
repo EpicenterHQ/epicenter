@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "folders",
-	"description": "The Folders window lists the data folders under the Epicenter folder root and opens each with the page's own engine. Listing permits the window into each folder's scope; the folder plugin then grants it the directory and reads and changes it. Through the narrow CLI runner (ADR-0556) it runs that folder's history as one `epicenter` child per operation (status, history, save_version, sync, ADR-0559), starts what installs `git` when the CLI finds none (install_git), and through it sends AI requests and manages a connection's key in the keychain without reading it (ADR-0557). It opens Todos, Capture, Honeycrisp, or Whispering, which Epicenter bundles, on the app's default folder or a listed one (open_bundled_app), and opens Settings (ADR-0537). It installs no app. The window listens for the folder plugin's change event, epicenter-folder://changed, and for the shell's epicenter://data-folders-changed, sent when the list of data folders may have changed. Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561).",
+	"description": "The Folders window lists the data folders under the Epicenter folder root and opens each with the page's own engine. Listing permits the window into each folder's scope; the folder plugin then grants it the directory and reads and changes it. It opens Todos, Capture, Honeycrisp, or Whispering, which Epicenter bundles, on the app's default folder or a listed one (open_bundled_app), and opens Settings (ADR-0537). The window listens for the folder plugin's change event, epicenter-folder://changed, and for the shell's epicenter://data-folders-changed, sent when the list of data folders may have changed. Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561).",
 	"local": true,
 	"windows": ["folders"],
 	"permissions": [
@@ -9,15 +9,6 @@
 		"core:event:allow-listen",
 		"core:event:allow-unlisten",
 		"allow-list-data-folders",
-		"allow-status",
-		"allow-history",
-		"allow-save-version",
-		"allow-sync",
-		"allow-install-git",
-		"allow-ai-send",
-		"allow-ai-key-set",
-		"allow-ai-key-remove",
-		"allow-ai-key-state",
 		"allow-open-bundled-app",
 		"allow-open-home"
 	]
