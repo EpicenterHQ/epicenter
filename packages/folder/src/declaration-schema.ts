@@ -5,6 +5,7 @@ import { Format } from 'typebox/format';
 import { Resolve } from 'typebox/schema';
 import { Check, Errors } from 'typebox/value';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { pathProblem } from './paths.js';
 import { schemaSourceProblem } from './schema-source.js';
 
 const formats = {
@@ -128,7 +129,7 @@ const filter = Type.Object(
 	},
 	{ additionalProperties: false },
 );
-const view = Type.Union([
+export const SavedViewSchema = Type.Union([
 	Type.Object(
 		{
 			type: Type.Literal('grid'),
@@ -161,13 +162,37 @@ const view = Type.Union([
 		{ additionalProperties: false },
 	),
 ]);
+export type SavedView = Static<typeof SavedViewSchema>;
+export type SavedViewFilter = Static<typeof filter>;
+export type SavedViewSort = Static<typeof sort>;
+
+/** Validate a single known view without interpreting unrelated declaration sections. */
+export function savedViewProblem(value: unknown): string | undefined {
+	const source = schemaSourceProblem(value);
+	if (source !== undefined) return source;
+	if (!Check(SavedViewSchema, value)) {
+		const issue = Errors(SavedViewSchema, value).sort(
+			(left, right) => right.instancePath.length - left.instancePath.length,
+		)[0];
+		return issue === undefined
+			? 'it is not a supported saved view'
+			: `${issue.instancePath || '/'} ${issue.message}`;
+	}
+	if (
+		value.type !== 'sql' &&
+		(value.table.includes('/') || pathProblem(value.table) !== undefined)
+	)
+		return `table '${value.table}' must name one top-level table directory`;
+	return undefined;
+}
+
 const declaration = Type.Object(
 	{
 		$schema: Type.Optional(Type.String()),
 		title: Type.Optional(Type.String({ minLength: 1 })),
 		local: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 		tables: Type.Optional(Type.Record(Type.String(), Type.Ref('Table'))),
-		views: Type.Optional(Type.Record(Type.String(), view)),
+		views: Type.Optional(Type.Record(Type.String(), SavedViewSchema)),
 	},
 	{ additionalProperties: false },
 );

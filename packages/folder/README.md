@@ -42,9 +42,11 @@ await folder.close();
 | --- | --- | --- |
 | `@epicenter/folder` | Acts as `/browser` in a browser and `/tauri` in the desktop app. `openFolder({ tables })` opens the origin's folder or the window's folder. Only the chosen engine is loaded. A build may alias this exact specifier to one entry. | Ordinary application code that runs in both. |
 | `@epicenter/folder/browser` | `openFolder({ tables })`. Refuses inside the desktop app. | A web-only build. |
-| `@epicenter/folder/tauri` | `openFolder({ tables })` for the folder the shell bound to this window. Refuses outside the desktop app. | A desktop-only build. |
+| `@epicenter/folder/tauri` | `openFolder({ tables })` and `updateSavedView(change)` for the folder the shell bound to this window. Refuses outside the desktop app. | A desktop-only build. |
 | `@epicenter/folder/bun` | `openFolder({ directory, tables })` over a path, and the `epicenter` CLI's tools ([below](#cli-tools)). | Command-line tools, scripts, and tests given a directory. |
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
+| `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, and saved-view types. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
+| `@epicenter/folder/documents` | Saved Markdown documents with optional schema diagnostics, including root and nested paths. | Generic file, grid, board, or SQL interpretation. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
 type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
@@ -259,6 +261,36 @@ merge cannot safely preserve two section changes sharing a line. Duplicate keys
 and numeric values that cannot survive serialization stop a replacement, with
 the original source available for repair. Ordinary source editing and Git merge
 still merge JSON by line.
+
+### Saved views
+
+`SavedView` describes a grid, board, or SQL configuration. `views` maps opaque
+folder-local keys to those configurations; the editor creates UUID keys, and
+changing a view's `title` keeps its key. Grid and board entries name one
+top-level directory in `table`, including a directory with no declared schema.
+They retain `columns`, `filters`, and `sort`; boards also name `groupBy`.
+SQL entries retain a statement. These records contain no live result, window,
+native path, card rank, or personal override.
+
+`readSavedViews(text)` returns usable entries and a diagnostic for each invalid
+or unsupported sibling. It does not replace those siblings with defaults.
+`SavedViewSchema` and its inferred types come from the same TypeBox source as
+the declaration. An invalid views section does not disable table checking or
+protective `local` rules, which have separate readers.
+
+`updateSavedView({ key, base, value })` from `@epicenter/folder/tauri` changes one
+entry in the invoking window's bound directory. `base: undefined` witnesses
+absence; `value: undefined` deletes the entry. A conditional write rereads and
+patches the latest source, preserving tables, metadata, and every other view.
+A changed target entry returns a conflict; a retry whose desired entry already
+landed succeeds. A first explicit view save can create `{"views": {...}}`
+without inventing tables or initializing Git. Opening and browsing write nothing.
+The writer is a desktop capability, separate from the browser Folder API.
+
+The generic editor owns unfinished view settings and each SQL execution by view
+key. It also fences the declaration's raw source draft before structured saves.
+Grid cells, board moves, and Files share the editor's existing file drafts;
+the declaration supplies presentation settings rather than another record store.
 
 ## CLI tools
 

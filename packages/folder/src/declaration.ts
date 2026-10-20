@@ -32,6 +32,8 @@ import {
 	type Declaration,
 	declarationProblem,
 	prepareTableSchemas,
+	type SavedView,
+	savedViewProblem,
 } from './declaration-schema.js';
 import type { Definition } from './definition.js';
 import { localMatcher } from './git/scope.js';
@@ -183,6 +185,53 @@ export function parseDeclaration(
 	} as Declaration);
 }
 
+/** Read valid siblings and retain a visible diagnosis for every unsupported or invalid entry. */
+export function readSavedViews(text: string): Result<
+	{
+		views: Record<string, SavedView>;
+		diagnostics: {
+			key: string;
+			kind: 'invalid' | 'unsupported';
+			reason: string;
+		}[];
+	},
+	{ reason: string }
+> {
+	const parsed = parseDeclarationObject(text);
+	if (parsed.error !== null) return parsed;
+	const section = parsed.data.views;
+	if (section !== undefined && !isObject(section))
+		return Err({
+			reason: "The 'views' section is not an object; repair it in Files",
+		});
+	const views: Record<string, SavedView> = Object.create(null);
+	const diagnostics: {
+		key: string;
+		kind: 'invalid' | 'unsupported';
+		reason: string;
+	}[] = [];
+	for (const [key, value] of Object.entries(section ?? {})) {
+		if (
+			isObject(value) &&
+			typeof value.type === 'string' &&
+			!['grid', 'board', 'sql'].includes(value.type)
+		) {
+			diagnostics.push({
+				key,
+				kind: 'unsupported',
+				reason: `View type '${value.type}' is not supported by this version`,
+			});
+			continue;
+		}
+		const problem =
+			key === '' ? 'A saved view needs a name' : savedViewProblem(value);
+		if (problem !== undefined)
+			diagnostics.push({ key, kind: 'invalid', reason: problem });
+		else views[key] = value as SavedView;
+	}
+	return Ok({ views, diagnostics });
+}
+
 /** Read only table declarations; unrelated view or local problems stay with their readers. */
 export function readDeclaredTables(
 	text: string,
@@ -240,4 +289,8 @@ export async function readDefinition(
 				"it has no 'tables'; check and query require declared table schemas",
 		});
 	return Ok({ tables: parsed.data });
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

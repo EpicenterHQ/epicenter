@@ -7,8 +7,10 @@ import {
 	readDeclaredTables,
 	readTableSchemas,
 } from './declaration.js';
+import { type SavedView, savedViewProblem } from './declaration-schema.js';
 import { hashBytes } from './hash.js';
 import { DEFINITION_PATH } from './paths.js';
+import { schemaSourceProblem } from './schema-source.js';
 import { confirmedPut, WRITE_ATTEMPTS } from './write.js';
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -43,8 +45,7 @@ export async function patchDeclaration(
 		const before = JSON.stringify(current);
 		const changed = change(current);
 		if (changed.error !== null) return changed;
-		if (read.error === null && before === JSON.stringify(changed.data))
-			return Ok({ written: false });
+		if (before === JSON.stringify(changed.data)) return Ok({ written: false });
 		const bytes = new TextEncoder().encode(
 			`${JSON.stringify(changed.data, null, 2)}\n`,
 		);
@@ -61,6 +62,64 @@ export async function patchDeclaration(
 	return Err({
 		reason: `${DEFINITION_PATH} kept changing; no replacement was confirmed. Try again`,
 	});
+}
+
+/** A named view edit starts from the exact JSON entry the person read. */
+export type SavedViewChange = {
+	key: string;
+	base: unknown | undefined;
+	value: SavedView | undefined;
+};
+
+/** Change only one view, preserving all other source entries on every CAS retry. */
+export async function changeSavedView(
+	storage: Pick<FolderStorage, 'read' | 'put'>,
+	{ key, base, value }: SavedViewChange,
+): Promise<Result<{ written: boolean }, { reason: string }>> {
+	if (typeof key !== 'string' || key === '')
+		return Err({ reason: 'A saved view needs a name' });
+	if (value !== undefined) {
+		const problem = savedViewProblem(value);
+		if (problem !== undefined) return Err({ reason: problem });
+	}
+	if (base !== undefined) {
+		const problem = schemaSourceProblem(base);
+		if (problem !== undefined) return Err({ reason: problem });
+	}
+	// A pending publication owns its inputs even if the caller keeps editing.
+	const original = base === undefined ? undefined : structuredClone(base);
+	const desired = value === undefined ? undefined : structuredClone(value);
+	return patchDeclaration(storage, (current) => {
+		if (Object.hasOwn(current, 'views') && !isObject(current.views))
+			return Err({
+				reason: "The 'views' section is not an object; repair it in Files",
+			});
+		const views = (current.views ?? {}) as Record<string, unknown>;
+		const present = Object.hasOwn(views, key);
+		// A repeated or ambiguously acknowledged save succeeds once its desired
+		// entry is already present, even if the original base is now stale.
+		if (
+			desired === undefined
+				? !present
+				: present && sameJson(views[key], desired)
+		)
+			return Ok(current);
+		const matches =
+			original === undefined
+				? !present
+				: present && sameJson(views[key], original);
+		if (!matches)
+			return Err({
+				reason: `Saved view '${key}' changed since it was read; reload it before saving`,
+			});
+		const next = { ...views, [key]: desired };
+		if (desired === undefined) delete next[key];
+		return Ok({ ...current, views: next });
+	});
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** Read only the table section; unrelated view configuration stays opaque. */
