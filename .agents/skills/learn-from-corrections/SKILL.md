@@ -19,12 +19,20 @@ not the default destination for the improvement.
 
 ## Establish the purpose and evidence
 
-**Use [dialectic](../dialectic/SKILL.md) to develop a shared understanding of what
-went wrong before proposing skill changes.** Offer an explanation grounded in
-the conversation and the skills actually invoked. Let the user's reactions
-help locate and revise the diagnosis. Once that understanding is established,
-develop the corresponding skill change and show what it would produce. Revisit
-the diagnosis if considering the change exposes something it missed.
+**Use [dialectic](../dialectic/SKILL.md) to establish the intended outcome before
+diagnosing the correction or suggesting changes.** State what the user wants
+the reviewed conversation or workflow to help them understand, decide, or do.
+Put that proposed intent in a blockquote and bold the words that state it;
+emphasizing a question such as "Is that the job you want?" leaves the intent
+itself hard to find. Let the user sharpen that understanding before building
+on it. Carry forward intent already established; a settled correction can
+proceed directly.
+
+Once the purpose is understood, examine one concrete issue or suggestion at a
+time against it. Ground the diagnosis in the conversation and the skills
+actually invoked, and let the user's reactions shape the next attempt. Develop
+the corresponding skill change once the diagnosis is understood. Revisit it
+if considering the change exposes something it missed.
 
 Read the referenced conversation through the available conversation tools. For
 Codex chat references, use `read_thread` and follow pagination far enough to
