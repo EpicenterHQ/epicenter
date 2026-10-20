@@ -5,6 +5,7 @@
 	started from and is written at once, one write at a time for this file.
 -->
 <script lang="ts">
+	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { textRead, audioRead } from '$lib/file-reads.js';
 	import { getFolder } from '$lib/folder.js';
 
@@ -130,7 +131,7 @@
 		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
-			<Textarea readonly aria-label="Unsaved file changes" value={JSON.stringify({fields: pending.fields, body: pending.body}, null, 2)} class="min-h-40 font-mono text-xs" />
+			<Textarea readonly aria-label="Unsaved file changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
 		</div>
 	{:else if audio}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4" data-testid="audio-file-view">

@@ -19,6 +19,9 @@
  *   they are, and typed instructions save in LF (ADR-0572); a title and a
  *   model save from their own controls, an emptied model as none
  *
+ * Failed fields, removals, and body remain copyable when a saved row
+ * disappears or becomes binary.
+ *
  * jsdom has no layout, focus, selection, or IME; see svelte-dom.test-support.
  */
 import { closeTestLibrary } from '../../lib/library.test-support.js';
@@ -27,6 +30,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { ReadError } from '@epicenter/folder';
+import { expectOk } from 'wellcrafted/testing';
 import type { Library, WriteNotice } from '../../lib/library.svelte.js';
 import { quiet } from '../../lib/query.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
@@ -535,6 +539,7 @@ for (const item of [
 		tab: 'recordings' as const,
 		table: 'recordings' as const,
 		id: 'take',
+		remove: 'durationMs',
 		label: 'Unsaved recording changes',
 	},
 	{
@@ -543,6 +548,7 @@ for (const item of [
 		tab: 'transformations' as const,
 		table: 'transformations' as const,
 		id: 'clean',
+		remove: 'model',
 		label: 'Unsaved transformation changes',
 	},
 ]) {
@@ -556,7 +562,13 @@ for (const item of [
 			disk.refusing = true;
 			const view = library.rowView(item.table, item.path);
 			expect(view.row).toBeDefined();
-			library.setFields(view, { title: 'Keep my title' });
+			expectOk(
+				view.change({
+					fields: { title: 'Keep my title', [item.remove]: undefined },
+					body: 'Keep my notes',
+				}),
+			);
+			await view.save();
 			await settle(library);
 			disk.refusing = false;
 			expect(library.isUnsaved(item.path)).toBe(true);
@@ -567,7 +579,11 @@ for (const item of [
 			const retained = target.querySelector<HTMLTextAreaElement>(
 				`textarea[aria-label="${item.label}"]`,
 			);
-			expect(retained?.value).toContain('Keep my title');
+			expect(JSON.parse(retained!.value)).toEqual({
+				set: { title: 'Keep my title' },
+				remove: [item.remove],
+				body: 'Keep my notes',
+			});
 			expect(writeStatus(target)).toContain('Not saved');
 		});
 	}

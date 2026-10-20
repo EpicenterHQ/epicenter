@@ -10,6 +10,7 @@
 	not saved, and the view closes.
 -->
 <script lang="ts">
+	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { getFolder } from '$lib/folder.js';
 	import { textRead, audioRead } from '$lib/file-reads.js';
 
@@ -163,7 +164,7 @@
 	{#if row === undefined && pending !== undefined}
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
-			<Textarea readonly aria-label="Unsaved recording changes" value={JSON.stringify({fields: pending.fields, body: pending.body}, null, 2)} class="min-h-40 font-mono text-xs" />
+			<Textarea readonly aria-label="Unsaved recording changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
 		</div>
 	{:else if asText && text === undefined && opened.isError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">
