@@ -65,10 +65,7 @@ test('a background reread leaves the saved text editable', async () => {
 		folder.files.read = read;
 		gate.resolve();
 	});
-	const refreshing = local.refresh({
-		queryKey: [...local.queries.key, 'file', 'draft.txt'],
-		exact: true,
-	});
+	const refreshing = local.refresh(['draft.txt']);
 	await until(() => waiting, 'a background read');
 	flushSync();
 	expect(input()?.readOnly).toBe(false);
@@ -99,10 +96,7 @@ test('failed source input stays visible when the saved file becomes binary', asy
 			new Uint8Array([0, 1, 2]),
 		),
 	);
-	await local.refresh({
-		queryKey: [...local.queries.key, 'file', 'draft.txt'],
-		exact: true,
-	});
+	await local.refresh(['draft.txt']);
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
 	expect(notes.typedText('draft.txt')).toBe('Keep this unsaved text');

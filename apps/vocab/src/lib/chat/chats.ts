@@ -81,7 +81,7 @@ export function createChats({
 			return run(async () => {
 				const started = await startChat(folder.tables.chats, focus);
 				if (started.error === null)
-					await refresh({ queryKey: rowsKey });
+					await refresh([`chats/${started.data.id}.md`]);
 				return started;
 			});
 		},

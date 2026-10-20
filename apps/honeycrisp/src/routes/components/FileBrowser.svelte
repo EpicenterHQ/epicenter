@@ -23,7 +23,7 @@
 
 	let { notes }: { notes: Notes } = $props();
 
-	const listing = createQuery(() => notes.filesQuery());
+	const listing = createQuery(() => notes.queries.files());
 	/**
 	 * The tree over the listing. The folder lists file paths only: a directory
 	 * is there while a file is in it, and no size is listed, so none is shown.

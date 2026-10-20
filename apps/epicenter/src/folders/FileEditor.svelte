@@ -6,7 +6,7 @@
 	import { onDestroy } from 'svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import type { FileDrafts } from './drafts.svelte';
-	import { fileKey, fileText } from './files';
+	import { fileText, sourceRead } from './files';
 
 	/**
 	 * One file of the window's folder, edited as the exact text it holds.
@@ -36,19 +36,10 @@
 	// may already read the next file, so a save sent as it goes uses this.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
-	const files = context.folder.files;
 	// svelte-ignore state_referenced_locally
 	const draft = drafts.file(path);
 
-	const stored = createQuery(() => ({
-		queryKey: fileKey(context.queries.key, path),
-		queryFn: async () => {
-			const read = await files.read(path);
-			if (read.error !== null) throw read.error;
-			if (read.data === undefined) return null;
-			return new Uint8Array(await read.data.content.arrayBuffer());
-		},
-	}));
+	const stored = createQuery(() => context.queries.file(path, sourceRead));
 	const shown = $derived(
 		stored.data === undefined || stored.data === null ? undefined : fileText(stored.data),
 	);

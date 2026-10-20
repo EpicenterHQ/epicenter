@@ -4,11 +4,9 @@
  * answers it: the rows read through its query cache, and every write.
  *
  * Reads are queries. The note and folder rows are the context's
- * (`queries.rows`); the file listing and each file opened as text are this
- * module's, under the context's query key. The folder's change channel,
- * which reports this page's own saves as well as another tab's, makes the
- * queries it names stale: the context wires the rows, and `createNotes`
- * wires the files. Nothing rereads on focus.
+ * (`queries.rows`); the shared context also owns the file listing and generated file keys.
+ * This module defines how source text is decoded. The context refreshes
+ * changed paths and polls visible reads; it owns the only change listener.
  *
  * A note's title, folder, pin, and body, a list action on any note, and a
  * folder's name are the row's draft in the context's edit layer
@@ -21,13 +19,9 @@
  * Create, delete, and deleting a folder are actions. The folder keeps no
  * history and has no rename or move, so Honeycrisp offers neither.
  */
+import { textRead, type FileRead } from './file-reads.js';
 import { InstantString } from '@epicenter/definition';
-import {
-	ancestors,
-	joinPath,
-	type OpenedFile,
-	openedFile,
-} from '@epicenter/folder/file-browser';
+import { ancestors, joinPath } from '@epicenter/folder/file-browser';
 import { CLOSING, DELETING } from '@epicenter/svelte/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
@@ -76,11 +70,6 @@ export type Deletion = {
 	/** The note's name, when the file is a note that reads as one. */
 	readonly title: string | undefined;
 };
-
-/** A file as the text view opens it, with the exact bytes an edit starts from. */
-export type FileRead =
-	| { readonly kind: 'missing' }
-	| ({ readonly bytes: Uint8Array } & OpenedFile);
 
 const OPEN_AS_TEXT =
 	'This file is open as text. Change it there, or open it as a note.';
@@ -144,30 +133,18 @@ function rowAt(path: string): { table: TableName; id: string } | undefined {
 export function createNotes(local: NotesFolder) {
 	const { folder, queryClient, edits } = local;
 	const trackQueries = createSubscriber((update) =>
-		queryClient.getQueryCache().subscribe(update),
+		queryClient.getQueryCache().subscribe((event) => {
+			if (
+				event.type === 'added' ||
+				event.type === 'removed' ||
+				event.type === 'updated'
+			)
+				update();
+		}),
 	);
 
-	const keys = {
-		files: [...local.queries.key, 'files'] as const,
-		text: (path: string) => [...local.queries.key, 'file', path] as const,
-	};
-	// Associate the app's cached file read with the shared text editor.
-	const textAt = (path: string) => edits.text(path, keys.text(path));
+	const textAt = (path: string) => edits.text(path);
 	const rowsKey = (table: TableName) => local.queries.rows(table).queryKey;
-
-	// The context reads the rows again when the folder reports a change, and
-	// everything under its key when a change names no paths; this reads the
-	// files a change names again. The folder reports this page's own saves
-	// too, so an action never rereads by hand.
-	const stopChanges = folder.onChange((change) => {
-		if (change.paths === null) return;
-		void local.refresh({ queryKey: keys.files, exact: true });
-		for (const path of change.paths)
-			void local.refresh({
-				queryKey: keys.text(path),
-				exact: true,
-			});
-	});
 
 	/** Which notes the list shows; input not yet committed, like a search. */
 	let view = $state<{
@@ -286,7 +263,6 @@ export function createNotes(local: NotesFolder) {
 
 	/** After a delete: the open item lets the file go. */
 	function deleted(path: string) {
-		queryClient.removeQueries({ queryKey: keys.text(path), exact: true });
 		if (selected?.path === path) selected = undefined;
 	}
 
@@ -296,7 +272,8 @@ export function createNotes(local: NotesFolder) {
 			(edits.fenced ? CLOSING : undefined) ?? nameProblem(directory, name);
 		if (why !== undefined) return why;
 		const path = joinPath(directory, name);
-		const paths = queryClient.getQueryData<string[]>(keys.files) ?? [];
+		const paths =
+			queryClient.getQueryData<string[]>(local.queries.files().queryKey) ?? [];
 		if (paths.some((file) => file === path || file.startsWith(`${path}/`)))
 			return `"${name}" already exists here.`;
 		return undefined;
@@ -396,33 +373,8 @@ export function createNotes(local: NotesFolder) {
 		// Reads
 		// ------------------------------------------------------------------
 
-		/** Every row of `table`, each with its text, fields, and issues. */
-		rowsQuery: <TName extends TableName>(table: TName) =>
-			local.queries.rows(table),
-		/** Every file path in the folder, sorted. */
-		filesQuery() {
-			return {
-				queryKey: keys.files,
-				queryFn: async () => {
-					const listed = await folder.files.list();
-					if (listed.error !== null) throw listed.error;
-					return listed.data;
-				},
-			};
-		},
-		/** One file's exact text, or its type and size when it is not editable text. */
-		textQuery(path: string) {
-			return {
-				queryKey: keys.text(path),
-				queryFn: async (): Promise<FileRead> => {
-					const read = await folder.files.read(path);
-					if (read.error !== null) throw read.error;
-					if (read.data === undefined) return { kind: 'missing' };
-					const bytes = new Uint8Array(await read.data.content.arrayBuffer());
-					return { bytes, ...openedFile(bytes) };
-				},
-			};
-		},
+		queries: local.queries,
+
 		/** Read the lists before the views show, so none starts empty. */
 		async load() {
 			await Promise.all([
@@ -596,7 +548,7 @@ export function createNotes(local: NotesFolder) {
 		 * last change, or at once with `saveText`. Answers whether it was taken.
 		 */
 		editText(path: string, text: string): boolean {
-			const read = queryClient.getQueryData<FileRead>(keys.text(path));
+			const read = queryClient.getQueryData<FileRead>(local.queries.file(path, textRead).queryKey);
 			const from = read?.kind === 'text' ? read.bytes : textAt(path).text;
 			if (from === undefined) return false;
 			return textAt(path).change(from, text);
@@ -624,19 +576,20 @@ export function createNotes(local: NotesFolder) {
 					body: '',
 				});
 				if (created.error !== null) return describeFailure(created.error);
-				await local.refresh({ queryKey: rowsKey(NOTES) });
+				await local.refresh([rowFile(NOTES, id)]);
 				open(rowFile(NOTES, id), 'note');
 				return undefined;
 			}),
 		createFolder: (name: string) =>
 			runAction(async () => {
 				if (edits.fenced) return CLOSING;
-				const created = await folder.tables.folders.set(newId(), null, {
+				const id = newId();
+				const created = await folder.tables.folders.set(id, null, {
 					fields: { name, icon: null },
 					body: '',
 				});
 				if (created.error !== null) return describeFailure(created.error);
-				await local.refresh({ queryKey: rowsKey(FOLDERS) });
+				await local.refresh([rowFile(FOLDERS, id)]);
 				return undefined;
 			}),
 		/** A new empty text file, opened; it never replaces an existing one. */
@@ -647,10 +600,7 @@ export function createNotes(local: NotesFolder) {
 				const path = joinPath(directory, name);
 				const written = await folder.files.write(path, null, '');
 				if (written.error !== null) return describeFailure(written.error);
-				await local.refresh({
-					queryKey: keys.files,
-					exact: true,
-				});
+				await local.refresh([path]);
 				open(path, 'text');
 				return undefined;
 			}),
@@ -671,9 +621,5 @@ export function createNotes(local: NotesFolder) {
 		},
 		delete: (deletion: Deletion) => runAction(() => deleteConfirmed(deletion)),
 
-		/** Stop following file changes; the context settles edits and closes the folder. */
-		stop() {
-			stopChanges();
-		},
 	};
 }

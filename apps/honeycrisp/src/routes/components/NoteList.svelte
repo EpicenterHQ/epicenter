@@ -14,8 +14,8 @@
 
 	let { notes }: { notes: Notes } = $props();
 
-	const noteRows = createQuery(() => notes.rowsQuery(NOTES));
-	const folderRows = createQuery(() => notes.rowsQuery(FOLDERS));
+	const noteRows = createQuery(() => notes.queries.rows(NOTES));
+	const folderRows = createQuery(() => notes.queries.rows(FOLDERS));
 	const all = $derived(noteRows.data ? notesOf(noteRows.data) : []);
 	const folders = $derived(folderRows.data ? foldersOf(folderRows.data) : []);
 	const repairs = $derived(noteRows.data ? repairsOf(noteRows.data) : []);

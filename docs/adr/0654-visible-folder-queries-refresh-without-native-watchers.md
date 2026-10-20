@@ -29,13 +29,20 @@ document's visibility state, not OS input focus. Visible side-by-side windows ca
 both refresh. A macOS Wry probe confirmed that a truly inactive native tab and
 a minimized window report hidden, so both pause polling without a native adapter.
 
-Own successful writes continue to report known paths. The context invalidates the
-affected table; app file readers invalidate their exact file keys and listings.
-An unknown change can invalidate the folder prefix. Committed-write refresh waits
-for an older active read before invalidating without cancellation, so a draft is
-released only after a read that includes its save. This avoids abandoning scans
-whose underlying disk operations do not accept cancellation.
+Own successful writes report known paths to one shared context listener.
+Query factories generate table, listing, document and file-representation keys.
+Apps define each file reader once with its decoding and cache policy; the context
+keys it under `['folder', 'file', path, representation]`. Different cached values
+never share a key. Audio retains its Blob/hash policy without an additional raw
+byte cache.
 
+`refresh(paths?)` refreshes matching file representations and descendants, affected
+row tables and aggregate readers in one batch. Omitting paths refreshes all reads.
+The context waits for older query promises before invalidating without
+cancellation, so drafts are released only after a read that includes their save.
+Unobserved affected file entries are removed after those reads finish; mounted
+and disabled observers stay attached. Apps own no path-change listeners, options
+maps, or handwritten file keys.
 The native plugin keeps window-to-directory bindings and storage commands. It
 starts no file watcher, debounce worker, wake clock, or file-change event channel.
 Native `Folder.onChange` reports participating handles' saves inside one page or

@@ -21,24 +21,24 @@
  * Plain module, so a store imports the types without loading components; the
  * edit layer it builds is a runes module.
  */
-import type { Folder, FolderStatus, Row } from '@epicenter/folder';
+import type { Folder, FolderStatus } from '@epicenter/folder';
 import {
 	focusManager,
 	QueryClient,
 	type InvalidateQueryFilters,
-	type InvalidateOptions,
 } from '@tanstack/query-core';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
 import { createEdits, type Edits } from './edits.svelte.js';
 import { holdWindowClose } from './window-close.js';
+import { createFolderQueries, folderKeys } from './folder-queries.js';
 import type { WriteFailure } from './write-failure.js';
 
 const log = createLogger('svelte/folder');
 
 /** The root of every query over the folder. */
-const KEY = ['folder'] as const;
+const KEY = folderKeys.all;
 
 /** Why the window stays: a draft whose save failed is held. */
 const NOT_SAVED =
@@ -88,48 +88,83 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		},
 	});
 	queryClient.mount();
-	const rowsKey = (table: string) => [...KEY, 'rows', table] as const;
+	const queries = createFolderQueries(folder);
 	let closed = false;
 
 	// A save must refresh from bytes read after it landed. Join an older scan
 	// before invalidating, rather than abandoning I/O that cannot be cancelled.
-	async function refresh(
+	async function refreshQueries(
 		filters: InvalidateQueryFilters,
-		options?: InvalidateOptions,
+		options?: { throwOnError?: boolean },
 	) {
 		if (closed) return;
-		await queryClient.refetchQueries(
-			{ ...filters, type: 'active', fetchStatus: 'fetching' },
-			{ cancelRefetch: false },
+		await Promise.allSettled(
+			queryClient
+				.getQueryCache()
+				.findAll(filters)
+				.map((query) => query.promise),
 		);
 		if (closed) return;
+		// An unobserved old value must not become a recreated file's save base.
+		// Disabled observers still own their query, so test observer count directly.
+		queryClient.removeQueries({
+			...filters,
+			predicate: (query) =>
+				query.queryKey[1] === 'file' &&
+				query.getObserversCount() === 0 &&
+				(filters.predicate?.(query) ?? true),
+		});
 		await queryClient.invalidateQueries(filters, {
 			...options,
 			cancelRefetch: false,
 		});
 	}
 
-	// Wired before anything reads, so no change falls between.
-	const stopChanges = folder.onChange((change) => {
-		if (change.paths === null) {
-			void refresh({ queryKey: KEY });
-			return;
-		}
-		// A table is a path's first segment; a root file names none.
-		const tables = new Set(
-			change.paths.map((path) => path.slice(0, Math.max(path.indexOf('/'), 0))),
+	// One batch covers every cached representation and aggregate affected by a path.
+	function refresh(
+		paths?: readonly string[],
+		options?: { throwOnError?: boolean },
+	) {
+		return refreshQueries(
+			{
+				queryKey: KEY,
+				predicate: (query) => {
+					if (paths === undefined) return true;
+					const [, kind, target] = query.queryKey;
+					return paths.some((path) => {
+						if (path === '') return true;
+						if (kind === 'file')
+							return (
+								typeof target === 'string' &&
+								(target === path || target.startsWith(`${path}/`))
+							);
+						if (kind === 'rows')
+							return (
+								typeof target === 'string' &&
+								(path === target ||
+									path.startsWith(`${target}/`) ||
+									target.startsWith(`${path}/`))
+							);
+						// Listings, documents and other aggregates depend on every path.
+						return true;
+					});
+				},
+			},
+			options,
 		);
-		for (const table of tables)
-			if (Object.hasOwn(folder.tables, table))
-				void refresh({ queryKey: rowsKey(table) });
+	}
+
+	// Subscribe before any reader mounts. Applications own no change listeners.
+	const stopChanges = folder.onChange((change) => {
+		void refresh(change.paths ?? undefined);
 	});
+
 	const trackStatus = createSubscriber((update) =>
 		closed ? () => {} : folder.onStatusChange(update),
 	);
 	const edits: Edits<TTables> = createEdits({
 		folder,
 		refresh,
-		rowsKey,
 		saveAfterMs,
 	});
 	const work = new Set<FolderWork>();
@@ -236,7 +271,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	return {
 		folder,
 		queryClient,
-		/** Refresh matching reads after a committed change, without overlapping scans. */
+		/** Refresh changed paths and their dependents; omit paths to refresh the whole folder. */
 		refresh,
 		edits,
 		/** Keep an app's file action or text draft in this handle's lifetime. */
@@ -283,21 +318,9 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			});
 			return guarding;
 		},
-		/** The query options of each read; a view adds `select` to narrow one. */
-		queries: {
-			key: KEY,
-			/** Every row of `table`, each with its source, fields, and issues. */
-			rows<TName extends keyof TTables & string>(table: TName) {
-				return {
-					queryKey: rowsKey(table),
-					queryFn: async (): Promise<Row<TTables[TName]>[]> => {
-						const listed = await folder.tables[table].list();
-						if (listed.error !== null) throw listed.error;
-						return listed.data;
-					},
-				};
-			},
-		},
+		/** Query options include generated keys; apps supply only their read policy. */
+		queries,
+
 		/** The handle's save status, read reactively. */
 		get status(): FolderStatus {
 			trackStatus();

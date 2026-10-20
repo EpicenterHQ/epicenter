@@ -18,23 +18,15 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import type { FileDrafts } from './drafts.svelte';
 	import FileEditor from './FileEditor.svelte';
-	import { fileTree, listKey, fileKey } from './files';
+	import { fileTree, sourceRead } from './files';
 
 	/** Files, recipes and draft input share one window and one open folder. */
 	let { drafts, updateView }: { drafts: FileDrafts; updateView: ViewUpdater } =
 		$props();
 
 	const context = getFolder();
-	const folder = context.folder;
 
-	const listing = createQuery(() => ({
-		queryKey: listKey(context.queries.key),
-		queryFn: async () => {
-			const listed = await folder.files.list();
-			if (listed.error !== null) throw listed.error;
-			return listed.data;
-		},
-	}));
+	const listing = createQuery(() => context.queries.files());
 	const tree = $derived(
 		listing.data === undefined ? undefined : fileTree(listing.data),
 	);
@@ -50,16 +42,7 @@
 		selected = path;
 		view = 'files';
 	}
-	const declaration = createQuery(() => ({
-		queryKey: fileKey(context.queries.key, 'epicenter.json'),
-		queryFn: async () => {
-			const read = await folder.files.read('epicenter.json');
-			if (read.error !== null) throw read.error;
-			return read.data === undefined
-				? null
-				: new Uint8Array(await read.data.content.arrayBuffer());
-		},
-	}));
+	const declaration = createQuery(() => context.queries.file('epicenter.json', sourceRead));
 	const saved = $derived.by(() => {
 		try {
 			return readSavedViews(
@@ -83,7 +66,7 @@
 		exclusive: (action) => source.exclusive(action),
 		refreshed: async () => {
 			await context.refresh(
-				{ queryKey: fileKey(context.queries.key, 'epicenter.json') },
+				['epicenter.json'],
 				{ throwOnError: true },
 			);
 		},

@@ -12,6 +12,8 @@
  * Load this with `import()` after `fake-indexeddb/auto` and the Svelte
  * runes support, since the notes state is a runes module.
  */
+import { textRead } from './file-reads.js';
+
 import { openFolder } from '@epicenter/folder/browser';
 import { createFolderContext } from '@epicenter/svelte/folder';
 import { QueryObserver } from '@tanstack/query-core';
@@ -84,20 +86,25 @@ export async function openNotes({ saveAfterMs = 60_000 } = {}) {
 		 */
 		observe(...paths: string[]) {
 			const observers = [
-				new QueryObserver(notes.queryClient, notes.rowsQuery(NOTES)),
-				new QueryObserver(notes.queryClient, notes.rowsQuery('folders')),
-				new QueryObserver(notes.queryClient, notes.filesQuery()),
+				new QueryObserver(notes.queryClient, notes.queries.rows(NOTES)),
+				new QueryObserver(notes.queryClient, notes.queries.rows('folders')),
+				new QueryObserver(notes.queryClient, notes.queries.files()),
 				...paths.map(
-					(path) => new QueryObserver(notes.queryClient, notes.textQuery(path)),
+					(path) =>
+						new QueryObserver(
+							notes.queryClient,
+							notes.queries.file(path, textRead),
+						),
 				),
 			];
-			for (const observer of observers) stops.push(observer.subscribe(() => {}));
+			for (const observer of observers)
+				stops.push(observer.subscribe(() => {}));
 		},
 		/** Close the notes as the page does, then every other tab. */
 		async close() {
 			IDBObjectStore.prototype.put = put;
 			for (const stop of stops.splice(0)) stop();
-			notes.stop();
+
 			await local.close();
 			for (const tab of others.splice(0)) await tab.close();
 		},
@@ -131,7 +138,7 @@ export async function quiet(notes: Notes) {
 /** The note rows the cache holds now. */
 export function rows(notes: Notes): NoteRow[] {
 	const data = notes.queryClient.getQueryData<NoteRow[]>(
-		notes.rowsQuery(NOTES).queryKey,
+		notes.queries.rows(NOTES).queryKey,
 	);
 	if (data === undefined) throw new Error('The note rows are not loaded');
 	return data;

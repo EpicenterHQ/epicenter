@@ -437,10 +437,7 @@ test('a slow audio read joins polling, keeps unchanged playback, and detects sam
 	const player = () => target.querySelector<HTMLAudioElement>('audio');
 	expect(player()).not.toBeNull();
 	const url = player()!.src;
-	await library.local.refresh({
-		queryKey: library.audioQuery(path).queryKey,
-		exact: true,
-	});
+	await library.local.refresh([path]);
 	flushSync();
 	expect(player()!.src).toBe(url);
 	const playing = player();
@@ -448,20 +445,14 @@ test('a slow audio read joins polling, keeps unchanged playback, and detects sam
 		file === path
 			? Promise.reject(new Error('Audio temporarily unreadable'))
 			: read(file);
-	await library.local.refresh({
-		queryKey: library.audioQuery(path).queryKey,
-		exact: true,
-	});
+	await library.local.refresh([path]);
 	flushSync();
 	expect(player()).toBe(playing);
 	expect(player()!.src).toBe(url);
 	expect(target.textContent).toContain('Audio temporarily unreadable');
 	library.folder.files.read = read;
 	await writeFile(join(root, path), 'Other audio');
-	await library.local.refresh({
-		queryKey: library.audioQuery(path).queryKey,
-		exact: true,
-	});
+	await library.local.refresh([path]);
 	flushSync();
 	expect(player()!.src).not.toBe(url);
 	expect(maximum).toBe(1);

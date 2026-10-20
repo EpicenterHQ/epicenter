@@ -8,6 +8,8 @@
  * from the library, so this loads before the Svelte compiler plugin is
  * registered.
  */
+import { textRead } from './file-reads.js';
+
 import type { OpenedFile } from '@epicenter/folder/file-browser';
 import {
 	type RecordingFields,
@@ -87,7 +89,7 @@ export function textEditor(library: Library, path: string) {
 	return {
 		get draft(): string {
 			const opened = library.queryClient.getQueryData<OpenedFile>(
-				library.textQuery(path).queryKey,
+				library.local.queries.file(path, textRead).queryKey,
 			);
 			if (opened?.kind !== 'text')
 				throw new Error(`${path} is not open as text`);
@@ -105,8 +107,8 @@ export function textEditor(library: Library, path: string) {
  * view does while it is mounted, so it is read again when it goes stale.
  */
 export async function openText(library: Library, path: string) {
-	await library.queryClient.fetchQuery(library.textQuery(path));
-	new QueryObserver(library.queryClient, library.textQuery(path)).subscribe(
+	await library.queryClient.fetchQuery(library.local.queries.file(path, textRead));
+	new QueryObserver(library.queryClient, library.local.queries.file(path, textRead)).subscribe(
 		() => {},
 	);
 	return textEditor(library, path);

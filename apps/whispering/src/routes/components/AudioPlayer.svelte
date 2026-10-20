@@ -2,12 +2,12 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import type { LoadedAudio } from '$lib/audio-source.js';
-	import type { Library } from '$lib/library.svelte.js';
+	import type { QueryObserverOptions } from '@tanstack/query-core';
 
 	/** Active audio reads share the folder's query polling and keep unchanged bytes playing. */
 	let { source, label }: {
 		source:
-			| { readonly kind: 'file'; readonly query: ReturnType<Library['audioQuery']> }
+			| { readonly kind: 'file'; readonly query: QueryObserverOptions<LoadedAudio> }
 			| { readonly kind: 'bytes'; readonly bytes: Uint8Array; readonly mimeType: string };
 		label: string;
 	} = $props();

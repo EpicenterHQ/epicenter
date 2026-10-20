@@ -2,9 +2,8 @@
  * The Whispering product state over one opened workspace, kept in the local
  * folder context's TanStack Query cache (`@epicenter/svelte/folder`).
  *
- * Reads are the context's row queries, one per table, and two of this
- * library's own: the folder's file listing, and the text of each file opened
- * as text. The library observes the rows and the listing for as long as it
+ * The context owns row and file-list queries, generates each file key, and
+ * refreshes changed paths. The app defines text and audio representations. The library observes the rows and the listing for as long as it
  * is open, so every page shows them. A change the folder reports makes the
  * rows and files it names stale, and the ones shown are read again. Rows that
  * read are listed to edit; the rest are named, with why, for repair as text.
@@ -37,7 +36,6 @@ import {
 	dirname,
 	joinPath,
 	type OpenedFile,
-	openedFile,
 } from '@epicenter/folder/file-browser';
 import type { RecordingFolder } from '@epicenter/recorder';
 import type { FolderContext } from '@epicenter/svelte/folder';
@@ -52,7 +50,7 @@ import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ActiveCapture } from './capture.js';
-import { loadAudio, type LoadedAudio } from './audio-source.js';
+import { textRead } from './file-reads.js';
 import type {
 	ConnectionChange,
 	ConnectionsInfo,
@@ -82,13 +80,7 @@ import {
 	recordingTitle,
 	runDeletion,
 } from './deletion.js';
-import {
-	describeError,
-	type Listing,
-	listingOf,
-	nameProblem,
-	readBytes,
-} from './files.js';
+import { describeError, listingOf, nameProblem, readBytes } from './files.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import {
 	type RecipeRow,
@@ -318,7 +310,14 @@ export function createLibrary(
 	}
 
 	const trackQueries = createSubscriber((update) =>
-		queryClient.getQueryCache().subscribe(update),
+		queryClient.getQueryCache().subscribe((event) => {
+			if (
+				event.type === 'added' ||
+				event.type === 'removed' ||
+				event.type === 'updated'
+			)
+				update();
+		}),
 	);
 	const trackMutations = createSubscriber((update) =>
 		queryClient.getMutationCache().subscribe(update),
@@ -326,68 +325,9 @@ export function createLibrary(
 
 	// --- reads -----------------------------------------------------------------
 
-	const rowsOptions = <T extends TableName>(table: T) =>
-		local.queries.rows(table);
-	const rowsKey = (table: TableName) => rowsOptions(table).queryKey;
-	const filesKey = [...local.queries.key, 'files'] as const;
-	const textRoot = [...local.queries.key, 'text'] as const;
-	const textKey = (path: string) => [...textRoot, path] as const;
-
-	const filesQuery = {
-		queryKey: filesKey,
-		queryFn: async (): Promise<Listing> => {
-			const { data, error } = await folder.files.list();
-			if (error !== null) throw error;
-			return listingOf(data);
-		},
-	};
-
-	/**
-	 * One file's complete text, or its type and size when it is not editable
-	 * text. The same options object for each path, so a view that asks again
-	 * does not change its query's options.
-	 */
-	const textQueries = new Map<
-		string,
-		{
-			queryKey: ReturnType<typeof textKey>;
-			queryFn: () => Promise<OpenedFile>;
-		}
-	>();
-	function textQuery(path: string) {
-		let options = textQueries.get(path);
-		if (options === undefined) {
-			options = {
-				queryKey: textKey(path),
-				queryFn: async () => {
-					const { data: bytes, error } = await readBytes(folder, path);
-					if (error !== null) throw new Error(error);
-					return openedFile(bytes);
-				},
-			};
-			textQueries.set(path, options);
-		}
-		return options;
-	}
-
-	// The context makes the rows a change names stale; the listing and the
-	// text of the files it names are this library's to read again.
-	const stopChanges = folder.onChange((change) => {
-		void local.refresh({ queryKey: filesKey, exact: true });
-		if (change.paths === null) void local.refresh({ queryKey: textRoot });
-		else
-			for (const path of change.paths) {
-				void local.refresh({
-					queryKey: textKey(path),
-					exact: true,
-				});
-				void local.refresh({
-					queryKey: [...local.queries.key, 'audio', path],
-					exact: true,
-				});
-			}
-	});
-
+	const rowsKey = (table: TableName) => local.queries.rows(table).queryKey;
+	const filesQuery = local.queries.files();
+	const filesKey = filesQuery.queryKey;
 	const tables = [
 		RECORDINGS,
 		TRANSCRIPTIONS,
@@ -397,7 +337,9 @@ export function createLibrary(
 	] as const;
 	/** What the library observes while it is open: every table's rows and the files. */
 	const shownQueries = (): QueryOptions[] => [
-		...tables.map((table) => rowsOptions(table) as unknown as QueryOptions),
+		...tables.map(
+			(table) => local.queries.rows(table) as unknown as QueryOptions,
+		),
 		filesQuery,
 	];
 	const listingKeys = shownQueries().map((options) => options.queryKey);
@@ -414,13 +356,17 @@ export function createLibrary(
 		trackQueries();
 		return queryClient.getQueryState(queryKey)?.error?.message;
 	}
+	const listedFiles = perListing(listingOf);
 	/** The folder's files as last listed, read reactively. */
 	function listing() {
 		trackQueries();
-		return queryClient.getQueryData<Listing>(filesKey);
+		const paths = queryClient.getQueryData<string[]>(filesKey);
+		return paths === undefined ? undefined : listedFiles(paths);
 	}
 	const textData = (path: string) =>
-		queryClient.getQueryData<OpenedFile>(textKey(path));
+		queryClient.getQueryData<OpenedFile>(
+			local.queries.file(path, textRead).queryKey,
+		);
 
 	const recordingsOf = perListing((rows: ListedRow<'recordings'>[]) => {
 		const read = split(RECORDINGS, rows);
@@ -489,7 +435,7 @@ export function createLibrary(
 	/** Read again everything the folder shows. */
 	async function invalidate() {
 		if (fenced) return;
-		await local.refresh({ queryKey: local.queries.key });
+		await local.refresh();
 	}
 
 	// --- drafts ----------------------------------------------------------------
@@ -497,10 +443,7 @@ export function createLibrary(
 	const texts = createTextDrafts({
 		files: folder.files,
 		saved: async (path) => {
-			await local.refresh({
-				queryKey: textKey(path),
-				exact: true,
-			});
+			await local.refresh([path]);
 		},
 		failed: ({ path, text, error }) =>
 			notify({
@@ -570,7 +513,6 @@ export function createLibrary(
 
 	/** After a rename: the caches and the selection follow the file. */
 	function moved(from: string, to: string) {
-		queryClient.removeQueries({ queryKey: textKey(from), exact: true });
 		if (asText.delete(from)) asText.add(to);
 		if (selectedPath === from) selectedPath = to;
 	}
@@ -584,7 +526,6 @@ export function createLibrary(
 					rows?.filter((row) => row.id !== stem),
 				);
 		}
-		queryClient.removeQueries({ queryKey: textKey(path), exact: true });
 		asText.delete(path);
 		if (selectedPath === path) selectedPath = undefined;
 		if (selectedTransformationPath === path)
@@ -651,7 +592,7 @@ export function createLibrary(
 	 * read when its capture ended. Until the folder is listed again, that
 	 * listing may predate its audio, so the audio is not reported absent.
 	 */
-	const finishedOver = new Map<string, Listing | undefined>();
+	const finishedOver = new Map<string, number>();
 	/** The start that has not answered yet. Aborting it releases a microphone that opens late. */
 	let starting: AbortController | undefined;
 	/** Folders open in the file browser; kept while the browser is hidden. */
@@ -726,7 +667,10 @@ export function createLibrary(
 		const stopping = capture.stop();
 		const { data: stopped, error: stopError } = await track(() => stopping);
 		if (stopError === null)
-			finishedOver.set(id, queryClient.getQueryData<Listing>(filesKey));
+			finishedOver.set(
+				id,
+				queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0,
+			);
 		capturing.delete(id);
 		recorder = { phase: 'idle' };
 		if (stopError !== null) {
@@ -937,22 +881,6 @@ export function createLibrary(
 		// Drafts
 		// ------------------------------------------------------------------
 
-		textQuery,
-		/** Observed audio participates in the same bounded refresh batch as rows. */
-		audioQuery(path: string) {
-			const queryKey = [...local.queries.key, 'audio', path] as const;
-			return {
-				queryKey,
-				gcTime: 0,
-				structuralSharing: false as const,
-				queryFn: async () => {
-					const current = queryClient.getQueryData<LoadedAudio>(queryKey);
-					const result = await loadAudio(folder.files, path, current);
-					if (result.error !== null) throw new Error(result.error.message);
-					return result.data;
-				},
-			};
-		},
 		/**
 		 * The row of `table` at `path` as shown, read reactively: as the cache
 		 * holds it, with what is typed over it.
@@ -1151,7 +1079,7 @@ export function createLibrary(
 				if (draft.held) return UNSAVED;
 			}
 			await queryClient
-				.fetchQuery({ ...textQuery(path), staleTime: 0 })
+				.fetchQuery({ ...local.queries.file(path, textRead), staleTime: 0 })
 				.catch(() => undefined);
 			asText.add(path);
 			return undefined;
@@ -1170,7 +1098,7 @@ export function createLibrary(
 			await texts.save(path);
 			if (texts.held(path)) return UNSAVED;
 			await queryClient
-				.fetchQuery({ ...rowsOptions(table), staleTime: 0 })
+				.fetchQuery({ ...local.queries.rows(table), staleTime: 0 })
 				.catch(() => undefined);
 			const stem = rowIdOf(table, path);
 			const row = listed(table)?.find((item) => item.id === stem);
@@ -1323,7 +1251,9 @@ export function createLibrary(
 			const files = listing();
 			// A listing read since the recording finished says where its audio is.
 			const unlisted =
-				finishedOver.has(entry.stem) && finishedOver.get(entry.stem) === files;
+				finishedOver.has(entry.stem) &&
+				finishedOver.get(entry.stem) ===
+					(queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0);
 			if (!unlisted) finishedOver.delete(entry.stem);
 			return recordingAudio(entry.row.fields, {
 				listing: files,
@@ -1463,7 +1393,7 @@ export function createLibrary(
 				});
 				if (error !== null) return describeError(error);
 				await queryClient
-					.fetchQuery({ ...rowsOptions(TRANSFORMATIONS), staleTime: 0 })
+					.fetchQuery({ ...local.queries.rows(TRANSFORMATIONS), staleTime: 0 })
 					.catch(() => undefined);
 				open(rowPath(TRANSFORMATIONS, id));
 				return undefined;
@@ -1628,7 +1558,6 @@ export function createLibrary(
 			await texts.close();
 			await Promise.allSettled([...pending]);
 			await input.saved();
-			stopChanges();
 			for (const stop of stopObserving) stop();
 			stopListening();
 			recordingsListed.clear();

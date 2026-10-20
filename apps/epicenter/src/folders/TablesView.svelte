@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getFolder } from './context.js';
-	import { readDocument, readDocuments } from '@epicenter/folder/documents';
+	import { readDocument } from '@epicenter/folder/documents';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -26,14 +26,7 @@
 		change: (value: TableView) => void;
 	} = $props();
 	const context = getFolder();
-	const reading = createQuery(() => ({
-		queryKey: [...context.queries.key, 'documents'],
-		queryFn: async () => {
-			const result = await readDocuments(context.folder.files);
-			if (result.error !== null) throw result.error;
-			return result.data;
-		},
-	}));
+	const reading = createQuery(() => context.queries.documents());
 	const directory = $derived(view.table);
 	const directories = $derived(
 		[

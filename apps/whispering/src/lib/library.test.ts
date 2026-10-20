@@ -316,6 +316,28 @@ test('a recording being captured, and once it stops, has its audio here, never a
 	expect(library.audioOf(library.entries[0]!).kind).toBe('here');
 });
 
+test('a completed recording leaves settling after an unchanged listing reread', async () => {
+	const { library } = await open();
+	const write = library.folder.files.write;
+	// A capture reports completion but leaves no audio file. The paths do not change.
+	library.folder.files.write = (path, from, content) =>
+		path.startsWith('audio/')
+			? Promise.resolve(Ok(undefined))
+			: write(path, from, content);
+	try {
+		await library.startRecording();
+		await settle(library);
+		const key = library.local.queries.files().queryKey;
+		const before = library.queryClient.getQueryData<string[]>(key);
+		await library.stopRecording();
+		await library.readAgain();
+		expect(library.queryClient.getQueryData<string[]>(key)).toBe(before);
+		expect(library.audioOf(library.entries[0]!).kind).toBe('absent');
+	} finally {
+		library.folder.files.write = write;
+	}
+});
+
 test('a recording’s row is written when it starts, naming its audio, and gets its length when it stops', async () => {
 	const { library, root } = await open();
 

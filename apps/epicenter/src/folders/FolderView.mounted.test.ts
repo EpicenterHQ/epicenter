@@ -721,9 +721,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			type(original, 'Typed here');
 			flushSync();
 			disk.listing.failure = new Error('Folder temporarily unreadable');
-			await page.context.refresh({
-				queryKey: [...page.context.queries.key, 'documents'],
-			});
+			await page.context.refresh();
 			flushSync();
 			expect(cell()).toBe(original);
 			expect(document.activeElement).toBe(original);

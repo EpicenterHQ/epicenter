@@ -45,7 +45,6 @@ export type TextDrafts = ReturnType<typeof createTextDrafts>;
 export function createTextDrafts({
 	files,
 	refresh,
-	rowsKey,
 	refused,
 	saveAfterMs = SAVE_AFTER_MS,
 }: {
@@ -53,8 +52,6 @@ export function createTextDrafts({
 	files: FolderFiles;
 	/** Refresh rows after a save lands, before releasing its draft. */
 	refresh: FolderContext['refresh'];
-	/** The key of the rows the text is read from. */
-	rowsKey: readonly unknown[];
 	/** Whether `path` takes no typing now: the folder closes, or it is deleted. */
 	refused: (path: string) => boolean;
 	saveAfterMs?: number;
@@ -122,7 +119,7 @@ export function createTextDrafts({
 				drafts.set(path, { ...settled, saving: false, error: saved.error });
 				continue;
 			}
-			await refresh({ queryKey: rowsKey });
+			await refresh([path]);
 			const after = drafts.get(path);
 			if (after === undefined) return;
 			if (after.revision === draft.revision) drafts.delete(path);

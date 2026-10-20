@@ -32,6 +32,7 @@ import type { NotesFixture } from './local.test-support.ts';
 const { openNotes, quiet, until, cached, rows, noteText, folderText } =
 	await import('./local.test-support.ts');
 const { foldersOf, repairsOf } = await import('./notes.svelte.ts');
+const { textRead } = await import('./file-reads.js');
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
@@ -65,7 +66,7 @@ async function noteIn(
 /** The folder the cache holds for `id`. */
 function folderEntry(notes: NotesFixture['notes'], id: string) {
 	const found = foldersOf(
-		notes.queryClient.getQueryData(notes.rowsQuery('folders').queryKey) ?? [],
+		notes.queryClient.getQueryData(notes.queries.rows('folders').queryKey) ?? [],
 	).find((folder) => folder.id === id);
 	if (found === undefined) throw new Error(`No folder ${id}`);
 	return found;
@@ -342,7 +343,7 @@ test('close sends typing still waiting, and takes no input from then on', async 
 	const { notes, local, text } = await setup();
 	const note = notes.noteBody(A);
 	note.edit('typed before close\n');
-	notes.stop();
+
 	expect(await local.close()).toEqual([]);
 	expect(await text(A)).toContain('---\ntyped before close\n');
 	expect(notes.fenced).toBe(true);
@@ -392,7 +393,7 @@ test('a failed file edit stays visible and blocks list actions after selecting a
 test('reading a file never sends pending body changes', async () => {
 	const { notes, saves, text } = await setup();
 	notes.editBody(A, 'Unsent body\n');
-	const read = await notes.textQuery(A).queryFn();
+	const read = await notes.queryClient.fetchQuery(notes.queries.file(A, textRead));
 	expect(read.kind).toBe('text');
 	expect(saves(A)).toBe(0);
 	expect(await text(A)).toContain('Body.');

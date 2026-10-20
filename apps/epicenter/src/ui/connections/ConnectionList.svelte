@@ -49,9 +49,7 @@
 				problem = saveFailureText(error);
 				return;
 			}
-			await local.refresh({
-				queryKey: local.queries.rows('connections').queryKey,
-			});
+			await local.refresh([`connections/${id}.md`]);
 			if (kind === 'openai-compatible') {
 				const { error } = await commands.aiKeySet(id, endpoint, key);
 				if (error !== null) {
