@@ -17,10 +17,14 @@
  * - The drafts are busy while typing is held or a save runs, and a failed
  *   save stays busy and failed until it saves or is discarded
  * - Discard lets typing go only when asked, and not while a save runs
+ * - Field/text transitions retain their actual save bases; failed field
+ *   recovery distinguishes removals from null and retries against fresh source
+ * - An exclusive operation fences only its path and releases it after failure
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { describe, expect, test } from 'bun:test';
 import type { FolderFiles, SaveError } from '@epicenter/folder';
+import { readDocument } from '@epicenter/folder/documents';
 import { Ok, type Result } from 'wellcrafted/result';
 
 const { createFileDrafts } = await import('./drafts.svelte.ts');
@@ -30,6 +34,7 @@ type Saved = Result<void, SaveError | Error>;
 /** A save that has not answered yet, and how the test answers it. */
 type HeldSave = {
 	path: string;
+	from: unknown;
 	content: unknown;
 	answer: (result: Saved) => void;
 };
@@ -42,9 +47,9 @@ function standIn() {
 	const held: HeldSave[] = [];
 	const files = {
 		read: async () => Ok(undefined),
-		write(path: string, _from: unknown, content: unknown) {
+		write(path: string, from: unknown, content: unknown) {
 			return new Promise<Saved>((answer) =>
-				held.push({ path, content, answer }),
+				held.push({ path, from, content, answer }),
 			);
 		},
 	} as unknown as Pick<FolderFiles, 'write' | 'read'>;
@@ -109,6 +114,7 @@ describe('drafts', () => {
 		draft.type('one\n', { content: 'a\r\n', crlf: true });
 		const sent = draft.save();
 		await until(() => disk.held.length === 1);
+		expect(disk.held[0]?.from).toBe('a\r\n');
 		expect(disk.held[0]!.content).toBe('one\r\n');
 		draft.type('one\ntwo\n', text);
 		disk.held.shift()!.answer(Ok(undefined));
@@ -117,6 +123,7 @@ describe('drafts', () => {
 		expect(draft.text).toBe('one\ntwo\n');
 		const next = draft.save();
 		await until(() => disk.held.length === 1);
+		expect(disk.held[0]?.from).toBe('one\r\n');
 		expect(disk.held[0]!.content).toBe('one\r\ntwo\r\n');
 		disk.held.shift()!.answer(Ok(undefined));
 		await next;
@@ -225,6 +232,41 @@ describe('settling', () => {
 		expect(drafts.busy).toBe(false);
 	});
 });
+
+test.each([false, true])(
+	'field changes during a text save retain typed body and the correct next base (first save refused: %s)',
+	async (refused) => {
+		const disk = standIn();
+		const drafts = createFileDrafts({
+			files: disk.files,
+			saved: async () => {},
+		});
+		const draft = drafts.file('nested/a.md');
+		const before = '---\ntitle: before\nobsolete: old\n---\noriginal body\n';
+		const typed = before.replace('original body', 'body typed in Files');
+		const base = { content: before, crlf: false };
+		draft.type(typed, base);
+		const first = draft.save();
+		await until(() => disk.held.length === 1);
+		expect(disk.held[0]?.from).toBe(before);
+		expect(
+			draft.change({ title: 'changed in grid', obsolete: undefined }, base),
+		).toBe(true);
+		await disk.answer(refused ? failed('disk full') : Ok(undefined));
+		await first;
+		expect(draft.text).toContain('body typed in Files');
+		expect(draft.text).toContain('title: changed in grid');
+		expect(draft.text).not.toContain('obsolete:');
+
+		const next = draft.save();
+		await until(() => disk.held.length === 1);
+		expect(disk.held[0]?.from).toBe(refused ? before : typed);
+		expect(disk.held[0]?.content).toBe(draft.text);
+		await disk.answer(Ok(undefined));
+		await next;
+		expect(draft.held).toBe(false);
+	},
+);
 
 // Field and text views share one path entry and one save queue.
 test('pending fields overlay fresh body edits and failed fields do not replay during view settlement', async () => {
@@ -379,7 +421,7 @@ describe('exclusive section writes', () => {
 		const closing = drafts.settle().then(() => {
 			settled = true;
 		});
-		await Promise.resolve();
+		await Bun.sleep(0);
 		expect(settled).toBe(false);
 		await expect(source.exclusive(async () => {})).rejects.toThrow(
 			'still saving',
@@ -410,4 +452,93 @@ describe('exclusive section writes', () => {
 		expect(source.exclusivePending).toBe(false);
 		source.discard();
 	});
+
+	test('a failed section write releases its path while another file can save independently', async () => {
+		const disk = standIn();
+		const drafts = createFileDrafts({
+			files: disk.files,
+			saved: async () => {},
+		});
+		const source = drafts.file('epicenter.json');
+		const other = drafts.file('notes/a.md');
+		const gate = Promise.withResolvers<void>();
+		const operation = source.exclusive(async () => {
+			await gate.promise;
+			throw new Error('The view changed in another window');
+		});
+		expect(source.type('blocked', text)).toBe(false);
+		expect(other.type('independent edit', text)).toBe(true);
+		const saving = other.save();
+		await disk.answer(Ok(undefined));
+		await saving;
+		expect(other.held).toBe(false);
+		expect(source.exclusivePending).toBe(true);
+
+		let settled = false;
+		const settling = drafts.settle().then(() => {
+			settled = true;
+		});
+		await Bun.sleep(0);
+		expect(settled).toBe(false);
+		gate.resolve();
+		await expect(operation).rejects.toThrow('another window');
+		await settling;
+		expect(source.exclusivePending).toBe(false);
+		expect(source.type('repair after refusal', text)).toBe(true);
+		expect(source.discard()).toBe(true);
+		expect(drafts.busy).toBe(false);
+	});
+});
+
+test('failed schema-free patches retain removal and null intent, then retry against fresh source', async () => {
+	const path = 'nested/tasks/a.md';
+	let stored = '\uFEFF---\r\nobsolete: old\r\nunknown: keep\r\n---\r\nbody\r\n';
+	let refuses = true;
+	let writes = 0;
+	const drafts = createFileDrafts({
+		files: {
+			read: async () => Ok({ path, content: new Blob([stored]) }),
+			write: async (_path, _from, content) => {
+				writes++;
+				if (refuses) return failed('disk full') as Result<void, SaveError>;
+				stored =
+					typeof content === 'string'
+						? content
+						: new TextDecoder('utf-8', { ignoreBOM: true }).decode(content);
+				return Ok(undefined);
+			},
+		},
+		saved: async () => {},
+	});
+	const draft = drafts.file(path);
+	expect(
+		draft.change(
+			{ obsolete: undefined, destination: null },
+			{ content: stored, crlf: true },
+		),
+	).toBe(true);
+	await draft.save();
+	const [held] = await drafts.settle();
+	if (held === undefined) throw new Error('The failed field patch was lost');
+	expect(JSON.parse(held.text)).toEqual({
+		set: { destination: null },
+		remove: ['obsolete'],
+	});
+	expect(draft.sourceLocked).toBe(true);
+	expect(writes).toBe(1);
+
+	stored =
+		'\uFEFF---\r\nobsolete: changed externally\r\nunknown: keep\r\nremote: added\r\n---\r\nbody from another writer\r\n';
+	refuses = false;
+	await draft.retry();
+	const document = readDocument(path, new TextEncoder().encode(stored));
+	expect(document.fields).toEqual({
+		unknown: 'keep',
+		remote: 'added',
+		destination: null,
+	});
+	expect(document.body).toContain('body from another writer');
+	expect(stored.startsWith('\uFEFF')).toBe(true);
+	expect(stored.replaceAll('\r\n', '')).not.toContain('\n');
+	expect(draft.held).toBe(false);
 });

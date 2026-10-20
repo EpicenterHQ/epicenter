@@ -19,12 +19,12 @@ refining its internal API. Other product ideas below remain conditional.
 
 | Stage | Outcome | Continuation and finish |
 | --- | --- | --- |
-| Underway | App roots install their typed context after Folder opens | “Compare editor lifecycle discussions”, `01a15876-f63d-7150-ba6a-75261008224a`. The provider component and setter prop trail are removed in current code; let this chat finish verification and settle the root API. |
-| Underway | Honeycrisp shares whole-file save ownership | “Assess migration readiness”, `01a1591c-e525-7a03-9383-f126c140cef0`. Preserve body patches, rich-text editing, undo, and failed-input recovery while deleting its duplicate save loop. Leave the root API to its owner. |
-| Underway, independent | Saved views and boards over the same folder and drafts | “Summarize app hosting vision”, `01a1589b-3f09-7b81-a529-44f8a37cd028`. Let that chat complete its existing implementation and acceptance. |
-| Underway, independent | Settle native directory ownership | “Summarize Folder API demo”, `01a15760-42b7-76d2-8dc0-86c774ece1f1`. The shared opener is implemented; this chat is investigating attaching the directory to the window. Do not open another bindings-map rewrite. |
+| Core design reviewed; implementation next | Framework-independent editing and revision-specific read acknowledgement | “Assess migration readiness”, `01a1591c-e525-7a03-9383-f126c140cef0`, owns the core. Honeycrisp's prerequisite landed in `640599af5b`. Preserve committed input for display after failed reads, without retrying successful writes or holding close on refresh. |
+| Acceptance underway; migration follows the core | [One editing queue per path in the generic editor](#land-the-shared-editor-queue) | “Summarize app hosting vision”, `01a1589b-3f09-7b81-a529-44f8a37cd028`, owns generic-editor migration and acceptance. Preserve field/text transitions and the saved-view source fence; delete the separate queue only when the shared core replaces their behavior. |
+| Design reviewed | Passive edit handles and explicit observed source | “Clarify editor framework direction”, `01a159a0-8bc6-76f1-88a6-323f8fd98f63`. Proposed `.edit()` handles select identity and interpretation; shared reads supply the observed row or bytes explicitly. Avoid a competing read owner. Root context setup already landed. |
+| Underway, independent | Shared file queries and path refresh | “Summarize Folder API demo”, `01a15760-42b7-76d2-8dc0-86c774ece1f1`, owns generated representation keys, shared readers, refresh matching, and removing app listeners. Coordinate refresh acknowledgement with the core owner; preserve pending input. |
 | Next | [Prove unfinished input survives failures and closing](#prove-unfinished-input-survives-failures-and-closing) | Recheck the editing changes above before starting; preserve any remaining recovery gap in their shared owner. |
-| Before browser app sync | [Preserve local-only files during Git exchange](#preserve-local-only-files-during-git-exchange) and bound transfer costs | “Explain index CB and folder client”, `01a158ac-1ca5-75e2-94c2-4c220bd1eae8`, owns the current read-only design discussion. It is reconsidering publication rules and measuring representation costs; findings are not implementation assignments. |
+| Underway, independent | [Preserve local-only files during Git exchange](#preserve-local-only-files-during-git-exchange) and bound transfer costs | “Explain index CB and folder client”, `01a158ac-1ca5-75e2-94c2-4c220bd1eae8`, is implementing ordinary `.gitignore` semantics in Folder and declaration code. Keep queue changes out of that storage work. |
 | After sync behavior settles | [Make browser snapshot capture intent explicit](#make-browser-snapshot-capture-intent-explicit) | Derive the requests from the agreed read and sync behavior; avoid a parallel storage API rewrite. |
 | Later, bounded cleanup | [Preserve operation types through CLI history replies](#preserve-operation-types-through-cli-history-replies) | Independent of app migration; preserve output and exit behavior. |
 
@@ -33,6 +33,53 @@ as agreed in the browser chat. Preserve this branch's newer architecture and
 intentional deletions; assess useful incoming fixes against current code.
 
 ## Folder correctness and transfer
+
+### Land the shared editor queue
+
+One opened Folder context should own accepted input, serialized saves, and path
+operations. Views keep selection, unsubmitted settings, and rich-text history.
+The remaining duplication is between
+[`createFileDrafts`](apps/epicenter/src/folders/drafts.svelte.ts) and
+[`createEdits`](packages/svelte/src/edits.svelte.ts).
+
+The user assigned core implementation to the Honeycrisp chat and generic-editor
+migration and acceptance to this chat. Query refresh stays with its existing
+owner. Reconcile overlapping context edits before staging. Land in this order:
+
+1. The core owner captures its reproduced loss: a confirmed write followed by a
+   failed reread exposes old text that later typing can overwrite. Distinguish
+   unsaved input from committed input awaiting observation. Keep the latter
+   visible; newer writes and close must not wait for refresh. A failed read must
+   not replay a successful write. Acknowledgements identify a committed revision,
+   so an older read cannot clear newer input. Reads remain separate from handles.
+2. This chat migrates the generic editor and deletes its old queue in one change.
+   Preserve arbitrary-path field patches, exact text, and typed row semantics.
+   Generic field patches reread source before saving; typed rows retain their
+   observed base. Preserve generic field/text transitions during running saves
+   and Honeycrisp's drain-before-switch behavior. The declaration's exclusive
+   operation joins that same path owner: fence input synchronously, drain edits,
+   retain failures, then run the targeted writer and reread. Keep entry comparison
+   and sibling preservation in the existing Folder declaration writer.
+3. Review the contract before migration and the cumulative result afterward, with
+   adversarial reviews and collapse passes. Run the existing
+   [draft tests](apps/epicenter/src/folders/drafts.test.ts) and
+   [mounted tests](apps/epicenter/src/folders/FolderView.mounted.test.ts), then
+   exercise grid/board/Files transitions, external edits, failed recovery,
+   malformed/deleted source, deletion, closing, and saved-view/source races in the
+   native app. Preserve exact save bases, removal versus null, BOM, and CRLF.
+
+The decisive remaining race combines both generic edit policies: observe body A,
+queue a title patch, let another writer save body B, and type source from the
+displayed A plus the patch while its field save runs. A failed newer reread and
+late acknowledgement of the field save must not erase the newer text overlay or
+substitute unseen bytes as its editing base. Further saves must retain body B and
+the person's appended text without waiting for display refresh.
+
+Do not add an interim coordinator while waiting for the core. Delete the local
+queue's timers, revision tracking, and work registration when its behavior moves.
+Retain `registerWork` for other app-owned work. No declaration format, schema
+registry, Git policy, or second Folder handle is needed. Remove this entry when
+the old queue is gone and acceptance lives in the relevant README and tests.
 
 ### Prove unfinished input survives failures and closing
 
@@ -47,7 +94,7 @@ intentional deletions; assess useful incoming fixes against current code.
 - Finish: Exercise a throwing file owner alongside successful and failed row
   saves, newer typing during a save, rich-text/source switching, and later
   recovery. Distinguish failed actions with no draft from unfinished text.
-  Recheck Honeycrisp's active migration before changing the shared contract.
+  Recheck the Honeycrisp migration above before changing the shared contract.
 - Source: Archived chat `01a15623-1fc4-7f32-87f9-42e2ea1b4563` and the active
   migration chat named above.
 
