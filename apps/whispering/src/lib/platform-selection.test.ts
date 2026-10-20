@@ -54,14 +54,12 @@ describe('#platform/services', () => {
 				'epicenter-host',
 			);
 
-			expect(reaches(modules, 'lib/platform/desktop.ts')).toBe(true);
+			expect(reaches(modules, 'lib/platform/desktop/services.ts')).toBe(true);
 			expect(reaches(modules, 'lib/tauri/bindings.gen.ts')).toBe(true);
 			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 			expect(modules.some(folderModule('native/tauri.ts'))).toBe(true);
 			expect(modules.some(recorderModule('tauri.ts'))).toBe(true);
-			expect(reaches(modules, 'lib/platform/desktop-microphone.ts')).toBe(
-				true,
-			);
+			expect(reaches(modules, 'lib/platform/desktop/microphone.ts')).toBe(true);
 			expect(
 				modules.filter(
 					(path) =>
@@ -90,7 +88,7 @@ describe('#platform/services', () => {
 				modules.filter(
 					(path) =>
 						SHARED_FORBIDDEN.test(path) ||
-						/lib\/platform\/desktop(-connections|-microphone)?\.ts$|lib\/tauri\/bindings\.gen\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|tauri-handed-folder)\.ts$|packages\/(folder|recorder)\/src\/native\/|packages\/recorder\/src\/tauri\.ts$/.test(
+						/lib\/platform\/desktop\/|lib\/tauri\/bindings\.gen\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|tauri-handed-folder)\.ts$|packages\/(folder|recorder)\/src\/native\/|packages\/recorder\/src\/tauri\.ts$/.test(
 							path,
 						),
 				),

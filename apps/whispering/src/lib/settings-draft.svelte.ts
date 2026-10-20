@@ -5,13 +5,13 @@
  * edited through the query cache. It is a form being composed: `$state`
  * until its explicit Save, which is a mutation the close waits for.
  *
- * The session owns it, so the form is the same draft wherever it is shown:
+ * The product owns it, so the form is the same draft wherever it is shown:
  * what was typed in the header's Settings is what the form beside the
  * recorder shows, and each connection has one save.
  *
  * The base URL and model follow the saved connection until they are typed
  * in, and follow it again when it changes. A connection not set up yet
- * starts from the services's defaults; nothing is sent to those, or saved,
+ * starts from the device's defaults; nothing is sent to those, or saved,
  * until Save. The
  * key is never read back: the draft holds only what was typed since the last
  * save, and whether to keep, replace, or remove the saved one. Keeping is

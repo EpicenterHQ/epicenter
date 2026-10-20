@@ -27,7 +27,7 @@ import type {
 	MicrophoneMeter,
 	MicrophonePreference,
 } from './capture.js';
-import type { WhisperingServices } from './platform/types.js';
+import type { MicrophonePreferences } from './microphone-preference.js';
 
 export type MicrophoneInput = ReturnType<typeof createMicrophoneInput>;
 
@@ -64,7 +64,7 @@ export function createMicrophoneInput({
 	recording,
 }: {
 	capture: CaptureDevice;
-	preferences: WhisperingServices['preferences'];
+	preferences: MicrophonePreferences;
 	/** Whether a recording is starting, running, or finishing. */
 	recording: () => boolean;
 }) {

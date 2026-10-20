@@ -11,7 +11,7 @@
  * `epicenter send` and `epicenter auth status` run. Requires initdb and
  * pg_ctl on PATH; never connects to a configured database.
  */
-import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
+import '../../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -25,7 +25,7 @@ import {
 	sendRequest,
 } from '@epicenter/ai/send';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
-import { resolveAppPaths } from '../../../../../packages/cli/src/app-paths.js';
+import { resolveAppPaths } from '../../../../../../packages/cli/src/app-paths.js';
 import {
 	type AuthContext,
 	accountAccess,
@@ -33,12 +33,12 @@ import {
 	epicenterAccess,
 	loginWithLoopback,
 	resolveDeployment,
-} from '../../../../../packages/cli/src/auth.js';
+} from '../../../../../../packages/cli/src/auth.js';
 import {
 	readConnectionRow,
 	setConnectionRow,
-} from '../../../../../packages/cli/src/connection-rows.js';
-import { openBunFolder } from '../../../../../packages/folder/src/native/bun.js';
+} from '../../../../../../packages/cli/src/connection-rows.js';
+import { openBunFolder } from '../../../../../../packages/folder/src/native/bun.js';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,
@@ -47,11 +47,11 @@ import {
 	mountAuthRoutes,
 	registerFirstPartyClients,
 	requireAccessToken,
-} from '../../../../../packages/server/src/bun.js';
-import { startDisposablePostgres } from '../../../../../packages/server/src/test-helpers/disposable-postgres.js';
-import { OAuthTestClient } from '../../../../../packages/server/src/test-helpers/oauth-client.js';
-import type { AuthStatus } from '../tauri/bindings.gen.js';
-import type { ConnectionCommands } from './desktop-connections.js';
+} from '../../../../../../packages/server/src/bun.js';
+import { startDisposablePostgres } from '../../../../../../packages/server/src/test-helpers/disposable-postgres.js';
+import { OAuthTestClient } from '../../../../../../packages/server/src/test-helpers/oauth-client.js';
+import type { AuthStatus } from '../../tauri/bindings.gen.js';
+import type { ConnectionCommands } from './connections.js';
 
 mock.module('@tauri-apps/api/core', () => ({
 	transformCallback: () => 0,
@@ -63,7 +63,7 @@ mock.module('@tauri-apps/api/core', () => ({
 }));
 
 const { createDesktopConnections, CONNECTION_IDS } = await import(
-	'./desktop-connections.js'
+	'./connections.js'
 );
 
 const origin = 'http://127.0.0.1:47915';
@@ -88,13 +88,13 @@ beforeAll(async () => {
 		Bun.resolveSync(
 			'drizzle-orm/node-postgres/migrator',
 			fileURLToPath(
-				new URL('../../../../../packages/server/', import.meta.url),
+				new URL('../../../../../../packages/server/', import.meta.url),
 			),
 		)
 	);
 	await migrate(db, {
 		migrationsFolder: fileURLToPath(
-			new URL('../../../../api/drizzle/', import.meta.url),
+			new URL('../../../../../api/drizzle/', import.meta.url),
 		),
 	});
 	// The desktop app's client (apps/api/worker/oauth-registrations.ts).

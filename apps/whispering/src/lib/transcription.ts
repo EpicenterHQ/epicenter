@@ -208,3 +208,21 @@ export async function transcribeOverConnection(
 	}
 	return TranscriptionError.Malformed({ url });
 }
+
+export type LocalTranscriptionReadiness =
+	| { readonly ready: true }
+	| { readonly ready: false; readonly message: string };
+
+export type LocalTranscription = {
+	/** Whether the active model can run now. Advisory: transcribing checks again. */
+	readiness(): Promise<LocalTranscriptionReadiness>;
+	/**
+	 * Transcribe the audio at `audioPath` with the active model. The answer
+	 * names the model that produced it. Nothing is written by this.
+	 */
+	transcribe(
+		audioPath: string,
+	): Promise<Result<{ text: string; model: string }, TranscriptionError>>;
+	/** Open Epicenter's Settings where the local model is chosen. */
+	openSettings(): Promise<void>;
+};

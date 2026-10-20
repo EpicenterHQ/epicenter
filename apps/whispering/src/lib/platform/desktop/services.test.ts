@@ -20,7 +20,7 @@
  * checks and sends. Local transcription answers with scripted shell
  * commands.
  */
-import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
+import '../../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -35,23 +35,23 @@ import {
 	sendRequest,
 } from '@epicenter/ai/send';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { resolveAppPaths } from '../../../../../packages/cli/src/app-paths.js';
+import { resolveAppPaths } from '../../../../../../packages/cli/src/app-paths.js';
 import {
 	readConnectionRow,
 	setConnectionRow,
-} from '../../../../../packages/cli/src/connection-rows.js';
+} from '../../../../../../packages/cli/src/connection-rows.js';
 import {
 	createGrantedShell,
 	type GrantedShell,
 	grantedDirectory,
 	shellArguments,
-} from '../../../../../packages/folder/src/granted-shell.test-support.js';
-import { openBunFolder } from '../../../../../packages/folder/src/native/bun.js';
-import { toneWav } from '../capture.js';
-import { whisperingTables } from '../definition.js';
-import { readBytes } from '../files.js';
-import type { ConnectionCommands } from './desktop-connections.js';
-import type { LocalTranscriptionCommands } from './local-transcription.js';
+} from '../../../../../../packages/folder/src/granted-shell.test-support.js';
+import { openBunFolder } from '../../../../../../packages/folder/src/native/bun.js';
+import { toneWav } from '../../capture.js';
+import { whisperingTables } from '../../definition.js';
+import { readBytes } from '../../files.js';
+import type { ConnectionCommands } from './connections.js';
+import type { LocalTranscriptionCommands } from './transcription.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
@@ -83,9 +83,11 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 	getCurrentWebviewWindow: () => ({ listen: async () => () => {} }),
 }));
 
-const { openFolder: openBrowserFolder } = await import('@epicenter/folder/browser');
+const { openFolder: openBrowserFolder } = await import(
+	'@epicenter/folder/browser'
+);
 const { openFolder } = await import('@epicenter/folder/tauri');
-const { createServices } = await import('./desktop.js');
+const { createServices } = await import('./services.js');
 
 const ORIGIN = 'epicenter-app://localhost';
 const ENDPOINT = 'http://127.0.0.1:18080/v1';
@@ -147,9 +149,7 @@ const noCommands: LocalTranscriptionCommands = {
 };
 
 /** The desktop services over the scripted shell. */
-async function openDesktop(
-	options: Parameters<typeof createServices>[1] = {},
-) {
+async function openDesktop(options: Parameters<typeof createServices>[1] = {}) {
 	const folder = expectOk(await openFolder({ tables: whisperingTables }));
 	cleanups.push(() => folder.close());
 	return {
@@ -349,7 +349,9 @@ const openWith = (host: Epicenter) =>
 
 test('the browser folder refuses inside a desktop app, and opens nothing in its place', async () => {
 	setup();
-	const inside = expectErr(await openBrowserFolder({ tables: whisperingTables }));
+	const inside = expectErr(
+		await openBrowserFolder({ tables: whisperingTables }),
+	);
 	expect(inside.name).toBe('InsideTauri');
 	expect(calls).toEqual([]);
 });
@@ -447,9 +449,7 @@ test('saves go through the shell: audio lands as its exact bytes, and a row as t
 			body: 'Tidy.\n',
 		}),
 	);
-	expect(expectOk(await openedFolder.files.read('missing.md'))).toBe(
-		undefined,
-	);
+	expect(expectOk(await openedFolder.files.read('missing.md'))).toBe(undefined);
 
 	// The recording's bytes reach the shell as a raw body, in the one call
 	// that puts them at their path, and land exactly.
@@ -460,9 +460,7 @@ test('saves go through the shell: audio lands as its exact bytes, and a row as t
 	expect(new Uint8Array(await readFile(join(root, 'audio', 'a.wav')))).toEqual(
 		audio,
 	);
-	expect(expectOk(await readBytes(openedFolder, 'audio/a.wav'))).toEqual(
-		audio,
-	);
+	expect(expectOk(await readBytes(openedFolder, 'audio/a.wav'))).toEqual(audio);
 	expect(
 		await readFile(join(root, 'transformations', 'clean.md'), 'utf8'),
 	).toContain('title: Clean up');

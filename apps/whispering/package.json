@@ -6,7 +6,7 @@
 	"type": "module",
 	"imports": {
 		"#platform/services": {
-			"epicenter-host": "./src/lib/platform/desktop.ts",
+			"epicenter-host": "./src/lib/platform/desktop/services.ts",
 			"default": "./src/lib/platform/browser.ts"
 		}
 	},

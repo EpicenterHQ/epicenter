@@ -24,8 +24,8 @@ import type {
 import { RecorderError } from '@epicenter/recorder/tauri';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { CaptureError, CaptureStart } from '../capture.js';
-import { createDesktopMicrophone } from './desktop-microphone.js';
+import type { CaptureError, CaptureStart } from '../../capture.js';
+import { createDesktopMicrophone } from './microphone.js';
 
 const USB = { deviceId: 'coreaudio:usb-uid', label: 'USB Microphone' };
 

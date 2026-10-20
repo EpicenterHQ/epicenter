@@ -2,8 +2,8 @@
  * What the post-processing choice can be, and how a chosen transformation is
  * named.
  *
- * The choice is a transformation's path, held by the session, which reads it
- * against the folder as `session.postProcessing`. Nothing here runs a
+ * The choice is a transformation's path, held by the product, which reads it
+ * against the folder as `whispering.postProcessing`. Nothing here runs a
  * transformation.
  */
 import type { TransformationEntry } from './library.svelte.js';

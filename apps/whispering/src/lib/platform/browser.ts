@@ -19,7 +19,7 @@ import {
 	transformOverConnection,
 } from '../transformation.js';
 import { createWebViewMicrophone } from '../webview-microphone.js';
-import { localPreferences } from './microphone-preference.js';
+import { localPreferences } from '../microphone-preference.js';
 import type { CreateServices } from './types.js';
 
 /** This tab's two connections, keys included, as one JSON object. */

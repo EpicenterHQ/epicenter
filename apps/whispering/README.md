@@ -584,7 +584,7 @@ These are absent, not hidden behind a setting:
   you press, so nothing is sent to a paid endpoint on its own.
 - Choosing transcription on this computer. Epicenter grants Whispering its
   local model, and the native services can transcribe with it
-  (`src/lib/platform/local-transcription.ts`), but Settings has no way to
+  (`src/lib/platform/desktop/transcription.ts`), but Settings has no way to
   choose it yet, so transcription needs an endpoint.
 - A terminal and Reveal folder. The standalone desktop app ran them in its own
   host; Epicenter gives Whispering neither. Use a terminal or Finder on the

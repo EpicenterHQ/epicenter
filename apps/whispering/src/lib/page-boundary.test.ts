@@ -73,13 +73,19 @@ test('the page imports no Node or Bun module, and Tauri only for a response’s 
 	expect(
 		importers((specifier) => specifier.startsWith('@tauri-apps/')),
 	).toEqual([
-		'lib/platform/desktop-connections.ts imports @tauri-apps/api/core',
-		'lib/platform/desktop-microphone.ts imports @tauri-apps/plugin-opener',
+		'lib/platform/desktop/connections.ts imports @tauri-apps/api/core',
+		'lib/platform/desktop/microphone.ts imports @tauri-apps/plugin-opener',
 	]);
 });
 
 test('only the layout opens a folder through the build-selected entry', () => {
-	expect(importers((specifier) => ['@epicenter/folder/browser', '@epicenter/folder/tauri'].includes(specifier))).toEqual([]);
+	expect(
+		importers((specifier) =>
+			['@epicenter/folder/browser', '@epicenter/folder/tauri'].includes(
+				specifier,
+			),
+		),
+	).toEqual([]);
 	expect(callers('openFolder')).toEqual(['routes/+layout.svelte']);
 });
 
@@ -91,8 +97,8 @@ test('a microphone is reached only through its platform’s recorder entry', () 
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/tauri'),
 	).toEqual([
-		'lib/platform/desktop-microphone.ts imports @epicenter/recorder/tauri',
-		'lib/platform/desktop.ts imports @epicenter/recorder/tauri',
+		'lib/platform/desktop/microphone.ts imports @epicenter/recorder/tauri',
+		'lib/platform/desktop/services.ts imports @epicenter/recorder/tauri',
 	]);
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/browser'),
@@ -102,17 +108,17 @@ test('a microphone is reached only through its platform’s recorder entry', () 
 	]);
 });
 
-test('the build picks the services: nothing imports either one but through the seam', () => {
+test('the build selects browser or desktop services through the seam', () => {
 	expect(
 		files.filter((file) =>
-			/(?:from\s+|import\s*\(\s*)['"][^'"]*platform\/(desktop|browser)\.js['"]|(?:from\s+|import\s*\(\s*)['"]\.\/(desktop|browser)\.js['"]/.test(
+			/(?:from\s+|import\s*\(\s*)['"][^'"]*platform\/(?:desktop\/services|browser)\.js['"]|(?:from\s+|import\s*\(\s*)['"]\.\/(?:desktop\/services|browser)\.js['"]/.test(
 				file.text,
 			),
 		),
 	).toEqual([]);
-	expect(importers((specifier) => specifier === '#platform/services')).toEqual(
-		['lib/whispering.svelte.ts imports #platform/services'],
-	);
+	expect(importers((specifier) => specifier === '#platform/services')).toEqual([
+		'lib/whispering.svelte.ts imports #platform/services',
+	]);
 });
 
 test('the page imports no Yjs store, sync, history, or account module', () => {
@@ -188,8 +194,8 @@ test('every page takes product state from context, and only the app root guards 
 
 test('only the desktop adapter reaches Epicenter’s commands, through the generated bindings', () => {
 	expect(importers((specifier) => specifier.includes('bindings.gen'))).toEqual([
-		'lib/platform/desktop-connections.ts imports ../tauri/bindings.gen.js',
-		'lib/platform/desktop.ts imports ../tauri/bindings.gen.js',
-		'lib/platform/local-transcription.ts imports ../tauri/bindings.gen.js',
+		'lib/platform/desktop/connections.ts imports ../../tauri/bindings.gen.js',
+		'lib/platform/desktop/services.ts imports ../../tauri/bindings.gen.js',
+		'lib/platform/desktop/transcription.ts imports ../../tauri/bindings.gen.js',
 	]);
 });

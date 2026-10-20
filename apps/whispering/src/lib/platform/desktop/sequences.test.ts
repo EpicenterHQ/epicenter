@@ -19,12 +19,15 @@
  *   is confirmed by reading back and recreates nothing
  *
  * See also:
- * - `desktop.test.ts` for the services over the shell and the host
- * - `editing.test.ts` for editing over a directory this process opens
+ * - `services.test.ts` for the services over the shell and the host
+ * - `../../editing.test.ts` for editing over a directory this process opens
  */
-import { closeTestLibrary, createTestLibrary } from '../library.test-support.js';
+import {
+	closeTestLibrary,
+	createTestLibrary,
+} from '../../library.test-support.js';
 
-import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
+import '../../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { expectOk } from 'wellcrafted/testing';
@@ -33,12 +36,12 @@ import {
 	type DataChange,
 	type GrantedShell,
 	grantedDirectory,
-} from '../../../../../packages/folder/src/granted-shell.test-support.js';
-import { whisperingTables } from '../definition.js';
-import { settle, transformationEditor } from '../edits.test-support.js';
+} from '../../../../../../packages/folder/src/granted-shell.test-support.js';
+import { whisperingTables } from '../../definition.js';
+import { settle, transformationEditor } from '../../edits.test-support.js';
 
-import { deferred, openTestServices } from '../services.test-support.js';
-import type { WhisperingServices } from './types.js';
+import { deferred, openTestServices } from '../../services.test-support.js';
+import type { WhisperingServices } from '../types.js';
 
 let shell: GrantedShell;
 mock.module('@tauri-apps/api/core', () => ({
@@ -55,7 +58,7 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 }));
 
 const { openTauriFolder } = await import(
-	'../../../../../packages/folder/src/native/tauri.js'
+	'../../../../../../packages/folder/src/native/tauri.js'
 );
 
 const cleanups: (() => Promise<void>)[] = [];

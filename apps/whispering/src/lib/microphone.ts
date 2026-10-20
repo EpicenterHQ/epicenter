@@ -4,7 +4,7 @@
  *
  * Each platform adapter supplies both halves and nothing here chooses between them:
  *
- * - In Epicenter (`platform/desktop-microphone.ts`) Rust owns the
+ * - In Epicenter (`platform/desktop/microphone.ts`) Rust owns the
  *   microphone. The shell lists the inputs, reads a level, asks the system
  *   for access, and records the WAV into the folder as it captures; the page
  *   opens no microphone of its own (ADR-0571).

@@ -6,8 +6,17 @@
  * both keep it here: Epicenter serves every app from one fixed loopback
  * origin, so the choice lasts from launch to launch.
  */
-import type { MicrophonePreference } from '../capture.js';
-import type { WhisperingServices } from './types.js';
+import type { MicrophonePreference } from './capture.js';
+
+/** The device's saved microphone choice, independent of folder and capture state. */
+export type MicrophonePreferences = {
+	/** The saved microphone, or undefined for the system default. Rejects if storage cannot be read. */
+	microphone(): Promise<MicrophonePreference | undefined>;
+	/** Save the choice, or forget it with undefined. Return any storage failure as text. */
+	setMicrophone(
+		microphone: MicrophonePreference | undefined,
+	): Promise<string | undefined>;
+};
 
 const MICROPHONE_STORAGE = 'whispering.microphone';
 
@@ -29,7 +38,7 @@ function savedMicrophone(): MicrophonePreference | undefined {
 	return undefined;
 }
 
-export const localPreferences: WhisperingServices['preferences'] = {
+export const localPreferences: MicrophonePreferences = {
 	microphone: async () => savedMicrophone(),
 	async setMicrophone(microphone) {
 		try {

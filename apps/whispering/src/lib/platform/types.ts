@@ -1,10 +1,10 @@
 /**
  * What this build offers beside the folder FolderApp opened: capture,
- * inference, connections, preferences, and recording recovery. The services
- * holds no folder lifetime. Unsupported capabilities are undefined.
+ * inference, connections, preferences, and recording recovery. These services
+ * own no folder lifetime. Unsupported capabilities are undefined.
  */
 import type { Result } from 'wellcrafted/result';
-import type { CaptureDevice, MicrophonePreference } from '../capture.js';
+import type { CaptureDevice } from '../capture.js';
 import type {
 	ConnectionChange,
 	ConnectionDefaults,
@@ -12,7 +12,9 @@ import type {
 	Operation,
 } from '../connections.js';
 import type { WhisperingFolder } from '../folder.js';
+import type { MicrophonePreferences } from '../microphone-preference.js';
 import type {
+	LocalTranscription,
 	PreparedTranscription,
 	TranscriptionError,
 } from '../transcription.js';
@@ -20,7 +22,6 @@ import type {
 	PreparedTransformation,
 	TransformationError,
 } from '../transformation.js';
-import type { LocalTranscription } from './local-transcription.js';
 
 export type WhisperingServices = {
 	readonly kind: 'native' | 'browser';
@@ -74,14 +75,7 @@ export type WhisperingServices = {
 	 * What this device remembers that is neither folder data nor a secret. It
 	 * is never written to the folder, so it does not travel with it.
 	 */
-	readonly preferences: {
-		/** The saved microphone, or undefined for the system default. Rejects when it cannot be read. */
-		microphone(): Promise<MicrophonePreference | undefined>;
-		/** Save the choice, or with undefined forget it. A problem is returned as text. */
-		setMicrophone(
-			microphone: MicrophonePreference | undefined,
-		): Promise<string | undefined>;
-	};
+	readonly preferences: MicrophonePreferences;
 };
 
 /** Construct the capabilities this build offers beside the opened folder, without I/O or owning its lifetime. */

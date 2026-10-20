@@ -46,8 +46,8 @@ import {
 	OPERATION_NAMES,
 	type Operation,
 	type StoredConnection,
-} from '../connections.js';
-import type { ConnectionRow, commands } from '../tauri/bindings.gen.js';
+} from '../../connections.js';
+import type { ConnectionRow, commands } from '../../tauri/bindings.gen.js';
 
 /** The rows Whispering uses, by operation: their stems in the selected records folder’s `connections/` directory. */
 export const CONNECTION_IDS: Record<Operation, string> =

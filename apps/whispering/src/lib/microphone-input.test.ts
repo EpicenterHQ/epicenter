@@ -45,7 +45,7 @@ import {
 	toneWav,
 } from './capture.js';
 
-import type { WhisperingServices } from './platform/types.js';
+import type { MicrophonePreferences } from './microphone-preference.js';
 import {
 	deferred,
 	openTestServices,
@@ -205,7 +205,7 @@ function shellMicrophone(connected: MicrophonePreference[] = [BUILT_IN, USB]) {
 /** Preferences kept in memory, as one device would across sessions. */
 function devicePreferences(saved?: MicrophonePreference) {
 	const store = { saved, writes: 0 };
-	const preferences: WhisperingServices['preferences'] = {
+	const preferences: MicrophonePreferences = {
 		microphone: async () => store.saved,
 		async setMicrophone(microphone) {
 			store.saved = microphone;
@@ -712,7 +712,7 @@ function heldPreferences() {
 		microphone: MicrophonePreference | undefined;
 		answer: (problem?: string) => void;
 	}[] = [];
-	const preferences: WhisperingServices['preferences'] = {
+	const preferences: MicrophonePreferences = {
 		microphone: async () => undefined,
 		setMicrophone: (microphone) =>
 			new Promise((answer) => saves.push({ microphone, answer })),

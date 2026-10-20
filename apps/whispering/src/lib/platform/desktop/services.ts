@@ -4,32 +4,32 @@
 
 import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { audioMimeTypeOf } from '../audio-format.js';
-import { AUDIO, DEFAULT_TRANSCRIPTION_CONNECTION } from '../definition.js';
-import { readBytes } from '../files.js';
-import { commands } from '../tauri/bindings.gen.js';
+import { audioMimeTypeOf } from '../../audio-format.js';
+import { AUDIO, DEFAULT_TRANSCRIPTION_CONNECTION } from '../../definition.js';
+import { readBytes } from '../../files.js';
+import type { WhisperingFolder } from '../../folder.js';
+import { localPreferences } from '../../microphone-preference.js';
+import { commands } from '../../tauri/bindings.gen.js';
 import {
 	TranscriptionError,
 	type TranscriptionRequest,
 	transcribeOverConnection,
-} from '../transcription.js';
+} from '../../transcription.js';
 import {
 	TransformationError,
 	transformOverConnection,
-} from '../transformation.js';
+} from '../../transformation.js';
+import type { WhisperingServices } from '../types.js';
 import {
 	type ConnectionCommands,
 	createDesktopConnections,
 	type DesktopConnections,
-} from './desktop-connections.js';
-import { createDesktopMicrophone } from './desktop-microphone.js';
+} from './connections.js';
+import { createDesktopMicrophone } from './microphone.js';
 import {
 	createLocalTranscription,
 	type LocalTranscriptionCommands,
-} from './local-transcription.js';
-import { localPreferences } from './microphone-preference.js';
-import type { WhisperingFolder } from '../folder.js';
-import type { WhisperingServices } from './types.js';
+} from './transcription.js';
 
 type Route = Awaited<ReturnType<DesktopConnections['route']>>;
 

@@ -19,7 +19,7 @@ the same file:
 ```
 
 An app that runs in both picks the entry through its own build-time seam
-(Whispering's `#platform/workspace`), and its shared code names only the bare
+(Whispering's `#platform/services`), and its shared code names only the bare
 contract.
 
 ```ts

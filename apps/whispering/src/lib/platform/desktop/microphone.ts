@@ -21,8 +21,8 @@ import {
 } from '@epicenter/recorder/tauri';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Err, Ok } from 'wellcrafted/result';
-import { type CaptureDevice, CaptureError } from '../capture.js';
-import { captureErrorOf, createMicrophoneDevice } from '../microphone.js';
+import { type CaptureDevice, CaptureError } from '../../capture.js';
+import { captureErrorOf, createMicrophoneDevice } from '../../microphone.js';
 
 /** The recorder plugin, as `@epicenter/recorder/tauri` reaches it; injected for tests. */
 export type DesktopRecorder = {

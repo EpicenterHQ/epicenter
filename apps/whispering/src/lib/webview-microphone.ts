@@ -3,7 +3,7 @@
  * allowing access, reading a level from one without recording, and
  * recording with `@epicenter/recorder`'s browser recorder, which asks for the
  * chosen microphone by ID and writes the file on stop. Inside Epicenter none
- * of this runs: `platform/desktop-microphone.ts` asks Rust instead.
+ * of this runs: `platform/desktop/microphone.ts` asks Rust instead.
  *
  * A chosen microphone is asked for by its exact ID. When the WebView cannot
  * open exactly that one, the answer is a refusal: no other microphone is

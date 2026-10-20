@@ -5,7 +5,7 @@
  *
  * Everything here is read from the library's current observation of the
  * folder. Nothing is kept: the search text, the sort, and the selection are
- * the session's, and are handed in. A row's identity is its file path, so a
+ * the product's, and are handed in. A row's identity is its file path, so a
  * selection survives a new sort, a new search, and a refresh, and a path
  * that has left the folder is simply no longer selected.
  *
@@ -224,7 +224,7 @@ export function shownRows(
  * The selection as it stands against the folder and the search: the selected
  * rows that are shown, in table order, and how many selected recordings the
  * search hides. A selected path that has left the folder counts as neither;
- * the session drops it from the selection when a listing confirms it gone.
+ * the product drops it from the selection when a listing confirms it gone.
  * Actions apply to the shown rows only, so nothing is done to a row the
  * person cannot see.
  */

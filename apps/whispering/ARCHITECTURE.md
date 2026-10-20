@@ -108,12 +108,12 @@ What Whispering adds on top:
   or `connections/whispering-text.md`, holding the kind `openai-compatible`,
   the title "Whispering transcription" or "Whispering text", and the model.
   The base URL and key are not in the row: they are in this computer's
-  keychain under the row's id (`src/lib/platform/desktop-connections.ts`).
+  keychain under the row's id (`src/lib/platform/desktop/connections.ts`).
   In a browser tab they are `whispering.connections` in `localStorage`.
   `src/lib/connections.ts` holds the rules both storages apply.
 - The chosen microphone is not folder data either: it names hardware on one
   device. It is `whispering.microphone` in the origin's `localStorage`
-  (`src/lib/platform/microphone-preference.ts`). Epicenter serves
+  (`src/lib/microphone-preference.ts`). Epicenter serves
   every app from one fixed loopback origin, so it lasts between launches.
 
 Every file action, including settings saves, file creation, rename, and
@@ -138,7 +138,7 @@ WhisperingApp installs the exact context and constructs its product state with
 inference, connections, and preferences through `#platform/services`. The
 layout and route pages do not construct or receive a separate workspace.
 
-The build selects `src/lib/platform/desktop.ts` in the Epicenter host
+The build selects `src/lib/platform/desktop/services.ts` in the Epicenter host
 and `browser.ts` otherwise (ADR-0391). `platform/types.ts` describes
 those app capabilities. They neither open nor close storage:
 
@@ -199,7 +199,7 @@ the rule.
 
 ## Connections through Epicenter
 
-Whispering's window opens no folder but its own and reaches no other. `src/lib/platform/desktop-connections.ts` reads and changes the two
+Whispering's window opens no folder but its own and reaches no other. `src/lib/platform/desktop/connections.ts` reads and changes the two
 rows of `so.epicenter`'s `connections` table, which sync with that folder,
 through two Epicenter commands that name an operation, `transcription` or
 `text`, never a row or a path: `whispering_connection_read` and
@@ -252,7 +252,7 @@ again is the person's choice and is one more request.
 
 ## Local transcription
 
-`src/lib/platform/local-transcription.ts` transcribes a recording with
+`src/lib/platform/desktop/transcription.ts` transcribes a recording with
 Epicenter's one active local model (ADR-0180). It asks
 `list_inference_models` which installed model is active, reads the audio
 through the folder engine, and hands the bytes to `transcribe_audio_bytes`
@@ -335,7 +335,7 @@ There are two capture devices, and each mounted product has exactly one, chosen 
   `@epicenter/recorder/browser`; shared code names only the bare contract.
   The library calls the desktop adapter's `recoverRecordings()` before reads, and
   shows a failure as its capture notice. Inside the
-  desktop app (`src/lib/platform/desktop-microphone.ts`) Rust owns the
+  desktop app (`src/lib/platform/desktop/microphone.ts`) Rust owns the
   microphone (ADR-0571): the shell's `tauri-plugin-epicenter-recorder` lists
   the inputs, reads a level, and writes `<path>.wav` into the granted folder
   as it captures, finalizing it on stop and on a page reload or a closed
@@ -626,7 +626,7 @@ their modules until public entries export them.
 | Path | Role |
 | --- | --- |
 | `src/lib/definition.ts` | The tables, each row's schema, and row paths. |
-| `src/lib/platform/` | Browser and native capture, requests, connections, and device preferences. |
+| `src/lib/platform/` | The service contract, browser implementation, and native adapters grouped under `desktop/`. |
 | `src/lib/whispering.svelte.ts` | Product state for the mounted root: what the shell shows, post-processing, pasted text, settings, startup, and teardown. |
 | `src/lib/folder.ts` | Whispering's typed folder context, provided by WhisperingApp. |
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
@@ -639,6 +639,7 @@ their modules until public entries export them.
 | `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one mounted app. |
 | `src/lib/audio-source.ts` | What a player holds, reloaded by the bytes' hash on each folder refresh. |
+| `src/lib/microphone-preference.ts` | The device's saved microphone choice, shared by both platforms. |
 | `src/lib/status.ts`, `files.ts` | The header's status line; file messages, the listing, and reading a file's bytes. |
 | `src/routes/` | The layout that mounts FolderApp, the product root, and the three pages. |
 | `src/routes/components/` | The shell, navigation, header, recorder, recording and transformation lists and details, file browser and view. |

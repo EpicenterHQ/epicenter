@@ -12,8 +12,11 @@
  * so tests can answer them.
  */
 import { Ok, type Result } from 'wellcrafted/result';
-import type { commands as shellCommands } from '../tauri/bindings.gen.js';
-import { TranscriptionError } from '../transcription.js';
+import type { commands as shellCommands } from '../../tauri/bindings.gen.js';
+import {
+	type LocalTranscription,
+	TranscriptionError,
+} from '../../transcription.js';
 
 /** The commands this uses, as the generated bindings type them. */
 export type LocalTranscriptionCommands = Pick<
@@ -23,24 +26,6 @@ export type LocalTranscriptionCommands = Pick<
 	| 'transcribeAudioBytes'
 	| 'openHome'
 >;
-
-export type LocalTranscriptionReadiness =
-	| { readonly ready: true }
-	| { readonly ready: false; readonly message: string };
-
-export type LocalTranscription = {
-	/** Whether the active model can run now. Advisory: transcribing checks again. */
-	readiness(): Promise<LocalTranscriptionReadiness>;
-	/**
-	 * Transcribe the audio at `audioPath` with the active model. The answer
-	 * names the model that produced it. Nothing is written by this.
-	 */
-	transcribe(
-		audioPath: string,
-	): Promise<Result<{ text: string; model: string }, TranscriptionError>>;
-	/** Open Epicenter's Settings where the local model is chosen. */
-	openSettings(): Promise<void>;
-};
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
