@@ -80,13 +80,13 @@ in related owners. Count the coordination or repeated decisions eliminated,
 not the collections deleted. A computed key alone does not make membership,
 authorization, selection, in-flight work, or unsaved input derivable.
 
-For a clean break, search the affected path for `fallback`, `adapter`, `legacy`,
-`migration`, and `compatibility`. Distinguish stale support for an unshipped or
-retired shape from active recovery, external consumers, and stored-data
-migrations. Trace the consumer or data each path protects before removing it.
-Applied migrations are durable history, not disposable compatibility code. Keep
-a temporary compatibility path only while it serves a named consumer or
-migration, with a retirement condition. Use
+When replacement is within scope, prefer a clean break: move callers to one
+current path and delete the superseded one. Search the affected path for
+`fallback`, `adapter`, `legacy`, `migration`, and `compatibility`. A matching
+adapter or fallback may still own active recovery; trace its consumers and
+stored data before removal. Applied migrations are durable history, not
+disposable compatibility code. Keep a temporary compatibility path only for a
+named consumer or migration, with a retirement condition. Use
 [clean breaks](../rethink/references/clean-breaks.md) to carry an authorized
 replacement through its callers.
 
