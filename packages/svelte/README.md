@@ -23,12 +23,13 @@ Mount one `<FolderApp>` at the route that owns the folder:
 
 ```svelte
 <script lang="ts">
+	import { openFolder } from '@epicenter/folder';
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import { todosTables } from '$lib/definition.js';
 	import TodosView from './local/TodosView.svelte';
 </script>
 
-<FolderApp title="Todos" tables={todosTables}>
+<FolderApp open={() => openFolder({ tables: todosTables })}>
 	{#snippet children(context)}
 		<TodosView {context} />
 	{/snippet}
@@ -51,11 +52,15 @@ initialization. It captures this opened context for its lifetime:
 </script>
 ```
 
-`FolderApp` owns opening, saving, and closing. The app root provides the opened
-context to its descendants. The setter stays in the app; no setter prop or
-separate provider component is needed.
+The app supplies a zero-argument `open` callback. It can be inline, as above;
+creating the callback opens nothing. `FolderApp` calls it when mounted and
+again on retry, then owns saving and closing the returned folder. Each call
+must open a fresh handle. Updating the callback does not reopen an active
+folder; remount the component to choose another folder. The app root provides
+the opened context to its descendants. The setter stays in the app; no setter
+prop or separate provider component is needed.
 
-The root calls `openFolder({ tables })`, which each build's exact alias of
+The app's callback calls `openFolder({ tables })`, which each build's exact alias of
 `@epicenter/folder` resolves to one engine. In a browser it opens this
 origin's fixed IndexedDB folder. In a desktop window it opens the directory
 the shell bound to that window before the window existed; the page names no

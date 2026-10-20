@@ -123,8 +123,8 @@ Nothing persists text not added across a reload you confirm.
 
 ```text
 +page.svelte
-  <FolderApp title="Capture" tables={captureTables}>
-    openFolder({ tables })         this origin's local folder, in IndexedDB
+  <FolderApp open={() => openFolder({ tables: captureTables })}>
+    call the app's opener     this origin's local folder, in IndexedDB
     createFolderContext       rows query, change channel, edit layer, close
     <CaptureApp {context}>
       setFolder(context)

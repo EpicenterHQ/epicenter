@@ -300,7 +300,7 @@ test('<FolderApp> guards the window it opened its folder in', async () => {
 	const view = mount(FolderAppHost, {
 		target,
 		props: {
-			tables: { notes },
+			open: () => openFolder({ tables: { notes } }),
 			saveAfterMs: MINUTE,
 			onContext: (opened: FolderContext) => {
 				context = opened;

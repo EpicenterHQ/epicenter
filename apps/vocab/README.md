@@ -55,7 +55,7 @@ openFolder({ tables: vocabTables })        This browser's local folder (IndexedD
   messages/<chat id>.<message id>.md        Chat ID, one finished message
 ```
 
-`src/lib/data.ts` declares `vocabTables`, the TypeBox schema each table's frontmatter is read through, and `src/routes/+page.svelte` mounts `<FolderApp title="Vocab" tables={vocabTables}>` from `@epicenter/svelte`. Opening needs no app ID, account, remote, or network. The folder is this browser origin's one local folder, kept in IndexedDB. It is not a directory on disk: Vocab has no desktop build, and inside the desktop app opening is refused rather than answered with browser storage. No row has an account in it.
+`src/lib/data.ts` declares `vocabTables`, the TypeBox schema each table's frontmatter is read through, and `src/routes/+page.svelte` supplies `open={() => openFolder({ tables: vocabTables })}` to `<FolderApp>` from `@epicenter/svelte`. Opening needs no app ID, account, remote, or network. The folder is this browser origin's one local folder, kept in IndexedDB. It is not a directory on disk: Vocab has no desktop build, and inside the desktop app opening is refused rather than answered with browser storage. No row has an account in it.
 
 A schema only interprets. A file whose frontmatter does not parse, or whose fields do not fit, still reads as a row with its exact text and its issues; a save never checks the schema, so fields Vocab does not name survive.
 

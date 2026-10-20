@@ -64,7 +64,7 @@ Earlier Todos builds kept named folders in OPFS. This build opens its IndexedDB 
 
 ## Boundaries and checks
 
-`src/routes/+page.svelte` mounts one `FolderApp` with `todosTables`. The root owns the Folder handle, query cache, drafts, status, and close. `src/routes/local/` contains the UI; it reads the handle through the Svelte context. `scripts/native.ts` uses the same public Folder operations over a directory. Todos has no account, inference, or sync action.
+`src/routes/+page.svelte` mounts one `FolderApp` with `open={() => openFolder({ tables: todosTables })}`. The app supplies the opener; the root owns calling it, the Folder handle, query cache, drafts, status, and close. `src/routes/local/` contains the UI; it reads the handle through the Svelte context. `scripts/native.ts` uses the same public Folder operations over a directory. Todos has no account, inference, or sync action.
 
 From the repository root:
 

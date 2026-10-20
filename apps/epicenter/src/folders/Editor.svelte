@@ -5,13 +5,12 @@
 	 * existed; `<FolderApp>` opens it with no tables, owns its handle, and
 	 * closes it when the window goes. The page names no folder.
 	 */
+	import { openFolder } from '@epicenter/folder';
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import FolderEditor from './FolderEditor.svelte';
-
-	const tables = {};
 </script>
 
-<FolderApp title="Folder" {tables}>
+<FolderApp open={() => openFolder({ tables: {} })}>
 	{#snippet children(context)}
 		<FolderEditor {context} />
 	{/snippet}

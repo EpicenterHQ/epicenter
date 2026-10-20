@@ -1,13 +1,13 @@
 <!--
 	The root of an app over its local folder: opens the browser origin's
 	folder, or the folder the desktop shell bound to this window, with
-	`openFolder({ tables })` when it mounts,
+	the app's `open` callback when it mounts,
 	shows one loading screen and one
 	refusal screen, passes the opened folder context to its children,
 	and closes it when it unmounts.
 
 	```svelte
-	<FolderApp title="Todos" tables={todosTables}>
+	<FolderApp open={() => openFolder({ tables: todosTables })}>
 		{#snippet children(context)}<TodosView {context} />{/snippet}
 	</FolderApp>
 	```
@@ -21,7 +21,7 @@
 	(`guardWindowClose`). Importing this component opens nothing.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
-	import { openFolder } from '@epicenter/folder';
+	import type { Folder, OpenFolderError } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
@@ -30,22 +30,19 @@
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { createLogger } from 'wellcrafted/logger';
-	import { Err, Ok } from 'wellcrafted/result';
+	import { Err, Ok, type Result } from 'wellcrafted/result';
 	import { createFolderContext, type FolderContext } from './folder-context.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
 	import { toastWriteFailure } from './write-failure-toast.js';
 	const log = createLogger('svelte/folder-app');
 
 	let {
-		title,
-		tables,
+		open,
 		saveAfterMs,
 		children,
 	}: {
-		/** The app's name, as the loading and refusal screens say it. */
-		title: string;
-		/** The top-level directories the app reads as rows, with each row's schema. */
-		tables: TTables;
+		/** Open a fresh folder on mount and each retry. Remount to choose another folder. */
+		open: () => Promise<Result<Folder<TTables>, OpenFolderError>>;
 		/** How long after the last keystroke a draft saves. */
 		saveAfterMs?: number;
 		/** The app root installs its typed context during initialization. */
@@ -54,8 +51,8 @@
 
 	let context: FolderContext<TTables> | undefined;
 	// svelte-ignore state_referenced_locally
-	async function open() {
-		const { data: folder, error } = await openFolder({ tables });
+	async function openContext() {
+		const { data: folder, error } = await open();
 		if (error !== null) return Err(error);
 		context = createFolderContext(folder, { saveAfterMs });
 		try {
@@ -66,7 +63,7 @@
 		}
 		return Ok(context);
 	}
-	let opening = $state(open());
+	let opening = $state(openContext());
 
 	// Teardown: what is typed is sent, every save lands, then the folder is
 	// released. A folder still opening is closed once it opens. Failed row
@@ -106,19 +103,19 @@
 	<Empty.Root class="h-dvh">
 		<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 		<Empty.Header>
-			<Empty.Title>{title} could not open its storage</Empty.Title>
+			<Empty.Title>Could not open storage</Empty.Title>
 			<Empty.Description role="alert">{refusal.description}</Empty.Description>
 		</Empty.Header>
 		{#if refusal.retry}
 			<Empty.Content>
-				<Button variant="outline" size="sm" onclick={() => { opening = open(); }}>Try again</Button>
+				<Button variant="outline" size="sm" onclick={() => { opening = openContext(); }}>Try again</Button>
 			</Empty.Content>
 		{/if}
 	</Empty.Root>
 {/snippet}
 
 {#await opening}
-	<Loading class="h-dvh" label="Opening {title}…" />
+	<Loading class="h-dvh" label="Opening…" />
 {:then opened}
 	{#if opened.error}
 		{@render refused(describeOpenRefusal(opened.error))}

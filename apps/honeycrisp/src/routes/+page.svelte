@@ -5,12 +5,13 @@
 	goes away.
 -->
 <script lang="ts">
+	import { openFolder } from '@epicenter/folder';
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import { honeycrispTables } from '$lib/data.js';
 	import NotesView from './components/NotesView.svelte';
 </script>
 
-<FolderApp title="Honeycrisp" tables={honeycrispTables}>
+<FolderApp open={() => openFolder({ tables: honeycrispTables })}>
 	{#snippet children(context)}
 		<NotesView {context} />
 	{/snippet}

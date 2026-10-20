@@ -35,7 +35,7 @@ them without Git or `epicenter.json`.
 
 ## Svelte app root
 
-`<FolderApp>` opens the handle when the route mounts and closes it after
+`<FolderApp>` calls the app's opener when the route mounts and closes the handle after
 pending work settles. It provides the handle, one TanStack Query cache, row
 drafts, local save status, and change invalidation to its children through
 `getFolder()`. A failed save keeps its draft. A page may register its own text
@@ -43,15 +43,21 @@ drafts and file actions with the context so close waits for them too.
 
 ```svelte
 <script lang="ts">
+	import { openFolder } from '@epicenter/folder';
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import { todosTables } from '$lib/definition.js';
 	import TodosView from './local/TodosView.svelte';
 </script>
 
-<FolderApp title="Todos" tables={todosTables}>
+<FolderApp open={() => openFolder({ tables: todosTables })}>
 	{#snippet children(context)}<TodosView {context} />{/snippet}
 </FolderApp>
 ```
+
+The inline callback opens nothing until called. `FolderApp` invokes it on
+mount and retry, handles loading and refusal, and owns the returned handle's
+lifetime. App code supplies the construction options; the shared root takes
+no title or table definitions.
 
 Each app declares its typed `getFolder`/`setFolder` pair with Svelte's
 `createContext<FolderContext<typeof tables>>()`. Its root view receives the
