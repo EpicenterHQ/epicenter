@@ -16,7 +16,7 @@
  * throws. `--conditions=svelte` resolves packages that ship only Svelte
  * sources, such as `mode-watcher` behind `@epicenter/ui/sonner`.
  *
- * jsdom is the copy `@epicenter/folder` installs for its own mounted tests.
+ * This package owns jsdom for its mounted tests and the apps using this harness.
  * jsdom implements no layout, Web Animations, focus order, selection, or
  * IME, so these tests prove what a component renders and what delivered
  * events do, not how a person types.
@@ -118,9 +118,7 @@ type Jsdom = {
 // place before the importing test module runs. Bun did not finish a
 // top-level await in this side-effect import before evaluating its
 // importer, so a plugin or global set after one arrived too late.
-const { JSDOM } = require(
-	Bun.resolveSync('jsdom', join(packageDir, '../folder')),
-) as Jsdom;
+const { JSDOM } = require(Bun.resolveSync('jsdom', packageDir)) as Jsdom;
 
 // An origin, so the UI kit's stored preferences have a `localStorage`.
 const { window } = new JSDOM('<!doctype html><html><body></body></html>', {
