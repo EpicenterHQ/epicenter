@@ -10,9 +10,10 @@
 //! WebView exists (`folder_windows`). No list of registered folders is kept:
 //! the directory is the record.
 //!
-//! - Epicenter's own folder, `so.epicenter` (ADR-0539), holds its AI
-//!   connections. Settings is bound to it, creating it when missing
-//!   (`settings_directory`). It is listed like any other folder, and its
+//! - Epicenter's selected records folder (`folders_config`) holds its AI
+//!   connections. Settings binds it through `folders_config::open_epicenter`; only an
+//!   unselected initial default is created. Under the folder root it is
+//!   listed like any other folder, and its
 //!   editor window may open it. No bundled app or handoff opens it, the app
 //!   data, Settings' sibling staging directory, or a directory holding any
 //!   of them (`overlaps_epicenter_files`).
@@ -38,37 +39,30 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_epicenter_folder::Directory;
 
 use crate::app_data::DesktopPaths;
-use crate::folder_windows;
+use crate::{folder_windows, folders_config};
 use crate::{BuiltInApp, DesktopAppHandle};
 
-/// Epicenter's own folder: its AI connections (ADR-0539, ADR-0569). It is
-/// named by Epicenter's id, as each app's folder is named by its id.
-pub const EPICENTER_FOLDER: &str = "so.epicenter";
-
-/// The file that makes a directory a data folder (ADR-0517).
+/// The optional declaration supplying a title while listing files.
 const DECLARATION: &str = "epicenter.json";
-
-/// Settings' folder, `<folder_dir>/so.epicenter`, made when it is missing: a
-/// fixed directory the shell computes, bound to Settings before its WebView
-/// exists.
-pub fn settings_directory(folder_dir: &Path) -> Result<Directory, String> {
-    Directory::create(&folder_dir.join(EPICENTER_FOLDER)).map_err(|error| error.to_string())
-}
 
 /// Whether `directory` overlaps Epicenter's own files, so that neither a
 /// bundled app nor a handoff may bind it: Settings' folder, its sibling save
 /// staging directory, or the app data, anything inside them, or a directory
 /// holding them. The folder root and its parents hold Settings' folder, so
-/// they are refused; an ordinary direct child of the root is not. The
+/// they are refused while that root contains the selected records. The
 /// listed-folder editor does not ask, and may open Settings' folder.
 pub fn overlaps_epicenter_files(paths: &DesktopPaths, directory: &Directory) -> bool {
-    let settings = resolved(&paths.folder_dir.join(EPICENTER_FOLDER));
-    let Ok(scratch) = epicenter_folder_core::storage::scratch_directory(&settings) else {
-        return true;
-    };
-    [settings, resolved(&scratch), resolved(&paths.data_dir)]
-        .iter()
-        .any(|kept| overlaps(directory.root(), kept))
+    let mut kept = vec![resolved(&paths.data_dir)];
+    // Broken preferences must stay repairable without blocking unrelated
+    // folder editors. Settings itself requires a readable selection.
+    if let Ok(settings) = folders_config::epicenter_path(&paths.data_dir, &paths.folder_dir) {
+        let settings = resolved(&settings);
+        if let Ok(scratch) = epicenter_folder_core::storage::scratch_directory(&settings) {
+            kept.push(resolved(&scratch));
+        }
+        kept.push(settings);
+    }
+    kept.iter().any(|path| overlaps(directory.root(), path))
 }
 
 /// Resolve each existing component and normalize missing components too. A
@@ -117,6 +111,8 @@ pub struct DataFolder {
     pub name: String,
     /// `epicenter.json`'s `title` when it is a string, else the directory name.
     pub title: String,
+    /// This is the selected folder Settings edits, independent of its name.
+    pub epicenter: bool,
 }
 
 /// List the data folders under the Epicenter folder root.
@@ -126,7 +122,9 @@ pub struct DataFolder {
 #[tauri::command(async)]
 #[specta::specta]
 pub fn list_data_folders(app: DesktopAppHandle) -> Result<Vec<DataFolder>, String> {
-    list_in(&app.state::<DesktopPaths>().folder_dir)
+    let paths = app.state::<DesktopPaths>();
+    let epicenter = folders_config::epicenter_path(&paths.data_dir, &paths.folder_dir).ok();
+    list_in(&paths.folder_dir, epicenter.as_deref())
 }
 
 /// The path of the data folder the Folders window listed as `name`: a real
@@ -174,7 +172,11 @@ pub async fn open_folder_editor(handle: DesktopAppHandle, name: String) -> Resul
     .map_err(|error| format!("the folder could not be opened: {error}"))?
 }
 
-pub(crate) fn list_in(folder_dir: &Path) -> Result<Vec<DataFolder>, String> {
+pub(crate) fn list_in(
+    folder_dir: &Path,
+    epicenter: Option<&Path>,
+) -> Result<Vec<DataFolder>, String> {
+    let epicenter = epicenter.map(resolved);
     let entries = match fs::read_dir(folder_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -198,7 +200,13 @@ pub(crate) fn list_in(folder_dir: &Path) -> Result<Vec<DataFolder>, String> {
             .as_deref()
             .and_then(declared_title)
             .unwrap_or_else(|| name.clone());
-        listed.push(DataFolder { name, title });
+        listed.push(DataFolder {
+            name,
+            title,
+            epicenter: epicenter
+                .as_ref()
+                .is_some_and(|selected| resolved(&entry.path()) == *selected),
+        });
     }
     listed.sort_by_cached_key(|folder| (folder.title.to_lowercase(), folder.name.clone()));
     Ok(listed)
@@ -227,8 +235,11 @@ pub struct DataFoldersWatch {
 pub fn watch_data_folders<R: Runtime>(
     app: &AppHandle<R>,
     folder_dir: &Path,
+    data_dir: &Path,
 ) -> Result<DataFoldersWatch, String> {
     let root = folder_dir.to_path_buf();
+    let config = folders_config::file(data_dir);
+    fs::create_dir_all(data_dir).map_err(|error| error.to_string())?;
     let app = app.clone();
     let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher, NoCache>(
         LISTING_DEBOUNCE,
@@ -241,13 +252,18 @@ pub fn watch_data_folders<R: Runtime>(
                             && debounced
                                 .paths
                                 .iter()
-                                .any(|path| changes_listing(&root, path)))
+                                .any(|path| changes_listing(&root, path) || *path == config))
                 }),
                 // Some events could not be delivered.
                 Err(_) => true,
             };
             if changed {
                 let _ = app.emit_to(BuiltInApp::Folders.id(), DATA_FOLDERS_CHANGED, ());
+                let _ = app.emit_to(
+                    BuiltInApp::Folders.id(),
+                    crate::folder_opening::FOLDER_OPENINGS_CHANGED,
+                    (),
+                );
             }
         },
         NoCache,
@@ -257,6 +273,9 @@ pub fn watch_data_folders<R: Runtime>(
     debouncer
         .watch(folder_dir, RecursiveMode::Recursive)
         .map_err(|cause| format!("'{}' could not be watched: {cause}", folder_dir.display()))?;
+    debouncer
+        .watch(data_dir, RecursiveMode::NonRecursive)
+        .map_err(|error| format!("{} could not be watched: {error}", data_dir.display()))?;
     Ok(DataFoldersWatch {
         _debouncer: debouncer,
     })
@@ -293,6 +312,7 @@ mod tests {
     //! plugin's real commands reach on the mock runtime.
 
     use crate::folder_windows::FolderWindow;
+    use crate::folders_config::DEFAULT_EPICENTER_FOLDER;
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
@@ -317,7 +337,7 @@ mod tests {
 
     impl Fixture {
         fn list(&self) -> Vec<DataFolder> {
-            list_in(&self.folder_dir).unwrap()
+            list_in(&self.folder_dir, None).unwrap()
         }
 
         /// What `open_folder_editor` does, with a mock window for the WebView.
@@ -417,7 +437,12 @@ mod tests {
         window.listen(DATA_FOLDERS_CHANGED, move |_| {
             let _ = heard.send(());
         });
-        let _watch = watch_data_folders(fixture.app.handle(), &fixture.folder_dir).unwrap();
+        let _watch = watch_data_folders(
+            fixture.app.handle(),
+            &fixture.folder_dir,
+            &fixture.folder_dir.join(".app-data"),
+        )
+        .unwrap();
         // The operating system may report the root's creation late; settle it.
         std::thread::sleep(Duration::from_millis(500));
         while hearing.try_recv().is_ok() {}
@@ -427,6 +452,80 @@ mod tests {
         hearing
             .recv_timeout(Duration::from_secs(5))
             .expect("the Folders window hears the new folder");
+    }
+
+    #[test]
+    fn the_launcher_hears_external_config_writes() {
+        use tauri::Listener;
+        let fixture = fixture("config-watch");
+        let data = fixture.folder_dir.join(".app-data");
+        let window =
+            WebviewWindowBuilder::new(&fixture.app, BuiltInApp::Folders.id(), Default::default())
+                .build()
+                .unwrap();
+        let (heard, hearing) = std::sync::mpsc::channel();
+        window.listen(crate::folder_opening::FOLDER_OPENINGS_CHANGED, move |_| {
+            let _ = heard.send(());
+        });
+        let _watch = watch_data_folders(fixture.app.handle(), &fixture.folder_dir, &data).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        while hearing.try_recv().is_ok() {}
+        folders_config::add(&data, "/another/folder").unwrap();
+        hearing
+            .recv_timeout(Duration::from_secs(5))
+            .expect("configuration writes refresh the launcher");
+    }
+
+    #[test]
+    fn the_selected_directory_has_the_settings_role_regardless_of_its_name() {
+        let fixture = fixture("renamed-settings");
+        let data = fixture.folder_dir.join(".app-data");
+        fs::create_dir(&data).unwrap();
+        let selected = fixture.folder_dir.join("My setup");
+        fs::create_dir(&selected).unwrap();
+        fs::create_dir(fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER)).unwrap();
+        fs::write(
+            folders_config::file(&data),
+            serde_json::to_vec(&folders_config::FoldersConfig {
+                epicenter: Some(selected.to_str().unwrap().into()),
+                folders: vec![],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let paths = DesktopPaths {
+            data_dir: data,
+            folder_dir: fixture.folder_dir.clone(),
+        };
+        assert_eq!(
+            folders_config::open_epicenter(&paths.data_dir, &paths.folder_dir)
+                .unwrap()
+                .root(),
+            selected
+        );
+        assert!(overlaps_epicenter_files(
+            &paths,
+            &Directory::existing(&selected).unwrap()
+        ));
+        assert!(!overlaps_epicenter_files(
+            &paths,
+            &Directory::existing(&fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER)).unwrap()
+        ));
+        let listed = list_in(&fixture.folder_dir, Some(&selected)).unwrap();
+        assert!(
+            listed
+                .iter()
+                .find(|folder| folder.name == "My setup")
+                .unwrap()
+                .epicenter
+        );
+        assert!(
+            !listed
+                .iter()
+                .find(|folder| folder.name == DEFAULT_EPICENTER_FOLDER)
+                .unwrap()
+                .epicenter
+        );
     }
 
     #[test]
@@ -471,15 +570,18 @@ mod tests {
             [
                 DataFolder {
                     name: "odd".into(),
-                    title: "odd".into()
+                    title: "odd".into(),
+                    epicenter: false
                 },
                 DataFolder {
                     name: "plain".into(),
-                    title: "plain".into()
+                    title: "plain".into(),
+                    epicenter: false
                 },
                 DataFolder {
                     name: "vault".into(),
-                    title: "vault".into()
+                    title: "vault".into(),
+                    epicenter: false
                 },
             ]
         );
@@ -502,7 +604,11 @@ mod tests {
         );
         data_folder(&fixture, "numbered", r#"{ "title": 7 }"#);
         data_folder(&fixture, "broken", "not json");
-        data_folder(&fixture, EPICENTER_FOLDER, r#"{ "title": "Epicenter" }"#);
+        data_folder(
+            &fixture,
+            DEFAULT_EPICENTER_FOLDER,
+            r#"{ "title": "Epicenter" }"#,
+        );
 
         let titles: Vec<(String, String)> = fixture
             .list()
@@ -513,7 +619,7 @@ mod tests {
             titles,
             [
                 ("broken".into(), "broken".into()),
-                (EPICENTER_FOLDER.into(), "Epicenter".into()),
+                (DEFAULT_EPICENTER_FOLDER.into(), "Epicenter".into()),
                 ("numbered".into(), "numbered".into()),
                 ("reading".into(), "Reading list".into()),
             ]
@@ -571,12 +677,12 @@ mod tests {
     #[test]
     fn epicenters_own_folder_opens_in_settings_and_in_its_editor() {
         let fixture = fixture("epicenter");
-        let settings = settings_directory(&fixture.folder_dir).unwrap();
-        assert!(fixture.folder_dir.join(EPICENTER_FOLDER).is_dir());
         let paths = DesktopPaths {
-            data_dir: fixture.folder_dir.with_file_name("app-data"),
+            data_dir: fixture.folder_dir.join(".app-data"),
             folder_dir: fixture.folder_dir.clone(),
         };
+        let settings = folders_config::open_epicenter(&paths.data_dir, &paths.folder_dir).unwrap();
+        assert!(fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER).is_dir());
         assert!(overlaps_epicenter_files(&paths, &settings));
         fs::write(fixture.folder_dir.join("so.epicenter/notes.md"), "").unwrap();
 
@@ -590,7 +696,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(root_names(&home), ["notes.md"]);
-        let (editor, _) = fixture.open_editor(EPICENTER_FOLDER).unwrap();
+        let (editor, _) = fixture.open_editor(DEFAULT_EPICENTER_FOLDER).unwrap();
         assert_eq!(root_names(&fixture.window(&editor)), ["notes.md"]);
     }
 

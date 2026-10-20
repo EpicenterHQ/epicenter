@@ -7,6 +7,27 @@ import type { CommandSpec } from './parse.ts';
 
 export const COMMANDS: readonly CommandSpec[] = [
 	{
+		path: ['folders', 'add'],
+		args: '<directory>',
+		minArgs: 1,
+		maxArgs: 1,
+		summary: 'add an existing folder to this machine’s list',
+	},
+	{
+		path: ['folders', 'list'],
+		args: '',
+		minArgs: 0,
+		maxArgs: 0,
+		summary: 'list added folders and their availability',
+	},
+	{
+		path: ['folders', 'forget'],
+		args: '<directory>',
+		minArgs: 1,
+		maxArgs: 1,
+		summary: 'remove a shortcut without changing its files',
+	},
+	{
 		path: ['check'],
 		args: '<dir>',
 		minArgs: 1,

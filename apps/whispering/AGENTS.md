@@ -82,9 +82,9 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   must not call the endpoint or create a second file. A result on pasted text
   names no recording and must never participate in recording deletion.
 - **Inside Epicenter, a key stays in the keychain.** The connections are rows
-  of Epicenter's folder `so.epicenter`, which the page reads and saves only
+  of Epicenter's selected records folder, which the page reads and saves only
   through `whispering_connection_read` and `whispering_connection_set`, by
-  operation; it never opens `so.epicenter` as a second folder. Endpoints and
+  operation; it never opens the records directory as a second folder. Endpoints and
   keys are in this computer's keychain; requests go through the `epicenter` CLI (`ai_send`),
   which adds the key. A key is never returned to
   the page, logged, or written to the folder, including inside an error

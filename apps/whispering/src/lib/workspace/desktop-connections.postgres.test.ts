@@ -17,10 +17,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-	CONNECTIONS_FOLDER_ID,
-	connectionsTables,
-} from '@epicenter/ai/connection-table';
+import { connectionsTables } from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -28,6 +25,7 @@ import {
 	sendRequest,
 } from '@epicenter/ai/send';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
+import { resolveAppPaths } from '../../../../../packages/cli/src/app-paths.js';
 import {
 	type AuthContext,
 	accountAccess,
@@ -192,6 +190,10 @@ afterAll(async () => {
  * saves them in `scratch`'s `so.epicenter`.
  */
 function shell(): ConnectionCommands {
+	const paths = resolveAppPaths({
+		EPICENTER_FOLDER_DIR: scratch,
+		EPICENTER_DATA_DIR: join(scratch, '.app-data'),
+	});
 	const fail = () => {
 		throw new Error('an Epicenter connection has no keychain entry');
 	};
@@ -211,12 +213,10 @@ function shell(): ConnectionCommands {
 		aiKeyState: fail,
 		aiKeySet: fail,
 		async whisperingConnectionRead(connection) {
-			return reply(await readConnectionRow(scratch, connection));
+			return reply(await readConnectionRow(paths, connection));
 		},
 		async whisperingConnectionSet(connection, base, fields) {
-			return reply(
-				await setConnectionRow(scratch, connection, { base, fields }),
-			);
+			return reply(await setConnectionRow(paths, connection, { base, fields }));
 		},
 		async authStatus() {
 			const { data: grants, error } = await authStatus(ctx);
@@ -253,7 +253,7 @@ function shell(): ConnectionCommands {
 }
 
 test('a transcription over an Epicenter connection reaches the deployment’s /v1 with an ai token from the app’s sign-in', async () => {
-	const root = join(scratch, CONNECTIONS_FOLDER_ID);
+	const root = join(scratch, 'so.epicenter');
 	await mkdir(root);
 	const opened = await openBunFolder({
 		directory: root,

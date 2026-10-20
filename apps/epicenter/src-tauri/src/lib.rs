@@ -23,7 +23,7 @@ mod cli;
 mod data_folders;
 mod folder_opening;
 mod folder_windows;
-mod remembered_folders;
+mod folders_config;
 mod scheme;
 
 pub mod audio;
@@ -375,7 +375,11 @@ pub fn run() {
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
             std::fs::create_dir_all(&desktop_paths.folder_dir)?;
-            match data_folders::watch_data_folders(app.handle(), &desktop_paths.folder_dir) {
+            match data_folders::watch_data_folders(
+                app.handle(),
+                &desktop_paths.folder_dir,
+                &desktop_paths.data_dir,
+            ) {
                 Ok(watch) => {
                     app.manage(watch);
                 }
@@ -633,9 +637,9 @@ fn open_account_website(app: &DesktopAppHandle, url: &tauri::Url) -> NewWindowRe
 ///
 /// The window label is the app's ID, which is what every capability file in
 /// `src-tauri/capabilities/` selects on. One built-in app has one window.
-/// Settings edits Epicenter's own folder, which is bound to it, and made when
-/// missing, before its WebView exists. The Folders window is a launcher and
-/// is bound to no folder.
+/// Settings binds the selected records directory before its WebView exists.
+/// An unselected installation first chooses its default records directory.
+/// The Folders window is a launcher and is bound to no folder.
 fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     if let Some(window) = app.get_webview_window(built_in.id()) {
         focus(window);
@@ -646,8 +650,8 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     let window = match built_in {
         BuiltInApp::Home => {
             let paths = app.state::<app_data::DesktopPaths>();
-            let directory =
-                data_folders::settings_directory(&paths.folder_dir).map_err(anyhow::Error::msg)?;
+            let directory = folders_config::open_epicenter(&paths.data_dir, &paths.folder_dir)
+                .map_err(anyhow::Error::msg)?;
             app.folders()
                 .bind_while_building(built_in.id(), directory, build)?
         }

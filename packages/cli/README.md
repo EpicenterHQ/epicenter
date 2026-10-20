@@ -31,6 +31,9 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 
 | Command | Status | Wraps |
 | --- | --- | --- |
+| `epicenter folders add <directory>` | built | Machine-local `folders.json` under the shared save lock |
+| `epicenter folders list` | built | Added paths and availability, plus `epicenter` with `--json` |
+| `epicenter folders forget <directory>` | built | Remove only the matching shortcut |
 | `epicenter check <dir>` | built | `checkFolder` in `@epicenter/folder/bun` |
 | `epicenter query <dir> [<sql>]` | built | `checkFolder`, `queryFolder`, `describeTables` |
 | `epicenter generate <dir>` | built | `generateDefinition` |
@@ -58,6 +61,41 @@ The source installer, the `app` group, is deleted, with no alias: Epicenter
 bundles its apps. Clones an earlier build installed under `apps/` in the data
 directory, and builds under `builds/` in the cache directory, are left on
 disk, never read and never removed.
+
+## Folder locations on this computer
+
+The desktop and CLI share `<AppData>/folders.json`. `EPICENTER_DATA_DIR`
+selects the same AppData directory for both; a terminal uses release storage
+by default, so set that override when working with development storage.
+
+```json
+{
+  "epicenter": "/Users/braden/Epicenter/My setup",
+  "folders": ["/Users/braden/Code/vault"]
+}
+```
+
+`epicenter` selects Epicenter's portable records directory. It is `null`
+before Settings first opens or a connection is first saved. That first use
+selects the existing default `<folder root>/so.epicenter`, creating it when
+needed. A stored selection must exist; a missing one is never recreated.
+To relocate the records, quit Epicenter, move or locate the directory, update
+this path, and reopen. There is no selection UI yet.
+
+`folders add` checks an existing directory and remembers its absolute path
+once. Relative arguments resolve against the current working directory.
+`folders list --json` returns `{"epicenter": <path or null>, "folders":
+[{"path", "problem"}]}`; unavailable entries stay listed. `folders forget`
+removes a shortcut even when its target is gone. It deletes no files and
+changes neither the selected records folder nor Git configuration. Folders
+under the scanned root remain discoverable without a shortcut.
+
+Listing creates nothing. Mutations read/change/replace under the same SQLite
+save lock as the native writer, preserving the other field and concurrent
+updates. Existing path arrays convert on the next real change. Unsupported
+or malformed contents remain untouched. The launcher observes writes made
+by the CLI. This file is machine-local; the records directory can sync
+through its own Git remote.
 
 ## Hosted repositories
 
@@ -95,8 +133,8 @@ desktop shell runs them for a page, one child per operation, with `--json`;
 the one reply line is `history-wire.ts`'s encoding, which the page decodes.
 Git's own configuration names the author, and otherwise it is
 `Epicenter <epicenter@localhost>`; history is recorded on `main`. Epicenter's
-own folder, `so.epicenter` directly under the Epicenter folder root
-(`isApplicationFolder`), may get a repository inside another repository's
+selected records folder (`isEpicenterFolder`) may get a repository inside
+another repository's
 working tree; any other folder may not. That includes a folder named by the
 id of an app an earlier build installed, such as `so.epicenter.todos`: it is
 a data folder now, so its first commit is refused while it sits inside
@@ -153,7 +191,7 @@ the desktop grant (ADR-0558); `auth token`, `auth logout`,
 `auth git-credential`, and `send` act on that grant only with it.
 
 `auth key` and `send` are ADR-0557's. An AI connection is a row of
-`so.epicenter/connections`; its endpoint and key live in this computer's
+the selected records directory’s `connections/`; its endpoint and key live in this computer's
 keychain under the row's id, through `Bun.secrets` (service
 `so.epicenter.connections`). `auth key set <id>` reads `{"endpoint", "key"}`
 as JSON on stdin, never from the command line, and `state` prints the

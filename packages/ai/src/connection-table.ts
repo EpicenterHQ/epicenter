@@ -3,9 +3,6 @@ import type { Issue } from '@epicenter/folder';
 import { type Static, Type } from 'typebox';
 import { Value } from 'typebox/value';
 
-/** The shell's scope for its own connection files. */
-export const CONNECTIONS_FOLDER_ID = 'so.epicenter';
-
 /** Keychain endpoints and keys stay outside these Markdown rows. */
 export const connectionsTables = {
 	connections: Type.Object({
@@ -21,7 +18,7 @@ export const connectionsTables = {
 
 /**
  * Whispering's two connections, by operation: the stems of their rows in
- * `so.epicenter/connections`, and the keychain entries their endpoints and
+ * `connections`, and the keychain entries their endpoints and
  * keys are saved under. A caller names an operation; only this table names
  * a row.
  */

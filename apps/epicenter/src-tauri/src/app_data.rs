@@ -4,9 +4,10 @@
 //! stable checkout folder name. Explicit overrides win before any platform
 //! lookup.
 //!
-//! What a person or an agent reads, edits, or versions lives under
-//! `folder_dir`; what only Epicenter writes, and what this machine alone
-//! needs, lives in `data_dir` (ADR-0539). Installed-app clones an earlier
+//! `folder_dir` is the default root scanned for portable data folders.
+//! `data_dir` holds machine-local state, including `folders.json`, which
+//! selects the records location and adds shortcuts outside that root.
+//! Installed-app clones an earlier
 //! build left under `data_dir/apps/`, and builds it left in the cache
 //! directory, are never read and never removed.
 

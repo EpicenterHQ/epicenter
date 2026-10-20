@@ -142,12 +142,13 @@ Files split by what they cost to lose (ADR-0539):
 
 ```txt
 ~/Epicenter/                                  read, edited, and versioned as files
-  so.epicenter/                               Epicenter's own folder
+  so.epicenter/                               initial default for Epicenter’s portable records
     epicenter.json                            optional older declaration, retained if present
     connections/<id>.md                       one row per AI connection
   Todos/, so.epicenter.todos/, ...            data folders, each listed and opened as files
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   auth/<grant>.lock                           the lock a sign-in refreshes under (the CLI writes it)
+  folders.json                                selected records path and added folder shortcuts
   local-transcription.json                    the active local model and when to unload it
 ```
 
@@ -246,7 +247,7 @@ The page asks the shell for `list_data_folders`. The shell lists real,
 non-hidden child directories under the authored folder root, including ones
 without `epicenter.json`, by directory name and title. An existing
 declaration can provide a display title; it is not required to open or edit
-files. Epicenter's own folder, `so.epicenter`, is listed like any other, and a
+files. Epicenter's own folder, `so.epicenter` by default, is listed like any other, and a
 folder named by the id of an app an earlier version installed, such as
 `so.epicenter.todos`, is a data folder like any other. Nothing is registered
 by listing.
@@ -262,7 +263,29 @@ are not.
 
 A standalone app can ask Epicenter to open `epicenter://open?path=<percent-encoded absolute directory>`. Receiving the link only queues it and shows the launcher. **Open** resolves the existing directory and opens its own bound editor; **Dismiss** reads none of its files. Handoffs refuse folders overlapping Epicenter's Settings or app data, including linked spellings. The editor receives the same canonical directory that passed that check.
 
-After the editor opens, Epicenter remembers the original path in `<app data>/folders.json`. Failed persistence leaves the editor open and the shortcut available for this run, with the problem shown. **Opened folders** lists stored paths and this run's acceptances without binding any folder to the launcher. Reopening requires fresh membership in that list and checks the directory again. Missing or refused entries remain visible and can be forgotten. **Forget** removes only the shortcut; existing editors and their drafts stay open. The file's save lock and whole-file replacement preserve concurrent list changes and leave malformed contents untouched ([ADR-0646](../../docs/adr/0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md), amended by [ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)).
+After the editor opens, Epicenter adds the original path to `folders` in
+`<app data>/folders.json`. Failed persistence leaves the editor open and the
+shortcut available for this run, with the problem shown. **Opened folders**
+lists stored paths and this run's unpersisted acceptances. Reopening requires
+fresh membership in that list and checks the directory again. Missing or
+refused entries remain visible and can be forgotten. **Forget** removes only
+the shortcut; existing editors and their drafts stay open.
+
+The same object's `epicenter` field selects Epicenter's portable records
+directory. `null` means no selection has been made. Settings or the first
+connection save selects the initial default `so.epicenter` under the folder
+root. A stored selection is opened as it stands; a missing one is never
+recreated. To relocate it, quit Epicenter, move or locate the records, edit
+that path, and reopen. There is no selection UI yet.
+
+The CLI's `epicenter folders add|list|forget` edits the same configuration.
+Both writers hold the file's save lock across read/change/replace, preserving
+concurrent updates. Malformed or unsupported contents remain untouched.
+The launcher watches the AppData directory and refreshes when the file
+changes. Root children are discovered directly and need no shortcut. The
+configuration stays local to this machine. Existing arrays convert on the
+next real update without losing their paths. See
+[folder locations](../../docs/adr/0649-folders-json-selects-this-machines-folder-locations.md).
 
 ### Folder editor windows
 
@@ -290,7 +313,7 @@ processes.
 
 ### Opening apps
 
-Beside each listed directory but Epicenter's own, "Open with…" offers every
+Beside each listed directory except the selected Epicenter records directory, "Open with…" offers every
 bundled app (`src/folders/openers.ts`). The Apps list offers Open, on the
 app's default folder, and Choose folder…, which asks the shell to show the
 native folder picker. The app interprets its files through its own schemas.

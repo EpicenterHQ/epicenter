@@ -10,13 +10,11 @@
  *
  * Who commits comes from the folder's Git configuration, and otherwise is
  * `Epicenter <epicenter@localhost>`. History is recorded on `main`.
- * Epicenter's own folder (`isApplicationFolder`) may get a repository
+ * Epicenter's own folder (`isEpicenterFolder`) may get a repository
  * inside another repository's working tree; a data folder may not.
  */
 
 import { realpath } from 'node:fs/promises';
-import { basename, dirname } from 'node:path';
-import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import {
 	encodeHistory,
 	GitMissingError,
@@ -26,8 +24,9 @@ import {
 	historyExitCode,
 	runHistory,
 } from '@epicenter/folder/bun';
-import { resolveAppPaths } from './app-paths.ts';
+import { type AppPaths, resolveAppPaths } from './app-paths.js';
 import type { GrantKind } from './auth.ts';
+import { epicenterDirectory } from './folders.js';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 type Options = Record<string, string | true>;
@@ -36,24 +35,23 @@ type Options = Record<string, string | true>;
 const AUTHOR = { name: 'Epicenter', email: 'epicenter@localhost' };
 
 /**
- * Whether `dir` is an application's own folder, by the shell's rule
- * (`data_folders.rs`): Epicenter's own `so.epicenter`, directly under the
- * Epicenter folder root. Any other folder is a data folder, including one
- * named by the id of an app that was once installed.
+ * Whether `dir` is the selected Epicenter records folder. Its directory
+ * name does not grant the nested-repository exception.
  */
-export async function isApplicationFolder(
+export async function isEpicenterFolder(
 	dir: string,
-	folderDir = resolveAppPaths().folderDir,
+	paths: AppPaths = resolveAppPaths(),
 ): Promise<boolean> {
-	const [resolved, folderRoot] = await Promise.all([
-		realpath(dir).catch(() => undefined),
-		realpath(folderDir).catch(() => undefined),
-	]);
-	return (
-		resolved !== undefined &&
-		dirname(resolved) === folderRoot &&
-		basename(resolved) === CONNECTIONS_FOLDER_ID
+	// An unreadable selection grants no exception for nested repositories.
+	const directory = await epicenterDirectory(paths, false).catch(
+		() => undefined,
 	);
+	if (directory === undefined) return false;
+	const [resolved, epicenter] = await Promise.all([
+		realpath(dir).catch(() => undefined),
+		realpath(directory).catch(() => undefined),
+	]);
+	return resolved !== undefined && resolved === epicenter;
 }
 
 /**
@@ -188,7 +186,7 @@ export async function historyCommand(
 	try {
 		reply = await runHistory(dir, request, {
 			author: AUTHOR,
-			application: await isApplicationFolder(dir),
+			application: await isEpicenterFolder(dir),
 			credentials: async (url, signal) => {
 				const [{ authContext }, { hostedCredentials }] = await Promise.all([
 					import('./auth.ts'),

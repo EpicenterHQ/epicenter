@@ -286,7 +286,8 @@ mod tests {
     use tauri_plugin_epicenter_folder::FolderExt;
 
     use super::*;
-    use crate::data_folders::{list_in, EPICENTER_FOLDER};
+    use crate::data_folders::list_in;
+    use crate::folders_config::DEFAULT_EPICENTER_FOLDER;
 
     use super::BundledApp::{Capture, Honeycrisp, Todos, Whispering};
 
@@ -515,7 +516,7 @@ mod tests {
         let fixture = fixture();
         let old = fixture.listed_with_todo("so.epicenter.todos", "milk");
         assert_eq!(
-            list_in(&fixture.folder_dir).unwrap()[0].name,
+            list_in(&fixture.folder_dir, None).unwrap()[0].name,
             "so.epicenter.todos"
         );
         for app in BundledApp::ALL {
@@ -558,7 +559,7 @@ mod tests {
     #[test]
     fn no_bundled_app_opens_a_folder_that_overlaps_epicenters_own_files() {
         let fixture = fixture();
-        let own = fixture.folder_dir.join(EPICENTER_FOLDER);
+        let own = fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER);
         fs::create_dir_all(own.join("connections")).unwrap();
         let chosen = [
             own.clone(),
@@ -570,7 +571,7 @@ mod tests {
         ];
         for app in BundledApp::ALL {
             assert_eq!(
-                fixture.listed(app, EPICENTER_FOLDER).unwrap_err(),
+                fixture.listed(app, DEFAULT_EPICENTER_FOLDER).unwrap_err(),
                 refusal(app)
             );
             if fixture.folder_dir.join("SO.EPICENTER").exists() {
@@ -613,7 +614,7 @@ mod tests {
     #[test]
     fn a_linked_parent_reaches_no_folder_that_overlaps_epicenters_own_files() {
         let fixture = fixture();
-        let own = fixture.folder_dir.join(EPICENTER_FOLDER);
+        let own = fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER);
         fs::create_dir_all(own.join("connections")).unwrap();
         let root = fixture.folder_dir.parent().unwrap();
         let alias = fixture.elsewhere("place").join("alias");
@@ -629,7 +630,7 @@ mod tests {
                 through(&own.join("connections")),
                 through(&fixture.data_dir),
                 through(fixture.data_dir.parent().unwrap()),
-                linked_root.join(EPICENTER_FOLDER),
+                linked_root.join(DEFAULT_EPICENTER_FOLDER),
             ] {
                 assert_eq!(
                     fixture
@@ -656,12 +657,15 @@ mod tests {
         let real = fixture.folder_dir.with_file_name("actual-folders");
         fs::rename(&fixture.folder_dir, &real).unwrap();
         std::os::unix::fs::symlink(&real, &fixture.folder_dir).unwrap();
-        let own = real.join(EPICENTER_FOLDER);
+        let own = real.join(DEFAULT_EPICENTER_FOLDER);
         fs::create_dir(&own).unwrap();
 
         for app in BundledApp::ALL {
-            assert!(fixture.listed(app, EPICENTER_FOLDER).is_err());
-            for path in [own.clone(), fixture.folder_dir.join(EPICENTER_FOLDER)] {
+            assert!(fixture.listed(app, DEFAULT_EPICENTER_FOLDER).is_err());
+            for path in [
+                own.clone(),
+                fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER),
+            ] {
                 assert!(fixture.open(app, AppFolder::Chosen(path)).is_err());
             }
         }
@@ -721,7 +725,7 @@ mod tests {
                 (label.clone(), true)
             );
         }
-        let names: Vec<String> = list_in(&fixture.folder_dir)
+        let names: Vec<String> = list_in(&fixture.folder_dir, None)
             .unwrap()
             .into_iter()
             .map(|folder| folder.name)

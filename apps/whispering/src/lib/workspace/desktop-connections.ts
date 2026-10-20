@@ -1,14 +1,14 @@
 /**
  * Whispering's two connections inside Epicenter (ADR-0557).
  *
- * Each is a row of the `connections` table in Epicenter's own folder,
- * `so.epicenter`: `whispering-transcription` and `whispering-text`, holding
+ * Each is a row of the `connections` table in Epicenter's selected records
+ * folder: `whispering-transcription` and `whispering-text`, holding
  * the kind, a title, and the model, so they follow the person to every
  * computer where that folder syncs. The page opens no folder for them and is
  * permitted into none but its own. It names an operation, `transcription` or
  * `text`, and Epicenter reads the row (`whispering_connection_read`) or saves
  * the fields Whispering writes into it (`whispering_connection_set`) through
- * the `epicenter` CLI, which opens `so.epicenter` for that one call. A save
+ * the `epicenter` CLI, which opens the selected directory for that one call. A save
  * carries the row's exact source as the page read it, so an edit Settings
  * made meanwhile is merged, not lost, and every field another program added
  * survives.
@@ -34,10 +34,7 @@
  * kept only for the base URL it was saved for.
  */
 
-import {
-	CONNECTIONS_FOLDER_ID,
-	WHISPERING_CONNECTION_IDS,
-} from '@epicenter/ai/connection-table';
+import { WHISPERING_CONNECTION_IDS } from '@epicenter/ai/connection-table';
 import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
 import { Channel } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -52,7 +49,7 @@ import {
 } from '../connections.js';
 import type { ConnectionRow, commands } from '../tauri/bindings.gen.js';
 
-/** The rows Whispering uses, by operation: their stems in `so.epicenter/connections`. */
+/** The rows Whispering uses, by operation: their stems in the selected records folder’s `connections/` directory. */
 export const CONNECTION_IDS: Record<Operation, string> =
 	WHISPERING_CONNECTION_IDS;
 
@@ -94,9 +91,9 @@ const describe = (cause: unknown) =>
 const failureOf = (error: { name: string; message?: string }) =>
 	error.message ?? `the shell refused the request (${error.name})`;
 
-/** The row's file as a person finds it under the Epicenter folder. */
+/** The row's file as a person finds it inside the selected Epicenter data folder. */
 const rowPath = (operation: Operation) =>
-	`${CONNECTIONS_FOLDER_ID}/connections/${CONNECTION_IDS[operation]}.md`;
+	`connections/${CONNECTION_IDS[operation]}.md`;
 
 /**
  * Send one fetch-shaped request over `connection` through `ai_send`, and

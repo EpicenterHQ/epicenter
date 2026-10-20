@@ -167,7 +167,7 @@ export const commands = {
 	 */
 	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
 	/**
-	 *  Read one of Whispering's connection rows in `so.epicenter`, through
+	 *  Read one of Whispering's connection rows in the selected records directory, through
 	 *  `epicenter whispering-connection read`; `null` when there is none.
 	 *  Reading creates nothing.
 	 */
@@ -314,8 +314,9 @@ export type AiRequest = {
 
 /**
  *  Where a request goes: a connection by its id, which is the stem of its row
- *  in `so.epicenter/connections`. An `openai-compatible` target names the
- *  endpoint the page prepared the request for; the CLI sends only while the
+ *  in the selected Epicenter records folder's `connections/` directory. An
+ *  `openai-compatible` target names the endpoint the page prepared the request
+ *  for; the CLI sends only while the
  *  keychain entry still holds it.
  */
 export type AiTarget = { kind: "openai-compatible"; connection: string; endpoint: string } | { kind: "epicenter"; connection: string } | { kind: "local"; connection: string };
@@ -526,6 +527,8 @@ export type DataFolder = {
 	name: string,
 	/**  `epicenter.json`'s `title` when it is a string, else the directory name. */
 	title: string,
+	/**  This is the selected folder Settings edits, independent of its name. */
+	epicenter: boolean,
 };
 
 /**

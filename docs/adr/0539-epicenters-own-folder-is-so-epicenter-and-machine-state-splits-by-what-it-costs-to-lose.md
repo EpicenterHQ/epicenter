@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
+- **Amended by:** [ADR-0649](0649-folders-json-selects-this-machines-folder-locations.md) at the fixed records-directory identity: `so.epicenter` is the initial default, and machine-local `folders.json` selects its location.
 - **Amended by:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) at requiring authored data beneath the Epicenter root: a durable standalone-app `work/` default may live in OS app data.
 - **Amended by:** [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) at "model choices" in `kv.json`: AI connections are rows of a `connections` table in `so.epicenter`, each naming its model, and which connection an app uses is the app's own setting in its own folder.
 - **Amended by:** [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at the `apps` row's "the shape it opens": no shape leaves the app.

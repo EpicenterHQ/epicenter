@@ -28,6 +28,12 @@ type Run = (
  * `--version` and `--help` start without the folder engine.
  */
 const HANDLERS: Record<string, Run> = {
+	'folders add': async ({ positionals: [directory], json }) =>
+		(await import('./folders.js')).foldersCommand('add', directory, json),
+	'folders list': async ({ positionals: [directory], json }) =>
+		(await import('./folders.js')).foldersCommand('list', directory, json),
+	'folders forget': async ({ positionals: [directory], json }) =>
+		(await import('./folders.js')).foldersCommand('forget', directory, json),
 	check: async ({ positionals: [dir], json }) =>
 		(await import('./folder-commands.ts')).check(dir as string, json),
 	query: async ({ positionals: [dir, sql], json }) =>
@@ -207,11 +213,15 @@ function helpText(group?: string) {
 	const line = (c: CommandSpec) =>
 		`  ${usageLine(c).padEnd(width)}  ${c.summary}`;
 	const folder = visible.filter((c) => c.path.length === 1);
+	const folders = visible.filter((c) => c.path[0] === 'folders');
 	const auth = visible.filter((c) => c.path[0] === 'auth');
 	return [
 		`Usage: epicenter ${group ?? '<command>'} ... [--json]`,
 		...(folder.length
 			? ['', 'Folder commands take a folder by its path:', ...folder.map(line)]
+			: []),
+		...(folders.length
+			? ['', 'Folders on this computer:', ...folders.map(line)]
 			: []),
 		...(auth.length ? ['', 'Your Epicenter account:', ...auth.map(line)] : []),
 		'',

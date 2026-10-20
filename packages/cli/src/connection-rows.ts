@@ -1,29 +1,12 @@
 /**
- * `whispering-connection read|set <transcription|text>`: Whispering's two
- * connection rows in Epicenter's own folder, `so.epicenter`, for the desktop
- * shell (ADR-0557). The shell runs these for Whispering's window, so the
- * window opens no second folder for its connections.
- *
- * The command takes no path. The folder is `so.epicenter` under the
- * Epicenter folder (`resolveAppPaths().folderDir`, which the shell sets),
- * and the operation names one of two fixed rows
- * (`WHISPERING_CONNECTION_IDS`). Each run opens that directory with
- * `@epicenter/folder/bun`, reads or saves the one row, and closes it. A save
- * takes the folder's save lock, as Settings' saves through the shell do
- * (ADR-0562), and merges from the base the caller read, so an edit that
- * landed meanwhile stays. It needs no account, keychain, network, Git, or
- * `epicenter.json`.
- *
- * Reading a missing `so.epicenter` answers no row and creates nothing. A
- * save creates it, as the shell creates Epicenter's own folder when it
- * grants it, but only inside an Epicenter folder that is there; a link or a
- * file at `so.epicenter` is refused.
+ * Whispering reads and saves two connection rows in the selected Epicenter
+ * data folder. The operation names a row; folders.json supplies the location.
+ * Reads create nothing. First writes select the default when no location is
+ * configured; a missing selected directory is reported instead of recreated.
+ * Row writes preserve their exact base through the Folder save lock.
  */
 
-import { lstat, mkdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
-	CONNECTIONS_FOLDER_ID,
 	type ConnectionRow,
 	connectionsTables,
 	isConnectionRowSetInput,
@@ -37,7 +20,8 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { resolveAppPaths } from './app-paths.ts';
+import { type AppPaths, resolveAppPaths } from './app-paths.js';
+import { epicenterDirectory } from './folders.js';
 import { EXIT, writeErr, writeJson, writeOut } from './output.ts';
 import { finishBeforeExit } from './stop.ts';
 
@@ -47,7 +31,7 @@ export const ConnectionRowError = defineErrors({
 		message: reason,
 		reason,
 	}),
-	/** `so.epicenter`, or the Epicenter folder holding it, cannot be used. */
+	/** The selected Epicenter data folder cannot be used. */
 	FolderUnusable: ({ reason }: { reason: string }) => ({
 		message: reason,
 		reason,
@@ -79,65 +63,26 @@ function connectionOf(
 	});
 }
 
-/** The row's path as a person finds it under the Epicenter folder. */
-const rowPath = (connection: WhisperingConnection) =>
-	`${CONNECTIONS_FOLDER_ID}/connections/${WHISPERING_CONNECTION_IDS[connection]}.md`;
-
-/**
- * Whether `so.epicenter` under `folderDir` is a directory to open: `true`, or
- * `false` when it is missing and `create` is not asked. With `create`, a
- * missing one is made inside the Epicenter folder, never the Epicenter
- * folder itself.
- */
-async function connectionsDirectory(
-	folderDir: string,
-	create: boolean,
-): Promise<Result<boolean, ConnectionRowError>> {
-	const root = join(folderDir, CONNECTIONS_FOLDER_ID);
-	const unusable = (reason: string) =>
-		ConnectionRowError.FolderUnusable({ reason });
-	const kind = async () => {
-		try {
-			const stats = await lstat(root);
-			return stats.isDirectory() ? 'directory' : 'other';
-		} catch (cause) {
-			if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
-			throw cause;
-		}
-	};
+/** Resolve the selected records folder; configured missing folders are never created. */
+async function connectionsDirectory(paths: AppPaths, create: boolean) {
 	try {
-		let found = await kind();
-		if (found === 'missing' && create) {
-			const parent = await stat(folderDir).catch(() => undefined);
-			if (!parent?.isDirectory())
-				return unusable(
-					`The Epicenter folder ${folderDir} is not there, so ${CONNECTIONS_FOLDER_ID} was not created in it.`,
-				);
-			await mkdir(root).catch((cause: NodeJS.ErrnoException) => {
-				if (cause.code !== 'EEXIST') throw cause;
-			});
-			found = await kind();
-		}
-		if (found === 'missing') return Ok(false);
-		if (found === 'other')
-			return unusable(
-				`${root} is a link or not a directory, so it was not opened.`,
-			);
-		return Ok(true);
+		return Ok(await epicenterDirectory(paths, create));
 	} catch (cause) {
-		return unusable(`${root} could not be used: ${extractErrorMessage(cause)}`);
+		return ConnectionRowError.FolderUnusable({
+			reason: extractErrorMessage(cause),
+		});
 	}
 }
 
-/** Open `so.epicenter` with its `connections` table, run `work`, and close it. */
+/** Open the selected directory with its `connections` table, run `work`, and close it. */
 async function withConnections<T>(
-	folderDir: string,
+	directory: string,
 	work: (
 		folder: Folder<typeof connectionsTables>,
 	) => Promise<Result<T, ConnectionRowError>>,
 ): Promise<Result<T, ConnectionRowError>> {
 	const opened = await openFolder({
-		directory: join(folderDir, CONNECTIONS_FOLDER_ID),
+		directory,
 		tables: connectionsTables,
 	});
 	if (opened.error !== null)
@@ -158,28 +103,28 @@ function answerOf(row: StoredRow): ConnectionRow {
 }
 
 /**
- * The row `operation` names in `so.epicenter` under `folderDir`, or `null`
- * when it, or `so.epicenter`, is missing. Reading creates nothing.
+ * The row `operation` names in the selected records folder, or `null`
+ * when no row exists. Reading creates nothing. A missing selection is an error.
  */
 export async function readConnectionRow(
-	folderDir: string,
+	paths: AppPaths,
 	operation: string,
 ): Promise<Result<ConnectionRow | null, ConnectionRowError>> {
 	const { data: connection, error } = connectionOf(operation);
 	if (error !== null) return Err(error);
-	const { data: present, error: directoryError } = await connectionsDirectory(
-		folderDir,
+	const { data: directory, error: directoryError } = await connectionsDirectory(
+		paths,
 		false,
 	);
 	if (directoryError !== null) return Err(directoryError);
-	if (!present) return Ok(null);
-	return withConnections(folderDir, async (folder) => {
+	if (directory === undefined) return Ok(null);
+	return withConnections(directory, async (folder) => {
 		const { data: row, error: readError } = await folder.tables.connections.get(
 			WHISPERING_CONNECTION_IDS[connection],
 		);
 		if (readError !== null)
 			return ConnectionRowError.ReadFailed({
-				path: rowPath(connection),
+				path: `${directory}/connections/${WHISPERING_CONNECTION_IDS[connection]}.md`,
 				reason: readError.message,
 			});
 		return Ok(row === undefined ? null : answerOf(row));
@@ -192,7 +137,7 @@ export async function readConnectionRow(
  * `ConnectionRowSetInput` is taken.
  */
 export async function setConnectionRow(
-	folderDir: string,
+	paths: AppPaths,
 	operation: string,
 	input: unknown,
 ): Promise<Result<ConnectionRow, ConnectionRowError>> {
@@ -204,10 +149,17 @@ export async function setConnectionRow(
 				'A connection save reads {"base": {"text", "issues"} | null, "fields": {"kind"?, "title"?, "model"?}} on stdin.',
 		});
 	const { base, fields } = input;
-	const { error: directoryError } = await connectionsDirectory(folderDir, true);
+	const { data: directory, error: directoryError } = await connectionsDirectory(
+		paths,
+		true,
+	);
 	if (directoryError !== null) return Err(directoryError);
+	if (directory === undefined)
+		return ConnectionRowError.FolderUnusable({
+			reason: 'The Epicenter data folder is not there.',
+		});
 	const id = WHISPERING_CONNECTION_IDS[connection];
-	return withConnections(folderDir, async (folder) => {
+	return withConnections(directory, async (folder) => {
 		const { data, error: saveError } = await folder.tables.connections.set(
 			id,
 			base,
@@ -215,7 +167,7 @@ export async function setConnectionRow(
 		);
 		if (saveError !== null)
 			return ConnectionRowError.SaveFailed({
-				path: rowPath(connection),
+				path: `${directory}/connections/${WHISPERING_CONNECTION_IDS[connection]}.md`,
 				reason: saveError.message,
 			});
 		return Ok(answerOf(data.sent));
@@ -234,10 +186,9 @@ export async function whisperingConnection(
 	operation: string,
 	json: boolean,
 ): Promise<number> {
-	const { folderDir } = resolveAppPaths();
+	const paths = resolveAppPaths();
 	let answered: Result<ConnectionRow | null, ConnectionRowError>;
-	if (action === 'read')
-		answered = await readConnectionRow(folderDir, operation);
+	if (action === 'read') answered = await readConnectionRow(paths, operation);
 	else {
 		let input: unknown;
 		try {
@@ -246,7 +197,7 @@ export async function whisperingConnection(
 			input = undefined;
 		}
 		answered = await finishBeforeExit(() =>
-			setConnectionRow(folderDir, operation, input),
+			setConnectionRow(paths, operation, input),
 		);
 	}
 	const { data: row, error } = answered;

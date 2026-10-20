@@ -42,7 +42,7 @@ import {
 	type HistoryResults,
 	holdingHistoryLock,
 } from '@epicenter/folder/bun';
-import { isApplicationFolder } from './history-commands.ts';
+import { isEpicenterFolder } from './history-commands.ts';
 
 const binary = process.env.EPICENTER_BIN;
 const command = binary
@@ -177,18 +177,21 @@ test("only Epicenter's own folder may get a repository inside another one; a fol
 		await mkdtemp(join(tmpdir(), 'epicenter-application-folder-')),
 	);
 	temporary.push(root);
+	const paths = {
+		folderDir: root,
+		dataDir: join(root, 'app-data'),
+		commandLink: join(root, 'epicenter'),
+	};
 	for (const name of ['so.epicenter', 'so.epicenter.todos', 'Todos'])
 		await mkdir(join(root, name, 'inner'), { recursive: true });
-	expect(await isApplicationFolder(join(root, 'so.epicenter'), root)).toBe(
-		true,
-	);
+	expect(await isEpicenterFolder(join(root, 'so.epicenter'), paths)).toBe(true);
 	for (const dir of [
 		join(root, 'so.epicenter.todos'),
 		join(root, 'Todos'),
 		join(root, 'so.epicenter', 'inner'),
 		join(root, 'missing'),
 	])
-		expect(await isApplicationFolder(dir, root)).toBe(false);
+		expect(await isEpicenterFolder(dir, paths)).toBe(false);
 });
 
 test('status, save-version, and history read and record the folder', async () => {

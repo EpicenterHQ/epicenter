@@ -38,12 +38,6 @@
 	 */
 	const DATA_FOLDERS_CHANGED = 'epicenter://data-folders-changed';
 
-	/**
-	 * Epicenter's own folder, `EPICENTER_FOLDER` in
-	 * `src-tauri/src/data_folders.rs`, which no bundled app opens.
-	 */
-	const EPICENTER_FOLDER = 'so.epicenter';
-
 	const launcher = createLaunch();
 	const openings = createFolderOpenings({ host: commands });
 	/** Why Settings did not open, when it did not. */
@@ -56,7 +50,7 @@
 	const listed = $derived(
 		(folders ?? []).map((folder) => ({
 			folder,
-			openers: folder.name === EPICENTER_FOLDER ? [] : bundledOpeners,
+			openers: folder.epicenter ? [] : bundledOpeners,
 		})),
 	);
 	/** Listings that resolve out of order keep only the newest. */

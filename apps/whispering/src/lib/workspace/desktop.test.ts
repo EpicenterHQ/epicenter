@@ -25,10 +25,7 @@ import { afterEach, expect, mock, test } from 'bun:test';
 import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-	CONNECTIONS_FOLDER_ID,
-	connectionsTables,
-} from '@epicenter/ai/connection-table';
+import { connectionsTables } from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -38,6 +35,7 @@ import {
 	sendRequest,
 } from '@epicenter/ai/send';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { resolveAppPaths } from '../../../../../packages/cli/src/app-paths.js';
 import {
 	readConnectionRow,
 	setConnectionRow,
@@ -176,7 +174,11 @@ async function epicenter() {
 	// The Epicenter folder; Epicenter's own folder, where its connections are
 	// rows, is `root` inside it.
 	const folderDir = await mkdtemp(join(tmpdir(), 'whispering-epicenter-'));
-	const root = join(folderDir, CONNECTIONS_FOLDER_ID);
+	const root = join(folderDir, 'so.epicenter');
+	const paths = resolveAppPaths({
+		EPICENTER_FOLDER_DIR: folderDir,
+		EPICENTER_DATA_DIR: join(folderDir, '.app-data'),
+	});
 	const keychain = createMemorySecrets();
 	const provider: ProviderCall[] = [];
 	/** Every line the page was sent. */
@@ -234,13 +236,13 @@ async function epicenter() {
 					};
 		},
 		async whisperingConnectionRead(connection) {
-			return reply(await readConnectionRow(folderDir, connection));
+			return reply(await readConnectionRow(paths, connection));
 		},
 		async whisperingConnectionSet(connection, base, fields) {
 			await beforeRowSave?.();
 			const answered = reply(
 				await setConnectionRow(
-					folderDir,
+					paths,
 					connection,
 					JSON.parse(JSON.stringify({ base, fields })),
 				),
@@ -594,7 +596,7 @@ test('a connection row that does not read is reported, never taken for none', as
 	const workspace = expectOk(await openWith(host));
 
 	await expect(workspace.connections.read()).rejects.toThrow(
-		'so.epicenter/connections/whispering-text.md does not read as a connection',
+		'connections/whispering-text.md does not read as a connection',
 	);
 	// A save is refused with the same reason, and the file keeps its bytes.
 	const refused = await workspace.connections.set('text', {

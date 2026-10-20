@@ -569,8 +569,9 @@ pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
 // ---------------------------------------------------------------------------
 
 /// Where a request goes: a connection by its id, which is the stem of its row
-/// in `so.epicenter/connections`. An `openai-compatible` target names the
-/// endpoint the page prepared the request for; the CLI sends only while the
+/// in the selected Epicenter records folder's `connections/` directory. An
+/// `openai-compatible` target names the endpoint the page prepared the request
+/// for; the CLI sends only while the
 /// keychain entry still holds it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -802,9 +803,9 @@ pub async fn ai_key_state(webview: Webview, connection: String) -> Result<AiKeyS
 }
 
 // ---------------------------------------------------------------------------
-// Whispering's connection rows (ADR-0557): its two rows of `so.epicenter`'s
-// `connections` table, which the CLI reads and saves in the Epicenter folder
-// this shell names in `EPICENTER_FOLDER_DIR`. The page names an operation,
+// Whispering's connection rows (ADR-0557): its two rows of the selected records
+// folder's `connections` table. The CLI resolves the selection through this
+// shell's AppData directory. The page names an operation,
 // never a row, a folder, or a path, and opens no second folder for them.
 // ---------------------------------------------------------------------------
 
@@ -944,7 +945,7 @@ async fn connection_set_with(
     Ok(answer.row)
 }
 
-/// Read one of Whispering's connection rows in `so.epicenter`, through
+/// Read one of Whispering's connection rows in the selected records directory, through
 /// `epicenter whispering-connection read`; `null` when there is none.
 /// Reading creates nothing.
 #[tauri::command]

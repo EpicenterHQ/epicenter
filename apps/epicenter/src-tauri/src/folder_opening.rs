@@ -28,7 +28,7 @@ use tauri_plugin_epicenter_folder::Directory;
 
 use crate::app_data::DesktopPaths;
 use crate::data_folders::overlaps_epicenter_files;
-use crate::remembered_folders;
+use crate::folders_config;
 use crate::{BuiltInApp, DesktopAppHandle};
 
 /// The event the Folders window hears when the pending requests changed. It
@@ -104,8 +104,7 @@ pub(crate) fn is_plain_absolute_path(path: &str) -> bool {
     rebuilt.as_os_str() == candidate.as_os_str()
 }
 
-/// The opening requests waiting for the person, and the directories this run
-/// admitted.
+/// Pending opening requests and temporary shortcuts whose persistence failed.
 #[derive(Default)]
 pub struct FolderOpenings(Mutex<Openings>);
 
@@ -113,8 +112,8 @@ pub struct FolderOpenings(Mutex<Openings>);
 struct Openings {
     /// Requested and not yet accepted or dismissed, oldest first, each once.
     pending: Vec<String>,
-    /// Accepted this run, in order, whether or not remembering succeeded.
-    accepted: Vec<String>,
+    /// Accepted this run but not persisted, in order. Saved shortcuts live only in folders.json.
+    temporary: Vec<String>,
 }
 
 impl FolderOpenings {
@@ -147,25 +146,19 @@ impl FolderOpenings {
         openings.pending.len() != before
     }
 
-    fn mark_accepted(&self, directory: &str) {
+    fn keep_temporarily(&self, directory: &str) {
         let mut openings = self.lock();
-        if !openings
-            .accepted
-            .iter()
-            .any(|accepted| accepted == directory)
-        {
-            openings.accepted.push(directory.to_string());
+        if !openings.temporary.iter().any(|path| path == directory) {
+            openings.temporary.push(directory.to_string());
         }
     }
 
-    fn accepted(&self) -> Vec<String> {
-        self.lock().accepted.clone()
+    fn temporary(&self) -> Vec<String> {
+        self.lock().temporary.clone()
     }
 
     fn forget(&self, directory: &str) {
-        self.lock()
-            .accepted
-            .retain(|accepted| accepted != directory);
+        self.lock().temporary.retain(|path| path != directory);
     }
 }
 
@@ -252,10 +245,12 @@ fn remember_accepted(
     paths: &DesktopPaths,
     directory: &str,
 ) -> AcceptedOpening {
-    openings.mark_accepted(directory);
-    let remember_problem = remembered_folders::add(&paths.data_dir, directory).err();
+    let remember_problem = folders_config::add(&paths.data_dir, directory).err();
     if let Some(problem) = &remember_problem {
+        openings.keep_temporarily(directory);
         log::warn!("an opened folder was not remembered: {problem}");
+    } else {
+        openings.forget(directory);
     }
     AcceptedOpening { remember_problem }
 }
@@ -267,9 +262,10 @@ fn remembered_directory(
     paths: &DesktopPaths,
     path: &str,
 ) -> Result<Directory, String> {
-    let accepted = openings.accepted().iter().any(|entry| entry == path);
-    if !accepted
-        && !remembered_folders::read(&paths.data_dir)?
+    let temporary = openings.temporary().iter().any(|entry| entry == path);
+    if !temporary
+        && !folders_config::read(&paths.data_dir)?
+            .folders
             .iter()
             .any(|entry| entry == path)
     {
@@ -279,15 +275,15 @@ fn remembered_directory(
 }
 
 fn remembered(openings: &FolderOpenings, paths: &DesktopPaths) -> RememberedFolders {
-    let (stored, problem) = match remembered_folders::read(&paths.data_dir) {
-        Ok(stored) => (stored, None),
+    let (stored, problem) = match folders_config::read(&paths.data_dir) {
+        Ok(stored) => (stored.folders, None),
         Err(problem) => (Vec::new(), Some(problem)),
     };
     let mut listed: Vec<(String, bool)> = Vec::new();
     let candidates = stored
         .into_iter()
         .map(|path| (path, true))
-        .chain(openings.accepted().into_iter().map(|path| (path, false)));
+        .chain(openings.temporary().into_iter().map(|path| (path, false)));
     for (path, remembered) in candidates {
         if !listed.iter().any(|(seen, _)| *seen == path) {
             listed.push((path, remembered));
@@ -380,7 +376,7 @@ pub fn list_remembered_folders(app: DesktopAppHandle) -> RememberedFolders {
 #[tauri::command(async)]
 #[specta::specta]
 pub fn forget_remembered_folder(app: DesktopAppHandle, path: String) -> Result<(), String> {
-    remembered_folders::forget(&app.state::<DesktopPaths>().data_dir, &path)?;
+    folders_config::forget(&app.state::<DesktopPaths>().data_dir, &path)?;
     app.state::<FolderOpenings>().forget(&path);
     Ok(())
 }
@@ -388,7 +384,7 @@ pub fn forget_remembered_folder(app: DesktopAppHandle, path: String) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data_folders::EPICENTER_FOLDER;
+    use crate::folders_config::DEFAULT_EPICENTER_FOLDER;
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
@@ -460,7 +456,7 @@ mod tests {
             data_dir: root.join("Application Support/so.epicenter"),
             folder_dir: root.join("Epicenter"),
         };
-        fs::create_dir_all(paths.folder_dir.join(EPICENTER_FOLDER)).unwrap();
+        fs::create_dir_all(paths.folder_dir.join(DEFAULT_EPICENTER_FOLDER)).unwrap();
         fs::create_dir_all(&paths.data_dir).unwrap();
         let elsewhere = root.join("Application Support/so.epicenter.todos");
         fs::create_dir_all(elsewhere.join("todos")).unwrap();
@@ -575,7 +571,7 @@ mod tests {
         assert!(f.openings.take(f.elsewhere.to_str().unwrap()));
         assert!(f.accept(&f.elsewhere).is_err());
         assert!(!missing.exists());
-        assert!(!remembered_folders::file(&f.paths.data_dir).exists());
+        assert!(!folders_config::file(&f.paths.data_dir).exists());
         assert!(f.app.webview_windows().is_empty());
     }
     #[test]
@@ -607,7 +603,7 @@ mod tests {
         );
         assert!(f.app.folders().bound("home").is_err());
         assert_eq!(
-            remembered_folders::read(&f.paths.data_dir).unwrap(),
+            folders_config::read(&f.paths.data_dir).unwrap().folders,
             [f.elsewhere.to_str().unwrap()]
         );
     }
@@ -620,7 +616,7 @@ mod tests {
         }
         assert_eq!(f.app.webview_windows().len(), 1);
         assert_eq!(f.listed().folders.len(), 1);
-        assert_eq!(f.openings.accepted().len(), 1);
+        assert!(f.openings.temporary().is_empty());
     }
     #[test]
     fn a_missing_directory_is_refused_and_never_created() {
@@ -656,7 +652,7 @@ mod tests {
     #[test]
     fn handoffs_preserve_the_protected_overlap_policy() {
         let f = fixture();
-        let own = f.paths.folder_dir.join(EPICENTER_FOLDER);
+        let own = f.paths.folder_dir.join(DEFAULT_EPICENTER_FOLDER);
         fs::create_dir(own.join("connections")).unwrap();
         for path in [
             &own,
@@ -672,7 +668,7 @@ mod tests {
                 .contains("Epicenter's own files"));
         }
         assert!(f.app.webview_windows().is_empty());
-        assert!(!remembered_folders::file(&f.paths.data_dir).exists());
+        assert!(!folders_config::file(&f.paths.data_dir).exists());
     }
     #[cfg(unix)]
     #[test]
@@ -726,7 +722,7 @@ mod tests {
         assert!(remembered(&restarted, &f.paths).folders[0]
             .problem
             .is_some());
-        remembered_folders::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
+        folders_config::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
         assert!(remembered(&restarted, &f.paths).folders.is_empty());
         assert!(!f.elsewhere.exists());
     }
@@ -737,15 +733,15 @@ mod tests {
         f.request(&f.elsewhere);
         f.accept(&f.elsewhere).unwrap();
         let label = f.reopen(&f.elsewhere).unwrap();
-        remembered_folders::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
-        f.openings.forget(f.elsewhere.to_str().unwrap());
+        folders_config::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
+        assert!(f.listed().folders.is_empty());
         assert!(f.reopen(&f.elsewhere).is_err());
         assert_eq!(f.root(&label), f.elsewhere);
     }
     #[test]
     fn a_failed_bookmark_write_keeps_the_editor_and_this_run_shortcut() {
         let f = fixture();
-        let list = remembered_folders::file(&f.paths.data_dir);
+        let list = folders_config::file(&f.paths.data_dir);
         fs::write(&list, "{\"not\":\"a list\"}").unwrap();
         f.request(&f.elsewhere);
         let accepted = f.accept(&f.elsewhere).unwrap();
@@ -770,9 +766,9 @@ mod tests {
     #[test]
     fn hand_edited_bookmarks_are_checked_before_opening() {
         let f = fixture();
-        let own = f.paths.folder_dir.join(EPICENTER_FOLDER);
+        let own = f.paths.folder_dir.join(DEFAULT_EPICENTER_FOLDER);
         fs::write(
-            remembered_folders::file(&f.paths.data_dir),
+            folders_config::file(&f.paths.data_dir),
             serde_json::to_string(&[
                 "relative/notes",
                 own.to_str().unwrap(),
