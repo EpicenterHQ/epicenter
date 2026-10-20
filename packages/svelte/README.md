@@ -138,7 +138,7 @@ Query prefixes match array elements. The context separately handles filesystem
 descendants when refreshing paths. Apps neither build these keys nor subscribe
 to folder changes.
 
-`saveState` comes from `folder.status` alone: `saved` only when no input is
+`saveState` comes from `folder.getStatus()` alone: `saved` only when no input is
 held, no save runs, and no failure is held. Held input whose save failed is
 `failed`. A storage failure with nothing held is `recent-failure`. An app
 action that saves nothing yet, such as a request it waits for, counts in

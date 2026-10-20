@@ -36,7 +36,7 @@ const milk = saved.data.sent;                                    // the row this
 // Typed input: held by the folder, saved a pause after the last change.
 const rowEdit = folder.tables.notes.edit('milk');
 rowEdit.change(milk, { fields: { done: true }, body: 'Two litres\n' }); // over the row seen
-folder.status;                       // { saving, storageFailure, unsaved, failures, closing }
+folder.getStatus();                       // { saving, storageFailure, unsaved, failures, closing }
 await folder.settle();               // send held input now; answers what did not save
 const unsaved = await folder.close(); // sends held input once; answers what did not save
 ```

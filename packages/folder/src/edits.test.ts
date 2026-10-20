@@ -560,7 +560,7 @@ test('a landed save stays shown over the view it was typed in until a read after
 	edit.change(edit.shown(old).source, { fields: { title: 'Oat milk' } });
 	await edit.save();
 	expect(edit.pending).toBeUndefined();
-	expect(folder.status.unsaved).toEqual([]);
+	expect(folder.getStatus().unsaved).toEqual([]);
 
 	// The view never read again.
 	const view = edit.shown(old);
@@ -1153,15 +1153,15 @@ test('a failed save keeps its input and error for copying or discard', async () 
 	await edit.save();
 
 	expect(edit.pending?.error?.name).toBe('StorageFailed');
-	expect(folder.status.failures).toMatchObject([
+	expect(folder.getStatus().failures).toMatchObject([
 		{ path: 'notes/milk.md', fields: { title: 'Oat milk' } },
 	]);
-	expect(folder.status.storageFailure?.name).toBe('StorageFailed');
+	expect(folder.getStatus().storageFailure?.name).toBe('StorageFailed');
 	expect(expectErr(await edit.delete()).name).toBe('NotStarted');
 	restore();
 	expect(edit.discard()).toMatchObject({ fields: { title: 'Oat milk' } });
-	expect(folder.status.unsaved).toEqual([]);
-	expect(folder.status.failures).toEqual([]);
+	expect(folder.getStatus().unsaved).toEqual([]);
+	expect(folder.getStatus().failures).toEqual([]);
 });
 
 test('a thrown storage call is a StorageFailed save that keeps its input to save again', async () => {
@@ -1226,11 +1226,11 @@ test('delete fences input at once and removes the row after its held save', asyn
 	expect(
 		expectErr(edit.change(row, { fields: { title: 'Later' } })),
 	).toMatchObject({ name: 'Locked', reason: DELETING });
-	expect(folder.status.saving).toBe(true);
+	expect(folder.getStatus().saving).toBe(true);
 
 	expect(expectOk(await deleting)).toEqual({ deleted: true });
 	expect(edit.pending).toBeUndefined();
-	expect(folder.status.saving).toBe(false);
+	expect(folder.getStatus().saving).toBe(false);
 	expect(expectOk(await folder.tables.notes.get('milk'))).toBeUndefined();
 });
 
@@ -1247,7 +1247,7 @@ test('close with no view sends a running save, answers a failed one, and fences 
 	expect(milk.pending?.saving).toBe(true);
 
 	const closing = folder.close();
-	expect(folder.status.closing).toBe(true);
+	expect(folder.getStatus().closing).toBe(true);
 	expect(expectErr(text.change(undefined, 'Too late'))).toMatchObject({
 		name: 'Locked',
 		reason: CLOSING,
@@ -1265,7 +1265,7 @@ test('close with no view sends a running save, answers a failed one, and fences 
 	).toBe(true);
 	expect(folder.close()).toBe(closing);
 	// What did not save stays readable after the engine is released.
-	expect(folder.status.failures).toEqual(unsaved);
+	expect(folder.getStatus().failures).toEqual(unsaved);
 	expect(text.pending).toBe(unsaved[0] as never);
 	expect(milk.pending).toBe(unsaved[1] as never);
 });
@@ -1333,7 +1333,7 @@ test('an edit listener at the close fence is refused storage, closes to the same
 			taken =
 				edit.change(row, { fields: { title: 'Too late' } }).error === null;
 			inner = folder.close();
-			statuses.push(folder.status.closing);
+			statuses.push(folder.getStatus().closing);
 		}),
 	);
 
@@ -1410,17 +1410,17 @@ test('plain code opens, edits with no view or subscriber, sees status, settles a
 
 		const edit = folder.tables.notes.edit('milk');
 		expectOk(edit.change(row, { fields: { title: 'Oat' } }));
-		expect(folder.status.unsaved).toEqual(['notes/milk.md']);
+		expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
 		expect(statuses.at(-1)?.unsaved).toEqual(['notes/milk.md']);
 		// The pause the folder was opened with saves it.
-		await until(() => folder.status.unsaved.length === 0);
+		await until(() => folder.getStatus().unsaved.length === 0);
 		expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
 			'Oat',
 		);
 
 		edit.change(row, { fields: { title: 'Oat milk' } });
 		expect(await folder.settle()).toEqual([]);
-		expect(folder.status).toMatchObject({
+		expect(folder.getStatus()).toMatchObject({
 			saving: false,
 			unsaved: [],
 			failures: [],

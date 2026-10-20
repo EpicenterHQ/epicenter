@@ -146,10 +146,10 @@ test('the pause a window folder is opened with saves its held input, through eit
 		const folder = expectOk(await open({ tables: { notes }, saveAfterMs: 5 }));
 		const row = expectOk(await folder.tables.notes.get('milk'))!;
 		folder.tables.notes.edit('milk').change(row, { fields: { title: 'Oat' } });
-		expect(folder.status.unsaved).toEqual(['notes/milk.md']);
-		for (let turn = 0; turn < 100 && folder.status.unsaved.length > 0; turn++)
+		expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
+		for (let turn = 0; turn < 100 && folder.getStatus().unsaved.length > 0; turn++)
 			await new Promise((resolve) => setTimeout(resolve, 5));
-		expect(folder.status.unsaved).toEqual([]);
+		expect(folder.getStatus().unsaved).toEqual([]);
 		expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
 			'Oat',
 		);
@@ -236,7 +236,7 @@ test('a lost reply is the save landing only when the path holds what was sent', 
 	const { folder } = await granted();
 	shell.control.loseReplies = 1;
 	expectOk(await folder.files.write('a.md', null, 'a'));
-	expect(folder.status.storageFailure).toBeNull();
+	expect(folder.getStatus().storageFailure).toBeNull();
 
 	// Another program replaces the file before the page reads it back.
 	shell.control.afterChange = (change) => {
@@ -250,7 +250,7 @@ test('a lost reply is the save landing only when the path holds what was sent', 
 		name: 'StorageFailed',
 		cause: { name: 'Unconfirmed', path: 'b.md' },
 	});
-	expect(folder.status.storageFailure).toBe(lost as never);
+	expect(folder.getStatus().storageFailure).toBe(lost as never);
 	expect(await shell.text('b.md')).toBe('someone else');
 	await folder.close();
 });

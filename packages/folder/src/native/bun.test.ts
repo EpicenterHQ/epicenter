@@ -85,8 +85,8 @@ test('the pause a directory is opened with saves its held input', async () => {
 	);
 	const row = expectOk(await folder.tables.notes.get('milk'))!;
 	folder.tables.notes.edit('milk').change(row, { fields: { title: 'Oat' } });
-	expect(folder.status.unsaved).toEqual(['notes/milk.md']);
-	for (let turn = 0; turn < 100 && folder.status.unsaved.length > 0; turn++)
+	expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
+	for (let turn = 0; turn < 100 && folder.getStatus().unsaved.length > 0; turn++)
 		await new Promise((resolve) => setTimeout(resolve, 5));
 	expect(await text(root, 'notes/milk.md')).toBe('---\ntitle: Oat\n---\n');
 	expect(await folder.close()).toEqual([]);
@@ -531,7 +531,7 @@ test('malformed frontmatter stays repairable: a body edit lands, a field edit is
 	expect(await text(root, 'notes/broken.md')).toBe(
 		'---\ntitle: [unclosed\n---\nNew\n',
 	);
-	expect(folder.status.storageFailure).toBeNull();
+	expect(folder.getStatus().storageFailure).toBeNull();
 	await folder.close();
 });
 
@@ -595,7 +595,7 @@ test('structural refusals are results, and none is a storage failure', async () 
 	expect(
 		await refused(folder.files.write('notes//x.txt', null, 'x')),
 	).toBe('InvalidPath');
-	expect(folder.status).toEqual({
+	expect(folder.getStatus()).toEqual({
 		saving: false,
 		storageFailure: null,
 		unsaved: [],
@@ -668,9 +668,9 @@ test('status shows saving and the last storage failure until a later success', a
 	const seen: FolderStatus[] = [];
 	folder.onStatusChange((status) => seen.push(status));
 	const saving = folder.files.write('a.md', null, 'a');
-	expect(folder.status.saving).toBe(true);
+	expect(folder.getStatus().saving).toBe(true);
 	expectOk(await saving);
-	expect(folder.status).toEqual({
+	expect(folder.getStatus()).toEqual({
 		saving: false,
 		storageFailure: null,
 		unsaved: [],
@@ -681,11 +681,11 @@ test('status shows saving and the last storage failure until a later success', a
 	await chmod(root, 0o555);
 	const failed = expectErr(await folder.files.write('b.md', null, 'b'));
 	expect(failed.name).toBe('StorageFailed');
-	expect(folder.status.storageFailure).toBe(failed as never);
+	expect(folder.getStatus().storageFailure).toBe(failed as never);
 	expect(await text(root, 'b.md')).toBeUndefined();
 	await chmod(root, 0o755);
 	expectOk(await folder.files.write('b.md', null, 'b'));
-	expect(folder.status.storageFailure).toBeNull();
+	expect(folder.getStatus().storageFailure).toBeNull();
 	expect(seen.map((status) => status.saving)).toEqual([
 		true,
 		false,

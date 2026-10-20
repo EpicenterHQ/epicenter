@@ -3,7 +3,7 @@
  * write it: the handle, the page's one query client over its files and rows,
  * whether everything is saved, and one close. The folder owns typed input
  * from the moment it opens (`folder.tables.<name>.edit(id)`,
- * `folder.files.edit(path)`, `folder.status`, `folder.settle()`,
+ * `folder.files.edit(path)`, `folder.getStatus()`, `folder.settle()`,
  * `folder.close()`); this context reads its status reactively and adds what
  * belongs to the page: shared reads, app actions in flight, input a page
  * holds outside the folder, and the window's close.
@@ -153,7 +153,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	});
 
 	const trackStatus = createSubscriber((update) =>
-		folder.status.closing ? () => {} : folder.onStatusChange(update),
+		folder.getStatus().closing ? () => {} : folder.onStatusChange(update),
 	);
 	const actions = new SvelteSet<Promise<unknown>>();
 	const unsent = new Set<() => string | undefined>();
@@ -207,15 +207,15 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	/** Send held input and wait for app actions, without fencing. Answers whether all of it saved. */
 	async function settled(): Promise<boolean> {
 		const [unsaved, finished] = await Promise.all([
-			folder.status.closing ? Promise.resolve([]) : folder.settle(),
+			folder.getStatus().closing ? Promise.resolve([]) : folder.settle(),
 			settleActions(),
 		]);
 		return unsaved.length === 0 && finished;
 	}
 
 	const working = () =>
-		folder.status.unsaved.length > 0 ||
-		folder.status.saving ||
+		folder.getStatus().unsaved.length > 0 ||
+		folder.getStatus().saving ||
 		actions.size > 0;
 
 	/** Why closing the window now would lose something, once what is typed was sent. */
@@ -224,7 +224,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		const reasons: string[] = [];
 		if (!didSettle)
 			reasons.push('A save could not finish. Your input is still here.');
-		if (folder.status.failures.length > 0) reasons.push(NOT_SAVED);
+		if (folder.getStatus().failures.length > 0) reasons.push(NOT_SAVED);
 		else if (working()) reasons.push(STILL_SAVING);
 		for (const reason of unsent) {
 			const why = reason();
@@ -245,13 +245,13 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		 */
 		get failures(): readonly Pending[] {
 			trackStatus();
-			return folder.status.failures;
+			return folder.getStatus().failures;
 		},
 		/** Whether close was called: no app action or input is taken from then on. Read reactively. */
 		get closing(): boolean {
 			trackClosing();
 			trackStatus();
-			return closing !== undefined || folder.status.closing;
+			return closing !== undefined || folder.getStatus().closing;
 		},
 		/**
 		 * Count a started app action in this context's busy state and close.
@@ -302,7 +302,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		/** The folder's save status, held input included, read reactively. */
 		get status(): FolderStatus {
 			trackStatus();
-			return folder.status;
+			return folder.getStatus();
 		},
 		/**
 		 * Whether leaving the page now could lose something: input held, or a
@@ -324,10 +324,10 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		 */
 		get saveState(): SaveState {
 			trackStatus();
-			const { failures, saving, unsaved } = folder.status;
+			const { failures, saving, unsaved } = folder.getStatus();
 			if (failures.length > 0) return 'failed';
 			if (saving || unsaved.length > 0) return 'saving';
-			if (folder.status.storageFailure !== null) return 'recent-failure';
+			if (folder.getStatus().storageFailure !== null) return 'recent-failure';
 			return 'saved';
 		},
 		/**

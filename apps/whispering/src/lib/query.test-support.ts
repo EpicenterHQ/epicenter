@@ -22,7 +22,7 @@ export async function quiet({
 	local: { queryClient, folder },
 }: Pick<Library, 'local'>) {
 	const idle = () =>
-		!folder.status.saving &&
+		!folder.getStatus().saving &&
 		queryClient.isMutating() === 0 &&
 		queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 1000; tries++) {

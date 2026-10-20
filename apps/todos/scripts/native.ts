@@ -46,7 +46,7 @@ let exitCode = 0;
 try {
 	switch (command) {
 		case 'status':
-			print({ directory, status: folder.status, ...(await summary()) });
+			print({ directory, status: folder.getStatus(), ...(await summary()) });
 			break;
 		case 'list':
 			print(await summary());

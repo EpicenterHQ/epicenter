@@ -121,7 +121,7 @@ test('a field change without a source refuses without changing the missing-sourc
 	).toBe('NoSource');
 	expect(edit.shown(undefined)).toBe(shown);
 	expect(edit.pending).toBeUndefined();
-	expect(folder.status.unsaved).toEqual([]);
+	expect(folder.getStatus().unsaved).toEqual([]);
 });
 
 for (const { revert, refuseFirst, aliases } of [
@@ -508,7 +508,7 @@ test('exclusive fences input at once, sends held input first, and settle waits f
 	expect(expectOk(await operation)).toBe('done');
 	await settling;
 	expect(source.locked).toBe(false);
-	expect(folder.status).toMatchObject({ saving: false, unsaved: [] });
+	expect(folder.getStatus()).toMatchObject({ saving: false, unsaved: [] });
 	expect(await disk.stored('epicenter.json')).toBe('{"title":"mine"}');
 });
 
@@ -558,5 +558,5 @@ test('a failed exclusive change releases its path while another file saves indep
 	expect(source.locked).toBe(false);
 	expectOk(source.change(await disk.observe('epicenter.json'), 'repair'));
 	expect(source.discard()).toMatchObject({ text: 'repair' });
-	expect(folder.status).toMatchObject({ saving: false, unsaved: [] });
+	expect(folder.getStatus()).toMatchObject({ saving: false, unsaved: [] });
 });

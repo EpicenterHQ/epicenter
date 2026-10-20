@@ -140,8 +140,9 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	 * not called for the current state. Returns the stop.
 	 */
 	onChange(listener: (change: FolderChange) => void): () => void;
-	readonly status: FolderStatus;
-	/** Called when `status` changes. Returns the function that stops listening. */
+	/** Current save status; subscribe with `onStatusChange` for changes. */
+	getStatus(): FolderStatus;
+	/** Called when save status changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
 	/**
 	 * Send new input once, after running exclusive changes and deletes. Failed

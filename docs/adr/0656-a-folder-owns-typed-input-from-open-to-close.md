@@ -4,7 +4,7 @@
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) and [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md), where an editor's input lives: input not yet saved is held by the folder, not by a page draft or a queue in each app. A field edit still sets fields on the file as it is now, a body or text still merges by line, and one write path and one channel of change remain.
 - **Relates:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge each save uses), [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) (folder queries), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (the app's folder context), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) (a control binds one part of a row)
-- **Built:** `createEditOwner` (`packages/folder/src/edit-owner.ts`) inside every folder handle; `folder.tables.<t>.edit(id)` and `folder.files.edit(path)`; `folder.status` with `unsaved`, `failures` and `closing`; `folder.settle()` and `folder.close()` answering `Pending[]`; the `saveAfterMs` open option on every opener; read notes (`shared/observation.ts`); `createRowEdit` and `createTextEdit` in `@epicenter/svelte/edits`; `useRowEdit` and `useTextEdit` in `@epicenter/react/edits`; a context `saveState` read from `folder.status` alone; Todos, Capture, Honeycrisp, Vocab, Whispering and the generic editor on them; and the deletions below.
+- **Built:** `createEditOwner` (`packages/folder/src/edit-owner.ts`) inside every folder handle; `folder.tables.<t>.edit(id)` and `folder.files.edit(path)`; `folder.getStatus()` with `unsaved`, `failures` and `closing`; `folder.settle()` and `folder.close()` answering `Pending[]`; the `saveAfterMs` open option on every opener; read notes (`shared/observation.ts`); `createRowEdit` and `createTextEdit` in `@epicenter/svelte/edits`; `useRowEdit` and `useTextEdit` in `@epicenter/react/edits`; a context `saveState` read from `folder.getStatus()` alone; Todos, Capture, Honeycrisp, Vocab, Whispering and the generic editor on them; and the deletions below.
 
 ## Context
 
@@ -38,7 +38,7 @@ for, a recording), forms not yet submitted (a new thought, a connection
 draft), and the page's query cache stay the app's. The Svelte context counts
 started actions in `busy`, `leaving`, and the window's close; a form says what
 it holds through `registerUnsent`. Their lifetimes do not determine file save
-status: `saveState` is read from `folder.status` alone.
+status: `saveState` is read from `folder.getStatus()` alone.
 
 ### Entry points
 
@@ -135,7 +135,7 @@ outside what close and `saveState` wait for.
 - `saveAfterMs` is an open option on every opener (default
   `SAVE_AFTER_MS`); a negative or non-finite value throws `RangeError` at
   open.
-- `folder.status` is `{ saving, storageFailure, unsaved, failures, closing }`.
+- `folder.getStatus()` is `{ saving, storageFailure, unsaved, failures, closing }`.
 - `folder.settle()` sends new input once and answers what is still held.
 - Every row, text and field edit has `save()` and `retry()`. `save()` sends
   new input or joins its running attempt. A failed or refused revision stays

@@ -336,7 +336,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				changeListeners.delete(listener);
 			};
 		},
-		get status() {
+		getStatus() {
 			return status;
 		},
 		onStatusChange(listener) {

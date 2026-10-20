@@ -77,7 +77,7 @@ test('a fresh profile opens empty without an app, account, remote, or network', 
 	expect(expectOk(await folder.files.list())).toEqual([]);
 	expect(expectOk(await folder.tables.notes.list())).toEqual([]);
 	expect(expectOk(await folder.tables.notes.get('missing'))).toBeUndefined();
-	expect(folder.status).toEqual(idle);
+	expect(folder.getStatus()).toEqual(idle);
 	await folder.close();
 });
 
@@ -304,7 +304,7 @@ test('a failed save returns the reason, leaves storage unchanged, and shows in s
 	if (failure.name !== 'StorageFailed')
 		throw new Error('Expected a storage failure');
 	expect(failure.message).toContain('QuotaExceededError');
-	expect(folder.status).toMatchObject({
+	expect(folder.getStatus()).toMatchObject({
 		saving: false,
 		storageFailure: failure,
 	});
@@ -319,9 +319,9 @@ test('a failed save returns the reason, leaves storage unchanged, and shows in s
 	expect(
 		expectErr(await folder.files.write('keep.md/child', null, 'x')).name,
 	).toBe('Occupied');
-	expect(folder.status.storageFailure).toBeNull();
+	expect(folder.getStatus().storageFailure).toBeNull();
 	expectOk(await folder.files.write('keep.md', 'first', 'third'));
-	expect(folder.status).toEqual(idle);
+	expect(folder.getStatus()).toEqual(idle);
 	expect(
 		seen.map((status) => [status.saving, status.storageFailure?.name ?? null]),
 	).toEqual([
@@ -345,9 +345,9 @@ test('a failed save returns the reason, leaves storage unchanged, and shows in s
 test('status is saving while a save is in progress and saved only after it commits', async () => {
 	const folder = await open();
 	const pending = folder.files.write('one.md', null, 'x');
-	expect(folder.status.saving).toBe(true);
+	expect(folder.getStatus().saving).toBe(true);
 	expectOk(await pending);
-	expect(folder.status).toEqual(idle);
+	expect(folder.getStatus()).toEqual(idle);
 	await folder.close();
 });
 

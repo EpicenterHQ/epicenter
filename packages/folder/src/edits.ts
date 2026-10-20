@@ -2,7 +2,7 @@
  * `@epicenter/folder/edits`: the vocabulary of unsaved input over an opened
  * folder, whose handles are `folder.tables.<name>.edit(id)` and
  * `folder.files.edit(path)` (`edit-owner.ts` states the rules). The folder
- * owns that input for its whole life: `folder.status`, `folder.settle()` and
+ * owns that input for its whole life: `folder.getStatus()`, `folder.settle()` and
  * `folder.close()` report and send it. Importing it opens nothing.
  */
 export {

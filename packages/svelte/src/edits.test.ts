@@ -332,7 +332,7 @@ test('an app action does not enter Folder save status until its write is accepte
 		return folder.files.write('action.txt', null, 'done');
 	});
 	expect(context.saveState).toBe('saved');
-	expect(folder.status.saving).toBe(false);
+	expect(folder.getStatus().saving).toBe(false);
 
 	// Its write is accepted: the folder says so, and so does the context.
 	const states: string[] = [];

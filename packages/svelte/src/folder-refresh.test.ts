@@ -172,7 +172,7 @@ test('a save lands without waiting for a slow scan, which shows it over the olde
 	edit.change(before, { fields: { title: 'Saved while reading' } });
 	await edit.save();
 	expect(edit.pending).toBeUndefined();
-	expect(folder.status.saving).toBe(false);
+	expect(folder.getStatus().saving).toBe(false);
 	expect(before.fields.title).toBe('Milk');
 	expect(edit.shown(before).row.fields.title).toBe('Saved while reading');
 	// A second polling tick must join the slow scan, not replace it.
