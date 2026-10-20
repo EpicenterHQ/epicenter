@@ -234,6 +234,36 @@ open 'epicenter://app/folders'
 open 'epicenter://app/home'
 ```
 
+### Try saved views with sample data (macOS)
+
+From the repository root, run:
+
+```bash
+bun demo:views
+```
+
+This builds and opens **Epicenter Views Demo**, using the real desktop file
+commands and SQL engine. Its separate application identity and fresh temporary
+folders leave your normal Epicenter data alone. No API server or sign-in is
+needed. The terminal prints the sample data location; files remain there after
+the demo exits. Quit the demo before running the command again.
+
+1. Open **Project**, then choose **Project board** from **Saved views**. Move
+   **Try moving this card** from Todo to Doing with its lane selector.
+2. Choose **All tasks** to inspect the same record in the grid. Edit its title,
+   then open its file in **Files** to see the changed frontmatter and retained body.
+3. Choose **Progress by status**, then **Run SQL**. After that move, the counts
+   should be Doing: 2, Done: 1, Todo: 1.
+4. Change a view's title and click **Save view**. Close and reopen Project to
+   check that its saved settings return. Record edits save when you pause;
+   view settings save only when you ask.
+5. Open **Plain notes** and choose **Tables**, then the **notes** directory.
+   It has no schema or declaration. Saving its first named view creates an
+   `epicenter.json` containing only `views`.
+
+This is an interactive desktop walkthrough. The mounted editor tests run with
+`bun run --cwd apps/epicenter test:mounted`; they do not launch a native WebView.
+
 ## The Folders window
 
 The Folders window (`folders`, served at `/folders/`) is a launcher over the
