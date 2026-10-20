@@ -13,8 +13,13 @@
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import { isTableName, openRepository } from './browser/repository.js';
+import { saveDelay } from './edit-owner.js';
 import { OpenFolderError } from './errors.js';
-import type { DefaultFolderOptions, Folder, FolderTable } from './folder.js';
+import type {
+	DefaultFolderOptions,
+	Folder,
+	FolderTableOperations,
+} from './folder.js';
 import { folderHandle } from './handle.js';
 
 /**
@@ -27,9 +32,11 @@ export async function openLocalFolder<
 	const TTables extends Record<string, Schema>,
 >({
 	tables,
+	saveAfterMs,
 }: DefaultFolderOptions<TTables>): Promise<
 	Result<Folder<TTables>, OpenFolderError>
 > {
+	saveDelay(saveAfterMs);
 	for (const table of Object.keys(tables))
 		if (!isTableName(table)) return OpenFolderError.InvalidTable({ table });
 	if (typeof indexedDB === 'undefined')
@@ -46,11 +53,12 @@ export async function openLocalFolder<
 		folderHandle(
 			{
 				files: repository.files,
-				tables: repository.tables as Record<string, FolderTable>,
+				tables: repository.tables as Record<string, FolderTableOperations>,
 				subscribe: repository.onChange,
 				close: repository.close,
 			},
 			tables,
+			{ saveAfterMs },
 		),
 	);
 }

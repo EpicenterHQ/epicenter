@@ -1,0 +1,33 @@
+{
+	"name": "@epicenter/react",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "React bindings for Epicenter folders: a folder's row and text edit handles in a view.",
+	"exports": {
+		"./edits": "./src/edits.ts"
+	},
+	"dependencies": {
+		"@epicenter/folder": "workspace:*",
+		"typebox": "catalog:"
+	},
+	"peerDependencies": {
+		"react": "^19.3.1"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"@types/react": "^19.3.0",
+		"@types/react-dom": "^19.3.0",
+		"fake-indexeddb": "^6.2.6",
+		"happy-dom": "21.0.3",
+		"react": "19.3.1",
+		"react-dom": "19.3.1",
+		"typescript": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test --isolate"
+	},
+	"license": "AGPL-3.0-or-later"
+}

@@ -1,6 +1,6 @@
 /** What a learner is told about a save, read, or action that failed. */
 import type { ReadError, SaveError } from '@epicenter/folder';
-import type { ActionError } from '@epicenter/svelte/write-failure';
+import type { ActionError } from '@epicenter/folder/edits';
 import { extractErrorMessage } from 'wellcrafted/error';
 
 export function describeFailure(

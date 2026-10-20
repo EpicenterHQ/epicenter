@@ -8,19 +8,17 @@
 	import * as Table from '@epicenter/ui/table';
 	import * as Alert from '@epicenter/ui/alert';
 	import { createQuery } from '@tanstack/svelte-query';
-	import type { FileDrafts } from './drafts.svelte';
-	import { fileText, savedText } from './files';
+	import { createTextEdit } from '@epicenter/svelte/edits';
+	import { fileText } from './files';
 	import { applyView, boardLanes } from './view';
 	import TableControls from './TableControls.svelte';
 	import type { TableView } from './views.svelte';
 
 	let {
-		drafts,
 		openSource,
 		view,
 		change,
 	}: {
-		drafts: FileDrafts;
 		openSource: (path: string) => void;
 		view: TableView;
 		change: (value: TableView) => void;
@@ -48,11 +46,11 @@
 	const included = $derived(
 		new Set(projection.documents.map((doc) => doc.path)),
 	);
+	/** The paths whose input the folder holds, saving or failed. */
+	const held = $derived(new Set(context.status.unsaved));
 	const documents = $derived([
 		...projection.documents,
-		...members.filter(
-			(doc) => !included.has(doc.path) && drafts.file(doc.path).held,
-		),
+		...members.filter((doc) => !included.has(doc.path) && held.has(doc.path)),
 	]);
 	const availableColumns = $derived(
 		[
@@ -69,30 +67,28 @@
 	const columns = $derived(view.columns ?? availableColumns);
 	const rows = $derived(
 		documents.map((doc) => {
-			const draft = drafts.file(doc.path);
-			const source = fileText(doc.content);
-			const base =
-				source.kind === 'text'
-					? { content: doc.content, crlf: source.crlf }
-					: undefined;
-			const text = draft.shown(base);
+			// The document's bytes are the source each field edit names.
+			const edit = createTextEdit(
+				context.folder.files.edit(doc.path),
+				() => doc.content,
+			);
+			const text = edit.text;
+			const pending = edit.pending;
 			const shown =
-				text === undefined
+				text === decoder.decode(doc.content)
 					? doc
-					: readDocument(
-							doc.path,
-							new TextEncoder().encode(savedText(text, base?.crlf ?? false)),
-							tableFor(doc.path),
-						);
+					: readDocument(doc.path, encoder.encode(text), tableFor(doc.path));
 			return {
 				doc,
-				draft,
-				base,
+				edit,
 				shown,
+				held: pending !== undefined,
+				error: pending?.saving ? undefined : pending?.error,
 				locked:
-					base === undefined ||
+					fileText(doc.content).kind !== 'text' ||
 					!!shown.issues?.some((issue) => issue.kind !== 'schema') ||
-					draft.sourceLocked,
+					(pending?.kind === 'fields' && pending.error !== undefined) ||
+					edit.locked,
 			};
 		}),
 	);
@@ -112,7 +108,7 @@
 	function createLane() {
 		if (view.type !== 'board') return;
 		const row = byPath.get(newCard);
-		if (!row || row.locked || !row.base) return;
+		if (!row || row.locked) return;
 		const value =
 			newKind === 'null'
 				? null
@@ -123,8 +119,10 @@
 						: newValue;
 		if (newKind === 'number' && (newValue === '' || !Number.isFinite(value)))
 			return;
-		row.draft.change({ [view.groupBy]: value }, row.base);
+		row.edit.changeFields({ [view.groupBy]: value });
 	}
+	const encoder = new TextEncoder();
+	const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 	function tableSchema() {
 		return Object.hasOwn(reading.data?.tables ?? {}, directory)
 			? reading.data?.tables[directory]
@@ -264,7 +262,7 @@
 										>{typeof doc.fields.title === 'string' &&
 										Object.hasOwn(doc.fields, 'title')
 											? doc.fields.title
-											: doc.stem}{row.draft.held ? ' •' : ''}</Button
+											: doc.stem}{row.held ? ' •' : ''}</Button
 									>
 									<p class="mb-2 truncate text-xs text-muted-foreground">
 										{doc.path}
@@ -290,13 +288,11 @@
 											);
 											if (
 												view.type === 'board' &&
-												destination?.editable &&
-												row.base
+												destination?.editable
 											)
-												row.draft.change(
-													{ [view.groupBy]: destination.value },
-													row.base,
-												);
+												row.edit.changeFields({
+													[view.groupBy]: destination.value,
+												});
 										}}
 										><Select.Trigger
 											aria-label="Move {doc.path}"
@@ -308,17 +304,17 @@
 												>{/each}</Select.Content
 										></Select.Root
 									>
-									{#if row.draft.error}<p class="text-sm text-destructive">
-											{row.draft.error.message}
+									{#if row.error}<p class="text-sm text-destructive">
+											{row.error.message}
 										</p>
 										<Button
 											size="xs"
 											variant="outline"
-											onclick={() => void row.draft.retry()}>Try again</Button
+											onclick={() => void row.edit.retry()}>Try again</Button
 										><Button
 											size="xs"
 											variant="ghost"
-											onclick={() => row.draft.discard()}>Discard edit</Button
+											onclick={() => row.edit.discard()}>Discard edit</Button
 										>{/if}
 									{#each doc.issues ?? [] as issue}<p
 											class="text-xs text-destructive"
@@ -395,11 +391,11 @@
 				>
 				<Table.Body>
 					{#each rows as row (row.doc.path)}
-						{@const { doc, draft, base, shown, locked } = row}
+						{@const { doc, edit, shown, locked, error } = row}
 						<Table.Row>
 							<Table.Cell
 								><Button variant="link" onclick={() => openSource(doc.path)}
-									>{doc.path}{draft.held ? ' •' : ''}</Button
+									>{doc.path}{row.held ? ' •' : ''}</Button
 								>{#if !included.has(doc.path)}<p
 										class="text-xs text-muted-foreground"
 									>
@@ -419,8 +415,7 @@
 											disabled={locked}
 											bind:checked={
 												() => fieldValue(shown.fields, column) === true,
-												(value) =>
-													base && draft.change({ [column]: value }, base)
+												(value) => edit.changeFields({ [column]: value })
 											}
 										/>
 									{:else if kind === 'string' || kind === 'number' || kind === 'integer'}
@@ -434,25 +429,21 @@
 												() => display(fieldValue(shown.fields, column)),
 												(value) => {
 													if (
-														!base ||
-														((kind === 'number' || kind === 'integer') &&
-															(value == null ||
-																String(value) === '' ||
-																!Number.isFinite(Number(value))))
+														(kind === 'number' || kind === 'integer') &&
+														(value == null ||
+															String(value) === '' ||
+															!Number.isFinite(Number(value)))
 													)
 														return;
-													draft.change(
-														{
-															[column]:
-																kind === 'number' || kind === 'integer'
-																	? Number(value)
-																	: String(value ?? ''),
-														},
-														base,
-													);
+													edit.changeFields({
+														[column]:
+															kind === 'number' || kind === 'integer'
+																? Number(value)
+																: String(value ?? ''),
+													});
 												}
 											}
-											onblur={() => void draft.save()}
+											onblur={() => void edit.save()}
 										/>
 									{:else}<span class="font-mono text-xs"
 											>{display(fieldValue(shown.fields, column))}</span
@@ -460,17 +451,17 @@
 								</Table.Cell>
 							{/each}
 							<Table.Cell>
-								{#if draft.error}<p class="text-destructive">
-										{draft.error.message}
+								{#if error}<p class="text-destructive">
+										{error.message}
 									</p>
 									<Button
 										size="xs"
 										variant="outline"
-										onclick={() => void draft.retry()}>Try again</Button
+										onclick={() => void edit.retry()}>Try again</Button
 									><Button
 										size="xs"
 										variant="ghost"
-										onclick={() => draft.discard()}>Discard edit</Button
+										onclick={() => edit.discard()}>Discard edit</Button
 									>{/if}
 								{#each shown.issues ?? [] as issue}<p
 										class="text-xs text-destructive"

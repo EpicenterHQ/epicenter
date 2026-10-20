@@ -6,6 +6,7 @@
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { ReadError } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
 import { type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 const { flushSync, mount, unmount } = await import('svelte');
@@ -76,6 +77,36 @@ test('a background reread leaves the saved text editable', async () => {
 	await refreshing;
 	flushSync();
 	expect(input()?.value).toBe('Typed during refresh');
+});
+
+test('saved words stay shown when the reread fails, and typing on keeps them', async () => {
+	const { folder, notes, local, input, text } = await open();
+	const read = folder.files.read;
+	folder.files.read = async (path) =>
+		path === 'draft.txt'
+			? ReadError.StorageFailed({ cause: new Error('read refused') })
+			: read(path);
+	cleanups.push(() => {
+		folder.files.read = read;
+	});
+	type(input(), 'Committed words');
+	flushSync();
+	await notes.saveText('draft.txt');
+	await local.refresh(['draft.txt']);
+	flushSync();
+	expect(folder.files.edit('draft.txt').pending).toBeUndefined();
+	expect(await text('draft.txt')).toBe('Committed words');
+	expect(input()?.value).toBe('Committed words');
+	expect(input()?.readOnly).toBe(false);
+
+	type(input(), 'Committed words, and more');
+	flushSync();
+	await notes.saveText('draft.txt');
+	expect(await text('draft.txt')).toBe('Committed words, and more');
+	folder.files.read = read;
+	await local.refresh(['draft.txt']);
+	flushSync();
+	expect(input()?.value).toBe('Committed words, and more');
 });
 
 test('failed source input stays visible when the saved file becomes binary', async () => {

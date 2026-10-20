@@ -38,13 +38,13 @@
 
 	let {
 		open,
-		saveAfterMs,
 		children,
 	}: {
-		/** Open a fresh folder on mount and each retry. Remount to choose another folder. */
+		/**
+		 * Open a fresh folder on mount and each retry. Remount to choose
+		 * another folder. The folder's open options say how it saves input.
+		 */
 		open: () => Promise<Result<Folder<TTables>, OpenFolderError>>;
-		/** How long after the last keystroke a draft saves. */
-		saveAfterMs?: number;
 		/** The app root installs its typed context during initialization. */
 		children: Snippet<[FolderContext<TTables>]>;
 	} = $props();
@@ -54,7 +54,7 @@
 	async function openContext() {
 		const { data: folder, error } = await open();
 		if (error !== null) return Err(error);
-		context = createFolderContext(folder, { saveAfterMs });
+		context = createFolderContext(folder);
 		try {
 			await context.guardWindowClose();
 		} catch (cause) {
@@ -66,8 +66,8 @@
 	let opening = $state(openContext());
 
 	// Teardown: what is typed is sent, every save lands, then the folder is
-	// released. A folder still opening is closed once it opens. Failed row
-	// drafts are offered for copying after their editor has gone away.
+	// released. A folder still opening is closed once it opens. Input that
+	// did not save is offered for copying after its editor has gone away.
 	onDestroy(() => {
 		void opening
 			.then(async ({ data: context }) => {

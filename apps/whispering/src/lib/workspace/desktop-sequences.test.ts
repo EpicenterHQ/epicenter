@@ -75,7 +75,9 @@ async function open(files: Record<string, string>, path = PATH) {
 	const workspace: Workspace = {
 		...stubs.workspace,
 		folder,
-		close: () => folder.close(),
+		close: async () => {
+			await folder.close();
+		},
 	};
 	const library = await createTestLibrary(workspace);
 	cleanups.push(async () => {

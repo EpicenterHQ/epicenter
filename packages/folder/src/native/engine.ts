@@ -30,15 +30,21 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileRead, FolderStorage } from '../boundary.js';
 import type { FileError } from '../errors.js';
 import type {
+	EditOptions,
 	Folder,
 	FolderChange,
-	FolderFiles,
-	FolderTable,
+	FolderFileOperations,
+	FolderTableOperations,
 } from '../folder.js';
 import { folderHandle } from '../handle.js';
 import { hashBytes } from '../hash.js';
 import { callObserver } from '../observer.js';
-import { pathProblem, readablePath, rowAddressProblem, writableExistingPath } from '../paths.js';
+import {
+	pathProblem,
+	readablePath,
+	rowAddressProblem,
+	writableExistingPath,
+} from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
@@ -71,7 +77,9 @@ const structural = readablePath;
 
 /** Existing rows may have names a new cross-platform save would refuse. */
 const readableId = (table: string, id: string) =>
-	typeof id === 'string' && !id.includes('/') && structural(`${table}/${id}.md`);
+	typeof id === 'string' &&
+	!id.includes('/') &&
+	structural(`${table}/${id}.md`);
 
 /** Whether `id` addresses a new writable row: one nonempty, portable segment. */
 const validId = (table: string, id: string) =>
@@ -94,11 +102,12 @@ export function createNativeFolder<
 	storage,
 	tables,
 	directory,
+	saveAfterMs,
 }: {
 	readonly storage: FolderStorage;
 	readonly tables: TTables;
 	readonly directory: string;
-}): Folder<TTables> {
+} & EditOptions): Folder<TTables> {
 	const listeners = new Set<(change: FolderChange) => void>();
 	function hear(change: FolderChange) {
 		for (const listener of [...listeners])
@@ -217,7 +226,11 @@ export function createNativeFolder<
 		// A mutable caller buffer must not change the edit's witness during retries.
 		const base = from instanceof Uint8Array ? from.slice() : from;
 		const change = content instanceof Uint8Array ? content.slice() : content;
-		if (!structural(path) || (pathProblem(path) !== undefined && (base === null || !writableExistingPath(path))))
+		if (
+			!structural(path) ||
+			(pathProblem(path) !== undefined &&
+				(base === null || !writableExistingPath(path)))
+		)
 			return SaveError.InvalidPath({ path });
 		if (
 			typeof change === 'string' &&
@@ -285,7 +298,7 @@ export function createNativeFolder<
 	function table<const TSchema extends Schema>(
 		name: string,
 		schema: TSchema,
-	): FolderTable<TSchema> {
+	): FolderTableOperations<TSchema> {
 		const rowPath = (id: string) => `${name}/${id}.md`;
 		return {
 			list() {
@@ -362,7 +375,7 @@ export function createNativeFolder<
 		};
 	}
 
-	function files(): FolderFiles {
+	function files(): FolderFileOperations {
 		return {
 			list(prefix = '') {
 				return read(async () => {
@@ -381,8 +394,7 @@ export function createNativeFolder<
 			},
 			read(path) {
 				return read(async () => {
-					if (!structural(path))
-						return Ok(undefined);
+					if (!structural(path)) return Ok(undefined);
 					const { data: found, error } = await current(path);
 					if (error !== null)
 						return error.name === 'NotAFile' ? Ok(undefined) : Err(error);
@@ -409,7 +421,7 @@ export function createNativeFolder<
 				name,
 				table(name, schema),
 			]),
-		) as Record<string, FolderTable>,
+		) as Record<string, FolderTableOperations>,
 		subscribe(listener: (change: FolderChange) => void) {
 			listeners.add(listener);
 			return () => {
@@ -423,5 +435,5 @@ export function createNativeFolder<
 				peers.delete(directory);
 		},
 	};
-	return folderHandle(engine, tables);
+	return folderHandle(engine, tables, { saveAfterMs });
 }

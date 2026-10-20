@@ -20,6 +20,7 @@
 import 'fake-indexeddb/auto';
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { fileBytes } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
@@ -49,7 +50,9 @@ afterEach(async () => {
 /** A fresh profile holding `milk`, opened as a browser tab opens it. */
 async function freshFolder() {
 	globalThis.indexedDB = new IDBFactory();
-	const folder = expectOk(await openFolder({ tables: { notes } }));
+	const folder = expectOk(
+		await openFolder({ tables: { notes }, saveAfterMs: MINUTE }),
+	);
 	expectOk(
 		await folder.tables.notes.set('milk', null, {
 			fields: { title: 'Milk', done: false },
@@ -62,11 +65,11 @@ async function freshFolder() {
 /** The context over a fresh folder, guarding the desktop window it runs in. */
 async function guarded() {
 	const folder = await freshFolder();
-	const context = createFolderContext(folder, { saveAfterMs: MINUTE });
+	const context = createFolderContext(folder);
 	cleanup.push(() => context.close());
 	desktop(true);
 	await context.guardWindowClose();
-	return { context, milk: context.edits.row('notes', 'milk') };
+	return { context, milk: folder.tables.notes.edit('milk') };
 }
 
 type Notes = FolderContext<{ notes: typeof notes }>;
@@ -77,12 +80,12 @@ async function storedTitle({ folder }: Notes) {
 }
 
 /** Type `title` into `milk` over the row as stored. */
-async function typeTitle({ folder, edits }: Notes, title: string) {
+async function typeTitle({ folder }: Notes, title: string) {
 	const row = expectOk(await folder.tables.notes.get('milk'));
 	if (row === undefined) throw new Error('milk is not stored');
-	expect(edits.row('notes', 'milk').change(row, { fields: { title } })).toBe(
-		true,
-	);
+	expect(
+		folder.tables.notes.edit('milk').change(row, { fields: { title } }),
+	).toBe(true);
 }
 
 /** Make every IndexedDB write fail the way a full disk does, until restored. */
@@ -110,13 +113,13 @@ async function until(check: () => boolean, what: string) {
 test('a close sends typing still waiting for its pause, then destroys the window', async () => {
 	const { context, milk } = await guarded();
 	await typeTitle(context, 'Oat milk');
-	expect(milk.held).toBe(true);
+	expect(milk.pending).toBeDefined();
 
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(nativeWindow.focused).toBe(0);
-	expect(milk.held).toBe(false);
+	expect(milk.pending).toBeUndefined();
 	expect(await storedTitle(context)).toBe('Oat milk');
 });
 
@@ -129,8 +132,7 @@ test('a failed save keeps the window and the typing; the next close saves and de
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
-	expect(milk.held).toBe(true);
-	expect(milk.error).toBeDefined();
+	expect(milk.pending?.error).toBeDefined();
 	expect(context.saveState).toBe('failed');
 	// The close fenced nothing: typing is still taken.
 	await typeTitle(context, 'Oat milk, two litres');
@@ -161,13 +163,11 @@ test('registered unsent input keeps the window until it is gone', async () => {
 	unregister();
 });
 
-test('a rejected app save keeps the window even if the app reports no held draft', async () => {
+test('a rejected app action keeps the window even with no held input', async () => {
 	const { context } = await guarded();
-	context.registerWork({
-		busy: false,
-		failed: false,
-		settle: () => Promise.reject(new Error('save interrupted')),
-	});
+	context
+		.run(() => Promise.reject(new Error('save interrupted')))
+		.catch(() => {});
 
 	await requestClose();
 
@@ -187,16 +187,18 @@ test('a refused focus still retains unfinished input and the close guard', async
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
-test('a file draft returned by settle keeps the window even if its owner reports no failure', async () => {
+test('whole text that does not save keeps the window with its text held', async () => {
 	const { context } = await guarded();
-	context.registerWork({
-		busy: false,
-		failed: false,
-		settle: async () => [{ path: 'notes/source.md', text: 'unsaved source' }],
-	});
+	const path = 'notes/source.md';
+	expectOk(await context.folder.files.write(path, null, 'saved'));
+	const read = expectOk(await context.folder.files.read(path));
+	const text = context.folder.files.edit(path);
+	text.change(await fileBytes(read!.content), 'unsaved source');
+	fillDisk();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
+	expect(text.pending).toMatchObject({ text: 'unsaved source' });
 });
 
 test('two close requests at once destroy the window once', async () => {
@@ -228,7 +230,7 @@ test('a failed destroy keeps the close guard for the next attempt', async () => 
 
 test('registration must finish before the guarded folder can be edited', async () => {
 	const folder = await freshFolder();
-	const context = createFolderContext(folder, { saveAfterMs: MINUTE });
+	const context = createFolderContext(folder);
 	cleanup.push(() => context.close());
 	desktop(true);
 	let release!: () => void;
@@ -276,12 +278,12 @@ test('input is inert while destruction is pending and restored if it fails', asy
 	expect(document.documentElement.inert).toBe(false);
 	expect(nativeWindow.listeners).toBe(1);
 	await typeTitle(context, 'Still editable');
-	expect(context.edits.row('notes', 'milk').held).toBe(true);
+	expect(context.folder.tables.notes.edit('milk').pending).toBeDefined();
 });
 
 test('a browser tab registers nothing, and closing the context stops listening', async () => {
 	const folder = await freshFolder();
-	const tab = createFolderContext(folder, { saveAfterMs: MINUTE });
+	const tab = createFolderContext(folder);
 	await tab.guardWindowClose();
 	expect(nativeWindow.listeners).toBe(0);
 	await tab.close();
@@ -300,8 +302,7 @@ test('<FolderApp> guards the window it opened its folder in', async () => {
 	const view = mount(FolderAppHost, {
 		target,
 		props: {
-			open: () => openFolder({ tables: { notes } }),
-			saveAfterMs: MINUTE,
+			open: () => openFolder({ tables: { notes }, saveAfterMs: MINUTE }),
 			onContext: (opened: FolderContext) => {
 				context = opened;
 			},

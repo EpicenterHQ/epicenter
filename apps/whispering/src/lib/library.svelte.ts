@@ -9,12 +9,13 @@
  * read are listed to edit; the rest are named, with why, for repair as text.
  *
  * Typing is never lost to a reread. A row's fields and body typed in a view
- * are the context's row drafts (`local.edits`); a file's whole text typed in
- * Source or Files is a text draft (`text-drafts.svelte.ts`). Each saves a
- * second after the last change, or when the view leaves it, as a change from
- * what it started from, and the folder merges it with whatever was saved
- * meanwhile (ADR-0632). A save that fails keeps what is typed and is
- * reported.
+ * go through the row's edit handle (`folder.tables.<table>.edit(stem)`); a
+ * file's whole text typed in Source or Files goes through its text edit
+ * handle (`folder.files.edit(path)`), and each of its failed saves is
+ * reported. The folder holds both: each saves a second after the last
+ * change, or when the view leaves it, as a change from what it started
+ * from, and the folder merges it with whatever was saved meanwhile
+ * (ADR-0632). A save that fails keeps what is typed and is reported.
  *
  * Every other action is tracked work closing waits for: a recording's row and
  * its length, a transcript or a result, create, rename, delete, and
@@ -31,13 +32,14 @@
 
 import { InstantString } from '@epicenter/definition';
 import type { Row } from '@epicenter/folder';
-import {
-	ancestors,
-	dirname,
-	joinPath,
-	type OpenedFile,
-} from '@epicenter/folder/file-browser';
+import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
+import type {
+	RowEdit,
+	RowEditChange,
+	RowPending,
+} from '@epicenter/folder/edits';
 import type { RecordingFolder } from '@epicenter/recorder';
+import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import {
@@ -89,7 +91,6 @@ import {
 } from './recipe.js';
 import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { createRuns } from './runs.svelte.js';
-import { createTextDrafts } from './text-drafts.svelte.js';
 import type { Workspace } from './workspace/index.js';
 
 export type Library = ReturnType<typeof createLibrary>;
@@ -122,6 +123,16 @@ export type ReadRow<T extends TableName> = Extract<
 	ListedRow<T>,
 	{ issues: null }
 >;
+/** What a view's row binding (`library.rowView`) offers a field or body edit. */
+export type RowView = {
+	readonly path: string;
+	readonly pending: RowPending | undefined;
+	change(change: RowEditChange): boolean;
+	save(): Promise<void>;
+};
+/** A view's binding of a file's exact text (`library.textView`). */
+export type TextView = ReturnType<typeof createTextEdit<Uint8Array | undefined>>;
+
 /** A listed row that reads, with its file. `stem` is its ID. */
 export type Entry<T extends TableName> = {
 	readonly stem: string;
@@ -285,7 +296,7 @@ export function createLibrary(
 	local: FolderContext<WhisperingTables>,
 ) {
 	const { folder } = workspace;
-	const { queryClient, edits } = local;
+	const { queryClient } = local;
 	const keys = whisperingKeys;
 	const { defineMutation } = createQueryFactories(queryClient);
 
@@ -364,9 +375,7 @@ export function createLibrary(
 		return paths === undefined ? undefined : listedFiles(paths);
 	}
 	const textData = (path: string) =>
-		queryClient.getQueryData<OpenedFile>(
-			local.queries.file(path, textRead).queryKey,
-		);
+		queryClient.getQueryData(local.queries.file(path, textRead).queryKey);
 
 	const recordingsOf = perListing((rows: ListedRow<'recordings'>[]) => {
 		const read = split(RECORDINGS, rows);
@@ -432,52 +441,77 @@ export function createLibrary(
 		return row?.issues === null ? (row as ReadRow<T>) : undefined;
 	}
 
-	/** Read again everything the folder shows. */
-	async function invalidate() {
+	/** Read again what the folder shows at `paths`, or everything. */
+	async function invalidate(paths?: readonly string[]) {
 		if (fenced) return;
-		await local.refresh();
+		await local.refresh(paths);
 	}
 
 	// --- drafts ----------------------------------------------------------------
 
-	const texts = createTextDrafts({
-		files: folder.files,
-		saved: async (path) => {
-			await local.refresh([path]);
-		},
-		failed: ({ path, text, error }) =>
-			notify({
-				kind: 'failed',
-				path,
-				error: error ?? { name: 'NotSaved', message: 'It did not save.' },
-				unsaved: text,
-				retry: () => {
-					if (fenced) return false;
-					void texts.save(path);
-					return true;
-				},
-				discard: () => texts.discard(path),
-			}),
-	});
-	// The folder context waits for the text drafts as it waits for row
-	// drafts: when it settles, when the window closes, and when it closes.
-	local.registerWork({
-		get busy() {
-			return texts.writing() || texts.failures.length > 0;
-		},
-		get failed() {
-			return texts.failures.length > 0;
-		},
-		settle: () => texts.settled(),
+	/**
+	 * The whole-text edit of `path` over the bytes the cache holds when it
+	 * opens as text, read reactively. The folder holds the text typed, saves
+	 * it, and sends it when it settles or closes.
+	 */
+	const textAt = (path: string) =>
+		createTextEdit(folder.files.edit(path), () => {
+			const opened = textData(path);
+			return opened?.kind === 'text' ? opened.bytes : undefined;
+		});
+	/** The text typed into `path` and not saved, read reactively. */
+	function heldText(path: string) {
+		const pending = textAt(path).pending;
+		return pending?.kind === 'text' ? pending : undefined;
+	}
+	/** Whether text typed into `path` is held and not failed: saving or about to. */
+	function writingText(path: string) {
+		const held = heldText(path);
+		return held !== undefined && (held.saving || held.error === undefined);
+	}
+
+	// Each save of a file's text that fails is told once, with the text to
+	// copy, a retry and a discard. Typing over failed text tells nothing new.
+	const savingText = new Set<string>();
+	const stopTelling = folder.files.edit('').subscribe((path) => {
+		if (path === undefined) return;
+		const pending = folder.files.edit(path).pending;
+		if (pending?.kind !== 'text') {
+			savingText.delete(path);
+			return;
+		}
+		if (pending.saving) {
+			savingText.add(path);
+			return;
+		}
+		if (!savingText.delete(path) || pending.error === undefined) return;
+		notify({
+			kind: 'failed',
+			path,
+			error: pending.error,
+			unsaved: pending.text,
+			retry: () => {
+				if (fenced) return false;
+				void folder.files.edit(path).save();
+				return true;
+			},
+			discard: () => {
+				const discarded = folder.files.edit(path).discard();
+				return discarded?.kind === 'text' ? discarded.text : undefined;
+			},
+		});
 	});
 
-	/** The row draft of `path`, if it is a row this window edits. */
-	function rowDraft(path: string) {
+	/** The edit handle of row `stem` of `table`. */
+	const rowEdit = (table: RowTable, stem: string): RowEdit =>
+		folder.tables[table].edit(stem) as RowEdit;
+	/** The typing of `path`, read reactively, if it is a row this window edits. */
+	function rowEditAt(path: string) {
 		const table = rowTableOf(path);
 		const stem = table === undefined ? undefined : rowIdOf(table, path);
 		return table === undefined || stem === undefined
 			? undefined
-			: edits.row(table, stem);
+			: createRowEdit(rowEdit(table, stem), () => undefined);
 	}
 
 	/** Row files the person chose to edit as their exact text. */
@@ -488,7 +522,7 @@ export function createLibrary(
 	 * Source, or one whose text does not read as a row.
 	 */
 	function showsText(path: string): boolean {
-		if (texts.held(path)) return true;
+		if (heldText(path) !== undefined) return true;
 		const table = rowTableOf(path);
 		if (table === undefined) return true;
 		if (asText.has(path)) return true;
@@ -497,18 +531,12 @@ export function createLibrary(
 		return row !== undefined && row.issues !== null;
 	}
 
-	/** The text of `path` as the cache holds it, when it opens as text. */
-	function shownText(path: string): string | undefined {
-		const opened = textData(path);
-		return opened?.kind === 'text' ? opened.text : undefined;
-	}
-
 	/** Send the typing held for `path`, row or text; answers whether some still did not save. */
 	async function settlePath(path: string): Promise<boolean> {
-		const draft = rowDraft(path);
-		if (draft !== undefined) await draft.save();
-		await texts.save(path);
-		return (draft?.held ?? false) || texts.held(path);
+		const edit = rowEditAt(path);
+		if (edit !== undefined) await edit.save();
+		await folder.files.edit(path).save();
+		return edit?.pending !== undefined || heldText(path) !== undefined;
 	}
 
 	/** After a rename: the caches and the selection follow the file. */
@@ -534,8 +562,9 @@ export function createLibrary(
 
 	/**
 	 * Run `work` as a mutation, so closing waits for it. `scope` names the
-	 * recording or file it is for; the folder is read again after it. Work
-	 * with no scope only reads.
+	 * recording or file it is for; work with no scope only reads. What it
+	 * saves reaches the views on the folder's change channel, so it ends
+	 * when its own work does, never after a reread.
 	 */
 	async function track<T>(work: () => Promise<T>, scope?: string): Promise<T> {
 		const ran = await hold(
@@ -543,7 +572,6 @@ export function createLibrary(
 				mutationKey:
 					scope === undefined ? keys.action('read') : keys.recording(scope),
 				mutationFn: async () => Ok(await work()),
-				onSettled: () => (scope === undefined ? undefined : invalidate()),
 			})(),
 		);
 		if (ran.error !== null) throw ran.error;
@@ -697,7 +725,7 @@ export function createLibrary(
 
 	const deletionContext = (): DeletionContext => ({
 		folder,
-		deleteRow: (table, id) => edits.delete(table, id),
+		deleteRow: (table, id) => folder.tables[table].edit(id).delete(),
 		settle: settlePath,
 		busy: (id) =>
 			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
@@ -709,16 +737,18 @@ export function createLibrary(
 		},
 	});
 
-	/** An action that does not start while closing; answers what the person is told. */
+	/**
+	 * An action that does not start while closing; answers what the person
+	 * is told. What it saves reaches the views on the folder's change
+	 * channel; closing waits for its work, never for a reread.
+	 */
 	function action<TArgs extends unknown[]>(
 		name: string,
 		work: (...args: TArgs) => Promise<string | undefined>,
-		onSettled: () => unknown = () => invalidate(),
 	) {
 		const mutation = defineMutation({
 			mutationKey: keys.action(name),
 			mutationFn: async (args: TArgs) => Ok(await work(...args)),
-			onSettled,
 		});
 		return async (...args: TArgs): Promise<string | undefined> => {
 			// Refused when asked; once accepted, it runs, and closing waits for it.
@@ -750,13 +780,26 @@ export function createLibrary(
 			connectionsError = undefined;
 			return undefined;
 		},
-		() => undefined,
+	);
+
+	/** Save a new recipe file `id`; it names no model of its own. */
+	const createTransformation = action(
+		'create-transformation',
+		async (id: string, { title, prompt }: { title: string; prompt: string }) => {
+			const { error } = await folder.tables.transformations.set(id, null, {
+				fields: { title, model: null },
+				body: prompt,
+			});
+			return error === null ? undefined : describeError(error);
+		},
 	);
 
 	/** Delete row `stem` of a result table as it is stored, after its typing saved. */
 	function deleteResult(table: typeof TRANSFORMATION_RUNS | typeof TEXT_RUNS) {
 		return async (entry: { readonly stem: string; readonly path: string }) => {
-			const { data, error } = await edits.delete(table, entry.stem);
+			const { data, error } = await folder.tables[table]
+				.edit(entry.stem)
+				.delete();
 			if (error !== null) return describeError(error);
 			if (!data.deleted) {
 				// Kept because it changed, or already gone, here or elsewhere.
@@ -841,8 +884,8 @@ export function createLibrary(
 			if (
 				read !== undefined &&
 				!read.paths.has(path) &&
-				!rowDraft(path)?.held &&
-				!texts.held(path)
+				rowEditAt(path)?.pending === undefined &&
+				heldText(path) === undefined
 			)
 				return undefined;
 			return {
@@ -863,8 +906,8 @@ export function createLibrary(
 			if (
 				read !== undefined &&
 				!read.paths.has(path) &&
-				!rowDraft(path)?.held &&
-				!texts.held(path)
+				rowEditAt(path)?.pending === undefined &&
+				heldText(path) === undefined
 			)
 				return undefined;
 			return {
@@ -882,16 +925,21 @@ export function createLibrary(
 		// ------------------------------------------------------------------
 
 		/**
-		 * The row of `table` at `path` as shown, read reactively: as the cache
-		 * holds it, with what is typed over it.
+		 * The row of `table` at `path` as one view shows and types into it:
+		 * `row`, read reactively, is the cache's row with own saves its read
+		 * may not show yet and what is typed over it; `change` and the field
+		 * edits of `fieldOf` and `setFields` name what this view last showed.
+		 * A view makes one for its file and keeps it.
 		 */
-		rowAt<T extends RowTable>(table: T, path: string): ReadRow<T> | undefined {
-			const stem = rowIdOf(table, path);
-			if (stem === undefined) return undefined;
-			trackQueries();
-			const row = rowOf(table, stem);
-			return row && edits.row(table, stem).shown(row);
+		rowView<T extends RowTable>(table: T, path: string) {
+			const stem = rowIdOf(table, path) ?? '';
+			return createRowEdit(rowEdit(table, stem), () => {
+				trackQueries();
+				return rowOf(table, stem);
+			});
 		},
+		/** The fields and body typed into the row file at `path` and not saved, read reactively. */
+		heldAt: (path: string) => rowEditAt(path)?.pending,
 		/**
 		 * The row of `table` at `path` as last read, whether or not it reads:
 		 * its exact source and, when it does not read, its issues.
@@ -905,24 +953,24 @@ export function createLibrary(
 			return listed(table)?.find((row) => row.id === stem);
 		},
 		/** The text typed into `path` that is not saved yet, read reactively. */
-		editedText: (path: string): string | undefined => texts.typed(path),
+		editedText: (path: string): string | undefined => heldText(path)?.text,
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText(path: string) {
 			return showsText(path);
 		},
 		/**
-		 * One field of the row at `stem` of `table`, as a view edits it: what
-		 * is typed over the value shown, sent with the row's draft.
+		 * One field of the row a view shows (`view`, from `rowView`), as that
+		 * view edits it: what is typed over the value shown, sent with the
+		 * row's input, over what the view last showed.
 		 */
 		fieldOf<T extends RowTable, K extends keyof FieldsOf[T] & string>(
-			table: T,
-			stem: string,
+			view: RowView,
 			name: K,
 		) {
 			type Value = FieldsOf[T][K];
-			const draft = () => edits.row(table, stem);
 			const typed = (): { value: Value } | undefined => {
-				const fields = draft().pending?.fields;
+				const fields: Record<string, unknown> | undefined =
+					view.pending?.fields;
 				return fields !== undefined && Object.hasOwn(fields, name)
 					? { value: fields[name] as Value }
 					: undefined;
@@ -939,65 +987,61 @@ export function createLibrary(
 				},
 				/** Type `value`; it saves after a pause. */
 				change(value: Value) {
-					const row = rowOf(table, stem);
-					if (row === undefined) return;
-					draft().change(row, { fields: { [name]: value } } as never);
+					view.change({ fields: { [name]: value } });
 				},
 				/** Save what is typed now. */
-				save: () => draft().save(),
+				save: () => view.save(),
 				get error() {
-					return draft().error;
+					return view.pending?.error;
 				},
 				get saving() {
-					return draft().saving;
+					return view.pending?.saving ?? false;
 				},
 			};
 		},
 		/** Whether the row file at `path` takes an edit now: not closing, renamed, or deleted. */
 		canEdit: (path: string) =>
-			!fenced && !busyPaths.has(path) && !(rowDraft(path)?.locked ?? false),
+			!fenced && !busyPaths.has(path) && !(rowEditAt(path)?.locked ?? false),
 		/**
-		 * Set fields of the row at `stem` at once, merged with whatever was
-		 * saved meanwhile. Refused, changing nothing, while closing, and while
-		 * a rename or delete of the file runs. Inputs commit only values the
-		 * schema accepts.
+		 * Set fields of the row a view shows at once, over what it last
+		 * showed, merged with whatever was saved meanwhile. Refused, changing
+		 * nothing, while closing, and while a rename or delete of the file
+		 * runs. Inputs commit only values the schema accepts.
 		 */
 		setFields<T extends RowTable>(
-			table: T,
-			stem: string,
+			view: RowView,
 			set: Partial<FieldsOf[T]>,
 		): void {
-			const row = rowOf(table, stem);
-			if (row === undefined) return;
-			const draft = edits.row(table, stem);
-			if (draft.change(row, { fields: set } as never)) void draft.save();
+			if (fenced || busyPaths.has(view.path)) return;
+			if (view.change({ fields: set })) void view.save();
 		},
 		/**
-		 * Type `body` as the body of the row at `stem`. The first change takes
-		 * the row the cache holds as the row the body started from; it saves a
-		 * second after the last change, or at once with `saveBody`, merged with
-		 * whatever changed since.
+		 * Type `body` as the body of the row a view shows, over what it last
+		 * showed; it saves a second after the last change, or at once with
+		 * `saveBody`, merged with whatever changed since.
 		 */
-		editBody<T extends RowTable>(table: T, stem: string, body: string): void {
-			const row = rowOf(table, stem);
-			if (row === undefined) return;
-			edits.row(table, stem).change(row, { body });
+		editBody(view: RowView, body: string): void {
+			if (fenced || busyPaths.has(view.path)) return;
+			view.change({ body });
 		},
 		/** Send what is typed into the row at `path` now, as leaving it does. */
-		saveBody: (path: string) => rowDraft(path)?.save() ?? Promise.resolve(),
+		saveBody: (path: string) => rowEditAt(path)?.save() ?? Promise.resolve(),
 		/**
-		 * Replace the text of `path`, over the text the edit started from; it
-		 * saves a second after the last change, or at once with `saveText`.
+		 * The exact text of `path` as one view shows and types it, over the
+		 * bytes `observed` answers, the view's own read of the file: held
+		 * text, else those bytes with own saves its read may not show yet.
+		 * Typing (`editText`) names what the view last showed and saves a
+		 * second after the last change, or at once with `saveText`.
 		 */
-		editText(path: string, text: string): void {
-			if (fenced || busyPaths.has(path)) return;
-			const from = shownText(path);
-			// The first change starts from the text shown; later ones keep theirs.
-			if (texts.typed(path) === undefined && from === undefined) return;
-			texts.change(path, from ?? '', text);
+		textView: (path: string, observed: () => Uint8Array | undefined) =>
+			createTextEdit(folder.files.edit(path), observed),
+		/** Type `text` as the whole text a view shows, over what it last showed. */
+		editText(view: TextView, text: string): void {
+			if (fenced || busyPaths.has(view.path)) return;
+			view.change(text);
 		},
 		/** Save the text typed into `path` now, as leaving it does; resolves once no save of it runs. */
-		saveText: (path: string) => texts.save(path),
+		saveText: (path: string) => folder.files.edit(path).save(),
 		/** Hear each save of a file's text that failed, which the person is told. */
 		onWriteNotice(listener: (notice: WriteNotice) => void): () => void {
 			noticeListeners.add(listener);
@@ -1005,18 +1049,16 @@ export function createLibrary(
 		},
 		/** Whether a save of `path` runs or waits, or typing there waits to be sent; read reactively. */
 		isSaving(path: string) {
-			if (busyPaths.has(path) || texts.writing(path)) return true;
-			const draft = rowDraft(path);
-			return (
-				draft !== undefined &&
-				(draft.saving || (draft.held && draft.error === undefined))
-			);
+			if (busyPaths.has(path) || writingText(path)) return true;
+			const held = rowEditAt(path)?.pending;
+			return held !== undefined && (held.saving || held.error === undefined);
 		},
 		/** Whether typing at `path` did not save, with no save running; read reactively. */
 		isUnsaved(path: string) {
-			if (texts.error(path) !== undefined && !texts.writing(path)) return true;
-			const draft = rowDraft(path);
-			return draft !== undefined && draft.error !== undefined && !draft.saving;
+			const text = heldText(path);
+			if (text?.error !== undefined && !text.saving) return true;
+			const held = rowEditAt(path)?.pending;
+			return held?.error !== undefined && !held.saving;
 		},
 		/** Save again what is typed into `path` and did not save: its fields, body, or text. */
 		retry: async (path: string) => {
@@ -1028,8 +1070,9 @@ export function createLibrary(
 		 * undefined when nothing was held or a save of it is running.
 		 */
 		discard(path: string): string | undefined {
-			const text = texts.discard(path);
-			const row = rowDraft(path)?.discard();
+			const discarded = folder.files.edit(path).discard();
+			const text = discarded?.kind === 'text' ? discarded.text : undefined;
+			const row = rowEditAt(path)?.discard();
 			if (row === undefined) return text;
 			const fields = Object.entries(row.fields).map(
 				([name, value]) => `${name}: ${JSON.stringify(value)}`,
@@ -1040,7 +1083,7 @@ export function createLibrary(
 		},
 		/** Whether a save runs, or typing waits to be sent; read reactively. */
 		get saving() {
-			return local.saveState === 'saving' || texts.writing();
+			return local.saveState === 'saving';
 		},
 		/** Whether typing did not save, here or in a file's text; read reactively. */
 		get unsaved() {
@@ -1063,7 +1106,7 @@ export function createLibrary(
 		locked: (path?: string) =>
 			path === undefined
 				? fenced
-				: fenced || busyPaths.has(path) || (rowDraft(path)?.locked ?? false),
+				: fenced || busyPaths.has(path) || (rowEditAt(path)?.locked ?? false),
 		/**
 		 * Edit a row file's whole text instead of its fields. What is typed into
 		 * its fields saves first, and its text is read then. Typing that did not
@@ -1073,10 +1116,10 @@ export function createLibrary(
 		async editSource(path: string): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
-			const draft = rowDraft(path);
-			if (draft !== undefined) {
-				await draft.save();
-				if (draft.held) return UNSAVED;
+			const edit = rowEditAt(path);
+			if (edit !== undefined) {
+				await edit.save();
+				if (edit.pending !== undefined) return UNSAVED;
 			}
 			await queryClient
 				.fetchQuery({ ...local.queries.file(path, textRead), staleTime: 0 })
@@ -1095,8 +1138,8 @@ export function createLibrary(
 			if (why !== undefined) return why;
 			const table = rowTableOf(path);
 			if (table === undefined) return undefined;
-			await texts.save(path);
-			if (texts.held(path)) return UNSAVED;
+			await folder.files.edit(path).save();
+			if (heldText(path) !== undefined) return UNSAVED;
 			await queryClient
 				.fetchQuery({ ...local.queries.rows(table), staleTime: 0 })
 				.catch(() => undefined);
@@ -1126,8 +1169,11 @@ export function createLibrary(
 		// Reads on request
 		// ------------------------------------------------------------------
 
-		/** Read the folder again, as after a read that failed. */
-		readAgain: () => invalidate(),
+		/**
+		 * Read the folder again at `paths`, or all of it, as after a read that
+		 * failed, or before a step that goes by what is listed now.
+		 */
+		readAgain: (paths?: readonly string[]) => invalidate(paths),
 		/**
 		 * First read after opening: the folder, then what this device has set
 		 * up. Nothing is created and nothing is sent.
@@ -1350,7 +1396,10 @@ export function createLibrary(
 			await startRows.get(id);
 			startRows.delete(id);
 			const path = rowPath(RECORDINGS, id);
-			const { error } = await track(() => edits.delete(RECORDINGS, id), path);
+			const { error } = await track(
+				() => folder.tables.recordings.edit(id).delete(),
+				path,
+			);
 			if (error !== null)
 				recorderError = `The recording was stopped, but its file was not deleted: ${describeError(error)}`;
 			else deleted(path);
@@ -1383,22 +1432,18 @@ export function createLibrary(
 		 * A new recipe file: a title and instructions. It names no model of its
 		 * own (`null`), so it runs with the text connection.
 		 */
-		createTransformation: action(
-			'create-transformation',
-			async ({ title, prompt }: { title: string; prompt: string }) => {
-				const id = recordingId(new Date());
-				const { error } = await folder.tables.transformations.set(id, null, {
-					fields: { title, model: null },
-					body: prompt,
-				});
-				if (error !== null) return describeError(error);
-				await queryClient
-					.fetchQuery({ ...local.queries.rows(TRANSFORMATIONS), staleTime: 0 })
-					.catch(() => undefined);
-				open(rowPath(TRANSFORMATIONS, id));
-				return undefined;
-			},
-		),
+		async createTransformation(input: { title: string; prompt: string }) {
+			const id = recordingId(new Date());
+			const path = rowPath(TRANSFORMATIONS, id);
+			const why = await createTransformation(id, input);
+			if (why !== undefined || fenced) return why;
+			// Listed before it opens, so the page never says it is gone. A read
+			// for this view, after the action: closing never waits for it, and
+			// it joins the read the save's change started.
+			await local.refresh([path]);
+			open(path);
+			return undefined;
+		},
 		deleteTransformationResult: action(
 			'delete-result',
 			deleteResult(TRANSFORMATION_RUNS),
@@ -1473,7 +1518,6 @@ export function createLibrary(
 			} finally {
 				busyPaths.delete(path);
 				busyPaths.delete(to);
-				void invalidate();
 			}
 		},
 		/** A new empty text file, shown; it is never made where a file is listed. */
@@ -1537,7 +1581,6 @@ export function createLibrary(
 				);
 			} finally {
 				for (const path of paths) busyPaths.delete(path);
-				void invalidate();
 			}
 		},
 		/**
@@ -1555,11 +1598,11 @@ export function createLibrary(
 			starting = undefined;
 			// Kept, never deleted: a recording is in the folder from its start.
 			await finishRecording();
-			await texts.close();
 			await Promise.allSettled([...pending]);
 			await input.saved();
 			for (const stop of stopObserving) stop();
 			stopListening();
+			stopTelling();
 			recordingsListed.clear();
 			noticeListeners.clear();
 			// Saves the row drafts, then closes the folder and clears the cache.

@@ -50,10 +50,15 @@ export function createBrowser() {
 	const indexedDB = new IDBFactory();
 	const opened: VocabFolder[] = [];
 	return {
-		/** Open Vocab's folder in this browser: a first visit, a reload, or another tab. */
-		async open(): Promise<VocabFolder> {
+		/**
+		 * Open Vocab's folder in this browser: a first visit, a reload, or
+		 * another tab. Typing saves `saveAfterMs` after the last keystroke.
+		 */
+		async open({ saveAfterMs = 20 } = {}): Promise<VocabFolder> {
 			globalThis.indexedDB = indexedDB;
-			const folder = expectOk(await openFolder({ tables: vocabTables }));
+			const folder = expectOk(
+				await openFolder({ tables: vocabTables, saveAfterMs }),
+			);
 			opened.push(folder);
 			return folder;
 		},

@@ -49,13 +49,8 @@ export function listingOf(rows: readonly RowOf<'chats'>[]): ChatListing {
 	};
 }
 
-export function createChats({
-	folder,
-	queries,
-	refresh,
-	edits,
-	run,
-}: VocabContext) {
+export function createChats(local: VocabContext) {
+	const { folder, queries, refresh, run } = local;
 	const rowsKey = queries.rows('chats').queryKey;
 	/** The last message save of each chat, which the next one waits for. */
 	const turns = new Map<string, Promise<unknown>>();
@@ -76,7 +71,7 @@ export function createChats({
 		 * its file; the tutor opening is requested only after that.
 		 */
 		start(focus: readonly FocusItem[]): Promise<Result<Chat, ChatHistoryError>> {
-			if (edits.fenced)
+			if (local.closing)
 				return Promise.resolve(ChatHistoryError.NotSaved({ cause: CLOSING }));
 			return run(async () => {
 				const started = await startChat(folder.tables.chats, focus);
@@ -92,7 +87,7 @@ export function createChats({
 		 */
 		messageWriter(chatId: string): MessageWrite {
 			return (_message, save) => {
-				if (edits.fenced)
+				if (local.closing)
 					return Promise.resolve(
 						AgentMessageStoreError.WriteFailed({ cause: CLOSING }),
 					);

@@ -10,7 +10,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { onDestroy, untrack } from 'svelte';
-	import type { CaptureForm, ThoughtEdit } from '$lib/capture-form.svelte.js';
+	import type { CaptureCommands, ThoughtEdit } from '$lib/capture-form.svelte.js';
 
 	let {
 		form,
@@ -19,7 +19,7 @@
 		onSaved,
 		onCancelled,
 	}: {
-		form: CaptureForm;
+		form: CaptureCommands;
 		/** Input is refused now: leaving, closing, or deleting. */
 		locked: boolean;
 		/** The edit open when this form was made. */

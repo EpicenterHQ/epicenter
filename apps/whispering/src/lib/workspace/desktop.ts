@@ -179,7 +179,9 @@ export async function openDesktopWorkspace({
 		},
 		preferences: localPreferences,
 		// Closing waits for the saves already under way.
-		close: () => folder.close(),
+		close: async () => {
+			await folder.close();
+		},
 	});
 }
 

@@ -1,9 +1,10 @@
 # @epicenter/svelte
 
 Svelte state around an opened `@epicenter/folder` handle. The Folder package
-owns files, row parsing, merging, storage, change reports, and local save
-status. This package owns the page's query cache, drafts, pending actions,
-recovery, and close sequence. It also has separate agent conversation and
+owns files, row parsing, merging, storage, change reports, local save
+status, and unsaved input (`@epicenter/folder/edits`). This package owns the
+page's query cache, Svelte tracking of that input, pending actions, recovery,
+and close sequence. It also has separate agent conversation and
 status UI helpers.
 
 ## Folder app root
@@ -54,7 +55,9 @@ initialization. It captures this opened context for its lifetime:
 
 The app supplies a zero-argument `open` callback. It can be inline, as above;
 creating the callback opens nothing. `FolderApp` calls it when mounted and
-again on retry, then owns saving and closing the returned folder. Each call
+again on retry, then connects the page to the returned folder's lifetime and
+closes it when the page goes away; the folder itself owns typed input and its
+saves. Each call
 must open a fresh handle. Updating the callback does not reopen an active
 folder; remount the component to choose another folder. The app root provides
 the opened context to its descendants. The setter stays in the app; no setter
@@ -66,10 +69,10 @@ origin's fixed IndexedDB folder. In a desktop window it opens the directory
 the shell bound to that window before the window existed; the page names no
 path. It never falls back to browser storage if a native open fails. Opening needs
 no account, remote, or network. The root shows a loading or refusal screen,
-sends drafts when the page hides, and closes after pending work settles. A
-pending draft or unsubmitted form prompts before a browser unload. In a
+sends held input when the page hides, and closes after pending work settles.
+Held input or an unsubmitted form prompts before a browser unload. In a
 desktop window, the editable page appears only after its close listener is
-installed. Closing that window sends drafts and waits for accepted local saves;
+installed. Closing that window sends held input and waits for accepted local saves;
 failed saves and unsubmitted forms keep it open and bring it forward, including
 when it is a background native tab. The native capability must grant
 `core:window:allow-set-focus` and `core:window:allow-destroy`. Application Quit remains
@@ -78,16 +81,17 @@ notice held by the app layout's toaster.
 
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
 initialization. The context contains `folder`, `queryClient`,
-`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `edits`, `status`, `saveState`, `busy`, `leaving`, `run`,
-`registerWork`, `registerUnsent`, `settled`, `guardWindowClose`, `refresh`, and
-`close`. Own saves report paths to the context's only change listener.
-`refresh([path])` refreshes every representation at that path, descendants when
-it names a directory, matching row tables, and whole-folder reads such as the
-listing and documents. `refresh()` refreshes everything; `refresh([])` does
-nothing. A save waits for older reads, then rereads without cancelling storage
-work, before releasing its draft. Affected unobserved file entries are forgotten
-so reopening a deleted or recreated file cannot show an old save base. Disabled
-observers remain attached.
+`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `status`, `failures`, `closing`, `saveState`, `busy`, `leaving`, `run`,
+`registerUnsent`, `settled`, `guardWindowClose`, `refresh`, and `close`.
+Every save, own or not, reaches the context through the folder's one change
+channel (`onChange`), which also names a save of this handle that changed
+nothing; the context marks the queries over the named paths stale. No save
+waits for a reread. `refresh([path])` refreshes every representation at that
+path, descendants when it names a directory, matching row tables, and
+whole-folder reads such as the listing and documents. `refresh()` refreshes
+everything; `refresh([])` does nothing. Affected unobserved file entries are
+forgotten so reopening a deleted or recreated file cannot show an old read.
+Disabled observers remain attached.
 
 Define each app-specific file representation once:
 
@@ -108,7 +112,10 @@ await context.refresh([path]);
 The factory generates the key and query function together. Representation names
 must be unique within a context: one name always identifies the same cached data
 shape and read policy. A representation can own `gcTime` and `structuralSharing`;
-view options such as `enabled` and `select` stay at the observer. The key carries
+view options such as `enabled` and `select` stay at the observer. Rows,
+documents, and file representations keep structural sharing off unless the
+representation turns it on, so a newer read reaches a view as new values and an
+edit handle can tell how old the value a view shows is. The key carries
 the decoded data type into `queryClient.getQueryData(options.queryKey)`. There is
 no reader registry or options cache. Query functions never change an existing
 file's bytes.
@@ -131,43 +138,58 @@ Query prefixes match array elements. The context separately handles filesystem
 descendants when refreshing paths. Apps neither build these keys nor subscribe
 to folder changes.
 
-`saveState` is `saved` only when no draft or action is pending and no failure
-is held. A failed row or app-owned draft is `failed`. A storage failure with
-no held draft is `recent-failure`. The app chooses the words shown to a
-person, such as "Saved on this device".
+`saveState` comes from `folder.status` alone: `saved` only when no input is
+held, no save runs, and no failure is held. Held input whose save failed is
+`failed`. A storage failure with nothing held is `recent-failure`. An app
+action that saves nothing yet, such as a request it waits for, counts in
+`busy` and `leaving` and keeps a window open, but is not `saving`. The app chooses the words shown
+to a person, such as "Saved on this device".
 
 ## Row and whole-file edits
 
-`edits.row(table, id)` holds a row's typed fields and body with the source it
-started from. `shown(row)` overlays the held draft on a fresh read. `change`
-schedules a save after a pause, and `save()` sends it now. Saves for one row
-run in order; the Folder merges a save with storage changes that landed
-meanwhile. A failed save keeps the draft and its error until a successful
-retry or an explicit discard. `edits.delete` waits for the row's save and
-refuses to discard a failed draft.
+The folder owns typed input from open to close (`folder.tables.<t>.edit(id)`,
+`folder.files.edit(path)`; the Folder README's "Unsaved input" states the
+rules, [ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
+`saveAfterMs` is an option of the app's `openFolder` call, not of this package.
+`@epicenter/svelte/edits` binds one handle to one view:
 
-`edits.text(path)` holds exact whole-file text. `change(from, text)`
-captures the source bytes or text the person edited; `save()` sends it now.
-A successful save calls `refresh([path])` before releasing its draft. Reads
-must not wait for saves, since a save waits for its refreshed reads.
+```ts
+import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
 
-Row patches and whole-file text share one draft, save queue, and deletion
-fence per path. A change cannot replace the other kind of pending input.
-Before switching representations, save the current input and check that it
-is no longer held. Failed input remains available for retry, copying, or
-explicit discard. `edits.failures` retains its row shape; `textFailures`
-reports the path, exact text, and error for whole-file failures.
-`edits.deleteFile(path)` drains either kind before conditionally deleting a
-file from its current bytes.
+const edit = $derived(createRowEdit(folder.tables.notes.edit(id), () => row));
+edit.row; // the row shown: `row` with held input and own saves over it
+edit.change({ fields: { done: true }, body: 'Two litres\n' });
 
-Use `context.run(action)` for started file actions. Apps with other pending
-work can still use `context.registerWork({ busy, failed, settle })`; text
-edits owned by `edits` need no registration. The context includes all edits
-and registered work in `saveState` and waits for them before closing the
-Folder handle. `close()` fences input, sends drafts, waits for accepted work,
-releases the change listener, and clears the cache. It returns copyable
-failures, including exact whole-file text, which `<FolderApp>` offers after
-unmount.
+const text = $derived(createTextEdit(folder.files.edit(path), () => bytes));
+text.text; // the text shown
+text.change(edited);
+text.changeFields({ title: 'x' });
+```
+
+`observed` is the value the view reads from its query: a row, or the file's
+bytes through `fileBytes` or `rowBytes`. A command names what that binding
+last displayed, so typing over older text merges into held input and a
+revert to older text saves. Each view makes its own binding, so two views of
+one path each keep what they showed; making one reads and holds nothing, and
+a view whose row or path changes makes a new one. `pending` reads held input,
+`locked` whether input is refused, and `save`, `discard`, `delete`, `retry`
+and `exclusive` call the handle. A command that composes a change from the
+row, such as an app's document form, reads `seen`: the row the next `change`
+names, which reading neither moves nor tracks. Whether that row is still
+current is a separate question; a command that needs it asks the folder's
+answer for the latest read (`rowEdit.shown(latestRow)`), which moves no view. A read of a binding re-runs when input at
+that path changes, through a subscription that lives while an effect reads
+it.
+
+Use `context.run(action)` for accepted app actions that may write after an
+await. The context counts them in `busy` and waits for them during close;
+their file writes determine `saveState`. `close()` refuses new actions and app input
+(`closing`), lets started actions finish, stops the change channel and
+cancels reads, then calls `folder.close()`, which fences input, sends it, and
+waits for saves. It answers copyable failures, which `<FolderApp>` offers
+after unmount: whole-file text exactly as typed, and field input as JSON with
+the values set (`set`), the names of the fields removed (`remove`), and a
+typed `body` (`unsavedText`), so a removal never reads as a value.
 
 The status UI helpers (`status-line`, `status-popover`, `status-row`) render
 app-owned status text. `write-failure` and `write-failure-toast` offer the

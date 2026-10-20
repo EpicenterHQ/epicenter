@@ -11,7 +11,6 @@
 	import { type getFolder, setFolder } from '$lib/folder.js';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
-	import { onDestroy } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import { createCaptures } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
@@ -41,15 +40,11 @@
 	beforeNavigate((navigation) => {
 		if (mustStay && navigation.willUnload) navigation.cancel();
 	});
-
-	// `<FolderApp>` sends the capture drafts when the page hides or goes
-	// away; text typed with Edit as text is this page's to send.
-	const sendTexts = () => void captures.texts.settle();
-	onDestroy(sendTexts);
+	// `<FolderApp>` sends what is typed, as fields or as text, when the page
+	// hides or goes away.
 </script>
 
 <svelte:window
-	onpagehide={sendTexts}
 	onbeforeunload={(event) => {
 		if (mustStay) event.preventDefault();
 	}}
@@ -63,11 +58,6 @@
 				description: 'Wait for saving to finish, and add or clear text you typed, then reload.',
 			});
 		}
-	}}
-/>
-<svelte:document
-	onvisibilitychange={() => {
-		if (document.visibilityState === 'hidden') sendTexts();
 	}}
 />
 

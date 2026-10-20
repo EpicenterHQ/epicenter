@@ -21,7 +21,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
-	import { rowIdOf, TRANSCRIPTIONS } from '$lib/definition.js';
+	import { TRANSCRIPTIONS } from '$lib/definition.js';
 	import { type Library, rowTableOf } from '$lib/library.svelte.js';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete, copyPath, lf, openItem } from './file-actions.js';
@@ -52,21 +52,32 @@
 	const table = $derived(rowTableOf(path));
 	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
 	const asText = $derived(!audio && library.showsText(path));
+	/**
+	 * This view's transcript row and its text: each shows the view's own read
+	 * with own saves and what is typed over it, and typing names what it last
+	 * showed.
+	 */
+	// svelte-ignore state_referenced_locally
+	const transcriptView = library.rowView(TRANSCRIPTIONS, own);
+	const opened = createQuery(() => ({ ...library.local.queries.file(path, textRead), enabled: asText }));
+	// svelte-ignore state_referenced_locally
+	const textView = library.textView(own, () =>
+		opened.data?.kind === 'text' ? opened.data.bytes : undefined,
+	);
 	/** A transcript that reads: its body is edited here, its fields kept. */
 	const transcript = $derived(
-		table === TRANSCRIPTIONS && !asText ? library.rowAt(TRANSCRIPTIONS, path) : undefined,
+		table === TRANSCRIPTIONS && !asText ? transcriptView.row : undefined,
 	);
-	const opened = createQuery(() => ({ ...library.local.queries.file(path, textRead), enabled: asText }));
-	/** The file's text as typed while an edit is unsaved, else as read. */
+	/** The file's text as typed while an edit is unsaved, else as read with own saves. */
 	const text = $derived(
-		library.editedText(path) ?? (opened.data?.kind === 'text' ? opened.data.text : undefined),
+		textView.pending !== undefined || opened.data?.kind === 'text' ? textView.text : undefined,
 	);
 	/** Why a row file, as last saved, is not a row yet. Typing saves after a pause, and this follows. */
 	const issues = $derived(
 		table === undefined || text === undefined ? undefined : (library.rowSource(table, path)?.issues ?? undefined),
 	);
 	const locked = $derived(library.locked(path));
-	const pending = $derived(table === undefined ? undefined : library.local.edits.row(table, rowIdOf(table, path) ?? path).pending);
+	const pending = $derived(library.heldAt(path));
 
 	async function show(source: boolean) {
 		const problem = source ? await library.editSource(path) : await library.useForm(path);
@@ -138,7 +149,6 @@
 			</dl>
 		</div>
 	{:else if transcript}
-		{@const stem = rowIdOf(TRANSCRIPTIONS, path) ?? ''}
 		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<p class="text-xs text-muted-foreground">
@@ -149,7 +159,7 @@
 				class="min-h-40 flex-1 resize-none font-sans"
 				bind:value={
 					() => transcript?.body ?? '',
-					(value) => library.editBody(TRANSCRIPTIONS, stem, value)
+					(value) => library.editBody(transcriptView, value)
 				}
 				onblur={() => void library.saveBody(path)}
 				disabled={locked}
@@ -184,7 +194,7 @@
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(text ?? ''), (value) => library.editText(path, withFileNewlines(value, text ?? ''))}
+				bind:value={() => lf(text ?? ''), (value) => library.editText(textView, withFileNewlines(value, text ?? ''))}
 				onblur={() => void library.saveText(path)}
 				disabled={locked}
 				aria-label="Contents of {name}"

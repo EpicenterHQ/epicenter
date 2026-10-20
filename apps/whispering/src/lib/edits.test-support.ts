@@ -10,7 +10,6 @@
  */
 import { textRead } from './file-reads.js';
 
-import type { OpenedFile } from '@epicenter/folder/file-browser';
 import {
 	type RecordingFields,
 	rowIdOf,
@@ -35,10 +34,12 @@ function rowEditor<T extends RowTable>(
 	path: string | undefined,
 ) {
 	if (path === undefined) throw new Error(`Expected a ${table} file to edit`);
-	const stem = rowIdOf(table, path);
-	if (stem === undefined) throw new Error(`${path} is not a ${table} row`);
+	if (rowIdOf(table, path) === undefined)
+		throw new Error(`${path} is not a ${table} row`);
+	// One view of the row, kept as a mounted view keeps it.
+	const view = library.rowView(table, path);
 	const shown = (): Shown<T> | undefined => {
-		const row = library.rowAt(table, path);
+		const row = view.row;
 		return row && { fields: row.fields as FieldsOf<T>, body: row.body };
 	};
 	return {
@@ -62,10 +63,9 @@ function rowEditor<T extends RowTable>(
 					JSON.stringify((before.fields as Record<string, unknown>)[name])
 				)
 					set[name] = value;
-			if (Object.keys(set).length > 0)
-				library.setFields(table, stem, set as never);
+			if (Object.keys(set).length > 0) library.setFields(view, set as never);
 			if (next.body !== before.body) {
-				library.editBody(table, stem, next.body);
+				library.editBody(view, next.body);
 				void library.saveBody(path);
 			}
 		},
@@ -86,17 +86,24 @@ export const transcriptEditor = (library: Library, path: string) =>
 
 /** The text of `path`, as a text view edits it; the file must be open as text. */
 export function textEditor(library: Library, path: string) {
+	const opened = () =>
+		library.local.queryClient.getQueryData(
+			library.local.queries.file(path, textRead).queryKey,
+		);
+	// One view of the text, over the read it observes, as a mounted view keeps it.
+	const view = library.textView(path, () => {
+		const read = opened();
+		return read?.kind === 'text' ? read.bytes : undefined;
+	});
 	return {
+		view,
 		get draft(): string {
-			const opened = library.queryClient.getQueryData<OpenedFile>(
-				library.local.queries.file(path, textRead).queryKey,
-			);
-			if (opened?.kind !== 'text')
-				throw new Error(`${path} is not open as text`);
-			return library.editedText(path) ?? opened.text;
+			const text = view.text;
+			if (text === undefined) throw new Error(`${path} is not open as text`);
+			return text;
 		},
 		input(text: string) {
-			library.editText(path, text);
+			library.editText(view, text);
 			void library.saveText(path);
 		},
 	};
@@ -107,8 +114,8 @@ export function textEditor(library: Library, path: string) {
  * view does while it is mounted, so it is read again when it goes stale.
  */
 export async function openText(library: Library, path: string) {
-	await library.queryClient.fetchQuery(library.local.queries.file(path, textRead));
-	new QueryObserver(library.queryClient, library.local.queries.file(path, textRead)).subscribe(
+	await library.local.queryClient.fetchQuery(library.local.queries.file(path, textRead));
+	new QueryObserver(library.local.queryClient, library.local.queries.file(path, textRead)).subscribe(
 		() => {},
 	);
 	return textEditor(library, path);

@@ -7,6 +7,137 @@ import type { QueryAnswer } from '../ui/bindings.gen';
 const { createViews, SQL } = await import('./views.svelte');
 const grid: SavedView = { type: 'grid', title: 'Tasks', table: 'tasks' };
 
+test.each(['save', 'remove'] as const)(
+	'%s releases source exclusion before refreshing the display',
+	async (operation) => {
+		let excluded = false;
+		let refreshedInsideExclusion: boolean | undefined;
+		const views = createViews({
+			saved: () => ({ a: grid }),
+			update: async () => Ok({ written: true }),
+			exclusive: async (action) => {
+				excluded = true;
+				try {
+					return await action();
+				} finally {
+					excluded = false;
+				}
+			},
+			refreshed: async () => {
+				refreshedInsideExclusion = excluded;
+			},
+		});
+		await views[operation]('saved:a');
+		expect(refreshedInsideExclusion).toBe(false);
+	},
+);
+
+test('a committed deletion stays successful when its display refresh fails', async () => {
+	const disk: Record<string, SavedView> = { a: grid };
+	const views = createViews({
+		saved: () => disk,
+		exclusive: (action) => action(),
+		update: async ({ key }) => {
+			delete disk[key];
+			return Ok({ written: true });
+		},
+		refreshed: async () => {
+			throw new Error('cannot reread');
+		},
+	});
+	expect(await views.remove('saved:a')).toBe(true);
+	expect(disk.a).toBeUndefined();
+	expect(views.value('saved:a')).toBeUndefined();
+	expect(views.failed).toBe(false);
+});
+
+test.each(['second save', 'reload'] as const)(
+	'acknowledgement survives %s during a display refresh',
+	async (next) => {
+		const disk: Record<string, SavedView> = { a: grid };
+		const refreshes: (() => void)[] = [];
+		const views = createViews({
+			saved: () => disk,
+			exclusive: (action) => action(),
+			update: async ({ key, value }) => {
+				disk[key] = value!;
+				return Ok({ written: true });
+			},
+			refreshed: () => new Promise<void>((resolve) => refreshes.push(resolve)),
+		});
+		views.edit('saved:a', { ...grid, title: 'Mine' });
+		const first = views.save('saved:a');
+		await Bun.sleep(0);
+		const second = next === 'second save' ? views.save('saved:a') : undefined;
+		if (next === 'reload') views.reload('saved:a');
+		await Bun.sleep(0);
+		for (const finish of refreshes) finish();
+		expect(await first).toBe('saved:a');
+		if (second) expect(await second).toBe('saved:a');
+		expect(views.value('saved:a')?.title).toBe('Mine');
+		expect(views.failed).toBe(false);
+	},
+);
+
+test('pending publication blocks Reload while continued typing follows its copy', async () => {
+	const disk: Record<string, SavedView> = { a: grid };
+	const refresh = Promise.withResolvers<void>();
+	const views = createViews({
+		saved: () => disk,
+		exclusive: (action) => action(),
+		update: async ({ key, value }) => {
+			disk[key] = value!;
+			return Ok({ written: true });
+		},
+		refreshed: () => refresh.promise,
+	});
+	views.edit('saved:a', { ...grid, title: 'The copy' });
+	const copying = views.save('saved:a', true);
+	await Bun.sleep(0);
+	views.reload('saved:a');
+	views.edit('saved:a', { ...grid, title: 'New original edits' });
+	refresh.resolve();
+	const target = await copying;
+	expect(target).not.toBe('saved:a');
+	expect(views.value('saved:a')?.title).toBe(grid.title);
+	expect(views.value(target)?.title).toBe('New original edits');
+	expect(views.dirty(target)).toBe(true);
+	const copy = Object.entries(disk).find(([key]) => key !== 'a')!;
+	expect(copy[1].title).toBe('The copy');
+});
+
+test.each([false, true])(
+	'copy acknowledgement preserves independent target input, source continues: %s',
+	async (continued) => {
+		const disk: Record<string, SavedView> = { a: grid };
+		const refresh = Promise.withResolvers<void>();
+		let target = '';
+		const views = createViews({
+			saved: () => disk,
+			exclusive: (action) => action(),
+			update: async ({ key, value }) => {
+				target = `saved:${key}`;
+				disk[key] = value!;
+				return Ok({ written: true });
+			},
+			refreshed: () => refresh.promise,
+		});
+		const copying = views.save('saved:a', true);
+		await Bun.sleep(0);
+		views.edit(target, { ...grid, title: 'Independent target edit' });
+		if (continued)
+			views.edit('saved:a', { ...grid, title: 'Independent source edit' });
+		refresh.resolve();
+		await copying;
+		expect(views.value(target)?.title).toBe('Independent target edit');
+		expect(views.dirty(target)).toBe(true);
+		expect(views.value('saved:a')?.title).toBe(
+			continued ? 'Independent source edit' : grid.title,
+		);
+		if (continued) expect(views.dirty('saved:a')).toBe(true);
+	},
+);
+
 test('clean views follow file edits; dirty settings retain their captured base across save and refresh', async () => {
 	const disk: Record<string, SavedView> = { a: grid };
 	let finish!: () => void;

@@ -27,6 +27,7 @@ import {
 import { QueryObserver } from '@tanstack/query-core';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { RowOf, VocabFolder } from '../data.js';
+import type { VocabContext } from '../vocab.svelte.js';
 import {
 	createBrowser,
 	fileText,
@@ -84,12 +85,16 @@ async function transcript(
 		.sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/** The chat list over `folder`, with `tables` in place of its own, in a context of its own. */
+/** The one context each folder handle takes, as one page holds one. */
+const contexts = new WeakMap<VocabFolder, VocabContext>();
+
+/** The chat list over `folder`, with `tables` in place of its own, in the folder's one context. */
 function chatsOver(
 	folder: VocabFolder,
 	tables: Partial<VocabFolder['tables']> = {},
 ) {
-	const context = createFolderContext(folder);
+	const context = contexts.get(folder) ?? createFolderContext(folder);
+	contexts.set(folder, context);
 	const chats = createChats({
 		...context,
 		folder: { ...folder, tables: { ...folder.tables, ...tables } },

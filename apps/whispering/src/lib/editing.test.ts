@@ -3,8 +3,8 @@
  *
  * Drives the real library, its local folder context, and its cache against a
  * real directory opened as the native `Folder`, with a fixture capture
- * device and stubbed endpoints. A gate in front of the folder can hold or
- * fail the saves of a Markdown file, as a slow or refusing disk would. Views
+ * device and stubbed endpoints. A gate on the disk below the folder can hold
+ * or fail the writes of a Markdown file, as a slow or refusing disk would. Views
  * are stood in for as they behave: a changed field or body is the row's
  * draft, and a changed text is a text draft, each saved as a change from
  * what it started from (ADR-0632).
@@ -33,8 +33,6 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { FolderTable, SaveError } from '@epicenter/folder';
-import { Err } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { describeDeletion } from './deletion.js';
 import {
@@ -46,12 +44,10 @@ import {
 import { readBytes } from './files.js';
 import type { Library } from './library.svelte.js';
 import { openTestLibrary } from './library.test-support.js';
-import type { WhisperingFolder } from './workspace/types.js';
 import {
-	openTestFolder,
+	openGatedTestFolder,
 	openTestWorkspace,
 	whisperingDirectory,
-	withTables,
 } from './workspace.test-support.js';
 
 const opened: { library: Library; remove: () => Promise<void> }[] = [];
@@ -64,12 +60,13 @@ afterEach(async () => {
 });
 
 /**
- * `folder` behind a gate on every save of a Markdown file, through a table
- * or through `files`: `hold` keeps the next one waiting until released,
- * `fail` refuses the saves of one path before they reach the disk, and
- * `mdWrites` counts the saves that went through.
+ * The native folder over `root`, behind a gate on the disk's every write or
+ * removal of a Markdown file, whichever caller saves it, the folder's edit
+ * owner included: `hold` keeps the next one waiting until released,
+ * `failing` refuses the writes of one path before they reach the disk, and
+ * `mdWrites` counts the writes that went through.
  */
-function gated(folder: WhisperingFolder) {
+function gated(root: string) {
 	const control = {
 		mdWrites: 0,
 		hold: undefined as
@@ -78,17 +75,11 @@ function gated(folder: WhisperingFolder) {
 		failing: undefined as string | undefined,
 		failOnce: false,
 	};
-	let inflight = 0;
-	/** Why the save of `path` is refused here, after any hold. */
-	async function gate(path: string): Promise<SaveError | undefined> {
+	const folder = openGatedTestFolder(root, async (path) => {
 		if (!path.endsWith('.md')) return undefined;
 		if (control.failing === path) {
 			if (control.failOnce) control.failing = undefined;
-			return {
-				name: 'StorageFailed',
-				message: 'Repository save failed: the disk refused it',
-				cause: new Error('the disk refused it'),
-			};
+			return new Error('the disk refused it');
 		}
 		const hold = control.hold;
 		if (hold !== undefined) {
@@ -98,61 +89,14 @@ function gated(folder: WhisperingFolder) {
 		}
 		control.mdWrites++;
 		return undefined;
-	}
-	async function through<T>(
-		path: string,
-		save: () => Promise<T>,
-	): Promise<T | ReturnType<typeof Err<SaveError>>> {
-		inflight++;
-		try {
-			const refused = await gate(path);
-			if (refused !== undefined) return Err(refused);
-			return await save();
-		} finally {
-			inflight--;
-		}
-	}
-	const tables = Object.fromEntries(
-		Object.entries(folder.tables as Record<string, FolderTable>).map(
-			([name, table]) => [
-				name,
-				{
-					...table,
-					set: (id, from, change) =>
-						through(`${name}/${id}.md`, () => table.set(id, from, change)),
-					delete: (id, from) =>
-						through(`${name}/${id}.md`, () => table.delete(id, from)),
-				} satisfies FolderTable,
-			],
-		),
-	) as unknown as WhisperingFolder['tables'];
-	const files: WhisperingFolder['files'] = {
-		...folder.files,
-		write: (path, from, content) =>
-			through(path, () => folder.files.write(path, from, content)) as never,
-		delete: (path, from) =>
-			through(path, () => folder.files.delete(path, from)) as never,
-	};
-	const wrapped = withTables(folder, tables, files);
-	return {
-		folder: {
-			...wrapped,
-			// A save held at the gate is a save running.
-			get status() {
-				return {
-					...folder.status,
-					saving: folder.status.saving || inflight > 0,
-				};
-			},
-		} satisfies WhisperingFolder,
-		control,
-	};
+	});
+	return { folder, control };
 }
 
 /** The library over a fresh directory, behind a gate on Markdown saves. */
 async function open() {
 	const root = await whisperingDirectory('whispering-editing-');
-	const { folder, control } = gated(await openTestFolder(root));
+	const { folder, control } = gated(root);
 	const fixture = await openTestWorkspace({ folder });
 	const library = await openTestLibrary(fixture.workspace);
 	opened.push({
@@ -383,7 +327,7 @@ test('Discard lets go of typing that did not save, hands it back, and leaves the
 	});
 	await settle(library);
 	expect(library.isUnsaved(editor.path)).toBe(true);
-	expect(library.local.edits.failures).toHaveLength(1);
+	expect(library.local.failures).toHaveLength(1);
 
 	expect(library.discard(editor.path)).toBe('Mine.\n');
 

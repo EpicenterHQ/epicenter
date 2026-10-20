@@ -2,8 +2,9 @@
  * Shared folder refresh over real files and active TanStack observers.
  * External writes arrive through polling without notifications. Hidden pages
  * do no periodic reads; returning and mounting cached queries read again.
- * Slow reads, successful saves and failed drafts retain typed input, and
- * closing stops polling even while a consumer remains subscribed.
+ * A save never waits for a read, and a slow scan shows the save over the
+ * older rows until a read after it arrives. Closing stops polling even while
+ * a consumer remains subscribed.
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -44,8 +45,10 @@ async function setup() {
 	const directory = await mkdtemp(join(tmpdir(), 'folder-refresh-'));
 	await mkdir(join(directory, 'notes'));
 	await writeFile(join(directory, 'notes/milk.md'), initial);
-	const folder = expectOk(await openFolder({ directory, tables }));
-	const context = createFolderContext(folder, { saveAfterMs: 60_000 });
+	const folder = expectOk(
+		await openFolder({ directory, tables, saveAfterMs: 60_000 }),
+	);
+	const context = createFolderContext(folder);
 	cleanup.push(async () => {
 		await context.close();
 		await rm(directory, { recursive: true, force: true });
@@ -68,19 +71,20 @@ async function setup() {
 }
 
 test('visible polling discovers outside edits and preserves a pending row draft', async () => {
-	const { directory, context, cached } = await setup();
-	const editor = context.edits.row('notes', 'milk');
-	editor.change(cached(), { fields: { title: 'Typed here' } });
+	const { directory, folder, cached } = await setup();
+	const edit = folder.tables.notes.edit('milk');
+	edit.change(cached(), { fields: { title: 'Typed here' } });
 	await writeFile(
 		join(directory, 'notes/milk.md'),
 		initial.replace('two', 'Outside edit'),
 	);
 	await until(() => cached().body.includes('Outside edit'));
-	expect(editor.held).toBe(true);
-	expect(editor.shown(cached()).fields.title).toBe('Typed here');
-	await editor.save();
-	expect(editor.held).toBe(false);
-	expect(cached().fields.title).toBe('Typed here');
+	expect(edit.pending).toBeDefined();
+	expect(edit.shown(cached()).row.fields.title).toBe('Typed here');
+	await edit.save();
+	expect(edit.pending).toBeUndefined();
+	expect(edit.shown(cached()).row.fields.title).toBe('Typed here');
+	await until(() => cached().fields.title === 'Typed here');
 	expect(cached().body).toContain('Outside edit');
 });
 
@@ -140,8 +144,8 @@ test('a known path refresh leaves unrelated file queries alone', async () => {
 	expect(reads).toEqual({ a: 2, b: 1 });
 });
 
-test('a save waits for a post-commit read instead of releasing its draft over an old poll', async () => {
-	const { folder, context, cached, reads } = await setup();
+test('a save lands without waiting for a slow scan, which shows it over the older rows until a read after it', async () => {
+	const { folder, cached, reads } = await setup();
 	const gate = Promise.withResolvers<void>();
 	const list = folder.tables.notes.list;
 	let held = false,
@@ -163,18 +167,20 @@ test('a save waits for a post-commit read instead of releasing its draft over an
 	};
 	cleanup.push(() => gate.resolve());
 	await until(() => held);
-	const editor = context.edits.row('notes', 'milk');
-	editor.change(cached(), { fields: { title: 'Saved while reading' } });
-	const saving = editor.save();
-	await until(() => folder.status.saving === false);
+	const edit = folder.tables.notes.edit('milk');
+	const before = cached();
+	edit.change(before, { fields: { title: 'Saved while reading' } });
+	await edit.save();
+	expect(edit.pending).toBeUndefined();
+	expect(folder.status.saving).toBe(false);
+	expect(before.fields.title).toBe('Milk');
+	expect(edit.shown(before).row.fields.title).toBe('Saved while reading');
 	// A second polling tick must join the slow scan, not replace it.
 	await Bun.sleep(2_200);
-	expect(editor.held).toBe(true);
 	expect(maximum).toBe(1);
 	gate.resolve();
-	await saving;
-	expect(editor.held).toBe(false);
-	expect(cached().fields.title).toBe('Saved while reading');
+	await until(() => cached().fields.title === 'Saved while reading');
+	expect(edit.shown(cached()).row.fields.title).toBe('Saved while reading');
 	expect(maximum).toBe(1);
 	expect(reads()).toBeLessThanOrEqual(3);
 }, 10_000);

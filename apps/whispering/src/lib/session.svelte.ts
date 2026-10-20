@@ -69,9 +69,8 @@ async function failOpening(
 export async function createSession(
 	workspace: Workspace,
 	released?: AbortSignal,
-	{ saveAfterMs }: { saveAfterMs?: number } = {},
 ) {
-	const local = createFolderContext(workspace.folder, { saveAfterMs });
+	const local = createFolderContext(workspace.folder);
 	const library = createLibrary(workspace, local);
 	try {
 		await library.start();

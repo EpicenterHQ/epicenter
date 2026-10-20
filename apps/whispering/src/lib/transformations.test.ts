@@ -51,13 +51,14 @@ import {
 } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
 import { createTestLibrary, headerLine } from './library.test-support.js';
+import { quiet } from './query.test-support.js';
 import { TransformationError } from './transformation.js';
 import {
 	deferred,
 	eventually,
 	openTestWorkspace,
 	type TestWorkspaceOptions,
-	withTables,
+	replaceTables,
 } from './workspace.test-support.js';
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -86,8 +87,10 @@ const names = (root: string, directory: string) =>
 async function transcribed(library: Library, root: string) {
 	await library.startRecording();
 	await library.stopRecording();
+	await quiet(library);
 	const recording = library.entries[0]!;
 	await library.transcribe(recording);
+	await quiet(library);
 	const transcript = library.resultsFor(recording.stem)[0]!;
 	const transcriptBytes = await readFile(join(root, transcript.path));
 	return {
@@ -235,6 +238,7 @@ test('applying a transformation writes a new result row and leaves the transcrip
 	const profile = library.transformations[0]!;
 
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
+	await quiet(library);
 
 	// Prepared for the text connection; the recipe's own model is used.
 	expect(transformed).toEqual([
@@ -332,6 +336,7 @@ test('a transcript edited outside is sent as the folder has it now, and is not r
 	).toBe('um so a steady tone\n');
 
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
+	await quiet(library);
 
 	expect(transformed).toHaveLength(1);
 	expect(transformed[0]!.input).toBe('A steady tone, corrected by hand.\n');
@@ -444,8 +449,12 @@ test('a transcript whose save failed keeps the edit, and a run saves it before i
 // Deleting a recording while work for it runs
 // ============================================================================
 
-/** The state of the newest result made from `transcriptionId`. */
-function newestResult(library: Library, transcriptionId: string) {
+/**
+ * The state of the newest result made from `transcriptionId`, once the
+ * reads its row's saves started have landed.
+ */
+async function newestResult(library: Library, transcriptionId: string) {
+	await quiet(library);
 	const output = library.outputsFor(transcriptionId)[0]!;
 	return {
 		output,
@@ -470,7 +479,7 @@ test('a recording cannot be deleted while a transformation of it runs, including
 
 	const running = library.transform(transcript.path, editor.path);
 	await started.promise;
-	expect(newestResult(library, transcript.stem).state.kind).toBe('running');
+	expect((await newestResult(library, transcript.stem)).state.kind).toBe('running');
 
 	// Asking now refuses, and so does the deletion already confirmed.
 	const { error: refusal } = await library.deletionFor(recording.path);
@@ -506,7 +515,7 @@ test('a failed run does not block deletion, and its row goes with the recording'
 	const { recording, transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
 	await library.transform(transcript.path, editor.path);
-	const { output, state } = newestResult(library, transcript.stem);
+	const { output, state } = await newestResult(library, transcript.stem);
 	expect(state.kind).toBe('failed');
 
 	const deletion = expectOk(await library.deletionFor(recording.path));
@@ -601,7 +610,7 @@ test('a run’s row is in the folder from its start with every field and no body
 	const running = library.transform(transcript.path, editor.path);
 	await started.promise;
 
-	const { output, state } = newestResult(library, transcript.stem);
+	const { output, state } = await newestResult(library, transcript.stem);
 	expect(state.kind).toBe('running');
 	expect(output.row.body).toBe('');
 	expect(output.row.fields).toMatchObject({
@@ -616,7 +625,7 @@ test('a run’s row is in the folder from its start with every field and no body
 	await running;
 
 	expect(library.recipeRuns).toEqual([]);
-	expect(newestResult(library, transcript.stem).state.kind).toBe('answered');
+	expect((await newestResult(library, transcript.stem)).state.kind).toBe('answered');
 	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe('done\n');
 });
 
@@ -640,7 +649,7 @@ test('a refused request leaves its row unfinished; running it again sends the sa
 
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
 
-	const { output, state } = newestResult(library, transcript.stem);
+	const { output, state } = await newestResult(library, transcript.stem);
 	expect(state).toEqual({
 		kind: 'failed',
 		message: 'The endpoint answered 429: slow down',
@@ -650,12 +659,13 @@ test('a refused request leaves its row unfinished; running it again sends the sa
 
 	// A transport that throws is a failure too, never a run left running.
 	expect(await library.runAgain(output.path)).toBeUndefined();
-	expect(newestResult(library, transcript.stem).state).toMatchObject({
+	expect((await newestResult(library, transcript.stem)).state).toMatchObject({
 		kind: 'failed',
 		message: expect.stringContaining('the folder host went away'),
 	});
 
 	expect(await library.runAgain(output.path)).toBeUndefined();
+	await quiet(library);
 
 	expect(transformed).toHaveLength(3);
 	expect(transformed[2]).toEqual(transformed[0]!);
@@ -676,7 +686,7 @@ test('running again sends what the row holds, not what the transcript holds now'
 	const { transcript, transcriptText } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
 	await library.transform(transcript.path, editor.path);
-	const { output } = newestResult(library, transcript.stem);
+	const { output } = await newestResult(library, transcript.stem);
 	refuse = false;
 	await writeFile(
 		join(root, transcript.path),
@@ -684,6 +694,7 @@ test('running again sends what the row holds, not what the transcript holds now'
 	);
 
 	expect(await library.runAgain(output.path)).toBeUndefined();
+	await quiet(library);
 
 	expect(transformed.map((request) => request.input)).toEqual([
 		'um so a steady tone\n',
@@ -703,7 +714,7 @@ test('an answer whose write fails is written again while the page lives', async 
 
 	await library.transform(transcript.path, editor.path);
 
-	expect(newestResult(library, transcript.stem).state).toMatchObject({
+	expect((await newestResult(library, transcript.stem)).state).toMatchObject({
 		kind: 'writing',
 		text: 'Transformed: um so a steady tone',
 		message: expect.stringContaining('disk refused the result'),
@@ -733,7 +744,7 @@ test('an answer for a row someone filled meanwhile stands after their text, and 
 
 	const first = library.transform(transcript.path, editor.path);
 	await eventually(() => transformed.length === 1);
-	const { output } = newestResult(library, transcript.stem);
+	const { output } = await newestResult(library, transcript.stem);
 	const path = join(root, output.path);
 	await writeFile(
 		path,
@@ -775,7 +786,7 @@ async function fillRace(typed: string) {
 	const editor = await cleanupProfile(library);
 	const running = library.transform(transcript.path, editor.path);
 	await eventually(() => transformed.length === 1);
-	const { output } = newestResult(library, transcript.stem);
+	const { output } = await newestResult(library, transcript.stem);
 	const path = join(root, output.path);
 	const table = workspace.folder.tables.transformation_runs;
 	const get = table.get;
@@ -839,7 +850,7 @@ async function openHoldingReads(
 	const table = tables[held];
 	const library = await createTestLibrary({
 		...test.workspace,
-		folder: withTables(test.workspace.folder, {
+		folder: replaceTables(test.workspace.folder, {
 			[held]: {
 				...table,
 				async get(stem: string) {
@@ -920,7 +931,7 @@ test('a failed run run again twice at once is sent once more, not twice', async 
 	const { transcript } = await transcribed(library, root);
 	const cleanup = await cleanupProfile(library);
 	await library.transform(transcript.path, cleanup.path);
-	const { output, state } = newestResult(library, transcript.stem);
+	const { output, state } = await newestResult(library, transcript.stem);
 	expect(state.kind).toBe('failed');
 	const reading = deferred<void>();
 	reads.hold = reading.promise;
@@ -939,6 +950,7 @@ test('a failed run run again twice at once is sent once more, not twice', async 
 	expect(answers).toContain('This is already running.');
 	expect(transformed).toHaveLength(2);
 	expect(await names(root, RUNS)).toEqual([`${output.stem}.md`]);
+	await quiet(library);
 	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe(
 		'after the host came back\n',
 	);

@@ -7,7 +7,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import { CopyButton } from '@epicenter/ui/copy-button';
-	import type { Unsaved } from '@epicenter/svelte/edits';
+	import type { RowPending } from '@epicenter/folder/edits';
 	import { type Entry, type FocusItem, rowPath, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { type Entries, repairsOf, wordsOf } from '$lib/entries.svelte.js';
@@ -41,7 +41,7 @@
 			: entries.failures.filter((draft) => !words.some((entry) => entry.id === draft.id)),
 	);
 	/** What was typed and not saved, to copy. */
-	const unsavedText = (draft: Unsaved) =>
+	const unsavedText = (draft: RowPending) =>
 		Object.entries(draft.fields).map(([field, value]) => `${field}: ${String(value)}`).join('\n');
 	const selectedFocus = $derived(focusIds.map((id) => words.find((entry) => entry.id === id)).filter((entry): entry is Entry => !!entry));
 	const shown = $derived(words.filter((entry) =>
@@ -133,14 +133,15 @@
 			<!-- Typing that did not save for a word no longer listed as one: kept to copy until the learner lets it go. -->
 			<section class="space-y-3 rounded-lg border border-destructive/50 p-3 text-xs" aria-label="Unsaved changes">
 				{#each orphaned as draft (draft.id)}
-					{@const held = entries.draftOf(draft.id)}
+					{@const held = entries.edit(draft.id, () => undefined)}
+					{@const saving = held.pending?.saving ?? false}
 					<div class="space-y-1" role="alert">
 						<p>A change to <code>{rowPath('entries', draft.id)}</code> was not saved, and the file is no longer a word here.{draft.error ? ` ${describeFailure(draft.error)}` : ''}</p>
 						<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{unsavedText(draft)}</pre>
 						<div class="flex gap-1">
-							<Button size="xs" variant="outline" disabled={held.saving} onclick={() => void held.save()}>Save again</Button>
+							<Button size="xs" variant="outline" disabled={saving} onclick={() => void held.save()}>Save again</Button>
 							<CopyButton size="xs" variant="ghost" text={unsavedText(draft)}>Copy</CopyButton>
-							<Button size="xs" variant="ghost-destructive" disabled={held.saving} onclick={() => held.discard()}>Discard</Button>
+							<Button size="xs" variant="ghost-destructive" disabled={saving} onclick={() => held.discard()}>Discard</Button>
 						</div>
 					</div>
 				{/each}

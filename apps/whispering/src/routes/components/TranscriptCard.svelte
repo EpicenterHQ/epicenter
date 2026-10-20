@@ -38,7 +38,10 @@
 
 	/** Edited here unless the person opened its file as text in Files. */
 	const asText = $derived(library.showsText(result.path));
-	const row = $derived(asText ? undefined : library.rowAt(TRANSCRIPTIONS, result.path));
+	/** This card's transcript row: its own read with own saves and typing over it; typing names what it last showed. */
+	// svelte-ignore state_referenced_locally
+	const rowView = library.rowView(TRANSCRIPTIONS, own);
+	const row = $derived(asText ? undefined : rowView.row);
 	/** The text now: as typed while an edit is unsaved, else as the file holds it. */
 	const text = $derived(row?.body ?? result.row.body);
 	const locked = $derived(library.locked(result.path));
@@ -77,7 +80,7 @@
 			class="min-h-32 resize-y font-sans"
 			bind:value={
 				() => row?.body ?? '',
-				(value) => library.editBody(TRANSCRIPTIONS, result.stem, value)
+				(value) => library.editBody(rowView, value)
 			}
 			onblur={() => void library.saveBody(result.path)}
 			disabled={locked}

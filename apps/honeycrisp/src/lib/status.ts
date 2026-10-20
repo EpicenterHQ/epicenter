@@ -9,7 +9,7 @@
 import type { ReadError, SaveError } from '@epicenter/folder';
 import type { SaveState } from '@epicenter/svelte/folder';
 import type { StatusLine } from '@epicenter/svelte/status-line';
-import type { ActionError } from '@epicenter/svelte/write-failure';
+import type { ActionError } from '@epicenter/folder/edits';
 import { extractErrorMessage } from 'wellcrafted/error';
 
 /** What a person is told about a save, read, or delete that failed. */

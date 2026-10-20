@@ -20,6 +20,8 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { rowBytes } from '@epicenter/folder';
+	import { createTextEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, untrack } from 'svelte';
 	import { type Captures, capturePath, describeFailure } from '$lib/captures.svelte.js';
@@ -38,16 +40,17 @@
 	// The view is keyed by the capture, so its path never changes for this view.
 	const path = untrack(() => capturePath(stem));
 	const entry = createQuery(() => captures.rowsQuery((rows) => rows.find((found) => found.id === stem)));
-	/** The file's text draft: what is typed and not saved yet. */
-	const draft = untrack(() => captures.texts.text(path));
 	const unreadable = $derived(entry.data?.issues?.some((issue) => issue.kind === 'not-text') ?? false);
-	/** The file's source as saved, when it is text. */
-	const source = $derived(entry.data === undefined || unreadable ? undefined : entry.data.text);
-	const typed = $derived(draft.typed);
-	const text = $derived(typed ?? source);
-	const locked = $derived(captures.isLocked(stem));
-	// The draft saves after a pause, and outlives the view; send it now.
-	onDestroy(() => void draft.save());
+	/** The file's exact bytes as saved, when it is text: the source typing names. */
+	const source = $derived(entry.data === undefined || unreadable ? undefined : rowBytes(entry.data));
+	/** What is typed over the file's source and not saved yet. */
+	const edit = untrack(() => createTextEdit(captures.folder.files.edit(path), () => source));
+	const pending = $derived(edit.pending);
+	const typed = $derived(pending?.kind === 'text' ? pending.text : undefined);
+	const text = $derived(edit.text);
+	const locked = $derived(edit.locked);
+	// The text saves after a pause, and outlives the view; send it now.
+	onDestroy(() => void edit.save());
 
 	/** Why the saved file is not a capture yet: each with its line when it has one. */
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
@@ -72,7 +75,7 @@
 			title: 'Discard your edit?',
 			description: `Copy anything you need first. ${path} keeps what was last saved.`,
 			confirm: { text: 'Discard edit', variant: 'destructive' },
-			onConfirm: () => void draft.discard(),
+			onConfirm: () => void edit.discard(),
 		});
 	}
 </script>
@@ -95,15 +98,15 @@
 
 	{#if text !== undefined}
 		<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-			{typed === undefined ? `Saved to ${path}` : draft.error && !draft.saving ? 'Not saved' : 'Saving…'}
+			{typed === undefined ? `Saved to ${path}` : pending?.error && !pending.saving ? 'Not saved' : 'Saving…'}
 		</p>
 
-		{#if draft.error && !draft.saving}
+		{#if pending?.error && !pending.saving}
 			<Alert.Root variant="destructive" aria-label="Not saved">
 				<Alert.Title>Your edit is not saved</Alert.Title>
-				<Alert.Description>{describeFailure(draft.error)} Your edit is still here.</Alert.Description>
+				<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
 				<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-					<Button size="sm" variant="outline" onclick={() => void draft.save()}>Save again</Button>
+					<Button size="sm" variant="outline" onclick={() => void edit.save()}>Save again</Button>
 					<Button size="sm" variant="outline" onclick={() => copy(typed, 'Your text')}>Copy your text</Button>
 					<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 				</div>
@@ -135,10 +138,10 @@
 				() => (text ?? '').replace(/\r\n?/g, '\n'),
 				(typing) => {
 					// The first change starts from the source shown; later ones keep theirs.
-					if (text !== undefined) draft.change(source ?? text, withFileNewlines(typing.toWellFormed(), text));
+					if (text !== undefined) edit.change(withFileNewlines(typing.toWellFormed(), text));
 				}
 			}
-			onblur={() => void draft.save()}
+			onblur={() => void edit.save()}
 		/>
 	{:else if unreadable}
 		<Empty.Root role="alert">

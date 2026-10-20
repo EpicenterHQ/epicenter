@@ -121,6 +121,6 @@
 	{:else if kind === 'epicenter'}
 		<p class="text-muted-foreground">Sends to your Epicenter account with this app's sign-in, under Account above.</p>
 	{/if}
-	<div><Button type="submit" disabled={adding || local.edits.fenced}>Add</Button></div>
+	<div><Button type="submit" disabled={adding || local.closing}>Add</Button></div>
 	{#if problem}<p role="alert" class="text-destructive">{problem}</p>{/if}
 </form>

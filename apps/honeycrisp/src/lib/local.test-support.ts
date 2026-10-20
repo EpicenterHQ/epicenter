@@ -30,15 +30,17 @@ const decoder = new TextDecoder();
  */
 export async function openNotes({ saveAfterMs = 60_000 } = {}) {
 	globalThis.indexedDB = new IDBFactory();
-	const folder = expectOk(await openFolder({ tables: honeycrispTables }));
+	const folder = expectOk(
+		await openFolder({ tables: honeycrispTables, saveAfterMs }),
+	);
 	/** This handle's committed saves, by path. */
 	const saved: string[] = [];
 	folder.onChange((change) => {
 		if (change.origin === 'this-handle') saved.push(...(change.paths ?? []));
 	});
-	const local = createFolderContext(folder, { saveAfterMs });
+	const local = createFolderContext(folder);
 	const notes = createNotes(local);
-	const others: { close(): Promise<void> }[] = [];
+	const others: { close(): Promise<unknown> }[] = [];
 	const stops: (() => void)[] = [];
 	const put = IDBObjectStore.prototype.put;
 

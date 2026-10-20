@@ -1,6 +1,6 @@
 <!--
 	A word file that is not a valid word, open as its exact text. What is
-	typed goes into the repair's text draft, written a second after the last
+	typed is held by the file's text edit handle, written a second after the last
 	keystroke, when the learner leaves the text, when the page is hidden, and
 	when the card goes away. The problems shown are the saved text's, read
 	again after each write. Once the saved text is a valid word, "Show note
@@ -24,7 +24,7 @@
 	const { repair } = entries;
 	const row = createQuery(() => entries.entriesQuery((rows: EntryRows) => rows.find((candidate) => candidate.id === id)));
 	const notText = $derived(row.data?.issues?.some((issue) => issue.kind === 'not-text') ?? false);
-	// The draft outlives the card; send what is typed now.
+	// The text outlives the card; send what is typed now.
 	onDestroy(() => void repair.save());
 </script>
 
@@ -37,6 +37,7 @@
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
 	{#if row.data && !notText}
 		{@const stored = row.data}
+		{@const text = repair.view(stored)}
 		<p>
 			<code>{path}</code>
 			{stored.issues === null ? 'now reads as a word.' : 'is not a valid word, so its note and stage cannot be shown.'}
@@ -45,7 +46,7 @@
 		<Textarea
 			class="min-h-32 font-mono text-xs"
 			aria-label="File text for {path}"
-			bind:value={() => repair.shown(stored.text), (next) => repair.change(stored.text, next)}
+			bind:value={() => text?.text ?? stored.text, (next) => text?.change(next)}
 			onblur={() => void repair.save()}
 		/>
 		{#if repair.error && !repair.saving}

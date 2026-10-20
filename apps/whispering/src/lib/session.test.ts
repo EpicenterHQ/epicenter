@@ -27,7 +27,7 @@ import {
 	eventually,
 	openTestWorkspace,
 	type TestWorkspaceOptions,
-	withTables,
+	replaceTables,
 } from './workspace.test-support.js';
 
 const { mountSession, openSession } = await import('./session.svelte.ts');
@@ -55,7 +55,7 @@ const UNLOAD = { willUnload: true };
 test('a session opens the folder once and releases it once', async () => {
 	const { session, library, test } = await open();
 	expect(test.opens).toBe(1);
-	// The first read happened: the device's connections were read, and nothing was written.
+	// The first read happened: the device connections were read, and nothing was written.
 	expect(library.connections?.transcription?.model).toBe('verification-model');
 
 	await session.close();
@@ -102,7 +102,7 @@ test('a session whose first read fails releases the folder it opened', async () 
 	const lost = new Error('the folder host went away');
 	const unreadable: Workspace = {
 		...test.workspace,
-		folder: withTables(
+		folder: replaceTables(
 			folder,
 			{},
 			{
@@ -171,18 +171,20 @@ async function starting() {
 		await gate.promise;
 		if (fail !== undefined) throw fail;
 	};
+	const { files } = folder;
 	const workspace: Workspace = {
 		...test.workspace,
-		folder: {
-			...folder,
-			files: {
-				...folder.files,
+		folder: replaceTables(
+			folder,
+			{},
+			{
+				...files,
 				list: async () => {
 					await held();
-					return folder.files.list();
+					return files.list();
 				},
 			},
-		},
+		),
 	};
 	return {
 		test,
@@ -262,18 +264,20 @@ test('a layout released while its workspace is still opening closes that workspa
 	cleanups.push(test.remove);
 	let reads = 0;
 	const { folder } = test.workspace;
+	const { files } = folder;
 	const counted: Workspace = {
 		...test.workspace,
-		folder: {
-			...folder,
-			files: {
-				...folder.files,
+		folder: replaceTables(
+			folder,
+			{},
+			{
+				...files,
 				list: () => {
 					reads += 1;
-					return folder.files.list();
+					return files.list();
 				},
 			},
-		},
+		),
 	};
 	const opened = deferred<void>();
 	const mounted = mountSession(async () => {

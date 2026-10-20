@@ -36,10 +36,13 @@ them without Git or `epicenter.json`.
 ## Svelte app root
 
 `<FolderApp>` calls the app's opener when the route mounts and closes the handle after
-pending work settles. It provides the handle, one TanStack Query cache, row
-drafts, local save status, and change invalidation to its children through
-`getFolder()`. A failed save keeps its draft. A page may register its own text
-drafts and file actions with the context so close waits for them too.
+pending work settles. It provides the handle, one TanStack Query cache, local
+save status, and change invalidation to its children through `getFolder()`.
+The folder handle itself holds typed input from open to close
+(`folder.tables.<t>.edit(id)`, `folder.files.edit(path)`; see
+[ADR-0656](../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)),
+and a failed save keeps it. A page counts its file actions with
+`context.run` so close waits for them too.
 
 ```svelte
 <script lang="ts">
@@ -71,10 +74,11 @@ edit another folder, the shell opens another window. Neither a browser page
 nor an app chooses a native path, and no URL carries one. A refused open
 shows the refusal; the app does not open different storage as a fallback.
 
-Folder methods return the current source with every row. A view keeps the
-source it edited as its save base. The shared folder context owns query keys
-and the one `onChange` listener that refreshes affected paths. The view reports "Saved on this device" only after the storage save succeeds and
-no draft remains. Account, inference, and future Git exchange have separate
+Folder methods return the current source with every row. A view binds its own
+edit handle (`createRowEdit`, `createTextEdit`) and types over what it showed.
+The shared folder context owns query keys and the one `onChange` listener that
+refreshes affected paths. The view reports "Saved on this device" only after
+the storage save succeeds and no input is held. Account, inference, and future Git exchange have separate
 lifetimes. They do not gate local opening or saving.
 
 The root `bun dev:<app>` scripts start each app's required development

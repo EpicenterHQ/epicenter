@@ -20,24 +20,17 @@ export const headerLine = (library: Library) =>
 /** A library over `workspace`, not yet started. */
 export async function createTestLibrary(
 	workspace: Workspace,
-	{ saveAfterMs }: { saveAfterMs?: number } = {},
 ): Promise<Library> {
 	const [{ createFolderContext }, { createLibrary }] = await Promise.all([
 		import('@epicenter/svelte/folder'),
 		import('./library.svelte.js'),
 	]);
-	return createLibrary(
-		workspace,
-		createFolderContext(workspace.folder, { saveAfterMs }),
-	);
+	return createLibrary(workspace, createFolderContext(workspace.folder));
 }
 
 /** A library over `workspace`, started: the folder read once. */
-export async function openTestLibrary(
-	workspace: Workspace,
-	options: { saveAfterMs?: number } = {},
-): Promise<Library> {
-	const library = await createTestLibrary(workspace, options);
+export async function openTestLibrary(workspace: Workspace): Promise<Library> {
+	const library = await createTestLibrary(workspace);
 	await library.start();
 	return library;
 }

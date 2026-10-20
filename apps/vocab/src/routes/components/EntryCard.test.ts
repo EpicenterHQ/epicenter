@@ -25,8 +25,6 @@
 import { createBrowser } from '../../lib/folder.test-support.js';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import type { SaveError } from '@epicenter/folder';
-import { Err } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	blur,
@@ -59,8 +57,8 @@ async function until(done: () => boolean, what: string) {
 /** One card for `text`, given its word from the cache whenever the cache changes. */
 async function setup(text: string, { saveAfterMs = 60 } = {}) {
 	const browser = createBrowser();
-	const folder = await browser.open();
-	const opened = await openVocab(folder, { saveAfterMs });
+	const folder = await browser.open({ saveAfterMs });
+	const opened = await openVocab(folder);
 	const { vocab } = opened;
 	expectOk(await vocab.entries.add(text));
 	const props = cardProps(vocab.entries, cached(vocab, text));
@@ -93,18 +91,14 @@ async function setup(text: string, { saveAfterMs = 60 } = {}) {
 		unmount: () => void unmount(card),
 		/** The word's fields as its file holds them, or `undefined` when it is gone. */
 		saved: async () => expectOk(await folder.tables.entries.get(id))?.fields,
-		/** Every save of a word fails until `restore` is called. */
+		/** Every save fails, as a full browser store answers, until `restore` is called. */
 		failSaves() {
-			const table = folder.tables.entries;
-			const set = table.set;
-			table.set = async () =>
-				Err({
-					name: 'StorageFailed',
-					message: 'Repository save failed: storage refused',
-					cause: new Error('storage refused'),
-				} as SaveError);
+			const put = IDBObjectStore.prototype.put;
+			IDBObjectStore.prototype.put = () => {
+				throw new DOMException('storage refused', 'QuotaExceededError');
+			};
 			return () => {
-				table.set = set;
+				IDBObjectStore.prototype.put = put;
 			};
 		},
 		async [Symbol.asyncDispose]() {
@@ -118,6 +112,10 @@ async function setup(text: string, { saveAfterMs = 60 } = {}) {
 	};
 }
 
+/** What the folder holds typed into `lucid` and not saved yet. */
+const held = ({ folder, vocab }: Awaited<ReturnType<typeof setup>>) =>
+	folder.tables.entries.edit(cached(vocab, 'lucid').id).pending;
+
 test('the note is editable at once, and saved after a pause in typing', async () => {
 	await using context = await setup('lucid');
 	const note = context.note();
@@ -127,7 +125,7 @@ test('the note is editable at once, and saved after a pause in typing', async ()
 	await quiet(context.vocab);
 	expect((await context.saved())?.note).toBe('');
 	await until(
-		() => !context.vocab.entries.draftOf(cached(context.vocab, 'lucid').id).held,
+		() => held(context) === undefined,
 		'the pause to end',
 	);
 	await quiet(context.vocab);
@@ -166,7 +164,7 @@ test('a stage press is saved at once, and keeps a note typed meanwhile', async (
 	click(context.target, 'Understand');
 	await quiet(context.vocab);
 	await until(
-		() => !context.vocab.entries.draftOf(cached(context.vocab, 'lucid').id).held,
+		() => held(context) === undefined,
 		'the stage to save',
 	);
 	expect(await context.saved()).toMatchObject({

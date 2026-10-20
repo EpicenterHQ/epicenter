@@ -19,14 +19,11 @@ const { createVocab } = await import('./vocab.svelte.js');
 const { wordsOf } = await import('./entries.svelte.js');
 
 /**
- * Vocab over `folder`, with its screens observing, read once. `saveAfterMs`
- * is how long a note waits after the last keystroke.
+ * Vocab over `folder`, with its screens observing, read once. The folder's
+ * open options say how long a note waits after the last keystroke.
  */
-export async function openVocab(
-	folder: VocabFolder,
-	{ saveAfterMs = 20 }: { saveAfterMs?: number } = {},
-) {
-	const context = createFolderContext(folder, { saveAfterMs });
+export async function openVocab(folder: VocabFolder) {
+	const context = createFolderContext(folder);
 	const vocab = createVocab(context);
 	const stop = observe(vocab);
 	await quiet(vocab);

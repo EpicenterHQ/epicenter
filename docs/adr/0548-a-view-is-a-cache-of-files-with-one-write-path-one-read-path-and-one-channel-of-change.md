@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
+- **Amended by:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md) (Proposed): the folder holds typed input from open to close, so no page draft or app queue holds it; one write path, one read path and one channel of change remain.
 - **Amended by:** [ADR-0654](0654-visible-folder-queries-refresh-without-native-watchers.md): visible queries discover outside edits through bounded polling; native file watchers and the wake clock are removed. The built inventory below records the earlier implementation.
 - **Amended by:** [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md): a field edit sets fields on the file as it is now, as an `UPDATE` does; only document editors keep a starting version.
 - **Amended by:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md): every write to a file, and Sync's settling, goes through one merge by the file's kind; taking a side of a text unit keeps the other side's lines that did not compete.

@@ -22,7 +22,7 @@
 	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
 
 	const saved = $derived.by(() => {
-		const line = saveLine(context.saveState, context.edits.failures, context.status.storageFailure);
+		const line = saveLine(context.saveState, context.failures, context.status.storageFailure);
 		return pendingNewTodo && line.tone === 'good'
 			? { label: 'Todo not added', tone: 'warning' as const }
 			: line;

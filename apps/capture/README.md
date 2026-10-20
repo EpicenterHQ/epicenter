@@ -63,11 +63,12 @@ are not text are listed apart and not opened.
 
 ## Editing
 
-- A capture's text and thoughts are its document, so an edit is the row's
-  draft in the local folder's edit layer (`edits.row`): the row it started
-  from, taken at your first change, and the body you typed. What the page
-  reads from the folder never replaces it; another tab's change shows once
-  your edit is saved. A thought you add, edit, delete, or move is saved at
+- A capture's text and thoughts are its document, so an edit is the body
+  you typed, held by the folder through the row's edit handle
+  (`folder.tables.captures.edit(stem)`) over the row the view showed. What
+  the page reads from the folder never replaces it, and a failed reread never
+  shows the capture older than your last save; another writer's lines merge
+  in when your edit saves. A thought you add, edit, delete, or move is saved at
   once. The capture text is saved a second after you stop typing, when you
   leave the text box, and when you open something else. Saves of one
   capture run one at a time, and what you typed while one ran goes in the
@@ -134,14 +135,17 @@ Nothing persists text not added across a reload you confirm.
 
 `<FolderApp>` (from `@epicenter/svelte/folder-app`) opens the
 folder, shows one loading screen and one refusal screen, provides the
-folder's context, sends the edits held when the page is hidden, and closes
-the folder when the page goes away: the edit layer refuses input, sends
-every draft once, and waits for the saves, then the folder closes.
+folder's context, sends the input held when the page is hidden, and closes
+the folder when the page goes away: the context refuses app input, lets
+started actions finish, then the folder closes, which sends what is held
+once and waits for the saves.
 
-The edit layer drafts a row's fields and body. Edit as text changes the
-whole file, so its drafts are Capture's own (`src/lib/text-drafts.ts`),
-saved through the folder's files. The context's close does not know them,
-so `CaptureApp` sends them when the page hides and when it goes away.
+The folder holds everything typed, from open to close: a capture's fields
+and body through the row's edit handle (`folder.tables.captures.edit(stem)`),
+and Edit as text's whole file through the file's
+(`folder.files.edit(path)`). Each view binds its own handle
+(`createRowEdit`, `createTextEdit` from `@epicenter/svelte/edits`), so a
+command types over what that view showed.
 
 `hostAppViteConfig` (from `@epicenter/vite-config`) points the bare
 `@epicenter/folder` specifier at one entry per build, so each build emits
@@ -159,9 +163,8 @@ actions remain absent.
 | Path | Role |
 | --- | --- |
 | `src/routes/+page.svelte` | `<FolderApp>` over `captureTables`, with `CaptureApp` inside it. The Folder opener uses IndexedDB. |
-| `src/lib/captures.svelte.ts` | The store over the context `getFolder()` answers: the timeline from the rows query, each capture's form (`formOf`), the text drafts (`texts`), create, delete, which capture is open, and what the header says about saving. |
-| `src/lib/capture-form.svelte.ts` | One capture's edit over its row draft (`edits.row`), its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
-| `src/lib/text-drafts.ts` | Edit as text: whole-file drafts saved through the folder's files, one save at a time. |
+| `src/lib/captures.svelte.ts` | The store over the context `getFolder()` answers: the timeline from the rows query, each capture's form (`formOf`), create, delete, which capture is open, and what the header says about saving. |
+| `src/lib/capture-form.svelte.ts` | One capture's form over its row's edit handle, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body; `form.in(view)` gives one view's commands over its own binding. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
 | `src/lib/components/` | `CaptureApp.svelte` builds the store and shows the timeline or the open capture under the save status; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
 

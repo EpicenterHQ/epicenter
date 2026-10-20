@@ -30,6 +30,7 @@ import {
 const { flushSync, mount, tick, unmount } = await import('svelte');
 const { openCaptures, until } = await import('../local-folder.test-support.js');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
+const { createRowEdit } = await import('@epicenter/svelte/edits');
 
 // A desktop-width window: `min-width` queries match, so the UI kit's modal
 // renders as a dialog.
@@ -123,9 +124,16 @@ test('a capture whose save failed is named, with why, and opens from there', asy
 	const t = await setup({
 		'captures/one.md': '---\ncapturedAt: 2026-10-04T20:49:23Z\n---\n\nText\n',
 	});
-	t.failNextRowSave();
-	t.captures.formOf('one').inputText('Edited');
-	await t.captures.formOf('one').flush();
+	const restore = t.failSaves();
+	// Typed in a view of the capture, as its detail types.
+	const view = createRowEdit(t.folder.tables.captures.edit('one'), () => {
+		const row = t.cached('one');
+		return row?.issues === null ? row : undefined;
+	});
+	const form = t.captures.formOf('one').in(view);
+	form.inputText('Edited');
+	await form.flush();
+	restore();
 	flushSync();
 
 	const notice = document.querySelector('[aria-label="Not saved"]');

@@ -1,4 +1,5 @@
 /** The exact source a whole-file editor reads and uses as its save base. */
+import { fileBytes } from '@epicenter/folder';
 import { openedFile, type OpenedFile } from '@epicenter/folder/file-browser';
 import { defineFileRead } from '@epicenter/svelte/folder-queries';
 
@@ -14,7 +15,8 @@ export const textRead = defineFileRead(
 		const read = await files.read(path);
 		if (read.error !== null) throw read.error;
 		if (read.data === undefined) return { kind: 'missing' };
-		const bytes = new Uint8Array(await read.data.content.arrayBuffer());
+		// The bytes keep the read they came from, so own saves show over them.
+		const bytes = await fileBytes(read.data.content);
 		return { bytes, ...openedFile(bytes) };
 	},
 );

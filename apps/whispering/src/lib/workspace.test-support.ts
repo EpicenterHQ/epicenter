@@ -19,8 +19,11 @@ import { dirname, join } from 'node:path';
 import type { FolderTable } from '@epicenter/folder';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
+import { FileError } from '../../../../packages/folder/src/errors.js';
 // The Bun directory opener is not a public entry yet; tests reach it here.
 import { openBunFolder } from '../../../../packages/folder/src/native/bun.js';
+import { createNativeFolder } from '../../../../packages/folder/src/native/engine.js';
+import { nativeStorage } from '../../../../packages/folder/src/native/storage.js';
 import { createFixtureDevice, toneWav } from './capture.js';
 import {
 	applyConnectionChange,
@@ -137,6 +140,33 @@ export async function openTestFolder(root: string): Promise<WhisperingFolder> {
 }
 
 /**
+ * The directory at `root`, a resolved path such as `whisperingDirectory`
+ * answers, opened as the native folder over its real storage, with every
+ * write of a file's bytes, or removal, first passing `gate`, as a slow or
+ * refusing disk would. `gate` answers why the disk refuses, or nothing.
+ * Below the handle, so a save the folder's edit owner sends meets it too.
+ */
+export function openGatedTestFolder(
+	root: string,
+	gate: (path: string) => Promise<unknown>,
+): WhisperingFolder {
+	const storage = nativeStorage(root);
+	return createNativeFolder({
+		storage: {
+			...storage,
+			async put(path, bytes, ifMatch) {
+				const refused = await gate(path);
+				if (refused !== undefined)
+					return FileError.Io({ path, operation: 'write', cause: refused });
+				return storage.put(path, bytes, ifMatch);
+			},
+		},
+		tables: whisperingTables,
+		directory: `bun:${root}`,
+	});
+}
+
+/**
  * A table whose next new rows find an empty directory where the row's file
  * goes, as many times as `failures.creates` says. Nothing is answered on the
  * folder's behalf: the folder refuses the obstructed save itself, as it
@@ -209,25 +239,19 @@ export function withResultFailures<TTable extends FolderTable>(
 }
 
 /**
- * `folder` with some tables, and its files, replaced. Its status is read
- * through, never copied, so the wrapper reports every save as the folder
- * does.
+ * Replace some of `folder`'s tables, and its files, in place, and answer the
+ * same handle. The app's own calls meet the replacements. The folder's edit
+ * owner keeps saving through the handle's storage, so a refusal it should
+ * meet belongs below the handle (`openGatedTestFolder`).
  */
-export function withTables(
+export function replaceTables(
 	folder: WhisperingFolder,
 	tables: Partial<WhisperingFolder['tables']>,
 	files: WhisperingFolder['files'] = folder.files,
 ): WhisperingFolder {
-	return {
-		files,
-		tables: { ...folder.tables, ...tables },
-		onChange: (listener) => folder.onChange(listener),
-		get status() {
-			return folder.status;
-		},
-		onStatusChange: (listener) => folder.onStatusChange(listener),
-		close: () => folder.close(),
-	};
+	Object.assign(folder.tables, tables);
+	Object.assign(folder, { files });
+	return folder;
 }
 
 export async function openTestWorkspace({
@@ -253,7 +277,7 @@ export async function openTestWorkspace({
 
 	const workspace: Workspace = {
 		kind: 'native',
-		folder: withTables(folder, {
+		folder: replaceTables(folder, {
 			transcriptions: withResultFailures(
 				folder.tables.transcriptions,
 				failures,

@@ -85,7 +85,7 @@ expectTypeOf(folder.tables.notes.set('a', row, { body: 'x' })).toEqualTypeOf<
 // Every entry exports the contract unchanged.
 type ContractKeys = keyof typeof import('./contract.js');
 expectTypeOf<ContractKeys>().toEqualTypeOf<
-	'OpenFolderError' | 'ReadError' | 'SaveError'
+	'OpenFolderError' | 'ReadError' | 'SaveError' | 'fileBytes' | 'rowBytes'
 >();
 for (const entry of [root, browser, tauri, bun]) {
 	expectTypeOf(entry.OpenFolderError).toEqualTypeOf<

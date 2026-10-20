@@ -23,17 +23,16 @@
  */
 
 import { afterEach, expect, test } from 'bun:test';
-import { SaveError } from '@epicenter/folder';
 import { readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { ReadError } from '@epicenter/folder';
 import type { Library, WriteNotice } from '../../lib/library.svelte.js';
 import { quiet } from '../../lib/query.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
 
 // Load the workspace after the mounted loader registered its plugin.
-const { openTestWorkspace } = await import(
-	'../../lib/workspace.test-support.js'
-);
+const { openGatedTestFolder, openTestWorkspace, whisperingDirectory } =
+	await import('../../lib/workspace.test-support.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTestLibrary } = await import('../../lib/library.test-support.js');
 const { pageState } = await import('../page-state.test-support.svelte.js');
@@ -53,14 +52,23 @@ const RECORDING = 'recordings/take.md';
 const recording = (title: string, body: string) =>
 	`---\ntitle: ${title}\nrecordedAt: 2026-10-01T00:00:00.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: audio/take.wav\n---\n${body}`;
 
-/** A library over files on disk, mounted in the fixture with `tab` showing. */
+/**
+ * A library over files on disk, mounted in the fixture with `tab` showing.
+ * While `disk.refusing`, the disk refuses every write, whoever saves.
+ */
 async function open(
 	files: Record<string, string>,
 	tab: 'recordings' | 'transformations' = 'recordings',
 ) {
-	const stubs = await openTestWorkspace();
+	const root = await whisperingDirectory('whispering-rows-');
+	const disk = { refusing: false };
+	const stubs = await openTestWorkspace({
+		folder: openGatedTestFolder(root, async () =>
+			disk.refusing ? new Error('Disk unavailable') : undefined,
+		),
+	});
 	for (const [path, text] of Object.entries(files))
-		await Bun.write(join(stubs.root, path), text);
+		await Bun.write(join(root, path), text);
 	const library = await createTestLibrary(stubs.workspace);
 	await library.start();
 	const notices: WriteNotice[] = [];
@@ -73,8 +81,9 @@ async function open(
 		unmount(host);
 		await library.close();
 		await stubs.remove();
+		await rm(dirname(root), { recursive: true, force: true });
 	});
-	return { library, page, target, notices, root: stubs.root };
+	return { library, page, target, notices, root, disk };
 }
 
 /** Select a file and let the views render it, with any text they read. */
@@ -106,6 +115,68 @@ const field = <T extends Element>(target: ParentNode, selector: string) =>
 /** What the write status line says: Saving… or Saved. */
 const writeStatus = (target: ParentNode) =>
 	target.querySelector('[data-testid="write-status"]')?.textContent?.trim();
+
+test('saved file text stays shown when the reread fails, and typing on keeps it', async () => {
+	const path = 'draft.txt';
+	const { library, target, root } = await open({ [path]: 'Original text' });
+	await show(library, path);
+	const input = () =>
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of draft.txt"]',
+		);
+	expect(input()?.value).toBe('Original text');
+	const read = library.folder.files.read;
+	library.folder.files.read = async (file) =>
+		file === path
+			? ReadError.StorageFailed({ cause: new Error('read refused') })
+			: read(file);
+	cleanups.push(() => {
+		library.folder.files.read = read;
+	});
+	type(input(), 'Committed words');
+	flushSync();
+	await library.saveText(path);
+	await reportChanged(library);
+	expect(await readFile(join(root, path), 'utf8')).toBe('Committed words');
+	expect(input()?.value).toBe('Committed words');
+
+	type(input(), 'Committed words, and more');
+	flushSync();
+	await library.saveText(path);
+	await reportChanged(library);
+	expect(await readFile(join(root, path), 'utf8')).toBe(
+		'Committed words, and more',
+	);
+	expect(input()?.value).toBe('Committed words, and more');
+});
+
+test('a saved transcript stays shown when the reread fails, and typing on keeps it', async () => {
+	const { library, target, root } = await open({ [A]: transcript('Alpha.\n') });
+	await show(library, A);
+	const body = () =>
+		field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]');
+	expect(body()?.value).toBe('Alpha.\n');
+	const list = library.folder.tables.transcriptions.list;
+	library.folder.tables.transcriptions.list = async () =>
+		ReadError.StorageFailed({ cause: new Error('read refused') });
+	cleanups.push(() => {
+		library.folder.tables.transcriptions.list = list;
+	});
+	type(body(), 'Alpha, saved.\n');
+	flushSync();
+	await library.saveBody(A);
+	await reportChanged(library);
+	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha, saved.\n'));
+	expect(body()?.value).toBe('Alpha, saved.\n');
+
+	type(body(), 'Alpha, saved.\nMore.\n');
+	flushSync();
+	await library.saveBody(A);
+	expect(await readFile(join(root, A), 'utf8')).toBe(
+		transcript('Alpha, saved.\nMore.\n'),
+	);
+});
 
 test('typing in a transcript’s view edits the path it shows, and writes it', async () => {
 	const { library, target, notices, root } = await open({
@@ -318,7 +389,9 @@ test('a recording just stopped never reads as missing its audio while the folder
 
 test('failed file text stays visible when polling finds a binary replacement', async () => {
 	const path = 'draft.txt';
-	const { library, target, root } = await open({ [path]: 'Original text' });
+	const { library, target, root, disk } = await open({
+		[path]: 'Original text',
+	});
 	await show(library, path);
 	const input = () =>
 		field<HTMLTextAreaElement>(
@@ -328,12 +401,10 @@ test('failed file text stays visible when polling finds a binary replacement', a
 	expect(input()?.value).toBe('Original text');
 	type(input(), 'Keep this unsaved text');
 	flushSync();
-	const write = library.folder.files.write;
-	library.folder.files.write = async () =>
-		SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
+	disk.refusing = true;
 	await library.saveText(path);
 	flushSync();
-	library.folder.files.write = write;
+	disk.refusing = false;
 	await writeFile(join(root, path), new Uint8Array([0, 1, 2]));
 	await reportChanged(library);
 	flushSync();
@@ -356,7 +427,7 @@ for (const item of [
 ]) {
 	for (const replacement of ['binary', 'missing', 'unreadable'] as const) {
 		test(`failed ${item.tab} source remains visible after a ${replacement} reread`, async () => {
-			const { library, target, root } = await open(
+			const { library, target, root, disk } = await open(
 				{ [item.path]: item.text },
 				item.tab,
 			);
@@ -372,11 +443,9 @@ for (const item of [
 			expect(source()?.value).toBe(item.text);
 			type(source(), 'Keep this failed source');
 			flushSync();
-			const write = library.folder.files.write;
-			library.folder.files.write = async () =>
-				SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
+			disk.refusing = true;
 			await library.saveText(item.path);
-			library.folder.files.write = write;
+			disk.refusing = false;
 			flushSync();
 			const read = library.folder.files.read;
 			if (replacement === 'binary')
@@ -478,18 +547,17 @@ for (const item of [
 ]) {
 	for (const replacement of ['missing', 'binary'] as const) {
 		test(`failed ${item.tab} fields remain reachable after a ${replacement} reread`, async () => {
-			const { library, target, root } = await open(
+			const { library, target, root, disk } = await open(
 				{ [item.path]: item.text },
 				item.tab,
 			);
 			await show(library, item.path);
-			const table = library.folder.tables[item.table];
-			const set = table.set;
-			table.set = async () =>
-				SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
-			library.setFields(item.table, item.id, { title: 'Keep my title' });
+			disk.refusing = true;
+			const view = library.rowView(item.table, item.path);
+			expect(view.row).toBeDefined();
+			library.setFields(view, { title: 'Keep my title' });
 			await settle(library);
-			table.set = set;
+			disk.refusing = false;
 			expect(library.isUnsaved(item.path)).toBe(true);
 			if (replacement === 'missing') await rm(join(root, item.path));
 			else await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
@@ -518,7 +586,7 @@ for (const item of [
 ]) {
 	for (const replacement of ['missing', 'repaired'] as const) {
 		test(`automatically opened ${item.tab} source keeps its failed draft after a ${replacement} reread`, async () => {
-			const { library, target, root } = await open(
+			const { library, target, root, disk } = await open(
 				{ [item.path]: 'Malformed row\n' },
 				item.tab,
 			);
@@ -531,11 +599,9 @@ for (const item of [
 			expect(source()?.value).toBe('Malformed row\n');
 			type(source(), 'Keep my automatic Source draft');
 			flushSync();
-			const write = library.folder.files.write;
-			library.folder.files.write = async () =>
-				SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
+			disk.refusing = true;
 			await library.saveText(item.path);
-			library.folder.files.write = write;
+			disk.refusing = false;
 			if (replacement === 'missing') await rm(join(root, item.path));
 			else await writeFile(join(root, item.path), item.repaired);
 			await reportChanged(library);
@@ -547,14 +613,11 @@ for (const item of [
 
 for (const replacement of ['missing', 'binary'] as const) {
 	test(`failed transcript body remains copyable after a ${replacement} reread`, async () => {
-		const { library, target, root } = await open({
+		const { library, target, root, disk } = await open({
 			[A]: transcript('Alpha.\n'),
 		});
 		await show(library, A);
-		const table = library.folder.tables.transcriptions;
-		const set = table.set;
-		table.set = async () =>
-			SaveError.StorageFailed({ cause: new Error('Disk unavailable') });
+		disk.refusing = true;
 		type(
 			field<HTMLTextAreaElement>(
 				target,
@@ -564,7 +627,7 @@ for (const replacement of ['missing', 'binary'] as const) {
 		);
 		flushSync();
 		await library.saveBody(A);
-		table.set = set;
+		disk.refusing = false;
 		if (replacement === 'missing') await rm(join(root, A));
 		else await writeFile(join(root, A), new Uint8Array([0, 1, 2]));
 		await reportChanged(library);

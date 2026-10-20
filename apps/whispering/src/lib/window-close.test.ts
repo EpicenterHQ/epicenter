@@ -17,8 +17,6 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { SaveError } from '@epicenter/folder';
-import { Err } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	desktop,
@@ -28,13 +26,11 @@ import {
 } from '../../../../packages/svelte/src/tauri-window.test-support.js';
 import { openText, settle } from './edits.test-support.js';
 import type { Session } from './session.svelte.js';
-import type { WhisperingFolder } from './workspace/types.js';
 import {
 	deferred,
-	openTestFolder,
+	openGatedTestFolder,
 	openTestWorkspace,
 	whisperingDirectory,
-	withTables,
 } from './workspace.test-support.js';
 
 const { openSession } = await import('./session.svelte.ts');
@@ -45,29 +41,18 @@ afterEach(async () => {
 	nativeWindow.reset();
 });
 
-const REFUSED: SaveError = {
-	name: 'StorageFailed',
-	message: 'Repository save failed: the disk refused it',
-	cause: new Error('the disk refused it'),
-};
-
-/** A session in a desktop window over a fresh directory whose file writes can be refused. */
+/**
+ * A session in a desktop window over a fresh directory whose disk can refuse
+ * a write or throw, below the folder, so the folder's own saves meet it.
+ */
 async function openWindow() {
 	const root = await whisperingDirectory('whispering-window-');
-	const folder = await openTestFolder(root);
 	const control = { refuse: false, throwWrite: false };
-	const files: WhisperingFolder['files'] = {
-		...folder.files,
-		write: async (path, from, content) => {
-			if (control.throwWrite) throw new Error('transport disconnected');
-			return control.refuse
-				? Err(REFUSED)
-				: folder.files.write(path, from, content);
-		},
-	};
-	const fixture = await openTestWorkspace({
-		folder: withTables(folder, {}, files),
+	const folder = openGatedTestFolder(root, async () => {
+		if (control.throwWrite) throw new Error('transport disconnected');
+		return control.refuse ? new Error('the disk refused it') : undefined;
 	});
+	const fixture = await openTestWorkspace({ folder });
 	desktop(true);
 	const session: Session = expectOk(await openSession(fixture.open));
 	cleanups.push(async () => {
@@ -97,7 +82,7 @@ test('text typed into a file is saved by the close, then the window goes', async
 	const window = await openWindow();
 	const { path, text } = await recordAsText(window);
 	const typed = `${text.draft}Typed just before closing.\n`;
-	window.library.editText(path, typed);
+	text.input(typed);
 
 	await requestClose();
 
@@ -111,7 +96,7 @@ test('a failed save keeps the window and the text; the next close saves and dest
 	const before = text.draft;
 	const typed = `${before}Typed but not saved.\n`;
 	window.control.refuse = true;
-	window.library.editText(path, typed);
+	window.library.editText(text.view, typed);
 
 	await requestClose();
 
@@ -132,7 +117,7 @@ test('a thrown file write leaves a failed draft that can save on retry', async (
 	const { path, text } = await recordAsText(window);
 	const typed = `${text.draft}Retained after throw.\n`;
 	window.control.throwWrite = true;
-	window.library.editText(path, typed);
+	window.library.editText(text.view, typed);
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(window.library.editedText(path)).toBe(typed);

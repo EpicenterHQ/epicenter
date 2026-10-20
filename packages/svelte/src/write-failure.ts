@@ -9,17 +9,7 @@
  * Plain module: a store imports it without loading Svelte components.
  */
 import type { SaveError } from '@epicenter/folder';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
-
-/**
- * An action the app refused before it changed anything, with the reason a
- * person reads: the app is closing, the file is being renamed, the note was
- * deleted elsewhere.
- */
-export const ActionError = defineErrors({
-	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
-});
-export type ActionError = InferErrors<typeof ActionError>;
+import type { ActionError, Pending } from '@epicenter/folder/edits';
 
 /** The errors `describeWriteError` words by name. */
 export type DescribedError = SaveError | ActionError;
@@ -53,6 +43,43 @@ export type WriteFailure = {
 	 */
 	readonly discard?: () => string | undefined;
 };
+
+/**
+ * Held input as text a person can copy: whole text as typed; otherwise JSON
+ * with the fields set and their values (`set`), the names of the fields
+ * removed (`remove`), and a typed body (`body`), each only when there is one.
+ * A removal is a name, never a value, so no value reads as a removal.
+ */
+export function unsavedText(pending: Pending): string {
+	if (pending.kind === 'text') return pending.text;
+	const entries = Object.entries(pending.fields);
+	const set = entries.filter(([, value]) => value !== undefined);
+	const remove = entries
+		.filter(([, value]) => value === undefined)
+		.map(([name]) => name);
+	return JSON.stringify(
+		{
+			...(set.length > 0 && { set: Object.fromEntries(set) }),
+			...(remove.length > 0 && { remove }),
+			...(pending.kind === 'row' &&
+				pending.body !== undefined && { body: pending.body }),
+		},
+		null,
+		2,
+	);
+}
+
+/** The failure a person is shown for held input that did not save. */
+export function pendingFailure(pending: Pending): WriteFailure {
+	return {
+		path: pending.path,
+		error: pending.error ?? {
+			name: 'Unsaved',
+			message: 'The edit did not save.',
+		},
+		unsaved: unsavedText(pending),
+	};
+}
 
 /**
  * What a person is told about a failed save or action.

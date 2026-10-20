@@ -19,14 +19,14 @@
 	import { tick } from 'svelte';
 	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
-	import type { Library } from '$lib/library.svelte.js';
+	import { getSession } from '$lib/session.svelte.js';
 	import { confirmDelete, copyPath, openItem } from './file-actions.js';
 
-	let { library, onOpen }: {
-		library: Library;
+	let { onOpen }: {
 		/** Called once a file is selected, so the shell can show the page it opens on. */
 		onOpen: (path: string) => void;
 	} = $props();
+	const { library } = getSession();
 
 	/**
 	 * The tree: folders before files at each level, into the expanded folders.

@@ -6,7 +6,9 @@
  * (`native/`).
  *
  * The handle exposes rooted `files`, table views that interpret Markdown rows
- * through the caller's schemas, change notification, local-save status, and
+ * through the caller's schemas, the input typed into either and not saved
+ * yet (`edit`, one owner per handle for its whole life, `edit-owner.ts`),
+ * change notification, local-save status with held input, `settle`, and
  * `close`. A schema only interprets (ADR-0632). A row that does not fit still
  * comes back with its exact source, its raw fields, and the issues, and a
  * save never validates against the schema, so unknown fields and repairable
@@ -17,12 +19,13 @@
  * Opening authenticates nothing, selects no remote, creates no Git history,
  * and writes no schema file (ADR-0633).
  *
- * A call on a closed handle throws: it is a programming error, not a storage
- * failure. Failures that storage reports come back as `ReadError` and
+ * A storage call on a closed handle throws: it is a programming error, not a
+ * storage failure. Held input stays readable through `status` and `edit`. Failures that storage reports come back as `ReadError` and
  * `SaveError` results; a failed save leaves earlier storage unchanged.
  */
 import type { TSchema as Schema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
+import type { Pending, RowEdit, TextEdit } from './edit-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
@@ -38,19 +41,25 @@ export type FolderChange = {
 };
 
 /**
- * What the handle can truthfully say about saving. A save counts as saved
- * only after storage committed it. `storageFailure` is the
- * last storage failure, cleared by a later successful save on this handle,
- * including a retry whose desired content is already stored. Individual
- * refusals and unsaved drafts belong to their callers.
+ * What the handle can truthfully say about saving, held input included. A
+ * save counts as saved only after storage committed it. `storageFailure` is
+ * the last storage failure, cleared by a later successful save on this
+ * handle, including a retry whose desired content is already stored.
  */
 export type FolderStatus = {
-	/** Saves started on this handle and not yet committed or refused. */
+	/** A save, delete or exclusive change started on this handle and not yet committed or refused. */
 	readonly saving: boolean;
 	readonly storageFailure: Extract<SaveError, { name: 'StorageFailed' }> | null;
+	/** The paths whose input is held: not sent yet, saving, or failed. Sorted. */
+	readonly unsaved: readonly string[];
+	/** Held input whose last save failed and that no save is retrying. */
+	readonly failures: readonly Pending[];
+	/** Whether `close` was called: no input or call is taken from then on. */
+	readonly closing: boolean;
 };
 
-export type FolderFiles = {
+/** What every engine stores files through; `FolderFiles` adds input held over them. */
+export type FolderFileOperations = {
 	/** Paths under `prefix`, relative to the root, sorted. */
 	list(prefix?: string): Promise<Result<string[], ReadError>>;
 	/** The file at `path`, or `undefined` when none exists. */
@@ -73,7 +82,17 @@ export type FolderFiles = {
 	): Promise<Result<{ deleted: boolean }, SaveError>>;
 };
 
-export type FolderTable<TSchema extends Schema = Schema> = {
+export type FolderFiles = FolderFileOperations & {
+	/**
+	 * The whole exact text, or the fields, typed into `path` and not saved
+	 * yet, shared by every caller of this handle. Answering it reads and
+	 * holds nothing.
+	 */
+	edit(path: string): TextEdit;
+};
+
+/** What every engine stores a table's rows through; `FolderTable` adds input held over them. */
+export type FolderTableOperations<TSchema extends Schema = Schema> = {
 	/** Every row of the table, with its source, fields, and issues. */
 	list(): Promise<Result<Row<TSchema>[], ReadError>>;
 	get(id: string): Promise<Result<Row<TSchema> | undefined, ReadError>>;
@@ -94,6 +113,15 @@ export type FolderTable<TSchema extends Schema = Schema> = {
 	): Promise<Result<{ deleted: boolean }, SaveError>>;
 };
 
+export type FolderTable<TSchema extends Schema = Schema> =
+	FolderTableOperations<TSchema> & {
+		/**
+		 * The fields and body typed into row `id` and not saved yet, shared by
+		 * every caller of this handle. Answering it reads and holds nothing.
+		 */
+		edit(id: string): RowEdit<TSchema>;
+	};
+
 /**
  * The handle `openFolder` returns.
  *
@@ -105,21 +133,33 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	readonly tables: { [TName in keyof TTables]: FolderTable<TTables[TName]> };
 	/**
 	 * Called after a save commits, whether this handle or another one made
-	 * it. Native handles report participating handles in this page/process,
-	 * not arbitrary external programs; UI queries poll for those edits.
-	 * The listener is not called for the current state. Returns the stop.
+	 * it. A save of this handle that found its content already stored is
+	 * reported too, so a reader can reread what it shows. Native handles
+	 * report participating handles in this page/process, not arbitrary
+	 * external programs; UI queries poll for those edits. The listener is
+	 * not called for the current state. Returns the stop.
 	 */
 	onChange(listener: (change: FolderChange) => void): () => void;
 	readonly status: FolderStatus;
 	/** Called when `status` changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
 	/**
-	 * Close the handle. New calls throw at once; saves already started finish
-	 * and report their real outcome; then listeners are released and storage
-	 * is released. Saved work stays saved. Closing again returns the same
-	 * promise.
+	 * Send every held input once, after exclusive changes and deletes that
+	 * run; answers the input that did not save. Input stays open meanwhile.
 	 */
-	close(): Promise<void>;
+	settle(): Promise<Pending[]>;
+	/**
+	 * Close the handle. At once, new input is refused and every storage
+	 * call (reads, saves, deletes, listeners, `settle`) throws; running
+	 * deletes and exclusive changes finish; held input is sent once; saves
+	 * already started finish and report their real outcome; then listeners
+	 * and storage are released. Reads that are still running are not waited
+	 * for. What stays is reading what is held: `status`, and `edit(...)`
+	 * handles, whose `pending`, `shown` and `discard` still answer and whose
+	 * `save()` and `retry()` join the close. Answers the input that did not
+	 * save. Closing again returns the same promise.
+	 */
+	close(): Promise<Pending[]>;
 };
 
 /**
@@ -138,6 +178,12 @@ export type FolderTables = Record<string, Schema>;
 export type DefaultFolderOptions<TTables extends FolderTables> = {
 	readonly tables: TTables;
 	readonly directory?: never;
+} & EditOptions;
+
+/** How the folder's own edit owner saves held input. */
+export type EditOptions = {
+	/** How long after its last change input saves; `SAVE_AFTER_MS` by default. */
+	readonly saveAfterMs?: number;
 };
 
 /**
@@ -147,7 +193,7 @@ export type DefaultFolderOptions<TTables extends FolderTables> = {
 export type DirectoryFolderOptions<TTables extends FolderTables> = {
 	readonly directory: string;
 	readonly tables: TTables;
-};
+} & EditOptions;
 
 /**
  * The opener of the browser, desktop, and automatic entries: each opens the

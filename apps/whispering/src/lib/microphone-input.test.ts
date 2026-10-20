@@ -47,7 +47,7 @@ import type { Workspace } from './workspace/types.js';
 import {
 	deferred,
 	openTestWorkspace,
-	withTables,
+	replaceTables,
 } from './workspace.test-support.js';
 
 const BUILT_IN = { deviceId: 'built-in-id', label: 'Built-in Microphone' };
@@ -614,17 +614,18 @@ test('closing releases the microphone at once, while a file command that was acc
 		const test = await openTestWorkspace();
 		const writing = deferred<void>();
 		const { folder } = test.workspace;
+		const { files } = folder;
 		const library = await createTestLibrary({
 			...test.workspace,
 			capture: microphone.device,
-			folder: withTables(
+			folder: replaceTables(
 				folder,
 				{},
 				{
-					...folder.files,
+					...files,
 					async write(path, from, content) {
 						await writing.promise;
-						return folder.files.write(path, from, content);
+						return files.write(path, from, content);
 					},
 				},
 			),

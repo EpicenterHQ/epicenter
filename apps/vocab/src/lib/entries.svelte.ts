@@ -6,11 +6,12 @@
  * repair as text. It is read on open and again whenever the folder reports a
  * committed save under `entries/`, from this page or another tab.
  *
- * A note or a stage is the word's row draft (`edits.row`): a note typed is
- * saved a second after the last keystroke, a stage press at once. A draft
- * holds every field typed since the word last saved, so one word's saves run
- * one at a time and a stage press never undoes a note. Each save names the
- * row it started from, and the folder merges it with whatever was saved
+ * A note or a stage is typed through the word's edit handle
+ * (`folder.tables.entries.edit(id)`): a note typed is saved a second after
+ * the last keystroke, a stage press at once. The folder holds every field
+ * typed since the word last saved, so one word's saves run one at a time
+ * and a stage press never undoes a note. Each field starts from the row it
+ * was typed over, and the folder merges a save with whatever was saved
  * meanwhile: what only the other writer changed stays, and this edit wins
  * the field both changed. A failed save keeps the typing and its error.
  *
@@ -20,8 +21,8 @@
  */
 
 import type { ReadError, SaveError } from '@epicenter/folder';
-import type { Unsaved } from '@epicenter/svelte/edits';
-import { ActionError } from '@epicenter/svelte/write-failure';
+import { ActionError, type RowPending } from '@epicenter/folder/edits';
+import { createRowEdit } from '@epicenter/svelte/edits';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -81,24 +82,18 @@ export function repairsOf(rows: EntryRows): UnreadableFile[] {
 	);
 }
 
-export function createEntries({
-	folder,
-	queries,
-	queryClient,
-	refresh,
-	edits,
-	run,
-}: VocabContext) {
+export function createEntries(local: VocabContext) {
+	const { folder, queries, queryClient, refresh, run } = local;
 	const table = folder.tables.entries;
 	const rowsKey = queries.rows('entries').queryKey;
-	const repair = createRepair(folder, { fenced: () => edits.fenced });
+	const repair = createRepair(folder);
 	const cachedRows = () => queryClient.getQueryData<EntryRows>(rowsKey) ?? [];
 	/** Read the words again, and answer once the list holds the read. */
 	const reread = () => refresh(['entries']);
 
 	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
 	function canEdit(id: string) {
-		return repair.open !== id && !edits.row('entries', id).locked;
+		return repair.open !== id && !table.edit(id).locked;
 	}
 
 	async function addWord(
@@ -141,16 +136,47 @@ export function createEntries({
 		return Ok('added');
 	}
 
+	/** The word at `id` over `observed`, with the learner's two edits. */
+	function edit<TObserved extends Entry['row'] | undefined>(
+		id: string,
+		observed: () => TObserved,
+	) {
+		const binding = createRowEdit(table.edit(id), observed);
+		return Object.assign(binding, {
+			/**
+			 * Type the note; it is saved a second after the last change. Half of
+			 * a surrogate pair is kept as U+FFFD, which the folder can save.
+			 */
+			setNote: (note: string): boolean =>
+				canEdit(id) &&
+				binding.change({ fields: { note: note.toWellFormed() } }),
+			/** Press a stage; it is saved at once. */
+			setStage(stage: Stage): boolean {
+				if (!canEdit(id) || !binding.change({ fields: { stage } }))
+					return false;
+				void binding.save();
+				return true;
+			},
+		});
+	}
+
 	return {
 		/** The word rows, narrowed by `select` for one view. */
 		entriesQuery<TData = EntryRows>(select?: (rows: EntryRows) => TData) {
 			return { ...queries.rows('entries'), select };
 		},
-		/** The typing held for the word at `id`: its row draft. */
-		draftOf: (id: string) => edits.row('entries', id),
+		/**
+		 * The word at `id` as a view shows and types into it, over the row
+		 * `observed` answers; read reactively. A row as definite as `observed`;
+		 * `setNote` and `setStage` type over what that view last showed.
+		 */
+		edit,
 		canEdit,
-		/** Whether the word at `id` takes no edit now: closing, being deleted, or open as text. */
-		isLocked: (id: string) => !canEdit(id),
+		/** Whether the word at `id` takes no edit now: closing, being deleted, or open as text; read reactively. */
+		isLocked: (id: string) =>
+			local.closing ||
+			repair.open === id ||
+			createRowEdit(table.edit(id), () => undefined).locked,
 
 		/**
 		 * Save a word or a captured phrase, and answer once the list holds it.
@@ -162,7 +188,7 @@ export function createEntries({
 		async add(
 			text: string,
 		): Promise<Result<'added' | 'present', EntryError | ActionError>> {
-			if (edits.fenced) return ActionError.NotStarted({ reason: CLOSING });
+			if (local.closing) return ActionError.NotStarted({ reason: CLOSING });
 			const exact = text.trim().toWellFormed();
 			if (exact === '') return EntryError.Empty();
 			return run(() =>
@@ -177,20 +203,11 @@ export function createEntries({
 		 * Half of a surrogate pair is kept as U+FFFD, which the folder can
 		 * save. Answers whether it was taken.
 		 */
-		setNote(entry: Entry, note: string): boolean {
-			if (!canEdit(entry.id)) return false;
-			return edits
-				.row('entries', entry.id)
-				.change(entry.row, { fields: { note: note.toWellFormed() } });
-		},
+		setNote: (entry: Entry, note: string): boolean =>
+			edit(entry.id, () => entry.row).setNote(note),
 		/** Press a stage of `entry`; it is saved at once. Answers whether it was taken. */
-		setStage(entry: Entry, stage: Stage): boolean {
-			if (!canEdit(entry.id)) return false;
-			const draft = edits.row('entries', entry.id);
-			if (!draft.change(entry.row, { fields: { stage } })) return false;
-			void draft.save();
-			return true;
-		},
+		setStage: (entry: Entry, stage: Stage): boolean =>
+			edit(entry.id, () => entry.row).setStage(stage),
 		/**
 		 * Delete `entry` once what is typed into it saved. `deleted` says
 		 * whether the word is gone, whoever removed it. A word changed in that
@@ -199,7 +216,7 @@ export function createEntries({
 		async delete(
 			entry: Entry,
 		): Promise<Result<{ deleted: boolean }, SaveError | ReadError | ActionError>> {
-			const removed = await edits.delete('entries', entry.id);
+			const removed = await table.edit(entry.id).delete();
 			if (removed.error !== null || removed.data.deleted) return removed;
 			const { data: current, error } = await untilClosed(
 				() => table.get(entry.id),
@@ -209,8 +226,11 @@ export function createEntries({
 		},
 
 		/** The words whose last save failed, with what was typed; read reactively. */
-		get failures(): Unsaved[] {
-			return edits.failures.filter((draft) => draft.table === 'entries');
+		get failures(): RowPending[] {
+			return local.failures.filter(
+				(pending): pending is RowPending =>
+					pending.kind === 'row' && pending.table === 'entries',
+			);
 		},
 
 		/** The repair of a word file as its exact text. */

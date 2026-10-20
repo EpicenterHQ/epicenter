@@ -1,4 +1,4 @@
-// A client-only SPA: the folder opens after mount.
+// A client-only SPA: layout initialization starts the folder opening.
 export const ssr = false;
 // Epicenter's bundled build (ADR-0552) prerenders each page as an
 // empty shell, so its assets load relative to wherever the host serves it and

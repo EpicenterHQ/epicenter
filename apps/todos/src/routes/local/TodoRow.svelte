@@ -7,10 +7,11 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
+	import { createRowEdit } from '@epicenter/svelte/edits';
 	import { getFolder } from '$lib/folder.js';
 	import { labelOf, type Todo, todoPath } from '$lib/local-todos.js';
 
-	const { edits } = getFolder();
+	const { folder } = getFolder();
 
 	let {
 		todo,
@@ -23,8 +24,8 @@
 		onOpen?: (id: string) => void;
 	} = $props();
 
-	const draft = $derived(edits.row('todos', todo.id));
-	const done = $derived(draft.shown(todo).fields.done);
+	const edit = $derived(createRowEdit(folder.tables.todos.edit(todo.id), () => todo));
+	const done = $derived(edit.row.fields.done);
 	const label = $derived(labelOf(todo));
 </script>
 
@@ -37,10 +38,10 @@
 		bind:checked={
 			() => done,
 			(next) => {
-				if (draft.change(todo, { fields: { done: next } })) void draft.save();
+				if (edit.change({ fields: { done: next } })) void edit.save();
 			}
 		}
-		disabled={draft.locked}
+		disabled={edit.locked}
 		aria-label="{done ? 'Reopen' : 'Complete'} {label}"
 	/>
 	<Button

@@ -11,21 +11,13 @@
  * `svelte-dom.test-support.js`); this module loads the runes modules on use.
  */
 import { type CaptureRow, captureTables } from '@epicenter/capture';
-import { openFolder, type SaveError } from '@epicenter/folder/browser';
+import { openFolder } from '@epicenter/folder/browser';
 import { QueryObserver } from '@tanstack/query-core';
-import { Err } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { Captures } from './captures.svelte.js';
 
-const open = async () => expectOk(await openFolder({ tables: captureTables }));
-
-/** A save storage refused, as the folder reports it. */
-const refused = () =>
-	Err({
-		name: 'StorageFailed',
-		message: 'Repository save failed: the disk is full',
-		cause: new Error('the disk is full'),
-	} as Extract<SaveError, { name: 'StorageFailed' }>);
+const open = async (saveAfterMs?: number) =>
+	expectOk(await openFolder({ tables: captureTables, saveAfterMs }));
 
 /** Wait until `check` holds, letting saves, reads, and timers run. */
 export async function until(check: () => boolean, what = 'the check') {
@@ -46,7 +38,7 @@ export async function openCaptures(
 ) {
 	// A fresh profile: the classes `fake-indexeddb/auto` installed.
 	globalThis.indexedDB = new IDBFactory();
-	const folder = await open();
+	const folder = await open(saveAfterMs);
 	for (const [path, text] of Object.entries(files))
 		expectOk(await folder.files.write(path, null, text));
 	// Loaded on use, after the test file registered its runes-module loader.
@@ -54,7 +46,7 @@ export async function openCaptures(
 		'@epicenter/svelte/folder'
 	);
 	const { createCaptures } = await import('./captures.svelte.ts');
-	const context = createFolderContext(folder, { saveAfterMs });
+	const context = createFolderContext(folder);
 	const captures: Captures = createCaptures(context);
 	const observer = new QueryObserver(
 		context.queryClient,
@@ -65,10 +57,9 @@ export async function openCaptures(
 	const other = await open();
 
 	/** Nothing typed waits, no save runs, and nothing is read. */
-	const idle = () =>
-		!context.busy &&
-		!captures.texts.busy &&
-		context.queryClient.isFetching() === 0;
+	const idle = () => !context.busy && context.queryClient.isFetching() === 0;
+	/** Storage refusals to undo when the harness closes. */
+	const restores: (() => void)[] = [];
 
 	return {
 		folder,
@@ -102,36 +93,23 @@ export async function openCaptures(
 			const row = expectOk(await other.tables.captures.get(stem));
 			expectOk(await other.tables.captures.delete(stem, row ?? null));
 		},
-		/** The next save of a capture's row is refused by storage. */
-		failNextRowSave() {
-			const set = folder.tables.captures.set;
-			folder.tables.captures.set = async () => {
-				folder.tables.captures.set = set;
-				return refused();
+		/**
+		 * Every save, of a row or a file's text, is refused by storage, as a
+		 * full disk refuses it, until the answered `restore` runs.
+		 */
+		failSaves() {
+			const put = IDBObjectStore.prototype.put;
+			IDBObjectStore.prototype.put = () => {
+				throw new DOMException('the disk is full', 'QuotaExceededError');
 			};
-		},
-		/** The next save of a file's text is refused by storage. */
-		failNextFileWrite() {
-			const write = folder.files.write;
-			folder.files.write = async () => {
-				folder.files.write = write;
-				return refused();
+			const restore = () => {
+				IDBObjectStore.prototype.put = put;
 			};
-		},
-		/** Hold the next save of a capture's row until `release` runs. */
-		holdNextRowSave() {
-			const set = folder.tables.captures.set;
-			const gate = Promise.withResolvers<void>();
-			const held = Promise.withResolvers<void>();
-			folder.tables.captures.set = async (...args) => {
-				folder.tables.captures.set = set;
-				held.resolve();
-				await gate.promise;
-				return set(...args);
-			};
-			return { held: held.promise, release: () => gate.resolve() };
+			restores.push(restore);
+			return restore;
 		},
 		async close() {
+			for (const restore of restores.splice(0).reverse()) restore();
 			stopObserving();
 			await context.close();
 			await other.close();

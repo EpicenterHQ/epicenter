@@ -481,9 +481,9 @@ deleted with one nor in the way of deleting one, readable or not.
 
 What a deletion of a recording or transformation path removes is decided by
 its file as read after the typing held for it saved, not by the last
-listing. A row that reads is deleted through the local edits
-(`local.edits.delete`), which waits for the row's running save and deletes it
-as stored then. A file that is there and does not read as a row (bytes that
+listing. A row that reads is deleted through its edit handle
+(`folder.tables.<table>.edit(id).delete()`), which sends the typing held for
+it once, waits for the row's running save, and deletes it as stored then. A file that is there and does not read as a row (bytes that
 are not text, say) is deleted alone, as the bytes read then, and the person is
 told its results are kept: nothing in the file says which results are its
 own, so none is deleted with it. Any other file is deleted the same way,
@@ -512,20 +512,22 @@ fields open again once its saved text reads.
   the text of the files it names stale. TanStack's focus refetch is off and
   nothing goes stale on its own.
 - **Row typing** (a title, a model, a recording's notes, a transcript, a
-  transformation's instructions) is the row's draft in the context's edits
-  (`local.edits.row(table, id)`): one draft per row holding the fields and
-  body typed and the row they started from. A read never replaces it; views
-  show the row with the draft over it (`library.rowAt`). It saves a second
-  after the last change, when the person leaves the field, and when the view
-  goes away, as `table.set(id, from, change)`; the folder merges it with
-  whatever was saved meanwhile, keeping fields only the other side changed,
-  and the typing wins where both changed. The saves of one row run one at a
-  time; typing during a save is sent next, from the row that save sent.
-- **Text** edited as a whole file (Source, or a text file from Files) is a
-  text draft (`src/lib/text-drafts.svelte.ts`) holding the text it started
-  from, saved the same way with `files.write(path, from, text)` and merged by
-  line. Switching between fields and Source saves the side being left first,
-  and refuses while it did not save.
+  transformation's instructions) is held by the folder, through the row's
+  edit handle (`folder.tables.<table>.edit(id)`), from open to close
+  ([ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
+  Each view binds its own handle (`library.rowView(table, path)`), shows the
+  row with the held input and the folder's own saves over it, and types over
+  what it showed (`fieldOf`, `setFields`, `editBody`). A read never replaces
+  held input, and a failed reread never shows a row older than a save. It
+  saves after a pause, when the person leaves the field, and when the view
+  goes away; the folder merges it with whatever was saved meanwhile, keeping
+  fields only the other side changed, and the typing wins where both
+  changed. The saves of one row run one at a time.
+- **Text** edited as a whole file (Source, or a text file from Files) is held
+  the same way through the file's edit handle (`folder.files.edit(path)`),
+  bound per view (`library.textView(path, observed)`, typed with `editText`)
+  and merged by line. Switching between fields and Source saves the side
+  being left first, and refuses while it did not save.
 - **A failed save** keeps the typing. The file's status line says **Not
   saved** with **Try again** and **Discard** (`SaveStatus.svelte`); further
   typing saves it too, and so does anything that reads the file first: a run,
@@ -550,7 +552,7 @@ whose file is not written. Renaming a file saves its typing, saves its exact
 bytes under the new name, then deletes the old name as read; the selection
 follows it. Recording and transformation files keep their names. Once the
 session is closing, typing changes nothing; closing waits for tracked work and
-the drafts, and never asks to discard.
+the folder's held input, and never asks to discard.
 
 ## Closing
 
@@ -624,8 +626,7 @@ their modules until public entries export them.
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | The post-processing choice type and how a transformation is named. The session reads the current choice (`session.postProcessing`). It runs nothing. |
-| `src/lib/library.svelte.ts` | Product state over the local folder context: the rows and listings, the change channel, row drafts and text drafts and their saves, selections, the live recording, settings, and every action as tracked work. |
-| `src/lib/text-drafts.svelte.ts` | Typing into a file's whole text, held until it saves. |
+| `src/lib/library.svelte.ts` | Product state over the local folder context: the rows and listings, the change channel, each view's row and text bindings over the folder's edit handles, selections, the live recording, settings, and every action as tracked work. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs: the result row written when each starts, its answer written into it, and what each row shows. |
 | `src/lib/deletion.ts` | What a deletion deletes, read fresh for the person to confirm, and running it. |
 | `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |

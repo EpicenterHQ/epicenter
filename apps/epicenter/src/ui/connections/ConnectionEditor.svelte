@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createRowEdit } from '@epicenter/svelte/edits';
 	import type { FolderContext } from '@epicenter/svelte/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -16,7 +17,8 @@
 
 	/**
 	 * One AI connection: its row in `so.epicenter`, whose title and model are
-	 * edited in place as the row's draft (`edits.row`): what is typed shows at
+	 * edited in place through the row's edit handle
+	 * (`folder.tables.connections.edit(id)`): what is typed shows at
 	 * once and saves a second after the last keystroke, when the field loses
 	 * focus, and when the editor goes away, merged with whatever was saved
 	 * meanwhile (ADR-0576). For an `openai-compatible` connection, the
@@ -35,13 +37,15 @@
 
 	// svelte-ignore state_referenced_locally
 	const id = row.id;
+	// The list keys each editor by its id, in one opened folder.
 	// svelte-ignore state_referenced_locally
-	const draft = local.edits.row('connections', id);
-	const fields = $derived(draft.shown(row).fields);
+	const edit = createRowEdit(local.folder.tables.connections.edit(id), () => row);
+	const fields = $derived(edit.row.fields);
+	const failure = $derived(edit.pending?.saving ? undefined : edit.pending?.error);
 	const client = useQueryClient();
 
-	// The draft outlives the editor; send what is typed now.
-	onDestroy(() => void draft.save());
+	// The input outlives the editor; send what is typed now.
+	onDestroy(() => void edit.save());
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -63,7 +67,7 @@
 	let savingKey = $state(false);
 
 	function type(field: 'title' | 'model', text: string) {
-		draft.change(row, { fields: { [field]: text } });
+		edit.change({ fields: { [field]: text } });
 	}
 
 	async function saveKey() {
@@ -93,13 +97,13 @@
 		keyProblem = undefined;
 		deleteProblem = undefined;
 		// Closing Settings refuses the row's delete; the key stays with its row.
-		if (local.edits.fenced) return;
+		if (local.closing) return;
 		const { error } = await commands.aiKeyRemove(id);
 		if (error !== null) {
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;
 			return;
 		}
-		const removed = await local.edits.delete('connections', id);
+		const removed = await edit.delete();
 		if (removed.error !== null) deleteProblem = saveFailureText(removed.error);
 		else if (!removed.data.deleted)
 			deleteProblem = 'The connection changed while it was being deleted, so it was kept.';
@@ -116,10 +120,10 @@
 			<span class="text-muted-foreground">Title</span>
 			<Input
 				value={fields.title}
-				disabled={draft.locked}
-				aria-invalid={draft.error !== undefined}
+				disabled={edit.locked}
+				aria-invalid={edit.pending?.error !== undefined}
 				oninput={(event) => type('title', event.currentTarget.value)}
-				onblur={() => void draft.save()}
+				onblur={() => void edit.save()}
 			/>
 		</label>
 		<label class="grid gap-1">
@@ -127,17 +131,17 @@
 			<Input
 				value={fields.model}
 				placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
-				disabled={draft.locked}
-				aria-invalid={draft.error !== undefined}
+				disabled={edit.locked}
+				aria-invalid={edit.pending?.error !== undefined}
 				oninput={(event) => type('model', event.currentTarget.value)}
-				onblur={() => void draft.save()}
+				onblur={() => void edit.save()}
 			/>
 		</label>
 	</div>
-	{#if draft.error !== undefined && !draft.saving}
+	{#if failure !== undefined}
 		<p role="alert" class="text-destructive">
-			Not saved: {saveFailureText(draft.error)}
-			<button type="button" class="underline" onclick={() => void draft.save()}>Try again</button>
+			Not saved: {saveFailureText(failure)}
+			<button type="button" class="underline" onclick={() => void edit.save()}>Try again</button>
 		</p>
 	{/if}
 
@@ -178,6 +182,6 @@
 	{#if keyProblem}<p role="alert" class="text-destructive">{keyProblem}</p>{/if}
 	{#if deleteProblem}<p role="alert" class="text-destructive">{deleteProblem}</p>{/if}
 	<div>
-		<Button variant="ghost" size="sm" disabled={draft.locked} onclick={() => void removeConnection()}>Delete connection</Button>
+		<Button variant="ghost" size="sm" disabled={edit.locked} onclick={() => void removeConnection()}>Delete connection</Button>
 	</div>
 </li>

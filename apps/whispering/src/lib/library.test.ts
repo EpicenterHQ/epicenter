@@ -48,6 +48,7 @@ import { openText, settle } from './edits.test-support.js';
 import { readBytes } from './files.js';
 import type { Library } from './library.svelte.js';
 import { openTestLibrary } from './library.test-support.js';
+import { quiet } from './query.test-support.js';
 import { filesLine } from './status.js';
 import type { Workspace } from './workspace/types.js';
 import {
@@ -59,7 +60,7 @@ import {
 	whisperingDirectory,
 	withObstructedCreates,
 	withResultFailures,
-	withTables,
+	replaceTables,
 } from './workspace.test-support.js';
 
 /** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
@@ -110,11 +111,12 @@ async function open({
 		starts: failResultStarts,
 		answers: failAnswerWrites,
 	};
+	const stored = folder.files;
 	const files: typeof folder.files = {
-		...folder.files,
+		...stored,
 		async write(path, from, content) {
 			await beforeFileWrite?.(path, from === null);
-			return folder.files.write(path, from, content);
+			return stored.write(path, from, content);
 		},
 	};
 	const transcribed: Parameters<Workspace['transcribe']>[0][] = [];
@@ -126,7 +128,7 @@ async function open({
 	);
 	const workspace: Workspace = {
 		kind: 'native',
-		folder: withTables(
+		folder: replaceTables(
 			folder,
 			{
 				transcriptions: withResultFailures(
@@ -162,7 +164,9 @@ async function open({
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
 		},
-		close: () => folder.close(),
+		close: async () => {
+			await folder.close();
+		},
 	};
 	const library = await openTestLibrary(workspace);
 	opened.push(library);
@@ -179,6 +183,7 @@ async function record(library: Library) {
 	await library.startRecording();
 	expect(library.recorder.phase).toBe('recording');
 	await library.stopRecording();
+	await quiet(library);
 }
 
 /** The header's line, from the same function AppHeader calls. */
@@ -308,11 +313,15 @@ test('a recording being captured, and once it stops, has its audio here, never a
 	const { library } = await open();
 
 	await library.startRecording();
-	// The fixture's audio is written when it stops; until then the listing lacks it.
+	// The row's save is read back; the fixture's audio is written when it
+	// stops, so until then the listing lacks it.
+	await quiet(library);
 	const [entry] = library.entries;
 	expect(library.audioOf(entry!).kind).toBe('here');
 
 	await library.stopRecording();
+	expect(library.audioOf(library.entries[0]!).kind).toBe('here');
+	await quiet(library);
 	expect(library.audioOf(library.entries[0]!).kind).toBe('here');
 });
 
@@ -344,6 +353,7 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 	await library.startRecording();
 
 	expect(library.recorder.phase).toBe('recording');
+	await quiet(library);
 	const [entry] = library.entries;
 	expect(entry?.row.fields).toMatchObject({
 		capture: 'fixture',
@@ -352,6 +362,7 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 	expect(entry?.row.fields.durationMs).toBeUndefined();
 
 	await library.stopRecording();
+	await quiet(library);
 
 	expect(library.entries.map((stored) => stored.row.fields.durationMs)).toEqual(
 		[1000],
@@ -366,8 +377,12 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 test('a title typed while recording is kept when the recording stops and gets its length', async () => {
 	const { library, root } = await open();
 	await library.startRecording();
+	await quiet(library);
 	const entry = library.entries[0]!;
-	const title = library.fieldOf('recordings', entry.stem, 'title');
+	const title = library.fieldOf<'recordings', 'title'>(
+		library.rowView('recordings', entry.path),
+		'title',
+	);
 
 	title.change('Standup notes');
 	await library.stopRecording();
@@ -436,6 +451,7 @@ test('cancel deletes the recording’s row', async () => {
 	const { library, root } = await open();
 
 	await library.startRecording();
+	await quiet(library);
 	expect(library.entries).toHaveLength(1);
 	await library.cancelRecording();
 
@@ -448,6 +464,7 @@ test('a recording still recording is not transcribed', async () => {
 	const { library, transcribed } = await open();
 
 	await library.startRecording();
+	await quiet(library);
 	const [entry] = library.entries;
 	await library.transcribe(entry!);
 
@@ -513,7 +530,9 @@ test('files an earlier version left in an ordinary directory read as they are, e
 	);
 
 	// Editing the notes keeps the field this version does not know.
-	library.editBody('recordings', 'kept', 'My notes, edited\n');
+	const view = library.rowView('recordings', entry.path);
+	expect(view.row?.body).toBeDefined();
+	library.editBody(view, 'My notes, edited\n');
 	await library.saveBody(entry.path);
 	await settle(library);
 	const saved = await readFile(join(root, 'recordings', 'kept.md'), 'utf8');
@@ -605,6 +624,7 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	const { audioPath } = entry.row.fields;
 
 	await library.transcribe(entry);
+	await quiet(library);
 
 	expect(transcribed).toEqual([
 		{
@@ -1064,7 +1084,7 @@ test('recording and transformation files keep their names, and a transcript keep
 	expect(await library.rename(result.path, 'renamed.md')).toBeUndefined();
 	await settle(library);
 	expect(
-		library.rowAt('transcriptions', 'transcriptions/renamed.md'),
+		library.rowView('transcriptions', 'transcriptions/renamed.md').row,
 	).toBeDefined();
 	expect(library.resultsFor(entry.stem).map((item) => item.path)).toEqual([
 		'transcriptions/renamed.md',

@@ -14,7 +14,7 @@
  * each row that needs one and never asked again here; a deletion is captured
  * for each row first, as a single deletion is, and removed only as captured.
  */
-import { audioPathIn } from './definition.js';
+import { audioPathIn, TRANSCRIPTIONS } from './definition.js';
 import { recordingTitle } from './deletion.js';
 import type {
 	Deletion,
@@ -317,7 +317,7 @@ export type BulkTranscription = {
  * the one already sent ends as it would have and is reported as it ended.
  */
 export async function transcribeRows(
-	library: Source & Pick<Library, 'transcribe' | 'closing'>,
+	library: Source & Pick<Library, 'transcribe' | 'closing' | 'readAgain'>,
 	paths: readonly string[],
 	onProgress?: (done: number) => void,
 ): Promise<BulkTranscription> {
@@ -359,7 +359,9 @@ export async function transcribeRows(
 		else {
 			await library.transcribe(entry);
 			// Counted by what the folder lists now, not by the call having returned:
-			// the library declines without a word when the recording is on its way out.
+			// the library declines without a word when the recording is on its way
+			// out. The transcriptions are read for this count, after the save.
+			await library.readAgain([TRANSCRIPTIONS]);
 			const run = library.transcriptionRun(entry.stem);
 			const state = newestState(library, entry.stem);
 			if (state?.kind === 'answered') outcome.transcribed.push(title);

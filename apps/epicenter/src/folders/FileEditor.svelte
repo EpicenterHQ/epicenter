@@ -5,30 +5,23 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import type { FileDrafts } from './drafts.svelte';
-	import { fileText, sourceRead } from './files';
+	import { createTextEdit } from '@epicenter/svelte/edits';
+	import { unsavedText } from '@epicenter/svelte/write-failure';
+	import { fileText, savedText, sourceRead } from './files';
 
 	/**
 	 * One file of the window's folder, edited as the exact text it holds.
-	 * What is typed is the folder's draft of the file (`drafts.file`), which
-	 * the window holds, not this editor: it saves a second after the last
-	 * keystroke, when the box loses focus, and when the editor goes away, and
-	 * choosing the file again shows it. The folder merges each save, by line,
-	 * with whatever else was saved meanwhile, so lines another window or
-	 * agent changed stay. A reread never replaces what is typed. A failed
-	 * save keeps the typing and offers Try again, or Discard. A file that is
-	 * not text, or whose line endings a text box would rewrite, is shown and
-	 * not changed. The view keys this editor by the file.
+	 * What is typed is held by the folder (`folder.files.edit(path)`), not by
+	 * this editor: it saves a second after the last keystroke, when the box
+	 * loses focus, and when the editor goes away, and choosing the file again
+	 * shows it. The folder merges each save, by line, with whatever else was
+	 * saved meanwhile, so lines another window or agent changed stay. A
+	 * reread never replaces what is typed. A failed save keeps the typing and
+	 * offers Try again, or Discard. A file that is not text, or whose line
+	 * endings a text box would rewrite, is shown and not changed. The view
+	 * keys this editor by the file.
 	 */
-	let {
-		drafts,
-		path: shownPath,
-	}: {
-		/** The typing held in the folder, which outlives this editor. */
-		drafts: FileDrafts;
-		/** The file this editor edits. */
-		path: string;
-	} = $props();
+	let { path: shownPath }: { path: string } = $props();
 
 	const context = getFolder();
 
@@ -36,66 +29,73 @@
 	// may already read the next file, so a save sent as it goes uses this.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
-	// svelte-ignore state_referenced_locally
-	const draft = drafts.file(path);
 
 	const stored = createQuery(() => context.queries.file(path, sourceRead));
+	const edit = createTextEdit(
+		context.folder.files.edit(path),
+		() => stored.data ?? undefined,
+	);
 	const shown = $derived(
 		stored.data === undefined || stored.data === null ? undefined : fileText(stored.data),
 	);
-
-	/** The file's content, which the draft starts from at its first keystroke. */
-	const base = $derived(
-		shown?.kind === 'text' && stored.data != null
-			? { content: stored.data, crlf: shown.crlf }
-			: undefined,
-	);
+	const pending = $derived(edit.pending);
 	/** Whether the file is shown as it is stored, with no typing over it. */
-	const untyped = $derived(!draft.held);
+	const untyped = $derived(pending === undefined);
+	/** Failed fields typed in Tables, held until retried or discarded. */
+	const fieldsLocked = $derived(pending?.kind === 'fields' && pending.error !== undefined);
+	/** Retained saved text without source bytes is available for copying. */
+	const sourceLocked = $derived(pending?.kind !== 'text' && shown?.kind !== 'text');
+	/** Exact presented text, including held input and saves a read may not show yet. */
+	const text = $derived(edit.text);
+	/** The presented text determines the line endings of the next input. */
+	const crlf = $derived(text?.includes('\r\n') ?? false);
+	/** The text box's text: one line feed per line, as a text box holds it. */
+	const boxText = $derived(text?.replaceAll('\r\n', '\n') ?? '');
 
-	// The draft outlives the editor; send what is typed now.
-	onDestroy(() => void draft.save());
+	// The input outlives the editor; send what is typed now.
+	onDestroy(() => void edit.save());
 </script>
 
 <section class="flex min-h-0 flex-1 flex-col" aria-label={path}>
 	<header class="flex items-center gap-3 border-b px-4 py-2">
 		<h3 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h3>
 		<span class="text-xs text-muted-foreground" role="status">
-			{#if draft.exclusivePending}
+			{#if edit.locked && !context.closing}
 				Saving view settings; source editing resumes when it finishes.
-			{:else if draft.saving}
+			{:else if pending !== undefined && pending.error === undefined}
 				Saving…
-			{:else if draft.error !== undefined}
+			{:else if pending?.error !== undefined}
 				Not saved
 			{:else if shown?.kind === 'text'}
 				Saved when you pause or leave the box.
 			{/if}
 		</span>
 	</header>
-	{#if draft.error !== undefined && !draft.saving}
+	{#if pending?.error !== undefined && !pending.saving}
 		<Alert.Root variant="destructive" class="rounded-none border-x-0 border-t-0">
 			<Alert.Description>
-				<p>Your edit was not saved: {draft.error.message}</p>
-				{#if draft.sourceLocked}<p>Copy the field changes or discard them before repairing the source.</p><pre class="whitespace-pre-wrap font-mono text-xs">{draft.fieldText}</pre>{/if}
+				<p>Your edit was not saved: {pending.error.message}</p>
+				{#if pending.kind === 'fields'}<p>Copy the field changes or discard them before repairing the source.</p><pre class="whitespace-pre-wrap font-mono text-xs">{unsavedText(pending)}</pre>{/if}
 				<div class="mt-1 flex gap-2">
-					<Button size="xs" variant="outline" onclick={() => void draft.retry()}>Try again</Button>
-					<Button size="xs" variant="ghost" onclick={() => draft.discard()}>
+					<Button size="xs" variant="outline" onclick={() => void edit.retry()}>Try again</Button>
+					<Button size="xs" variant="ghost" onclick={() => edit.discard()}>
 						Discard edit
 					</Button>
 				</div>
 			</Alert.Description>
 		</Alert.Root>
 	{/if}
-	<!-- Typing held is always shown, whatever the file reads as now. -->
-	{#if untyped && stored.error}
+	{#if stored.error}
 		<div class="p-4">
 			<Alert.Root variant="destructive">
 				<Alert.Description>This file does not read: {stored.error.message}</Alert.Description>
 			</Alert.Root>
 		</div>
-	{:else if untyped && stored.isPending}
-		<p class="p-4 text-sm text-muted-foreground">Reading…</p>
-	{:else if untyped && stored.data === null}
+	{/if}
+	<!-- A failed reread does not remove the text already presented. -->
+	{#if untyped && text === undefined && stored.data === undefined}
+		{#if stored.isPending}<p class="p-4 text-sm text-muted-foreground">Reading…</p>{/if}
+	{:else if untyped && text === undefined && stored.data === null}
 		<p class="p-4 text-sm text-muted-foreground">This file no longer exists.</p>
 	{:else if untyped && shown?.kind === 'binary'}
 		<p class="p-4 text-sm text-muted-foreground">
@@ -111,16 +111,17 @@
 	{:else}
 		{#if stored.data === null}
 			<p class="border-b px-4 py-2 text-sm text-muted-foreground">
-				This file was deleted elsewhere. Saving puts your text back in it.
+				{#if pending?.kind === 'text'}This file was deleted elsewhere. Saving puts your text back in it.
+				{:else}This file was deleted elsewhere. The last text is available to copy.{/if}
 			</p>
 		{/if}
 		<Textarea
 			class="min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm outline-none"
 			aria-label="Text of {path}"
 			spellcheck="false"
-			readonly={draft.sourceLocked || draft.exclusivePending}
-			bind:value={() => draft.shown(base) ?? (shown?.kind === 'text' ? shown.text : ''), (value) => draft.type(String(value), base)}
-			onblur={() => void draft.save()}
+			readonly={fieldsLocked || sourceLocked || edit.locked}
+			bind:value={() => boxText, (value) => edit.change(savedText(String(value), crlf))}
+			onblur={() => void edit.save()}
 		/>
 	{/if}
 </section>

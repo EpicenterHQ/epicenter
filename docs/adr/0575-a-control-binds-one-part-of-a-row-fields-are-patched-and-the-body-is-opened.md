@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
+- **Amended by:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md) (Proposed): a field and the body are typed through one edit handle per row (`folder.tables.<t>.edit(id)`) as one nested change, `{ fields?, body? }`, held by the folder and saved as one merge; `createBodyEditor`, the per-part mutations, and the rule that nothing saves fields and the body together give way to it. A field still takes the typed value, the body still merges by line, and the saver still wins.
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing the "Restore theirs" notice: where a save meets another writer's change to the same unit, the saver wins and nothing is shown. That Save and Sync share one merge remains.
 - **Relates:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) (the one write each part's helper calls), [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (`InvalidRow`, no partial row), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (a row merges by field and the body by line), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (`table.update`), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (`getFolder()`)
 
@@ -41,8 +42,15 @@ same key, the saver wins.
 ```
 
 **The body is opened.** A body is edited over minutes, and a whole-body write
-at the end would replace everything another writer did to it in that time. Its
-control opens it with `createBodyEditor` from `@epicenter/folder/svelte`,
+at the end would replace everything another writer did to it in that time.
+
+> Since ADR-0656 the field and body controls below both bind the row's edit
+> handle (`createRowEdit(folder.tables.books.edit(stem), () => row)`) and
+> type `edit.change({ fields })` or `edit.change({ body })`; the folder holds
+> the input and merges each save by unit. The calls below record the
+> original decision.
+
+Its control opens it with `createBodyEditor` from `@epicenter/folder/svelte`,
 given the row as the cache holds it and the table's `write` mutation:
 
 ```ts
@@ -82,11 +90,11 @@ setting alike. The save returns no list of what it replaced and there is no
 deleted. The engine logs each overwrite that lands through
 `wellcrafted/logger` (`folder/save`) with the units it replaced.
 
-**A field set never carries a body, and no control saves a whole row.**
-Replacing a body on the file as it is now is the write this record exists to
-prevent, so the helper that would do it does not take one. A control that
-sets a field and the body sends a set and a body write; nothing saves
-several fields and the body as one unit.
+**No control saves a whole row over the file as it is now.** Replacing a
+body on the file as it is now is the write this record exists to prevent.
+(ADR-0656 replaces the rest of this rule: one change may name fields and the
+body, and its save merges each unit with the file as it is then, so the body
+is still never replaced whole.)
 
 ## Consequences
 

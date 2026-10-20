@@ -9,15 +9,13 @@
 
 	let {
 		open,
-		saveAfterMs,
 		onContext,
 	}: {
 		open: () => Promise<Result<Folder<Record<string, TSchema>>, OpenFolderError>>;
-		saveAfterMs?: number;
 		onContext: (context: FolderContext) => void;
 	} = $props();
 </script>
 
-<FolderApp {open} {saveAfterMs}>
+<FolderApp {open}>
 	{#snippet children(context)}<ContextProbe {context} {onContext} />{/snippet}
 </FolderApp>

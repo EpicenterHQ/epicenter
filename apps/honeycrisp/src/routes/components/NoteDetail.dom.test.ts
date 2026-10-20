@@ -56,7 +56,7 @@ afterEach(async () => {
 test('Edit as file keeps a note whose body changes failed to save', async () => {
 	const { notes, target, failSaves } = await view({ saveAfterMs: 60_000 });
 	const body = 'Keep this body\n';
-	notes.editBody(PATH, body);
+	notes.noteBody(PATH).change({ body });
 	failSaves();
 	click(target, 'Edit as file');
 	await until(() => notes.isUnsaved(PATH), 'the refused body save');
@@ -68,12 +68,12 @@ test('Edit as file keeps a note whose body changes failed to save', async () => 
 });
 
 test('a finishing Edit as file save does not reopen a note after selecting another', async () => {
-	const { notes, target, write } = await view({ saveAfterMs: 60_000 });
+	const { notes, target, write, folder } = await view({ saveAfterMs: 60_000 });
 	await write('notes/b.md', noteText({ title: 'Beta' }));
-	notes.editBody(PATH, 'A pending body\n');
+	notes.noteBody(PATH).change({ body: 'A pending body\n' });
 	click(target, 'Edit as file');
 	notes.open('notes/b.md');
-	await notes.saveRow(PATH);
+	await folder.tables.notes.edit('a').save();
 	await quiet(notes);
 	expect(notes.selected?.path).toBe('notes/b.md');
 	expect(notes.selected?.as).toBe('note');
@@ -224,7 +224,7 @@ test('a title typed before another tab saved keeps their body and wins the title
 	blur(titleOf(target));
 	await tick();
 	await settle();
-	expect(local.edits.failures).toEqual([]);
+	expect(local.failures).toEqual([]);
 	const saved = (await text(PATH)) ?? '';
 	expect(saved).toContain('title: "Mine"');
 	expect(saved).toContain('Their body.\n');

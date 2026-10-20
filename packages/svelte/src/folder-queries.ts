@@ -1,4 +1,13 @@
-/** Query identity and readers for one opened folder. No query options are retained here. */
+/**
+ * Query identity and readers for one opened folder. No query options are
+ * retained here.
+ *
+ * Rows, documents and file reads carry the read that answered them, the
+ * source an edit names (`@epicenter/folder`'s read notes). A newer read must
+ * reach a view as its own values, so these queries turn structural sharing
+ * off, which also applies to an observer's `select`: a cache that kept an
+ * older equal value would show the view an older read than it was given.
+ */
 import type { Folder, FolderFiles, Row } from '@epicenter/folder';
 import { readDocuments } from '@epicenter/folder/documents';
 import type { DataTag, QueryFunctionContext } from '@tanstack/query-core';
@@ -23,6 +32,7 @@ export type FileReader<TData> = {
 		query: QueryFunctionContext,
 	) => Promise<TData>;
 	gcTime?: number;
+	/** Off unless the value carries no source an edit names. */
 	structuralSharing?: boolean;
 };
 
@@ -49,6 +59,7 @@ export function createFolderQueries<TTables extends Record<string, TSchema>>(
 		rows<TName extends keyof TTables & string>(table: TName) {
 			return {
 				queryKey: folderKeys.rows(table),
+				structuralSharing: false,
 				queryFn: async (): Promise<Row<TTables[TName]>[]> => {
 					const listed = await folder.tables[table].list();
 					if (listed.error !== null) throw listed.error;
@@ -71,6 +82,7 @@ export function createFolderQueries<TTables extends Record<string, TSchema>>(
 		documents() {
 			return {
 				queryKey: folderKeys.documents,
+				structuralSharing: false,
 				queryFn: async () => {
 					const read = await readDocuments(folder.files);
 					if (read.error !== null) throw read.error;
@@ -88,7 +100,7 @@ export function createFolderQueries<TTables extends Record<string, TSchema>>(
 				queryFn: (query: QueryFunctionContext) =>
 					reader.read(folder.files, path, query),
 				gcTime: reader.gcTime,
-				structuralSharing: reader.structuralSharing,
+				structuralSharing: reader.structuralSharing ?? false,
 			};
 		},
 	};

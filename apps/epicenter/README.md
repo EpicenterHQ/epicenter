@@ -351,13 +351,18 @@ Boards group one field into distinct string, number, boolean, and null lanes.
 Enum and boolean schema hints retain empty destinations. **No value** represents
 an absent field. Object and array values appear in **Other**, which cannot be
 chosen as a move destination. Moving a card changes its grouping field through
-the same path-keyed draft as
+the same file edit handle (`folder.files.edit(path)`) as
 grid and Files edits. Failed moves retain their draft for retry or discard.
 Cards have no separate rank or drag-order record.
 
-One path-keyed draft owner keeps unfinished text and field intent across view
-switches. Field intent overlays fresh reads, so another writer's body changes
-remain visible. Starting to type source text deliberately turns that draft into
+The opened Folder owns unfinished text and field intent per path, from open to
+close, through `folder.files.edit(path)`
+([ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
+Files, grid, and board use its Svelte binding and keep no separate save queue,
+so input survives view switches. Field intent overlays fresh reads, so another
+writer's body changes remain visible. A failed reread leaves the text already
+shown in place and editable; text this window saved, with no readable source
+left, stays readable to copy but takes no typing. Starting to type source text deliberately turns that draft into
 a whole-file edit. A failed field edit stays held for explicit retry or discard;
 source repair first requires copying or discarding that intent. Recovery shows
 the field patch separately from the current source, without keeping a stale
@@ -388,14 +393,20 @@ the window retains that working copy across selections and external changes.
 Saving changes one entry against the entry originally read. Concurrent changes
 to siblings survive; a different change to the same entry requires a reload or
 a new copy. Failed saves keep the working settings and their diagnosis.
+The source exclusion ends when the declaration write finishes. Its later
+display refresh keeps only that view's command buttons pending, so it cannot
+delay Folder shutdown. A copy completion preserves independently edited source
+and target settings.
 A confirmed save whose reread fails stays attached to its saved key and shows a notice.
+A confirmed deletion stays successful when the read after it fails.
 Retained settings remain in the chooser if their saved entry disappears.
 Invalid and future view entries remain in the source with diagnostics while
 valid siblings stay available.
 
-The declaration's Files draft fences structured saves: it drains pending source
-input, refuses if that input still cannot save, and holds source editing read-only
-until the structured operation and reread finish. Saved-view writes use the narrow
+A structured save of the declaration runs as an exclusive change of
+`epicenter.json` (`edit.exclusive`): it sends pending source input, refuses if
+that input still cannot save, and holds source editing read-only until the
+declaration write finishes. Saved-view writes use the narrow
 Tauri adapter for this window's bound folder. The generic editor is a desktop
 client; it adds no browser saved-view writer.
 

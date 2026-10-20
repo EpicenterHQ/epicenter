@@ -10,20 +10,19 @@
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { page } from '$app/state';
-	import type { Library } from '$lib/library.svelte.js';
+	import { getSession } from '$lib/session.svelte.js';
 	import RecorderClock from './RecorderClock.svelte';
 	import SettingsForm from './SettingsForm.svelte';
 	import { filesLine } from '$lib/status.js';
 
 	let {
-		library,
 		filesOpen,
 		onToggleFiles,
 	}: {
-		library: Library;
 		filesOpen: boolean;
 		onToggleFiles: () => void;
 	} = $props();
+	const { library } = getSession();
 
 	/** Whether what the person did is in the folder on this device. The folder keeps no versions and does not sync here. */
 	const files = $derived(

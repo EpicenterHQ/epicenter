@@ -22,6 +22,7 @@
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import { sweepStaleScratch } from '../directory-store.js';
+import { saveDelay } from '../edit-owner.js';
 import { OpenFolderError } from '../errors.js';
 import type { DirectoryFolderOptions, Folder } from '../folder.js';
 import { localRoot, scratchDirectory } from './directory.js';
@@ -40,9 +41,11 @@ export async function openBunFolder<
 >({
 	directory,
 	tables,
+	saveAfterMs,
 }: DirectoryFolderOptions<TTables>): Promise<
 	Result<Folder<TTables>, OpenFolderError>
 > {
+	saveDelay(saveAfterMs);
 	const table = invalidTable(tables);
 	if (table !== undefined) return OpenFolderError.InvalidTable({ table });
 	if (typeof directory !== 'string' || directory === '')
@@ -61,6 +64,7 @@ export async function openBunFolder<
 			storage,
 			tables,
 			directory: `bun:${resolved}`,
+			saveAfterMs,
 		}),
 	);
 }

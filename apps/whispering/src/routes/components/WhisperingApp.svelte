@@ -74,7 +74,6 @@
 
 {#snippet header()}
 	<AppHeader
-		{library}
 		filesOpen={wide.current ? view.filesPane : view.filesSheet}
 		onToggleFiles={toggleFiles}
 	/>
@@ -88,7 +87,7 @@
 			<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
 				{#if view.filesPane}
 					<Resizable.Pane id="files" order={1} defaultSize={22} minSize={14} maxSize={40}>
-						<FileBrowser {library} onOpen={showOpened} />
+						<FileBrowser onOpen={showOpened} />
 					</Resizable.Pane>
 					<Resizable.Handle />
 				{/if}
@@ -108,7 +107,7 @@
 		<Sheet.Root bind:open={view.filesSheet}>
 			<!-- Named directly: the browser's own visible heading is the only "Files" heading. -->
 			<Sheet.Content side="left" class="gap-0 p-0" aria-label="Files">
-				<FileBrowser {library} onOpen={showOpened} />
+				<FileBrowser onOpen={showOpened} />
 			</Sheet.Content>
 		</Sheet.Root>
 	</div>

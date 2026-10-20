@@ -1,6 +1,6 @@
 <!--
 	A chat's focus words and their stages. A stage press is saved at once,
-	through the word's row draft, so it keeps a note still being typed.
+	through the word's edit handle, so it keeps a note still being typed.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -22,10 +22,11 @@
 	<div class="mb-4">
 		<p class="font-medium">{item.text}</p>
 		{#if entry}
-			{@const stage = entries.draftOf(entry.id).shown(entry.row).fields.stage}
+			{@const edit = entries.edit(entry.id, () => entry.row)}
+			{@const stage = edit.row.fields.stage}
 			<div class="mt-1 flex flex-wrap gap-1" aria-label="Your stage for {item.text}">
 				{#each STAGES as option}
-					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option} disabled={entries.isLocked(entry.id)} onclick={() => entries.setStage(entry, option)}>{STAGE_LABELS[option]}</Button>
+					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option} disabled={entries.isLocked(entry.id)} onclick={() => edit.setStage(option)}>{STAGE_LABELS[option]}</Button>
 				{/each}
 			</div>
 		{/if}

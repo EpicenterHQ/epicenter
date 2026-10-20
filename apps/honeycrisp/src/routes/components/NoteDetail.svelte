@@ -1,7 +1,7 @@
 <!--
 	One open note. The view reads the note rows narrowed to this note, so it
 	never disagrees with the list. Its title, folder, pin, and body are the
-	note's draft in the edit layer (`edits.row`): what is typed shows at once
+	note's edit handle (`folder.tables.notes.edit(id)`): what is typed shows at once
 	and saves a second after the last change, at once when the person leaves
 	the title or Source, picks a folder or a pin, and when the view goes
 	away. Each save merges with whatever was saved meanwhile. The rich-text
@@ -20,6 +20,8 @@
 	import * as Tabs from '@epicenter/ui/tabs';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import { InstantString } from '@epicenter/definition';
+	import { createRowEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { folderLabel, NOTES, type NoteFields, type NoteRow, noteIdOf } from '$lib/data.js';
@@ -50,10 +52,11 @@
 		...notes.queries.rows('folders'),
 		select: foldersOf,
 	}));
-	/** What is typed into the note and not yet saved. */
+	/** What is typed into the note over the row this view shows, not yet saved. */
 	// svelte-ignore state_referenced_locally
-	const draft = notes.edits.row(NOTES, id);
-	/** The note as the rich-text view reads and edits it: the stored row with the draft over it. */
+	const edit = createRowEdit(notes.folder.tables.notes.edit(id), () => note.data);
+	const pending = $derived(edit.pending);
+	/** The note as the rich-text view reads and edits it: the stored row with the typing over it. */
 	// svelte-ignore state_referenced_locally
 	const body = notes.noteBody(path);
 	/** Edits wait once the notes are closing, and while this file is deleted. */
@@ -62,8 +65,8 @@
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
 	let tab = $state<'rich' | 'source'>('rich');
 
-	// The draft outlives the view; send what is typed now.
-	onDestroy(() => void draft.save());
+	// The input outlives the view; send what is typed now.
+	onDestroy(() => void edit.save());
 
 	/** Say so when a change was refused. */
 	function refusal(problem: string | undefined) {
@@ -71,7 +74,8 @@
 	}
 
 	/** Set fields of the note and save at once. */
-	const set = (fields: Partial<NoteFields>) => refusal(notes.patchNote(path, fields));
+	// Every change here is typed over what this view shows (`body`).
+	const set = (fields: Partial<NoteFields>) => refusal(body.patch(fields));
 
 	/** Whether typing here did not save, with no save running. */
 	const unsaved = $derived(notes.isUnsaved(path));
@@ -79,9 +83,9 @@
 
 	async function editAsFile() {
 		const selected = notes.selected;
-		await draft.save();
+		await edit.save();
 		if (notes.selected !== selected) return;
-		if (draft.held) {
+		if (edit.pending !== undefined) {
 			toast.warning('The note changes have not saved', { description: 'Save them again or copy and discard them before editing the whole file.' });
 			return;
 		}
@@ -98,7 +102,7 @@
 			description: `Copy any text you need from ${path} before discarding it. What is saved stays on this device.`,
 			confirm: { text: 'Discard changes', variant: 'destructive' },
 			onConfirm: () => {
-				draft.discard();
+				edit.discard();
 			},
 		});
 	}
@@ -123,8 +127,8 @@
 		<div class="flex items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => row.fields.title, (typed) => refusal(notes.editTitle(path, typed))}
-				onblur={() => void draft.save()}
+				bind:value={() => row.fields.title, (typed) => refusal(body.change({ fields: { title: typed } }))}
+				onblur={() => void edit.save()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Title"
@@ -178,8 +182,8 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => row.body, (typed) => refusal(notes.editBody(path, typed))}
-						onblur={() => void draft.save()}
+						bind:value={() => row.body, (typed) => refusal(body.change({ body: typed }))}
+						onblur={() => void edit.save()}
 						disabled={locked}
 						aria-label="Markdown source"
 						spellcheck={false}
@@ -190,15 +194,15 @@
 
 		<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 			<span role="status" data-testid="write-status">
-				{#if unsaved && draft.error}
-					Not saved: {describeFailure(draft.error)}
+				{#if unsaved && pending?.error}
+					Not saved: {describeFailure(pending.error)}
 				{:else}
 					{notes.isWriting(path) ? 'Saving…' : 'Saved to'}
 					<code class="font-mono">{path}</code>
 				{/if}
 			</span>
 			{#if unsaved}
-				<Button size="sm" variant="outline" disabled={locked} onclick={() => void draft.save()}>
+				<Button size="sm" variant="outline" disabled={locked} onclick={() => void edit.save()}>
 					Save again
 				</Button>
 			{/if}
@@ -217,7 +221,7 @@
 						size="sm"
 						variant="outline"
 						disabled={locked}
-						onclick={() => void report('restore the note', notes.restoreNote(path))}
+						onclick={() => void report('restore the note', body.patch({ deletedAt: null }))}
 					>
 						Restore
 					</Button>
@@ -229,7 +233,7 @@
 						size="sm"
 						variant="ghost-destructive"
 						disabled={locked}
-						onclick={() => void report('delete the note', notes.trashNote(path))}
+						onclick={() => void report('delete the note', body.patch({ deletedAt: InstantString.now() }))}
 					>
 						Move to Recently Deleted
 					</Button>
@@ -257,17 +261,17 @@
 		<Empty.Root class="flex-1">
 			<Empty.Title>This note is no longer in the folder</Empty.Title>
 			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
-			{#if draft.pending}
+			{#if pending}
 				<div class="w-full max-w-md text-left text-xs" role="status" data-testid="held-draft">
 					<p>What you typed into it is not saved. Copy it, or save it again to put the note back.</p>
-					{#if draft.error}<p>Not saved: {describeFailure(draft.error)}</p>{/if}
+					{#if pending.error}<p>Not saved: {describeFailure(pending.error)}</p>{/if}
 					<pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved text">{[
-							draft.pending.fields.title,
-							draft.pending.body,
+							pending.fields.title,
+							pending.body,
 						]
 							.filter((part) => typeof part === 'string' && part !== '')
 							.join('\n\n')}</pre>
-					<Button variant="outline" size="xs" disabled={locked} onclick={() => void draft.save()}>Save it again</Button>
+					<Button variant="outline" size="xs" disabled={locked} onclick={() => void edit.save()}>Save it again</Button>
 					<Button variant="ghost-destructive" size="xs" onclick={confirmDiscard}>Discard it</Button>
 				</div>
 			{/if}

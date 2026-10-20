@@ -59,12 +59,27 @@
 	 * kept, one press away, under File details.
 	 */
 	const asText = $derived(library.showsText(path));
-	/** The recording as shown, while its fields are what is edited: as typed, or as the cache holds it. */
-	const row = $derived(asText ? undefined : library.rowAt(RECORDINGS, path));
+	// The parent keys this view by the file. While it replaces the view, the
+	// prop already reads the next file, so what is sent as the view goes away
+	// uses this one.
+	// svelte-ignore state_referenced_locally
+	const own = path;
+	/**
+	 * This view's row and text: each shows the view's own read with own saves
+	 * and what is typed over it, and typing names what it last showed.
+	 */
+	// svelte-ignore state_referenced_locally
+	const rowView = library.rowView(RECORDINGS, own);
 	const opened = createQuery(() => ({ ...library.local.queries.file(path, textRead), enabled: asText }));
-	/** The file's text as typed while an edit is unsaved, else as read. */
+	// svelte-ignore state_referenced_locally
+	const textView = library.textView(own, () =>
+		opened.data?.kind === 'text' ? opened.data.bytes : undefined,
+	);
+	/** The recording as shown, while its fields are what is edited: as typed, or as the cache holds it. */
+	const row = $derived(asText ? undefined : rowView.row);
+	/** The file's text as typed while an edit is unsaved, else as read with own saves. */
 	const text = $derived(
-		asText ? (library.editedText(path) ?? (opened.data?.kind === 'text' ? opened.data.text : undefined)) : undefined,
+		asText && (textView.pending !== undefined || opened.data?.kind === 'text') ? textView.text : undefined,
 	);
 	/** Why the file, as last saved, is not a recording yet. Typing saves after a pause, and this follows. */
 	const issues = $derived(asText ? (library.rowSource(RECORDINGS, path)?.issues ?? undefined) : undefined);
@@ -72,18 +87,11 @@
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
-	const pending = $derived(library.local.edits.row(RECORDINGS, rowIdOf(RECORDINGS, path) ?? path).pending);
+	const pending = $derived(library.heldAt(path));
 
-	// The parent keys this view by the file. While it replaces the view, the
-	// prop already reads the next file, so what is sent as the view goes away
-	// uses this one.
+	/** The title typed and not yet saved, over what this view shows. */
 	// svelte-ignore state_referenced_locally
-	const own = path;
-	const ownId = rowIdOf(RECORDINGS, own) ?? own;
-
-	/** The title typed and not yet saved: the recording's field draft. */
-	// svelte-ignore state_referenced_locally
-	const typedTitle = library.fieldOf(RECORDINGS, ownId, 'title');
+	const typedTitle = library.fieldOf<typeof RECORDINGS, 'title'>(rowView, 'title');
 	// The drafts outlive the view; send what is typed now.
 	onDestroy(() => {
 		void typedTitle.save();
@@ -220,7 +228,7 @@
 						class="min-h-28 resize-y font-sans"
 						bind:value={
 							() => row?.body ?? '',
-							(value) => library.editBody(RECORDINGS, ownId, value)
+							(value) => library.editBody(rowView, value)
 						}
 						onblur={() => void library.saveBody(own)}
 						disabled={locked}
@@ -283,7 +291,7 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(text ?? ''), (value) => library.editText(path, withFileNewlines(value, text ?? ''))}
+					bind:value={() => lf(text ?? ''), (value) => library.editText(textView, withFileNewlines(value, text ?? ''))}
 					onblur={() => void library.saveText(path)}
 					disabled={locked}
 					aria-label="Markdown source"

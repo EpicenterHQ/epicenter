@@ -19,9 +19,8 @@ export { QueryClient, QueryObserver };
  * waits for its pause is not waited for.
  */
 export async function quiet({
-	queryClient,
-	folder,
-}: Pick<Library, 'queryClient' | 'folder'>) {
+	local: { queryClient, folder },
+}: Pick<Library, 'local'>) {
 	const idle = () =>
 		!folder.status.saving &&
 		queryClient.isMutating() === 0 &&

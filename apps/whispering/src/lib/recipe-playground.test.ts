@@ -38,6 +38,7 @@ import {
 } from './definition.js';
 import { settle, transformationEditor } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
+import { quiet } from './query.test-support.js';
 import { resolveRecipe } from './recipe.js';
 import { TransformationError } from './transformation.js';
 import {
@@ -46,7 +47,7 @@ import {
 	openTestWorkspace,
 	TEST_BASE_URL,
 	type TestWorkspaceOptions,
-	withTables,
+	replaceTables,
 } from './workspace.test-support.js';
 
 const { createSession } = await import('./session.svelte.ts');
@@ -75,7 +76,7 @@ async function open(options: TestWorkspaceOptions = {}) {
 	const textRuns = tables.text_runs;
 	const session = await createSession({
 		...test.workspace,
-		folder: withTables(test.workspace.folder, {
+		folder: replaceTables(test.workspace.folder, {
 			text_runs: {
 				...textRuns,
 				async list() {
@@ -122,8 +123,10 @@ async function recipeFile(
 async function transcribed(library: Library) {
 	await library.startRecording();
 	await library.stopRecording();
+	await quiet(library);
 	const recording = library.entries[0]!;
 	await library.transcribe(recording);
+	await quiet(library);
 	return { recording, transcript: library.resultsFor(recording.stem)[0]! };
 }
 
@@ -251,8 +254,12 @@ test('a result file and a recipe written by an earlier build still read and list
 // Pasted text
 // ============================================================================
 
-/** The newest result on pasted text of the recipe `stem`, and what it shows. */
-function newestText(library: Library, stem: string) {
+/**
+ * The newest result on pasted text of the recipe `stem`, and what it shows,
+ * once the reads its row's saves started have landed.
+ */
+async function newestText(library: Library, stem: string) {
+	await quiet(library);
 	const output = library.textOutputsOf(stem)[0]!;
 	return {
 		output,
@@ -281,7 +288,7 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 			input: PASTED,
 		},
 	]);
-	const { output, state } = newestText(library, stem);
+	const { output, state } = await newestText(library, stem);
 	expect(state.kind).toBe('running');
 	expect({ fields: output.row.fields, body: output.row.body }).toEqual({
 		fields: {
@@ -299,6 +306,7 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 
 	answer.resolve(Ok({ text: 'Transformed: so um this is pasted text' }));
 	expect(await running).toBeUndefined();
+	await quiet(library);
 
 	const saved = library.textOutputsOf(stem);
 	expect(saved.map((item) => item.stem)).toEqual([output.stem]);
@@ -347,6 +355,7 @@ test('what is written is what was sent: edits to the recipe or the connection wh
 	).toBeUndefined();
 	answer.resolve(Ok({ text: 'answer' }));
 	expect(await running).toBeUndefined();
+	await quiet(library);
 
 	const saved = library.textOutputsOf(stem)[0]!;
 	expect(saved.row.fields).toMatchObject({
@@ -395,7 +404,7 @@ test('discarding a result on pasted text deletes its row, even while its request
 	const running = library.transformText(path, PASTED);
 	await eventually(() => transformed.length === 1);
 
-	const { output } = newestText(library, stem);
+	const { output } = await newestText(library, stem);
 	expect(await library.deleteTextResult(output)).toBeUndefined();
 	answer.resolve(Ok({ text: 'too late' }));
 	expect(await running).toBeUndefined();
@@ -416,7 +425,7 @@ test('a failed run runs again from its row only while the text connection is sti
 	const path = await recipe(library);
 	const stem = selectedStem(library);
 	await library.transformText(path, PASTED);
-	const { output, state } = newestText(library, stem);
+	const { output, state } = await newestText(library, stem);
 	expect(state.kind).toBe('failed');
 	refuse = false;
 
@@ -442,6 +451,7 @@ test('a failed run runs again from its row only while the text connection is sti
 	expect(transformed).toHaveLength(2);
 	expect(transformed[1]).toEqual(transformed[0]!);
 	expect(await names(root, TEXT_RUNS)).toEqual([`${output.stem}.md`]);
+	await quiet(library);
 	expect(library.textOutputsOf(stem)[0]!.row.body).toBe(
 		'Again: so um this is pasted text\n',
 	);
@@ -458,6 +468,7 @@ test('a transcript’s failed run is not sent again over a connection that moved
 	const { transcript } = await transcribed(library);
 	const path = await recipe(library);
 	await library.transform(transcript.path, path);
+	await quiet(library);
 	const failed = library.outputsFor(transcript.stem)[0]!;
 	refuse = false;
 	await library.saveConnection('text', {
@@ -473,7 +484,7 @@ test('a transcript’s failed run is not sent again over a connection that moved
 	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe('');
 });
 
-test('the pasted text stays with the session, and a result on it never holds the app open', async () => {
+test('pasted text stays across pages and guards departure until cleared', async () => {
 	const { open: openWorkspace, remove } = await openTestWorkspace();
 	const { openSession } = await import('./session.svelte.ts');
 	const session = expectOk(await openSession(openWorkspace));
@@ -491,7 +502,11 @@ test('the pasted text stays with the session, and a result on it never holds the
 	// Choosing another recipe, or another page, builds nothing new: both stay.
 	await library.open(await recipe(library, STARTER_TRANSFORMATIONS[1]!));
 	expect(view.pastedText).toBe(PASTED);
+	await quiet(library);
 	expect(library.textOutputsOf(stem)).toHaveLength(1);
+	expect(session.blocksNavigation({ willUnload: false })).toBe(false);
+	expect(session.blocksNavigation({ willUnload: true })).toBe(true);
+	view.pastedText = '';
 	expect(session.blocksNavigation({ willUnload: true })).toBe(false);
 });
 

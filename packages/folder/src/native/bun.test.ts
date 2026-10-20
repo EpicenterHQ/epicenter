@@ -78,6 +78,20 @@ const open = async (root: string) =>
 const text = (root: string, path: string) =>
 	readFile(join(root, path), 'utf8').catch(() => undefined);
 
+test('the pause a directory is opened with saves its held input', async () => {
+	const root = await directory({ 'notes/milk.md': '---\ntitle: Milk\n---\n' });
+	const folder = expectOk(
+		await openBunFolder({ directory: root, tables: { notes }, saveAfterMs: 5 }),
+	);
+	const row = expectOk(await folder.tables.notes.get('milk'))!;
+	folder.tables.notes.edit('milk').change(row, { fields: { title: 'Oat' } });
+	expect(folder.status.unsaved).toEqual(['notes/milk.md']);
+	for (let turn = 0; turn < 100 && folder.status.unsaved.length > 0; turn++)
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	expect(await text(root, 'notes/milk.md')).toBe('---\ntitle: Oat\n---\n');
+	expect(await folder.close()).toEqual([]);
+});
+
 test('binary saves keep exact bytes and preserve the input captured at call time', async () => {
 	const root = await directory();
 	const folder = await open(root);
@@ -584,6 +598,9 @@ test('structural refusals are results, and none is a storage failure', async () 
 	expect(folder.status).toEqual({
 		saving: false,
 		storageFailure: null,
+		unsaved: [],
+		failures: [],
+		closing: false,
 	});
 	expect(await text(root, 'keep.md')).toBe('keep');
 	await folder.close();
@@ -625,9 +642,14 @@ test('a save notifies this handle and the directory’s other handles in this pr
 	expectOk(await first.files.write('a.md', null, 'a'));
 	expect(heard).toEqual([{ paths: ['a.md'], origin: 'this-handle' }]);
 	expect(heardElsewhere).toEqual([{ paths: ['a.md'], origin: 'other-handle' }]);
-	// A no-op save changes nothing and tells nobody.
+	// A save whose content was already stored tells only its own handle, so
+	// its readers reread; nothing changed for the others.
 	expectOk(await first.files.write('a.md', 'a', 'a'));
-	expect(heard).toHaveLength(1);
+	expect(heard).toEqual([
+		{ paths: ['a.md'], origin: 'this-handle' },
+		{ paths: ['a.md'], origin: 'this-handle' },
+	]);
+	expect(heardElsewhere).toHaveLength(1);
 	stop();
 	await second.close();
 	expectOk(await first.files.write('b.md', null, 'b'));
@@ -651,6 +673,9 @@ test('status shows saving and the last storage failure until a later success', a
 	expect(folder.status).toEqual({
 		saving: false,
 		storageFailure: null,
+		unsaved: [],
+		failures: [],
+		closing: false,
 	});
 
 	await chmod(root, 0o555);

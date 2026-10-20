@@ -56,11 +56,23 @@ export type LineMerge = {
  * of one frontmatter key.
  */
 export async function mergeLines(
-	{ base, change, current }: TextVersions,
-	{ union = true }: { union?: boolean } = {},
+	versions: TextVersions,
+	options: { union?: boolean } = {},
 ): Promise<LineMerge> {
 	// Load the diff implementation only when both sides changed text.
 	const { diffArrays } = await import('diff');
+	return mergeLinesWith(diffArrays, versions, options);
+}
+
+/** The diff `mergeLinesWith` runs: `diffArrays` from the `diff` package. */
+export type DiffArrays = typeof import('diff').diffArrays;
+
+/** `mergeLines` with the diff implementation already loaded, so it answers at once. */
+export function mergeLinesWith(
+	diffArrays: DiffArrays,
+	{ base, change, current }: TextVersions,
+	{ union = true }: { union?: boolean } = {},
+): LineMerge {
 	const [b, o, t] = [split(base), split(change), split(current)] as const;
 
 	function hunks(side: Hunk['side'], changed: string[]): Hunk[] {

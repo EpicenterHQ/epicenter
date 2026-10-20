@@ -29,5 +29,5 @@ export const openFolder: OpenFolder = async (options) => {
 	}
 	if (options.directory !== undefined) return OpenFolderError.NotTauri();
 	const { openLocalFolder } = await import('./local-folder.js');
-	return openLocalFolder({ tables: options.tables });
+	return openLocalFolder(options);
 };

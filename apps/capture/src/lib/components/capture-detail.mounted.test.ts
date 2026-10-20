@@ -133,18 +133,19 @@ test("another tab's change never replaces typing held here, and the save merges 
 
 test('a failed save says so, keeps the edit, and Save again lands it', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
-	harness.failNextRowSave();
+	const restore = harness.failSaves();
 	type(field('new-thought'), 'kept');
 	submit(field('new-thought')?.form);
 	await until(() => {
 		flushSync();
 		return harness.target.querySelector('[aria-label="Not saved"]') !== null;
 	}, 'the failure');
-	expect(harness.target.textContent).toContain(
-		"This device's storage refused it: the disk is full.",
+	expect(harness.target.textContent).toMatch(
+		/This device's storage refused it: .*the disk is full/,
 	);
 	// The thought added stays on screen.
 	expect(harness.target.textContent).toContain('kept');
+	restore();
 	expect(await harness.text(PATH)).toBe(FILE);
 
 	click(harness.target, 'Save again');

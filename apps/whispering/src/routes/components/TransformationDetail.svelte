@@ -61,12 +61,27 @@
 	} = $props();
 
 	const asText = $derived(library.showsText(path));
-	/** The transformation as shown, while its fields are what is edited: as typed, or as the cache holds it. */
-	const row = $derived(asText ? undefined : library.rowAt(TRANSFORMATIONS, path));
+	// The parent keys this view by the file. While it replaces the view, the
+	// prop already reads the next file, so what is sent as the view goes away
+	// uses this one.
+	// svelte-ignore state_referenced_locally
+	const own = path;
+	/**
+	 * This view's row and text: each shows the view's own read with own saves
+	 * and what is typed over it, and typing names what it last showed.
+	 */
+	// svelte-ignore state_referenced_locally
+	const rowView = library.rowView(TRANSFORMATIONS, own);
 	const opened = createQuery(() => ({ ...library.local.queries.file(path, textRead), enabled: asText }));
-	/** The file's text as typed while an edit is unsaved, else as read. */
+	// svelte-ignore state_referenced_locally
+	const textView = library.textView(own, () =>
+		opened.data?.kind === 'text' ? opened.data.bytes : undefined,
+	);
+	/** The transformation as shown, while its fields are what is edited: as typed, or as the cache holds it. */
+	const row = $derived(asText ? undefined : rowView.row);
+	/** The file's text as typed while an edit is unsaved, else as read with own saves. */
 	const source = $derived(
-		asText ? (library.editedText(path) ?? (opened.data?.kind === 'text' ? opened.data.text : undefined)) : undefined,
+		asText && (textView.pending !== undefined || opened.data?.kind === 'text') ? textView.text : undefined,
 	);
 	/**
 	 * The file as last saved, while its text is what is edited: a recipe when
@@ -75,23 +90,15 @@
 	 */
 	const saved = $derived(asText ? library.rowSource(TRANSFORMATIONS, path) : undefined);
 	const issues = $derived(saved?.issues ?? undefined);
-	// The parent keys this view by the file. While it replaces the view, the
-	// prop already reads the next file, so what is sent as the view goes away
-	// uses this one.
-	// svelte-ignore state_referenced_locally
-	const own = path;
-	const ownId = rowIdOf(TRANSFORMATIONS, own) ?? own;
-
 	/**
-	 * A field typed here and not yet saved: the transformation's field
-	 * drafts, each sent a second after the last keystroke, when the person
-	 * leaves it, and when the view goes away, as a set of the file as it is
-	 * now (ADR-0576).
+	 * A field typed here and not yet saved, over what this view shows: each
+	 * sent a second after the last keystroke, when the person leaves it, and
+	 * when the view goes away, as a set of the file as it is now (ADR-0576).
 	 */
 	// svelte-ignore state_referenced_locally
-	const titleDraft = library.fieldOf(TRANSFORMATIONS, ownId, 'title');
+	const titleDraft = library.fieldOf<typeof TRANSFORMATIONS, 'title'>(rowView, 'title');
 	// svelte-ignore state_referenced_locally
-	const modelDraft = library.fieldOf(TRANSFORMATIONS, ownId, 'model');
+	const modelDraft = library.fieldOf<typeof TRANSFORMATIONS, 'model'>(rowView, 'model');
 	const typedTitle = $derived(titleDraft.typed);
 	const typedModel = $derived(modelDraft.typed);
 	/** Send everything typed here now: the fields, the instructions, and the text. */
@@ -115,11 +122,11 @@
 	});
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
-	const pending = $derived(library.local.edits.row(TRANSFORMATIONS, rowIdOf(TRANSFORMATIONS, path) ?? path).pending);
+	const pending = $derived(library.heldAt(path));
 	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
 
 	/** Set fields of the transformation as its file is now, at once. */
-	const set = (fields: Partial<TransformationFields>) => library.setFields(TRANSFORMATIONS, id, fields);
+	const set = (fields: Partial<TransformationFields>) => library.setFields(rowView, fields);
 	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
 	const id = $derived(rowIdOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
@@ -335,7 +342,7 @@
 							class="min-h-36 resize-y font-sans"
 							bind:value={
 								() => row?.body ?? '',
-								(value) => library.editBody(TRANSFORMATIONS, ownId, value)
+								(value) => library.editBody(rowView, value)
 							}
 							onblur={() => void library.saveBody(own)}
 							disabled={locked}
@@ -540,7 +547,7 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(source ?? ''), (value) => library.editText(path, withFileNewlines(value, source ?? ''))}
+					bind:value={() => lf(source ?? ''), (value) => library.editText(textView, withFileNewlines(value, source ?? ''))}
 					onblur={() => void library.saveText(path)}
 					disabled={locked}
 					aria-label="Markdown source"

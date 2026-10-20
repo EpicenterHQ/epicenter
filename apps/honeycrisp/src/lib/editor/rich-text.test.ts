@@ -84,7 +84,7 @@ async function noteOver(text: string) {
 		notes,
 		note,
 		/** The saves that failed and still hold their typing. */
-		failures: () => local.edits.failures,
+		failures: () => local.failures,
 		/** The note as shown now: with what is typed over it. */
 		draft: () => {
 			const row = note.row;
@@ -93,7 +93,7 @@ async function noteOver(text: string) {
 		},
 		/** Send the body typed, as leaving the note does, and let every save and the reads after them land. */
 		settled: async () => {
-			await notes.saveRow(PATH);
+			await fixture.folder.tables.notes.edit('a').save();
 			await quiet(notes);
 		},
 		/** Saves of the note since it opened. */
@@ -173,8 +173,9 @@ async function open(
 		const now = bodyCodec.decode(body());
 		if (now.supported) state = stateShowing(state, now.doc);
 	};
-	/** What the Source view does with typed text. */
-	const source = (text: string) => notes.editBody(PATH, text);
+	/** What the Source view, showing the note as it is now, does with typed text. */
+	const source = (text: string) =>
+		notes.noteBody(PATH).change({ body: text });
 	/** What is on screen and the note's body are the same content. */
 	const expectNoteHoldsScreen = () =>
 		expect(equivalentNoteDocs(parseNoteBody(body()), state.doc)).toBe(true);

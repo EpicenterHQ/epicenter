@@ -182,6 +182,8 @@ export const openWorkspace: OpenWorkspace = async () => {
 			},
 		},
 		preferences: localPreferences,
-		close: () => folder.close(),
+		close: async () => {
+			await folder.close();
+		},
 	});
 };

@@ -107,7 +107,7 @@ function webView({
 				stopped: false,
 			};
 			streams.push(stream);
-			const track = {
+			const track = Object.assign(new EventTarget(), {
 				label:
 					devices.find((device) => device.deviceId === stream.deviceId)
 						?.label ?? '',
@@ -115,7 +115,7 @@ function webView({
 					stream.stopped = true;
 				},
 				getSettings: () => ({ deviceId: stream.deviceId }),
-			};
+			});
 			return {
 				getTracks: () => [track],
 				getAudioTracks: () => [track],

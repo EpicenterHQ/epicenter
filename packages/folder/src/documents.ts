@@ -4,105 +4,20 @@
  * directories. Missing frontmatter means empty fields; malformed frontmatter
  * stays visible with diagnostics. App table readers keep their stricter contract.
  */
-import { type TSchema, Type } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import { readDeclaredTables } from './declaration.js';
 import type { Declaration } from './declaration-schema.js';
-import type { FolderFiles, ReadError, Row, RowChange } from './folder.js';
-import { frameRowText } from './shared/content/markdown.js';
-import { readRow, rowChange } from './shared/row.js';
+import type { FolderFiles, ReadError } from './folder.js';
+import { type Document, readDocument } from './shared/document.js';
+import { fileBytes } from './shared/observation.js';
 
-const anyFields = Type.Record(Type.String(), Type.Unknown());
+export {
+	type Document,
+	documentChange,
+	readDocument,
+} from './shared/document.js';
+
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-
-export type Document = Omit<Row, 'fields'> & {
-	readonly fields: Record<string, unknown>;
-	readonly path: string;
-	readonly directory: string;
-	readonly stem: string;
-	readonly content: Uint8Array;
-};
-
-/** Read one document without discarding its source when validation fails. */
-export function readDocument(
-	path: string,
-	content: Uint8Array,
-	schema: TSchema = anyFields,
-): Document {
-	let row = interpretedRow(path, content, schema);
-	try {
-		const text = decoder.decode(content);
-		if (
-			!text.includes('\0') &&
-			text.isWellFormed() &&
-			frameRowText(text).kind === 'missing'
-		) {
-			row = {
-				...interpretedRow(path, `---\n---\n${text}`, schema),
-				text,
-				body: text,
-			};
-		}
-	} catch {
-		// readRow already reports the exact decoding failure.
-	}
-	const slash = path.lastIndexOf('/');
-	return {
-		...row,
-		fields: row.fields as Record<string, unknown>,
-		path,
-		directory: slash < 0 ? '' : path.slice(0, slash),
-		stem: path.slice(slash + 1, -3),
-		content: new Uint8Array(content),
-	};
-}
-
-/** Validator failures remain a document issue beside repairable source. */
-function interpretedRow(
-	path: string,
-	content: string | Uint8Array,
-	schema: TSchema,
-): Row {
-	try {
-		return readRow(path, content, schema);
-	} catch (cause) {
-		const raw = readRow(path, content, anyFields);
-		return {
-			...raw,
-			issues: [
-				...(raw.issues ?? []),
-				{
-					kind: 'schema',
-					path: [],
-					message: `Schema validation failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-				},
-			],
-		};
-	}
-}
-
-/** A field edit may introduce frontmatter; a body edit alone need not. */
-export function documentChange(
-	from: Pick<Row, 'text' | 'issues'>,
-	change: RowChange,
-) {
-	if (frameRowText(from.text).kind !== 'missing')
-		return rowChange(from, change);
-	if (change.fields === undefined) return rowChange(from, change);
-	const bom = from.text.startsWith('\uFEFF') ? '\uFEFF' : '';
-	const newline =
-		from.text.includes('\r\n') &&
-		!from.text.replaceAll('\r\n', '').includes('\n')
-			? '\r\n'
-			: '\n';
-	return rowChange(
-		{
-			...from,
-			text: `${bom}---${newline}---${newline}${from.text.slice(bom.length)}`,
-		},
-		change,
-	);
-}
 
 export type DocumentReading = {
 	readonly documents: Document[];
@@ -154,7 +69,7 @@ export async function readDocuments(
 			});
 			continue;
 		}
-		const content = new Uint8Array(await read.data.content.arrayBuffer());
+		const content = await fileBytes(read.data.content);
 		const first = path.indexOf('/');
 		const schema =
 			first < 0 || path.indexOf('/', first + 1) !== -1

@@ -22,6 +22,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { createRowEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { type Captures, capturePath, describeFailure, instantOf } from '$lib/captures.svelte.js';
@@ -43,13 +44,17 @@
 
 	// The view is keyed by the capture, so neither changes for this view.
 	const path = untrack(() => capturePath(stem));
-	const form = untrack(() => captures.formOf(stem));
 	const entry = createQuery(() => captures.rowsQuery((rows) => rows.find((found) => found.id === stem)));
 	const stored = $derived(entry.data?.issues === null ? entry.data : undefined);
+	/** The capture's edit over the row this view shows. */
+	const edit = untrack(() => createRowEdit(captures.folder.tables.captures.edit(stem), () => stored));
+	/** The capture's form, its commands typing over what this view shows. */
+	const form = untrack(() => captures.formOf(stem).in(edit));
 	/** The row shown: its body the edit not saved yet, or the file's. */
-	const row = $derived(stored === undefined ? undefined : form.draft.shown(stored));
+	const row = $derived(edit.row);
+	const pending = $derived(edit.pending);
 	// The capture text typed saves after a pause, and when the person leaves
-	// it; the draft outlives the view, so send it now.
+	// it; the edit outlives the view, so send it now.
 	onDestroy(() => void form.flush());
 	/** The body as text and thoughts, or why it cannot be edited here. */
 	const reading = $derived(row === undefined ? undefined : captureBody.decode(row.body));
@@ -102,7 +107,7 @@
 	/** Download the file as saved, once the edit held here is saved. */
 	async function download() {
 		await form.flush();
-		if (form.draft.held) {
+		if (edit.pending !== undefined) {
 			toast.error('Could not download this capture', { description: 'Your edit is not saved yet. Save it again, then download.' });
 			return;
 		}
@@ -117,7 +122,7 @@
 			title: 'Discard your edit?',
 			description: `Copy anything you need first. ${path} keeps what was last saved.`,
 			confirm: { text: 'Discard edit', variant: 'destructive' },
-			onConfirm: () => void form.draft.discard(),
+			onConfirm: () => void edit.discard(),
 		});
 	}
 
@@ -137,10 +142,10 @@
 </script>
 
 {#snippet saveFailed()}
-	{#if form.draft.error && !form.saving}
+	{#if pending?.error && !pending.saving}
 		<Alert.Root variant="destructive" aria-label="Not saved">
 			<Alert.Title>Your edit is not saved</Alert.Title>
-			<Alert.Description>{describeFailure(form.draft.error)} Your edit is still here.</Alert.Description>
+			<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
 				<Button size="sm" variant="outline" onclick={() => void form.flush()}>Save again</Button>
 				<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
@@ -169,12 +174,12 @@
 				{/if}
 			</Empty.Root>
 		{:else if entry.isSuccess}
-			{#if form.draft.held}
+			{#if pending}
 				<!-- Deleted in another tab while an edit was held: saving it brings the capture back. -->
 				<Alert.Root aria-label="Edit kept">
 					<Alert.Title>This capture was deleted, and your edit is still here</Alert.Title>
 					<Alert.Description>
-						{#if form.draft.error}<p>Not saved: {describeFailure(form.draft.error)}</p>{/if}
+						{#if pending.error}<p>Not saved: {describeFailure(pending.error)}</p>{/if}
 						<p>Saving your edit brings the capture back with it. Copy it, or discard it to let the capture go.</p>
 					</Alert.Description>
 					<div class="mt-2 flex flex-wrap gap-2 text-foreground">
@@ -233,11 +238,11 @@
 	</div>
 
 	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-		{form.saving
+		{pending?.saving
 			? 'Saving…'
-			: form.draft.error
+			: pending?.error
 				? 'Not saved'
-				: form.draft.held
+				: pending
 					? 'Saving…'
 					: `Saved to ${path}`}
 	</p>

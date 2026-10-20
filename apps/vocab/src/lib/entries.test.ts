@@ -48,22 +48,24 @@ async function savedWords(folder: VocabFolder) {
 }
 
 /**
- * Make every save of a word fail with a storage failure while `failing`,
- * as a full browser store answers.
+ * Make every save fail with a storage failure while `failing`, as a full
+ * browser store answers; disposing it lets storage write again.
  */
-function failWordSaves(folder: VocabFolder) {
-	const table = folder.tables.entries;
-	const set = table.set;
-	const control = { failing: true, attempts: 0 };
-	table.set = async (...args) => {
-		control.attempts++;
+function failSaves() {
+	const put = IDBObjectStore.prototype.put;
+	const control = {
+		failing: true,
+		[Symbol.dispose]() {
+			IDBObjectStore.prototype.put = put;
+		},
+	};
+	IDBObjectStore.prototype.put = function (
+		this: IDBObjectStore,
+		...args: Parameters<IDBObjectStore['put']>
+	) {
 		if (control.failing)
-			return Err({
-				name: 'StorageFailed',
-				message: 'Repository save failed: storage refused',
-				cause: new Error('storage refused'),
-			} as SaveError);
-		return set(...args);
+			throw new DOMException('storage refused', 'QuotaExceededError');
+		return put.apply(this, args);
 	};
 	return control;
 }
@@ -115,7 +117,7 @@ test('adding the exact text of a saved word writes nothing and leaves its note a
 	const { entries } = context.vocab;
 	expect(entries.setStage(context.word(), 'usable')).toBe(true);
 	expect(entries.setNote(context.word(), 'clear')).toBe(true);
-	await entries.draftOf(context.word().id).save();
+	await context.folder.tables.entries.edit(context.word().id).save();
 	const saved = await fileText(context.folder, context.path);
 
 	expect(expectOk(await entries.add(' lucid '))).toBe('present');
@@ -144,7 +146,7 @@ test('adds of one text made together, in two tabs, save one word', async () => {
 test('a refused add lists nothing and the retry adds it; an add that landed without its answer is found by the retry', async () => {
 	await using context = await setup();
 	const { entries } = context.vocab;
-	const saves = failWordSaves(context.folder);
+	using saves = failSaves();
 	expect(expectErr(await entries.add('opaque')).name).toBe('NotSaved');
 	expect(() => cached(context.vocab, 'opaque')).toThrow();
 	expect(await tableFiles(context.folder, 'entries')).toEqual([context.path]);
@@ -186,18 +188,20 @@ test('a different file where a new word belongs is refused and left as it is', a
 test('a note is held as typed over a reread, saved after a pause, and the list takes the saved version', async () => {
 	await using context = await setup();
 	const { vocab } = context;
-	const draft = vocab.entries.draftOf(context.word().id);
+	const edit = context.folder.tables.entries.edit(context.word().id);
 	const before = await fileText(context.folder, context.path);
 
 	expect(vocab.entries.setNote(context.word(), 'clear and bright')).toBe(true);
-	expect(draft.held).toBe(true);
+	expect(edit.pending).toBeDefined();
 	expect(vocab.busy).toBe(true);
 	// A reread of the list never replaces what is typed.
 	await vocab.queryClient.invalidateQueries();
-	expect(draft.shown(context.word().row).fields.note).toBe('clear and bright');
+	expect(edit.shown(context.word().row).row.fields.note).toBe(
+		'clear and bright',
+	);
 	expect(await fileText(context.folder, context.path)).toBe(before);
 
-	await until(() => !draft.held, 'the note to save');
+	await until(() => edit.pending === undefined, 'the note to save');
 	await quiet(vocab);
 	expect(
 		expectOk(await context.folder.tables.entries.get(context.word().id))
@@ -209,43 +213,50 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 
 test('a stage press saves at once and keeps a note typed just before it', async () => {
 	await using context = await setup();
-	await using slow = await openVocab(context.folder, { saveAfterMs: 60_000 });
+	await using slow = await openVocab(
+		await context.browser.open({ saveAfterMs: 60_000 }),
+	);
 	const { entries } = slow.vocab;
 	const word = cached(slow.vocab, 'lucid');
 	entries.setNote(word, 'clear');
 	entries.setStage(word, 'understood');
-	await entries.draftOf(word.id).save();
+	const edit = slow.vocab.folder.tables.entries.edit(word.id);
+	await edit.save();
 	const saved = expectOk(await context.folder.tables.entries.get(word.id));
 	expect(saved?.fields).toMatchObject({ note: 'clear', stage: 'understood' });
-	expect(entries.draftOf(word.id).held).toBe(false);
+	expect(edit.pending).toBeUndefined();
 });
 
 test("another tab's save reaches this page's list, and a save here keeps the field only the other tab changed", async () => {
 	await using context = await setup();
-	await using other = await openVocab(await context.browser.open(), {
-		saveAfterMs: 60_000,
-	});
+	await using other = await openVocab(
+		await context.browser.open({ saveAfterMs: 60_000 }),
+	);
 	const theirs = cached(other.vocab, 'lucid');
 	// This page starts typing from the word as it read it.
-	await using slow = await openVocab(context.folder, { saveAfterMs: 60_000 });
+	await using slow = await openVocab(
+		await context.browser.open({ saveAfterMs: 60_000 }),
+	);
 	const mine = cached(slow.vocab, 'lucid');
 	slow.vocab.entries.setNote(mine, 'mine');
 
 	other.vocab.entries.setStage(theirs, 'usable');
-	await other.vocab.entries.draftOf(theirs.id).save();
+	await other.vocab.folder.tables.entries.edit(theirs.id).save();
 	await until(
 		() => cached(context.vocab, 'lucid').stage === 'usable',
 		'the other tab’s stage to reach this page',
 	);
 
-	await slow.vocab.entries.draftOf(mine.id).save();
+	await slow.vocab.folder.tables.entries.edit(mine.id).save();
 	const saved = expectOk(await context.folder.tables.entries.get(mine.id));
 	expect(saved?.fields).toMatchObject({ note: 'mine', stage: 'usable' });
 });
 
 test('a save over a note changed elsewhere wins the note', async () => {
 	await using context = await setup();
-	await using slow = await openVocab(context.folder, { saveAfterMs: 60_000 });
+	await using slow = await openVocab(
+		await context.browser.open({ saveAfterMs: 60_000 }),
+	);
 	const word = cached(slow.vocab, 'lucid');
 	slow.vocab.entries.setNote(word, 'mine');
 	const stored = expectOk(await context.folder.tables.entries.get(word.id));
@@ -255,31 +266,59 @@ test('a save over a note changed elsewhere wins the note', async () => {
 			fields: { note: 'theirs' },
 		}),
 	);
-	await slow.vocab.entries.draftOf(word.id).save();
+	await slow.vocab.folder.tables.entries.edit(word.id).save();
 	expect(
 		expectOk(await context.folder.tables.entries.get(word.id))?.fields.note,
 	).toBe('mine');
 });
 
+test('a saved stage stays shown when the reread fails, and pressing the old stage again saves that revert', async () => {
+	await using context = await setup();
+	const { vocab, folder } = context;
+	const word = context.word();
+	const list = folder.tables.entries.list;
+	folder.tables.entries.list = async () => {
+		throw new Error('Read failed');
+	};
+	try {
+		const card = vocab.entries.edit(word.id, () => word.row);
+		expect(card.row.fields.stage).toBe('new');
+		expect(card.setStage('usable')).toBe(true);
+		await folder.tables.entries.edit(word.id).save();
+		await quiet(vocab);
+		// The list still holds the word as read before the save.
+		expect(context.word().stage).toBe('new');
+		expect(card.pending).toBeUndefined();
+		expect(card.row.fields.stage).toBe('usable');
+
+		expect(card.setStage('new')).toBe(true);
+		await folder.tables.entries.edit(word.id).save();
+		expect(card.row.fields.stage).toBe('new');
+	} finally {
+		folder.tables.entries.list = list;
+	}
+	expect(
+		expectOk(await folder.tables.entries.get(word.id))?.fields.stage,
+	).toBe('new');
+});
+
 test('a save that fails keeps the typing and its error, and saving again writes it', async () => {
 	await using context = await setup();
 	const { vocab, folder } = context;
-	const saves = failWordSaves(folder);
-	const draft = vocab.entries.draftOf(context.word().id);
+	using saves = failSaves();
+	const edit = folder.tables.entries.edit(context.word().id);
 	vocab.entries.setNote(context.word(), 'clear');
-	await draft.save();
-	expect(draft.error?.name).toBe('StorageFailed');
-	expect(draft.held).toBe(true);
-	expect(draft.shown(context.word().row).fields.note).toBe('clear');
+	await edit.save();
+	expect(edit.pending?.error?.name).toBe('StorageFailed');
+	expect(edit.shown(context.word().row).row.fields.note).toBe('clear');
 	expect(vocab.entries.failures.map((failure) => failure.fields)).toEqual([
 		{ note: 'clear' },
 	]);
 	expect(context.word().note).toBe('');
 
 	saves.failing = false;
-	await draft.save();
-	expect(draft.held).toBe(false);
-	expect(draft.error).toBeUndefined();
+	await edit.save();
+	expect(edit.pending).toBeUndefined();
 	expect(
 		expectOk(await folder.tables.entries.get(context.word().id))?.fields.note,
 	).toBe('clear');
@@ -302,7 +341,7 @@ test('fields the schema does not name, and the body, survive a note save', async
 	);
 
 	context.vocab.entries.setNote(word, 'luck');
-	await context.vocab.entries.draftOf(word.id).save();
+	await context.folder.tables.entries.edit(word.id).save();
 	const saved = expectOk(await context.folder.tables.entries.get(word.id));
 	expect(saved?.fields).toMatchObject({ note: 'luck', source: 'a novel' });
 	expect(saved?.body).toBe('Seen in chapter 3.\n');
@@ -327,11 +366,15 @@ test('a file that is not a valid word is named for repair, written as typed text
 
 	const { repair } = vocab.entries;
 	expect(repair.start('broken')).toBe(true);
+	const stored = rows(vocab).find((row) => row.id === 'broken')!;
+	const view = repair.view(stored)!;
+	expect(view.text).toBe(broken);
 	// One repair at a time while text is held.
-	repair.change(broken, broken.replace('stage: mastered', 'stage: usab'));
+	view.change(broken.replace('stage: mastered', 'stage: usab'));
 	expect(repair.start('unparsed')).toBe(false);
 	expect(vocab.busy).toBe(true);
-	repair.change(broken, broken.replace('stage: mastered', 'stage: usable'));
+	expect(view.text).toBe(broken.replace('stage: mastered', 'stage: usab'));
+	view.change(broken.replace('stage: mastered', 'stage: usable'));
 	await until(() => !repair.busy, 'the repair to save');
 	await quiet(vocab);
 	expect(await fileText(folder, 'entries/broken.md')).toBe(
@@ -348,7 +391,9 @@ test('a file that is not a valid word is named for repair, written as typed text
 test('a delete waits for the typing to save, then removes the word', async () => {
 	await using context = await setup();
 	const { vocab, folder } = context;
-	await using slow = await openVocab(folder, { saveAfterMs: 60_000 });
+	await using slow = await openVocab(
+		await context.browser.open({ saveAfterMs: 60_000 }),
+	);
 	const word = cached(slow.vocab, 'lucid');
 	slow.vocab.entries.setNote(word, 'clear');
 	const deleting = slow.vocab.entries.delete(word);
@@ -356,7 +401,7 @@ test('a delete waits for the typing to save, then removes the word', async () =>
 	expect(slow.vocab.entries.setNote(word, 'more')).toBe(false);
 	expect(expectOk(await deleting)).toEqual({ deleted: true });
 	expect(await tableFiles(folder, 'entries')).toEqual([]);
-	expect(slow.vocab.entries.draftOf(word.id).held).toBe(false);
+	expect(slow.vocab.folder.tables.entries.edit(word.id).pending).toBeUndefined();
 	await until(
 		() => wordsOf(rows(vocab)).length === 0,
 		'the delete to reach the other list',
@@ -366,17 +411,18 @@ test('a delete waits for the typing to save, then removes the word', async () =>
 test('typing that failed to save keeps its word from being deleted', async () => {
 	await using context = await setup();
 	const { vocab, folder } = context;
-	failWordSaves(folder);
+	using saves = failSaves();
+	const edit = folder.tables.entries.edit(context.word().id);
 	vocab.entries.setNote(context.word(), 'clear');
-	await vocab.entries.draftOf(context.word().id).save();
+	await edit.save();
 	expect(expectErr(await vocab.entries.delete(context.word())).name).toBe(
 		'NotStarted',
 	);
+	saves.failing = false;
 	expect(await tableFiles(folder, 'entries')).toEqual([context.path]);
-	const draft = vocab.entries.draftOf(context.word().id);
-	expect(draft.held).toBe(true);
+	expect(edit.pending).toBeDefined();
 	// Discarding is the learner's explicit choice, and lets the delete go ahead.
-	expect(draft.discard()?.fields).toEqual({ note: 'clear' });
+	expect(edit.discard()?.fields).toEqual({ note: 'clear' });
 	expect(expectOk(await vocab.entries.delete(context.word()))).toEqual({
 		deleted: true,
 	});
@@ -384,11 +430,13 @@ test('typing that failed to save keeps its word from being deleted', async () =>
 
 test('a note saved to a word deleted elsewhere brings the word back with the note: an edit beats an unseen delete', async () => {
 	await using context = await setup();
-	await using slow = await openVocab(context.folder, { saveAfterMs: 60_000 });
+	await using slow = await openVocab(
+		await context.browser.open({ saveAfterMs: 60_000 }),
+	);
 	const word = cached(slow.vocab, 'lucid');
 	slow.vocab.entries.setNote(word, 'clear');
 	expectOk(await context.folder.tables.entries.delete(word.id, word.row));
-	await slow.vocab.entries.draftOf(word.id).save();
+	await slow.vocab.folder.tables.entries.edit(word.id).save();
 	expect(
 		expectOk(await context.folder.tables.entries.get(word.id))?.fields,
 	).toMatchObject({ text: 'lucid', note: 'clear' });
@@ -396,8 +444,8 @@ test('a note saved to a word deleted elsewhere brings the word back with the not
 
 test('close saves typing still waiting for its pause, and refuses input from then on', async () => {
 	const browser = createBrowser();
-	const folder = await browser.open();
-	const opened = await openVocab(folder, { saveAfterMs: 60_000 });
+	const folder = await browser.open({ saveAfterMs: 60_000 });
+	const opened = await openVocab(folder);
 	const { vocab, context } = opened;
 	expectOk(await vocab.entries.add('lucid'));
 	const word = cached(vocab, 'lucid');
@@ -421,13 +469,14 @@ test('close saves typing still waiting for its pause, and refuses input from the
 
 test('close sends a whole-file repair draft before releasing the folder', async () => {
 	const browser = createBrowser();
-	const folder = await browser.open();
+	const folder = await browser.open({ saveAfterMs: 60_000 });
 	const source = '---\ntext: [\n---\n';
 	await put(folder, 'entries/broken.md', source);
-	const opened = await openVocab(folder, { saveAfterMs: 60_000 });
+	const opened = await openVocab(folder);
 	const repair = opened.vocab.entries.repair;
 	expect(repair.start('broken')).toBe(true);
-	expect(repair.change(source, '---\ntext: repaired\n---\n')).toBe(true);
+	const broken = rows(opened.vocab).find((row) => row.id === 'broken')!;
+	expect(repair.view(broken)?.change('---\ntext: repaired\n---\n')).toBe(true);
 	await opened.context.close();
 	const reopened = await browser.open();
 	expect(await fileText(reopened, 'entries/broken.md')).toContain('text: repaired');

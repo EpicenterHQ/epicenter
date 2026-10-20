@@ -176,7 +176,7 @@
 							<!-- An open menu is outside the app's inert root. -->
 							<ContextMenu.Item disabled>The app is closing</ContextMenu.Item>
 						{:else if isDeleted(note)}
-							<ContextMenu.Item onSelect={() => void report('restore the note', notes.restoreNote(path))}>
+							<ContextMenu.Item onSelect={() => void report('restore the note', notes.restoreNote(path, note))}>
 								Restore
 							</ContextMenu.Item>
 							<ContextMenu.Item variant="destructive" onSelect={() => void confirmDelete(notes, path)}>
@@ -184,7 +184,7 @@
 							</ContextMenu.Item>
 						{:else}
 							<ContextMenu.Item
-								onSelect={() => void report('pin the note', notes.patchNote(path, { pinned: !isPinned(note) }))}
+								onSelect={() => void report('pin the note', notes.patchNote(path, { pinned: !isPinned(note) }, note))}
 							>
 								{isPinned(note) ? 'Unpin' : 'Pin'}
 							</ContextMenu.Item>
@@ -192,7 +192,7 @@
 								<ContextMenu.SubTrigger>Move to folder</ContextMenu.SubTrigger>
 								<ContextMenu.SubContent class="w-48 max-h-(--bits-menu-content-available-height) overflow-y-auto">
 									<ContextMenu.Item
-										onSelect={() => void report('move the note', notes.patchNote(path, { folderId: null }))}
+										onSelect={() => void report('move the note', notes.patchNote(path, { folderId: null }, note))}
 									>
 										No folder
 									</ContextMenu.Item>
@@ -200,7 +200,7 @@
 									{#each folders as folder (folder.id)}
 										<ContextMenu.Item
 											onSelect={() =>
-												void report('move the note', notes.patchNote(path, { folderId: folder.id }))}
+												void report('move the note', notes.patchNote(path, { folderId: folder.id }, note))}
 										>
 											{folderLabel(folder)}
 										</ContextMenu.Item>
@@ -210,7 +210,7 @@
 							<ContextMenu.Separator />
 							<ContextMenu.Item
 								variant="destructive"
-								onSelect={() => void report('delete the note', notes.trashNote(path))}
+								onSelect={() => void report('delete the note', notes.trashNote(path, note))}
 							>
 								Move to Recently Deleted
 							</ContextMenu.Item>

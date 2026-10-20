@@ -11,8 +11,8 @@
  *   opens it; blank text is refused and stays in the form
  * - The timeline orders by the captured instant, and names files that are
  *   not captures for repair as text
- * - An edit is the row's draft over the cache, saved after a pause, keeping
- *   frontmatter Capture does not declare
+ * - An edit is typed through the row's edit handle over the cache, saved
+ *   after a pause, keeping frontmatter Capture does not declare
  * - Another tab's change is shown without replacing an edit not saved yet,
  *   and the save merges with it
  * - A failed save keeps the edit and its reason; saving again lands it
@@ -54,9 +54,25 @@ const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n
 const withBody = (body: string) =>
 	`---\ncapturedAt: ${AT}\ncustom: kept\n---\n\n${body}`;
 
-/** The capture view's form for `one`, once its row is cached. */
-function formOfOne({ captures }: CapturesHarness) {
-	return captures.formOf('one');
+/** `text` as the bytes a view of the file names as its source. */
+const bytes = (text: string) => new TextEncoder().encode(text);
+
+const { createRowEdit } = await import('@epicenter/svelte/edits');
+
+/**
+ * A view of capture `one` over the cache's row, and the form's commands in
+ * it. It shows each change as it lands, so a command names the row shown now.
+ */
+function viewOfOne({ captures, folder, cached }: CapturesHarness) {
+	const view = createRowEdit(folder.tables.captures.edit('one'), () => {
+		const row = cached('one');
+		return row?.issues === null ? row : undefined;
+	});
+	return { view, form: captures.formOf('one').in(view) };
+}
+
+function formOfOne(harness: CapturesHarness) {
+	return viewOfOne(harness).form;
 }
 
 test('creating saves the text with an empty Thoughts section and opens it', async () => {
@@ -130,14 +146,12 @@ test('an edit saves after a pause and keeps undeclared frontmatter', async () =>
 });
 
 test("another tab's change shows without replacing typing, and the save merges with it", async () => {
-	const harness = await open({ [PATH]: HAND });
+	const harness = await openCaptures({ [PATH]: HAND }, { saveAfterMs: 60_000 });
+	harnesses.push(harness);
 	const form = formOfOne(harness);
-	const hold = harness.holdNextRowSave();
-	form.inputNewThought('second');
-	expect(form.addThought()).toBe(true);
-	await hold.held;
+	form.inputText('Typed here');
 
-	// Another tab adds a key while this save is held.
+	// Another tab adds a key while the typing waits for its pause.
 	await harness.writeElsewhere(
 		PATH,
 		HAND.replace('custom: kept', 'custom: kept\nmood: calm'),
@@ -146,25 +160,25 @@ test("another tab's change shows without replacing typing, and the save merges w
 		() => harness.cached('one')?.text.includes('mood: calm') ?? false,
 		'the other tab’s change',
 	);
-	// The cache shows it; the form still shows the thought added here.
-	expect(form.body).toContain('- second');
+	// The cache shows it; the form still shows the text typed here.
+	expect(form.body).toContain('Typed here');
 
-	hold.release();
+	await form.flush();
 	await harness.quiet();
 	const saved = await harness.text(PATH);
 	expect(saved).toContain('mood: calm');
-	expect(saved).toContain('- first\n  nested line\n- second\n');
+	expect(saved).toContain('Typed here\n\n## Thoughts\n\n- first\n  nested line\n');
 	expect(form.body).toBeUndefined();
 });
 
 test('a failed save keeps the edit and its reason; saving again lands it', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const form = formOfOne(harness);
-	harness.failNextRowSave();
+	const restore = harness.failSaves();
 	form.inputNewThought('kept');
 	form.addThought();
 	await until(
-		() => form.draft.error !== undefined && !form.saving,
+		() => form.error !== undefined && !form.saving,
 		'the failure',
 	);
 
@@ -174,9 +188,12 @@ test('a failed save keeps the edit and its reason; saving again lands it', async
 		{
 			stem: 'one',
 			path: PATH,
-			reason: "This device's storage refused it: the disk is full.",
+			reason: expect.stringMatching(
+				/^This device's storage refused it: .*the disk is full/,
+			),
 		},
 	]);
+	restore();
 	expect(await harness.text(PATH)).toBe(HAND);
 
 	await form.flush();
@@ -214,6 +231,142 @@ test('thought commands save at once; one on a changed list is refused', async ()
 	);
 });
 
+test('two views of one capture each type over what they show, and share the thought typed', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures, folder } = harness;
+	const older = harness.cached('one');
+	if (older?.issues !== null || older === undefined)
+		throw new Error('one is not cached as a capture');
+	await harness.writeElsewhere(
+		PATH,
+		HAND.replace('Text', 'Text changed elsewhere'),
+	);
+	await until(
+		() => harness.cached('one')?.body.includes('elsewhere') === true,
+		'the other tab',
+	);
+	const newer = harness.cached('one');
+	if (newer?.issues !== null || newer === undefined)
+		throw new Error('one is not cached as a capture');
+	const edit = folder.tables.captures.edit('one');
+	// Two views, each over the row it read; neither knows of the other.
+	const oldView = createRowEdit(edit, () => older);
+	const newView = createRowEdit(edit, () => newer);
+	expect(oldView.row.body).toContain('\nText\n');
+	expect(newView.row.body).toContain('Text changed elsewhere');
+	const form = captures.formOf('one');
+	const inOld = form.in(oldView);
+	const inNew = form.in(newView);
+
+	// The thought typed is the form's, whichever view shows it.
+	inOld.inputNewThought('shared');
+	expect(inNew.newThought).toBe('shared');
+	// The newer view adds it over what it shows; the older view is gone.
+	expect(inNew.addThought()).toBe(true);
+	await harness.quiet();
+	const saved = (await harness.text(PATH)) ?? '';
+	expect(saved).toContain('Text changed elsewhere');
+	expect(saved).toContain('- shared\n');
+	expect(inOld.newThought).toBe('');
+
+	// Text typed in the older view is over the text it showed, merged.
+	inOld.inputText('Text, typed in the old view');
+	await inOld.flush();
+	await harness.quiet();
+	expect(await harness.text(PATH)).toContain('Text, typed in the old view');
+	expect(await harness.text(PATH)).toContain('- shared\n');
+});
+
+test('a view types over the body it showed, even after another view typed', async () => {
+	const harness = await openCaptures(
+		{ [PATH]: withBody('one\ntwo\n\n## Thoughts\n') },
+		{ saveAfterMs: 60_000 },
+	);
+	harnesses.push(harness);
+	const { captures, folder } = harness;
+	const stored = harness.cached('one');
+	if (stored?.issues !== null || stored === undefined)
+		throw new Error('one is not cached as a capture');
+	const edit = folder.tables.captures.edit('one');
+	const a = createRowEdit(edit, () => stored);
+	const b = createRowEdit(edit, () => stored);
+	// Both views show the stored body once.
+	expect(a.row.body).toBe('\none\ntwo\n\n## Thoughts\n');
+	expect(b.row.body).toBe('\none\ntwo\n\n## Thoughts\n');
+	const form = captures.formOf('one');
+	const inA = form.in(a);
+	const inB = form.in(b);
+
+	inA.inputText('ONE\ntwo');
+	// B still shows the stored body: its line merges into A's typing.
+	inB.inputText('one\nTWO');
+	expect(form.body).toBe('\nONE\nTWO\n\n## Thoughts\n');
+
+	// A shows both, and the person turns ONE back: the revert is kept.
+	expect(a.row.body).toBe('\nONE\nTWO\n\n## Thoughts\n');
+	inA.inputText('one\nTWO');
+	expect(form.body).toBe('\none\nTWO\n\n## Thoughts\n');
+	await form.flush();
+	await harness.quiet();
+	expect(await harness.text(PATH)).toBe(withBody('one\nTWO\n\n## Thoughts\n'));
+});
+
+/** Capture `one` with thoughts `a` and `b`, and two views that each showed it once. */
+async function twoViewsOfThoughts() {
+	const harness = await openCaptures(
+		{ [PATH]: withBody('Text\n\n## Thoughts\n\n- a\n- b\n') },
+		{ saveAfterMs: 60_000 },
+	);
+	harnesses.push(harness);
+	const stored = harness.cached('one');
+	if (stored?.issues !== null || stored === undefined)
+		throw new Error('one is not cached as a capture');
+	const edit = harness.folder.tables.captures.edit('one');
+	const a = createRowEdit(edit, () => stored);
+	const b = createRowEdit(edit, () => stored);
+	expect(a.row.body).toBe(b.row.body);
+	const form = harness.captures.formOf('one');
+	return { harness, form, inA: form.in(a), inB: form.in(b) };
+}
+
+test('a thought edit is refused, with its text kept, when another view deleted its thought', async () => {
+	const { harness, form, inA, inB } = await twoViewsOfThoughts();
+	inA.startEditing(0, ['a', 'b']);
+	const edit = form.editing;
+	if (edit === undefined) throw new Error('No thought edit started');
+	inA.inputEditing('my edited first', edit.id);
+
+	expect(inB.deleteThought(0, ['a', 'b'])).toBe(true);
+	await form.flush();
+	await harness.quiet();
+	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n'));
+
+	// A still shows `a` first, but it is gone now: nothing is written.
+	expect(inA.commitEditing(edit.id)).toBe(false);
+	expect(form.refusal).toContain('Your edit is kept here');
+	expect(form.editing).toMatchObject({ text: 'my edited first', original: 'a' });
+	expect(form.body).toBeUndefined();
+	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n'));
+});
+
+test('a command on a list another view changed is refused, though this view still shows it', async () => {
+	const { harness, form, inA, inB } = await twoViewsOfThoughts();
+	expect(inB.swapThoughts(0, 1, ['a', 'b'])).toBe(true);
+	await form.flush();
+	await harness.quiet();
+	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n- a\n'));
+
+	expect(inA.deleteThought(0, ['a', 'b'])).toBe(false);
+	expect(form.refusal).toBe(
+		'The thoughts changed since they were shown, so nothing was changed.',
+	);
+	expect(inA.swapThoughts(0, 1, ['a', 'b'])).toBe(false);
+	inA.startEditing(0, ['a', 'b']);
+	expect(form.editing).toBeUndefined();
+	expect(form.body).toBeUndefined();
+	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n- a\n'));
+});
+
 test('a thought typed and not added stays with its capture', async () => {
 	const harness = await open({
 		[PATH]: HAND,
@@ -221,7 +374,7 @@ test('a thought typed and not added stays with its capture', async () => {
 	});
 	const { captures } = harness;
 	await captures.open('one', 'capture');
-	captures.formOf('one').inputNewThought('not yet');
+	formOfOne(harness).inputNewThought('not yet');
 	await captures.open('two', 'capture');
 	captures.leave();
 
@@ -235,20 +388,20 @@ test('Edit as text saves the exact text and merges with another tab', async () =
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'text');
-	const draft = captures.texts.text(PATH);
+	const edit = harness.folder.files.edit(PATH);
 	const typed = HAND.replace('Text', 'Typed as text');
-	expect(draft.change(HAND, typed)).toBe(true);
+	expect(edit.change(bytes(HAND), typed)).toBe(true);
 	await harness.quiet();
 	expect(await harness.text(PATH)).toBe(typed);
 
 	// Another tab changes the frontmatter while more is typed below.
 	const again = typed.replace('nested line', 'nested line, again');
-	draft.change(typed, again);
+	edit.change(bytes(typed), again);
 	await harness.writeElsewhere(
 		PATH,
 		typed.replace('custom: kept', 'custom: changed'),
 	);
-	await draft.save();
+	await edit.save();
 	await harness.quiet();
 	expect(await harness.text(PATH)).toBe(
 		again.replace('custom: kept', 'custom: changed'),
@@ -265,7 +418,7 @@ test('a file repaired as text opens as a capture', async () => {
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'text' });
 
 	const fixed = broken.replace('yesterday', AT);
-	captures.texts.text(PATH).change(broken, fixed);
+	harness.folder.files.edit(PATH).change(bytes(broken), fixed);
 	await captures.open('one', 'capture');
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(await harness.text(PATH)).toBe(fixed);
@@ -273,27 +426,29 @@ test('a file repaired as text opens as a capture', async () => {
 
 test('a failed text save keeps the typing until saved again', async () => {
 	const harness = await open({ [PATH]: HAND });
-	const draft = harness.captures.texts.text(PATH);
-	harness.failNextFileWrite();
-	draft.change(HAND, `${HAND}more\n`);
-	await draft.save();
+	const edit = harness.folder.files.edit(PATH);
+	const restore = harness.failSaves();
+	edit.change(bytes(HAND), `${HAND}more\n`);
+	await edit.save();
 
-	expect(draft.error?.name).toBe('StorageFailed');
-	expect(draft.typed).toBe(`${HAND}more\n`);
+	expect(edit.pending?.error?.name).toBe('StorageFailed');
+	expect(edit.pending).toMatchObject({ text: `${HAND}more\n` });
 	expect(harness.captures.saveLabel).toBe('Not saved');
 
-	await draft.save();
+	restore();
+	await edit.save();
 	await harness.quiet();
-	expect(draft.typed).toBeUndefined();
+	expect(edit.pending).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(`${HAND}more\n`);
 });
 
 test('closing after a failed whole-file save returns its exact text for recovery', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const changed = HAND.replace('Text', 'Text kept after close');
-	harness.failNextFileWrite();
-	harness.captures.texts.text(PATH).change(HAND, changed);
+	const restore = harness.failSaves();
+	harness.folder.files.edit(PATH).change(bytes(HAND), changed);
 	const unsaved = await harness.context.close();
+	restore();
 	expect(unsaved).toMatchObject([
 		{ path: PATH, unsaved: changed, error: { name: 'StorageFailed' } },
 	]);
@@ -321,10 +476,10 @@ test('deleting waits for the edit and removes the file', async () => {
 test('a delete sends text typed as text first', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	captures.texts.text(PATH).change(HAND, `${HAND}typed\n`);
+	harness.folder.files.edit(PATH).change(bytes(HAND), `${HAND}typed\n`);
 	expectOk(await captures.delete(captures.deletionFor('one')));
 	await harness.quiet();
-	expect(captures.texts.held(PATH)).toBe(false);
+	expect(harness.folder.files.edit(PATH).pending).toBeUndefined();
 	expect(await harness.text(PATH)).toBeUndefined();
 });
 
@@ -343,7 +498,7 @@ test('close sends the edit held and refuses new input', async () => {
 	expect(captures.fenced).toBe(true);
 	form.inputText('Too late');
 	expect(form.body).toBeUndefined();
-	expect(captures.texts.text(PATH).change(HAND, 'x')).toBe(false);
+	expect(harness.folder.files.edit(PATH).change(bytes(HAND), 'x')).toBe(false);
 	captures.inputNewCapture('Too late');
 	expect(captures.newCapture).toBe('');
 	expect(expectErr(await captures.create('Too late')).name).toBe('NotStarted');

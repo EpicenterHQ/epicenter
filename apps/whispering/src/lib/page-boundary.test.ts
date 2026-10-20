@@ -97,6 +97,7 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 	expect([...new Set(folderEntries)].sort()).toEqual([
 		'@epicenter/folder',
 		'@epicenter/folder/browser',
+		'@epicenter/folder/edits',
 		'@epicenter/folder/file-browser',
 		'@epicenter/folder/tauri',
 	]);
@@ -144,12 +145,13 @@ test('the page imports no Yjs store, sync, history, or account module', () => {
 				specifier === 'yjs' ||
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
-				// Rows are edited through the local folder context's cache and
-				// drafts (ADR-0528, ADR-0632): no edit session, open-item slot,
-				// admission, or save bar. The other shared views are the header
-				// status and the failed-save toast.
+				// Rows are edited through the local folder context's cache and the
+				// folder's edit handles (ADR-0528, ADR-0632): no edit session,
+				// open-item slot, admission, or save bar. The other shared views are
+				// the header status and the failed-save toast.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
+						'@epicenter/svelte/edits',
 						'@epicenter/svelte/folder',
 						'@epicenter/svelte/folder-queries',
 						'@epicenter/svelte/write-failure',

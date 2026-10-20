@@ -62,6 +62,7 @@ import {
 	deferred,
 	eventually,
 	openTestWorkspace,
+	replaceTables,
 } from './workspace.test-support.js';
 
 /** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
@@ -684,7 +685,7 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 	// Opening the file from Files edits the same row.
 	expect(await library.open(TRANSCRIPT)).toBeUndefined();
 	expect(library.selection).toMatchObject({ kind: 'file', path: TRANSCRIPT });
-	expect(library.rowAt('transcriptions', TRANSCRIPT)?.body).toBe(
+	expect(library.rowView('transcriptions', TRANSCRIPT).row?.body).toBe(
 		'Yesterday I finished the importer. Today: the exporter.\n',
 	);
 });
@@ -743,22 +744,21 @@ test('closing the details and changing page lose no typing: the draft is the ses
 
 test('a selected recording that left the folder is unticked once a listing confirms it, so a new file at its path is not ticked', async () => {
 	const listing = { fails: false };
-	const { library, view, root } = await history(undefined, (folder) => ({
-		...folder,
-		tables: {
-			...folder.tables,
+	const { library, view, root } = await history(undefined, (folder) => {
+		const { recordings } = folder.tables;
+		return replaceTables(folder, {
 			recordings: {
-				...folder.tables.recordings,
+				...recordings,
 				list: async () =>
 					listing.fails
 						? ({
 								data: null,
 								error: { name: 'Io', message: 'the disk did not answer' },
 							} as never)
-						: folder.tables.recordings.list(),
+						: recordings.list(),
 			},
-		},
-	}));
+		});
+	});
 	const row = await readFile(join(root, path('standup')), 'utf8');
 	for (const stem of ['standup', 'walk'])
 		view.recordingSelected = toggleSelected(
@@ -806,16 +806,20 @@ test('a selected recording that left the folder is unticked once a listing confi
 
 test('nothing is opened or read after closing', async () => {
 	const reads: string[] = [];
-	const { session, library } = await history(undefined, (folder) => ({
-		...folder,
-		files: {
-			...folder.files,
-			async read(target: string) {
-				reads.push(target);
-				return folder.files.read(target);
+	const { session, library } = await history(undefined, (folder) => {
+		const { files } = folder;
+		return replaceTables(
+			folder,
+			{},
+			{
+				...files,
+				async read(target: string) {
+					reads.push(target);
+					return files.read(target);
+				},
 			},
-		},
-	}));
+		);
+	});
 	await library.open(path('standup'));
 	await session.close();
 	expect(library.closing).toBe(true);

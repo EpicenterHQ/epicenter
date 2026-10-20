@@ -48,6 +48,9 @@ async function withFullDisk<T>(work: () => Promise<T>): Promise<T> {
 const idle: FolderStatus = {
 	saving: false,
 	storageFailure: null,
+	unsaved: [],
+	failures: [],
+	closing: false,
 };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -383,7 +386,7 @@ test('close lets a started save finish, then rejects new work and releases liste
 
 test('closing from a saving observer waits for the save it observed', async () => {
 	const folder = await open();
-	let closing: Promise<void> | undefined;
+	let closing: Promise<unknown> | undefined;
 	folder.onStatusChange((status) => {
 		if (status.saving) closing = folder.close();
 	});

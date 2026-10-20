@@ -23,6 +23,7 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { quiet } from './query.test-support.js';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Err, Ok } from 'wellcrafted/result';
@@ -164,6 +165,7 @@ test('a chosen transformation with no text connection to run over cannot run, an
 
 test('the folder being read is reported while it is read, and not after', async () => {
 	const { library } = await open();
+	await quiet(library);
 	expect(library.refreshing).toBe(false);
 
 	// A change the folder reports makes the recordings stale, and they are read again.
@@ -172,6 +174,7 @@ test('the folder being read is reported while it is read, and not after', async 
 	});
 	expect(library.refreshing).toBe(true);
 	await reading;
+	await quiet(library);
 
 	expect(library.refreshing).toBe(false);
 });
@@ -208,7 +211,7 @@ test('the settings draft saves a connection on the device only, keeps the saved 
 	expect(await draft.save()).toBeUndefined();
 	expect(device.stored.transcription?.apiKey).toBe('typed-key');
 
-	// Nothing reached the folder or an endpoint.
+	// Settings reached no folder file or endpoint; only startup's ignore file exists.
 	expect(await readdir(root)).toEqual([]);
 	expect(transcribed).toEqual([]);
 	expect(transformed).toEqual([]);

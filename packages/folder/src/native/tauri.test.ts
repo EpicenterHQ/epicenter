@@ -136,6 +136,27 @@ test('the automatic opener opens the window folder, and browser storage is refus
 	);
 });
 
+test('the pause a window folder is opened with saves its held input, through either opener', async () => {
+	const { openFolder } = await import('../index.js');
+	for (const open of [openTauriFolder, openFolder]) {
+		const root = await grantedDirectory('native-tauri-');
+		await mkdir(join(root, 'notes'));
+		await writeFile(join(root, 'notes/milk.md'), '---\ntitle: Milk\n---\n');
+		shell = createGrantedShell(root);
+		const folder = expectOk(await open({ tables: { notes }, saveAfterMs: 5 }));
+		const row = expectOk(await folder.tables.notes.get('milk'))!;
+		folder.tables.notes.edit('milk').change(row, { fields: { title: 'Oat' } });
+		expect(folder.status.unsaved).toEqual(['notes/milk.md']);
+		for (let turn = 0; turn < 100 && folder.status.unsaved.length > 0; turn++)
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(folder.status.unsaved).toEqual([]);
+		expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
+			'Oat',
+		);
+		expect(await folder.close()).toEqual([]);
+	}
+});
+
 test('a save is one guarded put, and an overtaken put reads and merges again', async () => {
 	const initial = 'One\n\nMiddle\n\nLast\n';
 	const { folder } = await granted({ 'note.md': initial });

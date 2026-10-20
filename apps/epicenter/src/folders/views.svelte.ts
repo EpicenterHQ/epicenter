@@ -1,6 +1,6 @@
 /** Window-owned recipes and executions. Clean saved views read directly from the file. */
 import type { SavedView, SavedViewChange } from '@epicenter/folder/declaration';
-import { SvelteMap } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { QueryAnswer } from '../ui/bindings.gen';
 
 export type TableView = Extract<SavedView, { type: 'grid' | 'board' }>;
@@ -61,6 +61,8 @@ export function createViews({
 		],
 	]);
 	const executions = new SvelteMap<string, Execution>();
+	/** Explicit view commands stay pending through their display refresh, outside Folder close. */
+	const pending = new SvelteSet<string>();
 	function stored(key: string) {
 		const records = saved();
 		const id = recordKey(key);
@@ -82,10 +84,23 @@ export function createViews({
 	function acknowledge(
 		key: string,
 		sent: SavedView,
-		target: string,
+		publication: Publication,
 		notice?: string,
 	) {
-		const after = working.get(key)!;
+		const after = working.get(key);
+		// A reload or earlier completion retired this publication. Later edits
+		// at the same key belong to their own publication, not this copy.
+		if (after?.publication !== publication) return key;
+		const target = savedKey(publication.key);
+		if (key !== target && working.has(target)) {
+			// The copy became visible before every query finished refreshing.
+			// Keep independently edited source and target settings separately.
+			if (scratch(key))
+				working.set(key, { base: undefined, value: after.value });
+			else if (after.value === sent) working.delete(key);
+			else working.set(key, { base: after.base, value: after.value });
+			return target;
+		}
 		if (key !== target) {
 			if (scratch(key)) working.set(key, { base: undefined, value: sent });
 			else working.delete(key);
@@ -96,6 +111,7 @@ export function createViews({
 	}
 
 	async function save(key: string, asNew = false): Promise<string> {
+		if (pending.has(key)) return key;
 		const next = value(key);
 		if (!next) return key;
 		const before = working.get(key) ?? { base: stored(key), value: next };
@@ -113,6 +129,7 @@ export function createViews({
 		const sent = { ...before, publication };
 		working.set(key, sent);
 		let committed = false;
+		pending.add(key);
 		try {
 			await exclusive(async () => {
 				const result = await update({
@@ -122,15 +139,15 @@ export function createViews({
 				});
 				if (result.error !== null) throw new Error(result.error.reason);
 				committed = true;
-				await refreshed();
 			});
-			return acknowledge(key, sent.value, savedKey(publication.key));
+			await refreshed();
+			return acknowledge(key, sent.value, publication);
 		} catch (cause) {
 			if (committed)
 				return acknowledge(
 					key,
 					sent.value,
-					savedKey(publication.key),
+					publication,
 					`The view was saved, but could not be read again: ${cause instanceof Error ? cause.message : String(cause)}`,
 				);
 			const after = working.get(key) ?? sent;
@@ -140,11 +157,14 @@ export function createViews({
 				dismissed: false,
 			});
 			return key;
+		} finally {
+			pending.delete(key);
 		}
 	}
 	return {
 		value,
 		edit,
+		busy: (key: string) => pending.has(key),
 		save,
 		get held() {
 			return [...working]
@@ -158,6 +178,7 @@ export function createViews({
 		error: (key: string) => working.get(key)?.error,
 		notice: (key: string) => working.get(key)?.notice,
 		reload(key: string) {
+			if (pending.has(key)) return;
 			if (!scratch(key)) working.delete(key);
 			else {
 				const current = working.get(key);
@@ -175,33 +196,43 @@ export function createViews({
 			);
 		},
 		async remove(key: string) {
-			const before = working.get(key);
-			const base = before ? before.base : stored(key);
-			const displayed = value(key);
+			if (pending.has(key)) return false;
+			pending.add(key);
 			try {
-				await exclusive(async () => {
-					const result = await update({
-						key: recordKey(key),
-						base,
-						value: undefined,
+				const before = working.get(key);
+				const base = before ? before.base : stored(key);
+				const displayed = value(key);
+				try {
+					await exclusive(async () => {
+						const result = await update({
+							key: recordKey(key),
+							base,
+							value: undefined,
+						});
+						if (result.error !== null) throw new Error(result.error.reason);
 					});
-					if (result.error !== null) throw new Error(result.error.reason);
-					await refreshed();
-				});
+				} catch (cause) {
+					const after = working.get(key);
+					if (displayed)
+						working.set(key, {
+							...after,
+							base: after ? after.base : base,
+							value: after?.value ?? displayed,
+							error: cause instanceof Error ? cause.message : String(cause),
+							dismissed: false,
+						});
+					return false;
+				}
 				// Keep any settings typed while the deletion was running.
 				if (working.get(key) === before) working.delete(key);
+				try {
+					await refreshed();
+				} catch {
+					// The query reports its read error. The deletion already committed.
+				}
 				return true;
-			} catch (cause) {
-				const after = working.get(key);
-				if (displayed)
-					working.set(key, {
-						...after,
-						base: after ? after.base : base,
-						value: after?.value ?? displayed,
-						error: cause instanceof Error ? cause.message : String(cause),
-						dismissed: false,
-					});
-				return false;
+			} finally {
+				pending.delete(key);
 			}
 		},
 		execution: (key: string) => executions.get(key),

@@ -16,13 +16,12 @@
 	import SqlView from './SqlView.svelte';
 	import { getFolder } from './context.js';
 	import { createQuery } from '@tanstack/svelte-query';
-	import type { FileDrafts } from './drafts.svelte';
+	import { createTextEdit } from '@epicenter/svelte/edits';
 	import FileEditor from './FileEditor.svelte';
 	import { fileTree, sourceRead } from './files';
 
-	/** Files, recipes and draft input share one window and one open folder. */
-	let { drafts, updateView }: { drafts: FileDrafts; updateView: ViewUpdater } =
-		$props();
+	/** Files, recipes and held input share one window and one open folder. */
+	let { updateView }: { updateView: ViewUpdater } = $props();
 
 	const context = getFolder();
 
@@ -30,11 +29,11 @@
 	const tree = $derived(
 		listing.data === undefined ? undefined : fileTree(listing.data),
 	);
-	const held = $derived(new Set(drafts.held));
+	/** The paths whose input the folder holds, saving or failed. */
+	const unsaved = $derived(context.status.unsaved);
+	const held = $derived(new Set(unsaved));
 	const unlisted = $derived(
-		drafts.held.filter(
-			(path) => listing.error || !listing.data?.includes(path),
-		),
+		unsaved.filter((path) => listing.error || !listing.data?.includes(path)),
 	);
 	let selected = $state<string | undefined>(undefined);
 	let view = $state('files');
@@ -57,13 +56,19 @@
 			};
 		}
 	});
-	// The window owns this draft collection for its whole lifetime.
-	// svelte-ignore state_referenced_locally
-	const source = drafts.file('epicenter.json');
+	// The declaration's source, fenced while a view setting is written to it.
+	const source = createTextEdit(
+		context.folder.files.edit('epicenter.json'),
+		() => declaration.data ?? undefined,
+	);
 	const views = createViews({
 		saved: () => saved.data?.views ?? {},
 		update: (change) => updateView(change),
-		exclusive: (action) => source.exclusive(action),
+		async exclusive(action) {
+			const done = await source.exclusive(action);
+			if (done.error !== null) throw new Error(done.error.reason);
+			return done.data;
+		},
 		refreshed: async () => {
 			await context.refresh(
 				['epicenter.json'],
@@ -143,9 +148,9 @@
 		<span class="ml-auto text-sm text-muted-foreground" role="status">
 			{#if status.saving}
 				Saving…
-			{:else if drafts.failures.length > 0}
+			{:else if context.failures.length > 0}
 				<span class="text-destructive">
-					Not saved: {drafts.failures.map((failure) => failure.path).join(', ')}
+					Not saved: {context.failures.map((failure) => failure.path).join(', ')}
 				</span>
 			{:else if views.failed}<span class="text-destructive"
 					>View settings need attention. Choose the marked view to retry or copy
@@ -190,11 +195,11 @@
 				>{/if}
 			<Button
 				size="sm"
-				disabled={source.exclusivePending ||
+				disabled={source.locked || views.busy(view) ||
 					declaration.isPending ||
 					needsDirectory}
 				onclick={() => void save()}
-				>{source.exclusivePending
+				>{source.locked || views.busy(view)
 					? 'Saving…'
 					: viewError
 						? 'Retry save'
@@ -203,7 +208,7 @@
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={source.exclusivePending ||
+				disabled={source.locked || views.busy(view) ||
 					declaration.isPending ||
 					needsDirectory}
 				onclick={() => void save(true)}>Save as new</Button
@@ -212,7 +217,7 @@
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={source.exclusivePending}
+					disabled={source.locked || views.busy(view)}
 					onclick={() => {
 						views.reload(view);
 						void declaration.refetch();
@@ -221,7 +226,7 @@
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={source.exclusivePending || views.dirty(view)}
+					disabled={source.locked || views.busy(view) || views.dirty(view)}
 					onclick={async () => {
 						const key = view;
 						if ((await views.remove(key)) && view === key && !views.dirty(key))
@@ -271,7 +276,6 @@
 				{views}
 				viewKey={view}
 			/>{:else}<TablesView
-				{drafts}
 				{openSource}
 				view={recipe}
 				change={(value) => views.edit(view, value)}
@@ -359,7 +363,7 @@
 			<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 				{#if selected !== undefined}
 					{#key selected}
-						<FileEditor {drafts} path={selected} />
+						<FileEditor path={selected} />
 					{/key}
 				{:else}
 					<div

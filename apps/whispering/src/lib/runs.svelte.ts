@@ -146,8 +146,9 @@ export function createRuns({
 	/** The recording still being captured. Its audio is not finished, so it is not transcribed. */
 	capturing: ReadonlySet<string>;
 	/**
-	 * Run folder work as a mutation, so closing waits for it and the folder is
-	 * read again after it. `scope` names the recording or file it is for.
+	 * Run folder work as a mutation, so closing waits for it; what it saves
+	 * reaches the views on the folder's change channel. `scope` names the
+	 * recording or file it is for.
 	 * Waiting on an endpoint is not tracked.
 	 */
 	track: <T>(work: () => Promise<T>, scope?: string) => Promise<T>;

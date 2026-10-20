@@ -55,7 +55,7 @@
 				? await notes.createFolder(name)
 				: name === nameOf(target)
 					? undefined
-					: notes.patchFolder(rowFile(FOLDERS, target.id), { name });
+					: notes.patchFolder(rowFile(FOLDERS, target.id), { name }, target);
 		if (problem) toast.error('Could not save the folder', { description: problem });
 	}
 

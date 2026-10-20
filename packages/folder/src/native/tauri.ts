@@ -17,6 +17,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import { hostStorage } from '../boundary.js';
+import { saveDelay } from '../edit-owner.js';
 import { OpenFolderError } from '../errors.js';
 import type { DefaultFolderOptions, Folder } from '../folder.js';
 import { tauriHostFiles } from '../tauri-files.js';
@@ -51,7 +52,8 @@ export async function openTauriFolder<
 >(
 	options: DefaultFolderOptions<TTables>,
 ): Promise<Result<Folder<TTables>, OpenFolderError>> {
-	const { tables } = options;
+	const { tables, saveAfterMs } = options;
+	saveDelay(saveAfterMs);
 	const table = invalidTable(tables);
 	if (table !== undefined) return OpenFolderError.InvalidTable({ table });
 	if (!isTauri()) return OpenFolderError.NotTauri();
@@ -83,6 +85,7 @@ export async function openTauriFolder<
 			tables,
 			// Every handle in this page is over the window's one directory.
 			directory: 'tauri:window',
+			saveAfterMs,
 		}),
 	);
 }

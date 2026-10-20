@@ -25,15 +25,20 @@ import { openFolder } from '@epicenter/folder';
 import { Type } from 'typebox';
 
 const notes = Type.Object({ title: Type.String(), done: Type.Optional(Type.Boolean()) });
-const { data: folder, error } = await openFolder({ tables: { notes } });
+const { data: folder, error } = await openFolder({ tables: { notes }, saveAfterMs: 1000 });
 if (error !== null) return show(error.message);
 
 const stop = folder.onChange((change) => refresh(change.paths)); // subscribe, then read
-const row = (await folder.tables.notes.get('milk')).data;
-const saved = await folder.tables.notes.set('milk', row ?? null, { fields: { title: 'Milk' } });
-if (saved.error !== null) show(saved.error.message);             // nothing was saved
-folder.status;                                                   // { saving, storageFailure }
-await folder.close();
+const saved = await folder.tables.notes.set('milk', null, { fields: { title: 'Milk' } });
+if (saved.error !== null) return show(saved.error.message);      // nothing was saved
+const milk = saved.data.sent;                                    // the row this code saw
+
+// Typed input: held by the folder, saved a pause after the last change.
+const rowEdit = folder.tables.notes.edit('milk');
+rowEdit.change(milk, { fields: { done: true }, body: 'Two litres\n' }); // over the row seen
+folder.status;                       // { saving, storageFailure, unsaved, failures, closing }
+await folder.settle();               // send held input now; answers what did not save
+const unsaved = await folder.close(); // sends held input once; answers what did not save
 ```
 
 ## Entries
@@ -47,11 +52,12 @@ await folder.close();
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
 | `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, and saved-view types. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
 | `@epicenter/folder/documents` | Saved Markdown documents with optional schema diagnostics, including root and nested paths. | Generic file, grid, board, or SQL interpretation. |
+| `@epicenter/folder/edits` | The vocabulary of typed input (`RowEdit`, `TextEdit`, `RowEditChange`, `Pending`, `ExclusiveFile`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)). Opens nothing. | Code that names those types. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
 type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
-`OpenFolderError`, `ReadError`, and `SaveError`. Importing an entry opens
-nothing.
+`OpenFolderError`, `ReadError`, `SaveError`, and the read-carrying decoders
+`fileBytes` and `rowBytes`. Importing an entry opens nothing.
 
 ## Opening
 
@@ -77,14 +83,24 @@ the saved files.
 
 | Member | Contract |
 | --- | --- |
-| `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, from, content)`; `delete(path, from)`. |
-| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, from, change)`, and `delete(id, from)`. Adjacent files are available through `folder.files`. |
-| `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. Returns the function that stops listening. |
-| `status`, `onStatusChange` | `{ saving, storageFailure }`. |
-| `close()` | New calls throw at once; saves already started finish with their real outcome; then listeners and storage are released. Calling it again returns the same promise. |
+| `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, from, content)`; `delete(path, from)`; `edit(path)`, the file's typed input. |
+| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, from, change)`, `delete(id, from)`, and `edit(id)`, the row's typed input. Adjacent files are available through `folder.files`. |
+| `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A save of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
+| `status`, `onStatusChange` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or exclusive change running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
+| `settle()` | Sends held input once, after running deletes and exclusive changes, and waits for saves already started, direct ones included, never for reads. Answers the input that did not save. |
+| `close()` | At once, new input is refused and every storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; running deletes and exclusive changes finish; held input is sent once; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `status`, and `edit(...)` handles, whose `pending`, `shown` and `discard` answer and whose `save()` and `retry()` join the close. Answers the input that did not save. Calling it again returns the same promise. |
 
-A call on a closed handle throws: it is a programming error, not a storage
-failure.
+Open options: `saveAfterMs`, how long after its last change typed input
+saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
+number of milliseconds from 0 up; any other value throws a `RangeError`
+before anything opens.
+
+The saves of one path through one handle run one at a time, in call order,
+direct saves and saves of typed input alike; saves of different paths run
+side by side.
+
+A storage call on a closed handle throws: it is a programming error, not a
+storage failure.
 
 New file and row names follow the portable path rule. Earlier files with a
 nonportable but structurally safe name remain readable. A save or deletion
@@ -159,6 +175,79 @@ keeps what it meant to save. `status.storageFailure` holds the last
 `StorageFailed` until a later successful save on this handle, a no-op retry
 included. `status.saving` is true while a save is between its call and its
 commit or refusal. Structural refusals are the caller's to show, not status.
+
+### Unsaved input
+
+The folder holds what a person typed and has not saved, for its whole life
+(`edit-owner.ts`, [ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
+`folder.tables.<name>.edit(id)` answers a `RowEdit` and
+`folder.files.edit(path)` a `TextEdit`: passive handles over one input per
+path, shared by every caller of the handle. Making one reads and holds
+nothing. There is no other owner to attach, and no UI framework or cache.
+
+```ts
+// Plain code names the row or bytes it read.
+const rowEdit = folder.tables.notes.edit(id);
+rowEdit.change(observedRow, { fields: { done: true }, body: 'Two litres\n' }); // one change
+await rowEdit.save(); // or wait `saveAfterMs`
+
+const textEdit = folder.files.edit('notes/a.md');
+textEdit.change(observedBytes, editedText); // the whole exact text
+textEdit.changeFields(observedBytes, { title: 'x' }); // fields of any Markdown file
+await textEdit.exclusive(async (file) => file.write(before, next)); // the file alone
+
+// A view shows a projection, and names the source it showed.
+const shown = rowEdit.shown(observedRow); // { source, row }: row with held input and own saves
+rowEdit.change(shown.source, { body: 'Two litres, typed\n' });
+```
+
+A UI binding (`@epicenter/svelte/edits`, `@epicenter/react/edits`) does the
+`shown` bookkeeping for a view.
+
+- **Sources.** Every command names the source the person saw. `shown(observed)`
+  answers it: `source` is `observed` with this handle's own saves its read
+  may not show yet, and every new answer has a source of its own that
+  remembers what that view showed, held input included. A change from a
+  view that showed older held input merges into what is held (a field: the
+  typed value; a body or text: by line); one from a view that showed the
+  held input replaces it, so a revert saves. Any other row or bytes are a
+  valid source too, read as what the person saw. `undefined` means no
+  observation is available; text typing can continue held text using its
+  existing base, but cannot start a new edit.
+- **Reads.** Each read of the handle notes, on the rows and `Blob` contents it
+  answers, the commit count when it started; `fileBytes(blob)`, `rowBytes(row)`
+  and `readDocument` carry the note to bytes derived from one read. A value
+  no read of this handle answered counts as older than every own save. No
+  value is ever matched to a read by equal content; caches of source values
+  keep structural sharing off, so a newer read reaches a view as new values.
+- **Own saves.** A landed save lets go of its input at once and stays as the
+  path's committed contribution (the last whole text, composed with earlier
+  ones; the last value of each field and of the body), each numbered by the
+  commit it landed as. `shown` puts back the contributions newer than the
+  read its value came from, so a failed reread never shows older text, and
+  typing on keeps the save. Contributions stay until the file is deleted
+  (a delete that keeps a changed file keeps them) or the folder closes.
+- **Fields of any file.** `changeFields` holds a patch that a save applies to
+  the file as stored then, removal (`undefined`) apart from `null`. A
+  failed patch saves again on `retry()` or new input; `save()` and
+  `settle()` leave it; close gives one that storage failed one last try and
+  never sends one refused as gone or malformed. Text typed over held fields
+  keeps them and takes the patch's place.
+- **Exclusion.** Row input excludes text and field input on one path.
+- **Failure.** A failed save keeps the input and its `SaveError` until a save
+  lands or `discard()`.
+- **Fence.** `delete()` and `exclusive(action)` take the path at once, send
+  held input once, and refuse with `ActionError.NotStarted` (`DELETING`,
+  `BUSY`, `UNSAVED`, `CLOSING`) if another action holds it, the folder closes,
+  or input did not save. `action` reads and saves through its `file`, which
+  works while the folder closes and ends with the action.
+- **Close.** From `close()` on, `save()` and `retry()` join the close and send
+  nothing new.
+- Every pending value is immutable and replaced on each change.
+  `subscribe(listener)` calls `listener(path)`, or `listener(undefined)`
+  when every path may read differently; `shown` keeps its answer until
+  `observed`, held input or own saves change, which suits
+  `useSyncExternalStore`.
 
 ## Browser storage
 
@@ -289,8 +378,9 @@ without inventing tables or initializing Git. Opening and browsing write nothing
 The writer is a desktop capability, separate from the browser Folder API.
 
 The generic editor owns unfinished view settings and each SQL execution by view
-key. It also fences the declaration's raw source draft before structured saves.
-Grid cells, board moves, and Files share the editor's existing file drafts;
+key. A structured save of the declaration runs as an exclusive change of
+`epicenter.json`, after its held source input saves. Grid cells, board moves,
+and Files share the folder's file edit handles;
 the declaration supplies presentation settings rather than another record store.
 
 ## CLI tools
@@ -366,14 +456,15 @@ neither loads until a folder is opened. No engine carries isomorphic-git.
 | --- | --- |
 | `src/contract.ts`, `folder.ts` | The public contract: `Folder` and its parts, the open options, and the errors. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
-| `src/handle.ts` | The caller-facing handle every engine shares: status, the close fence, and the operations close waits for. |
+| `src/handle.ts` | The caller-facing handle every engine shares: status, the close fence, the saves close waits for (one at a time per path), and the read notes. |
 | `src/local-folder.ts`, `src/browser/` | The browser's default local folder over the IndexedDB repository engine. |
 | `src/native/` | The directory engine (`engine.ts`), its Bun host and save lock (`bun.ts`, `directory.ts`), and its desktop host (`tauri.ts`, with `bindings.gen.ts` generated from the folder plugin; do not edit). |
-| `src/shared/` | The content merge and row reading every engine uses. |
+| `src/shared/` | The content merge and row reading every engine uses, Markdown documents at any path (`document.ts`), and the read notes on values (`observation.ts`). |
 | `src/boundary.ts`, `directory-store.ts`, `directory-node.ts`, `directory-primitives.ts`, `tauri-files.ts` | Directory storage over `node:fs` and over the shell's commands. |
 | `src/check-folder.ts`, `query-folder.ts`, `read-folder.ts`, `projection.ts`, `declaration.ts`, `definition.ts`, `row-text.ts`, `generate-declaration.ts` | The CLI's readers of `epicenter.json`; `row-text.ts` uses the shared row codec. |
 | `src/git/`, `history-wire.ts`, `write.ts` | Shared Git object and tree rules, the directory history engine `runHistory` runs, and the one write its Sync publishes through. |
 | `src/file-browser.ts` | File-browser helpers. |
+| `src/edit-owner.ts`, `edits.ts` | The owner of typed row, text and field input over one handle for its whole life, and the vocabulary entry. |
 | `evidence/` | Bundle and dependency-closure tests, and recorded browser-engine experiments. |
 | `smoke/` | Browser smoke runs of the IndexedDB engine (`bun run smoke:local`, `bun run smoke:sync:local`). |
 
