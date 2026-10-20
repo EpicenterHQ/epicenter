@@ -857,3 +857,4 @@ When you add an ADR, add its row here.
 | [0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) | Each desktop app selects its CLI independently of the terminal | Accepted (amends 0558) |
 | [0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) | A native app hands Epicenter a directory path, and the person accepts it | Accepted (amended by 0647) |
 | [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Accepted (amends 0531 and 0644) |
+| [0648](0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md) | A folder's saved views live in its optional epicenter.json | Proposed (amends 0632) |

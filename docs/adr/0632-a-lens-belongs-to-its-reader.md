@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
+- **Amended by:** [ADR-0648](0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md) at the declaration's schema-only purpose and generic editor discovery: saved views share the optional declaration; the v1 CLI still requires declared schemas.
 - **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md), [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md), and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) only where repository descriptions determine generic table discovery or a reader's lifetime.
 - **Relates:** [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (CLI readers), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (schema-independent saves).
 - **Unbuilt:** migration of CLI readers to the new schema-file format, registry acquisition, schema-independent file browsing, reader-scoped diagnostics, preserving drafts through schema changes, and application migration. External-schema CLI flags are deferred; the Epicenter desktop app remains deferred.
