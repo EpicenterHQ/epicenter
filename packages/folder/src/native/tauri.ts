@@ -17,7 +17,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
-import { hostStorage, PRIVATE_DIRECTORY } from '../boundary.js';
+import { hostStorage } from '../boundary.js';
 import { tauriChangeDetector } from '../changes-tauri.js';
 import { OpenFolderError } from '../errors.js';
 import type { Folder, FolderOptions } from '../folder.js';
@@ -92,9 +92,7 @@ export async function openTauriFolder<
 	let heard: ((paths: readonly string[] | null) => void) | undefined;
 	const watching = watch((change) => {
 		if (change === 'everything') return heard?.(null);
-		// `.git` stands for history moving, which changes no file.
-		const paths = change.filter((path) => path !== PRIVATE_DIRECTORY);
-		if (paths.length > 0) heard?.(paths);
+		heard?.(change);
 	});
 	// A change made once the handle is returned is heard.
 	await watching.ready;

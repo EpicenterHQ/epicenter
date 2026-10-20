@@ -10,9 +10,8 @@
 //!
 //! - a path outside `.git` is reported as itself, relative to the root with
 //!   `/`, once per batch;
-//! - inside `.git`, only history moving is reported, as the one path `.git`:
-//!   `HEAD`, `packed-refs`, or a ref under `refs/`. Objects, the index, logs,
-//!   lock files, index copies, and an older shell's staged files are not.
+//! - paths inside `.git` are ignored. Its objects, refs, index, logs, and an
+//!   older shell's staged files change no Folder read;
 //!   A save stages beside the root, outside the watch, so its staged file
 //!   is never reported, only the path it is renamed to;
 //! - `paths: null` means anything may have changed: when watching begins,
@@ -48,9 +47,8 @@ pub const FOLDER_CHANGED_EVENT: &str = "epicenter-folder://changed";
 pub struct FolderChanged {
     /// The scope whose folder changed.
     pub scope: String,
-    /// The changed paths, relative to the root with `/` and sorted, `.git`
-    /// standing for history having moved; or `null` when anything may have
-    /// changed.
+    /// The changed paths, relative to the root with `/` and sorted, or
+    /// `null` when anything may have changed.
     pub paths: Option<Vec<String>>,
 }
 
@@ -80,12 +78,10 @@ enum Batch {
 enum Seen {
     /// A path outside `.git`, relative to the root with `/`.
     Path(String),
-    /// History moved.
-    History,
     /// The root itself, or a name that is not text: anything may have
     /// changed.
     Everything,
-    /// Outside the root, or inside `.git` and not history.
+    /// Outside the root, or inside `.git`.
     Nothing,
 }
 
@@ -105,20 +101,9 @@ fn seen(root: &Path, path: &Path) -> Seen {
     }
     match names.as_slice() {
         [] => Seen::Everything,
-        [".git", inside @ ..] if history_moved(inside) => Seen::History,
         [".git", ..] => Seen::Nothing,
         _ => Seen::Path(names.join("/")),
     }
-}
-
-/// Whether a change at `inside`, a path in `.git`, moves history: `.git`
-/// itself appearing or going, `HEAD`, `packed-refs`, or a ref. A lock file
-/// is not; the rename that ends it is reported under the final name.
-fn history_moved(inside: &[&str]) -> bool {
-    if inside.last().is_some_and(|name| name.ends_with(".lock")) {
-        return false;
-    }
-    matches!(inside, [] | ["HEAD"] | ["packed-refs"] | ["refs", ..])
 }
 
 fn batch<'a>(root: &Path, events: impl IntoIterator<Item = &'a notify::Event>) -> Batch {
@@ -135,9 +120,6 @@ fn batch<'a>(root: &Path, events: impl IntoIterator<Item = &'a notify::Event>) -
             match seen(root, path) {
                 Seen::Path(path) => {
                     paths.insert(path);
-                }
-                Seen::History => {
-                    paths.insert(".git".to_string());
                 }
                 Seen::Everything => return Batch::Everything,
                 Seen::Nothing => {}
@@ -344,8 +326,13 @@ mod tests {
     }
 
     #[test]
-    fn inside_git_only_history_moving_is_reported() {
-        for noise in [
+    fn paths_inside_git_are_ignored() {
+        for path in [
+            ".git",
+            ".git/HEAD",
+            ".git/packed-refs",
+            ".git/refs/heads/main",
+            ".git/refs/remotes/origin/main",
             ".git/objects/ab/cdef",
             ".git/index",
             ".git/index.lock",
@@ -359,18 +346,8 @@ mod tests {
             ".git/config",
             ".git/FETCH_HEAD",
         ] {
-            let events = [event(EventKind::Modify(ModifyKind::Any), &[noise])];
-            assert_eq!(batch(&root(), &events), Batch::Nothing, "{noise}");
-        }
-        for history in [
-            ".git",
-            ".git/HEAD",
-            ".git/packed-refs",
-            ".git/refs/heads/main",
-            ".git/refs/remotes/origin/main",
-        ] {
-            let events = [event(EventKind::Modify(ModifyKind::Any), &[history])];
-            assert_eq!(batch(&root(), &events), paths(&[".git"]), "{history}");
+            let events = [event(EventKind::Modify(ModifyKind::Any), &[path])];
+            assert_eq!(batch(&root(), &events), Batch::Nothing, "{path}");
         }
     }
 

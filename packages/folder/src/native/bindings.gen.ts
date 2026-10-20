@@ -74,9 +74,8 @@ export type FolderChanged = {
 	/**  The scope whose folder changed. */
 	scope: string,
 	/**
-	 *  The changed paths, relative to the root with `/` and sorted, `.git`
-	 *  standing for history having moved; or `null` when anything may have
-	 *  changed.
+	 *  The changed paths, relative to the root with `/` and sorted, or
+	 *  `null` when anything may have changed.
 	 */
 	paths: string[] | null,
 };

@@ -28,8 +28,8 @@
 //!   the `epicenter` CLI the shell runs.
 //! - From its first grant a folder is watched: every window permitted into
 //!   its scope hears what changed outside it, as folder-relative paths, a
-//!   ref moving as `.git`, and everything when watching begins; Git's own
-//!   noise and other windows hear nothing.
+//!   and everything when watching begins; Git's private changes and other
+//!   windows hear nothing.
 //! - `window_folder` answers each window the app and folder the shell handed
 //!   it, and `None` to a window it handed nothing; a page cannot set it.
 //! - After shutdown, a late change is refused.
@@ -1004,10 +1004,9 @@ fn the_folder_watcher_reports_changes_to_the_scopes_windows_and_no_other() {
     fixture.app.folders().shutdown();
 }
 
-/// Inside `.git`, a ref moving is reported as the one path `.git`, and Git's
-/// objects, index, and logs are not reported at all.
+/// Changes inside `.git`, including a ref moving, change no Folder read.
 #[test]
-fn the_folder_watcher_reports_history_moving_and_not_gits_own_noise() {
+fn the_folder_watcher_ignores_gits_private_changes() {
     let fixture = fixture("watch-git");
     let main = window(&fixture.app, "main");
     let main_hears = hear(&main);
@@ -1015,7 +1014,7 @@ fn the_folder_watcher_reports_history_moving_and_not_gits_own_noise() {
     settle();
     git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     std::fs::write(fixture.root.join("a.md"), "a\n").unwrap();
-    until_heard(&main_hears, &[".git", "a.md"]);
+    until_heard(&main_hears, &["a.md"]);
     settle();
     while main_hears.try_recv().is_ok() {}
 
@@ -1037,11 +1036,13 @@ fn the_folder_watcher_reports_history_moving_and_not_gits_own_noise() {
         "staging reported a change"
     );
 
-    // A commit moves the branch: history, and nothing else.
+    // A commit moves the branch but no Folder file.
     git_in_root(&["commit", "--quiet", "-m", "first"]);
-    assert_eq!(
-        until_heard(&main_hears, &[".git"]).into_iter().collect::<Vec<_>>(),
-        [".git"]
+    assert!(
+        main_hears
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .is_err(),
+        "committing reported a change"
     );
     fixture.app.folders().shutdown();
 }

@@ -267,8 +267,7 @@ type FolderChanged = { scope: string; paths: string[] | null };
 | What changed | `paths` |
 | --- | --- |
 | A path outside `.git` | The path, relative to the root with `/`; each once per batch, sorted |
-| `.git` itself, `.git/HEAD`, `.git/packed-refs`, or a ref under `.git/refs/` | `".git"`: history moved |
-| Anything else in `.git`: objects, the index, logs, lock files, an older shell's `.git/epicenter/scratch` | Nothing is reported |
+| Any path inside `.git`, including refs, objects, the index, logs, and an older shell's staged files | Nothing is reported |
 | A save's staged file, in the scratch directory beside the root | Nothing is reported; the path it is renamed to is |
 | Watching began, the operating system dropped events or asked for a rescan (notify's `Flag::Rescan`, FSEvents' `MustScanSubDirs`), a watch error arrived, the root itself changed, or the computer woke from sleep | `null`: anything may have changed |
 
