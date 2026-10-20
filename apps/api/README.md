@@ -45,6 +45,9 @@ after-response drain. Hosted Git is mounted there over bare repositories on
 disk when `GIT_STORE_ROOT` names a directory, and answers 503 when it does not. `runtime-profile.test.ts` is where that
 divergence is declared and checked against both entries.
 
+Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
+it into a shared package or the self-hosted deployment.
+
 Better Auth owns identity and sessions. Hosted Epicenter configures Google,
 GitHub, Microsoft, and Apple social sign-in, with optional passkeys and no
 email/password flow. The session cookie is the authorization server's own:
