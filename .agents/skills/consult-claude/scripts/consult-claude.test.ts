@@ -214,7 +214,7 @@ test('selected account uses one sanitized environment for status and prompt', ()
 	}
 });
 
-test('wrong account identity stops before the prompt', () => {
+test('wrong account identity or subscription stops before the prompt', () => {
 	using fixture = setup();
 	const trace = join(fixture.root, 'calls.jsonl');
 	const status = {
@@ -231,6 +231,7 @@ test('wrong account identity stops before the prompt', () => {
 		{ authMethod: 'api_key' },
 		{ apiProvider: 'bedrock' },
 		{ subscriptionType: null },
+		{ subscriptionType: ['max'] },
 		{ configDirectory: '/other/profile' },
 	]) {
 		writeFileSync(trace, '');
@@ -254,6 +255,31 @@ test('wrong account identity stops before the prompt', () => {
 		expect(result.status).not.toBe(0);
 		expect(result.stdout).toBe('');
 		expect(readFileSync(trace, 'utf8').trim().split('\n')).toHaveLength(1);
+	}
+});
+
+test('invalid or failed account status stops before the prompt', () => {
+	using fixture = setup();
+	const trace = join(fixture.root, 'calls.jsonl');
+	for (const env of [
+		{ CONSULT_TEST_STATUS: 'not-json' },
+		{ CONSULT_TEST_STATUS_EXIT: '1' },
+	]) {
+		writeFileSync(trace, '');
+		const result = fixture.launch(
+			['--model', 'sonnet'],
+			'Never send this.',
+			false,
+			{ ...env, CONSULT_TEST_TRACE: trace },
+		);
+		expect(result.status).not.toBe(0);
+		expect(result.stdout).toBe('');
+		const calls = readFileSync(trace, 'utf8')
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line));
+		expect(calls).toHaveLength(1);
+		expect(calls[0].args).toContain('auth');
 	}
 });
 
@@ -288,6 +314,7 @@ test('account preview requires an identity and invokes no Claude process', () =>
 		['--account', 'work'],
 		['--account', 'work', '--account-email', ' '],
 		['--account', 'other', '--account-email', 'expected@example.com'],
+		['--account', '../other', '--account-email', 'expected@example.com'],
 		['--account-email', 'expected@example.com'],
 	]) {
 		expect(
@@ -345,12 +372,17 @@ test('resume omits launcher defaults and forwards explicit overrides', () => {
 	}
 });
 
-test('forwards native failures without disguising them as a result', () => {
+test('forwards native prompt and resume failures without disguising them as a result', () => {
 	using fixture = setup();
-	const result = fixture.launch(['--model', 'claude-opus-5-5'], 'Brief.', true);
-	expect(result.status).toBe(7);
-	expect(result.stdout).toBe('');
-	expect(result.stderr).toContain('native failure');
+	for (const turn of [
+		['--model', 'claude-opus-5-5'],
+		['--resume', sessionId],
+	]) {
+		const result = fixture.launch(turn, 'Brief.', true);
+		expect(result.status).toBe(7);
+		expect(result.stdout).toBe('');
+		expect(result.stderr).toContain('native failure');
+	}
 });
 
 test('rejects empty briefs, malformed session IDs, and obsolete laboratory options', () => {
