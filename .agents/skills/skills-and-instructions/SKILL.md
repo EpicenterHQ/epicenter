@@ -81,8 +81,8 @@ request compared with the current skill**. Include enough of the interaction
 or result for the user to judge the difference.
 
 Alongside that comparison, **show the actual skill wording being changed**.
-Put prose comparisons in blockquotes and bold the consequential differences
-in both the skill wording and the example.
+Use [writing-voice's comparison guidance](../writing-voice/SKILL.md#show-revisions-in-context)
+for both the proposed instructions and the sample outputs.
 
 Keep the request and unrelated material consistent. Clearly identify examples
 you are illustrating versus results you actually obtained by running the skill.

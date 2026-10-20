@@ -106,24 +106,20 @@ dashes; default away from em dashes except for a real interruption.
 
 ## Show Revisions In Context
 
-Assume he will react from chat alone, without opening the file. Make the
-editorial choice visible in the writing: show the actual current passage and
-the proposed revision in blockquotes, with enough surrounding prose to hear
-what each does. Show the full short piece when its overall meaning or movement
-is at issue; a local edit may need only its paragraph and the neighboring
-paragraphs. An ending needs the passage that leads into it.
+Assume he will react from chat alone, without opening the file. Show the
+versions together in blockquotes, with enough context to judge their meaning,
+sound, and movement. **Bold the wording that differs between them, leaving
+shared wording plain.** Keep each version readable as its own passage. Explain
+consequential changes of structure or emphasis briefly outside the prose.
+**Use strikethrough when showing a particular deletion helps the judgment; it
+need not accompany every rewording or restructuring.**
 
-Keep the current version verbatim. In the proposed passage, **bold added or
-replacement wording** and ~~strike through removed wording~~, leaving
-unchanged wording plain. Show a replacement as ~~old wording~~ **new wording**
-where it occurs, so he can judge how the existing passage becomes the
-proposal. The markup identifies edits, rather than merely emphasizing
-important sentences. When dense markup obscures the writing, also give a
-clean reading copy.
+Show the full short piece when its overall meaning or movement is at issue;
+a local edit may need only its paragraph and the neighboring paragraphs. An
+ending needs the passage that leads into it.
 
-Label alternatives so he can refer to them, explain their consequential
-differences outside the quoted prose, and say whether wording is proposed or
-saved. A reordering needs both passages and a brief map of what moved. Identify
+Label alternatives so he can refer to them, and say whether wording is proposed
+or saved. A reordering needs both passages and a brief map of what moved. Identify
 your substantive contributions in context so he can keep or strike them;
 number separate choices when that helps. Keeping the current wording is a
 valid outcome, and liking the comparison format does not select the edit.

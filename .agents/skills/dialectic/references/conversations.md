@@ -34,24 +34,27 @@ closing selection and synthesis are hypothetical.
 >
 > **A — Seeing an unread book reminds me what made me curious about it**
 >
->> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
->> I wanted to know about that.
+>> Sometimes I see a book on my shelf and remember why I bought it.
 >>
->> I don't need every book to become homework.
+>> **Oh right, I wanted to know about that.**
+>>
+>> **I don't need every book to become homework.**
 >
 > **B — I enjoy having books around, even when noticing them doesn't lead to reading them**
 >
->> I like having books around even when I haven't read them. Every so often,
->> one catches my eye and I remember what interested me.
+>> Sometimes I see a book on my shelf and remember why I bought it.
 >>
->> Sometimes that's as far as it goes.
+>> **I like having books around even when I haven't read them.**
+>>
+>> **Sometimes that's as far as it goes.**
 >
 > **C — I can remain interested in a book without making plans to read it**
 >
->> There are books on my shelf I still haven't read. I look at one and think,
->> I'm still curious about that.
+>> Sometimes I see a book on my shelf and remember why I bought it.
 >>
->> I don't necessarily take it down.
+>> **I look at it and think, I'm still curious about that.**
+>>
+>> **I don't necessarily take it down.**
 >
 > **Agent:** I'd start with A because it keeps your original moment of
 > remembering most directly. C leaves more room for the interest to stay open.
@@ -99,29 +102,41 @@ material and reactions are invented for the example.
 > frustration of choosing between three methods. The summary loses that
 > movement. I'd develop those words and give the frustration its own paragraph.
 >
-> **Proposed marked changes from the earlier attempt**
+> **Earlier attempt**
 >
->> ~~A good API reduces cognitive overhead and lets developers focus on their
->> goals.~~ <ins>I don't think a simple API means I never have to think. I want
->> the thinking to be about my problem.</ins>
+>> **A good API reduces cognitive overhead and lets developers focus on their
+>> goals.**
+>
+> **Proposed version**
+>
+>> **I don't think a simple API means I never have to think. I want
+>> the thinking to be about my problem.**
 >>
->> <ins>If I'm sitting there wondering which of three methods is the real one,
->> the API has given me another problem to solve.</ins>
+>> **If I'm sitting there wondering which of three methods is the real one,
+>> the API has given me another problem to solve.**
 >
 > **Human:** The first paragraph sounds more like me. But “another problem
 > to solve” wraps it up too neatly. I'm more exasperated about which one I'm
 > supposed to use.
 >
 > **Agent:** Keep the first paragraph and let the ending sound more like
-> that moment of frustration. This revises the candidate above:
+> that moment of frustration.
+>
+> **Previous version**
 >
 >> I don't think a simple API means I never have to think. I want the thinking
 >> to be about my problem.
 >>
->> ~~If I'm sitting there wondering which of three methods is the real one,
->> the API has given me another problem to solve.~~ <ins>I don't want to sit
->> there looking at three methods and thinking, wait, which one am I supposed
->> to use?</ins>
+>> **If I'm sitting there wondering which of three methods is the real one,
+>> the API has given me another problem to solve.**
+>
+> **Proposed version**
+>
+>> I don't think a simple API means I never have to think. I want the thinking
+>> to be about my problem.
+>>
+>> **I don't want to sit there looking at three methods and thinking, wait,
+>> which one am I supposed to use?**
 
 The source, failed attempt, and revisions expose what each change does. The
 agent contributes arrangement and new language, then learns that its neat
