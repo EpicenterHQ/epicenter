@@ -58,7 +58,6 @@
 	const stored = $derived(row.data?.issues === null ? row.data : undefined);
 	/** What is typed into the todo over the stored row; the folder keeps it after this view. */
 	const edit = createRowEdit(folder.tables.todos.edit(id), () => stored);
-	const shown = $derived(edit.row);
 	const pending = $derived(edit.pending);
 
 	// The input outlives the view; send what is typed now.
@@ -129,7 +128,8 @@
 			<Button variant="ghost-destructive" size="xs" onclick={confirmDiscard}>Discard changes</Button>
 		</div>
 	{/if}
-	{#if stored && shown}
+	{#if stored && edit.row}
+		{@const shown = edit.row}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<Checkbox

@@ -225,8 +225,11 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 
 test("another tab's change shows without replacing typing here", async () => {
 	const { get, folder } = await onMilk();
-	type(get(TITLE), 'Oat milk');
+	const title = get(TITLE);
+	const notes = get<HTMLTextAreaElement>(NOTES);
+	type(title, 'Oat milk');
 	flushSync();
+	expect(title.value).toBe('Oat milk');
 
 	const from = expectOk(await folder.tables.todos.get('milk'))!;
 	expectOk(
@@ -236,16 +239,22 @@ test("another tab's change shows without replacing typing here", async () => {
 		() => get<HTMLTextAreaElement>(NOTES).value === 'Three litres',
 		'the other tab’s notes',
 	);
-	expect(get(TITLE).value).toBe('Oat milk');
+	expect(get(TITLE)).toBe(title);
+	expect(get(NOTES)).toBe(notes);
+	expect(title.value).toBe('Oat milk');
 
-	blur(get(TITLE));
+	type(notes, 'Three litres, unsweetened');
+	flushSync();
+	expect(notes.value).toBe('Three litres, unsweetened');
+
+	blur(title);
 	await until(
 		() => get(STATUS).textContent?.trim() === 'Saved on this device',
 		'the save',
 	);
 	const saved = await stored('milk');
 	expect(saved?.fields).toMatchObject({ title: 'Oat milk', done: false });
-	expect(saved?.body).toBe('Three litres');
+	expect(saved?.body).toBe('Three litres, unsweetened');
 });
 
 test('a failed save keeps the typing and offers Try again', async () => {

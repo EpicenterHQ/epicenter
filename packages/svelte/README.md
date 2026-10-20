@@ -171,21 +171,24 @@ running attempt; `retry()` explicitly attempts held failed input again.
 Blur, unmount, settlement and close leave failed input held for recovery.
 Accepted new input clears the older error and may autosave.
 
-A source that can be missing gives an optional `row`. Keep that distinction
-while showing a field without assertions or template constants:
+A source that can be missing gives an optional `row`. Inside its rendered
+branch, use a template constant to narrow the row for binding callbacks:
 
 ```svelte
-<script lang="ts">
-  const shown = $derived(edit.row);
-</script>
-
-{#if shown}
+{#if edit.row}
+  {@const shown = edit.row}
   <Input
     bind:value={() => shown.fields.title, title => edit.change({ fields: { title } })}
     onblur={() => void edit.save()}
   />
 {/if}
 ```
+
+`{@const}` is reactive: `shown` follows changes to `edit.row` while the branch
+stays open. The local value lets binding callbacks read its fields without a
+non-null assertion. If script code also needs the value, use
+`const shown = $derived(edit.row)` instead. A plain script
+`const shown = edit.row` captures the initial value.
 
 `observed` is the value the view reads from its query: a row, or the file's
 bytes through `fileBytes` or `rowBytes`. Getters and commands use the current
