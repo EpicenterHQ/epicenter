@@ -32,6 +32,7 @@ Read the draft as that reader: can they tell what changed, why it was needed, an
 - PR titles use the same conventional commit format as commits.
 - Include code examples for public API, CLI, HTTP, config, or type-signature changes.
 - Name breaking changes with old and new examples.
+- When a PR changes prose, instructions, or rules, quote the old and new wording.
 - Add a `## Changelog` section only for `feat:` and `fix:` PRs with user-visible changes.
 
 ## References

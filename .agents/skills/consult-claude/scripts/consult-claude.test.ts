@@ -9,15 +9,22 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const launcher = join(import.meta.dir, 'consult-claude.ts');
 const sessionId = '12345678-1234-1234-1234-123456789abc';
+const personalAccount = [
+	'--account',
+	'personal',
+	'--account-email',
+	'expected@example.com',
+];
 
 function setup() {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), 'consult-test-')));
@@ -46,12 +53,22 @@ function setup() {
 	writeFileSync(
 		join(bin, 'claude'),
 		`#!${process.execPath}
+const args = process.argv.slice(2);
+const selectedEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(ANTHROPIC_|CLAUDE_CONFIG_DIR|CLAUDE_SECURESTORAGE_CONFIG_DIR|CLAUDE_CODE_USE_|CLAUDE_CODE_OAUTH_|CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR|CLAUDE_CODE_SIMPLE|AWS_BEARER_TOKEN_BEDROCK)/.test(key)));
+if (process.env.CONSULT_TEST_TRACE) {
+  const {appendFileSync} = await import('node:fs');
+  appendFileSync(process.env.CONSULT_TEST_TRACE, JSON.stringify({args, env:selectedEnv})+'\\n');
+}
+if (args.includes('auth')) {
+  console.log(process.env.CONSULT_TEST_STATUS || JSON.stringify({loggedIn:true, authMethod:'claude.ai', apiProvider:'firstParty', subscriptionType:'max', email:'expected@example.com', configDirectory:process.env.CLAUDE_CONFIG_DIR || '${join(homedir(), '.claude')}'}));
+  process.exit(process.env.CONSULT_TEST_STATUS_EXIT ? 1 : 0);
+}
 const input = await Bun.stdin.text();
 if (process.env.CONSULT_TEST_FAIL) {
   console.error('native failure');
   process.exit(7);
 }
-console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), input, session_id: '${sessionId}' }));
+console.log(JSON.stringify({ cwd: process.cwd(), args, env:selectedEnv, input, session_id: '${sessionId}' }));
 `,
 		{ mode: 0o755 },
 	);
@@ -70,19 +87,30 @@ console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), in
 			if (clone.status !== 0) throw new Error('Fixture clone failed.');
 			return workspace;
 		},
-		launch(args: string[] = [], input = 'Review this.', fail = false) {
-			return spawnSync(process.execPath, [launcher, ...args], {
-				cwd: source,
-				env: {
-					...process.env,
-					PATH: `${bin}:${process.env.PATH}`,
-					CONSULT_TEST_FAIL: fail ? '1' : '',
-					CONSULT_TEST_SECRET: 'harmless-credential-canary',
+		launch(
+			args: string[] = [],
+			input = 'Review this.',
+			fail = false,
+			env: Record<string, string | undefined> = {},
+			withAccount = true,
+		) {
+			return spawnSync(
+				process.execPath,
+				[launcher, ...(withAccount ? personalAccount : []), ...args],
+				{
+					cwd: source,
+					env: {
+						...process.env,
+						PATH: `${bin}:${process.env.PATH}`,
+						CONSULT_TEST_FAIL: fail ? '1' : '',
+						CONSULT_TEST_SECRET: 'harmless-credential-canary',
+						...env,
+					},
+					input,
+					encoding: 'utf8',
+					timeout: 10_000,
 				},
-				input,
-				encoding: 'utf8',
-				timeout: 10_000,
-			});
+			);
 		},
 		[Symbol.dispose]() {
 			rmSync(root, { recursive: true, force: true });
@@ -124,6 +152,157 @@ test('new and resumed turns preserve the brief and enforce the same access bound
 		expect(args).not.toContain('--effort');
 	}
 	expect(readdirSync(fixture.source)).toEqual(['.git']);
+});
+
+test('selected account uses one sanitized environment for status and prompt', () => {
+	using fixture = setup();
+	const trace = join(fixture.root, 'calls.jsonl');
+	const workspace = fixture.clone();
+	const inherited = {
+		ANTHROPIC_API_KEY: 'secret-key',
+		ANTHROPIC_BASE_URL: 'https://wrong-provider.invalid',
+		CLAUDE_CODE_OAUTH_TOKEN: 'secret-oauth',
+		CLAUDE_CONFIG_DIR: '/wrong-profile',
+		CONSULT_TEST_TRACE: trace,
+	};
+	for (const account of ['personal', 'work']) {
+		for (const turn of [
+			['--model', 'sonnet'],
+			['--resume', sessionId],
+			['--mode', 'delegate', '--workspace', workspace],
+		]) {
+			writeFileSync(trace, '');
+			const result = fixture.launch(
+				[
+					'--account',
+					account,
+					'--account-email',
+					'expected@example.com',
+					...turn,
+				],
+				'Brief.',
+				false,
+				inherited,
+				false,
+			);
+			expect(result.status).toBe(0);
+			const call = JSON.parse(result.stdout);
+			const expectedEnv =
+				account === 'personal'
+					? {}
+					: { CLAUDE_CONFIG_DIR: join(homedir(), '.claude-work') };
+			expect(call.env).toEqual(expectedEnv);
+			const calls = readFileSync(trace, 'utf8')
+				.trim()
+				.split('\n')
+				.map((line) => JSON.parse(line));
+			expect(calls).toHaveLength(2);
+			expect(calls[0].args).toContain('auth');
+			expect(calls[0].env).toEqual(expectedEnv);
+			expect(calls[1].env).toEqual(expectedEnv);
+			if (turn.includes('delegate') && account === 'work') {
+				const settings = JSON.parse(
+					call.args[call.args.indexOf('--settings') + 1],
+				);
+				expect(settings.sandbox.credentials.envVars).toContainEqual({
+					name: 'CLAUDE_CONFIG_DIR',
+					mode: 'deny',
+				});
+			}
+			expect(result.stdout + result.stderr).not.toContain('secret-');
+		}
+	}
+});
+
+test('wrong account identity stops before the prompt', () => {
+	using fixture = setup();
+	const trace = join(fixture.root, 'calls.jsonl');
+	const status = {
+		loggedIn: true,
+		authMethod: 'claude.ai',
+		apiProvider: 'firstParty',
+		subscriptionType: 'max',
+		email: 'expected@example.com',
+		configDirectory: join(homedir(), '.claude-work'),
+	};
+	for (const override of [
+		{ email: 'other@example.com' },
+		{ loggedIn: false },
+		{ authMethod: 'api_key' },
+		{ apiProvider: 'bedrock' },
+		{ subscriptionType: null },
+		{ configDirectory: '/other/profile' },
+	]) {
+		writeFileSync(trace, '');
+		const result = fixture.launch(
+			[
+				'--account',
+				'work',
+				'--account-email',
+				'expected@example.com',
+				'--model',
+				'sonnet',
+			],
+			'Never send this.',
+			false,
+			{
+				CONSULT_TEST_TRACE: trace,
+				CONSULT_TEST_STATUS: JSON.stringify({ ...status, ...override }),
+			},
+			false,
+		);
+		expect(result.status).not.toBe(0);
+		expect(result.stdout).toBe('');
+		expect(readFileSync(trace, 'utf8').trim().split('\n')).toHaveLength(1);
+	}
+});
+
+test('account preview requires an identity and invokes no Claude process', () => {
+	using fixture = setup();
+	const trace = join(fixture.root, 'calls.jsonl');
+	writeFileSync(trace, '');
+	const preview = fixture.launch(
+		[
+			'--account',
+			'work',
+			'--account-email',
+			'expected@example.com',
+			'--model',
+			'sonnet',
+			'--dry-run',
+		],
+		'Brief.',
+		false,
+		{ ANTHROPIC_API_KEY: 'secret-key', CONSULT_TEST_TRACE: trace },
+		false,
+	);
+	expect(preview.status).toBe(0);
+	expect(preview.stdout).not.toContain('secret-key');
+	expect(JSON.parse(preview.stdout)).toMatchObject({
+		account: 'work',
+		configDirectory: join(homedir(), '.claude-work'),
+		expectedEmail: 'expected@example.com',
+	});
+	for (const args of [
+		[],
+		['--account', 'work'],
+		['--account', 'work', '--account-email', ' '],
+		['--account', 'other', '--account-email', 'expected@example.com'],
+		['--account-email', 'expected@example.com'],
+	]) {
+		expect(
+			fixture.launch(
+				['--model', 'sonnet', ...args],
+				'Brief.',
+				false,
+				{
+					CONSULT_TEST_TRACE: trace,
+				},
+				false,
+			).status,
+		).not.toBe(0);
+	}
+	expect(readFileSync(trace, 'utf8')).toBe('');
 });
 
 test('passes selected model and effort and previews without launching Claude', () => {

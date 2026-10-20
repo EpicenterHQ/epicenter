@@ -98,6 +98,7 @@ effort as a routine substitute for choosing Opus.
 
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts \
+  --account personal --account-email claude@example.com \
   --mode delegate --workspace /absolute/path/to/dedicated-clone <<'ASSIGNMENT'
 [Result, consumers, requirements, baseline, allowed changes, checks, stop.]
 ASSIGNMENT
@@ -108,12 +109,16 @@ ignores user and project settings; hooks and MCP tools are disabled. File tools
 are confined to the worker, and only the required sandbox can approve Bash,
 with no unsandboxed retry. The sandbox removes inherited application variables
 from shell commands while leaving standard shell variables available; the
-Claude process retains its authentication environment. Prepare checks that do
+Claude process uses the verified native profile. Prepare checks that do
 not require credentials or network access. Normal temporary-file writes remain
 available. The launcher does not create or remove the clone, commit changes, or
 integrate them. Claude's instructions
 prohibit child agents, commits, remote changes, publishing, and access changes.
 Those instruction boundaries are separate from filesystem enforcement.
+
+Every launch requires the shared launcher's `--account personal|work` and
+`--account-email` flags. Profile setup and identity checks are described in
+[Choose a subscription account](../consult-claude/SKILL.md#choose-a-subscription-account).
 
 Read native `result`, `session_id`, `is_error`, `permission_denials`, and actual
 model usage. A zero process exit alone does not establish completion. Monitor
@@ -124,6 +129,7 @@ focused correction in a new brief:
 
 ```bash
 bun .agents/skills/consult-claude/scripts/consult-claude.ts \
+  --account personal --account-email claude@example.com \
   --mode delegate --workspace /absolute/path/to/dedicated-clone \
   --effort medium <<'FOLLOWUP'
 [Full assignment, baseline, current diff, failed check, and focused correction.]

@@ -170,6 +170,7 @@ above illustrates the target; it is not a measured result or an answer key.
 | Reviewer requests a benchmark | Codex receives a specific discriminating check; Claude does not execute it or create a laboratory. |
 | Advice-only request | Codex returns the proposed check without silently authorizing implementation. |
 | Follow-up with new evidence | Same native session recalls the question, revises its judgment, and retains read-only access. |
+| Named personal or work subscription | Native preflight verifies the selected profile and expected Claude email; conflicting API or provider overrides cannot send the brief under another billing method. |
 | Adversarial design review without a reviewer restriction | Coordinator uses the reviewer setup defined by adversarial-review. This example does not choose reviewer models or duplicate that workflow. |
 | Ordinary final code check | Uses post-implementation-review locally; does not launch the reviewer pair. |
 | Bounded read-only caller map or documentation draft | Claude returns the finished artifact with source evidence; Codex checks decisive claims without launching a panel. |

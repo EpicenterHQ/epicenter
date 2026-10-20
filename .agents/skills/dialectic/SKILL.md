@@ -36,6 +36,12 @@ expression.
 
 ## Develop what is still unresolved
 
+When drawing lessons from an experience, distinguish what happened from what
+it might mean. Use concrete moments to examine what the current explanation
+does not account for. Develop the uncertainty that could change the next
+attempt before cataloguing implications for every workflow. Use what the
+investigation reveals to develop the shared understanding and next attempt.
+
 Contribute your best current understanding of what the user is reaching for.
 Use their words, examples, and reactions to infer the concern, tension, or
 connection they have only partly expressed. Explain why you read it that way
@@ -56,11 +62,6 @@ Questions should uncover what the record cannot establish, not make the user
 repeat it or complete an intake form. Follow what their response reveals rather
 than attaching the same unresolved question to another paraphrase. A clearer
 attempt can advance the conversation without a closing question.
-
-When drawing lessons from an experience, distinguish what happened from what
-it might mean. Use concrete moments to examine what the current explanation
-does not account for, and develop the uncertainty that could change the next
-attempt before cataloguing implications for every workflow.
 
 ## Make the model and its consequences judgeable
 
@@ -87,19 +88,23 @@ what could change your mind when it remains open. Judge by whether the user
 can engage with and alter the thought, not by reply length or a required format.
 
 Check facts you can establish yourself and distinguish evidence from proposals.
-Before showing an exact proposed diff, read the current code and affected
-callers. Identify the file and scope, include enough context to judge the
-behavior that changes, and label hypothetical code as a sketch.
+Before showing an exact proposed code diff, read the current code and affected
+callers. Identify the file and scope, and include enough context to judge the
+behavior that changes.
 Ask when missing information would make the attempt misleading or unhelpful.
 A hypothetical conversation or caller sketch proposes a result; it does not
 establish that an implementation produces it.
 
-Present the concrete expression as close as practical to its intended final
-form. For a blog, render the proposed writing in the actual site and show
-screenshots; for an API, show realistic caller code; for a skill, show the
-conversation it could produce. Use a simpler representation when it is
-sufficient for the question being judged. Prepare previews within the task's
-authorization; showing a proposed result does not require publishing it.
+Choose the concrete expression according to what the user is judging, and
+present it as close as practical to its intended final form. For an API
+proposal, realistic caller code may reveal the design. For an implementation
+change, show the affected code. For revised writing, show the revised passage.
+For appearance or movement, show the rendered result; for a blog, render the
+proposed writing in the actual site and show screenshots. For a skill, show
+the conversation it could produce. Use a simpler representation when it is
+sufficient for the question being judged, and distinguish illustrative
+sketches from actual changes. Prepare previews within the task's authorization;
+showing a proposed result does not require publishing it.
 
 Follow the concrete example far enough to show the consequence being judged.
 If resource lifetimes matter, show sharing and cleanup. If a skill's response
@@ -117,8 +122,10 @@ extent. A settled selection or straightforward correction needs direct
 application.
 
 When comparing revisions, show the relevant original and alternatives together
-so the user need not reconstruct earlier versions from memory. Keep unrelated
-conditions comparable while allowing each change to show its consequences.
+using a diff, paired excerpts, or previews as appropriate, so the user need not
+reconstruct earlier versions from memory. Keep enough surrounding context to
+reveal the consequence under discussion. Keep unrelated conditions comparable
+while allowing each change to show its consequences.
 
 ## Learn from the response
 

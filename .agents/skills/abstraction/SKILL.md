@@ -29,6 +29,9 @@ where they read and reply. For each decision, give the options that matter,
 what each costs, and which you recommend, so they can answer in a word. A
 report that only restates what was done leaves the person to reconstruct what
 it means.
+When the person is judging a concrete change, include the actual code, wording,
+or visible result with enough context to inspect it. Show the complete change
+when they ask for it.
 
 Simplification fails when it hides uncertainty, makes deferred behavior look
 implemented, or collapses distinct owners. Extra detail fails when the person
