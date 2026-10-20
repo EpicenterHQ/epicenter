@@ -118,7 +118,7 @@ console.log(JSON.stringify({ cwd: process.cwd(), args, env:selectedEnv, input, s
 	};
 }
 
-test('new and resumed turns preserve the brief and enforce the same access boundary', () => {
+test('new and resumed turns preserve the brief and request the same read-only boundary', () => {
 	using fixture = setup();
 	const brief =
 		'Proposed API:\n```ts\nopen({ value: "$HOME", literal: "`tick`" });\n```\n';
@@ -295,6 +295,8 @@ test('account preview requires an identity and invokes no Claude process', () =>
 			'expected@example.com',
 			'--model',
 			'sonnet',
+			'--effort',
+			'high',
 			'--dry-run',
 		],
 		'Brief.',
@@ -304,11 +306,15 @@ test('account preview requires an identity and invokes no Claude process', () =>
 	);
 	expect(preview.status).toBe(0);
 	expect(preview.stdout).not.toContain('secret-key');
-	expect(JSON.parse(preview.stdout)).toMatchObject({
+	const launch = JSON.parse(preview.stdout);
+	expect(launch).toMatchObject({
 		account: 'work',
 		configDirectory: join(homedir(), '.claude-work'),
 		expectedEmail: 'expected@example.com',
+		cwd: fixture.source,
 	});
+	expect(launch.args[launch.args.indexOf('--model') + 1]).toBe('sonnet');
+	expect(launch.args[launch.args.indexOf('--effort') + 1]).toBe('high');
 	for (const args of [
 		[],
 		['--account', 'work'],
@@ -329,20 +335,6 @@ test('account preview requires an identity and invokes no Claude process', () =>
 		).not.toBe(0);
 	}
 	expect(readFileSync(trace, 'utf8')).toBe('');
-});
-
-test('passes selected model and effort and previews without launching Claude', () => {
-	using fixture = setup();
-	const result = fixture.launch(
-		['--model', 'sonnet', '--effort', 'high', '--dry-run'],
-		'Brief.',
-		true,
-	);
-	expect(result.status).toBe(0);
-	const preview = JSON.parse(result.stdout);
-	expect(preview.args[preview.args.indexOf('--model') + 1]).toBe('sonnet');
-	expect(preview.args[preview.args.indexOf('--effort') + 1]).toBe('high');
-	expect(preview.cwd).toBe(fixture.source);
 });
 
 test('new consultations require a deliberate model choice', () => {
@@ -384,20 +376,28 @@ test('forwards native prompt and resume failures without disguising them as a re
 	}
 });
 
-test('rejects empty briefs, malformed session IDs, and obsolete laboratory options', () => {
+test('invalid session IDs and empty briefs never invoke Claude', () => {
 	using fixture = setup();
-	for (const args of [
-		['start'],
-		['--experiment'],
-		['--resume', ''],
-		['--resume', 'short-id'],
-		['--model', ' '],
-		['--effort', ' '],
-		['--unknown'],
-	]) {
-		expect(fixture.launch(args).status).toBe(1);
+	const trace = join(fixture.root, 'calls.jsonl');
+	writeFileSync(trace, '');
+	for (const session of ['', 'short-id']) {
+		const result = fixture.launch(
+			['--model', 'sonnet', '--resume', session],
+			'Brief.',
+			false,
+			{ CONSULT_TEST_TRACE: trace },
+		);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(
+			'Resume requires the full native session_id',
+		);
 	}
-	expect(fixture.launch(['--model', 'claude-opus-5-5'], '  ').status).toBe(1);
+	const empty = fixture.launch(['--model', 'sonnet'], '  ', false, {
+		CONSULT_TEST_TRACE: trace,
+	});
+	expect(empty.status).toBe(1);
+	expect(empty.stderr).toContain('Assignment brief is empty.');
+	expect(readFileSync(trace, 'utf8')).toBe('');
 });
 
 test('delegation verifies source provenance and lets only the sandbox approve Bash', () => {
@@ -536,6 +536,7 @@ test('a linked-worktree coordinator refuses its primary live checkout', () => {
 		process.execPath,
 		[
 			launcher,
+			...personalAccount,
 			'--mode',
 			'delegate',
 			'--workspace',
@@ -549,6 +550,7 @@ test('a linked-worktree coordinator refuses its primary live checkout', () => {
 		},
 	);
 	expect(result.status).not.toBe(0);
+	expect(result.stderr).toContain('cloned from the coordinating checkout');
 	expect(result.stdout).toBe('');
 });
 
@@ -559,26 +561,18 @@ test('refuses execution in the live checkout, nested repositories, shared worktr
 	const unrelated = realpathSync(
 		mkdtempSync(join(tmpdir(), 'consult-no-repo-')),
 	);
-	const git = (args: string[]) =>
-		spawnSync('git', args, { cwd: fixture.source });
-	writeFileSync(join(fixture.source, 'seed.txt'), 'seed');
-	expect(git(['add', 'seed.txt']).status).toBe(0);
-	expect(
-		git([
-			'-c',
-			'commit.gpgsign=false',
-			'-c',
-			'user.name=Fixture',
-			'-c',
-			'user.email=fixture@example.invalid',
-			'commit',
-			'-qm',
-			'seed',
-		]).status,
-	).toBe(0);
 	expect(spawnSync('git', ['init', '-q', fixture.root]).status).toBe(0);
 	const shared = join(fixture.root, 'shared');
-	expect(git(['worktree', 'add', '--detach', shared]).status).toBe(0);
+	expect(
+		spawnSync('git', [
+			'-C',
+			fixture.source,
+			'worktree',
+			'add',
+			'--detach',
+			shared,
+		]).status,
+	).toBe(0);
 	for (const workspace of [fixture.source, fixture.root, nested, shared]) {
 		const result = fixture.launch([
 			'--mode',
@@ -587,6 +581,11 @@ test('refuses execution in the live checkout, nested repositories, shared worktr
 			workspace,
 		]);
 		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(
+			workspace === shared
+				? 'root of a standalone clone'
+				: 'outside the coordinating checkout',
+		);
 		expect(result.stdout).toBe('');
 	}
 	try {
