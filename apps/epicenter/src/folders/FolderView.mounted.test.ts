@@ -15,6 +15,8 @@
  *   window does, sends it and leaves the box editable; a failed save keeps the
  *   context failed with pending input; closing the folder waits for a running
  *   save and answers what did not save
+ * - A failed Board move stays visible in Grid and Files, retries from Files,
+ *   preserves an outside edit, and survives reopening the folder
  *
  * Run with `--conditions=browser --conditions=svelte`, which mounting needs:
  * `bun test --conditions=browser --conditions=svelte FolderView.mounted`.
@@ -23,6 +25,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { type Folder, ReadError } from '@epicenter/folder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
 import type { ViewUpdater } from './views.svelte';
 
 const browser = Bun.resolveSync('svelte', import.meta.dir).endsWith(
@@ -159,6 +162,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 					})
 				: read(path);
 		return {
+			root,
 			folder,
 			held,
 			listing,
@@ -387,7 +391,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			press(file('a.md'));
 			await until(() => box()?.value === 'alpha\n', 'a.md read');
 			type(box(), 'alpha\nhidden\n');
-			expect((context.getStatus().saving || context.getStatus().unsaved.length > 0)).toBe(true);
+			expect(context.getStatus().saving || context.getStatus().unsaved.length > 0).toBe(true);
 
 			// Hidden: what is typed is sent at once, and settling waits for it.
 			let settled: boolean | undefined;
@@ -399,7 +403,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			held.shift()!.answer(Ok(undefined));
 			await settling;
 			expect(settled).toBe(true);
-			expect((context.getStatus().saving || context.getStatus().unsaved.length > 0)).toBe(false);
+			expect(context.getStatus().saving || context.getStatus().unsaved.length > 0).toBe(false);
 
 			// Shown again, typing goes on in the same box and saves.
 			expect(box()?.readOnly).toBe(false);
@@ -411,7 +415,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			// That save fails: the text stays pending until retried or discarded.
 			held.shift()!.answer(Err(new Error('disk full')));
 			await until(() => context.getSaveState() === 'failed', 'the failure');
-			expect((context.getStatus().saving || context.getStatus().unsaved.length > 0)).toBe(true);
+			expect(context.getStatus().saving || context.getStatus().unsaved.length > 0).toBe(true);
 			// Settling retains failure; Try again explicitly sends it once.
 			expect(await context.folder.settle()).not.toEqual([]);
 			expect(held).toHaveLength(0);
@@ -651,7 +655,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 		}
 	});
 
-	test('a board move keeps the failed destination patch and exposes the same source recovery', async () => {
+	test('a failed Board move retries from Files, preserves outside edits, and survives reopening', async () => {
 		const disk = await standIn({
 			'epicenter.json': JSON.stringify({
 				tables: {
@@ -710,6 +714,18 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(page.target.querySelector('article')?.textContent).toContain(
 				'done',
 			);
+			press(button('Grid'));
+			await until(
+				() =>
+					page.target.querySelector<HTMLInputElement>(
+						'[aria-label="tasks/a.md: status"]',
+					)?.value === 'done',
+				'the held move in Grid',
+			);
+			await disk.put(
+				'tasks/a.md',
+				'---\nstatus: todo\nextra: kept\n---\nOutside body\n',
+			);
 			press(button('Files'));
 			await until(() => page.file('tasks/a.md') !== null, 'files');
 			press(page.file('tasks/a.md'));
@@ -718,7 +734,42 @@ describe.skipIf(!browser)('folder editor', async () => {
 				'shared destination',
 			);
 			expect(page.box()?.readOnly).toBe(true);
-			press(button('Discard edit'));
+			expect(page.box()?.value).toContain('Outside body');
+			press(button('Try again'));
+			await until(
+				() => disk.held.length === 1,
+				'the explicit retry from Files',
+			);
+			expect(disk.held[0]?.content).toContain('status: done');
+			expect(disk.held[0]?.content).toContain('extra: kept');
+			disk.held.shift()!.answer(Ok(undefined));
+			expect(await page.context.folder.settle()).toEqual([]);
+			expect(await disk.text('tasks/a.md')).toContain('Outside body');
+			expect(page.context.getStatus().unsaved).toEqual([]);
+
+			await page.close();
+			await page.context.close();
+			const { openFolder } = await import('@epicenter/folder/bun');
+			const reopened = openEditor(
+				expectOk(await openFolder({ directory: disk.root, tables: {} })),
+			);
+			try {
+				press(
+					[...reopened.target.querySelectorAll('button')].find(
+						(node) => node.textContent?.trim() === 'Tables',
+					) ?? null,
+				);
+				await until(
+					() =>
+						reopened.target.querySelector<HTMLInputElement>(
+							'[aria-label="tasks/a.md: status"]',
+						)?.value === 'done',
+					'the saved move after reopening',
+				);
+			} finally {
+				await reopened.close();
+				await reopened.context.close();
+			}
 		} finally {
 			await closeRefusing(page, disk);
 		}
