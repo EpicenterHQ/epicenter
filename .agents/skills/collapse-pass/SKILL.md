@@ -64,10 +64,31 @@ unnecessary together. Use the [concept inventory](references/concept-inventory.m
 to make that question concrete. A focused transformation needs no subsystem
 inventory.
 
-Look for forwarding layers, shallow aliases, duplicated decisions, derivable
-state, dead exports, obsolete compatibility paths, and files that only pass work
-elsewhere. Use [code-audit](../code-audit/SKILL.md) and the
-[smell catalog](references/smell-catalog.md) when a concrete search helps.
+Look for forwarding layers, re-export chains, shallow aliases, shadow or
+mirrored state, duplicated decisions, copied boundary shapes, derivable state,
+dead exports, obsolete compatibility paths, and files that only pass work
+elsewhere. These are candidates, not default fixes. Use
+[code-audit](../code-audit/SKILL.md) when a proven search recipe fits.
+
+Hunt for synchronization obligations. Within the relevant subsystem, search
+literally for `registry`, `Map`, `Set`, `index`, `flag`, `cache`, `pending`, and
+`retry`, including collection constructions and named state. Trace their writes,
+reads, cleanup, and any observable gap between updates. Ask whether readers can
+derive the answer from another source or ask its owner directly. When an owner
+hand-builds a transition loop, search its distinctive state and operation names
+in related owners. Count the coordination or repeated decisions eliminated,
+not the collections deleted. A computed key alone does not make membership,
+authorization, selection, in-flight work, or unsaved input derivable.
+
+For a clean break, search the affected path for `fallback`, `adapter`, `legacy`,
+`migration`, and `compatibility`. Distinguish stale support for an unshipped or
+retired shape from active recovery, external consumers, and stored-data
+migrations. Trace the consumer or data each path protects before removing it.
+Applied migrations are durable history, not disposable compatibility code. Keep
+a temporary compatibility path only while it serves a named consumer or
+migration, with a retirement condition. Use
+[clean breaks](../rethink/references/clean-breaks.md) to carry an authorized
+replacement through its callers.
 
 For Svelte input wrappers, hunt paired `read`/`write`, `getValue`/`setValue`,
 and forwarding value-change props that recreate the binding protocol. Use
