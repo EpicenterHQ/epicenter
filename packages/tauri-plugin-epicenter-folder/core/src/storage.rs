@@ -21,7 +21,8 @@
 //! `.git`, whatever is there. Only the check of what the path holds and the
 //! rename (or the removal) hold the folder's publishing turn
 //! (`registry::PageWork`), so no other save through the shell, and no save
-//! by the Bun host, lands between them. A staged file a stopped save left
+//! by the Bun host, lands between them. Replacing an existing regular file
+//! keeps its permission bits (`keep_mode`). A staged file a stopped save left
 //! behind is removed once it is an hour old (`sweep_scratch`).
 //!
 //! A link another program swaps in between the check and the change is not
@@ -674,6 +675,33 @@ fn remove_made(made: &[PathBuf]) {
     }
 }
 
+/// Give the staged file at `staged` the permission bits of the regular file
+/// at `target`, when one is there, so replacing a file keeps it private
+/// (`0600`) or executable. A new file keeps the staged file's own mode, made
+/// under the process's umask. Only the read, write, and execute bits are
+/// carried; setuid, setgid, and sticky never are. Called holding the
+/// publishing turn, right after the check of what `target` holds, so the
+/// mode is the one of the file the rename replaces. Other platforms have no
+/// such bits to carry.
+fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match fs::symlink_metadata(target) {
+            Ok(existing) if existing.is_file() => fs::set_permissions(
+                staged,
+                fs::Permissions::from_mode(existing.permissions().mode() & 0o777),
+            )?,
+            Ok(_) => {}
+            Err(cause) if cause.kind() == ErrorKind::NotFound => {}
+            Err(cause) => return Err(cause),
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (target, staged);
+    Ok(())
+}
+
 /// Publish `bytes` at `path`, or remove its file for `None`, only while the
 /// path holds `if_match`: the SHA-256 of the file there, or `None` for
 /// nothing there. `Stale` when it does not, and nothing changed.
@@ -782,6 +810,7 @@ pub fn put<Turn>(
         if !holds {
             return Ok(PutOutcome::Stale);
         }
+        keep_mode(&target, &scratch).map_err(|cause| failed(&cause))?;
         let made = make_parents(root, &names[..names.len() - 1]).map_err(|cause| failed(&cause))?;
         if let Err(cause) = fs::rename(&scratch, &target) {
             remove_made(&made);

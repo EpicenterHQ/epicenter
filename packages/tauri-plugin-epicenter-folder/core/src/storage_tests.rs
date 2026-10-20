@@ -551,6 +551,57 @@ fn a_hard_link_is_replaced_not_written_through() {
     assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"mine");
 }
 
+#[cfg(unix)]
+#[test]
+fn replacing_a_file_keeps_its_permission_bits() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    let (_temp, root) = folder(
+        "storage-mode",
+        &[
+            ("private.md", b"one"),
+            ("tool.sh", b"#!/bin/sh"),
+            ("plain.md", b"p"),
+        ],
+    );
+    for (path, bits) in [
+        ("private.md", 0o600),
+        ("tool.sh", 0o750),
+        ("plain.md", 0o644),
+    ] {
+        fs::set_permissions(root.join(path), fs::Permissions::from_mode(bits)).unwrap();
+    }
+    // A stale put changes nothing, mode included.
+    assert_eq!(
+        put_now(&root, "private.md", b(b"x"), Some(&sha256(b"other"))),
+        Ok(PutOutcome::Stale)
+    );
+    assert_eq!(mode(&root.join("private.md")), 0o600);
+    // A guarded replacement keeps what the file had, not the umask's.
+    for (path, old, new, bits) in [
+        ("private.md", &b"one"[..], &b"two"[..], 0o600),
+        ("tool.sh", &b"#!/bin/sh"[..], &b"#!/bin/bash"[..], 0o750),
+        ("plain.md", &b"p"[..], &b"q"[..], 0o644),
+    ] {
+        assert_eq!(
+            put_now(&root, path, b(new), Some(&sha256(old))),
+            Ok(PutOutcome::Landed)
+        );
+        assert_eq!(fs::read(root.join(path)).unwrap(), new);
+        assert_eq!(mode(&root.join(path)), bits, "{path}");
+    }
+    // A new file takes the umask's mode: readable and writable by its owner,
+    // and never executable.
+    assert_eq!(
+        put_now(&root, "fresh.md", b(b"new"), None),
+        Ok(PutOutcome::Landed)
+    );
+    let fresh = mode(&root.join("fresh.md"));
+    assert_eq!(fresh & 0o600, 0o600);
+    assert_eq!(fresh & 0o111, 0);
+    assert!(staged(&root).is_empty());
+}
+
 #[test]
 fn the_hash_is_the_one_the_page_computes() {
     assert_eq!(
