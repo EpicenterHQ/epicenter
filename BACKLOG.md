@@ -50,8 +50,9 @@ owner. Reconcile overlapping context edits before staging. Land in this order:
    failed reread exposes old text that later typing can overwrite. Distinguish
    unsaved input from committed input awaiting observation. Keep the latter
    visible; newer writes and close must not wait for refresh. A failed read must
-   not replay a successful write. Acknowledgements identify a committed revision,
-   so an older read cannot clear newer input. Reads remain separate from handles.
+   not replay a successful write. Acknowledgements identify a committed revision
+   and must come from reads begun after it committed. Older reads cannot clear
+   newer input. Reads remain separate from handles.
 2. This chat migrates the generic editor and deletes its old queue in one change.
    Preserve arbitrary-path field patches, exact text, and typed row semantics.
    Generic field patches reread source before saving; typed rows retain their
@@ -74,6 +75,13 @@ displayed A plus the patch while its field save runs. A failed newer reread and
 late acknowledgement of the field save must not erase the newer text overlay or
 substitute unseen bytes as its editing base. Further saves must retain body B and
 the person's appended text without waiting for display refresh.
+
+The real-storage field-to-text test also records a known failure: after the field
+save commits, reverting its title in Files is lost because the base still has
+the original title. Its expected-failure marker must be removed with the fix.
+Acknowledge our committed field changes without adopting an unseen body. Do not
+assume the submitted field subset can always patch later observed source: valid
+YAML aliases can make that subset fail while the accumulated patch succeeds.
 
 Do not add an interim coordinator while waiting for the core. Delete the local
 queue's timers, revision tracking, and work registration when its behavior moves.

@@ -20,10 +20,11 @@
  * - Field/text transitions retain their actual save bases; failed field
  *   recovery distinguishes removals from null and retries against fresh source
  * - An exclusive operation fences only its path and releases it after failure
+ * - One expected-failing case records a field revert lost after switching to Files
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { describe, expect, test } from 'bun:test';
-import type { FolderFiles, SaveError } from '@epicenter/folder';
+import { type FolderFiles, SaveError } from '@epicenter/folder';
 import { readDocument } from '@epicenter/folder/documents';
 import { Ok, type Result } from 'wellcrafted/result';
 
@@ -339,59 +340,87 @@ test('switching from fields to text keeps the latest body and one draft, while m
 	expect(draft.discard()).toBe(true);
 });
 
-test('source typing during a field save retains its displayed base and preserves an unseen external body change', async () => {
-	const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
-	const { tmpdir } = await import('node:os');
-	const { join } = await import('node:path');
-	const { openFolder } = await import('@epicenter/folder/bun');
-	const { expectOk } = await import('wellcrafted/testing');
-	const directory = await mkdtemp(
-		join(tmpdir(), 'epicenter-draft-transition-'),
-	);
-	const before = '---\ntitle: before\n---\nbody before\n';
-	await writeFile(join(directory, 'a.md'), before);
-	const folder = expectOk(await openFolder({ directory, tables: {} }));
-	let release: (() => void) | undefined;
-	let first = true;
-	const drafts = createFileDrafts({
-		files: {
-			read: folder.files.read,
-			async write(path, from, content) {
-				if (first) {
-					first = false;
-					await new Promise<void>((resolve) => {
-						release = resolve;
-					});
+// A successful field save must acknowledge its own fields in the text base.
+// Remove the expected-failure marker when that provenance rule is implemented.
+for (const { revert, refuseFirst } of [
+	{ revert: false, refuseFirst: false },
+	{ revert: true, refuseFirst: false },
+	{ revert: false, refuseFirst: true },
+]) {
+	test.failingIf(revert)(
+		revert
+			? 'reverting a field in Files survives its earlier field save (known failure)'
+			: `field-to-text preserves external body (refused first write: ${refuseFirst})`,
+		async () => {
+			const { mkdtemp, writeFile, readFile, rm } = await import(
+				'node:fs/promises'
+			);
+			const { tmpdir } = await import('node:os');
+			const { join } = await import('node:path');
+			const { openFolder } = await import('@epicenter/folder/bun');
+			const { expectOk } = await import('wellcrafted/testing');
+			const directory = await mkdtemp(
+				join(tmpdir(), 'epicenter-draft-transition-'),
+			);
+			const before = '---\ntitle: before\n---\nbody before\n';
+			await writeFile(join(directory, 'a.md'), before);
+			const folder = expectOk(await openFolder({ directory, tables: {} }));
+			let release: (() => void) | undefined;
+			const bases: unknown[] = [];
+			const drafts = createFileDrafts({
+				files: {
+					read: folder.files.read,
+					async write(path, from, content) {
+						bases.push(from);
+						if (bases.length === 1) {
+							await new Promise<void>((resolve) => {
+								release = resolve;
+							});
+							if (refuseFirst)
+								return SaveError.StorageFailed({
+									cause: new Error('disk full'),
+								});
+						}
+						return folder.files.write(path, from, content);
+					},
+				},
+				saved: async () => {},
+			});
+			try {
+				const draft = drafts.file('a.md');
+				const base = { content: before, crlf: false };
+				draft.change({ title: 'mine' }, base);
+				await writeFile(
+					join(directory, 'a.md'),
+					'---\ntitle: before\n---\nbody from another writer\n',
+				);
+				const fieldSave = draft.save();
+				await until(() => release !== undefined);
+				draft.type(draft.shown(base)! + 'my appended line\n', base);
+				release!();
+				await fieldSave;
+				expect(draft.error).toBeUndefined();
+				if (revert) {
+					const held = draft.text;
+					if (held === undefined) throw new Error('The source edit was lost');
+					expect(
+						draft.type(held.replace('title: mine', 'title: before'), base),
+					).toBe(true);
 				}
-				return folder.files.write(path, from, content);
-			},
+				await draft.save();
+				if (refuseFirst) expect(bases[1]).toBe(before);
+				const stored = await readFile(join(directory, 'a.md'), 'utf8');
+				expect(stored).toContain(revert ? 'title: before' : 'title: mine');
+				expect(stored).toContain('body from another writer');
+				expect(stored).toContain('my appended line');
+			} finally {
+				await drafts.settle();
+				await folder.close();
+				await rm(directory, { recursive: true, force: true });
+			}
 		},
-		saved: async () => {},
-	});
-	try {
-		const draft = drafts.file('a.md');
-		const base = { content: before, crlf: false };
-		draft.change({ title: 'mine' }, base);
-		await writeFile(
-			join(directory, 'a.md'),
-			'---\ntitle: before\n---\nbody from another writer\n',
-		);
-		const fieldSave = draft.save();
-		await until(() => release !== undefined);
-		draft.type(draft.shown(base)! + 'my appended line\n', base);
-		release!();
-		await fieldSave;
-		await draft.save();
-		const stored = await readFile(join(directory, 'a.md'), 'utf8');
-		expect(stored).toContain('title: mine');
-		expect(stored).toContain('body from another writer');
-		expect(stored).toContain('my appended line');
-	} finally {
-		await drafts.settle();
-		await folder.close();
-		await rm(directory, { recursive: true, force: true });
-	}
-});
+	);
+}
 
 describe('exclusive section writes', () => {
 	test('fences input synchronously, drains source first, and close waits without a blur deadlock', async () => {
