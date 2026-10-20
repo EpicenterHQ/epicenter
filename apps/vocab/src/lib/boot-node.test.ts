@@ -64,7 +64,7 @@ describe('the working page needs no account', () => {
 		const page = await Bun.file(join(routes, '+page.svelte')).text();
 		expect(page).toContain('<FolderApp ');
 		expect(page).toContain('tables={vocabTables}');
-		expect(page).toContain('<VocabShell />');
+		expect(page).toMatch(/<VocabShell\b/);
 		expect(page).not.toMatch(/AppBoot|SignInScreen|\$lib\/auth/);
 	});
 

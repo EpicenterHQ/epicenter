@@ -8,9 +8,8 @@
 	import { Button } from '@epicenter/ui/button';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
-	import { getFolder } from '@epicenter/svelte/folder';
+	import { getFolder } from '$lib/folder.js';
 	import { onMount } from 'svelte';
-	import type { todosTables } from '$lib/definition.js';
 	import { saveLine } from '$lib/local-todos.js';
 	import {
 		currentShell,
@@ -19,11 +18,11 @@
 		openInEpicenter,
 	} from './open-in-epicenter';
 
-	const local = getFolder<typeof todosTables>();
+	const context = getFolder();
 	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
 
 	const saved = $derived.by(() => {
-		const line = saveLine(local.saveState, local.edits.failures, local.status.storageFailure);
+		const line = saveLine(context.saveState, context.edits.failures, context.status.storageFailure);
 		return pendingNewTodo && line.tone === 'good'
 			? { label: 'Todo not added', tone: 'warning' as const }
 			: line;

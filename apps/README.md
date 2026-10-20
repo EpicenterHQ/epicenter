@@ -48,8 +48,16 @@ drafts and file actions with the context so close waits for them too.
 	import TodosView from './local/TodosView.svelte';
 </script>
 
-<FolderApp title="Todos" tables={todosTables}><TodosView /></FolderApp>
+<FolderApp title="Todos" tables={todosTables}>
+	{#snippet children(context)}<TodosView {context} />{/snippet}
+</FolderApp>
 ```
+
+Each app declares its typed `getFolder`/`setFolder` pair with Svelte's
+`createContext<FolderContext<typeof tables>>()`. Its root view receives the
+opened context and installs it during initialization. Descendants import the
+app's getter without supplying a table type. See the
+[Svelte package](../packages/svelte/README.md#folder-app-root).
 
 Each build's exact alias of `@epicenter/folder` gives the root one engine. A
 desktop window's root opens the directory its shell bound to the window; to

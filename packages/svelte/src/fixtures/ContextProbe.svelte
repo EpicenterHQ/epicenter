@@ -1,9 +1,12 @@
-<!-- Hands the folder context it is mounted under to the test. -->
+<!-- Hands the opened folder context to the test. -->
 <script lang="ts">
-	import { type FolderContext, getFolder } from '../folder-context.js';
+	import type { FolderContext } from '../folder-context.js';
 
-	let { onContext }: { onContext: (context: FolderContext) => void } = $props();
+	let { context, onContext }: {
+		context: FolderContext;
+		onContext: (context: FolderContext) => void;
+	} = $props();
 
 	// svelte-ignore state_referenced_locally
-	onContext(getFolder());
+	onContext(context);
 </script>

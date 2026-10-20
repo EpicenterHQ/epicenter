@@ -11,4 +11,8 @@
 	const tables = {};
 </script>
 
-<FolderApp title="Folder" {tables}><FolderEditor /></FolderApp>
+<FolderApp title="Folder" {tables}>
+	{#snippet children(context)}
+		<FolderEditor {context} />
+	{/snippet}
+</FolderApp>

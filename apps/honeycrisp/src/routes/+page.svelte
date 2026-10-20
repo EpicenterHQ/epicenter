@@ -10,4 +10,8 @@
 	import NotesView from './components/NotesView.svelte';
 </script>
 
-<FolderApp title="Honeycrisp" tables={honeycrispTables}><NotesView /></FolderApp>
+<FolderApp title="Honeycrisp" tables={honeycrispTables}>
+	{#snippet children(context)}
+		<NotesView {context} />
+	{/snippet}
+</FolderApp>

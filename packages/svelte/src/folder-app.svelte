@@ -3,11 +3,13 @@
 	folder, or the folder the desktop shell bound to this window, with
 	`openFolder({ tables })` when it mounts,
 	shows one loading screen and one
-	refusal screen, provides the opened folder to its children
-	(`getFolder()`), and closes it when it unmounts.
+	refusal screen, passes the opened folder context to its children,
+	and closes it when it unmounts.
 
 	```svelte
-	<FolderApp title="Todos" tables={todosTables}><TodosView /></FolderApp>
+	<FolderApp title="Todos" tables={todosTables}>
+		{#snippet children(context)}<TodosView {context} />{/snippet}
+	</FolderApp>
 	```
 
 	Opening needs no account, remote, or network, and writes nothing. A
@@ -30,7 +32,6 @@
 	import { createLogger } from 'wellcrafted/logger';
 	import { Ok } from 'wellcrafted/result';
 	import { createFolderContext, type FolderContext } from './folder-context.js';
-	import FolderProvider from './folder-provider.svelte';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
 	import { toastWriteFailure } from './write-failure-toast.js';
 	const log = createLogger('svelte/folder-app');
@@ -47,7 +48,8 @@
 		tables: TTables;
 		/** How long after the last keystroke a draft saves. */
 		saveAfterMs?: number;
-		children: Snippet;
+		/** The app root installs its typed context during initialization. */
+		children: Snippet<[FolderContext<TTables>]>;
 	} = $props();
 
 	let active: FolderContext<TTables> | undefined;
@@ -124,7 +126,7 @@
 	{#if opened.error}
 		{@render refused(describeOpenRefusal(opened.error))}
 	{:else}
-		<FolderProvider context={opened.data}>{@render children()}</FolderProvider>
+		{@render children(opened.data)}
 	{/if}
 {:catch error}
 	{@render refused({ description: extractErrorMessage(error), retry: true })}

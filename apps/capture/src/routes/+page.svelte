@@ -4,4 +4,8 @@
 	import CaptureApp from '$lib/components/CaptureApp.svelte';
 </script>
 
-<FolderApp title="Capture" tables={captureTables}><CaptureApp /></FolderApp>
+<FolderApp title="Capture" tables={captureTables}>
+	{#snippet children(context)}
+		<CaptureApp {context} />
+	{/snippet}
+</FolderApp>

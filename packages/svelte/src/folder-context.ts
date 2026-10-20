@@ -3,9 +3,9 @@
  * write it: the handle, the page's one query client over its rows, its
  * edit layer, whether everything typed is saved, and one close.
  *
- * `<FolderApp>` opens the folder, builds this, provides it to its
- * children (`getFolder()`), and closes it when the page goes away. A
- * test builds it over a folder it opened.
+ * `<FolderApp>` opens the folder, builds this, and closes it when the page
+ * goes away. The app root installs its typed context for descendants to
+ * read with `getFolder()`. A test builds it over a folder it opened.
  *
  * The context owns every subscription it makes: the folder's change channel
  * marks the rows it names stale, and nothing else reads again. `close`
@@ -23,7 +23,6 @@
  */
 import type { Folder, FolderStatus, Row } from '@epicenter/folder';
 import { QueryClient } from '@tanstack/query-core';
-import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
@@ -341,22 +340,3 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 export type FolderContext<
 	TTables extends Record<string, TSchema> = Record<string, TSchema>,
 > = ReturnType<typeof createFolderContext<TTables>>;
-
-const [getContext, setContext] = createContext<FolderContext>();
-
-/**
- * The local folder of the `<FolderApp>` this component is inside, typed
- * by the app's tables. Call it while the component initializes.
- */
-export function getFolder<
-	TTables extends Record<string, TSchema>,
->(): FolderContext<TTables> {
-	return getContext() as unknown as FolderContext<TTables>;
-}
-
-/** Provide `context` to this component's subtree. */
-export function setFolder<TTables extends Record<string, TSchema>>(
-	context: FolderContext<TTables>,
-): void {
-	setContext(context as unknown as FolderContext);
-}

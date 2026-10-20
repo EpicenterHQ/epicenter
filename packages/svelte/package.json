@@ -17,7 +17,6 @@
 		"./edits": "./src/edits.svelte.ts",
 		"./folder": "./src/folder-context.ts",
 		"./folder-app": "./src/folder-app.svelte",
-		"./folder-provider": "./src/folder-provider.svelte",
 		"./status-line": "./src/status-line.ts",
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte",

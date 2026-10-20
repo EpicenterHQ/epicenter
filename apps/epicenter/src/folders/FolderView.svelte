@@ -14,7 +14,7 @@
 	} from './views.svelte';
 	import TablesView from './TablesView.svelte';
 	import SqlView from './SqlView.svelte';
-	import { getFolder } from '@epicenter/svelte/folder';
+	import { getFolder } from './context.js';
 	import { createQuery } from '@tanstack/svelte-query';
 	import type { FileDrafts } from './drafts.svelte';
 	import FileEditor from './FileEditor.svelte';
@@ -24,7 +24,7 @@
 	let { drafts, updateView }: { drafts: FileDrafts; updateView: ViewUpdater } =
 		$props();
 
-	const context = getFolder<Record<never, never>>();
+	const context = getFolder();
 	const folder = context.folder;
 
 	const listing = createQuery(() => ({

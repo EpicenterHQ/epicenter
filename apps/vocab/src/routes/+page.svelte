@@ -8,4 +8,8 @@
 	// signed in. Vocab has no desktop build.
 </script>
 
-<FolderApp title="Vocab" tables={vocabTables}><VocabShell /></FolderApp>
+<FolderApp title="Vocab" tables={vocabTables}>
+	{#snippet children(context)}
+		<VocabShell {context} />
+	{/snippet}
+</FolderApp>

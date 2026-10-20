@@ -8,7 +8,18 @@ status UI helpers.
 
 ## Folder app root
 
-Mount one `<FolderApp>` at the route that owns an app's folder:
+Bind the app's table type once in `src/lib/folder.ts`:
+
+```ts
+import type { FolderContext } from '@epicenter/svelte/folder';
+import { createContext } from 'svelte';
+import type { todosTables } from './definition.js';
+
+export const [getFolder, setFolder] =
+	createContext<FolderContext<typeof todosTables>>();
+```
+
+Mount one `<FolderApp>` at the route that owns the folder:
 
 ```svelte
 <script lang="ts">
@@ -17,8 +28,32 @@ Mount one `<FolderApp>` at the route that owns an app's folder:
 	import TodosView from './local/TodosView.svelte';
 </script>
 
-<FolderApp title="Todos" tables={todosTables}><TodosView /></FolderApp>
+<FolderApp title="Todos" tables={todosTables}>
+	{#snippet children(context)}
+		<TodosView {context} />
+	{/snippet}
+</FolderApp>
 ```
+
+The existing app root, `TodosView`, installs its own module's context during
+initialization. It captures this opened context for its lifetime:
+
+```svelte
+<script lang="ts">
+	import { setQueryClientContext } from '@tanstack/svelte-query';
+	import { type getFolder, setFolder } from '$lib/folder.js';
+
+	let { context }: { context: ReturnType<typeof getFolder> } = $props();
+	// svelte-ignore state_referenced_locally
+	setFolder(context);
+	// svelte-ignore state_referenced_locally
+	setQueryClientContext(context.queryClient);
+</script>
+```
+
+`FolderApp` owns opening, saving, and closing. The app root provides the opened
+context to its descendants. The setter stays in the app; no setter prop or
+separate provider component is needed.
 
 The root calls `openFolder({ tables })`, which each build's exact alias of
 `@epicenter/folder` resolves to one engine. In a browser it opens this
@@ -36,8 +71,8 @@ when it is a background native tab. The native capability must grant
 immediate. If a save still fails as the route unmounts, the root shows its fields and body for copying in a
 notice held by the app layout's toaster.
 
-A child calls `getFolder<typeof todosTables>()` from
-`@epicenter/svelte/folder`. The context contains `folder`, `queryClient`,
+A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
+initialization. The context contains `folder`, `queryClient`,
 `queries.rows(table)`, `edits`, `status`, `saveState`, `busy`, `leaving`, `run`,
 `registerWork`, `registerUnsent`, `settled`, `guardWindowClose`, and `close`. Its single `onChange` subscription
 invalidates reads for the paths reported by the folder. Reads stay fresh

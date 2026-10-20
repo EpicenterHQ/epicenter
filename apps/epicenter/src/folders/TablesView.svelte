@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getFolder } from '@epicenter/svelte/folder';
+	import { getFolder } from './context.js';
 	import { readDocument, readDocuments } from '@epicenter/folder/documents';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -25,7 +25,7 @@
 		view: TableView;
 		change: (value: TableView) => void;
 	} = $props();
-	const context = getFolder<Record<never, never>>();
+	const context = getFolder();
 	const reading = createQuery(() => ({
 		queryKey: [...context.queries.key, 'documents'],
 		queryFn: async () => {

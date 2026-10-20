@@ -7,8 +7,8 @@
 	Save version, Sync, or Connect.
 -->
 <script lang="ts">
-	import type { captureTables } from '@epicenter/capture';
-	import { getFolder } from '@epicenter/svelte/folder';
+	import { setQueryClientContext } from '@tanstack/svelte-query';
+	import { type getFolder, setFolder } from '$lib/folder.js';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import { onDestroy } from 'svelte';
@@ -18,7 +18,15 @@
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
-	const captures = createCaptures(getFolder<typeof captureTables>());
+	let { context }: { context: ReturnType<typeof getFolder> } = $props();
+
+	// The opened context stays fixed until this app root unmounts.
+	// svelte-ignore state_referenced_locally
+	setFolder(context);
+	// svelte-ignore state_referenced_locally
+	setQueryClientContext(context.queryClient);
+	// svelte-ignore state_referenced_locally
+	const captures = createCaptures(context);
 
 	// One page: the timeline or the one open capture.
 	const item = $derived(captures.opened);

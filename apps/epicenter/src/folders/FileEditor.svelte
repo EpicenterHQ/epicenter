@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
-	import { getFolder } from '@epicenter/svelte/folder';
+	import { getFolder } from './context.js';
 	import { Button } from '@epicenter/ui/button';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
@@ -30,7 +30,7 @@
 		path: string;
 	} = $props();
 
-	const context = getFolder<Record<never, never>>();
+	const context = getFolder();
 
 	// The view keys this editor by its file; while it replaces one, the prop
 	// may already read the next file, so a save sent as it goes uses this.

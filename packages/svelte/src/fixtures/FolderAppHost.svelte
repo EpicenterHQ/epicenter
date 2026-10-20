@@ -16,4 +16,6 @@
 	} = $props();
 </script>
 
-<FolderApp title="Notes" {tables} {saveAfterMs}><ContextProbe {onContext} /></FolderApp>
+<FolderApp title="Notes" {tables} {saveAfterMs}>
+	{#snippet children(context)}<ContextProbe {context} {onContext} />{/snippet}
+</FolderApp>

@@ -22,7 +22,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { getFolder } from '@epicenter/svelte/folder';
+	import { getFolder } from '$lib/folder.js';
 	import type { RowChange } from '@epicenter/svelte/edits';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { createQuery } from '@tanstack/svelte-query';
@@ -30,7 +30,7 @@
 	import type { todosTables } from '$lib/definition.js';
 	import { describeFailure, labelOf, type TodoRow, todoPath } from '$lib/local-todos.js';
 
-	const local = getFolder<typeof todosTables>();
+	const local = getFolder();
 
 	let {
 		id: shownId,

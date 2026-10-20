@@ -1,12 +1,12 @@
 <script lang="ts">
+	import { setQueryClientContext } from '@tanstack/svelte-query';
 	import * as Empty from '@epicenter/ui/empty';
-	import { getFolder } from '@epicenter/svelte/folder';
+	import { type getFolder, setFolder } from '$lib/folder.js';
 	import { Loading } from '@epicenter/ui/loading';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
 	import { onDestroy } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
-	import type { HoneycrispTables } from '$lib/data.js';
 	import { createNotes } from '$lib/notes.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
@@ -17,7 +17,15 @@
 
 	// The notes over the folder `<FolderApp>` opened. The note and
 	// folder rows are read before the views show, so none starts empty.
-	const notes = createNotes(getFolder<HoneycrispTables>());
+	let { context }: { context: ReturnType<typeof getFolder> } = $props();
+
+	// The opened context stays fixed until this app root unmounts.
+	// svelte-ignore state_referenced_locally
+	setFolder(context);
+	// svelte-ignore state_referenced_locally
+	setQueryClientContext(context.queryClient);
+	// svelte-ignore state_referenced_locally
+	const notes = createNotes(context);
 	const loading = notes.load();
 	onDestroy(() => notes.stop());
 

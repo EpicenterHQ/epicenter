@@ -11,10 +11,10 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { auth } from '$lib/auth.svelte.js';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { type FocusItem, VOCAB_MODEL, type VocabTables } from '$lib/data.js';
+	import { createQuery, setQueryClientContext } from '@tanstack/svelte-query';
+	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
 	import { openVocabInference } from '$lib/inference.js';
-	import { getFolder } from '@epicenter/svelte/folder';
+	import { type getFolder, setFolder } from '$lib/folder.js';
 	import { createVocab } from '$lib/vocab.svelte.js';
 	import AccountMenu from './AccountMenu.svelte';
 	import ConversationView from './ConversationView.svelte';
@@ -22,7 +22,15 @@
 	import WordsView from './WordsView.svelte';
 
 	// Vocab over the local folder `<FolderApp>` opened.
-	const vocab = createVocab(getFolder<VocabTables>());
+	let { context }: { context: ReturnType<typeof getFolder> } = $props();
+
+	// The opened context stays fixed until this app root unmounts.
+	// svelte-ignore state_referenced_locally
+	setFolder(context);
+	// svelte-ignore state_referenced_locally
+	setQueryClientContext(context.queryClient);
+	// svelte-ignore state_referenced_locally
+	const vocab = createVocab(context);
 	const { folder, entries, chats } = vocab;
 	// Observed here, so a change the folder reports reads both lists again.
 	const words = createQuery(() => entries.entriesQuery());

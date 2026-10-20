@@ -126,8 +126,10 @@ Nothing persists text not added across a reload you confirm.
   <FolderApp title="Capture" tables={captureTables}>
     openFolder({ tables })         this origin's local folder, in IndexedDB
     createFolderContext       rows query, change channel, edit layer, close
-    <CaptureApp>
-      createCaptures(getFolder())
+    <CaptureApp {context}>
+      setFolder(context)
+      setQueryClientContext(context.queryClient)
+      createCaptures(context)
 ```
 
 `<FolderApp>` (from `@epicenter/svelte/folder-app`) opens the
