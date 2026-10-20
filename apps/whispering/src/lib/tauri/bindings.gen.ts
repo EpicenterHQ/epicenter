@@ -199,11 +199,11 @@ export const commands = {
 	 */
 	openInstalledApp: (id: string, title: string, commit: string, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_installed_app", { id, title, commit, folder })),
 	/**
-	 *  Open Todos on the fixed default folder, or with `folder`, on a folder the
-	 *  Folders window listed under that scope. A window already open on the
-	 *  folder is revealed.
+	 *  Open bundled app `app` on its fixed default folder, or with `folder`, on a
+	 *  folder the Folders window listed under that scope. A window already open
+	 *  on the folder is revealed.
 	 */
-	openTodos: (folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_todos", { folder })),
+	openBundledApp: (app: BundledApp, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_bundled_app", { app, folder })),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("get_unload_policy"),
 	/**
@@ -378,6 +378,9 @@ export type AuthStatus = {
 	grants: AuthGrant[],
 };
 
+/**  An app Epicenter bundles. The page API names it by its page. */
+export type BundledApp = "todos" | "capture" | "honeycrisp" | "whispering";
+
 export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "RevealFailed"; message: string };
 
 /**  Why a command did not run the CLI, or the CLI did not finish. */
@@ -445,7 +448,7 @@ export type GrantError =
 { name: "WindowNotPermitted"; scope: string; window: string } | 
 /**
  *  The registered directory is missing. The shell creates a fixed
- *  application folder only on its first grant.
+ *  application folder when its original parent is still in place.
  */
 { name: "Missing"; root: string } | 
 /**  The folder could not be prepared or reached. */

@@ -2,7 +2,7 @@
  * What a person is told about saving: the header's one line, and the words
  * for a save, read, or action that failed.
  *
- * Notes are kept in this browser's local folder, which keeps no versions and
+ * Notes are kept in this device's local folder, which keeps no versions and
  * syncs nowhere, so saving is the only fact the header reports. A note is
  * saved when its text is on this device.
  */
@@ -69,5 +69,5 @@ export function saveLine({
 			detail: storageFailure ? describeFailure(storageFailure) : undefined,
 			tone: 'error',
 		};
-	return { label: 'Saved in this browser', short: 'Saved', tone: 'good' };
+	return { label: 'Saved on this device', short: 'Saved', tone: 'good' };
 }

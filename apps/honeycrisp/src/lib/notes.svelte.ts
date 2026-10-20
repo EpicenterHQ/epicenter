@@ -594,7 +594,7 @@ export function createNotes(local: NotesFolder) {
 		get busy() {
 			return local.busy || texts.size > 0 || deleting.size > 0;
 		},
-		/** Whether everything typed is saved in this browser, as the header says it. */
+		/** Whether everything typed is saved on this device, as the header says it. */
 		get saves() {
 			return saveLine({
 				state: local.saveState,

@@ -1,17 +1,20 @@
 /**
- * The desktop workspace: Whispering installed in Epicenter (ADR-0493,
- * ADR-0552), over an ordinary directory Epicenter's shell grants this window.
+ * The desktop workspace: Whispering in Epicenter (ADR-0493), over an ordinary
+ * directory Epicenter's shell grants this window.
  *
- * Epicenter hands this window a directory scope, normally Whispering's own
- * folder and sometimes one chosen through "Open in Whispering". The page
- * opens that scope with Whispering's tables
- * (`openFolder({ directory, tables })`). The page supplies no path: the shell
- * grants the window the directory, checks every path, and lands each save.
- * Files a person or another program left in the directory are read as they
- * are, and opening writes nothing.
+ * Epicenter assigns this window one folder before the window exists: the
+ * Whispering default under the Epicenter folder, or a folder chosen through
+ * "Open with" in the Folders window. The page asks which scope it was handed
+ * (`window_folder`) and opens exactly that scope with Whispering's tables
+ * (`openFolder({ directory, tables })`); the recorder writes under the same
+ * scope. The page supplies no path: the shell grants the window the
+ * directory, checks every path, and lands each save. Files a person or
+ * another program left in the directory are read as they are, and opening
+ * writes nothing. The installed copy of Whispering, while it remains, is
+ * handed a folder the same way.
  *
- * Everything else native is Epicenter's, granted to every installed app's
- * windows (`installed-app.json` in Epicenter's capabilities):
+ * Everything else native is Epicenter's, granted to Whispering's windows
+ * (`whispering.json` in Epicenter's capabilities):
  *
  * - the recorder plugin, which owns the microphone: it lists the inputs,
  *   reads one's level, and writes a recording into the granted directory as
@@ -31,7 +34,7 @@
  * unknown, never as "not sent", and nothing is sent again on its own.
  */
 
-import { OpenFolderError, type Folder } from '@epicenter/folder';
+import { type Folder, OpenFolderError } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/tauri';
 import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { invoke } from '@tauri-apps/api/core';
@@ -68,12 +71,7 @@ import {
 	type LocalTranscriptionCommands,
 } from './local-transcription.js';
 import { localPreferences } from './microphone-preference.js';
-import {
-	type OpenWorkspace,
-	WHISPERING_FOLDER_ID,
-	type Workspace,
-	WorkspaceError,
-} from './types.js';
+import { type OpenWorkspace, type Workspace, WorkspaceError } from './types.js';
 
 type Route = Awaited<ReturnType<DesktopConnections['route']>>;
 
@@ -97,7 +95,7 @@ const openRegistered: OpenDirectory = ({ directory, tables }) =>
 
 export async function openDesktopWorkspace({
 	openDirectory = openRegistered,
-	directory = WHISPERING_FOLDER_ID,
+	directory,
 	commands: native = commands,
 	connectionCommands = commands,
 	openConnectionsFolder = () =>
@@ -108,8 +106,8 @@ export async function openDesktopWorkspace({
 }: {
 	/** How a registered directory is opened; injected for tests. */
 	openDirectory?: OpenDirectory;
-	/** The registered directory Whispering opens: its own unless a test says otherwise. */
-	directory?: string;
+	/** The registered directory Whispering opens: the scope handed to its window. */
+	directory: string;
 	commands?: LocalTranscriptionCommands;
 	/** The AI connection commands; injected for tests. */
 	connectionCommands?: ConnectionCommands;
@@ -117,7 +115,7 @@ export async function openDesktopWorkspace({
 	openConnectionsFolder?: () => Promise<
 		Result<ConnectionsFolder, { readonly message: string }>
 	>;
-} = {}): Promise<Result<Workspace, WorkspaceError>> {
+}): Promise<Result<Workspace, WorkspaceError>> {
 	const opened = await openDirectory({ directory, tables: whisperingTables });
 	if (opened.error !== null)
 		return WorkspaceError.DesktopFolder({ refusal: opened.error });
@@ -155,7 +153,7 @@ export async function openDesktopWorkspace({
 		kind: 'native',
 		folder,
 		folderId: directory,
-		location: `The folder Epicenter keeps as ${directory}`,
+		location: 'The folder opened in Epicenter',
 		capture: createDesktopMicrophone(),
 		captureNotice,
 		async transcribe(request) {
@@ -215,7 +213,11 @@ export async function openDesktopWorkspace({
 	});
 }
 
-/** The `#platform/workspace` leaf of the build Epicenter serves. */
+/**
+ * The `#platform/workspace` leaf of the build Epicenter serves: open the
+ * folder the shell handed this window, whichever app name it was handed
+ * under. A window handed none is refused, and nothing else is opened.
+ */
 export const openWorkspace: OpenWorkspace = async () => {
 	let handed: { app: string; folder: string } | null;
 	try {
@@ -225,11 +227,9 @@ export const openWorkspace: OpenWorkspace = async () => {
 			refusal: OpenFolderError.Unavailable({ cause }).error,
 		});
 	}
-	if (handed === null || handed.app !== WHISPERING_FOLDER_ID)
+	if (handed === null)
 		return WorkspaceError.DesktopFolder({
-			refusal: OpenFolderError.Unavailable({
-				cause: new Error('Epicenter did not hand this Whispering window a folder'),
-			}).error,
+			refusal: OpenFolderError.NotAssigned().error,
 		});
 	return openDesktopWorkspace({ directory: handed.folder });
 };

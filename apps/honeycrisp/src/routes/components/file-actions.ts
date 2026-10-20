@@ -23,7 +23,7 @@ export function describeDeletion(deletion: Deletion) {
 			deletion.title !== undefined
 				? `Delete “${deletion.title}” permanently?`
 				: `Delete ${basename(deletion.path)}?`,
-		description: `This deletes ${deletion.path} from this browser. Honeycrisp keeps no versions, so it cannot be brought back.`,
+		description: `This deletes ${deletion.path} from this device. Honeycrisp keeps no versions, so it cannot be brought back.`,
 	};
 }
 

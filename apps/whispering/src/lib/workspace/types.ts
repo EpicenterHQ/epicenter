@@ -13,7 +13,6 @@
 import type { Folder, OpenFolderError } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import manifest from '../../../epicenter.app.json';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
 import type {
 	ConnectionChange,
@@ -36,11 +35,11 @@ import type { LocalTranscription } from './local-transcription.js';
 export type WhisperingFolder = Folder<WhisperingTables>;
 
 /**
- * Whispering's app id in `epicenter.app.json`. Epicenter registers an
- * installed app's own directory, `<folder root>/<app-id>`, under this ID
- * (ADR-0552), and the desktop workspace opens that directory by it.
+ * The ID a browser workspace reports for its folder, which the recorder
+ * names its audio under. A desktop workspace reports the scope Epicenter
+ * handed its window instead, and never opens a folder by this ID.
  */
-export const WHISPERING_FOLDER_ID = manifest.id;
+export const WHISPERING_FOLDER_ID = 'so.epicenter.whispering';
 
 /**
  * Why no workspace could be opened. The message is what the person is shown.
@@ -69,9 +68,9 @@ export type Workspace = {
 	readonly kind: 'native' | 'browser';
 	readonly folder: WhisperingFolder;
 	/**
-	 * The ID the folder was opened under: the directory Epicenter registered
-	 * for this window, or `WHISPERING_FOLDER_ID` in a browser. The desktop
-	 * recorder writes a recording's audio under it.
+	 * The ID the folder was opened under: the scope Epicenter handed this
+	 * window, or `WHISPERING_FOLDER_ID` in a browser. The desktop recorder
+	 * writes a recording's audio under it.
 	 */
 	readonly folderId: string;
 	/** Where the files are, as the person is told it. */

@@ -83,7 +83,7 @@
 	function confirmDiscard() {
 		confirmationDialog.open({
 			title: 'Discard unsaved changes?',
-			description: `Copy any text you need from ${path} before discarding it. What is saved stays in this browser.`,
+			description: `Copy any text you need from ${path} before discarding it. What is saved stays on this device.`,
 			confirm: { text: 'Discard changes', variant: 'destructive' },
 			onConfirm: () => {
 				draft.discard();

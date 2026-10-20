@@ -7,9 +7,9 @@
  * row names from its folder, and hands the bytes to Epicenter's
  * `transcribe_audio_bytes` with that model's id. Nothing leaves the computer.
  *
- * The commands are the shell's typed bindings, granted to every installed
- * app's windows (`installed-app.json` in Epicenter's capabilities). They are
- * injected so tests can answer them.
+ * The commands are the shell's typed bindings, granted to Whispering's
+ * windows (`whispering.json` in Epicenter's capabilities). They are injected
+ * so tests can answer them.
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import type { commands as shellCommands } from '../tauri/bindings.gen.js';

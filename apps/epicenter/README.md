@@ -1,30 +1,39 @@
 # Epicenter desktop app
 
-Epicenter hosts installed application pages, Settings, and a Folders window in
-one Tauri runtime. The Folders window opens native directories through the
-public `@epicenter/folder` API. Installed apps supply their own table schemas;
-local opening and saving require no account or Git repository. Git commands
-still exist outside a Folder handle, but the current folder and product pages
-offer no Save version, Connect, or Sync action.
+Epicenter hosts Settings, a Folders window, the apps it bundles, and installed
+application pages in one Tauri runtime. The Folders window opens native
+directories through the public `@epicenter/folder` API. Apps supply their own
+table schemas; local opening and saving require no account or Git repository.
+Git commands still exist outside a Folder handle, but the current folder and
+product pages offer no Save version, Connect, or Sync action.
 
-The existing app owns one Tauri runtime, one native command API, and the short list of what it compiles in. It bundles [Todos](#todos), built from `apps/todos` with Epicenter's own pages. Every other app, Capture, Whispering, and Honeycrisp included, is a folder in a Git repository that Epicenter clones and builds on this machine (ADR-0552, see [Installed apps](#installed-apps)); that path can still install Todos too, until it is removed.
+The existing app owns one Tauri runtime, one native command API, and the short
+list of what it compiles in. It bundles [Todos, Capture, Honeycrisp, and
+Whispering](#bundled-apps), each built from its own folder under `apps/` with
+Epicenter's own pages. Any other app is a folder in a Git repository that
+Epicenter clones and builds on this machine (ADR-0552, see [Installed
+apps](#installed-apps)). That path stays compiled until a later change deletes
+it; it can still install the four bundled apps, but the Folders window lists
+none of those installed copies.
 
 ```text
-page source                        build output            served at
+page source                             build output            served at
 
-apps/epicenter/src/ui -----------> dist/home ------------> epicenter-app://localhost/home/
-apps/epicenter/src/folders ------> dist/folders ---------> epicenter-app://localhost/folders/
-apps/todos (build:installed) ----> dist/todos -----------> epicenter-app://localhost/todos/
-an installed app's folder -------> builds/<id>/<commit>/ -> epicenter-app://localhost/apps/<id>/<commit>/
+apps/epicenter/src/ui ----------------> dist/home ------------> epicenter-app://localhost/home/
+apps/epicenter/src/folders -----------> dist/folders ---------> epicenter-app://localhost/folders/
+apps/<page> (build:installed) --------> dist/<page> ----------> epicenter-app://localhost/<page>/
+  for todos, capture, honeycrisp, whispering
+an installed app's folder ------------> builds/<id>/<commit>/ -> epicenter-app://localhost/apps/<id>/<commit>/
 ```
 
 Rust serves every page Epicenter shows from one origin,
 `epicenter-app://localhost`, through a scheme the shell registers
 (`src-tauri/src/scheme.rs`, ADR-0561): Settings (the `home` window) at
-`/home/`, the Folders window at `/folders/`, Todos at `/todos/`, and each
-installed app's build of one commit at `/apps/<app-id>/<commit>/`. No server listens on a port and no Bun process outlives a
-command. The `epicenter-host` build condition selects each product's host
-integrations.
+`/home/`, the Folders window at `/folders/`, each bundled app at
+`/<page>/`, and each installed app's build of one commit at
+`/apps/<app-id>/<commit>/`. No server listens on a port and no Bun process
+outlives a command. The `epicenter-host` build condition selects each
+product's host integrations.
 
 The scheme answers GET only. It serves a regular file inside the page's
 directory or the build of the commit the URL names, refusing a symbolic link and any path
@@ -33,16 +42,18 @@ directory's `index.html`, so client-side routes load. Every response carries
 one Content-Security-Policy: a page reaches its own origin and Tauri's IPC
 (`connect-src 'self' ipc: http://ipc.localhost`) and nothing else, and a
 document's policy admits each of its inline scripts by hash. Each window
-navigates only below the path it opened at: a built-in page's, Todos'
-`/todos/`, or an installed app's `/apps/<app-id>/<commit>/`, so an app window
-never loads another build;
+navigates only below the path it opened at: a built-in page's, a bundled
+app's `/<page>/`, or an installed app's `/apps/<app-id>/<commit>/`, so an app
+window never loads another app's page or another build;
 a new-window link opens in the system browser only when it is the hosted
 account website.
 
-Installed apps reach native file folders through the shared Folder plugin.
-Each page runs `@epicenter/folder`'s own engine over a directory the shell
-grants (ADR-0531). An app that needs other native commands is granted them by
-its app id (see [Native commands for an installed app](#native-commands-for-an-installed-app)).
+App pages reach native file folders through the shared Folder plugin. Each
+page runs `@epicenter/folder`'s own engine over a directory the shell grants
+(ADR-0531). A bundled app's window is granted the native commands its page
+calls by its window label ([Bundled apps](#bundled-apps)); every installed
+app's window gets one shared grant (see [Native commands for an installed
+app](#native-commands-for-an-installed-app)).
 
 The shell serves product bundles and holds no credential: the `epicenter`
 CLI holds the account and every key (ADR-0556). Product pages own unsaved
@@ -189,7 +200,7 @@ bun dev:epicenter
 
 This starts the local API on `http://localhost:8787` and the desktop app.
 Before the app starts, Tauri runs `bun run build:desktop`, which builds
-Settings, the Folders window, and Todos into `dist/` and compiles the
+Settings, the Folders window, and the four bundled apps into `dist/` and compiles the
 `epicenter` binary. A development build's scheme serves the pages from that `dist/`
 directly, so after changing a page, run `bun run --cwd apps/epicenter build`
 and reload its window (Cmd-R). There is no dev server and no hot reload: the
@@ -201,15 +212,16 @@ shows who the app is signed in as. Nothing restarts. It is a separate grant
 from a terminal's `epicenter auth login`, and signing one out leaves the
 other signed in.
 
-An installed app opens its granted local directory before any account flow.
-Todos uses the same `Folder` table schema on desktop and in the browser.
+An app opens its granted local directory before any account flow. Each
+bundled app uses the same `Folder` table schemas on desktop and in the
+browser.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
-it. It lists your data folders, offers "Open Todos" and, on every folder,
-"Open in Todos" and "Open in <app>" for each installed app, lists the
-installed apps under Apps, and opens Settings from its Settings button with
-`open_home`. Opening an app opens its own
+it. It lists your data folders, offers "Open with…" on every folder for each
+bundled app and each installed app, lists the bundled and installed apps under
+Apps, and opens Settings from its Settings button with `open_home`. Opening an
+app opens its own
 window; the OS is the switcher from there, and closing the Folders window
 leaves everything it opened running.
 
@@ -217,8 +229,8 @@ Settings is the window labelled `home`. It signs the app in and out and alone
 administers the local transcription model (ADR-0180). An app that needs
 a local model opens it with `open_home('transcription')`, and Settings scrolls
 to the model (`src/ui/home-section.ts`). The tray (Show Folders,
-Show Settings) and deep links remain shortcuts into the same windows; installed
-apps have no deep link:
+Show Settings) and deep links remain shortcuts into the same windows; bundled
+and installed apps have no deep link:
 
 ```bash
 open 'epicenter://'
@@ -227,6 +239,10 @@ open 'epicenter://app/home'
 ```
 
 ## An app's own folder
+
+This section describes the installed-app path, which stays compiled until it
+is deleted. The four bundled apps open a fixed default instead ([Bundled
+apps](#bundled-apps)).
 
 An installed app opened without a folder, from the Apps list, is handed its
 own folder: `<folderDir>/<app-id>`, under the authored folder root native
@@ -275,10 +291,11 @@ registered scope. The page calls `openFolder({ directory: folder.id, tables:
 - **Epicenter's own folder**, `so.epicenter`, is registered at setup for the
   `folders` and `home` windows and listed under that scope.
 - **Any other data folder** gets the scope `data:<directory name>` the first
-  time it is listed, registered for the `folders` window. Bundled Todos
+  time it is listed, registered for the `folders` window. A bundled app
   permits its own window into that entry when it opens the folder
-  ([Todos](#todos)). Listing again in the same run returns the same scope. Registrations last until the
-  process exits; a folder removed from the root keeps an unused scope.
+  ([Bundled apps](#bundled-apps)). Listing again in the same run returns the
+  same scope. Registrations last until the process exits; a folder removed
+  from the root keeps an unused scope.
 
 The shell watches the root from setup until exit (`watch_data_folders`). When
 an entry directly under it, or a folder's `epicenter.json`, is created,
@@ -297,61 +314,110 @@ changes from other windows and processes. File drafts belong to the Folders
 window and survive switching files. A failed save keeps its text visible and
 prevents leaving the directory until the person retries or discards it.
 
-Beside each listed directory except Epicenter's own settings folder, the page offers "Open in Todos" and every installed app
-ready to run through "Open in". The shell hands that directory's scope to the
-app window; the app interprets its files through its own schemas. Opening an
-app from the Apps list hands it its own directory. The Folders view does not
-use `epicenter.json` to authorize either action.
+Beside each listed directory, "Open with…" offers every bundled app and every
+installed app ready to run (`src/folders/openers.ts`); beside Epicenter's own
+folder it offers installed apps alone. The shell hands that directory's scope
+to the app window; the app interprets its files through its own schemas.
+Opening a bundled app from the Apps list hands it its default folder, and an
+installed app its own directory. The Folders view does not use
+`epicenter.json` to authorize either action.
 
-## Todos
+## Bundled apps
 
-Epicenter bundles Todos (`src-tauri/src/todos.rs`). `build:todos` runs Todos'
-own `build:installed` in `apps/todos` and copies its `dist/` to
-`dist/todos/`, which the scheme serves at `/todos/`. Opening it clones no
-repository, reads no `epicenter.app.json`, and asks for no approval, account,
-or Git action.
+Epicenter bundles Todos, Capture, Honeycrisp, and Whispering
+(`src-tauri/src/bundled_apps.rs`). One closed table, `BundledApp`, names for
+each its page, its fixed default folder, its window label and capability,
+whether its window also reaches Epicenter's own folder, and its build path:
 
-The Folders window opens it with `open_todos(folder)`:
+| Page | Default folder | Window label | Capability | Also permitted into |
+| --- | --- | --- | --- | --- |
+| `todos` | `<folderDir>/Todos` | `todos:<hex>` | `bundled-app.json` | nothing |
+| `capture` | `<folderDir>/Capture` | `capture:<hex>` | `bundled-app.json` | nothing |
+| `honeycrisp` | `<folderDir>/Honeycrisp` | `honeycrisp:<hex>` | `bundled-app.json` | nothing |
+| `whispering` | `<folderDir>/Whispering` | `whispering:<hex>` | `whispering.json` | `so.epicenter` |
 
-- **Open Todos**, in the header, passes no folder. The shell opens the fixed
-  default, `<folderDir>/Todos` (`~/Epicenter/Todos` in production), and
-  creates it first when it is missing. The name is a launch policy, not the
-  app id, and Todos' rows land directly in it as `todos/<id>.md`.
-- **Open in Todos**, beside a listed folder, passes that folder's listed
-  scope. The shell maps it back to the directory it listed; a scope it never
-  listed, Epicenter's own folder, or a directory that is gone, is refused. Nothing is created and the
-  default is never opened instead.
+`build:bundled` (`scripts/build-bundled-apps.ts`) runs each app's own
+`build:installed` in `apps/<page>` and copies its `dist/` to `dist/<page>/`,
+which the scheme serves at `/<page>/`; each build loads its assets by
+relative path. Opening one clones no repository, reads no
+`epicenter.app.json`, and asks for no approval, account, network, or Git
+action.
 
-Only the first Open Todos of a run may create a missing default: a default the
-listing registered, or one this run opened, that is removed later is refused,
-not made again. A disk that stores the default under another casing opens that
-directory's one window, named by its stored spelling.
+The Folders window opens one with `open_bundled_app(app, folder)`, the one
+launch command for every bundled app:
 
-Each directory gets one Todos window, labelled `todos:<directory name in
+- **Open**, under Apps, passes no folder. The shell opens the app's fixed
+  default, such as `<folderDir>/Todos` (`~/Epicenter/Todos` in production),
+  and creates it first when it is missing. The name is a launch policy, not
+  the app id, and the app's rows land directly in it, such as
+  `todos/<id>.md`.
+- **Open with…**, beside a listed folder, passes that folder's listed scope.
+  The shell maps it back to the directory it listed; a scope it never listed,
+  Epicenter's own folder, or a directory that is gone, is refused. Nothing is
+  created and the default is never opened instead.
+
+Opening an app recreates its fixed default when it is missing, even if it was
+removed earlier in this run. "Open with…" never creates a missing folder. A
+disk that stores the default under another casing opens that directory's one
+window, named by its stored spelling.
+
+Each app gets one window per directory, labelled `<page>:<directory name in
 hex>`, and no scope of its own. It uses the registry entry the Folders window
 already opens the folder through, `data:<directory name>` (or an installed
-app's id for its own folder), with that entry's root, save lock, and watch.
-The shell permits that exact window into the entry and hands it the scope
-before the WebView exists; a default opened before the Folders window listed
-it is registered under the same `data:Todos` the listing then reports. The
-page calls `openFolder({ tables })`, which asks for that assignment
-(`window_folder`) and is granted it, and never names a path. This action
-permits no other Todos window or Settings into the entry; installed apps may
-receive their own explicit grants. Todos is never permitted into
-`so.epicenter`. A folder removed after its
-window opened is refused `Missing` at the next grant, not made again. Opening
-the same folder again reveals its window; closing the window destroys it. A
-permitted label stays in the entry until the process exits.
+app's id for that app's own folder), with that entry's root, save lock, and
+watch. The shell permits that exact window into the entry and hands it the
+scope before the WebView exists; a default opened before the Folders window
+listed it is registered under the same `data:<Name>` the listing then reports.
+Todos, Capture, and Honeycrisp call `openFolder({ tables })`, which asks for
+that assignment (`window_folder`). Whispering asks for the assigned scope so
+its recorder and Folder use the same one, then calls the public native
+`openFolder({ directory, tables })`. No page names a path. Two apps opened
+on one folder are two windows on its one entry. This action permits no other
+window or Settings into the entry; installed apps may receive their own
+explicit grants. No bundled app opens `so.epicenter` as its folder. A folder
+removed after its window opened is refused `Missing` at the next grant. A
+later Open action recreates only an app's fixed default. Opening the same app
+on the same folder again reveals its window.
+A permitted label stays in the entry until the process exits.
 
-`capabilities/todos.json` selects `todos:*` and grants the folder plugin and
-its change event, and nothing else. The save lock,
-`.<directory name>.epicenter-save-lock`, sits beside the folder in the folder
-root; WebView data, the page build, and installed-app builds live in the
-application data, resource, and cache directories. The current Folder engine
-still stages a save's bytes in `.git/epicenter/scratch` inside the folder.
+Closing a bundled app's window destroys it, as for an installed app; only
+Epicenter's own windows hide. The recorder finalizes a Whispering recording
+when its window is destroyed, and the CLI runner ends the `epicenter`
+children that page started.
 
-The installed-app path below can still install and open Todos as
-`so.epicenter.todos` beside this one until it is removed.
+### Native commands for a bundled app
+
+`capabilities/bundled-app.json` selects `todos:*`, `capture:*`, and
+`honeycrisp:*` and grants the folder plugin and its change event, and nothing
+else.
+
+`capabilities/whispering.json` selects `whispering:*` and grants what
+Whispering's page calls:
+
+- the folder plugin and its change event, for its folder and for the AI
+  connections in `so.epicenter`, which the shell permits its exact window
+  into before the window exists while still handing it its own folder;
+- the recorder plugin, and the opener's `allow-open-url` scoped to
+  `x-apple.systempreferences:`, to open System Settings' microphone pane;
+- `list_inference_models`, `transcribe_audio_bytes`,
+  `get_local_transcription_readiness`, and `open_home`, for optional local
+  transcription with the active model (ADR-0180);
+- `ai_send`, `ai_key_set`, `ai_key_state`, and `auth_status`, for its AI
+  connections (ADR-0557, ADR-0558).
+
+No bundled app's window is granted folder history (`status`, `history`,
+`save_version`, `sync`), `account_send`, `ai_key_remove`, or model
+administration. Whispering's page opens its folder and recovers interrupted
+recordings before any connection or account is read, so local recording and
+editing never wait for sign-in.
+
+The save lock, `.<directory name>.epicenter-save-lock`, sits beside the folder
+in the folder root; WebView data, the page builds, and installed-app builds
+live in the application data, resource, and cache directories. The current
+Folder engine still stages a save's bytes in `.git/epicenter/scratch` inside
+the folder. Whispering's own folder was `so.epicenter.whispering` when it was
+installed; that folder stays listed and opens with "Open with…", and nothing
+moves it.
 
 ## Installed apps
 
@@ -366,9 +432,11 @@ ADR-0552):
 - `id` is a lowercase reverse-domain name. Only `so.epicenter`, Epicenter's
   own folder, is refused. Todos (`so.epicenter.todos`), Capture
   (`so.epicenter.capture`), Whispering (`so.epicenter.whispering`), and
-  Honeycrisp (`so.epicenter.honeycrisp`) install from `apps/todos`,
-  `apps/capture`, `apps/whispering`, and `apps/honeycrisp` of Epicenter's
-  repository. Each imports its id from this file.
+  Honeycrisp (`so.epicenter.honeycrisp`) still carry a manifest in
+  `apps/todos`, `apps/capture`, `apps/whispering`, and `apps/honeycrisp` of
+  Epicenter's repository and can still be installed from it, but the Folders
+  window lists and offers none of these installed copies: the bundled apps
+  replace them. Whispering no longer reads its id from this file.
 - `id` and `title` are the only fields, and both are read before approval,
   from a clone where nothing runs. Any other field is refused.
 - The build is always `bun run build:installed` in the app's folder, and its
@@ -399,9 +467,7 @@ The Folders window's Apps list has "Install from a repository…"
 directory of `apps/` in app data, reads each tracked `epicenter.app.json` up to four
 directories deep outside `node_modules`, and removes the clone. It lists each
 app's title and folder; choosing one calls `install_app` with the source and
-that folder. With no app installed yet, the list offers "Install Todos": the
-same `install_app` with `https://github.com/EpicenterHQ/epicenter.git` and
-`apps/todos`.
+that folder.
 
 `install_app` clones the repository's default branch bare
 (`git clone --bare --single-branch --no-tags`) into
@@ -532,11 +598,11 @@ Every installed app's window gets the same grant, one capability file,
 
 Each kind of window has one capability file, and every file is `"local": true`
 because its page is served on the scheme: `folders.json`, `home.json`,
-`installed-app.json`, and `todos.json`. A development build selects the same
-four.
+`installed-app.json`, `bundled-app.json`, and `whispering.json`. A
+development build selects the same five.
 
-Whispering's page has no recording overlay and registers no global shortcuts,
-so neither is created or granted.
+Whispering's page, bundled or installed, has no recording overlay and
+registers no global shortcuts, so neither is created or granted.
 Native dictation, which no page reaches, compiles only with the `dictation`
 Cargo feature, off by default: paste at the cursor and the keyboard supervisor
 that watches its Accessibility grant, pausing other apps' media,
@@ -571,13 +637,14 @@ not submit is lost, as people expect.
   grant (ADR-0556); a page that uses it reads it again when its window
   regains focus.
 - **Closing a window hides it.** The built-in windows are hidden, not
-  destroyed, so their pages and folders stay open until Epicenter quits. An
-  installed app's window is destroyed when it closes.
+  destroyed, so their pages and folders stay open until Epicenter quits. A
+  bundled or installed app's window is destroyed when it closes, which
+  finalizes a Whispering recording.
 
 ## Build and verify
 
 ```bash
-# Build Settings, the Folders window, Todos, and the epicenter binary
+# Build Settings, the Folders window, the bundled apps, and the epicenter binary
 bun run --cwd apps/epicenter build:desktop
 
 # Package the complete native application
@@ -596,8 +663,8 @@ cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml --features dictation
 ```
 
-The root `bun typecheck` runs each workspace's checks. Installed apps, such as
-Whispering and Honeycrisp, are checked in their own folders.
+The root `bun typecheck` runs each workspace's checks. The bundled apps, such
+as Whispering and Honeycrisp, are checked in their own folders.
 
 ## Ownership rules
 

@@ -1,0 +1,13 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "bundled-app",
+	"description": "Todos, Capture, and Honeycrisp, which Epicenter bundles (`bundled_apps.rs`), each run in one window per folder, labelled <page>:<folder name in hex>. The shell registers and hands each window its one folder before the window exists, and the page opens it with the folder plugin and listens for its change event, epicenter-folder://changed. Each page holds its window's close until what is typed saved, then destroys its own window (core:window:allow-destroy). These pages call no account, AI, history, or app command. Whispering's windows have their own file, whispering.json. Its pages are served on the epicenter-app scheme, so the capability is local (ADR-0561).",
+	"local": true,
+	"windows": ["todos:*", "capture:*", "honeycrisp:*"],
+	"permissions": [
+		"epicenter-folder:default",
+		"core:event:allow-listen",
+		"core:event:allow-unlisten",
+		"core:window:allow-destroy"
+	]
+}

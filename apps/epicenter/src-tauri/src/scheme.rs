@@ -3,7 +3,7 @@
 //!
 //! ```txt
 //! epicenter-app://localhost/<page>/…                Epicenter's own pages (`BuiltInApp`), from `<pages>/<page>/`
-//! epicenter-app://localhost/todos/…                 Todos, which Epicenter bundles (`todos.rs`), from `<pages>/todos/`
+//! epicenter-app://localhost/<page>/…                an app Epicenter bundles (`BundledApp`), from `<pages>/<page>/`
 //! epicenter-app://localhost/apps/<id>/<commit>/…    an installed app's build of one commit, from `<builds>/<id>/<commit>/`
 //! ```
 //!
@@ -28,7 +28,8 @@ use tauri::http::{header, Method, Request, Response, StatusCode};
 use tauri::utils::mime_type::MimeType;
 use tauri::{Builder, Manager, Runtime, Url};
 
-use crate::{installed_apps, todos, BuiltInApp};
+use crate::bundled_apps::BundledApp;
+use crate::{installed_apps, BuiltInApp};
 
 /// The scheme every Epicenter window loads. Not `epicenter`, the deep-link
 /// scheme.
@@ -37,8 +38,8 @@ const HOST: &str = "localhost";
 
 /// The directories the scheme reads, resolved once at startup.
 pub struct Roots {
-    /// Epicenter's own pages, one directory per `BuiltInApp` id, and
-    /// Todos' build in `todos/`.
+    /// Epicenter's own pages, one directory per `BuiltInApp` id, and each
+    /// bundled app's build, one directory per `BundledApp` page.
     pub pages: PathBuf,
     /// Installed apps' builds: `<builds>/<id>/<commit>/`, the commit named by
     /// the URL (ADR-0588).
@@ -145,18 +146,24 @@ fn resolve(roots: &Roots, path: &str) -> Option<PathBuf> {
             }
             (build, rest)
         }
-        [page, rest @ ..] => (roots.pages.join(page_dir(page)?), rest),
+        [page, rest @ ..] => {
+            let root = roots.pages.join(page_dir(page)?);
+            if !is_real_directory(&root) {
+                return None;
+            }
+            (root, rest)
+        }
         [] => return None,
     };
     contained_file(&root, rest)
 }
 
 /// The directory below the pages directory that serves `page`: one of
-/// Epicenter's own pages, or Todos, which Epicenter bundles.
+/// Epicenter's own pages, or an app Epicenter bundles.
 fn page_dir(page: &str) -> Option<&'static str> {
     match BuiltInApp::from_id(page) {
         Some(built_in) => Some(built_in.id()),
-        None => (page == todos::PAGE).then_some(todos::PAGE),
+        None => BundledApp::from_page(page).map(BundledApp::page),
     }
 }
 
@@ -334,14 +341,16 @@ mod tests {
     const EARLIER: &str = "89abcdef0123456789abcdef0123456789abcdef";
     const BOARD: &str = "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567/";
 
-    /// A pages directory with Folders and Settings, and two builds of one
-    /// installed app, `COMMIT` the newer, under a fresh temporary directory.
+    /// A pages directory with Folders, Settings, and each bundled app, and
+    /// two builds of one installed app, `COMMIT` the newer, under a fresh
+    /// temporary directory.
     fn fixture() -> (tempfile::TempDir, Roots) {
         let temporary = tempfile::tempdir().unwrap();
         let base = temporary.path().canonicalize().unwrap();
         let pages = base.join("pages");
         let builds = base.join("builds");
-        for page in ["folders", "home", "todos"] {
+        let bundled = BundledApp::ALL.map(BundledApp::page);
+        for page in ["folders", "home"].into_iter().chain(bundled) {
             fs::create_dir_all(pages.join(page).join("assets")).unwrap();
             fs::write(
                 pages.join(page).join("index.html"),
@@ -400,13 +409,20 @@ mod tests {
             body(&get(&roots, "/home/")),
             "<!doctype html><title>home</title>"
         );
-        // Todos, which Epicenter bundles, and its client-side routes.
-        for page in [todos::PATH, "/todos/index.html", "/todos/todo/42"] {
-            assert_eq!(
-                body(&get(&roots, page)),
-                "<!doctype html><title>todos</title>",
-                "{page}"
-            );
+        // Each app Epicenter bundles, and its client-side routes.
+        for app in BundledApp::ALL {
+            let path = app.path();
+            for page in [
+                path.clone(),
+                format!("{path}index.html"),
+                format!("{path}todo/42"),
+            ] {
+                assert_eq!(
+                    body(&get(&roots, &page)),
+                    format!("<!doctype html><title>{}</title>", app.page()),
+                    "{page}"
+                );
+            }
         }
         assert_eq!(
             body(&get(&roots, "/folders/index.html")),
@@ -554,6 +570,15 @@ mod tests {
             let response = get(&roots, link);
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{link}");
         }
+
+        // A page directory that is a link must not become the trusted root.
+        fs::remove_dir_all(roots.pages.join("capture")).unwrap();
+        std::os::unix::fs::symlink(temporary.path(), roots.pages.join("capture")).unwrap();
+        assert_eq!(get(&roots, "/capture/").status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            get(&roots, "/capture/outside.js").status(),
+            StatusCode::NOT_FOUND
+        );
 
         // A build directory, or an app's builds directory, that is a link is
         // refused, wherever it points.
@@ -712,14 +737,18 @@ mod tests {
         }
     }
 
-    /// Each window stays below the path it opened at: Folders and Settings
-    /// at their pages, and an installed app's window at its app and the
-    /// commit it opened on, so it never loads another build, even its own
-    /// app's newer one.
+    /// Each window stays below the path it opened at: Folders, Settings, and
+    /// each bundled app at their pages, and an installed app's window at its
+    /// app and the commit it opened on, so it never loads another build, even
+    /// its own app's newer one.
     #[test]
     fn each_window_navigates_only_below_the_path_it_opened_at() {
         let todos = installed_app_path("so.epicenter.todos", COMMIT);
         let todos_earlier = installed_app_path("so.epicenter.todos", EARLIER);
+        let bundled = BundledApp::Todos.path();
+        let bundled = bundled.as_str();
+        let whispering = BundledApp::Whispering.path();
+        let whispering = whispering.as_str();
         assert_eq!(
             url(&todos).unwrap().as_str(),
             format!("epicenter-app://localhost/apps/so.epicenter.todos/{COMMIT}/")
@@ -728,8 +757,9 @@ mod tests {
             ("/folders/", "/folders/".to_string()),
             ("/folders/", "/folders/table/notes?row=1#x".to_string()),
             ("/home/", "/home/".to_string()),
-            (todos::PATH, "/todos/".to_string()),
-            (todos::PATH, "/todos/todo/42".to_string()),
+            (bundled, "/todos/".to_string()),
+            (bundled, "/todos/todo/42".to_string()),
+            (whispering, "/whispering/recordings".to_string()),
             (todos.as_str(), todos.clone()),
             (todos.as_str(), format!("{todos}?folder=data%3AGroceries")),
             (todos.as_str(), format!("{todos}todo/42")),
@@ -745,9 +775,12 @@ mod tests {
             ("/folders/", "/folders".to_string()),
             ("/home/", "/folders/".to_string()),
             ("/home/", todos.clone()),
-            (todos::PATH, "/folders/".to_string()),
-            (todos::PATH, "/home/".to_string()),
-            (todos::PATH, todos.clone()),
+            (bundled, "/folders/".to_string()),
+            (bundled, "/home/".to_string()),
+            (bundled, todos.clone()),
+            (bundled, "/whispering/".to_string()),
+            (whispering, "/todos/".to_string()),
+            (whispering, "/capture/".to_string()),
             ("/folders/", "/todos/".to_string()),
             (todos.as_str(), "/folders/".to_string()),
             (todos.as_str(), "/home/".to_string()),

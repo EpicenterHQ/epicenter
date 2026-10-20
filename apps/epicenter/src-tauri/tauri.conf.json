@@ -14,7 +14,13 @@
 		"macOSPrivateApi": true,
 		"windows": [],
 		"security": {
-			"capabilities": ["folders", "home", "installed-app", "todos"]
+			"capabilities": [
+				"folders",
+				"home",
+				"installed-app",
+				"bundled-app",
+				"whispering"
+			]
 		}
 	},
 	"bundle": {

@@ -12,6 +12,7 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BUNDLED_PAGES } from './build-bundled-apps.ts';
 
 const epicenterDir = fileURLToPath(new URL('..', import.meta.url));
 
@@ -20,8 +21,12 @@ const PAGES = ['home', 'folders'] as const;
 
 const BUILD_TIMEOUT_MS = 180_000;
 
-async function run(script: string, cwd: string): Promise<void> {
-	const built = Bun.spawn(['bun', 'run', script], {
+async function run(
+	script: string,
+	cwd: string,
+	...args: string[]
+): Promise<void> {
+	const built = Bun.spawn(['bun', 'run', script, ...args], {
 		cwd,
 		stdout: 'pipe',
 		stderr: 'pipe',
@@ -31,7 +36,9 @@ async function run(script: string, cwd: string): Promise<void> {
 		new Response(built.stderr).text(),
 	]);
 	if (status !== 0) {
-		throw new Error(`\`bun run ${script}\` in ${cwd} failed:\n${stderr}`);
+		throw new Error(
+			`\`bun run ${[script, ...args].join(' ')}\` in ${cwd} failed:\n${stderr}`,
+		);
 	}
 }
 
@@ -51,20 +58,23 @@ describe('page builds', () => {
 		);
 	}
 
-	// Todos, which Epicenter bundles, is built from `apps/todos` and served
-	// below `/todos/` (`src-tauri/src/todos.rs`). Its installed build loads
-	// its assets by relative path, so it runs wherever the shell serves it.
-	test(
-		'todos builds into dist/todos with relative assets',
-		async () => {
-			await run('build:todos', epicenterDir);
+	// Each app Epicenter bundles is built from `apps/<page>` and served below
+	// `/<page>/` (`BundledApp` in `src-tauri/src/bundled_apps.rs`). Its
+	// installed build loads its assets by relative path, so it runs wherever
+	// the shell serves it.
+	for (const page of BUNDLED_PAGES) {
+		test(
+			`${page} builds into dist/${page} with relative assets`,
+			async () => {
+				await run('build:bundled', epicenterDir, page);
 
-			const document = await Bun.file(
-				join(epicenterDir, 'dist', 'todos', 'index.html'),
-			).text();
-			expect(document).toContain('"./_app/');
-			expect(document).not.toContain('"/_app/');
-		},
-		BUILD_TIMEOUT_MS,
-	);
+				const document = await Bun.file(
+					join(epicenterDir, 'dist', page, 'index.html'),
+				).text();
+				expect(document).toContain('"./_app/');
+				expect(document).not.toContain('"/_app/');
+			},
+			BUILD_TIMEOUT_MS,
+		);
+	}
 });

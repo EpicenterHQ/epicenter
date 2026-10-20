@@ -1,6 +1,5 @@
 /**
- * Opening a workspace, and the desktop workspace: Whispering installed in
- * Epicenter.
+ * Opening a workspace, and the desktop workspace: Whispering in Epicenter.
  *
  * The shell's replies are scripted here, so these pin what the page itself
  * decides: that the browser workspace refuses inside a desktop app, that the
@@ -50,7 +49,6 @@ import {
 	connectionsTables,
 } from './desktop-connections.js';
 import type { LocalTranscriptionCommands } from './local-transcription.js';
-import { WHISPERING_FOLDER_ID } from './types.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
@@ -148,12 +146,13 @@ const noCommands: LocalTranscriptionCommands = {
 	openHome: unexpected,
 };
 
-/** The desktop workspace over the scripted shell. */
+/** The desktop workspace over the scripted shell, on `SCOPE` unless told otherwise. */
 const openDesktop = (
-	options: Parameters<typeof openDesktopWorkspace>[0] = {},
+	options: Partial<Parameters<typeof openDesktopWorkspace>[0]> = {},
 ) =>
 	openDesktopWorkspace({
 		openDirectory: openTauriFolder,
+		directory: SCOPE,
 		commands: noCommands,
 		...options,
 	});
@@ -318,23 +317,45 @@ test('the page names the registered directory by its ID and nothing else, and op
 	// Everything after the grant names the folder, never another.
 	for (const call of calls.slice(1)) expect(call.args.scope).toBe(SCOPE);
 	expect(workspace.folderId).toBe(SCOPE);
-	expect(workspace.location).toContain(SCOPE);
+	expect(workspace.location).toBe('The folder opened in Epicenter');
 	expect(workspace.capture.source).toBe('microphone');
 	// No declaration, ignore file, or repository is made.
 	expect(await readdir(root)).toEqual([]);
 	await workspace.close();
 });
 
-test('the installed page opens the folder handed to its window', async () => {
+test('the page opens the folder handed to its window, whatever app name it was handed under', async () => {
+	for (const handed of [
+		// The bundled page on its default folder, and on a listed one.
+		{ app: 'so.epicenter.whispering', folder: 'data:Whispering' },
+		{ app: 'so.epicenter.whispering', folder: 'data:other' },
+		// A name other than Whispering's own: the page checks none.
+		{ app: 'com.example.voice', folder: 'data:other' },
+	]) {
+		setup();
+		calls = [];
+		const granting = await granted();
+		granting.control.window = handed;
+
+		const workspace = expectOk(await openWorkspace());
+		expect(calls[0]).toEqual({ cmd: 'window_folder', args: {} });
+		expect(sent('window_folder')).toHaveLength(1);
+		expect(sent('grant_directory')[0]?.args.scope).toBe(handed.folder);
+		expect(workspace.folderId).toBe(handed.folder);
+		await workspace.close();
+	}
+});
+
+test('a window handed no folder is refused, and nothing is opened in its place', async () => {
 	setup();
 	const granting = await granted();
-	granting.control.window = { app: SCOPE, folder: 'data:other' };
+	granting.control.window = null;
 
-	const workspace = expectOk(await openWorkspace());
-	expect(calls[0]).toEqual({ cmd: 'window_folder', args: {} });
-	expect(sent('grant_directory')[0]?.args.scope).toBe('data:other');
-	expect(workspace.folderId).toBe('data:other');
-	await workspace.close();
+	const refused = expectErr(await openWorkspace());
+	expect(refused.name).toBe('DesktopFolder');
+	if (refused.name === 'DesktopFolder')
+		expect(refused.refusal.name).toBe('NotAssigned');
+	expect(calls.map((call) => call.cmd)).toEqual(['window_folder']);
 });
 
 test('a refusal from the shell is returned, and nothing is opened in its place', async () => {

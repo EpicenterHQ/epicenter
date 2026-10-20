@@ -1,7 +1,7 @@
 <!--
 	Capture inside `<FolderApp>`: builds the store over the local
 	folder's context, and shows the timeline or the one open capture under a
-	header that says whether everything is saved in this browser.
+	header that says whether everything is saved on this device.
 
 	The folder keeps no history and syncs nowhere yet: the header offers no
 	Save version, Sync, or Connect.

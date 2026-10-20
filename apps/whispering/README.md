@@ -5,15 +5,14 @@ Whispering is an app for voice notes. It records audio,
 transcribes it with an OpenAI-compatible endpoint you choose, turns a transcript
 into another text with prompts you write, and keeps every recording, transcript,
 prompt, and result as an ordinary file in one folder. It needs no account and
-no hosted API. On the desktop it is an app you install in Epicenter
-([ADR-0493](../../docs/adr/0493-whisperings-only-desktop-shell-is-epicenter.md),
-[ADR-0552](../../docs/adr/0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)),
-and its folder is a directory on disk; in a browser tab it keeps its folder in
+no hosted API. Epicenter bundles the desktop page
+([ADR-0493](../../docs/adr/0493-whisperings-only-desktop-shell-is-epicenter.md))
+and opens it on a directory on disk. In a browser tab it keeps its folder in
 the browser's storage for the site.
 
 This is a development milestone, not a release. Its voice-note workflow is launch, record,
 stop, save, play, transcribe, transform, inspect files, quit, reopen.
-The installed app has not been run in Epicenter by hand: recording into the
+The bundled app has not been run in Epicenter by hand: recording into the
 folder through Epicenter's recorder, and transcription through Epicenter, are
 covered by tests, not yet by a desktop run. Dictating into other apps is not part
 of it. [What is not supported](#what-is-not-supported) lists the rest.
@@ -21,7 +20,7 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 ## The data folder
 
 ```text
-~/Epicenter/so.epicenter.whispering/
+~/Epicenter/Whispering/
 ├── recordings/
 │   └── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
 ├── audio/
@@ -44,9 +43,12 @@ result files are created by explicit actions. A folder has no
 until you save a result on pasted text.
 
 These files are the data. The app and any other program edit the same paths;
-there is no export step and no second copy. In Epicenter the folder is
-`<folder root>/so.epicenter.whispering`; set `EPICENTER_FOLDER_DIR` when
-starting Epicenter to use another root, such as a disposable one for a test.
+there is no export step and no second copy. Epicenter opens
+`<folder root>/Whispering` by default, or another folder you choose through
+"Open with…" in the Folders window. An earlier installed copy's
+`<folder root>/so.epicenter.whispering` remains on disk and can be opened
+through that same menu. Set `EPICENTER_FOLDER_DIR` when starting Epicenter to
+use another root, such as a disposable one for a test.
 
 A recording's ID is its file stem, set when the recording starts
 (`20260102-030405-k3f9`). Its title is a field, so renaming a recording changes
@@ -82,25 +84,16 @@ From the repository root, with Bun.
 # The page alone in a browser tab, over this site's folder in the browser's storage
 bun dev:whispering
 
-# Epicenter, the desktop app Whispering installs into (needs Rust)
+# Epicenter, which bundles Whispering's desktop page (needs Rust)
 bun dev:epicenter
 ```
 
-On the desktop, Whispering is an installed app (ADR-0552). In Epicenter's
-Folders window, choose "Install from a repository…", enter this repository's
-URL or local path, choose Whispering (`apps/whispering`) from the apps it
-lists, and approve the build. Epicenter clones the
-repository, builds each approved commit from a checkout of it alone
-(`bun install` at its root and `bun run build:installed` here), and serves
-that commit's `dist/` at `/apps/so.epicenter.whispering/<commit>/`. Opening Whispering
-from the Apps list opens its own folder, `so.epicenter.whispering`, under
-Epicenter's folder root. This build always opens that folder; "Open in
-Whispering" on another folder is not supported yet. To try a change, run `epicenter app remove so.epicenter.whispering`
-(its data folder stays), install Whispering again from your own clone of the
-repository by its absolute path, commit there on the branch that was checked
-out when you installed, since Update fetches only that branch, then choose
-Update and approve the commit in the Folders window, and open the app again;
-a window already open keeps the build it opened on.
+In Epicenter's Folders window, choose Whispering under Apps to open its default
+folder. Choose "Open with…" beside a listed folder to open that folder in
+Whispering. The shell assigns the directory before opening the window, then
+serves the bundled page at `/whispering/`. Local opening needs no installation,
+account, approval, or network connection. Build changes take effect when you
+rebuild Epicenter and reopen the window.
 
 Inside Epicenter the shell grants the window its folder by the ID it
 registered, and the page names no path. The page is the UI, and it opens the
@@ -116,12 +109,11 @@ Checks, from `apps/whispering`:
 bun run typecheck                 # the page
 bun run test                      # workspace and workflow tests, then the mounted row views
 bun run build                     # the browser build, into build/
-bun run build:installed           # Epicenter's build, into dist/
+bun run build:installed           # Epicenter's bundled page, into dist/
 ```
 
-`epicenter.app.json` names the app (`so.epicenter.whispering`) and its title
-(ADR-0560). Epicenter's own checks cover what
-it grants Whispering: `cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml`.
+Epicenter's native checks cover what it grants Whispering:
+`cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml`.
 
 ## Using it
 
@@ -528,8 +520,9 @@ is saved (ADR-0632). These promises of the earlier build changed:
   changes in that very moment is kept, and you are told.
 - Files no longer creates empty folders, and renaming a file is a save under
   the new name followed by deleting the old one.
-- "Open in Whispering" on another folder is not available, and the status
-  names the folder by the ID Epicenter keeps it under rather than its path.
+- Epicenter bundles Whispering, and "Open with…" can open any listed folder.
+  The status names the folder as opened in Epicenter rather than showing an
+  internal scope ID.
 
 ## What is not supported
 
@@ -539,7 +532,6 @@ These are absent, not hidden behind a setting:
   are local.
 - Versions, history, Git remotes, push, and pull from the app. Use `git` in
   the folder if you keep it in a repository.
-- Opening another folder in Whispering ("Open in Whispering").
 - Reading recordings an earlier build kept in a browser's storage.
 - Empty folders in Files.
 - System-wide dictation: global shortcuts, push-to-talk, voice-activated

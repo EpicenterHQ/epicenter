@@ -123,7 +123,7 @@ test('a new note, its title, and its text persist across close and reopen', asyn
 	expect(first.text(LIST)).toContain('No notes here yet');
 	expect(
 		first.get('[data-testid="status-summary"]').getAttribute('aria-label'),
-	).toContain('Saved in this browser');
+	).toContain('Saved on this device');
 	for (const absent of ['Save version', 'Sync', 'Connect'])
 		expect(() => button(first.target, absent)).toThrow();
 

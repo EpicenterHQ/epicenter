@@ -13,7 +13,7 @@ export function confirmDelete(captures: Captures, stem: string) {
 	const named = deletion.title ? `“${deletion.title}” ` : 'This capture ';
 	confirmationDialog.open({
 		title: 'Delete this capture?',
-		description: `${named}and its thoughts are deleted from this browser. A deleted capture cannot be brought back.`,
+		description: `${named}and its thoughts are deleted from this device. A deleted capture cannot be brought back.`,
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
 			const { data, error } = await captures.delete(deletion);

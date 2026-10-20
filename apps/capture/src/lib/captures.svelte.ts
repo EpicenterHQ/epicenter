@@ -24,7 +24,8 @@
  *
  * Input not committed yet is `$state`: the New capture text, and for each
  * capture its thought typed and not added and its thought being edited
- * (`formOf`). Those stay while the person moves between captures.
+ * (`formOf`). Those stay while the person moves between captures, and keep
+ * the desktop window open when it is closed (`registerUnsent`).
  */
 
 import {
@@ -259,6 +260,12 @@ export function createCaptures(context: CaptureFolder) {
 	/** How many captures hold a thought typed and not added, or a changed thought edit. */
 	const unsentForms = () =>
 		[...forms.values()].filter((form) => form.unsent).length;
+	// Text not added keeps the desktop window open when it is closed.
+	context.registerUnsent(() =>
+		newCapture !== '' || unsentForms() > 0
+			? 'Some text is typed and not added. Add it or clear it, then close.'
+			: undefined,
+	);
 
 	/**
 	 * Show `stem` as `mode` edits it. A capture that is not a valid one opens

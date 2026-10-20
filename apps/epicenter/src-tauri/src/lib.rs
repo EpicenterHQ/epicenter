@@ -18,12 +18,12 @@ use tauri_specta::Event as _;
 mod command_names;
 
 pub mod app_data;
+mod bundled_apps;
 mod cli;
 mod data_folders;
 mod history;
 mod installed_apps;
 mod scheme;
-mod todos;
 
 pub mod audio;
 
@@ -60,9 +60,10 @@ pub mod clipboard;
 
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 
-/// Epicenter's own windows. Todos, which Epicenter bundles, opens one window
-/// per folder through `open_todos` (`todos.rs`); every other app is installed
-/// and opened with `open_installed_app` (ADR-0552).
+/// Epicenter's own windows. Todos, Capture, Honeycrisp, and Whispering, which
+/// Epicenter bundles, open one window per folder through `open_bundled_app`
+/// (`bundled_apps.rs`); any other app is installed and opened with
+/// `open_installed_app` (ADR-0552).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
@@ -151,7 +152,7 @@ macro_rules! shell_commands {
             installed_apps::approve_app,
             installed_apps::update_app,
             installed_apps::open_installed_app,
-            todos::open_todos,
+            bundled_apps::open_bundled_app,
             get_unload_policy,
             set_unload_policy,
             list_models,
@@ -620,7 +621,8 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
 
 /// One window on the `epicenter-app` origin (ADR-0561), opened at `path`.
 /// Navigation stays below `path`; a link that opens a new window reaches the
-/// system browser only when it is a hosted account page.
+/// system browser only when it is a hosted account page. Closing it destroys
+/// it; only `ensure_window` makes Epicenter's own windows hide instead.
 fn create_app_window(
     app: &DesktopAppHandle,
     label: &str,
@@ -855,13 +857,21 @@ fn focus<R: Runtime>(window: WebviewWindow<R>) {
 mod tests {
     use super::*;
 
+    use crate::bundled_apps::BundledApp;
+
     const FOLDERS: &str = include_str!("../capabilities/folders.json");
     const HOME: &str = include_str!("../capabilities/home.json");
     const INSTALLED_APP: &str = include_str!("../capabilities/installed-app.json");
-    const TODOS: &str = include_str!("../capabilities/todos.json");
+    const BUNDLED_APP: &str = include_str!("../capabilities/bundled-app.json");
+    const WHISPERING: &str = include_str!("../capabilities/whispering.json");
 
     /// Every capability file, for checks that hold for all of them.
-    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, INSTALLED_APP, TODOS];
+    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, INSTALLED_APP, BUNDLED_APP, WHISPERING];
+
+    /// The windows a bundled app's page opens in, on two folders.
+    fn bundled_labels(app: BundledApp) -> [String; 2] {
+        [app.window_label(app.name()), app.window_label("My notes")]
+    }
 
     /// Opening an app whose window was opened on another commit is refused,
     /// so that build is never shown as the one asked for; a window opened on
@@ -990,10 +1000,11 @@ mod tests {
         assert_eq!(
             files,
             [
+                "bundled-app.json",
                 "folders.json",
                 "home.json",
                 "installed-app.json",
-                "todos.json"
+                "whispering.json"
             ]
         );
 
@@ -1048,6 +1059,9 @@ mod tests {
         for built_in in BuiltInApp::ALL {
             assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
         }
+        for label in BundledApp::ALL.into_iter().flat_map(bundled_labels) {
+            assert!(!selects(&capability, &label), "{label}");
+        }
         #[cfg(all(target_os = "macos", feature = "dictation"))]
         assert!(!selects(&capability, overlay::WINDOW_LABEL));
         assert_eq!(
@@ -1056,6 +1070,7 @@ mod tests {
                 "epicenter-folder:default",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
+                "core:window:allow-destroy",
                 "allow-status",
                 "allow-history",
                 "allow-save-version",
@@ -1108,10 +1123,12 @@ mod tests {
     }
 
     /// The AI commands reach Settings, the Folders window, and every
-    /// installed app, and not Todos' windows (ADR-0557, ADR-0570). Each is
-    /// one fixed CLI invocation that never hands a page a saved key.
+    /// installed app (ADR-0557, ADR-0570). Whispering, which Epicenter
+    /// bundles, sends over its connections, saves a key, and reads whether
+    /// one is saved; it removes none. The other bundled apps call none. Each
+    /// is one fixed CLI invocation that never hands a page a saved key.
     #[test]
-    fn ai_commands_are_granted_to_settings_folders_and_installed_apps() {
+    fn ai_commands_are_granted_where_a_page_calls_them() {
         const AI: [&str; 4] = [
             "allow-ai-send",
             "allow-ai-key-set",
@@ -1122,9 +1139,14 @@ mod tests {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             let permissions = capability["permissions"].as_array().unwrap();
             for permission in AI {
+                let expected = match *encoded {
+                    BUNDLED_APP => false,
+                    WHISPERING => permission != "allow-ai-key-remove",
+                    _ => true,
+                };
                 assert_eq!(
                     permissions.contains(&serde_json::json!(permission)),
-                    *encoded != TODOS,
+                    expected,
                     "{} {permission}",
                     capability["identifier"]
                 );
@@ -1132,48 +1154,111 @@ mod tests {
         }
     }
 
-    /// Todos' windows, one per folder (`todos.rs`), hold the folder plugin
-    /// and its change event, and nothing else: no account, AI, history, or
-    /// app command is on Todos' path. The capability selects every label
-    /// `todos::open_todos` makes and none of Epicenter's other windows, and
-    /// no other capability selects a Todos window.
+    /// Each bundled app's windows, one per folder (`bundled_apps.rs`), are
+    /// selected by the one capability its row names, and by no other file.
+    /// Todos, Capture, and Honeycrisp hold the folder plugin and its change
+    /// event, and nothing else: no account, AI, history, recorder, or app
+    /// command is on their path. No bundled capability selects Epicenter's
+    /// own windows or an installed app's.
     #[test]
-    fn todos_windows_hold_the_folder_plugin_alone() {
-        let capability: serde_json::Value = serde_json::from_str(TODOS).unwrap();
+    fn each_bundled_apps_windows_hold_their_own_capability_alone() {
+        let bundled: serde_json::Value = serde_json::from_str(BUNDLED_APP).unwrap();
+        assert_eq!(
+            bundled["windows"],
+            serde_json::json!(["todos:*", "capture:*", "honeycrisp:*"])
+        );
+        assert_eq!(
+            bundled["permissions"],
+            serde_json::json!([
+                "epicenter-folder:default",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten",
+                "core:window:allow-destroy"
+            ])
+        );
+        for app in BundledApp::ALL {
+            for label in bundled_labels(app) {
+                for encoded in ALL_CAPABILITIES {
+                    let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+                    assert_eq!(
+                        selects(&capability, &label),
+                        capability["identifier"] == app.capability(),
+                        "{} {label}",
+                        capability["identifier"]
+                    );
+                }
+            }
+        }
+        for encoded in [BUNDLED_APP, WHISPERING] {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            for built_in in BuiltInApp::ALL {
+                assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
+            }
+            for id in [
+                "so.epicenter.todos",
+                "so.epicenter.whispering",
+                "com.example.board",
+            ] {
+                let label = installed_window_label(id, Some("data:Todos"));
+                assert!(!selects(&capability, &label), "{label}");
+            }
+        }
+    }
+
+    /// Whispering's windows hold what its page calls and nothing more: the
+    /// folder plugin and its change event; the recorder, which finalizes a
+    /// recording when the window is destroyed (ADR-0543, ADR-0571); System
+    /// Settings' privacy panes (ADR-0555); transcription with the active
+    /// local model, its readiness, and opening Settings to fix it
+    /// (ADR-0180); and its AI connections and who Epicenter is signed in as
+    /// (ADR-0557, ADR-0558). No folder history, account request, key
+    /// removal, or model administration.
+    #[test]
+    fn whispering_windows_hold_what_whispering_calls() {
+        let capability: serde_json::Value = serde_json::from_str(WHISPERING).unwrap();
         assert_eq!(
             capability["windows"],
-            serde_json::json!([format!("{}*", todos::WINDOW_PREFIX)])
+            serde_json::json!([format!("{}*", BundledApp::Whispering.window_prefix())])
         );
         assert_eq!(
             capability["permissions"],
             serde_json::json!([
                 "epicenter-folder:default",
                 "core:event:allow-listen",
-                "core:event:allow-unlisten"
+                "core:event:allow-unlisten",
+                "core:window:allow-destroy",
+                "epicenter-recorder:default",
+                {
+                    "identifier": "opener:allow-open-url",
+                    "allow": [{ "url": "x-apple.systempreferences:*" }]
+                },
+                "allow-list-inference-models",
+                "allow-transcribe-audio-bytes",
+                "allow-get-local-transcription-readiness",
+                "allow-open-home",
+                "allow-ai-send",
+                "allow-ai-key-set",
+                "allow-ai-key-state",
+                "allow-auth-status"
             ])
         );
-        let todos_windows = ["todos:546f646f73", "todos:4d79206e6f746573"];
-        for label in todos_windows {
-            assert!(selects(&capability, label), "{label}");
+    }
+
+    /// Epicenter's own pages and the bundled apps' pages are served from one
+    /// pages directory, so no page is both.
+    #[test]
+    fn bundled_pages_are_not_epicenters_own() {
+        for app in BundledApp::ALL {
+            assert_eq!(BuiltInApp::from_id(app.page()), None, "{}", app.page());
         }
         for built_in in BuiltInApp::ALL {
-            assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
-        }
-        assert!(!selects(
-            &capability,
-            &installed_window_label("so.epicenter.todos", Some("data:Todos"))
-        ));
-        for encoded in ALL_CAPABILITIES.iter().filter(|encoded| **encoded != TODOS) {
-            let other: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            for label in todos_windows {
-                assert!(!selects(&other, label), "{} {label}", other["identifier"]);
-            }
+            assert_eq!(BundledApp::from_page(built_in.id()), None);
         }
     }
 
-    /// An account request and who the app is signed in as reach every
-    /// installed app; who it is signed in as also reaches Settings; signing in
-    /// and out reaches Settings alone (ADR-0558).
+    /// An account request reaches every installed app; who Epicenter is
+    /// signed in as reaches every installed app, Settings, and Whispering;
+    /// signing in and out reaches Settings alone (ADR-0558).
     #[test]
     fn signing_in_and_out_is_granted_to_settings_alone() {
         for encoded in ALL_CAPABILITIES {
@@ -1183,10 +1268,11 @@ mod tests {
             let identifier = capability["identifier"].as_str().unwrap();
             let settings = *encoded == HOME;
             let installed = *encoded == INSTALLED_APP;
+            let whispering = *encoded == WHISPERING;
             assert_eq!(grants("allow-account-send"), installed, "{identifier}");
             assert_eq!(
                 grants("allow-auth-status"),
-                installed || settings,
+                installed || settings || whispering,
                 "{identifier}"
             );
             for permission in ["allow-auth-login", "allow-auth-logout"] {
@@ -1462,8 +1548,9 @@ mod tests {
     /// The Folders window holds the folder plugin, its own listing, a granted
     /// folder's history through the CLI and starting what installs `git`
     /// (ADR-0559), the AI commands
-    /// (ADR-0557), installing and opening apps, opening Todos (`todos.rs`),
-    /// and opening Settings (ADR-0537, ADR-0552), and nothing else: it reaches
+    /// (ADR-0557), installing and opening apps, opening a bundled app
+    /// (`bundled_apps.rs`), and opening Settings (ADR-0537, ADR-0552), and
+    /// nothing else: it reaches
     /// folders only through scopes the listing registered or permitted it
     /// into, and it administers no model.
     #[test]
@@ -1492,7 +1579,7 @@ mod tests {
                 "allow-approve-app",
                 "allow-update-app",
                 "allow-open-installed-app",
-                "allow-open-todos",
+                "allow-open-bundled-app",
                 "allow-open-home"
             ]),
             "folders"
@@ -1513,8 +1600,8 @@ mod tests {
                     "the listing belongs to the Folders window alone"
                 );
                 assert_ne!(
-                    permission, "allow-open-todos",
-                    "opening Todos belongs to the Folders window alone"
+                    permission, "allow-open-bundled-app",
+                    "opening a bundled app belongs to the Folders window alone"
                 );
                 assert!(
                     !permission.ends_with("-app"),
@@ -1541,9 +1628,12 @@ mod tests {
             "epicenter://surface/home",
             "epicenter://window/home",
             "epicenter://app/unknown",
-            // Installed apps are opened from the Folders window, not by link.
+            // Bundled and installed apps are opened from the Folders window,
+            // which assigns a folder, not by link.
             "epicenter://app/todos",
             "epicenter://app/so.epicenter.todos",
+            "epicenter://app/capture",
+            "epicenter://app/honeycrisp",
             "epicenter://app/whispering",
             "epicenter://app/so.epicenter.whispering",
             "epicenter://app/home/",

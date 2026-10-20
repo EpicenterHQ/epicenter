@@ -204,5 +204,5 @@
 {/if}
 
 <footer class="mt-10 border-t pt-4 text-xs text-muted-foreground">
-	<p>Captures are kept in this browser, each as a Markdown file in <code>captures</code>. They are not synced to other devices.</p>
+	<p>Captures are kept on this device, each as a Markdown file in <code>captures</code>. They are not synced to other devices.</p>
 </footer>

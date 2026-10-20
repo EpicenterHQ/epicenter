@@ -167,7 +167,7 @@ test('a save that fails keeps the typing on screen and says so; Save again saves
 	await quiet(notes);
 	expect(notes.isUnsaved(A)).toBe(false);
 	expect(await text(A)).toContain('---\nkept\n');
-	expect(notes.saves.label).toBe('Saved in this browser');
+	expect(notes.saves.label).toBe('Saved on this device');
 });
 
 test('a change another tab saved shows in the lists and the open note', async () => {

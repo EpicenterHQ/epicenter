@@ -24,7 +24,7 @@
 //!   alone as a data folder (`FolderConfig::data`): the shell never creates
 //!   its directory, and never gives it a repository of its own inside
 //!   another repository's working tree. Listing again returns the same
-//!   scope. Bundled Todos opens a folder under this same scope
+//!   scope. A bundled app opens a folder under this same scope
 //!   (`scope_for_window`): its window is permitted into the one entry rather
 //!   than into a second scope, and a folder it opens before the listing
 //!   finds it is registered as the listing would.
@@ -128,18 +128,6 @@ pub struct DataFolder {
 pub struct DataFolderScopes(Mutex<BTreeMap<String, String>>);
 
 impl DataFolderScopes {
-    /// A directory name this run registered under any casing of `name`.
-    /// The fixed Todos default uses this after a case-variant directory goes
-    /// missing, so it cannot silently create the same default again.
-    pub fn known_name_like(&self, name: &str) -> Option<String> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .keys()
-            .find(|known| known.eq_ignore_ascii_case(name))
-            .cloned()
-    }
-
     /// The directory name of the folder listed under `scope`: one this run
     /// registered, or Epicenter's own folder. Another window opens a listed
     /// folder by the scope the Folders window passed, never by a path.
@@ -233,9 +221,8 @@ fn register_data_folder(folders: &Folders, name: &str, root: PathBuf) -> Result<
 /// window already uses, never a second scope over the same directory (and so
 /// never a second watch). A child the listing has registered is reused. Any
 /// other is registered here as the listing would register it, `data:<name>`,
-/// and `create` makes its directory first. `create` applies only to a name
-/// not yet registered in this run, so a folder that was there and was removed
-/// is refused, never made again.
+/// and `create` makes its directory first. Only an app's fixed default asks
+/// to create; a folder selected from the listing must still exist.
 ///
 /// The directory must be there as a real directory, not a link, whichever
 /// path found the scope. The caller permits its own window into the scope
@@ -255,7 +242,7 @@ pub fn scope_for_window(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let known = registered.get(name).cloned();
-    if known.is_none() && create {
+    if create {
         fs::create_dir_all(&root)
             .map_err(|error| format!("The folder \"{name}\" could not be created: {error}"))?;
     }

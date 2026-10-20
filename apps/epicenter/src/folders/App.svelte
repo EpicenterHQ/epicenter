@@ -21,17 +21,19 @@
 	 * the shell reports that one appeared, went, or changed its
 	 * `epicenter.json` (`DATA_FOLDERS_CHANGED`).
 	 *
-	 * "Open in" opens an installed app on that folder through the same verb
-	 * as the Apps list, which opens it on its own folder (ADR-0552). Every
-	 * installed app that can run is offered on every folder (`openers.ts`,
-	 * ADR-0560); each app interprets it through its own table schemas. The Settings button
-	 * opens Settings with `open_home`.
+	 * "Open with" opens an app on that folder through the same verb as the
+	 * Apps list, which opens it on its default folder (ADR-0552). Every app
+	 * Epicenter bundles and every installed app that can run is offered on
+	 * every folder (`openers.ts`, ADR-0560); each app interprets it through
+	 * its own table schemas. The Settings button opens Settings with
+	 * `open_home`.
 	 *
-	 * Todos, which Epicenter bundles, opens with `open_todos`: "Open Todos" on
-	 * its default folder under the Epicenter folder, and "Open in Todos" on
-	 * the listed folder, which must still be there. Nothing is installed or
-	 * approved for it, and the page passes only the listed scope, never a
-	 * path.
+	 * Todos, Capture, Honeycrisp, and Whispering, which Epicenter bundles,
+	 * open with `open_bundled_app`: from the Apps list on the app's default
+	 * folder under the Epicenter folder, and from "Open with" on the listed
+	 * folder, which must still be there. Nothing is installed or approved
+	 * for them, and the page passes only the listed scope, never a path. An
+	 * installed copy of one of them is not listed.
 	 *
 	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
 	 * an app installed from a folder in a Git repository (`InstallApps`,
@@ -62,7 +64,12 @@
 	import { createFolderSwitch } from './folder-switch.svelte';
 	import FolderView from './FolderView.svelte';
 	import InstallApps from './InstallApps.svelte';
-	import { installedOpeners, type Opener } from './openers.ts';
+	import {
+		bundledOpeners,
+		folderOpeners,
+		listedInstalledApps,
+		type Opener,
+	} from './openers.ts';
 
 	const log = createLogger('epicenter/folders');
 
@@ -75,6 +82,12 @@
 	 * window alone.
 	 */
 	const DATA_FOLDERS_CHANGED = 'epicenter://data-folders-changed';
+
+	/**
+	 * Epicenter's own folder, `EPICENTER_FOLDER` in
+	 * `src-tauri/src/data_folders.rs`, which no bundled app opens.
+	 */
+	const EPICENTER_FOLDER = 'so.epicenter';
 
 	// Reads reach this computer's disk, and the folder's change channel is
 	// the one detector of outside change: a read is fresh until it reports
@@ -120,7 +133,8 @@
 	let settingsProblem = $state<string | undefined>(undefined);
 
 	let installed = $state<InstalledApp[]>([]);
-	const visibleInstalled = $derived(installed.filter((app) => app.id !== 'so.epicenter.todos'));
+	/** The installed apps listed under Apps: none is a bundled app's installed copy. */
+	const visibleInstalled = $derived(listedInstalledApps(installed));
 	let appsProblem = $state<string | undefined>(undefined);
 	/** The app whose approval is shown in place of a folder. */
 	let reviewing = $state<{ app: InstalledApp; review: Review } | undefined>(
@@ -130,10 +144,16 @@
 	let busy = $state<string | undefined>(undefined);
 
 	/** The apps every folder offers; each interprets the opened files through its own schemas. */
-	const openers = $derived(installedOpeners(visibleInstalled));
-	/** Each listed folder with the apps it offers. */
+	const openers = $derived(folderOpeners(installed));
+	/** Each listed folder with the apps it offers: no bundled app opens Epicenter's own. */
 	const listed = $derived(
-		(folders ?? []).map((folder) => ({ folder, openers })),
+		(folders ?? []).map((folder) => ({
+			folder,
+			openers:
+				folder.id === EPICENTER_FOLDER
+					? openers.filter((opener) => opener.kind === 'installed')
+					: openers,
+		})),
 	);
 	/** Listings that resolve out of order keep only the newest. */
 	let listSeq = 0;
@@ -212,20 +232,17 @@
 		if (updated !== undefined) review(updated);
 	}
 
-	/** Open `application` on `folder`, then read what building it changed. */
+	/**
+	 * Open `application` on `folder`, or on its default folder, then read what
+	 * opening changed: a bundled app's default folder may be new, and an
+	 * installed app's commit may have been built.
+	 */
 	async function launch(application: Opener, folder?: string) {
 		busy = `Opening ${application.title}…`;
 		await launcher.launch(application, folder);
 		busy = undefined;
-		await listInstalled();
-	}
-
-	/** Open Todos on the scope `folder` the shell listed, or on its default folder. */
-	async function openTodos(folder?: string) {
-		busy = 'Opening Todos…';
-		await launcher.todos(folder);
-		busy = undefined;
-		await list();
+		if (application.kind === 'bundled') await list();
+		else await listInstalled();
 	}
 
 	async function openSettings() {
@@ -273,14 +290,9 @@
 	<nav class="flex w-80 shrink-0 flex-col overflow-auto border-r" aria-label="Folders">
 		<header class="flex items-center justify-between gap-2 px-4 py-3">
 			<h1 class="text-lg font-semibold">Folders</h1>
-			<div class="flex items-center gap-1">
-				<Button variant="ghost" size="sm" onclick={() => void openTodos()}>
-					Open Todos
-				</Button>
-				<Button variant="ghost" size="sm" onclick={() => void openSettings()}>
-					Settings
-				</Button>
-			</div>
+			<Button variant="ghost" size="sm" onclick={() => void openSettings()}>
+				Settings
+			</Button>
 		</header>
 		{#if launcher.failure ?? settingsProblem}
 			<div class="px-3 pb-3">
@@ -317,21 +329,7 @@
 						>
 							{folder.title}
 						</button>
-						{#if folder.id !== 'so.epicenter'}
-							<Button variant="ghost" size="xs" onclick={() => void openTodos(folder.id)}>
-								Open in Todos
-							</Button>
-						{/if}
-						{#if openers.length === 1}
-							{@const application = openers[0]!}
-							<Button
-								variant="ghost"
-								size="xs"
-								onclick={() => void launch(application, folder.id)}
-							>
-								Open in {application.title}
-							</Button>
-						{:else if openers.length > 1}
+						{#if openers.length > 0}
 							<DropdownMenu.Root>
 								<DropdownMenu.Trigger>
 									{#snippet child({ props })}
@@ -361,6 +359,21 @@
 			</div>
 		{/if}
 		<ul class="flex flex-col gap-0.5 px-2 pb-1" aria-label="Apps">
+			{#each bundledOpeners as application (application.id)}
+				<li class="flex items-center gap-1">
+					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm">
+						{application.title}
+					</span>
+					<Button
+						variant="ghost"
+						size="xs"
+						disabled={busy !== undefined}
+						onclick={() => void launch(application)}
+					>
+						Open
+					</Button>
+				</li>
+			{/each}
 			{#each visibleInstalled as app (app.id)}
 				<li class="flex items-center gap-1">
 					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm" title={app.source}>
@@ -390,7 +403,7 @@
 							variant="ghost"
 							size="xs"
 							disabled={busy !== undefined}
-							onclick={() => void launch(app)}
+							onclick={() => void launch({ kind: 'installed', ...app })}
 						>
 							Open
 						</Button>
