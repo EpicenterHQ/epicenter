@@ -31,12 +31,11 @@
 	/** The capture just added from the timeline, so its view starts at Add a thought. */
 	let created = $state<string>();
 
-	// An accepted Folder change still saving holds navigation.
-	const mustStay = $derived(context.getStatus().saving || context.getStatus().unsaved.length > 0);
-
-	// Reload or navigation out of the app is held while a Folder save is pending.
-	beforeNavigate((navigation) => {
-		if (mustStay && navigation.willUnload) navigation.cancel();
+	// Read save status when leaving is requested, not while the view renders.
+	beforeNavigate(({ willUnload, cancel }) => {
+		if (!willUnload) return;
+		const { saving, unsaved } = context.getStatus();
+		if (saving || unsaved.length > 0) cancel();
 	});
 	// `<FolderApp>` sends what is typed, as fields or as text, when the page
 	// hides or goes away.
