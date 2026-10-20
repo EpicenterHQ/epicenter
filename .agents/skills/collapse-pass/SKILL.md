@@ -57,14 +57,17 @@ implementation is authorized.
 
 ## Judge candidates by what disappears
 
-For a broad pass, once you understand actual use, visibly list and explain the
-methods, concepts, and relationships someone must understand. Ask whether the
-same job could be done with fewer concepts, including a different design that
-makes several parts unnecessary together. Replace unnecessary flexibility with
+For a broad pass, once you understand actual use, visibly inventory the nouns,
+methods, properties, keys, and relationships someone must understand to use or
+change the relevant system. Ask which distinctions carry independent information
+or behavior and whether the same job could use fewer concepts or operations,
+including a different design that makes several parts unnecessary together.
+Replace unnecessary flexibility with
 stronger invariants: ask whether ownership and lifetime can determine
 relationships the code currently has to coordinate. Use the
-[concept inventory](references/concept-inventory.md) to examine the nouns and
-their relationships. A focused transformation needs no subsystem inventory.
+[concept inventory](references/concept-inventory.md) to examine that surface
+through its owners and callers. A focused transformation needs no subsystem
+inventory.
 
 Look for forwarding layers, re-export chains, shallow aliases, shadow or
 mirrored state, duplicated decisions, copied boundary shapes, derivable state,
@@ -187,9 +190,9 @@ by the pass before proceeding to unrelated candidates.
 
 Report each logical simplification and its files, why it helped, what was
 verified, and any meaningful remaining decision. For a broad pass, show the
-methods, concepts, and relationships before and after, what disappeared, and
-why the remaining distinctions matter. A review-only pass shows the proposed
-change. Mention important rejected candidates when they prevent repeat work. Use
+inventory before and after, what disappeared, and why the remaining distinctions
+matter. A review-only pass shows the proposed change. Mention important rejected
+candidates when they prevent repeat work. Use
 [report guidance](references/report-format.md) for a longer campaign; routine
 passes need a concise result.
 

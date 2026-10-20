@@ -4,17 +4,26 @@ Understand what the system needs to do and follow actual callers. Then step
 back: could it do the same job with a simpler model? A collection of reasonable
 parts can still ask someone to understand too much.
 
-Make that question concrete by visibly listing the methods and enumerating and
-counting the concepts someone must understand to use or change the workflow,
-API, or subsystem.
-Types, objects, services, stores, modes, and lifecycle states are candidates.
-Explain what each does or represents in one sentence and why it exists
-separately. Reuse a list already developed during the work.
+Make that question concrete by visibly enumerating the surface someone must
+understand to use or change the relevant workflow, API, or subsystem. Include
+nouns such as types, objects, services, and stores, and inspect their methods,
+properties, object keys, options, and state variants. Group members by owner;
+explain what each represents or does and why it exists separately. Trace actual
+callers and state transitions rather than relying on declarations alone. Reuse
+an inventory already developed during the work. Stay within the relevant
+surface rather than cataloging every transitive library member.
 
-Challenge the distinctions together. Which parts describe the same thing,
-duplicate information, or exist to keep other parts in sync? Could a different
-design make several unnecessary at once? Show the simpler design through a
-real caller or interaction, and check that it still does what matters. Use
+Challenge the distinctions together, including distinctions within one object.
+Which nouns describe the same thing, methods perform the same operation,
+properties duplicate information, or keys maintain relationships that ownership
+could determine? Could a different design make several unnecessary at once?
+For example, `status` and `isSaving` may repeat one fact, while `savedTitle` and
+`draftTitle` preserve different information during editing. `save()` and
+`submit()` may forward the same operation or represent different workflows.
+Establish which case callers require before collapsing them.
+
+Show the simpler design through a real caller or interaction, and check that it
+still does what matters. Use
 [rethink](../../rethink/SKILL.md) when this changes ownership, lifecycle, APIs,
 or package boundaries.
 
@@ -25,10 +34,12 @@ Explain why the remaining distinctions matter. A rename or move may be the
 right repair, and keeping the model is valid when the alternative makes things
 harder.
 
-Count what someone must understand. Deleting a type does not remove a concept
-that callers still need; hiding several concepts inside one object does not
-make them one. Compare counts on the same basis and explain uncertainty. A
-focused local transformation needs no subsystem inventory.
+Count what someone must understand. Names and members are evidence of concepts,
+not a one-to-one count: deleting a type does not remove a concept that callers
+still need. Hiding several concepts inside one object, renaming methods, or
+replacing distinct operations with a generic method and flags does not by
+itself simplify the model. Compare counts on the same basis and explain
+uncertainty. A focused local transformation needs no subsystem inventory.
 
 ## Follow broad names into the structure
 
