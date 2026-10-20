@@ -275,8 +275,9 @@ registered scope. The page calls `openFolder({ directory: folder.id, tables:
 - **Epicenter's own folder**, `so.epicenter`, is registered at setup for the
   `folders` and `home` windows and listed under that scope.
 - **Any other data folder** gets the scope `data:<directory name>` the first
-  time it is listed, registered for the `folders` window alone. Listing again
-  in the same run returns the same scope. Registrations last until the
+  time it is listed, registered for the `folders` window. Bundled Todos
+  permits its own window into that entry when it opens the folder
+  ([Todos](#todos)). Listing again in the same run returns the same scope. Registrations last until the
   process exits; a folder removed from the root keeps an unused scope.
 
 The shell watches the root from setup until exit (`watch_data_folders`). When
@@ -321,14 +322,26 @@ The Folders window opens it with `open_todos(folder)`:
   listed, Epicenter's own folder, or a directory that is gone, is refused. Nothing is created and the
   default is never opened instead.
 
+Only the first Open Todos of a run may create a missing default: a default the
+listing registered, or one this run opened, that is removed later is refused,
+not made again. A disk that stores the default under another casing opens that
+directory's one window, named by its stored spelling.
+
 Each directory gets one Todos window, labelled `todos:<directory name in
-hex>`, and one scope, `todos:<directory name>`, registered as a data folder
-for that window alone. The shell registers and hands the window its scope
-before the WebView exists; the page calls `openFolder({ tables })`, which asks
-for that assignment (`window_folder`) and is granted it, and never names a
-path. A folder removed after its window opened is refused `Missing` at the
-next grant, not made again. Opening the same folder again reveals its window;
-closing the window destroys it.
+hex>`, and no scope of its own. It uses the registry entry the Folders window
+already opens the folder through, `data:<directory name>` (or an installed
+app's id for its own folder), with that entry's root, save lock, and watch.
+The shell permits that exact window into the entry and hands it the scope
+before the WebView exists; a default opened before the Folders window listed
+it is registered under the same `data:Todos` the listing then reports. The
+page calls `openFolder({ tables })`, which asks for that assignment
+(`window_folder`) and is granted it, and never names a path. This action
+permits no other Todos window or Settings into the entry; installed apps may
+receive their own explicit grants. Todos is never permitted into
+`so.epicenter`. A folder removed after its
+window opened is refused `Missing` at the next grant, not made again. Opening
+the same folder again reveals its window; closing the window destroys it. A
+permitted label stays in the entry until the process exits.
 
 `capabilities/todos.json` selects `todos:*` and grants the folder plugin and
 its change event, and nothing else. The save lock,

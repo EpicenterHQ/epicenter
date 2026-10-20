@@ -4,37 +4,40 @@
 //! `dist/todos/`, and the scheme serves it at `/todos/` beside its own pages.
 //! Opening it clones no repository and reads no `epicenter.app.json`, and no
 //! account, approval, or Git step is on the way. The Folders window calls
-//! `open_todos`; the shell assigns the window its folder in trusted Rust
-//! before the WebView exists; the page calls `openFolder({ tables })`, which
-//! asks the folder plugin for that assignment (`window_folder`) and is
-//! granted it.
+//! `open_todos`; the shell permits the window into its folder and hands it
+//! that folder in trusted Rust before the WebView exists; the page calls
+//! `openFolder({ tables })`, which asks the folder plugin for that assignment
+//! (`window_folder`) and is granted it.
 //!
 //! - Open Todos: the fixed default, `<folder_dir>/Todos`, which the shell
-//!   creates when it is missing. The name is this launch policy's choice, not
-//!   one derived from an app id.
+//!   creates when it is missing and this run has not registered it. The name
+//!   is this launch policy's choice, not one derived from an app id. A
+//!   default that was there and is removed later in the run is refused, not
+//!   made again.
 //! - Open in Todos: a folder the Folders window listed, named by its listed
 //!   scope. It must already exist: a missing one is refused, never created,
-//!   and never replaced by the default.
+//!   and never replaced by the default. Epicenter's own folder is refused.
 //!
-//! Each directory gets its own scope, `todos:<name>`, registered as a data
-//! folder (`FolderConfig::data`) for one window, `todos:<name in hex>`. The
-//! plugin refuses that scope to every other window, and refuses the
-//! directory once it is gone. The page names no path.
+//! Todos adds no scope of its own. A directory is one entry in the folder
+//! registry (`data_folders::scope_for_window`): the entry, with its root,
+//! lock, and watch, that the Folders window opens the folder through. The
+//! Todos window `todos:<name in hex>` is permitted into that entry by its
+//! exact label. Other windows need their own grants, and the plugin refuses
+//! the directory once it is gone. The page names no path.
 //!
 //! This sits beside the installed-app path (`installed_apps.rs`) until that
 //! path is removed.
 
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
-use std::sync::{mpsc, Mutex};
+use std::sync::mpsc;
 
 use anyhow::Context;
 use tauri::Manager;
-use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, Folders, ScopeConfig, WindowFolder};
+use tauri_plugin_epicenter_folder::{FolderExt, Folders, WindowFolder};
 
 use crate::app_data::DesktopPaths;
-use crate::data_folders::{DataFolderScopes, EPICENTER_FOLDER};
+use crate::data_folders::{scope_for_window, DataFolderScopes, EPICENTER_FOLDER};
 use crate::DesktopAppHandle;
 
 /// The directory below the pages directory that holds Todos' build, and the
@@ -55,10 +58,6 @@ const APP: &str = "so.epicenter.todos";
 /// selects `todos:*`.
 pub const WINDOW_PREFIX: &str = "todos:";
 
-/// The directory names whose Todos scope this run registered.
-#[derive(Default)]
-pub struct TodosScopes(Mutex<BTreeSet<String>>);
-
 /// Open Todos on the fixed default folder, or with `folder`, on a folder the
 /// Folders window listed under that scope. A window already open on the
 /// folder is revealed.
@@ -67,14 +66,11 @@ pub struct TodosScopes(Mutex<BTreeSet<String>>);
 pub async fn open_todos(app: DesktopAppHandle, folder: Option<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let paths = app.state::<DesktopPaths>();
-        let name = directory(
-            &paths.folder_dir,
-            &app.state::<DataFolderScopes>(),
-            folder.as_deref(),
-        )?;
+        let listed = app.state::<DataFolderScopes>();
+        let name = directory(&paths.folder_dir, &listed, folder.as_deref())?;
         let label = assign(
             app.folders(),
-            &app.state::<TodosScopes>(),
+            &listed,
             &paths.folder_dir,
             &name,
             folder.is_none(),
@@ -86,64 +82,77 @@ pub async fn open_todos(app: DesktopAppHandle, folder: Option<String>) -> Result
 }
 
 /// The name of the directory under `folder_dir` that Todos opens: the fixed
-/// default when `folder` is `None`, created when it is missing, or the
-/// directory the Folders window listed under the scope `folder`, which must
-/// already be there.
+/// default when `folder` is `None`, or the directory the Folders window
+/// listed under the scope `folder`. Whether it is there is checked by
+/// `assign`, under the registry's lock.
 fn directory(
     folder_dir: &Path,
     listed: &DataFolderScopes,
     folder: Option<&str>,
 ) -> Result<String, String> {
-    let name = match folder {
-        None => return Ok(DEFAULT_FOLDER.to_string()),
-        Some(scope) => listed
-            .listed_name(scope)
-            .ok_or_else(|| "That folder is not in the list of folders.".to_string())?,
+    let Some(scope) = folder else {
+        return Ok(default_name(folder_dir, listed));
     };
-    if name == EPICENTER_FOLDER {
+    let name = listed
+        .listed_name(scope)
+        .ok_or_else(|| "That folder is not in the list of folders.".to_string())?;
+    // A case-insensitive disk names one directory by every casing.
+    if name.eq_ignore_ascii_case(EPICENTER_FOLDER) {
         return Err("Epicenter's own folder cannot be opened in Todos.".to_string());
-    }
-    // `symlink_metadata` does not follow a link, so a linked directory is
-    // refused, as the listing skips one.
-    if !fs::symlink_metadata(folder_dir.join(&name)).is_ok_and(|stats| stats.is_dir()) {
-        return Err(format!("The folder \"{name}\" is not there anymore."));
     }
     Ok(name)
 }
 
-/// Register the directory `name` under `folder_dir` as one Todos window's
-/// folder, and hand that window its scope, before the window exists. Answers
+/// The name the default folder has on disk. A case-insensitive disk that
+/// already holds it as `todos` lists it as `todos`, and the window and scope
+/// are named by the listed spelling, so the default is one directory with one
+/// window, not two. An exact `Todos` always wins, so a case-sensitive disk
+/// keeps its two directories apart.
+fn default_name(folder_dir: &Path, listed: &DataFolderScopes) -> String {
+    let Ok(entries) = fs::read_dir(folder_dir) else {
+        return listed
+            .known_name_like(DEFAULT_FOLDER)
+            .unwrap_or_else(|| DEFAULT_FOLDER.to_string());
+    };
+    let mut spelled = None;
+    for entry in entries.flatten() {
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if name == DEFAULT_FOLDER {
+            return name;
+        }
+        if name.eq_ignore_ascii_case(DEFAULT_FOLDER) {
+            spelled = Some(name);
+        }
+    }
+    // Another spelling is the same directory only where the disk resolves it
+    // from the default's name.
+    match spelled {
+        Some(name) if fs::symlink_metadata(folder_dir.join(DEFAULT_FOLDER)).is_ok() => name,
+        Some(_) => DEFAULT_FOLDER.to_string(),
+        None => listed
+            .known_name_like(DEFAULT_FOLDER)
+            .unwrap_or_else(|| DEFAULT_FOLDER.to_string()),
+    }
+}
+
+/// Permit the Todos window of directory `name` into that directory's registry
+/// entry, and hand it the entry's scope, before the window exists. Answers
 /// the window's label. A second open of the same directory reuses both.
+/// `fixed_default` lets a first open make the directory (`scope_for_window`).
 fn assign(
     folders: &Folders,
-    registered: &TodosScopes,
+    listed: &DataFolderScopes,
     folder_dir: &Path,
     name: &str,
     fixed_default: bool,
 ) -> Result<String, String> {
     let label = window_label(name);
-    let scope = format!("todos:{name}");
-    let mut registered = registered
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !registered.contains(name) {
-        if fixed_default {
-            fs::create_dir_all(folder_dir.join(name))
-                .map_err(|error| format!("The Todos folder could not be created: {error}"))?;
-        }
-        if !fs::symlink_metadata(folder_dir.join(name)).is_ok_and(|stats| stats.is_dir()) {
-            return Err(format!("The folder \"{name}\" is not there anymore."));
-        }
-        folders.register(ScopeConfig {
-            scope: scope.clone(),
-            folder: FolderConfig::data(folder_dir.join(name)),
-            windows: vec![label.clone()],
-        })?;
-        registered.insert(name.to_string());
-    } else if !fs::symlink_metadata(folder_dir.join(name)).is_ok_and(|stats| stats.is_dir()) {
-        return Err(format!("The folder \"{name}\" is not there anymore."));
-    }
+    let scope = scope_for_window(folders, folder_dir, listed, name, fixed_default)?;
+    folders
+        .permit(&scope, &label)
+        .map_err(|error| format!("The folder \"{name}\" could not be opened: {error:?}"))?;
     folders.hand(
         &label,
         WindowFolder {
@@ -210,6 +219,8 @@ mod tests {
     use tauri::webview::InvokeRequest;
     use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
+    use tauri_plugin_epicenter_folder::GrantError;
+
     use super::*;
     use crate::data_folders::{list_in, register_epicenter_folder};
 
@@ -217,7 +228,6 @@ mod tests {
         app: App<MockRuntime>,
         folder_dir: PathBuf,
         listed: DataFolderScopes,
-        registered: TodosScopes,
         _temporary: tempfile::TempDir,
     }
 
@@ -247,7 +257,7 @@ mod tests {
             let name = directory(&self.folder_dir, &self.listed, folder)?;
             assign(
                 self.app.folders(),
-                &self.registered,
+                &self.listed,
                 &self.folder_dir,
                 &name,
                 folder.is_none(),
@@ -296,7 +306,6 @@ mod tests {
             app,
             folder_dir,
             listed: DataFolderScopes::default(),
-            registered: TodosScopes::default(),
             _temporary: temporary,
         }
     }
@@ -429,8 +438,7 @@ mod tests {
         let window = fixture.window(&fixture.open(Some("data:A")).unwrap());
         fs::remove_dir_all(fixture.folder_dir.join("A")).unwrap();
 
-        let refused =
-            invoke(&window, "grant_directory", json!({ "scope": "todos:A" })).unwrap_err();
+        let refused = invoke(&window, "grant_directory", json!({ "scope": "data:A" })).unwrap_err();
         assert_eq!(refused["name"], "Missing");
         assert!(!fixture.folder_dir.join("A").exists());
     }
@@ -447,7 +455,7 @@ mod tests {
         assert!(default.is_dir());
         let window = fixture.window(&label);
         let (scope, root) = open_assigned(&window);
-        assert_eq!(scope, "todos:Todos");
+        assert_eq!(scope, "data:Todos");
         assert_eq!(root, default.to_str().unwrap());
         assert_eq!(fs::read_dir(&default).unwrap().count(), 0);
 
@@ -475,12 +483,8 @@ mod tests {
             "The folder \"Todos\" is not there anymore."
         );
         assert!(!default.exists());
-        let refused = invoke(
-            &window,
-            "grant_directory",
-            json!({ "scope": "todos:Todos" }),
-        )
-        .unwrap_err();
+        let refused =
+            invoke(&window, "grant_directory", json!({ "scope": "data:Todos" })).unwrap_err();
         assert_eq!(refused["name"], "Missing");
     }
 
@@ -495,9 +499,149 @@ mod tests {
         assert!(fixture.open(None).is_err());
     }
 
-    /// No window but the one assigned a folder is handed or granted it: not
-    /// the Folders window, not another Todos window, and not an installed
-    /// app's window.
+    /// Opening a listed folder in Todos adds the Todos window to the entry
+    /// the Folders window already uses, not a second scope over the same
+    /// directory: both windows are granted the same root under `data:A`, and
+    /// the registry holds no `todos:` scope.
+    #[test]
+    fn a_todos_window_shares_the_folders_windows_registry_entry() {
+        let fixture = fixture();
+        let a = fixture.folder_with_todo("A", "milk");
+        fixture.list();
+        let label = fixture.open(Some("data:A")).unwrap();
+
+        let registry = fixture.app.folders();
+        assert_eq!(
+            registry.handed(&label),
+            Some(WindowFolder {
+                app: APP.into(),
+                folder: "data:A".into(),
+            })
+        );
+        let folders = fixture.window("folders");
+        let todos = fixture.window(&label);
+        assert_eq!(
+            invoke(&folders, "window_folder", json!({})).unwrap(),
+            Value::Null
+        );
+        let from_folders = invoke(&folders, "grant_directory", json!({ "scope": "data:A" }));
+        let (scope, root) = open_assigned(&todos);
+        assert_eq!(scope, "data:A");
+        assert_eq!(root, a.to_str().unwrap());
+        assert_eq!(from_folders.unwrap()["root"], root.as_str());
+        // Listing again, and opening again, add no scope and no window.
+        fixture.list();
+        assert_eq!(fixture.open(Some("data:A")).unwrap(), label);
+        assert_eq!(
+            registry.permit("todos:A", &label),
+            Err(GrantError::UnknownScope {
+                scope: "todos:A".into()
+            })
+        );
+        // Granted `data:A` alone: not Epicenter's own folder.
+        let refused = invoke(
+            &todos,
+            "grant_directory",
+            json!({ "scope": EPICENTER_FOLDER }),
+        )
+        .unwrap_err();
+        assert_eq!(refused["name"], "WindowNotPermitted");
+    }
+
+    /// Open Todos before the Folders window ever listed the default makes it
+    /// under the scope the listing then reports, not a second one.
+    #[test]
+    fn the_default_opened_before_listing_is_the_listings_scope() {
+        let fixture = fixture();
+        let label = fixture.open(None).unwrap();
+        assert_eq!(
+            fixture.app.folders().handed(&label).unwrap().folder,
+            "data:Todos"
+        );
+        assert_eq!(
+            fixture.list(),
+            [("data:Todos".to_string(), "Todos".to_string())]
+        );
+        let folders = fixture.window("folders");
+        let granted = invoke(
+            &folders,
+            "grant_directory",
+            json!({ "scope": "data:Todos" }),
+        );
+        assert_eq!(
+            granted.unwrap()["root"],
+            fixture.folder_dir.join(DEFAULT_FOLDER).to_str().unwrap()
+        );
+    }
+
+    /// A default the listing found and that was removed is refused, not made
+    /// again, even though Open Todos never opened it.
+    #[test]
+    fn a_listed_default_removed_before_open_todos_is_not_recreated() {
+        let fixture = fixture();
+        fixture.folder_with_todo(DEFAULT_FOLDER, "milk");
+        fixture.list();
+        fs::remove_dir_all(fixture.folder_dir.join(DEFAULT_FOLDER)).unwrap();
+        assert_eq!(
+            fixture.open(None).unwrap_err(),
+            "The folder \"Todos\" is not there anymore."
+        );
+        assert!(!fixture.folder_dir.join(DEFAULT_FOLDER).exists());
+    }
+
+    /// The default is one directory with one window whatever its spelling on
+    /// a case-insensitive disk, where the listing names it as it is stored.
+    #[test]
+    fn the_default_takes_the_spelling_the_directory_has() {
+        let fixture = fixture();
+        assert_eq!(
+            default_name(&fixture.folder_dir, &fixture.listed),
+            DEFAULT_FOLDER
+        );
+        fs::create_dir(fixture.folder_dir.join("todos")).unwrap();
+        let insensitive = fixture.folder_dir.join(DEFAULT_FOLDER).exists();
+        assert_eq!(
+            default_name(&fixture.folder_dir, &fixture.listed),
+            if insensitive { "todos" } else { DEFAULT_FOLDER }
+        );
+        if insensitive {
+            let listed = fixture.list();
+            assert_eq!(listed, [("data:todos".to_string(), "todos".to_string())]);
+            let label = fixture.open(None).unwrap();
+            assert_eq!(label, window_label("todos"));
+            assert_eq!(fixture.open(Some("data:todos")).unwrap(), label);
+        }
+        // An exact `Todos` wins where both exist.
+        if !insensitive {
+            fs::create_dir(fixture.folder_dir.join(DEFAULT_FOLDER)).unwrap();
+            assert_eq!(
+                default_name(&fixture.folder_dir, &fixture.listed),
+                DEFAULT_FOLDER
+            );
+        }
+    }
+
+    #[test]
+    fn a_case_variant_default_removed_after_open_is_not_recreated() {
+        let fixture = fixture();
+        fs::create_dir(fixture.folder_dir.join("todos")).unwrap();
+        if !fixture.folder_dir.join(DEFAULT_FOLDER).exists() {
+            return; // This filesystem distinguishes the names.
+        }
+        fixture.list();
+        let label = fixture.open(None).unwrap();
+        assert_eq!(label, window_label("todos"));
+        fs::remove_dir(fixture.folder_dir.join("todos")).unwrap();
+        assert_eq!(
+            fixture.open(None).unwrap_err(),
+            "The folder \"todos\" is not there anymore."
+        );
+        assert!(!fixture.folder_dir.join(DEFAULT_FOLDER).exists());
+    }
+
+    /// No window but the one assigned a folder is handed or granted it,
+    /// except the Folders window, which holds the entry already: not another
+    /// Todos window, and not an installed app's window.
     #[test]
     fn no_other_window_is_handed_or_granted_a_todos_folder() {
         let fixture = fixture();
@@ -507,7 +651,6 @@ mod tests {
 
         let other_todos = window_label("B");
         for label in [
-            "folders",
             "home",
             other_todos.as_str(),
             "app:so_epicenter_todos",
@@ -524,7 +667,7 @@ mod tests {
                 "{label}"
             );
             let refused =
-                invoke(&window, "grant_directory", json!({ "scope": "todos:A" })).unwrap_err();
+                invoke(&window, "grant_directory", json!({ "scope": "data:A" })).unwrap_err();
             assert_eq!(refused["name"], "WindowNotPermitted", "{label}");
         }
     }

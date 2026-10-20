@@ -336,7 +336,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(PendingHomeSection::default())
         .manage(data_folders::DataFolderScopes::default())
-        .manage(todos::TodosScopes::default())
         .manage(cli::CliChildren::default())
         .manage(DownloadManager::default());
 

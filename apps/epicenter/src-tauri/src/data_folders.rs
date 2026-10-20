@@ -24,7 +24,10 @@
 //!   alone as a data folder (`FolderConfig::data`): the shell never creates
 //!   its directory, and never gives it a repository of its own inside
 //!   another repository's working tree. Listing again returns the same
-//!   scope.
+//!   scope. Bundled Todos opens a folder under this same scope
+//!   (`scope_for_window`): its window is permitted into the one entry rather
+//!   than into a second scope, and a folder it opens before the listing
+//!   finds it is registered as the listing would.
 //!
 //! A folder whose scope cannot be permitted or registered is left out of the
 //! listing and logged; the others are still listed.
@@ -38,7 +41,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -125,6 +128,18 @@ pub struct DataFolder {
 pub struct DataFolderScopes(Mutex<BTreeMap<String, String>>);
 
 impl DataFolderScopes {
+    /// A directory name this run registered under any casing of `name`.
+    /// The fixed Todos default uses this after a case-variant directory goes
+    /// missing, so it cannot silently create the same default again.
+    pub fn known_name_like(&self, name: &str) -> Option<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .keys()
+            .find(|known| known.eq_ignore_ascii_case(name))
+            .cloned()
+    }
+
     /// The directory name of the folder listed under `scope`: one this run
     /// registered, or Epicenter's own folder. Another window opens a listed
     /// folder by the scope the Folders window passed, never by a path.
@@ -201,13 +216,68 @@ fn register_own_folder(folders: &Folders, folder_dir: &Path, id: &str) -> Result
     })
 }
 
+/// Register `data:<name>` over the existing directory `root` for the Folders
+/// window, as a data folder the shell never creates. Answers the scope.
+fn register_data_folder(folders: &Folders, name: &str, root: PathBuf) -> Result<String, String> {
+    let id = format!("data:{name}");
+    folders.register(ScopeConfig {
+        scope: id.clone(),
+        folder: FolderConfig::data(root),
+        windows: vec![BuiltInApp::Folders.id().into()],
+    })?;
+    Ok(id)
+}
+
+/// The scope under which a window other than the Folders window opens the
+/// direct child `name` of `folder_dir`: the one registry entry the Folders
+/// window already uses, never a second scope over the same directory (and so
+/// never a second watch). A child the listing has registered is reused. Any
+/// other is registered here as the listing would register it, `data:<name>`,
+/// and `create` makes its directory first. `create` applies only to a name
+/// not yet registered in this run, so a folder that was there and was removed
+/// is refused, never made again.
+///
+/// The directory must be there as a real directory, not a link, whichever
+/// path found the scope. The caller permits its own window into the scope
+/// and hands it; this grants nothing.
+pub fn scope_for_window(
+    folders: &Folders,
+    folder_dir: &Path,
+    scopes: &DataFolderScopes,
+    name: &str,
+    create: bool,
+) -> Result<String, String> {
+    let root = folder_dir.join(name);
+    // Held across registration, as the listing holds it, so a listing and an
+    // open at once register a folder once.
+    let mut registered = scopes
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let known = registered.get(name).cloned();
+    if known.is_none() && create {
+        fs::create_dir_all(&root)
+            .map_err(|error| format!("The folder \"{name}\" could not be created: {error}"))?;
+    }
+    // `symlink_metadata` does not follow a link, so a linked directory is
+    // refused, as the listing skips one.
+    if !fs::symlink_metadata(&root).is_ok_and(|stats| stats.is_dir()) {
+        return Err(format!("The folder \"{name}\" is not there anymore."));
+    }
+    if let Some(id) = known {
+        return Ok(id);
+    }
+    let id = register_data_folder(folders, name, root)?;
+    registered.insert(name.to_string(), id.clone());
+    Ok(id)
+}
+
 pub(crate) fn list_in(
     folder_dir: &Path,
     apps_dir: &Path,
     folders: &Folders,
     scopes: &DataFolderScopes,
 ) -> Result<Vec<DataFolder>, String> {
-    let window = BuiltInApp::Folders.id();
     let entries = match fs::read_dir(folder_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -263,20 +333,16 @@ pub(crate) fn list_in(
                 name
             }
             Some(id) => id.clone(),
-            None => {
-                let id = format!("data:{name}");
-                let folder = FolderConfig::data(root);
-                if let Err(error) = folders.register(ScopeConfig {
-                    scope: id.clone(),
-                    folder,
-                    windows: vec![window.into()],
-                }) {
+            None => match register_data_folder(folders, &name, root) {
+                Ok(id) => {
+                    registered.insert(name, id.clone());
+                    id
+                }
+                Err(error) => {
                     log::warn!("data folder '{name}' was not listed: {error}");
                     continue;
                 }
-                registered.insert(name, id.clone());
-                id
-            }
+            },
         };
         listed.push(DataFolder { id, title });
     }
