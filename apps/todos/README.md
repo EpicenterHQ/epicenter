@@ -31,7 +31,7 @@ From the repository root:
 bun dev:todos:desktop
 ```
 
-This builds the installed page into `apps/todos/dist` and runs the Tauri shell in `src-tauri/` with `cargo`, which needs a Rust toolchain. The window opens without an account or network. Each launch rebuilds the page.
+This builds the installed page into `apps/todos/dist` and runs the Tauri shell in `src-tauri/`, which needs a Rust toolchain. The development identifier `so.epicenter.todos.dev` keeps its app-data Folder separate from the release app. The window opens without an account or network.
 
 To build a local macOS app that you can quit and reopen from Finder, run `bun build:todos:desktop` from the repository root. The result is `apps/todos/src-tauri/target/release/bundle/macos/Todos.app`. This local build is not a signed distribution.
 
@@ -39,7 +39,7 @@ The folder is the whole application data directory, `~/Library/Application Suppo
 
 The shell registers that directory for the `todos` window in trusted Rust code and hands the window its scope. The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` gives the window the folder plugin's commands and its change event, and nothing else.
 
-On the tested macOS build, opening and saving left only `.git/` and `todos/` in the Folder root. Linux and Windows have not been run; their WebView data locations must be checked before treating the whole app-data root as a supported default there.
+On the tested macOS build, opening and saving left only `.git/` and `todos/` in the Folder root. The shell assigns WebView runtime storage to its cache directory, outside the Folder. Linux and Windows packaged builds have not been run.
 
 ## Native directory example
 

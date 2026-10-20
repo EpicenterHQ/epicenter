@@ -10,7 +10,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"dev:desktop": "bun run build:installed && cargo run --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol",
+		"dev:desktop": "bun run build:installed && tauri dev --config src-tauri/tauri.dev.conf.json",
 		"build:desktop": "bun run build:installed && tauri build --bundles app",
 		"native": "bun scripts/native.ts",
 		"demo:local": "bun scripts/local-demo.ts",

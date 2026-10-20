@@ -4,7 +4,6 @@
 	"version": "0.0.1",
 	"identifier": "so.epicenter.todos",
 	"build": {
-		"devUrl": "http://127.0.0.1:5186",
 		"frontendDist": "../dist"
 	},
 	"app": {

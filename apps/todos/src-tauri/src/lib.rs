@@ -25,11 +25,15 @@ pub fn run() {
         .plugin(tauri_plugin_epicenter_folder::init())
         .setup(|app| {
             let root = app.path().app_data_dir()?;
+            // A Linux WebView otherwise defaults to local app data, which is
+            // also this Folder root. Keep browser runtime files in cache.
+            let webview_data = app.path().app_cache_dir()?.join("webview");
             assign_folder(app.folders(), root)?;
             WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::default())
                 .title("Todos")
                 .inner_size(960.0, 720.0)
                 .min_inner_size(480.0, 400.0)
+                .data_directory(webview_data)
                 .build()?;
             Ok(())
         })
@@ -192,6 +196,18 @@ mod tests {
     }
 
     #[test]
+    fn a_removed_fixed_default_is_not_recreated_within_the_same_run() {
+        let fixture = fixture();
+        let todos = window(&fixture.app, WINDOW);
+        invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap();
+        fs::remove_dir(&fixture.root).unwrap();
+
+        let refused = invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap_err();
+        assert_eq!(refused["name"], "Missing");
+        assert!(!fixture.root.exists());
+    }
+
+    #[test]
     fn no_other_window_is_handed_or_granted_the_folder() {
         let fixture = fixture();
         let other = window(&fixture.app, "other");
@@ -210,6 +226,7 @@ mod tests {
         let capability: Value =
             serde_json::from_str(include_str!("../capabilities/todos.json")).unwrap();
         assert_eq!(capability["windows"], json!([WINDOW]));
+        assert_eq!(capability["local"], true);
         assert_eq!(
             capability["permissions"],
             json!([

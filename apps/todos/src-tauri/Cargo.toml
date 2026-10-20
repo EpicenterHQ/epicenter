@@ -1,5 +1,5 @@
 [package]
-name = "epicenter-todos"
+name = "todos"
 version = "0.0.1"
 description = "Todos as a desktop window over its own local Folder"
 authors = ["Epicenter"]
