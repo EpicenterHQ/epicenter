@@ -131,7 +131,6 @@ async function incoming() {
 	await initWithOrigin(local, bare);
 	const folder = await openDirectoryHistory({
 		root: local,
-		definition,
 		git: { author },
 	});
 	// The fetch itself records the remote head and its objects; a refused

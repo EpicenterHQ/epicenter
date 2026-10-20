@@ -234,7 +234,7 @@ directory it is given (ADR-0520). None of it opens a `Folder`.
 | --- | --- |
 | `checkFolder`, `queryFolder`, `readFolder` | Read the root `epicenter.json` and every table it declares, sort what does not conform, and answer one read-only SQL statement over the rows that do (ADR-0632). |
 | `defineFolder`, `defineTable`, `field`, `formatDefinition`, `parseDefinition`, `DEFINITION_PATH`, `describeTables` | The `epicenter.json` grammar: each table one JSON Schema object, plus optional `title` and `local`. |
-| `generateDefinition` | The older `epicenter generate`: runs a folder's `epicenter.ts` and writes its `epicenter.json` (ADR-0527), until its callers migrate. |
+| `generateDefinition` | The older `epicenter generate`: runs a folder's `epicenter.ts` and writes its `epicenter.json` (ADR-0527), until its callers migrate. It refuses, writing nothing, when that would drop a `local` pattern the current file lists as read just before the write; the read and the write take no lock, so generate while nothing else edits the file. |
 | `runHistory`, `historyExitCode`, `encodeHistory`, `holdingHistoryLock` | One history operation (`status`, `log`, `saveVersion`, `sync`) over the system `git`, as the CLI runs it (ADR-0559). |
 | `holdingFileLock`, `createGitRunner`, `runGit`, `locateGit`, `GitMissingError`, `neutralizeAttributes`, `basicAuthorization`, `nodeDirectoryPrimitives` | The lock, `git`, and file helpers the CLI's other commands share. |
 
@@ -244,9 +244,19 @@ directory it is given (ADR-0520). None of it opens a `Folder`.
 
 Git is not on a `Folder`'s lifetime (ADR-0636). The history engine under
 `src/git/` stays for exchange: `runHistory` opens a directory's history for
-one operation, reads `local` from `epicenter.json` so no commit carries a
-path it names, tracked or not, and holds the history lock across a save
-version or a sync. The browser engine's own Git exchange is in
+one operation, reads only `local` from `epicenter.json` so no commit carries
+a path it names, tracked or not, and holds the history lock across a save
+version or a sync. It prepares no table schema. A commit reads `local` from
+the very `epicenter.json` bytes it records, and no pattern may match that
+file itself. Every pattern seen during the operation holds until it ends,
+including one a remote's `epicenter.json` newly declares, which keeps its
+files off this disk too. Sync stops before writing anything here when the
+`epicenter.json` it would bring here drops a rule this folder's file still
+lists or one the remote newly declares, or is gone where the folder had one,
+and stops before sending when a commit the remote does not hold yet adds or
+changes a path a rule keeps local; it never rewrites history. It checks the
+file again as it writes it, under the save lock and against the live bytes,
+so a rule saved here while Sync runs survives or stops the publish. The browser engine's own Git exchange is in
 `src/browser/` ([its README](src/browser/README.md)).
 
 Sync merges by the same rules on every host. Its merge commit's tree uses

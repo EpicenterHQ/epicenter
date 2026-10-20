@@ -659,6 +659,52 @@ test('generate writes the epicenter.json that epicenter.ts declares, local inclu
 	expect(run('check', folder).stderr).toContain('run `epicenter generate');
 });
 
+test('generate refuses to replace an epicenter.json whose local it would drop, and writes no local that would keep epicenter.json itself', async () => {
+	const { folder, write, run } = await setup();
+	const read = () => readFile(join(folder, 'epicenter.json'), 'utf8');
+	// A local list written by hand beside the tables.
+	const handWritten = '{"local": ["audio/"], "tables": {}}';
+	await write('epicenter.json', handWritten);
+	await write('epicenter.ts', 'export default { tables: {} };\n');
+	const dropped = run('generate', folder);
+	expect(dropped.exitCode).toBe(2);
+	expect(dropped.stderr).toContain(
+		"it keeps 'audio/' on this computer, which epicenter.ts does not declare",
+	);
+	expect(await read()).toBe(handWritten);
+
+	// Declared in epicenter.ts, it is written as before.
+	await write(
+		'epicenter.ts',
+		"export default { local: ['audio/'], tables: {} };\n",
+	);
+	expect(run('generate', folder).exitCode).toBe(0);
+	expect(JSON.parse(await read()).local).toEqual(['audio/']);
+
+	// A file whose local cannot be read is not replaced either.
+	await write('epicenter.json', '{"Local": ["audio/"]}');
+	const unreadable = run('generate', folder);
+	expect(unreadable.exitCode).toBe(2);
+	expect(unreadable.stderr).toContain("unknown top-level key 'Local'");
+	expect(await read()).toBe('{"Local": ["audio/"]}');
+	await rm(join(folder, 'epicenter.json'));
+	await mkdir(join(folder, 'epicenter.json'));
+	const inaccessible = run('generate', folder);
+	expect(inaccessible.exitCode).toBe(2);
+	expect(inaccessible.stderr).toContain('it could not be read');
+	await rm(join(folder, 'epicenter.json'), { recursive: true });
+
+	await write('epicenter.json', '{"tables": {}}');
+	await write(
+		'epicenter.ts',
+		"export default { local: ['*.json'], tables: {} };\n",
+	);
+	const itself = run('generate', folder);
+	expect(itself.exitCode).toBe(2);
+	expect(itself.stderr).toContain('matches epicenter.json itself');
+	expect(await read()).toBe('{"tables": {}}');
+});
+
 test('generate refuses a folder with no epicenter.ts, no default export, or a declaration that cannot be kept', async () => {
 	const { folder, write, run } = await setup();
 	expect(run('generate', folder).exitCode).toBe(2);

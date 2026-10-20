@@ -13,7 +13,6 @@
 import { realpath } from 'node:fs/promises';
 import { Err, Ok } from 'wellcrafted/result';
 import { mayHaveChanged } from './boundary.js';
-import type { Definition } from './definition.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
 import { createDirectoryStorage } from './directory-store.js';
@@ -30,14 +29,18 @@ import type { FileContent } from './shared/merge.js';
 
 export async function openDirectoryHistory({
 	root,
-	definition,
+	local,
 	git: { author, credentials },
 	primitives: files = nodeDirectoryPrimitives,
 	beforeGit,
 }: {
 	readonly root: string;
-	/** The definition whose `local` patterns no commit carries. */
-	readonly definition?: Definition;
+	/**
+	 * The `local` policy the directory's `epicenter.json` lists as the
+	 * history opens, as `runHistory` reads it; without it, as for a directory
+	 * with no policy read, a missing file keeps nothing local.
+	 */
+	readonly local?: readonly string[];
 	readonly git: {
 		readonly author: Author;
 		readonly credentials?: GitCredentials;
@@ -59,14 +62,15 @@ export async function openDirectoryHistory({
 		return system(args, options);
 	};
 	const landed: string[] = [];
-	const open = await nativeHistory({
+	const history = await nativeHistory({
 		rootPath: root,
 		host: { run, files },
 		boundary: storage,
 		author,
 		credentials,
-	})({ landed: (paths) => landed.push(...paths) });
-	const history = open(definition);
+		local,
+		landed: (paths) => landed.push(...paths),
+	});
 	const noting = {
 		async put(path: string, bytes: Uint8Array | null, ifMatch: string | null) {
 			const result = await storage.put(path, bytes, ifMatch);
@@ -74,7 +78,7 @@ export async function openDirectoryHistory({
 			return result;
 		},
 	};
-	const local = createNativeFolder({
+	const folder = createNativeFolder({
 		storage: { ...storage, put: noting.put },
 		tables: {},
 		directory: root,
@@ -93,13 +97,13 @@ export async function openDirectoryHistory({
 		) => {
 			const saved =
 				to === null
-					? await local.files.delete(path, from)
-					: await local.files.write(path, from, to);
+					? await folder.files.delete(path, from)
+					: await folder.files.write(path, from, to);
 			return saved.error === null ? Ok(undefined) : Err(saved.error);
 		},
 		files: { read: (path: string) => storage.read(path) },
 		close: async () => {
-			await local.close();
+			await folder.close();
 			await history.close();
 		},
 	};

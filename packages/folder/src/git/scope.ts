@@ -2,7 +2,7 @@
  * Which captured files are history source.
  *
  * Status, commits, and incoming fast-forwards share one rule: a path the
- * folder definition's `local` patterns match is never source, tracked or
+ * `local` patterns of the folder's `epicenter.json` match is never source, tracked or
  * not, whatever `.gitignore` says; otherwise a file tracked in the committed
  * tree stays source, and an untracked file is source unless `.gitignore`
  * excludes it. So a commit leaves a local file out, and one committed before
@@ -55,7 +55,7 @@ export function gitignoreMatcher(
 }
 
 /**
- * Whether a folder definition's `local` patterns match `path`, or a directory
+ * Whether `epicenter.json`'s `local` patterns match `path`, or a directory
  * above it. The patterns are read as one root `.gitignore` would read them,
  * except that nothing re-includes a match: they hold whatever the folder's
  * own `.gitignore` files say.

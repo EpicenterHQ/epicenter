@@ -20,8 +20,7 @@ import { lstat, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { LockingStorage } from './boundary.js';
-import { readDefinition } from './declaration.js';
-import type { Definition } from './definition.js';
+import { readLocalPolicy } from './declaration.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
 import {
@@ -129,15 +128,18 @@ export type HistoryOptions = {
  *
  * The folder's history is opened for this one operation: its file storage,
  * which stages in `.<name>.epicenter-scratch` beside the folder as a Bun
- * folder does, its own `epicenter.json`, and history over this process's
- * `git` (`systemHistory`). A save version or a sync first sweeps what a
- * stopped save staged there an hour or more ago. An `epicenter.json` that
- * is there but cannot be read or prepared refuses a save version and a sync, which could otherwise commit
- * files its `local` keeps on this machine. So does none at all: nothing then
- * says what stays local, and the folder is not declared by being opened.
- * Status and the log still read either way. A save version and a sync hold the folder's
- * history lock (`holdingHistoryLock`), so two processes never interleave
- * them. Reading status or the log takes no lock.
+ * folder does, the `local` policy of its own `epicenter.json`
+ * (`readLocalPolicy`), and history over this process's `git`. Only `local`
+ * is read: the file's tables are an app's, and one that cannot be prepared
+ * stops nothing here. An `epicenter.json` that cannot be used for `local`
+ * refuses a save version and a sync, which could otherwise commit files it
+ * keeps on this machine. So does none at all: nothing then says what stays
+ * local, and the folder is not declared by being opened. Either refusal comes
+ * before anything is written: no repository, commit, or push, and no sweep.
+ * Status and the log still read either way. A save version or a sync then
+ * sweeps what a stopped save staged an hour or more ago, and holds the
+ * folder's history lock (`holdingHistoryLock`), so two processes never
+ * interleave them. Reading status or the log takes no lock.
  */
 export async function runHistory(
 	root: string,
@@ -164,43 +166,38 @@ export async function runHistory(
 
 	const commits = request.op !== 'status' && request.op !== 'log';
 	const scratch = scratchDirectory(resolved);
-	// What a stopped write staged an hour or more ago goes before anything
-	// is staged, as at a Bun folder's open.
-	if (commits) await sweepStaleScratch(scratch, savingPrimitives(resolved));
 	const boundary = directoryStorage(resolved, scratch);
-	const { data: declared, error: declarationError } =
-		await readDefinition(boundary);
+	const { data: local, error: policyError } = await readLocalPolicy(boundary);
 	// What stays local is read from `epicenter.json`, so a commit made without
 	// it could carry those files (ADR-0577). Reading status and the log
 	// commits nothing and proceeds; anything that commits is refused.
-	if (declarationError !== null && commits)
+	if (policyError !== null && commits)
 		throw new Error(
-			`${resolved}/epicenter.json cannot be used, so nothing was committed: ${declarationError.reason}. Fix the file, then try again.`,
+			`${resolved}/epicenter.json cannot be used, so nothing was committed: ${policyError.reason}. Fix the file, then try again.`,
 		);
 	// With no `epicenter.json`, nothing says which files stay on this machine:
 	// an app's audio would be committed beside its rows. Opening a folder never
-	// writes a declaration, so the person authors one before anything commits.
-	if (declared === undefined && commits)
+	// writes one, so the person authors it before anything commits.
+	if (local === undefined && commits)
 		throw new Error(
-			`${resolved} has no epicenter.json, so nothing was committed: without one, nothing says which files stay on this computer. Add an epicenter.json that declares them (for Whispering, "local": ["audio/"]), then try again; status and history still read.`,
+			`${resolved} has no epicenter.json, so nothing was committed: without one, nothing says which files stay on this computer. Add an epicenter.json that lists them, such as {"local": ["audio/"]} for Whispering, then try again; status and history still read.`,
 		);
-	const definition: Definition | undefined = declared ?? undefined;
+	// What a stopped write staged an hour or more ago goes before anything
+	// is staged, as at a Bun folder's open.
+	if (commits) await sweepStaleScratch(scratch, savingPrimitives(resolved));
 	const landed: string[] = [];
-	const open = await systemHistory(
-		resolved,
+	const history = await nativeHistory({
+		rootPath: resolved,
+		host: { run: createGitRunner(resolved), files: savingPrimitives(resolved) },
 		boundary,
-		{
-			author,
-			credentials,
-			// Status and the log record nothing, so they skip reading who
-			// commits.
-			commits,
-		},
-		application ? undefined : () => enclosingRepository(resolved),
-	)({
+		author,
+		credentials,
+		initProblem: application ? undefined : () => enclosingRepository(resolved),
+		// Status and the log record nothing, so they skip reading who commits.
+		commits,
+		local: local ?? undefined,
 		landed: (paths) => landed.push(...paths),
 	});
-	const history = open(definition);
 	try {
 		const result = await (async (): Promise<unknown> => {
 			switch (request.op) {
@@ -298,29 +295,6 @@ function directoryStorage(resolved: string, scratch: string): LockingStorage {
 			lock: <T>(work: () => Promise<T>) => holdingSaveLock(resolved, work),
 			held: nodeDirectoryPrimitives,
 		},
-	});
-}
-
-/** History over this process's own `git` at `resolved`. */
-function systemHistory(
-	resolved: string,
-	boundary: LockingStorage,
-	git: {
-		readonly author: Author;
-		readonly credentials?: GitCredentials;
-		/** Whether this history may commit; see `nativeHistory`. */
-		readonly commits?: boolean;
-	},
-	initProblem?: () => Promise<string | undefined>,
-) {
-	return nativeHistory({
-		rootPath: resolved,
-		host: { run: createGitRunner(resolved), files: savingPrimitives(resolved) },
-		boundary,
-		author: git.author,
-		credentials: git.credentials,
-		initProblem,
-		commits: git.commits,
 	});
 }
 

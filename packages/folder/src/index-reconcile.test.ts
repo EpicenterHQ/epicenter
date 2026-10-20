@@ -63,7 +63,7 @@ test('an unchanged checkpoint repairs HEAD B, files B, index A (MM)', async () =
 
 	const folder = await openDirectoryHistory({
 		root,
-		definition,
+		local: [],
 		git: { author },
 	});
 	const outcome = await folder.git.commit();
@@ -90,7 +90,7 @@ test('staged-only additions and deletions do not survive a checkpoint', async ()
 
 	const folder = await openDirectoryHistory({
 		root,
-		definition,
+		local: [],
 		git: { author },
 	});
 	const outcome = await folder.git.commit();
@@ -107,7 +107,7 @@ test('an index lock after the branch moved keeps the commit and a later commit-a
 	const root = await repository();
 	const folder = await openDirectoryHistory({
 		root,
-		definition,
+		local: [],
 		git: { author },
 	});
 	await folder.write('b.md', null, 'new\n');

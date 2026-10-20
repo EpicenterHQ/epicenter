@@ -63,8 +63,8 @@ isn't on this device", and it cannot be played or transcribed.
 
 Two things leave `audio/` out of a copy. The `epicenter` CLI's `save-version`
 and `sync` refuse a folder with no `epicenter.json`, committing nothing; to
-exchange a Whispering folder through them, author an `epicenter.json` that
-declares `"local": ["audio/"]`, which they then keep out of every commit, even
+exchange a Whispering folder through them, add an `epicenter.json` holding
+`{"local": ["audio/"]}`, and they keep `audio/` out of every commit, even
 audio an earlier version tracked. Plain `git` in a repository you manage
 commits whatever its own `.gitignore` allows, so name `audio/` there yourself.
 

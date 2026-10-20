@@ -104,11 +104,20 @@ window closed), the child ends every `git` it started, with their helpers
 
 - `status` and `history` read only, and take no lock.
 - `save-version` and `sync` commit only a folder that has declared what
-  stays on this computer: its root `epicenter.json` (its `local` list). With
-  none, or with an `epicenter.json` that cannot be read, they refuse before
-  any commit or push and say so; opening a folder never writes one. A
-  Whispering folder needs `"local": ["audio/"]` before its recordings can be
-  exchanged without its audio.
+  stays on this computer: the `local` list of its root `epicenter.json`. They
+  read nothing else of the file, so tables an app cannot read do not stop
+  them, and a file that lists no `local` keeps nothing local. With no
+  `epicenter.json`, or one whose `local` cannot be used (not JSON, an unknown
+  top-level key such as `Local`, a pattern that is not one ignoring
+  `.gitignore` line, or one that matches `epicenter.json` itself), they
+  refuse before any repository, commit, or push and
+  say so; opening a folder never writes one. A Whispering folder needs at
+  least this `epicenter.json` before its recordings can be exchanged without
+  their audio:
+
+  ```json
+  {"local": ["audio/"]}
+  ```
 - `save-version` records the folder's edits as one commit, with `-m` as its
   message when given, under the folder's history lock.
 - `sync` records the edits, fetches, and merges both heads into one commit
@@ -116,6 +125,15 @@ window closed), the child ends every `git` it started, with their helpers
   under the same lock. `--to <url>` connects first, to a network URL only.
   This folder's version of a unit both sides changed wins, and each lost
   unit is an `Overrode:` trailer on the merge. A sync asks nothing.
+  Before pushing, it stops when the remote's `epicenter.json`
+  drops a `local` rule this folder's still lists (remove it here too to
+  share those files), when a merge would drop a rule the remote's newly
+  lists (add it here), when the remote removed `epicenter.json` (restore it
+  there), or when a commit the remote does not have adds or changes a path a
+  rule keeps local, which it names; it never rewrites history. A rule saved
+  here while it syncs is kept in the file it publishes, or publication stops
+  with the local files unchanged. That late check may run after a merge was
+  pushed; the next sync resumes from the recorded state.
 
 The history lock is an exclusive SQLite transaction on
 `.<name>.epicenter-history-lock` beside the folder, the mechanism of the

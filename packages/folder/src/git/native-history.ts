@@ -6,7 +6,6 @@
  * `user.email`, with `author` for whichever is missing).
  */
 import type { LockingStorage } from '../boundary.js';
-import type { Definition } from '../definition.js';
 import { createHistory, type FolderHistory } from './history.js';
 import type { GitCredentials } from './http.js';
 import {
@@ -16,15 +15,11 @@ import {
 import type { Author } from './objects.js';
 
 /**
- * A directory's history, made in two steps: `landed` hears the paths an
- * incoming update wrote. Answers the history for the definition whose `local`
- * patterns no commit carries. Rows merge by content regardless of that definition.
+ * A directory's history. `local` is the policy the folder's `epicenter.json`
+ * listed as it opened, whose paths no commit carries (`createHistory`); rows
+ * merge by content whatever app reads them.
  */
-export type DirectoryHistory = (wiring: {
-	readonly landed: (paths: readonly string[]) => void;
-}) => Promise<(definition?: Definition) => FolderHistory>;
-
-export function nativeHistory({
+export async function nativeHistory({
 	rootPath,
 	host,
 	boundary,
@@ -32,6 +27,8 @@ export function nativeHistory({
 	credentials,
 	initProblem,
 	commits = true,
+	local,
+	landed,
 }: {
 	readonly rootPath: string;
 	/** The system `git` in `rootPath`, and the host's file system. */
@@ -49,7 +46,11 @@ export function nativeHistory({
 	 * is not read: two `git` runs a status or a log does not need.
 	 */
 	readonly commits?: boolean;
-}): DirectoryHistory {
+	/** The `local` patterns the folder's `epicenter.json` listed as it opened. */
+	readonly local?: readonly string[];
+	/** Hears the paths an incoming update wrote. */
+	readonly landed: (paths: readonly string[]) => void;
+}): Promise<FolderHistory> {
 	const configured = async (key: string) => {
 		const { code, stdout } = await host.run(['config', '--get', key], {
 			allowFailure: true,
@@ -57,49 +58,46 @@ export function nativeHistory({
 		const value = new TextDecoder().decode(stdout).trim();
 		return code === 0 && value !== '' ? value : undefined;
 	};
-	return async ({ landed }) => {
-		// The person's own Git identity, read once the repository exists.
-		let identity = author;
-		const readIdentity = async () => {
-			identity = {
-				name: (await configured('user.name')) ?? author.name,
-				email: (await configured('user.email')) ?? author.email,
-			};
+	// The person's own Git identity, read once the repository exists.
+	let identity = author;
+	const readIdentity = async () => {
+		identity = {
+			name: (await configured('user.name')) ?? author.name,
+			email: (await configured('user.email')) ?? author.email,
 		};
-		// Two handles that commit a new folder at once may both run
-		// `git init`; the backend runs it again when the race fails it.
-		// Each handle orders its own index and branch work; other handles and
-		// processes meet Git's own lock files and the branch's
-		// compare-and-swap.
-		const backend = await createNativeGitBackend({
-			root: rootPath,
-			branch: 'main',
-			host,
-			credentials,
-			initialized: readIdentity,
-			initProblem,
-		});
-		if (
-			commits &&
-			(await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined
-		)
-			await readIdentity();
-		return (prepared) =>
-			createHistory({
-				backend,
-				boundary,
-				// Read at each commit, so a repository the first commit creates
-				// commits as the person's identity too.
-				author: {
-					get name() {
-						return identity.name;
-					},
-					get email() {
-						return identity.email;
-					},
-				},
-				definition: prepared,
-				landed,
-			});
 	};
+	// Two handles that commit a new folder at once may both run
+	// `git init`; the backend runs it again when the race fails it.
+	// Each handle orders its own index and branch work; other handles and
+	// processes meet Git's own lock files and the branch's
+	// compare-and-swap.
+	const backend = await createNativeGitBackend({
+		root: rootPath,
+		branch: 'main',
+		host,
+		credentials,
+		initialized: readIdentity,
+		initProblem,
+	});
+	if (
+		commits &&
+		(await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined
+	)
+		await readIdentity();
+	return createHistory({
+		backend,
+		boundary,
+		// Read at each commit, so a repository the first commit creates
+		// commits as the person's identity too.
+		author: {
+			get name() {
+				return identity.name;
+			},
+			get email() {
+				return identity.email;
+			},
+		},
+		local,
+		landed,
+	});
 }

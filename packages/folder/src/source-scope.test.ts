@@ -17,7 +17,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { defineFolder, defineTable, field } from './bun.js';
 import {
 	type DirectoryHistory,
 	openDirectoryHistory,
@@ -31,13 +30,6 @@ import {
 } from './git-http.test-support.js';
 import { put } from './put.test-support.js';
 
-const definition = defineFolder({
-	tables: {
-		todos: defineTable({
-			fields: { title: field.string(), done: field.boolean() },
-		}),
-	},
-});
 const author = { name: 'App', email: 'app@example.test' };
 const originalGlobal = process.env.GIT_CONFIG_GLOBAL;
 
@@ -94,11 +86,7 @@ describe('directory scope', () => {
 	test('agrees with git status and never commits ignored files; tracked files stay tracked', async () => {
 		const root = await scratch('scope-native-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
-		const folder = await openDirectoryHistory({
-			root,
-			definition,
-			git: { author },
-		});
+		const folder = await openDirectoryHistory({ root, git: { author } });
 		// Committed before any rule matches it.
 		await folder.write('tracked.log', null, 'v1\n');
 		expect((await folder.git.commit()).status).toBe('committed');
@@ -137,12 +125,10 @@ describe('directory scope', () => {
 			await initWithOrigin(path, bare);
 		const writer = await openDirectoryHistory({
 			root: writerRoot,
-			definition,
 			git: { author },
 		});
 		const reader = await openDirectoryHistory({
 			root: readerRoot,
-			definition,
 			git: { author },
 		});
 
