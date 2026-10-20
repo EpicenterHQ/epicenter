@@ -11,7 +11,7 @@
  * The rest is what the CLI runs over a directory it is given (ADR-0520):
  * `checkFolder`, `queryFolder`, and `readFolder` read the root
  * `epicenter.json` (ADR-0632), whose grammar `defineFolder`,
- * `formatDefinition`, and `parseDefinition` write and read; `runHistory`
+ * `formatDefinition`, and `readDeclaredTables` write and read; `runHistory`
  * runs one history operation over the system `git` (ADR-0559); and the Git
  * and lock helpers its other commands share. None of them opens a `Folder`.
  */
@@ -19,14 +19,8 @@
 import { lstat, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { LockingStorage } from './boundary.js';
 import { readLocalPolicy } from './declaration.js';
-import { nodeDirectoryPrimitives } from './directory-node.js';
-import type { DirectoryPrimitives } from './directory-primitives.js';
-import {
-	createDirectoryStorage,
-	sweepStaleScratch,
-} from './directory-store.js';
+import { sweepStaleScratch } from './directory-store.js';
 import type { FolderHistory } from './git/history.js';
 import type { GitCredentials } from './git/http.js';
 import { nativeHistory } from './git/native-history.js';
@@ -42,11 +36,8 @@ import type {
 	HistoryRequest,
 	HistoryState,
 } from './history-wire.js';
-import {
-	holdingHistoryLock,
-	holdingSaveLock,
-	scratchDirectory,
-} from './native/directory.js';
+import { holdingHistoryLock, scratchDirectory } from './native/directory.js';
+import { nativeStorage, savingPrimitives } from './native/storage.js';
 
 export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
 export {
@@ -58,7 +49,17 @@ export {
 	hasDefinitionSource,
 } from './check-folder.js';
 export * from './contract.js';
-export { formatDefinition, parseDefinition } from './declaration.js';
+export {
+	formatDefinition,
+	parseDeclaration,
+	parseDeclarationObject,
+} from './declaration.js';
+export {
+	type Declaration,
+	DeclarationSchema,
+	type PortableTableSchema,
+	validateTableSchema,
+} from './declaration-schema.js';
 export { type Definition, defineFolder } from './definition.js';
 export { nodeDirectoryPrimitives } from './directory-node.js';
 export {
@@ -100,6 +101,7 @@ export {
 	ReadFolderError,
 	readFolder,
 } from './read-folder.js';
+export { exportTables } from './schema-export.js';
 
 export type HistoryOptions = {
 	/** Who commits where the folder's Git configuration names nobody. */
@@ -166,7 +168,7 @@ export async function runHistory(
 
 	const commits = request.op !== 'status' && request.op !== 'log';
 	const scratch = scratchDirectory(resolved);
-	const boundary = directoryStorage(resolved, scratch);
+	const boundary = nativeStorage(resolved);
 	const { data: local, error: policyError } = await readLocalPolicy(boundary);
 	// What stays local is read from `epicenter.json`, so a commit made without
 	// it could carry those files (ADR-0577). Reading status and the log
@@ -277,44 +279,6 @@ async function directoryRoot(
 	} catch (cause) {
 		return Err({ root, cause });
 	}
-}
-
-/**
- * The directory's storage over this process's file system at `resolved`, as
- * Sync publishes through it: each change under the save lock, and `lock`
- * holding it across several, which then go through `node:fs` itself. It
- * stages in `scratch`, beside the directory where a Bun folder stages, never
- * in `.git`.
- */
-function directoryStorage(resolved: string, scratch: string): LockingStorage {
-	return createDirectoryStorage({
-		root: resolved,
-		primitives: savingPrimitives(resolved),
-		scratch,
-		hold: {
-			lock: <T>(work: () => Promise<T>) => holdingSaveLock(resolved, work),
-			held: nodeDirectoryPrimitives,
-		},
-	});
-}
-
-/**
- * `node:fs`, with each rename and removal, and the check of what it expects
- * just before it, under the directory's save lock, as the desktop shell
- * makes each one under its publishing and save locks.
- */
-function savingPrimitives(resolved: string): DirectoryPrimitives {
-	return {
-		...nodeDirectoryPrimitives,
-		rename: (from, to, expected) =>
-			holdingSaveLock(resolved, () =>
-				nodeDirectoryPrimitives.rename(from, to, expected),
-			),
-		remove: (path, options) =>
-			holdingSaveLock(resolved, () =>
-				nodeDirectoryPrimitives.remove(path, options),
-			),
-	};
 }
 
 /**

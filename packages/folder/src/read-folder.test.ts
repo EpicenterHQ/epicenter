@@ -128,7 +128,6 @@ test('a declaration that cannot be used is InvalidDefinition', async () => {
 		'null',
 		'[]',
 		declaration({ t: { fields: { title: { type: 'string' } } } }),
-		declaration({ t: objectSchema({ title: { type: 'string' } }, ['nope']) }),
 		declaration({
 			t: objectSchema({ title: { type: 'string', '~optional': true } }, []),
 		}),
@@ -189,12 +188,12 @@ test('a field whose $ref names nothing, or that would resolve differently in the
 		$ref: 'Node',
 	};
 	for (const [fields, says] of [
-		[{ chain: { $ref: 'Node' } }, ['todos.chain', "'Node'"]],
+		[{ chain: { $ref: 'Node' } }, ['tables.todos', 'chain', "'Node'"]],
 		[
 			{ text: { $defs: { t: { type: 'string' } }, $ref: '#/$defs/txt' } },
-			['todos.text', "'#/$defs/txt'"],
+			['tables.todos', 'text', "'#/$defs/txt'"],
 		],
-		[{ a: node, b: node }, ["'todos.a' and 'todos.b'", "$id 'Node'"]],
+		[{ a: node, b: node }, ['tables.todos', 'Node']],
 	] as const) {
 		const root = await scratch();
 		await writeFile(
@@ -267,7 +266,7 @@ test('epicenter.json holds each table as a standard object schema, and reads bac
 	expect(published.tables.pages.required).toEqual(['title']);
 	expect(JSON.stringify(published)).not.toContain('~');
 	const reading = expectOk(await readFolder(root));
-	expect(formatDefinition(reading.definition)).toBe(formatDefinition(sparse));
+	expect(reading.definition).toEqual(published);
 });
 
 test('a missing root is NotFound and a file root is NotADirectory', async () => {
@@ -334,4 +333,20 @@ test('reading writes nothing, inside a folder nested in another repository', asy
 	const reading = expectOk(await readFolder(root));
 	expect(expectOk(reading.tables.todos!)).toHaveLength(1);
 	expect(await tree(repository)).toEqual(before);
+});
+
+test('CLI reading normalizes body line endings while leaving saved source untouched', async () => {
+	const root = await scratch();
+	const source = '---\r\ntitle: Kept\r\n---\r\none\r\ntwo\rthree\n';
+	await mkdir(join(root, 'notes'));
+	await writeFile(
+		join(root, DEFINITION_PATH),
+		JSON.stringify({ tables: { notes: { type: 'object', properties: {} } } }),
+	);
+	await writeFile(join(root, 'notes/a.md'), source);
+	const reading = expectOk(await readFolder(root));
+	const row = expectOk(expectOk(reading.tables.notes!)[0]!.result);
+	expect(row.row.body).toBe('one\ntwo\nthree\n');
+	expect(row.text).toBe(source);
+	expect(await readFile(join(root, 'notes/a.md'), 'utf8')).toBe(source);
 });

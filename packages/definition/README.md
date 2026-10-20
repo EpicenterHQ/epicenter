@@ -90,7 +90,6 @@ src/field/        the field.* helpers, the editor hint, and fieldEditorOf (./fie
 src/declaration   FieldMap, TableDeclaration, Definition, row types
 src/define        defineTable and the declared-table brand
 src/prepare       prepareDefinition, check, isOptional
-src/shape         mismatches, containment, requiredOutside
 src/table-name    the table name grammar
 src/json          JsonValue and its guards
 ```
@@ -334,53 +333,12 @@ so a path through a key containing `/` or `~` is reported against the whole
 field. Messages and the number of issues are for people, not for code to match
 on.
 
-## Whether one definition contains another
+## Reader schemas
 
-An app that opens a folder it did not define reads it through its own
-definition: the tables and fields it knows (ADR-0538). `mismatches(declared,
-shape)` lists every way the folder's definition (`declared`) does not contain
-the reader's (`shape`), empty when it does:
-
-```ts
-mismatches(folder.definition, board);
-// [{ kind: 'missingField', table: 'todos', field: 'due', message }, ...]
-```
-
-| Mismatch | When |
-| --- | --- |
-| `missingTable` | the reader reads a table the folder's definition lacks |
-| `missingField` | the reader reads a field the folder's definition lacks |
-| `incompatibleField` | the folder admits a value there the reader refuses, or lets a row leave out a field the reader requires |
-| `incompatibleTable` | the reader closes a table (`additionalProperties: false`) the folder leaves open or defines more fields in |
-
-`containment(shape, declared)` answers for one field: `undefined` when
-every value the folder's field admits is one the reader's field accepts, or
-why not. Containment of JSON Schemas is not decidable in general, so it asks a
-fixed set of questions and refuses what they cannot decide, naming the
-keyword. Its reasons call the reader's field "the shape":
-
-- A reader field that constrains nothing accepts everything. Two schemas whose
-  keywords match, annotations and `x-field` aside, contain each other.
-- A folder `enum` or `const` is contained when the reader field's validator
-  accepts each listed value, so a reader select contains a select of some of
-  its options, and a reader `string` contains any select.
-- A folder `anyOf` or `oneOf` is contained when each member is, so a reader
-  `field.nullable(x)` contains both `x` and `x | null`. A reader `anyOf`
-  contains what one member contains.
-- Otherwise both name one `type`, the same, or `integer` under a reader
-  `number`. The reader's string length, `pattern`, and `format`, numeric
-  bounds and `multipleOf`, array `items`, bounds, and `uniqueItems`, and
-  object `properties`, `required`, and `additionalProperties` must each be
-  implied by the folder's own. `field.datetime()` contains
-  `field.instant()`, not the reverse.
-
-A keyword the folder adds beyond these only narrows it, so it is ignored. A
-reader keyword outside them, or a reader `oneOf`, `not`, conditional, or
-`$ref`, is refused.
-
-`requiredOutside(declaredTable, shapeTable)` lists the fields the folder's
-table requires that the reader's table does not define: a row added through
-the reader's table could not supply them.
+Apps supply their own TypeBox schemas when opening a Folder. Each schema
+interprets the files it reads. A different schema never blocks opening or
+writing; readers retain raw fields, source, and diagnostics for repair.
+The portable `epicenter.json` format belongs to `@epicenter/folder/declaration`.
 
 ## Commands
 

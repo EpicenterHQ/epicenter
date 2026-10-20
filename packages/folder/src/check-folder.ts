@@ -30,7 +30,7 @@ export type Finding = {
 
 /** One declared table, with its fields and the rows that conform, sorted by stem. */
 export type CheckedTable = ProjectedTable & {
-	fields: { name: string; schema: object }[];
+	fields: { name: string; schema: object | boolean }[];
 	rows: {
 		stem: string;
 		fields: Record<string, unknown>;
@@ -103,9 +103,9 @@ export async function checkFolder(
 	for (const [name, listed] of Object.entries(folder.tables)) {
 		const table: CheckedTable = {
 			name,
-			fields: Object.entries(folder.definition.tables[name]?.fields ?? {}).map(
-				([field, schema]) => ({ name: field, schema }),
-			),
+			fields: Object.entries(
+				folder.definition.tables[name]?.properties ?? {},
+			).map(([field, schema]) => ({ name: field, schema })),
 			rows: [],
 		};
 		tables.push(table);

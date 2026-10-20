@@ -1,8 +1,7 @@
 /**
- * Folder definitions: the grammar of a data folder's root `epicenter.json`,
- * which the CLI's `check` and `query` read (ADR-0632), checked for what a
- * file folder can keep. An app opening a `Folder` supplies TypeBox schemas
- * instead and needs none of this.
+ * Generator authoring: defineFolder prepares the named declaration exported
+ * by epicenter.ts. The CLI serializes its fields as complete table schemas.
+ * Applications opening a Folder supply native TypeBox schemas directly.
  *
  * A folder definition is how a tool reads a folder's files. It names no
  * dataset, so one definition can read several folders and several
@@ -26,44 +25,6 @@ import {
 } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
-/** A table a folder can keep: one declared with `defineTable`. */
-export type FolderTable = DeclaredTable;
-
-/**
- * Declared and never assigned: the mark exists only in types, so a prepared
- * table is the same plain object at runtime.
- */
-declare const PREPARED: unique symbol;
-
-/**
- * A table of a definition `defineFolder` prepared: what `parseRow` and
- * `formatRow` take. Only `defineFolder`'s return type carries the mark, so
- * a raw `defineTable` declaration handed to either is a compile error rather
- * than a call that works until a declared value appears.
- *
- * The mark is a type, not a proof. It survives a spread, so an object built
- * from a prepared table with replaced or cloned `fields` still type-checks,
- * and reading a value through such a field throws, as every read of an
- * unprepared schema does. Keep the prepared objects as `defineFolder` returned
- * them; a changed field or table needs `defineFolder` again.
- */
-export type PreparedFolderTable<TTable extends FolderTable = FolderTable> =
-	TTable & { readonly [PREPARED]: true };
-
-/**
- * The type `defineFolder` returns: the declared definition with each table
- * marked prepared. The runtime value is the prepared definition itself.
- */
-type PreparedDefinition<TDefinition extends Definition> = {
-	readonly [K in keyof TDefinition]: K extends 'tables'
-		? {
-				readonly [Name in keyof TDefinition['tables']]: TDefinition['tables'][Name] extends FolderTable
-					? PreparedFolderTable<TDefinition['tables'][Name]>
-					: never;
-			}
-		: TDefinition[K];
-};
-
 /**
  * What a folder reads its files through: a definition that names no dataset.
  *
@@ -78,9 +39,8 @@ export type { Definition };
  * Prepare a definition for file storage, or say why a folder cannot keep it.
  *
  * The result is the prepared definition: the given structure, holding the
- * frozen schema snapshots a folder reads values through. Preparation is
- * memoized on the definition and on its result, so an opener handed what
- * `defineFolder` returned gets it back and does no work twice. A definition
+ * frozen schema snapshots the generator serializes. Preparation is memoized
+ * on the definition and its result, so repeated preparation reuses it. A definition
  * with a key besides `title`, `local`, and `tables`, which only an untyped
  * caller can hand in, is refused.
  */
@@ -191,7 +151,7 @@ function resolved(id: string, base: string | undefined): string {
 }
 
 /** The fields a row of `TTable` cannot leave out. */
-type RequiredFields<TTable extends FolderTable> = {
+type RequiredFields<TTable extends DeclaredTable> = {
 	[K in keyof CreateRowOf<TTable>]-?: object extends Pick<
 		CreateRowOf<TTable>,
 		K
@@ -205,7 +165,7 @@ type RequiredFields<TTable extends FolderTable> = {
  * table's fields are all `field.optional`, as preparation requires, so a
  * required one is refused at the table with the field's name.
  */
-type TableUnder<TName, TTable> = TTable extends FolderTable
+type TableUnder<TName, TTable> = TTable extends DeclaredTable
 	? TName extends typeof SETTINGS_TABLE
 		? TTable & {
 				readonly fields: {
@@ -213,7 +173,7 @@ type TableUnder<TName, TTable> = TTable extends FolderTable
 				};
 			}
 		: TTable
-	: FolderTable;
+	: DeclaredTable;
 
 /**
  * Define how a folder's files read without opening anything or naming a
@@ -222,10 +182,9 @@ type TableUnder<TName, TTable> = TTable extends FolderTable
  *
  * The definition is checked here, where it is written: a malformed schema
  * or a key besides `title`, `local`, and `tables`, such as an `id`, throws at
- * the definition, not at the first open. What comes back has the given
+ * the definition, before generation writes anything. What comes back has the given
  * structure and type, and is the prepared definition: an owned, frozen
- * snapshot of each schema. Its tables are typed
- * {@link PreparedFolderTable}, so `parseRow` and `formatRow` take them.
+ * snapshot of each schema. `epicenter generate` serializes that snapshot.
  */
 export function defineFolder<const TDefinition extends Definition>(
 	schema: TDefinition & {
@@ -237,10 +196,8 @@ export function defineFolder<const TDefinition extends Definition>(
 		};
 		local?: readonly string[];
 	} & Record<Exclude<keyof TDefinition, keyof Definition | 'local'>, never>,
-): PreparedDefinition<
-	Pick<TDefinition & Pick<Definition, 'title'>, 'title' | 'tables'> &
-		Pick<Definition, 'local'>
-> {
+): Pick<TDefinition & Pick<Definition, 'title'>, 'title' | 'tables'> &
+	Pick<Definition, 'local'> {
 	type Defined = Pick<
 		TDefinition & Pick<Definition, 'title'>,
 		'title' | 'tables'
@@ -257,7 +214,7 @@ export function defineFolder<const TDefinition extends Definition>(
 			`A folder definition declares title, tables, and local; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}`,
 		);
 	const { title, tables, local } = schema;
-	const settings = (tables as Record<string, FolderTable>)[SETTINGS_TABLE];
+	const settings = (tables as Record<string, DeclaredTable>)[SETTINGS_TABLE];
 	for (const [name, declared] of Object.entries(settings?.fields ?? {}))
 		if (!isOptional(declared as never))
 			throw new Error(
@@ -271,6 +228,5 @@ export function defineFolder<const TDefinition extends Definition>(
 	const { data: prepared, error: definitionError } =
 		prepareFolderDefinition(defined);
 	if (definitionError !== null) throw new Error(definitionError.reason);
-	// The mark is a type alone: the prepared definition is returned as it is.
-	return prepared as PreparedDefinition<Defined>;
+	return prepared;
 }

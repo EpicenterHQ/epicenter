@@ -32,7 +32,7 @@ export type ProjectedTable = {
 	readonly name: string;
 	readonly fields: readonly {
 		readonly name: string;
-		readonly schema: object;
+		readonly schema: object | boolean;
 	}[];
 	readonly rows: readonly {
 		readonly stem: string;
@@ -132,7 +132,8 @@ export function readingStatementProblem(sql: string): string | undefined {
  * What a field holds, read for a person writing SQL: its allowed values when
  * it has them, otherwise its JSON Schema type, format, or reference target.
  */
-function valuesOf(schema: object): string {
+function valuesOf(schema: object | boolean): string {
+	if (typeof schema === 'boolean') return schema ? 'any JSON' : 'no values';
 	const node = schema as {
 		const?: unknown;
 		enum?: unknown[];

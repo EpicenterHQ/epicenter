@@ -7,7 +7,7 @@
  * paths it names out of every commit with no `.gitignore` to help.
  *
  * Key behaviors:
- * - `formatDefinition` writes `local`, and `parseDefinition` and
+ * - `formatDefinition` writes `local`, and `parseDeclaration` and
  *   `readDefinition` read it back; a declaration without it stays valid
  * - A declared pattern that cannot be a `.gitignore` line is refused on read
  * - `local` is sorted and kept once each, so the declaration's bytes do not
@@ -43,7 +43,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	defineFolder,
 	defineTable,
@@ -51,8 +51,7 @@ import {
 	type HistoryRequest,
 	runHistory,
 } from './bun.js';
-import { formatDefinition, parseDefinition } from './declaration.js';
-import { prepareFolderDefinition } from './definition.js';
+import { formatDefinition, parseDeclaration } from './declaration.js';
 import {
 	GIT_ENV,
 	git,
@@ -85,11 +84,12 @@ afterEach(async () => {
 test('local is written into epicenter.json and read back', () => {
 	const text = formatDefinition(definition);
 	expect(JSON.parse(text).local).toEqual(['audio/']);
-	expect(expectOk(parseDefinition(text)).local).toEqual(['audio/']);
+	expect(expectOk(parseDeclaration(text)).local).toEqual(['audio/']);
 	// Its bytes change with `local`, so publishing writes the new list.
 	expect(formatDefinition(defineFolder({ tables }))).not.toBe(text);
 	expect(
-		expectOk(parseDefinition(formatDefinition(defineFolder({ tables })))).local,
+		expectOk(parseDeclaration(formatDefinition(defineFolder({ tables }))))
+			.local,
 	).toBeUndefined();
 });
 
@@ -97,10 +97,9 @@ test('a declared local that is not .gitignore lines is refused when read', () =>
 	const declared = JSON.parse(formatDefinition(definition));
 	const text = (local: unknown) => JSON.stringify({ ...declared, local });
 	for (const local of ['audio/', [3]])
-		expect(parseDefinition(text(local)).error?.reason).toContain("'local'");
+		expect(parseDeclaration(text(local)).error?.reason).toContain('local');
 	for (const local of [['!audio/x.wav'], ['# audio'], [' audio/']]) {
-		const parsed = expectOk(parseDefinition(text(local)));
-		expect(prepareFolderDefinition(parsed).error?.reason).toContain(
+		expect(expectErr(parseDeclaration(text(local))).reason).toContain(
 			'local pattern',
 		);
 	}
@@ -118,11 +117,8 @@ test('local formats to the same bytes whatever its order or repeats', () => {
 	expect(ordered.local).toEqual(['audio/', 'drafts/']);
 	expect(formatDefinition(repeated)).toBe(formatDefinition(ordered));
 	// Read back from the file, it is the same list.
-	const read = expectOk(parseDefinition(formatDefinition(repeated)));
-	expect(expectOk(prepareFolderDefinition(read)).local).toEqual([
-		'audio/',
-		'drafts/',
-	]);
+	const read = expectOk(parseDeclaration(formatDefinition(repeated)));
+	expect(read.local).toEqual(['audio/', 'drafts/']);
 });
 
 /** A folder on disk as the desktop leaves it: a repository with `origin`, and its own epicenter.json. */

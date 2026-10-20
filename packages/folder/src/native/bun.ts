@@ -21,16 +21,12 @@
  */
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
-import { nodeDirectoryPrimitives } from '../directory-node.js';
-import type { DirectoryPrimitives } from '../directory-primitives.js';
-import {
-	createDirectoryStorage,
-	sweepStaleScratch,
-} from '../directory-store.js';
+import { sweepStaleScratch } from '../directory-store.js';
 import { OpenFolderError } from '../errors.js';
 import type { DirectoryFolderOptions, Folder } from '../folder.js';
-import { holdingSaveLock, localRoot, scratchDirectory } from './directory.js';
+import { localRoot, scratchDirectory } from './directory.js';
 import { createNativeFolder, invalidTable } from './engine.js';
+import { nativeStorage, savingPrimitives } from './storage.js';
 
 /**
  * Open the directory at `directory`, an existing directory whose links are
@@ -57,37 +53,14 @@ export async function openBunFolder<
 	const { data: resolved, error } = await localRoot(directory);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
 	const scratch = scratchDirectory(resolved);
-	const primitives = savingPrimitives(resolved);
+	const storage = nativeStorage(resolved);
 	// What a stopped write staged an hour or more ago goes before opening.
-	await sweepStaleScratch(scratch, primitives);
+	await sweepStaleScratch(scratch, savingPrimitives(resolved));
 	return Ok(
 		createNativeFolder({
-			storage: createDirectoryStorage({
-				root: resolved,
-				primitives,
-				scratch,
-			}),
+			storage,
 			tables,
 			directory: `bun:${resolved}`,
 		}),
 	);
-}
-
-/**
- * `node:fs`, with each rename and removal, and the check of what it expects
- * just before it, under the directory's save lock, as the desktop shell
- * makes each one under its publishing and save locks.
- */
-function savingPrimitives(resolved: string): DirectoryPrimitives {
-	return {
-		...nodeDirectoryPrimitives,
-		rename: (from, to, expected) =>
-			holdingSaveLock(resolved, () =>
-				nodeDirectoryPrimitives.rename(from, to, expected),
-			),
-		remove: (path, options) =>
-			holdingSaveLock(resolved, () =>
-				nodeDirectoryPrimitives.remove(path, options),
-			),
-	};
 }

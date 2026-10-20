@@ -9,7 +9,8 @@
 		"./browser": "./src/browser.ts",
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
-		"./file-browser": "./src/file-browser.ts"
+		"./file-browser": "./src/file-browser.ts",
+		"./declaration": "./src/declaration/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json",
@@ -17,7 +18,8 @@
 		"test:engine": "bun test --isolate src/browser/ src/shared/",
 		"smoke:local": "bun smoke/local.ts",
 		"smoke:sync:local": "bun smoke/sync.ts",
-		"gen:vectors": "bun src/git/commit-subject-vectors.ts"
+		"gen:vectors": "bun src/git/commit-subject-vectors.ts",
+		"schema:generate": "bun src/declaration/generate-schema.ts"
 	},
 	"dependencies": {
 		"@epicenter/definition": "workspace:*",

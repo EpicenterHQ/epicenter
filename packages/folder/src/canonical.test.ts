@@ -12,13 +12,12 @@
  * - The body is kept byte for byte; schema validation is not the codec's job
  *
  * See also:
- * - `row-text.test.ts` for `parseRow` and `formatRow` over this codec
+ * - `shared/row.test.ts` for application row reads and source-preserving edits
  */
 import { expect, test } from 'bun:test';
-import { defineTable, field } from '@epicenter/definition';
+import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { defineFolder } from './definition.js';
-import { parseRow } from './row-text.js';
+import { readRow } from './shared/row.js';
 import {
 	type CanonicalDocument,
 	formatRowSource,
@@ -287,15 +286,13 @@ test('safe aliases expand; alias expansion is bounded', () => {
 });
 
 test('the row reader applies exactly the codec alias bound, so both accept the same aliases', () => {
-	const notes = defineFolder({
-		tables: { notes: defineTable({ fields: { title: field.string() } }) },
-	}).tables.notes;
+	const notes = Type.Object({ title: Type.String() });
 
 	// A large anchored list aliased a few times weighs little in both.
 	const items = Array.from({ length: 50 }, (_, i) => `i${i}`).join(', ');
 	const list = `---\ntitle: Plan\nlist: &l [${items}]\na: *l\nb: *l\nc: *l\n---\n`;
 	expect(parse(list).fields.c).toHaveLength(50);
-	expect<object>(expectOk(parseRow(notes, list)).fields).toEqual(
+	expect<object>(readRow('list', list, notes).fields).toEqual(
 		parse(list).fields,
 	);
 
@@ -304,7 +301,7 @@ test('the row reader applies exactly the codec alias bound, so both accept the s
 	const uses = Array.from({ length: 60 }, (_, i) => `u${i}: *a`).join('\n');
 	const weighted = `---\ntitle: Plan\na: &a x\n${uses}\nb: &b [*a]\nc: *b\nd: *b\n---\n`;
 	expect(parse(weighted).fields.d).toEqual(['x']);
-	expect<object>(expectOk(parseRow(notes, weighted)).fields).toEqual(
+	expect<object>(readRow('weighted', weighted, notes).fields).toEqual(
 		parse(weighted).fields,
 	);
 });
@@ -384,4 +381,61 @@ test('a body that UTF-8 encoding would change is refused rather than rewritten',
 	expect(
 		expectErr(formatRowSource({ fields: {}, body }, DECLARED)).path,
 	).toEqual(['body']);
+});
+
+test('strings ambiguous to other YAML versions are quoted and retain their values', () => {
+	for (const value of [
+		'yes',
+		'Off',
+		'2026-10-11',
+		'0o17',
+		'1:30',
+		'42',
+		'~',
+		'',
+		'  leading',
+		'a: b',
+		'tRue',
+		'oN',
+		'nO',
+		'yEs',
+		'FALSe',
+		'nUll',
+		'1,000',
+		'-1,000',
+		':x',
+		'=',
+		'a\tb',
+		'a\u0085b',
+		'a\u2028b',
+		'a\u007fb',
+		'a\ufeffb',
+	]) {
+		const source = format({ fields: { title: value }, body: '' });
+		expect(source.split('\n')[1]).toStartWith('title: "');
+		expect(parse(source).fields.title).toBe(value);
+	}
+});
+
+test('multiline strings choose portable literal blocks or explicit quotes', () => {
+	for (const [value, expected] of [
+		['line one\nline two\n', 'title: |\n  line one\n  line two\n'],
+		['no trailing break\nhere', 'title: |-\n  no trailing break\n  here\n'],
+		['  \n', 'title: "  \\n"\n'],
+		[' \n \n', 'title: " \\n \\n"\n'],
+		['\tx\n', 'title: "\\tx\\n"\n'],
+		['x\n\n', 'title: "x\\n\\n"\n'],
+		['x\r\ny', 'title: "x\\r\\ny"\n'],
+	]) {
+		const source = format({ fields: { title: value! }, body: '' });
+		expect(source).toContain(expected!);
+		expect(parse(source).fields.title).toBe(value);
+	}
+});
+
+test('fractional numbers use a decimal point understood across YAML versions', () => {
+	const source = format({ fields: { small: 1e-7, half: 0.5 }, body: '' });
+	expect(source).toContain('small: 1.0e-7\n');
+	expect(source).toContain('half: 0.5\n');
+	expect(parse(source).fields).toMatchObject({ small: 1e-7, half: 0.5 });
 });

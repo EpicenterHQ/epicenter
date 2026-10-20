@@ -4,35 +4,13 @@
  * The CLI's `check` and `query` read the root file's tables (ADR-0632). A
  * person or a schema distribution installs it; opening a `Folder` neither
  * reads nor writes it. The older `epicenter generate` still writes it from a
- * folder's `epicenter.ts` (ADR-0527) until its callers migrate. Every written
- * file has `tables`, even when empty, so a reader never guesses at a missing
- * section.
+ * folder's `epicenter.ts` (ADR-0527) until its callers migrate. The portable file has independently optional `tables` and `views`; the CLI
+ * checking commands still require declared tables.
  *
- * Each table is one object schema, `{ type: 'object', properties, required }`,
- * whose properties are the table's fields exactly as a prepared definition
- * holds them. A closed table adds `"additionalProperties": false`, so a row
- * with an undeclared key does not conform, exactly as JSON Schema reads it.
- * Settings are a table too, `settings`, whose fields are all optional, so
- * none is `required`. Each field is ordinary JSON Schema plus an `x-field`
- * editor hint, so a tool can check a row's values field by field without
- * knowing Epicenter, as Epicenter itself does.
- *
- * ```json
- * {
- *   "title": "Vault",
- *   "tables": {
- *     "settings": { "type": "object", "properties": { "theme": { "enum": ["light", "dark"] } }, "required": [] },
- *     "pages": {
- *       "type": "object",
- *       "properties": { "title": { "type": "string" }, "queuedAt": { "type": "string", "format": "date" } },
- *       "required": ["title"]
- *     }
- *   }
- * }
- * ```
- *
- * `required` is the one optionality marker in the file; in memory it is
- * `field.optional`. The two convert here and nowhere else.
+ * Each table is a complete object schema. Readers retain its root `$defs`,
+ * annotations, and constraints and validate each record against that root.
+ * `required` is the portable optionality marker. Applications supply their
+ * own runtime schemas; reading this file never admits or refuses an app.
  *
  * A folder that keeps files on the machine that wrote them adds
  * `"local": ["audio/"]`, its `.gitignore` patterns (ADR-0577). The folder's
@@ -42,15 +20,22 @@
  * A file without `local` keeps nothing local.
  *
  * A top-level `$schema` lets an editor offer completion and is not
- * interpreted. Anything else is refused, so a misspelled key never reads as
+ * interpreted. Unknown envelope keys are refused, so a misspelled key never reads as
  * an empty definition.
  */
 
-import { type FieldMap, field, isOptional } from '@epicenter/definition';
+import { isOptional, isTableName } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import { type Definition, prepareFolderDefinition } from './definition.js';
+import {
+	DECLARATION_KEYS,
+	type Declaration,
+	declarationProblem,
+	prepareTableSchemas,
+} from './declaration-schema.js';
+import type { Definition } from './definition.js';
 import { localMatcher } from './git/scope.js';
+import { parseJsonObject } from './json-object.js';
 import { DEFINITION_PATH } from './paths.js';
 
 /** The `epicenter.json` text of a prepared definition. */
@@ -81,7 +66,7 @@ export function formatDefinition(definition: Definition): string {
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /** The top-level keys an `epicenter.json` may hold. */
-const TOP_LEVEL_KEYS = ['$schema', 'title', 'local', 'tables'];
+const TOP_LEVEL_KEYS = DECLARATION_KEYS;
 
 /**
  * The `local` patterns of `epicenter.json`'s bytes, read as a directory's Git
@@ -107,21 +92,17 @@ export function parseLocalPolicy(
 	} catch {
 		return refuse('it is not UTF-8 text');
 	}
-	let declared: unknown;
-	try {
-		declared = JSON.parse(text);
-	} catch (cause) {
-		return refuse(
-			`it is not JSON (${cause instanceof Error ? cause.message : String(cause)})`,
-		);
-	}
-	if (!isPlainObject(declared)) return refuse('it is not a JSON object');
-	const unknown = unknownKeys(declared, TOP_LEVEL_KEYS);
-	if (unknown !== undefined)
-		return refuse(
-			`unknown top-level key ${unknown}; expected local, tables, title, or $schema`,
-		);
-	const { local } = declared;
+	const source = parseJsonObject(text, { forLocalPolicy: true });
+	if (source.error !== null) return source;
+	const { data: declared, error } = checkEnvelope(source.data);
+	if (error !== null) return Err(error);
+	return localPolicyOf(declared.local);
+}
+
+function localPolicyOf(
+	local: unknown,
+): Result<readonly string[], { reason: string }> {
+	const refuse = (reason: string) => Err({ reason });
 	if (local === undefined) return Ok([]);
 	if (!Array.isArray(local))
 		return refuse("'local' must list .gitignore patterns");
@@ -161,158 +142,102 @@ export async function readLocalPolicy(
 	return parseLocalPolicy(read.bytes);
 }
 
-/**
- * Read `epicenter.json` text into a definition for `prepareFolderDefinition`, or
- * say why the text is not one. Field schemas are checked when the result is
- * prepared, not here.
- */
-export function parseDefinition(
+/** Read known envelope keys without interpreting another section's contents. */
+export function parseDeclarationObject(
 	text: string,
-): Result<Definition, { readonly reason: string }> {
-	const refuse = (reason: string) => Err({ reason });
-	let declared: unknown;
-	try {
-		declared = JSON.parse(text);
-	} catch (cause) {
-		return refuse(
-			`it is not JSON (${cause instanceof Error ? cause.message : String(cause)})`,
-		);
-	}
-	if (!isPlainObject(declared)) return refuse('it is not a JSON object');
-	const unknown = unknownKeys(declared, TOP_LEVEL_KEYS);
-	if (unknown !== undefined)
-		return refuse(
-			`unknown top-level key ${unknown}; expected title, local, tables, or $schema`,
-		);
-	// The patterns themselves are checked when the result is prepared.
-	const { local } = declared;
-	if (
-		local !== undefined &&
-		(!Array.isArray(local) ||
-			local.some((pattern) => typeof pattern !== 'string'))
-	)
-		return refuse("'local' must list .gitignore patterns as strings");
-
-	if (declared.tables === undefined)
-		return refuse(
-			"it has no 'tables'; every generated definition has them, so define the folder in epicenter.ts and run `epicenter generate`",
-		);
-	if (!isPlainObject(declared.tables))
-		return refuse("'tables' must map table names to object schemas");
-	// Without a prototype, so a table named `__proto__` is an entry that
-	// preparation refuses by name.
-	const tables: Record<
-		string,
-		{ fields: FieldMap; additionalProperties?: false }
-	> = Object.create(null);
-	for (const [name, table] of Object.entries(declared.tables)) {
-		const fields = objectSchema(table, `tables.${name}`);
-		if (fields.error !== null) return fields;
-		const { additionalProperties } = table as Record<string, unknown>;
-		if (additionalProperties !== undefined && additionalProperties !== false)
-			return refuse(
-				`'tables.${name}' declares "additionalProperties"; the only value is false, which closes the table`,
-			);
-		tables[name] = {
-			fields: fields.data,
-			...(additionalProperties === false
-				? { additionalProperties: false as const }
-				: {}),
-		};
-	}
-	return Ok({
-		...(declared.title === undefined
-			? {}
-			: { title: declared.title as string }),
-		...(local === undefined ? {} : { local: local as string[] }),
-		tables,
-	} as Definition);
+): Result<Record<string, unknown>, { reason: string }> {
+	const { data: value, error } = parseJsonObject(text);
+	if (error !== null) return Err(error);
+	return checkEnvelope(value);
 }
 
-/**
- * Read a folder's own `epicenter.json` through `storage` and prepare it, as
- * `readFolder` does: `undefined` when the folder has none, or
- * why the file cannot be used. It writes nothing.
- */
+function checkEnvelope(
+	value: Record<string, unknown>,
+): Result<Record<string, unknown>, { reason: string }> {
+	const unknown = Object.keys(value).filter(
+		(key) => !TOP_LEVEL_KEYS.includes(key),
+	);
+	if (unknown.length > 0)
+		return Err({
+			reason: `unknown top-level key ${unknown.map((key) => `'${key}'`).join(', ')}; expected ${TOP_LEVEL_KEYS.join(', ')}`,
+		});
+	return Ok(value);
+}
+
+/** Read a portable document without changing or flattening its table schemas. */
+export function parseDeclaration(
+	text: string,
+): Result<Declaration, { reason: string }> {
+	const { data: value, error } = parseDeclarationObject(text);
+	if (error !== null) return Err(error);
+	const { tables: rawTables, ...metadata } = value;
+	const problem = declarationProblem(metadata);
+	if (problem !== undefined) return Err({ reason: problem });
+	const tables = readTableSchemas(rawTables);
+	if (tables.error !== null) return tables;
+	const local = localPolicyOf(value.local);
+	if (local.error !== null) return local;
+	return Ok({
+		...metadata,
+		...(tables.data === undefined ? {} : { tables: tables.data }),
+	} as Declaration);
+}
+
+/** Read only table declarations; unrelated view or local problems stay with their readers. */
+export function readDeclaredTables(
+	text: string,
+): Result<Declaration['tables'], { reason: string }> {
+	const { data: value, error } = parseDeclarationObject(text);
+	if (error !== null) return Err(error);
+	return readTableSchemas(value.tables);
+}
+
+/** Prepare only an already-read table section, without serializing or parsing it again. */
+export function readTableSchemas(
+	value: unknown,
+): Result<Declaration['tables'], { reason: string }> {
+	if (value === undefined) return Ok(undefined);
+	const prepared = prepareTableSchemas(value);
+	if (prepared.error !== null) return prepared;
+	const folded = new Set<string>();
+	for (const name of Object.keys(prepared.data)) {
+		if (!isTableName(name))
+			return Err({ reason: `table name '${name}' is not usable` });
+		if (folded.has(name.toLowerCase()))
+			return Err({
+				reason: `table names collide case-insensitively: '${name}'`,
+			});
+		folded.add(name.toLowerCase());
+	}
+	return prepared;
+}
+
+/** CLI checking requires declared tables; optional views never change that requirement. */
 export async function readDefinition(
 	storage: Pick<FolderStorage, 'read'>,
-): Promise<Result<Definition | undefined, { readonly reason: string }>> {
-	const { data: read, error: readError } = await storage.read(DEFINITION_PATH);
-	if (readError !== null)
-		return readError.name === 'NotFound'
+): Promise<
+	Result<
+		{ tables: NonNullable<Declaration['tables']> } | undefined,
+		{ reason: string }
+	>
+> {
+	const { data: read, error } = await storage.read(DEFINITION_PATH);
+	if (error !== null)
+		return error.name === 'NotFound'
 			? Ok(undefined)
-			: Err({ reason: readError.message });
+			: Err({ reason: error.message });
 	let text: string;
 	try {
 		text = utf8.decode(read.bytes);
 	} catch {
 		return Err({ reason: 'it is not UTF-8 text' });
 	}
-	const { data: declared, error: parseError } = parseDefinition(text);
-	if (parseError !== null) return Err(parseError);
-	return prepareFolderDefinition(declared);
-}
-
-/**
- * The fields a table's object schema declares: each property, made optional
- * unless `required` names it.
- */
-function objectSchema(
-	value: unknown,
-	at: string,
-): Result<FieldMap, { readonly reason: string }> {
-	const refuse = (reason: string) => Err({ reason: `'${at}' ${reason}` });
-	if (!isPlainObject(value)) return refuse('must be an object schema');
-	const unknown = unknownKeys(value, [
-		'type',
-		'properties',
-		'required',
-		'additionalProperties',
-	]);
-	if (unknown !== undefined)
-		return refuse(
-			`has unknown key ${unknown}; expected type, properties, required, or additionalProperties`,
-		);
-	if (value.type !== 'object') return refuse('must say "type": "object"');
-	const { properties } = value;
-	if (!isPlainObject(properties))
-		return refuse('must map field names to schemas in "properties"');
-	const required = value.required ?? [];
-	if (
-		!Array.isArray(required) ||
-		required.some((name) => typeof name !== 'string') ||
-		new Set(required).size !== required.length
-	)
-		return refuse('"required" must list field names once each');
-	for (const name of required as string[])
-		if (!Object.hasOwn(properties, name))
-			return refuse(`requires '${name}', which "properties" does not declare`);
-	const fields: Record<string, FieldMap[string]> = Object.create(null);
-	for (const [name, schema] of Object.entries(properties)) {
-		if (!isPlainObject(schema))
-			return refuse(`declares '${name}' as something other than a schema`);
-		// `~` keys are TypeBox's, never JSON Schema; optionality is `required`.
-		const marker = Object.keys(schema).find((key) => key.startsWith('~'));
-		if (marker !== undefined)
-			return refuse(
-				`declares '${name}' with '${marker}', which is not JSON Schema; list required fields in "required"`,
-			);
-		fields[name] = required.includes(name) ? schema : field.optional(schema);
-	}
-	return Ok(fields);
-}
-
-/** The first key outside `allowed`, quoted, or `undefined`. */
-function unknownKeys(
-	value: Record<string, unknown>,
-	allowed: readonly string[],
-): string | undefined {
-	const extra = Object.keys(value).filter((key) => !allowed.includes(key));
-	return extra.length === 0
-		? undefined
-		: extra.map((key) => `'${key}'`).join(', ');
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
+	const parsed = readDeclaredTables(text);
+	if (parsed.error !== null) return parsed;
+	if (parsed.data === undefined)
+		return Err({
+			reason:
+				"it has no 'tables'; check and query require declared table schemas",
+		});
+	return Ok({ tables: parsed.data });
 }

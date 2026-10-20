@@ -106,6 +106,22 @@ test('check passes a conforming data folder', async () => {
 	);
 });
 
+test('check and query read tables despite malformed or future unrelated metadata', async () => {
+	const { folder, write, run } = await setup();
+	for (const metadata of [
+		{ views: { broken: null }, local: 'not a list', title: false },
+		{ views: { calendar: { type: 'calendar', title: 'Future view' } } },
+	]) {
+		const source = JSON.stringify({ ...declaration, ...metadata });
+		await write('epicenter.json', source);
+		expect(run('check', folder).exitCode).toBe(0);
+		const query = run('query', folder, 'SELECT stem FROM posts', '--json');
+		expect(query.exitCode).toBe(0);
+		expect(JSON.parse(query.stdout).rows).toEqual([{ stem: 'reel' }]);
+		expect(await readFile(join(folder, 'epicenter.json'), 'utf8')).toBe(source);
+	}
+});
+
 test('check reports invalid rows compiler style and exits 1', async () => {
 	const { folder, write, run } = await setup();
 	await write(
@@ -189,7 +205,7 @@ test('a missing or unusable epicenter.json is a tool failure with exit 2', async
 	const noTables = run('check', folder);
 	expect(noTables.exitCode).toBe(2);
 	expect(noTables.stderr).toContain(
-		"it has no 'tables'; every generated definition has them, so define the folder in epicenter.ts and run `epicenter generate`",
+		"it has no 'tables'; check and query require declared table schemas",
 	);
 });
 
@@ -694,7 +710,7 @@ test('generate refuses to replace an epicenter.json whose local it would drop, a
 	await mkdir(join(folder, 'epicenter.json'));
 	const inaccessible = run('generate', folder);
 	expect(inaccessible.exitCode).toBe(2);
-	expect(inaccessible.stderr).toContain('it could not be read');
+	expect(inaccessible.stderr).toContain('is a directory, not a file');
 	await rm(join(folder, 'epicenter.json'), { recursive: true });
 
 	await write('epicenter.json', '{"tables": {}}');

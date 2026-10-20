@@ -43,9 +43,6 @@ export {
 	isOptional,
 	prepareDefinition,
 } from './prepare.js';
-export {
-	containment,
-	type Mismatch,
-	mismatches,
-	requiredOutside,
-} from './shape.js';
+
+
+export { isTableName } from './table-name.js';

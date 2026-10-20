@@ -17,13 +17,13 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import { readDefinition } from './declaration.js';
-import type { Definition, PreparedFolderTable } from './definition.js';
+import type { Declaration, PortableTableSchema } from './declaration-schema.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { FileError, RowReadError } from './errors.js';
 import { scratchDirectory } from './native/directory.js';
 import { DEFINITION_PATH, ROW_EXTENSION } from './paths.js';
-import { parseRow, type Row } from './row-text.js';
+import { parseDeclaredRow, type Row } from './row-text.js';
 
 /**
  * One row file as read: which bytes, their exact text, and the row they hold.
@@ -52,7 +52,7 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 async function listTable(
 	storage: FolderStorage,
 	name: string,
-	table: PreparedFolderTable,
+	table: PortableTableSchema,
 ): Promise<Result<TableListing<Record<string, unknown>>, FileError>> {
 	const { data: children, error } = await storage.children(name);
 	if (error !== null) return error.name === 'NotFound' ? Ok([]) : Err(error);
@@ -84,7 +84,7 @@ async function listTable(
 		} catch {
 			return RowReadError.InvalidUtf8({ path, sha256 });
 		}
-		const { data: row, error: issues } = parseRow(table, text);
+		const { data: row, error: issues } = parseDeclaredRow(table, text);
 		if (issues !== null)
 			return RowReadError.InvalidRow({ path, sha256, text, issues });
 		return Ok(
@@ -106,7 +106,7 @@ export const ReadFolderError = defineErrors({
 	}),
 	/**
 	 * `epicenter.json` (`path`) is not a readable file, is not UTF-8 JSON, is
-	 * not the definition grammar `parseDefinition` reads, or declares a field
+	 * not the portable table grammar `readDeclaredTables` reads, or declares a field
 	 * a folder cannot keep.
 	 */
 	InvalidDefinition: ({ root, reason }: { root: string; reason: string }) => ({
@@ -123,7 +123,7 @@ export type FolderReading = {
 	/** The directory read, as the caller named it. */
 	readonly root: string;
 	/** The prepared definition from `epicenter.json`. */
-	readonly definition: Definition;
+	readonly definition: { tables: NonNullable<Declaration['tables']> };
 	/** Each declared table's rows, or why its directory could not be listed. */
 	readonly tables: Readonly<
 		Record<string, Result<TableListing<Record<string, unknown>>, FileError>>
@@ -170,7 +170,7 @@ export async function readFolder(
 		Result<TableListing<Record<string, unknown>>, FileError>
 	> = {};
 	for (const [name, table] of Object.entries(definition.tables))
-		tables[name] = await listTable(storage, name, table as PreparedFolderTable);
+		tables[name] = await listTable(storage, name, table);
 	return Ok(
 		Object.freeze({
 			root,

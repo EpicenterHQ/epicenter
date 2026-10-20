@@ -1,0 +1,863 @@
+{
+  "$defs": {
+    "Schema": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$schema": {
+              "type": "string"
+            },
+            "$id": {
+              "type": "string"
+            },
+            "$ref": {
+              "type": "string"
+            },
+            "$defs": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "$ref": "Schema"
+                }
+              }
+            },
+            "definitions": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "$ref": "Schema"
+                }
+              }
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "null"
+                    },
+                    {
+                      "type": "string",
+                      "const": "boolean"
+                    },
+                    {
+                      "type": "string",
+                      "const": "object"
+                    },
+                    {
+                      "type": "string",
+                      "const": "array"
+                    },
+                    {
+                      "type": "string",
+                      "const": "number"
+                    },
+                    {
+                      "type": "string",
+                      "const": "integer"
+                    },
+                    {
+                      "type": "string",
+                      "const": "string"
+                    }
+                  ]
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "null"
+                      },
+                      {
+                        "type": "string",
+                        "const": "boolean"
+                      },
+                      {
+                        "type": "string",
+                        "const": "object"
+                      },
+                      {
+                        "type": "string",
+                        "const": "array"
+                      },
+                      {
+                        "type": "string",
+                        "const": "number"
+                      },
+                      {
+                        "type": "string",
+                        "const": "integer"
+                      },
+                      {
+                        "type": "string",
+                        "const": "string"
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "$comment": {
+              "type": "string"
+            },
+            "default": {},
+            "examples": {
+              "type": "array",
+              "items": {}
+            },
+            "const": {},
+            "enum": {
+              "type": "array",
+              "items": {},
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "readOnly": {
+              "type": "boolean"
+            },
+            "writeOnly": {
+              "type": "boolean"
+            },
+            "deprecated": {
+              "type": "boolean"
+            },
+            "x-field": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {}
+              }
+            },
+            "minimum": {
+              "type": "number"
+            },
+            "maximum": {
+              "type": "number"
+            },
+            "exclusiveMinimum": {
+              "type": "number"
+            },
+            "exclusiveMaximum": {
+              "type": "number"
+            },
+            "multipleOf": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "minLength": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxLength": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "pattern": {
+              "type": "string"
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "date-time",
+                "date",
+                "duration",
+                "email",
+                "hostname",
+                "idn-email",
+                "idn-hostname",
+                "ipv4",
+                "ipv6",
+                "iri-reference",
+                "iri",
+                "json-pointer-uri-fragment",
+                "json-pointer",
+                "regex",
+                "relative-json-pointer",
+                "time",
+                "uri-reference",
+                "uri-template",
+                "uri",
+                "url",
+                "uuid"
+              ]
+            },
+            "properties": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "$ref": "Schema"
+                }
+              }
+            },
+            "patternProperties": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "$ref": "Schema"
+                }
+              }
+            },
+            "required": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            },
+            "additionalProperties": {
+              "$ref": "Schema"
+            },
+            "propertyNames": {
+              "$ref": "Schema"
+            },
+            "minProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "dependentRequired": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "uniqueItems": true
+                }
+              }
+            },
+            "dependentSchemas": {
+              "type": "object",
+              "patternProperties": {
+                "^.*$": {
+                  "$ref": "Schema"
+                }
+              }
+            },
+            "items": {
+              "$ref": "Schema"
+            },
+            "prefixItems": {
+              "type": "array",
+              "items": {
+                "$ref": "Schema"
+              }
+            },
+            "contains": {
+              "$ref": "Schema"
+            },
+            "minContains": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxContains": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxItems": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "uniqueItems": {
+              "type": "boolean"
+            },
+            "allOf": {
+              "type": "array",
+              "items": {
+                "$ref": "Schema"
+              },
+              "minItems": 1
+            },
+            "anyOf": {
+              "type": "array",
+              "items": {
+                "$ref": "Schema"
+              },
+              "minItems": 1
+            },
+            "oneOf": {
+              "type": "array",
+              "items": {
+                "$ref": "Schema"
+              },
+              "minItems": 1
+            },
+            "not": {
+              "$ref": "Schema"
+            },
+            "if": {
+              "$ref": "Schema"
+            },
+            "then": {
+              "$ref": "Schema"
+            },
+            "else": {
+              "$ref": "Schema"
+            }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "$id": "Schema"
+    },
+    "Table": {
+      "type": "object",
+      "required": [
+        "type",
+        "properties"
+      ],
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "$id": {
+          "type": "string"
+        },
+        "$ref": {
+          "type": "string"
+        },
+        "$defs": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "$ref": "Schema"
+            }
+          }
+        },
+        "definitions": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "$ref": "Schema"
+            }
+          }
+        },
+        "type": {
+          "type": "string",
+          "const": "object"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "$comment": {
+          "type": "string"
+        },
+        "default": {},
+        "examples": {
+          "type": "array",
+          "items": {}
+        },
+        "const": {},
+        "enum": {
+          "type": "array",
+          "items": {},
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "readOnly": {
+          "type": "boolean"
+        },
+        "writeOnly": {
+          "type": "boolean"
+        },
+        "deprecated": {
+          "type": "boolean"
+        },
+        "x-field": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {}
+          }
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "exclusiveMinimum": {
+          "type": "number"
+        },
+        "exclusiveMaximum": {
+          "type": "number"
+        },
+        "multipleOf": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "date-time",
+            "date",
+            "duration",
+            "email",
+            "hostname",
+            "idn-email",
+            "idn-hostname",
+            "ipv4",
+            "ipv6",
+            "iri-reference",
+            "iri",
+            "json-pointer-uri-fragment",
+            "json-pointer",
+            "regex",
+            "relative-json-pointer",
+            "time",
+            "uri-reference",
+            "uri-template",
+            "uri",
+            "url",
+            "uuid"
+          ]
+        },
+        "properties": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "$ref": "Schema"
+            }
+          }
+        },
+        "patternProperties": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "$ref": "Schema"
+            }
+          }
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "additionalProperties": {
+          "$ref": "Schema"
+        },
+        "propertyNames": {
+          "$ref": "Schema"
+        },
+        "minProperties": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxProperties": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dependentRequired": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "dependentSchemas": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "$ref": "Schema"
+            }
+          }
+        },
+        "items": {
+          "$ref": "Schema"
+        },
+        "prefixItems": {
+          "type": "array",
+          "items": {
+            "$ref": "Schema"
+          }
+        },
+        "contains": {
+          "$ref": "Schema"
+        },
+        "minContains": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxContains": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uniqueItems": {
+          "type": "boolean"
+        },
+        "allOf": {
+          "type": "array",
+          "items": {
+            "$ref": "Schema"
+          },
+          "minItems": 1
+        },
+        "anyOf": {
+          "type": "array",
+          "items": {
+            "$ref": "Schema"
+          },
+          "minItems": 1
+        },
+        "oneOf": {
+          "type": "array",
+          "items": {
+            "$ref": "Schema"
+          },
+          "minItems": 1
+        },
+        "not": {
+          "$ref": "Schema"
+        },
+        "if": {
+          "$ref": "Schema"
+        },
+        "then": {
+          "$ref": "Schema"
+        },
+        "else": {
+          "$ref": "Schema"
+        }
+      },
+      "additionalProperties": false,
+      "$id": "Table"
+    },
+    "Declaration": {
+      "type": "object",
+      "properties": {
+        "$schema": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "local": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "tables": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "$ref": "Table"
+            }
+          }
+        },
+        "views": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "title",
+                    "table"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "grid"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "table": {
+                      "type": "string"
+                    },
+                    "columns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "uniqueItems": true
+                    },
+                    "filters": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "field",
+                          "operator"
+                        ],
+                        "properties": {
+                          "field": {
+                            "type": "string"
+                          },
+                          "operator": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "eq"
+                              },
+                              {
+                                "type": "string",
+                                "const": "ne"
+                              },
+                              {
+                                "type": "string",
+                                "const": "lt"
+                              },
+                              {
+                                "type": "string",
+                                "const": "lte"
+                              },
+                              {
+                                "type": "string",
+                                "const": "gt"
+                              },
+                              {
+                                "type": "string",
+                                "const": "gte"
+                              },
+                              {
+                                "type": "string",
+                                "const": "contains"
+                              },
+                              {
+                                "type": "string",
+                                "const": "exists"
+                              }
+                            ]
+                          },
+                          "value": {}
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "sort": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "field",
+                          "direction"
+                        ],
+                        "properties": {
+                          "field": {
+                            "type": "string"
+                          },
+                          "direction": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "asc"
+                              },
+                              {
+                                "type": "string",
+                                "const": "desc"
+                              }
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "title",
+                    "table",
+                    "groupBy"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "board"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "table": {
+                      "type": "string"
+                    },
+                    "groupBy": {
+                      "type": "string"
+                    },
+                    "columns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "uniqueItems": true
+                    },
+                    "filters": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "field",
+                          "operator"
+                        ],
+                        "properties": {
+                          "field": {
+                            "type": "string"
+                          },
+                          "operator": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "eq"
+                              },
+                              {
+                                "type": "string",
+                                "const": "ne"
+                              },
+                              {
+                                "type": "string",
+                                "const": "lt"
+                              },
+                              {
+                                "type": "string",
+                                "const": "lte"
+                              },
+                              {
+                                "type": "string",
+                                "const": "gt"
+                              },
+                              {
+                                "type": "string",
+                                "const": "gte"
+                              },
+                              {
+                                "type": "string",
+                                "const": "contains"
+                              },
+                              {
+                                "type": "string",
+                                "const": "exists"
+                              }
+                            ]
+                          },
+                          "value": {}
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "sort": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "field",
+                          "direction"
+                        ],
+                        "properties": {
+                          "field": {
+                            "type": "string"
+                          },
+                          "direction": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "asc"
+                              },
+                              {
+                                "type": "string",
+                                "const": "desc"
+                              }
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "title",
+                    "sql"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "sql"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sql": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        }
+      },
+      "additionalProperties": false,
+      "$id": "Declaration"
+    }
+  },
+  "$ref": "Declaration",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

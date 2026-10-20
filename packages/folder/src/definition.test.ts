@@ -3,7 +3,7 @@
  *
  * `defineFolder` returns the prepared definition, in the shape it was declared
  * in: the grammar of the root `epicenter.json` the CLI's `check` and `query`
- * read (ADR-0632), and the tables `parseRow` reads rows through.
+ * read after serialization (ADR-0632).
  *
  * Key behaviors:
  * - `defineFolder` returns an owned, frozen definition of the declared shape,
@@ -13,9 +13,6 @@
  * - A definition names no folder: an `id` is refused as any other key is
  * - A schema edited after `defineFolder` does not change what that
  *   definition accepts, and a second definition reusing it reads the edit
- * - The prepared-table type is not a proof: a table rebuilt with a cloned
- *   field compiles, and reading a value through that field throws until
- *   `defineFolder` prepares it again
  * - A table publishes as one JSON Schema, so two fields defining one `$id`
  *   and a `#` reference outside any `$id` are refused
  *
@@ -25,9 +22,9 @@
 import { expect, test } from 'bun:test';
 import { defineTable, field } from '@epicenter/definition';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { formatDefinition, parseDefinition } from './declaration.js';
+import { formatDefinition, parseDeclaration } from './declaration.js';
 import { defineFolder, prepareFolderDefinition } from './definition.js';
-import { formatRow, parseRow } from './row-text.js';
+import { parseDeclaredRow } from './row-text.js';
 
 test('defineFolder returns the prepared definition in the declared shape', () => {
 	const declared = {
@@ -129,55 +126,15 @@ test('a schema edited after defineFolder changes nothing that definition accepts
 		second.tables.todos.fields.title,
 	);
 
-	const row = { fields: { title: 'Longer' }, body: '' };
-	const saved = expectOk(formatRow(second.tables.todos, row));
-	expect(expectOk(parseRow(second.tables.todos, saved))).toEqual(row);
-	expect(expectErr(parseRow(first.tables.todos, saved))).toHaveLength(1);
-});
-
-test('a prepared table rebuilt with a cloned field still type-checks, and reading a value through that field throws until defineFolder prepares it again', () => {
-	const definition = defineFolder({
-		tables: {
-			todos: defineTable({
-				fields: { title: field.string(), done: field.boolean() },
-			}),
-		},
+	const source = '---\ntitle: Longer\n---\n';
+	const firstTable = expectOk(parseDeclaration(formatDefinition(first))).tables!
+		.todos!;
+	const secondTable = expectOk(parseDeclaration(formatDefinition(second)))
+		.tables!.todos!;
+	expect(expectOk(parseDeclaredRow(secondTable, source)).fields).toEqual({
+		title: 'Longer',
 	});
-	const prepared = definition.tables.todos;
-	const text = '---\ntitle: Milk\ndone: false\n---\n';
-
-	// A spread that keeps the prepared field objects reads as the table does.
-	expect(parseRow({ ...prepared }, text)).toEqual(parseRow(prepared, text));
-
-	// The prepared-table mark survives the spread, so the compiler accepts a
-	// rebuilt table; the clone is an object no preparation ever saw.
-	const rebuilt = {
-		...prepared,
-		fields: { ...prepared.fields, title: { ...prepared.fields.title } },
-	};
-	// A missing value is reported without the cloned field ever reading one.
-	expect(
-		expectErr(parseRow(rebuilt, '---\ndone: false\n---\n')).map(
-			(issue) => issue.field,
-		),
-	).toEqual(['title']);
-	// Once one appears, the read is refused as a programmer error, not an issue.
-	expect(() => parseRow(rebuilt, text)).toThrow('This schema was not prepared');
-	// Formatting checks no value, so it writes the prepared table's text
-	// without noticing.
-	const milk = { fields: { title: 'Milk', done: false }, body: '' };
-	expect(expectOk(formatRow(rebuilt, milk))).toBe(
-		expectOk(formatRow(prepared, milk)),
-	);
-
-	// Preparing the rebuilt declaration again is the remedy.
-	const again = defineFolder({
-		tables: { todos: defineTable({ fields: rebuilt.fields }) },
-	});
-	expect(expectOk(parseRow(again.tables.todos, text)).fields).toEqual({
-		title: 'Milk',
-		done: false,
-	});
+	expectErr(parseDeclaredRow(firstTable, source));
 });
 
 test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse an $id or point at the table root', () => {
@@ -265,11 +222,11 @@ test('a closed table reports an undeclared key at its line, and epicenter.json k
 	const text = '---\ntitle: Launch\nsubtitel: A typo\n---\n';
 
 	// An open table keeps the undeclared key on the row, outside its type.
-	const kept: Record<string, unknown> = expectOk(
-		parseRow(definition.tables.open, text),
-	).fields;
+	const tables = expectOk(parseDeclaration(formatDefinition(definition)))
+		.tables!;
+	const kept = expectOk(parseDeclaredRow(tables.open!, text)).fields;
 	expect(kept).toEqual({ title: 'Launch', subtitel: 'A typo' });
-	expect(expectErr(parseRow(definition.tables.closed, text))).toEqual([
+	expect(expectErr(parseDeclaredRow(tables.closed!, text))).toEqual([
 		{ message: 'subtitel is not declared', line: 3, field: 'subtitel' },
 	]);
 
@@ -280,19 +237,22 @@ test('a closed table reports an undeclared key at its line, and epicenter.json k
 	expect(JSON.parse(declaration).tables.open).not.toHaveProperty(
 		'additionalProperties',
 	);
-	const reread = prepareFolderDefinition(
-		expectOk(parseDefinition(declaration)),
-	);
-	expect(expectOk(reread).tables.closed?.additionalProperties).toBe(false);
+	const reread = expectOk(parseDeclaration(declaration));
+	expect(reread.tables?.closed?.additionalProperties).toBe(false);
+	// A schema-valued additionalProperties is ordinary JSON Schema, retained whole.
 	expect(
-		expectErr(
-			parseDefinition(
+		expectOk(
+			parseDeclaration(
 				JSON.stringify({
 					tables: {
-						notes: { type: 'object', properties: {}, additionalProperties: {} },
+						notes: {
+							type: 'object',
+							properties: {},
+							additionalProperties: { type: 'string' },
+						},
 					},
 				}),
 			),
-		).reason,
-	).toContain('the only value is false');
+		).tables?.notes?.additionalProperties,
+	).toEqual({ type: 'string' });
 });
