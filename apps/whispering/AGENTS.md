@@ -7,14 +7,15 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 
 ## Constraints
 
-- **The workspace owns native acquisition.** Nothing under `src/`
+- **Platform adapters own native capabilities.** Nothing under `src/`
   imports a Node or Bun module or `@epicenter/folder/bun`. The page names the
-  folder contract through `@epicenter/folder` and reaches a folder only
-  through `src/lib/workspace/`: `@epicenter/folder/browser` is imported by the
-  browser workspace alone, and `@epicenter/folder/tauri` by the desktop
-  workspace alone. Other native services use Epicenter's generated bindings
-  (`src/lib/tauri/bindings.gen.ts`), imported only by the desktop workspace. The build
-  picks the workspace through `#platform/workspace` (ADR-0391); no page code
+  folder contract through `@epicenter/folder`. The layout supplies FolderApp
+  its sole inline opener. The build aliases
+  the bare folder entry to browser or native storage. Platform capabilities
+  live in `src/lib/platform/` and never open another folder. Other native
+  services use Epicenter's generated bindings
+  (`src/lib/tauri/bindings.gen.ts`), imported only by the desktop adapter. The build
+  picks platform capabilities through `#platform/services` (ADR-0391); no page code
   asks where it runs. `src/lib/page-boundary.test.ts` enforces
   these boundaries; keep it passing without granting native reach to components.
 - **One folder, one opener.** Inside Epicenter the shell binds one folder to
@@ -31,20 +32,20 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 - **A folder that cannot be opened is reported, not replaced.** Opening
   returns a `Result`. Inside a desktop app, a shell that refuses the folder is
   shown as that refusal; browser storage is never opened there. The build
-  Epicenter serves carries no browser storage, and the browser workspace
+  Epicenter serves carries no browser storage, and the browser adapter
   refuses inside a desktop app.
-- **One session per mounted layout.** `src/routes/+layout.svelte` holds the
-  one opening (`mountSession`) and `WhisperingApp` puts its session in context. A page or component takes it with
-  `getSession()`; it never opens a workspace, builds a library, or keeps
-  product state in a module-level variable. State that must survive a page
-  change belongs to the session. Only a browser tab's unload is guarded,
-  while a write is running, never a navigation between routes. `src/lib/page-boundary.test.ts` enforces the
-  ownership.
+- **One mounted app lifetime.** Route changes preserve the opened folder,
+  query cache, recording, inference work, selections, and forms. Pages consume
+  existing resources; they never open a folder or create product state. Keep
+  that state out of module-level variables. Product teardown finishes accepted
+  workflow writes before storage closes. Guard document unload; allow internal
+  navigation. `src/lib/page-boundary.test.ts` enforces this ownership; the
+  composition is documented in `ARCHITECTURE.md`.
 - **Native services are Epicenter's.** Whispering has no desktop shell or
   host process of its own (ADR-0493). A native service it needs is an
   Epicenter command, granted to Whispering's windows in
   `apps/epicenter/src-tauri/capabilities/whispering.json` (ADR-0570), and
-  exposed through the workspace with a browser
+  exposed through platform adapters with a browser
   implementation or an explicit `undefined`. Load the `tauri` skill before
   changing a grant. No other native service opens the folder or initializes
   Git for the page; a failed desktop acquisition is visible and
@@ -56,8 +57,8 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   person it does.
 - **Files are authoritative.** The local folder context's TanStack Query
   cache (`@epicenter/svelte/folder`) holds only the folder as last read,
-  and its drafts hold typing on its way to it (ADR-0528); do not add another
-  cache, mirror, or second store of recordings. Do not add Yjs, the
+  while Folder retains accepted edits until they save (ADR-0528). Do not add
+  another cache, mirror, or second store of recordings. Do not add Yjs, the
   `@epicenter/app` store, or accounts to this workflow.
 - **A recording's audio is the file its row names.** `audioPath` is the only
   link. Do not infer audio from a file that shares the row's stem, do not
@@ -110,4 +111,4 @@ opener; they never run the Rust shell. Only opening Whispering in
 `bun dev:epicenter` and using it establishes that the desktop app works.
 
 `src/lib/tauri/bindings.gen.ts` is written by Epicenter's Rust tests. Do not
-edit it here; the desktop workspace alone imports it.
+edit it here; the desktop adapter alone imports it.
