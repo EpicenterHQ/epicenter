@@ -40,22 +40,23 @@ separate later changes from the baseline. State gaps in that evidence.
 
 ## Work backward from a correction
 
-Choose a consequential miss and show the request, response, and correction with
-enough context to expose the mismatch. Develop one coherent issue at a time.
+**Connect the user’s correction, the agent’s behavior, and the skill wording
+that may explain it.** Show the relevant excerpts and explain your current
+reading in plain language. Use dialectic to examine that connection with the
+user, including discrepancies between what the skill says and what the agent
+did. Develop one concrete issue at a time, letting their reactions and the
+evidence revise the explanation before deciding what to change.
+
 Distinguish a misunderstanding the agent could have avoided from a preference
 or idea that emerged through useful exploration. A disagreement is evidence to
 investigate, not proof that the agent was wrong.
 
 Inspect the implicated skills and relevant surrounding instructions together.
 Determine whether the problem was missing or misleading guidance, competing
-instructions, skill selection,
-or failure to apply guidance already present. **Loading a skill does not
-establish that it caused the mistake.** If the record cannot support attribution,
+instructions, skill selection, or failure to apply guidance already present.
+**Loading a skill does not establish that it caused the mistake.** If the
+record cannot support attribution,
 keep the diagnosis provisional rather than assigning blame or adding a rule.
-
-Make the suspected cause concrete enough for the user to correct. Their
-reaction may change the diagnosis or the responsible owner. Preserve what
-they recognize and synthesize the next attempt yourself.
 
 ## Improve the responsible skills
 
