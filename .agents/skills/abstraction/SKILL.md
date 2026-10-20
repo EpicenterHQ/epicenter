@@ -1,6 +1,6 @@
 ---
 name: abstraction
-description: Shape a complex idea, workflow, or design around the judgment a person needs to make. Use when an explanation obscures its point or makes the user carry unnecessary complexity. Do not use for routine execution of a clear request.
+description: Shape a complex idea, workflow, design, or report on work around the judgment a person needs to make. Use when summarizing, reporting on, or explaining complex work to someone who must judge or act on it, or when an explanation obscures its point or makes the user carry unnecessary complexity. Do not use for routine execution of a clear request.
 ---
 
 # Abstraction
@@ -19,6 +19,16 @@ a comparison can expose a trade-off, and code or a diagram can make a
 relationship concrete. Use visual hierarchy so the point requiring attention
 is easy to find. A successful layout in one conversation is not a required
 format for the next.
+
+When reporting on work, show what changed in a form the person can scan:
+code, a before and after, or a small diagram, instead of naming the change in
+the work's internal vocabulary. Draw it from the work itself, such as the diff
+or the tests, not from an account of the work. When the person has a decision
+to make, end with it, after the evidence it depends on, because the end is
+where they read and reply. For each decision, give the options that matter,
+what each costs, and which you recommend, so they can answer in a word. A
+report that only restates what was done leaves the person to reconstruct what
+it means.
 
 Simplification fails when it hides uncertainty, makes deferred behavior look
 implemented, or collapses distinct owners. Extra detail fails when the person

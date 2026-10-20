@@ -3,6 +3,17 @@ name: Deploy to Cloudflare Workers
 on:
   push:
     branches: [main]
+    # A merge that only touches agent instructions or repository docs changes
+    # nothing either Worker serves, so it does not redeploy production. The
+    # landing blog's Markdown lives under apps/landing/src and still deploys.
+    paths-ignore:
+      - '.agents/**'
+      - '.claude/**'
+      - 'docs/**'
+      - 'specs/**'
+      - '**/README.md'
+      - '**/AGENTS.md'
+      - '**/CLAUDE.md'
   workflow_dispatch:
 
 concurrency:
