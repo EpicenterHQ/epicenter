@@ -18,6 +18,7 @@
  */
 import type { Row } from '@epicenter/folder';
 import type {
+	ChangeResult,
 	ExclusiveFile,
 	RowEdit,
 	RowEditChange,
@@ -25,6 +26,7 @@ import type {
 	TextEdit,
 	TextShown,
 } from '@epicenter/folder/edits';
+import { ChangeError } from '@epicenter/folder/edits';
 import { untrack } from 'svelte';
 import { createSubscriber } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
@@ -99,11 +101,13 @@ export function createRowEdit<
 		 * Type fields and body over the row this view last showed, as one
 		 * change. Answers whether it was taken.
 		 */
-		change(change: RowEditChange<TRowSchema>): boolean {
+		change(change: RowEditChange<TRowSchema>): ChangeResult {
 			// No row is observed now: it is loading, or gone.
-			if (untrack(observed) === undefined) return false;
+			if (untrack(observed) === undefined) return ChangeError.NoSource();
 			const shown = named();
-			return shown !== undefined && edit.change(shown.source, change);
+			return shown === undefined
+				? ChangeError.NoSource()
+				: edit.change(shown.source, change);
 		},
 		save: () => edit.save(),
 		retry: () => edit.retry(),
@@ -149,11 +153,11 @@ export function createTextEdit<TObserved extends Uint8Array | undefined>(
 			return edit.locked;
 		},
 		/** Type the whole text over what this view last showed. Answers whether it was taken. */
-		change(text: string): boolean {
+		change(text: string): ChangeResult {
 			return edit.change(named().source, text);
 		},
 		/** Type frontmatter fields over what this view last showed. */
-		changeFields(fields: Readonly<Record<string, unknown>>): boolean {
+		changeFields(fields: Readonly<Record<string, unknown>>): ChangeResult {
 			return edit.changeFields(named().source, fields);
 		},
 		save: () => edit.save(),

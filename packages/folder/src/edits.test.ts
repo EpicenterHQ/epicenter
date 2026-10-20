@@ -26,7 +26,7 @@ import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openRepository } from './browser/repository.js';
 import { openFolder } from './browser.js';
-import { UNSAVED } from './edits.js';
+import { CLOSING, DELETING, UNSAVED } from './edits.js';
 import type { FolderChange, FolderStatus } from './folder.js';
 import type { FolderEngine } from './handle.js';
 import { folderHandle } from './handle.js';
@@ -335,19 +335,19 @@ test('fields and body are typed apart or together, each change one update', asyn
 	const heard: unknown[] = [];
 	cleanup.push(edit.subscribe((path) => heard.push(path)));
 
-	expect(edit.change(row, { fields: { title: 'Dearest' } })).toBe(true);
+	expectOk(edit.change(row, { fields: { title: 'Dearest' } }));
 	expect(edit.pending).toMatchObject({
 		fields: { title: 'Dearest' },
 		body: undefined,
 	});
-	expect(edit.change(row, { body: 'The whole letter\n' })).toBe(true);
+	expectOk(edit.change(row, { body: 'The whole letter\n' }));
 	expect(edit.pending).toMatchObject({
 		fields: { title: 'Dearest' },
 		body: 'The whole letter\n',
 	});
 	// A frontmatter field named `body` is a field; the row's body is untouched.
 	const before = edit.pending;
-	expect(edit.change(row, { fields: { body: 'another field' } })).toBe(true);
+	expectOk(edit.change(row, { fields: { body: 'another field' } }));
 	expect(edit.pending).toMatchObject({
 		fields: { title: 'Dearest', body: 'another field' },
 		body: 'The whole letter\n',
@@ -371,7 +371,7 @@ test('fields and body are typed apart or together, each change one update', asyn
 
 	// An empty change takes nothing.
 	heard.length = 0;
-	expect(edit.change(row, {})).toBe(true);
+	expectOk(edit.change(row, {}));
 	expect(edit.pending).toBeUndefined();
 	expect(heard).toEqual([]);
 });
@@ -390,9 +390,7 @@ test('a row change from a view that showed older input merges into what is held'
 	const first = edit.save();
 	await started;
 	// The same view's next callback, typed over what that view showed.
-	expect(edit.change(view.source, { body: 'one\ntwo\nthree typed\n' })).toBe(
-		true,
-	);
+	expectOk(edit.change(view.source, { body: 'one\ntwo\nthree typed\n' }));
 	sets.release();
 	await first;
 	await edit.save();
@@ -783,7 +781,7 @@ test('an own whole-text save stays over an old view beside a later field save, w
 			'---\ntitle: original\n---\n#mine\nbodyB\n',
 		),
 	);
-	expect(text.changeFields(oldA, { title: 'T2' })).toBe(true);
+	expectOk(text.changeFields(oldA, { title: 'T2' }));
 	await text.save();
 	expect(await stored(path)).toBe('---\ntitle: T2\n---\n#mine\nbodyB\n');
 	expect(text.shown(oldA).text).toBe('---\ntitle: T2\n---\n#mine\nbodyA\n');
@@ -806,7 +804,7 @@ test('with nothing observed, own saved text and held text stay readable but are 
 	await text.save();
 
 	expect(text.shown(undefined)).toEqual({ source: undefined, text: 'mine\n' });
-	expect(text.change(undefined, 'more\n')).toBe(false);
+	expect(expectErr(text.change(undefined, 'more\n')).name).toBe('NoSource');
 	expect(text.pending).toBeUndefined();
 
 	// Held input that did not save stays readable and typable over itself.
@@ -816,7 +814,7 @@ test('with nothing observed, own saved text and held text stay readable but are 
 	restore();
 	expect(text.pending?.error?.name).toBe('StorageFailed');
 	expect(text.shown(undefined)).toEqual({ source: undefined, text: 'held\n' });
-	expect(text.change(undefined, 'held, more\n')).toBe(true);
+	expectOk(text.change(undefined, 'held, more\n'));
 	expect(text.pending?.kind === 'text' && text.pending.text).toBe(
 		'held, more\n',
 	);
@@ -1127,12 +1125,21 @@ test('row and text input exclude each other on one path', async () => {
 	const text = folder.files.edit('notes/milk.md');
 	const row = await observe();
 	const bytes = await observeFile('notes/milk.md');
-	expect(text.change(bytes, 'typed source')).toBe(true);
-	expect(edit.change(row, { body: 'typed body' })).toBe(false);
+	expectOk(text.change(bytes, 'typed source'));
+	expect(expectErr(edit.change(row, { body: 'typed body' }))).toMatchObject({
+		name: 'OtherInput',
+		held: 'text',
+	});
 	expect(text.discard()).toMatchObject({ kind: 'text', text: 'typed source' });
-	expect(edit.change(row, { body: 'typed body' })).toBe(true);
-	expect(text.change(bytes, 'typed source')).toBe(false);
-	expect(text.changeFields(bytes, { title: 'x' })).toBe(false);
+	expectOk(edit.change(row, { body: 'typed body' }));
+	expect(expectErr(text.change(bytes, 'typed source'))).toMatchObject({
+		name: 'OtherInput',
+		held: 'row',
+	});
+	expect(expectErr(text.changeFields(bytes, { title: 'x' }))).toMatchObject({
+		name: 'OtherInput',
+		held: 'row',
+	});
 });
 
 // ============================================================================
@@ -1142,7 +1149,7 @@ test('row and text input exclude each other on one path', async () => {
 test('a failed save keeps its input and error for copying or discard', async () => {
 	const { folder, edit, observe } = await setup();
 	const restore = fillDisk();
-	edit.change(await observe(), { fields: { title: 'Oat milk' } });
+	expectOk(edit.change(await observe(), { fields: { title: 'Oat milk' } }));
 	await edit.save();
 
 	expect(edit.pending?.error?.name).toBe('StorageFailed');
@@ -1216,7 +1223,9 @@ test('delete fences input at once and removes the row after its held save', asyn
 	edit.change(row, { fields: { title: 'Oat milk' } });
 	const deleting = edit.delete();
 	expect(edit.locked).toBe(true);
-	expect(edit.change(row, { fields: { title: 'Later' } })).toBe(false);
+	expect(
+		expectErr(edit.change(row, { fields: { title: 'Later' } })),
+	).toMatchObject({ name: 'Locked', reason: DELETING });
 	expect(folder.status.saving).toBe(true);
 
 	expect(expectOk(await deleting)).toEqual({ deleted: true });
@@ -1239,7 +1248,10 @@ test('close with no view sends a running save, answers a failed one, and fences 
 
 	const closing = folder.close();
 	expect(folder.status.closing).toBe(true);
-	expect(text.change(undefined, 'Too late')).toBe(false);
+	expect(expectErr(text.change(undefined, 'Too late'))).toMatchObject({
+		name: 'Locked',
+		reason: CLOSING,
+	});
 	await running;
 	const unsaved = await closing;
 	restore();
@@ -1318,7 +1330,8 @@ test('an edit listener at the close fence is refused storage, closes to the same
 			} catch (cause) {
 				refused.push(cause);
 			}
-			taken = edit.change(row, { fields: { title: 'Too late' } });
+			taken =
+				edit.change(row, { fields: { title: 'Too late' } }).error === null;
 			inner = folder.close();
 			statuses.push(folder.status.closing);
 		}),
@@ -1396,7 +1409,7 @@ test('plain code opens, edits with no view or subscriber, sees status, settles a
 		if (row === undefined) throw new Error('No row');
 
 		const edit = folder.tables.notes.edit('milk');
-		expect(edit.change(row, { fields: { title: 'Oat' } })).toBe(true);
+		expectOk(edit.change(row, { fields: { title: 'Oat' } }));
 		expect(folder.status.unsaved).toEqual(['notes/milk.md']);
 		expect(statuses.at(-1)?.unsaved).toEqual(['notes/milk.md']);
 		// The pause the folder was opened with saves it.
@@ -1453,7 +1466,7 @@ for (const kind of ['row', 'text', 'fields'] as const) {
 		const reads = intercept(engine.files, 'read');
 		const submitted = () => rows.calls.length + files.calls.length;
 		const restore = fillDisk();
-		expect(change('Failed')).toBe(true);
+		expectOk(change('Failed'));
 		await input.save();
 		expect(input.pending?.error?.name).toBe('StorageFailed');
 		expect(submitted()).toBe(1);
@@ -1489,7 +1502,7 @@ for (const kind of ['row', 'text', 'fields'] as const) {
 		expect(await stored(path)).toContain('Failed');
 
 		const restoreAgain = fillDisk();
-		expect(change('Held for recovery')).toBe(true);
+		expectOk(change('Held for recovery'));
 		await input.save();
 		restoreAgain();
 		expect(submitted()).toBe(3);
@@ -1518,11 +1531,11 @@ for (const kind of ['row', 'text', 'fields'] as const) {
 			return text.changeFields(bytes, { title });
 		};
 		const restore = fillDisk();
-		expect(change('Failed')).toBe(true);
+		expectOk(change('Failed'));
 		await input.save();
 		expect(input.pending?.error?.name).toBe('StorageFailed');
 		restore();
-		expect(change('New input')).toBe(true);
+		expectOk(change('New input'));
 		expect(input.pending?.error).toBeUndefined();
 		await until(() => input.pending === undefined);
 		expect(await stored(path)).toContain('New input');
@@ -1573,7 +1586,7 @@ test('fields typed into failed whole text authorize the newer input', async () =
 	await text.save();
 	restore();
 	expect(text.pending?.error?.name).toBe('StorageFailed');
-	expect(text.changeFields(bytes, { title: 'New field' })).toBe(true);
+	expectOk(text.changeFields(bytes, { title: 'New field' }));
 	expect(text.pending?.error).toBeUndefined();
 	await until(() => text.pending === undefined);
 	expect(await stored(path)).toContain('New field');
@@ -1657,7 +1670,7 @@ for (const kind of ['row', 'text', 'fields'] as const) {
 				if (changed || input.pending?.error === undefined) return;
 				changed = true;
 				restore();
-				expect(change('New input')).toBe(true);
+				expectOk(change('New input'));
 				joined = request === 'close' ? folder.close() : input.save();
 			});
 			cleanup.push(stop);
@@ -1695,7 +1708,7 @@ for (const kind of ['row', 'text', 'fields'] as const) {
 		const stop = input.subscribe(() => {
 			if (changed || input.pending !== undefined) return;
 			changed = true;
-			expect(change('New input')).toBe(true);
+			expectOk(change('New input'));
 			closing = folder.close();
 		});
 		cleanup.push(stop);

@@ -129,13 +129,13 @@ test('a failed text save prevents a competing row edit until explicit discard', 
 		{ kind: 'text', path, text: 'unfinished source' },
 	]);
 	const edit = context.folder.tables.notes.edit('a');
-	expect(edit.change(row, { body: 'Do not overwrite the source' })).toBe(false);
+	expectErr(edit.change(row, { body: 'Do not overwrite the source' }));
 	expect(text.discard()).toMatchObject({ text: 'unfinished source' });
 	restore();
-	expect(edit.change(row, { body: 'A body edit' })).toBe(true);
-	expect(text.change(observed(), 'Do not overwrite the body')).toBe(false);
+	expectOk(edit.change(row, { body: 'A body edit' }));
+	expectErr(text.change(observed(), 'Do not overwrite the body'));
 	await edit.save();
-	expect(text.change(observed(), 'new source')).toBe(true);
+	expectOk(text.change(observed(), 'new source'));
 });
 
 test('whole-file saving keeps BOM, CRLF, and the last newline exactly as submitted', async () => {
@@ -158,7 +158,7 @@ test('deletion fences text immediately and sends its held text before removing t
 	text.change(observed(), initial.replace('one', 'typed'));
 	const deleting = folder.tables.notes.edit('a').delete();
 	expect(text.locked).toBe(true);
-	expect(text.change(observed(), 'late text')).toBe(false);
+	expectErr(text.change(observed(), 'late text'));
 	await text.save();
 	expect(expectOk(await deleting).deleted).toBe(true);
 	expect(await sourceOf(other)).toBeUndefined();
@@ -176,7 +176,7 @@ test('failed whole-file input refuses deletion and close returns its exact text'
 	expect(await context.close()).toMatchObject([
 		{ path, unsaved: changed, error: { name: 'StorageFailed' } },
 	]);
-	expect(text.change(source, 'late')).toBe(false);
+	expectErr(text.change(source, 'late'));
 	expect(text.pending).toMatchObject({ text: changed });
 });
 
@@ -217,11 +217,11 @@ test('the text binding shows held text over the observed bytes, BOM kept, and it
 	cleanup.push(shown.stop);
 	flushSync();
 
-	expect(view.change('﻿one!\r\n')).toBe(true);
+	expectOk(view.change('﻿one!\r\n'));
 	flushSync();
 	shownBytes.value = undefined;
 	flushSync();
-	expect(view.change('﻿one!!\r\n')).toBe(true);
+	expectOk(view.change('﻿one!!\r\n'));
 	flushSync();
 	await view.save();
 	flushSync();
@@ -231,7 +231,7 @@ test('the text binding shows held text over the observed bytes, BOM kept, and it
 	);
 	expect(changes).toEqual(['﻿one\r\n', '﻿one!\r\n', '﻿one!!\r\n']);
 	// With nothing observed there is no source to start new typing from.
-	expect(view.change('﻿late\r\n')).toBe(false);
+	expectErr(view.change('﻿late\r\n'));
 	const saved = expectOk(await other.files.read(path));
 	expect(await fileBytes(saved!.content)).toEqual(
 		new TextEncoder().encode('﻿one!!\r\n'),

@@ -220,7 +220,7 @@ export function createNotes(local: NotesFolder) {
 	/** A change of a note's fields and body. */
 	type NoteChange = { fields?: Partial<NoteFields>; body?: string };
 	/** What a change of a note is typed over: a view's binding, or the row a list shows. */
-	type NoteSource = NoteEntry | { change(change: NoteChange): boolean };
+	type NoteSource = NoteEntry | { change(change: NoteChange): ReturnType<RowEdit['change']> };
 
 	/**
 	 * Type `change` into the note at `path` over `seen`: the binding of the
@@ -252,7 +252,7 @@ export function createNotes(local: NotesFolder) {
 			'text' in seen
 				? folder.tables.notes.edit(id).change(seen, change)
 				: seen.change(change);
-		return taken ? undefined : CLOSING;
+		return taken.error?.message;
 	}
 
 	/**
@@ -358,7 +358,8 @@ export function createNotes(local: NotesFolder) {
 			if (why !== undefined)
 				return `A note could not be moved out of the folder: ${why}`;
 			const edit = folder.tables.notes.edit(note.id);
-			if (!edit.change(note, { fields: { folderId: null } })) return CLOSING;
+			const changed = edit.change(note, { fields: { folderId: null } });
+			if (changed.error !== null) return changed.error.message;
 			await edit.save();
 			const failed = edit.pending?.error;
 			if (failed !== undefined)
@@ -578,7 +579,8 @@ export function createNotes(local: NotesFolder) {
 			if (id === undefined || storedFolder(id) === undefined)
 				return NOT_LISTED;
 			const edit = folder.tables.folders.edit(id);
-			if (!edit.change(seen, { fields })) return CLOSING;
+			const changed = edit.change(seen, { fields });
+			if (changed.error !== null) return changed.error.message;
 			void edit.save();
 			return undefined;
 		},

@@ -30,7 +30,7 @@ import { openFolder } from '@epicenter/folder/browser';
 import type { RowEdit } from '@epicenter/folder/edits';
 import { QueryObserver } from '@tanstack/query-core';
 import { Type } from 'typebox';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 
 const { createFolderContext } = await import('./folder-context.js');
 const { createRowEdit } = await import('./edits.js');
@@ -297,7 +297,7 @@ test('close sends typing that waits for its pause and refuses input after it', a
 	const closing = context.close();
 	expect(context.closing).toBe(true);
 	expect(await closing).toEqual([]);
-	expect(milk.change(row, { fields: { title: 'Too late' } })).toBe(false);
+	expectErr(milk.change(row, { fields: { title: 'Too late' } }));
 
 	const reopened = await open();
 	cleanup.push(() => reopened.close());
@@ -429,14 +429,14 @@ test("a binding re-runs for its own path's typing, its observed row, and close; 
 	});
 	flushSync();
 
-	expect(milk.change({ fields: { title: 'Oat milk' } })).toBe(true);
+	expectOk(milk.change({ fields: { title: 'Oat milk' } }));
 	flushSync();
 	shownRow.value = { ...cached(), body: 'Read again' };
 	flushSync();
 	expect(title.values).toEqual(['Milk', 'Oat milk', 'Oat milk']);
 	expect(breadPending.values).toEqual([undefined]);
 	expect(saveState.values).toEqual(['saved', 'saving']);
-	expect(bread.change({ fields: { title: 'Bread' } })).toBe(false);
+	expectErr(bread.change({ fields: { title: 'Bread' } }));
 
 	await context.close();
 	flushSync();
@@ -532,6 +532,19 @@ test('a binding no view displays names what it would show now on every command',
 		fields: { title: 'Milk', done: false },
 		body: 'Two litres, typed\n',
 	});
+});
+
+test('a missing observed row refuses input with a reason and keeps earlier input copyable', async () => {
+	const { folder, cached } = await setup({ saveAfterMs: 60_000 });
+	let observed: Note | undefined = cached();
+	const view = createRowEdit(folder.tables.notes.edit('milk'), () => observed);
+	expectOk(view.change({ body: 'Keep this input' }));
+	const pending = view.pending;
+	observed = undefined;
+	expect(view.row).toBeUndefined();
+	expect(expectErr(view.change({ body: 'No source' })).name).toBe('NoSource');
+	expect(view.pending).toBe(pending);
+	expect(view.pending?.body).toBe('Keep this input');
 });
 
 test('a view that goes away lets go of its subscription while its input and timer stay with the folder', async () => {

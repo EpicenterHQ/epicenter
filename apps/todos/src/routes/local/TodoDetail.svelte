@@ -138,7 +138,7 @@
 				bind:checked={
 					() => shown.fields.done,
 					(done) => {
-						if (edit.change({ fields: { done } })) void edit.save();
+						if (edit.change({ fields: { done } }).error === null) void edit.save();
 					}
 				}
 			/>

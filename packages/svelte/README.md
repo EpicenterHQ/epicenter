@@ -187,6 +187,12 @@ while showing a field without assertions or template constants:
 {/if}
 ```
 
+`change` and `changeFields` return `Result<void, ChangeError>`: `Ok(undefined)`
+means accepted into memory, while `Err` explains the refusal. It does not mean
+saved. `save()` and `retry()` resolve after their attempt; `pending.error` and
+folder status report a storage failure. A missing observed row returns
+`ChangeError.NoSource`, leaving earlier input readable through `pending`.
+
 `observed` is the value the view reads from its query: a row, or the file's
 bytes through `fileBytes` or `rowBytes`. A command names what that binding
 last displayed, so typing over older text merges into held input and a

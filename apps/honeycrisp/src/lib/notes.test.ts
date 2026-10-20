@@ -237,7 +237,7 @@ test('a note whose text is not a note is listed for repair, opens as text, saves
 	// A row edit is refused while the file does not read as a note.
 	expect(notes.noteBody(A).patch({ pinned: true })).toBeDefined();
 
-	expect(typeInto(notes, A, noteText())).toBe(true);
+	expectOk(typeInto(notes, A, noteText()));
 	expect(notes.typedText(A)).toBe(noteText());
 	await notes.saveText(A);
 	await quiet(notes);
@@ -265,7 +265,7 @@ test('a note open as its file takes text edits merged by line with another tab, 
 	const theirs = await noteIn(tab, 'a');
 	expectOk(await tab.tables.notes.set('a', theirs, { body: 'one\n\ntwo?\n' }));
 	const typed = noteText({ title: 'Mine', body: 'one!\n\ntwo\n' });
-	expect(typeInto(notes, A, typed)).toBe(true);
+	expectOk(typeInto(notes, A, typed));
 	await notes.saveText(A);
 	await quiet(notes);
 	const saved = (await text(A)) ?? '';
@@ -394,7 +394,7 @@ test('closing after a failed file save returns the exact text for recovery', asy
 	observe(A);
 	await quiet(notes);
 	const changed = noteText({ title: 'Keep this draft' });
-	expect(typeInto(notes, A, changed)).toBe(true);
+	expectOk(typeInto(notes, A, changed));
 	failSaves();
 	const unsaved = await local.close();
 	expect(unsaved).toMatchObject([

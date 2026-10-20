@@ -194,9 +194,9 @@ test('a field typed is saved; the listing takes the saved row, and the audio lin
 	expect(library.isSaving(editor.path)).toBe(false);
 	expect(library.unsaved).toBe(false);
 	// The audio is exactly what was recorded.
-	expect(expectOk(await readBytes(library.local.folder, audioPath)).length).toBe(
-		32044,
-	);
+	expect(
+		expectOk(await readBytes(library.local.folder, audioPath)).length,
+	).toBe(32044);
 });
 
 test('notes typed while a save runs are saved next, from the row that save sent', async () => {
@@ -348,10 +348,12 @@ test('discarded field input preserves removals, literal values and the body for 
 	const observed = library.rowSource('recordings', editor.path)!;
 	const edit = library.local.folder.tables.recordings.edit(observed.id);
 	failWrites(editor.path);
-	expect(edit.change(observed, {
-		fields: { title: '[remove field]', durationMs: undefined },
-		body: 'Kept notes.\n',
-	})).toBe(true);
+	expectOk(
+		edit.change(observed, {
+			fields: { title: '[remove field]', durationMs: undefined },
+			body: 'Kept notes.\n',
+		}),
+	);
 	await edit.save();
 
 	expect(JSON.parse(library.discard(editor.path)!)).toEqual({
@@ -395,9 +397,9 @@ test('a recording deleted elsewhere with nothing typed stays deleted, and its au
 	expect(library.entries).toEqual([]);
 	expect(library.selection).toBeUndefined();
 	expect(await text(root, path)).toBeUndefined();
-	expect(expectOk(await readBytes(library.local.folder, audioPath)).length).toBe(
-		32044,
-	);
+	expect(
+		expectOk(await readBytes(library.local.folder, audioPath)).length,
+	).toBe(32044);
 });
 
 // ============================================================================
@@ -557,9 +559,9 @@ test('a deletion saves the typing first, then removes the recording and its resu
 	await settle(library);
 	expect(await text(root, path)).toBeUndefined();
 	expect(await text(root, result.path)).toBeUndefined();
-	expect(expectOk(await readBytes(library.local.folder, audioPath)).length).toBe(
-		32044,
-	);
+	expect(
+		expectOk(await readBytes(library.local.folder, audioPath)).length,
+	).toBe(32044);
 	expect(library.entries).toEqual([]);
 	expect(library.selection).toBeUndefined();
 });

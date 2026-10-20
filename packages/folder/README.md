@@ -201,6 +201,13 @@ const shown = rowEdit.shown(observedRow); // { source, row }: row with held inpu
 rowEdit.change(shown.source, { body: 'Two litres, typed\n' });
 ```
 
+`change` and `changeFields` synchronously return `Result<void, ChangeError>`.
+`Ok(undefined)` means the input was accepted into memory, not saved. `Err`
+explains why it was refused: an operation lock, incompatible held input, no
+source, failed fields that need recovery, or fields that cannot be applied.
+A refusal leaves earlier input intact. `save()` and `retry()` resolve after
+their attempt; `pending.error` and folder status report persistence failures.
+
 A UI binding (`@epicenter/svelte/edits`, `@epicenter/react/edits`) does the
 `shown` bookkeeping for a view.
 
@@ -234,7 +241,7 @@ A UI binding (`@epicenter/svelte/edits`, `@epicenter/react/edits`) does the
   Text typed over held fields keeps them and takes the patch's place.
 - **Exclusion.** Row input excludes text and field input on one path.
 - **Saving and retry.** `save()` sends new input now or joins its running
-  attempt. A failed or refused input stays held with its `SaveError`:
+  attempt. An accepted input whose save fails stays held with its `SaveError`:
   autosave, blur, `settle()`, delete, exclusive actions and close do not retry
   it. `retry()` explicitly authorizes one more attempt, while accepted new
   input clears the older error and may autosave. Retry during a running

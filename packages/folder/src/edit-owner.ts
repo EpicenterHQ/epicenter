@@ -53,7 +53,11 @@
  */
 import { diffArrays } from 'diff';
 import type { Static, TSchema } from 'typebox';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import {
+	defineErrors,
+	extractErrorMessage,
+	type InferErrors,
+} from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderFileOperations, FolderTableOperations } from './folder.js';
 import { callObserver } from './observer.js';
@@ -91,6 +95,31 @@ export const ActionError = defineErrors({
 	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
 });
 export type ActionError = InferErrors<typeof ActionError>;
+
+/** Why new input was refused, before any of it was accepted. */
+export const ChangeError = defineErrors({
+	Locked: ({ reason }: { reason: string }) => ({ message: reason, reason }),
+	NoSource: () => ({
+		message: 'No source is available to edit. It may be loading or gone.',
+	}),
+	OtherInput: ({ held }: { held: Pending['kind'] }) => ({
+		message:
+			'This file has unsaved changes in another editor. Save or discard them first.',
+		held,
+	}),
+	FieldsUnsaved: ({ cause }: { cause: SaveError }) => ({
+		message: `Save again or discard the failed field changes before editing the whole text: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
+	InvalidFields: ({ reason }: { reason: string }) => ({
+		message: `Fields cannot be applied: ${reason}`,
+		reason,
+	}),
+});
+export type ChangeError = InferErrors<typeof ChangeError>;
+
+/** Accepted into memory, or refused. A later save reports failures through `pending.error`. */
+export type ChangeResult = Result<void, ChangeError>;
 
 /**
  * What one change types into a row: fields by name, where `undefined`
@@ -199,10 +228,14 @@ export type RowEdit<TRowSchema extends TSchema = TSchema> = Edit<
 	/**
 	 * Type `change` over `source`, the row the person saw: a `shown(...)`
 	 * source, or any row the caller names. Fields and body are taken together,
-	 * as one change. Answers whether it was taken: nothing is while the
-	 * folder closes or an action holds the file, or while its text is held.
+	 * as one change. Answers `Ok` when accepted into memory, or the refusal
+	 * reason. Acceptance does not mean saved: a later save reports through
+	 * `pending.error` and folder status.
 	 */
-	change(source: Row<TRowSchema>, change: RowEditChange<TRowSchema>): boolean;
+	change(
+		source: Row<TRowSchema>,
+		change: RowEditChange<TRowSchema>,
+	): ChangeResult;
 };
 
 /** A file's whole text or a field patch over it, answered by `folder.files.edit(path)`. */
@@ -219,7 +252,7 @@ export type TextEdit = Edit<TextPending | FieldsPending> & {
 	 * Typed over held fields, it keeps them in its text and takes the place
 	 * of the field patch.
 	 */
-	change(source: Uint8Array | undefined, text: string): boolean;
+	change(source: Uint8Array | undefined, text: string): ChangeResult;
 	/**
 	 * Type `fields` into the file's frontmatter over `source`, adding a
 	 * frontmatter block if there is none: into held text, or as a patch the
@@ -229,7 +262,7 @@ export type TextEdit = Edit<TextPending | FieldsPending> & {
 	changeFields(
 		source: Uint8Array | undefined,
 		fields: Readonly<Record<string, unknown>>,
-	): boolean;
+	): ChangeResult;
 	/**
 	 * Take the file alone: input is refused from now on, held input is sent
 	 * once, and `action` runs only if it saved. Refused while another action
@@ -1159,12 +1192,15 @@ export function createEditOwner({
 			},
 			change(source, change) {
 				const state = states.get(path);
-				if (isLocked(state)) return false;
+				const reason = closing !== undefined ? CLOSING : state?.action?.reason;
+				if (reason !== undefined) return ChangeError.Locked({ reason });
 				const input = state?.input;
-				if (input !== undefined && input.kind !== 'row') return false;
+				if (input !== undefined && input.kind !== 'row')
+					return ChangeError.OtherInput({ held: input.kind });
 				const typed = (change.fields ?? {}) as Record<string, unknown>;
 				const keys = Object.keys(typed);
-				if (keys.length === 0 && change.body === undefined) return true;
+				if (keys.length === 0 && change.body === undefined)
+					return Ok(undefined);
 				const presented = presentations.get(source);
 				const seen =
 					presented?.kind === 'row' && presented.path === path
@@ -1223,7 +1259,7 @@ export function createEditOwner({
 					revision: ++revisions,
 				});
 				schedule(path, next);
-				return true;
+				return Ok(undefined);
 			},
 			save: () =>
 				heldRow() === undefined ? Promise.resolve() : requested(path),
@@ -1304,9 +1340,11 @@ export function createEditOwner({
 			},
 			change(source, typed) {
 				const state = states.get(path);
-				if (isLocked(state)) return false;
+				const reason = closing !== undefined ? CLOSING : state?.action?.reason;
+				if (reason !== undefined) return ChangeError.Locked({ reason });
 				const input = state?.input;
-				if (input?.kind === 'row') return false;
+				if (input?.kind === 'row')
+					return ChangeError.OtherInput({ held: input.kind });
 				const presented =
 					source === undefined ? undefined : presentations.get(source);
 				const seen =
@@ -1330,27 +1368,19 @@ export function createEditOwner({
 					({ from, fromAsOf } = input);
 					next = over(input.pending.text);
 				} else {
-					if (source === undefined) return false;
+					if (source === undefined) return ChangeError.NoSource();
 					fromAsOf = seen?.asOf ?? readOf(source, self);
 					if (input?.kind === 'fields') {
 						// Failed fields are recovered first: retried or discarded.
-						if (input.pending.error !== undefined) return false;
+						if (input.pending.error !== undefined)
+							return ChangeError.FieldsUnsaved({ cause: input.pending.error });
 						const preview = changed(path, source, {
 							fields: input.pending.fields,
 						});
-						if (preview.error !== null) {
-							setInput(
-								path,
-								stateOf(path),
-								withState(input, {
-									saving: input.pending.saving,
-									error: SaveError.Unparseable({
-										reason: preview.error.reason,
-									}).error,
-								}),
-							);
-							return false;
-						}
+						if (preview.error !== null)
+							return ChangeError.InvalidFields({
+								reason: preview.error.reason,
+							});
 						// The held fields stay: a view that did not show them changed
 						// the text without them.
 						next = over(preview.data.text);
@@ -1372,18 +1402,21 @@ export function createEditOwner({
 					revision: ++revisions,
 				});
 				schedule(path, target);
-				return true;
+				return Ok(undefined);
 			},
 			changeFields(source, fields) {
 				const state = states.get(path);
-				if (isLocked(state)) return false;
+				const reason = closing !== undefined ? CLOSING : state?.action?.reason;
+				if (reason !== undefined) return ChangeError.Locked({ reason });
 				const input = state?.input;
-				if (input?.kind === 'row') return false;
-				const target = stateOf(path);
+				if (input?.kind === 'row')
+					return ChangeError.OtherInput({ held: input.kind });
+				let next: TextInput | FieldsInput;
 				if (input?.kind === 'text') {
 					const put = changed(path, input.pending.text, { fields });
-					if (put.error !== null) return false;
-					setInput(path, target, {
+					if (put.error !== null)
+						return ChangeError.InvalidFields({ reason: put.error.reason });
+					next = {
 						...input,
 						pending: {
 							...input.pending,
@@ -1391,17 +1424,16 @@ export function createEditOwner({
 							error: undefined,
 						},
 						revision: ++revisions,
-					});
+					};
 				} else {
-					if (source === undefined) return false;
+					if (source === undefined) return ChangeError.NoSource();
 					let patch: Record<string, unknown> = input?.pending.fields ?? {};
 					for (const [key, value] of Object.entries(fields))
 						patch = withValue(patch, key, value);
-					if (changed(path, source, { fields: patch }).error !== null) {
-						prune(path);
-						return false;
-					}
-					setInput(path, target, {
+					const put = changed(path, source, { fields: patch });
+					if (put.error !== null)
+						return ChangeError.InvalidFields({ reason: put.error.reason });
+					next = {
 						kind: 'fields',
 						pending: {
 							kind: 'fields',
@@ -1411,10 +1443,12 @@ export function createEditOwner({
 							error: undefined,
 						},
 						revision: ++revisions,
-					});
+					};
 				}
+				const target = stateOf(path);
+				setInput(path, target, next);
 				schedule(path, target);
-				return true;
+				return Ok(undefined);
 			},
 			save: () =>
 				heldText() === undefined ? Promise.resolve() : requested(path),

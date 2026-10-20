@@ -37,6 +37,10 @@ the app's own query. It answers:
 | `change({ fields?, body? })` | Type fields and the body over what this render showed, as one change. |
 | `save()`, `retry()`, `discard()`, `delete()` | The handle's own commands. |
 
+`change` and `changeFields` return `Result<void, ChangeError>`: success means
+accepted into memory, and failure explains why no input was accepted. A missing
+observed row returns `ChangeError.NoSource`. Storage outcomes come later.
+
 `save()` sends new input or joins its running attempt. Failed input stays
 held until `retry()` explicitly attempts it again or accepted new input clears
 the old error. Autosave, blur, settlement and close do not retry a failure.

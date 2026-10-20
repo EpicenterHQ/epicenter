@@ -38,7 +38,7 @@
 		bind:checked={
 			() => done,
 			(next) => {
-				if (edit.change({ fields: { done: next } })) void edit.save();
+				if (edit.change({ fields: { done: next } }).error === null) void edit.save();
 			}
 		}
 		disabled={edit.locked}

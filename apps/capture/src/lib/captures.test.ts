@@ -400,7 +400,7 @@ test('Edit as text saves the exact text and merges with another tab', async () =
 	await captures.open('one', 'text');
 	const edit = harness.folder.files.edit(PATH);
 	const typed = HAND.replace('Text', 'Typed as text');
-	expect(edit.change(bytes(HAND), typed)).toBe(true);
+	expectOk(edit.change(bytes(HAND), typed));
 	await harness.quiet();
 	expect(await harness.text(PATH)).toBe(typed);
 
@@ -508,7 +508,7 @@ test('close sends the edit held and refuses new input', async () => {
 	expect(captures.fenced).toBe(true);
 	form.inputText('Too late');
 	expect(form.body).toBeUndefined();
-	expect(harness.folder.files.edit(PATH).change(bytes(HAND), 'x')).toBe(false);
+	expect(expectErr(harness.folder.files.edit(PATH).change(bytes(HAND), 'x')).name).toBe('Locked');
 	captures.inputNewCapture('Too late');
 	expect(captures.newCapture).toBe('');
 	expect(expectErr(await captures.create('Too late')).name).toBe('NotStarted');

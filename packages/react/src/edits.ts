@@ -14,6 +14,7 @@
  */
 import type { Row } from '@epicenter/folder';
 import type {
+	ChangeResult,
 	ExclusiveFile,
 	FieldsPending,
 	RowEdit,
@@ -22,6 +23,7 @@ import type {
 	TextEdit,
 	TextPending,
 } from '@epicenter/folder/edits';
+import { ChangeError } from '@epicenter/folder/edits';
 import { useMemo, useSyncExternalStore } from 'react';
 import type { TSchema } from 'typebox';
 
@@ -72,10 +74,12 @@ export function useRowEdit<
 		locked,
 		/**
 		 * Type fields and body over what this render showed, as one change.
-		 * Answers whether it was taken.
+		 * Answers acceptance into memory or the refusal reason; saving happens later.
 		 */
-		change: (change: RowEditChange<TRowSchema>): boolean =>
-			shown !== undefined && edit.change(shown.source, change),
+		change: (change: RowEditChange<TRowSchema>): ChangeResult =>
+			shown === undefined
+				? ChangeError.NoSource()
+				: edit.change(shown.source, change),
 		save: () => edit.save(),
 		retry: () => edit.retry(),
 		discard: () => edit.discard(),
@@ -112,10 +116,10 @@ export function useTextEdit<TObserved extends Uint8Array | undefined>(
 		text: text as ShownText<TObserved>,
 		pending,
 		locked,
-		/** Type the whole text over what this render showed. Answers whether it was taken. */
-		change: (next: string): boolean => edit.change(shown.source, next),
+		/** Type the whole text over what this render showed. Answers acceptance into memory or the refusal reason; saving happens later. */
+		change: (next: string): ChangeResult => edit.change(shown.source, next),
 		/** Type frontmatter fields over what this render showed. */
-		changeFields: (fields: Readonly<Record<string, unknown>>): boolean =>
+		changeFields: (fields: Readonly<Record<string, unknown>>): ChangeResult =>
 			edit.changeFields(shown.source, fields),
 		save: () => edit.save(),
 		retry: () => edit.retry(),

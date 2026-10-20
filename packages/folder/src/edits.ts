@@ -8,6 +8,8 @@
 export {
 	ActionError,
 	BUSY,
+	ChangeError,
+	type ChangeResult,
 	CLOSING,
 	DELETING,
 	type DeleteResult,

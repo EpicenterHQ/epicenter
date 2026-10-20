@@ -160,7 +160,11 @@ export function createCaptureForm(capture: {
 			}
 			refusal = undefined;
 			if (body === shown.body) return true;
-			if (!view.change({ body })) return false;
+			const changed = view.change({ body });
+			if (changed.error !== null) {
+				refusal = changed.error.message;
+				return false;
+			}
 			if (!later) void view.save();
 			return true;
 		}

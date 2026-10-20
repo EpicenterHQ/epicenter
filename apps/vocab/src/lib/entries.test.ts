@@ -482,7 +482,7 @@ test('close sends a whole-file repair draft before releasing the folder', async 
 	const repair = opened.vocab.entries.repair;
 	expect(repair.start('broken')).toBe(true);
 	const broken = rows(opened.vocab).find((row) => row.id === 'broken')!;
-	expect(repair.view(broken)?.change('---\ntext: repaired\n---\n')).toBe(true);
+	expectOk(repair.view(broken)!.change('---\ntext: repaired\n---\n'));
 	await opened.context.close();
 	const reopened = await browser.open();
 	expect(await fileText(reopened, 'entries/broken.md')).toContain(

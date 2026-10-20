@@ -83,9 +83,7 @@ async function storedTitle({ folder }: Notes) {
 async function typeTitle({ folder }: Notes, title: string) {
 	const row = expectOk(await folder.tables.notes.get('milk'));
 	if (row === undefined) throw new Error('milk is not stored');
-	expect(
-		folder.tables.notes.edit('milk').change(row, { fields: { title } }),
-	).toBe(true);
+	expectOk(folder.tables.notes.edit('milk').change(row, { fields: { title } }));
 }
 
 /** Make every IndexedDB write fail the way a full disk does, until restored. */

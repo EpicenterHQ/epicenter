@@ -132,7 +132,7 @@ export type ReadRow<T extends TableName> = Extract<
 export type RowView = {
 	readonly path: string;
 	readonly pending: RowPending | undefined;
-	change(change: RowEditChange): boolean;
+	change(change: RowEditChange): ReturnType<RowEdit['change']>;
 	save(): Promise<void>;
 };
 /** A view's binding of a file's exact text (`library.textView`). */
@@ -1022,7 +1022,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 			set: Partial<FieldsOf[T]>,
 		): void {
 			if (fenced || busyPaths.has(view.path)) return;
-			if (view.change({ fields: set })) void view.save();
+			if (view.change({ fields: set }).error === null) void view.save();
 		},
 		/**
 		 * Type `body` as the body of the row a view shows, over what it last

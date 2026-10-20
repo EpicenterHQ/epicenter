@@ -62,7 +62,10 @@ export type EntryRows = RowOf<'entries'>[];
 
 /** The file name shared by every add of the same exact word text. */
 async function wordId(text: string): Promise<string> {
-	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+	const digest = await crypto.subtle.digest(
+		'SHA-256',
+		new TextEncoder().encode(text),
+	);
 	return [...new Uint8Array(digest)]
 		.map((byte) => byte.toString(16).padStart(2, '0'))
 		.join('');
@@ -71,7 +74,8 @@ async function wordId(text: string): Promise<string> {
 /** Every word that reads as one, newest first. */
 export function wordsOf(rows: EntryRows): Entry[] {
 	return readRows('entries', rows, readEntry).rows.sort(
-		(a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
+		(a, b) =>
+			b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
 	);
 }
 
@@ -149,10 +153,14 @@ export function createEntries(local: VocabContext) {
 			 */
 			setNote: (note: string): boolean =>
 				canEdit(id) &&
-				binding.change({ fields: { note: note.toWellFormed() } }),
+				binding.change({ fields: { note: note.toWellFormed() } }).error ===
+					null,
 			/** Press a stage; it is saved at once. */
 			setStage(stage: Stage): boolean {
-				if (!canEdit(id) || !binding.change({ fields: { stage } }))
+				if (
+					!canEdit(id) ||
+					binding.change({ fields: { stage } }).error !== null
+				)
 					return false;
 				void binding.save();
 				return true;
@@ -215,7 +223,9 @@ export function createEntries(local: VocabContext) {
 		 */
 		async delete(
 			entry: Entry,
-		): Promise<Result<{ deleted: boolean }, SaveError | ReadError | ActionError>> {
+		): Promise<
+			Result<{ deleted: boolean }, SaveError | ReadError | ActionError>
+		> {
 			const removed = await table.edit(entry.id).delete();
 			if (removed.error !== null || removed.data.deleted) return removed;
 			const { data: current, error } = await untilClosed(
