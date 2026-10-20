@@ -30,7 +30,7 @@
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { createLogger } from 'wellcrafted/logger';
-	import { Ok } from 'wellcrafted/result';
+	import { Err, Ok } from 'wellcrafted/result';
 	import { createFolderContext, type FolderContext } from './folder-context.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
 	import { toastWriteFailure } from './write-failure-toast.js';
@@ -52,33 +52,30 @@
 		children: Snippet<[FolderContext<TTables>]>;
 	} = $props();
 
-	let active: FolderContext<TTables> | undefined;
+	let context: FolderContext<TTables> | undefined;
 	// svelte-ignore state_referenced_locally
 	async function open() {
-		const opened = await openFolder({ tables });
-		if (opened.error) return opened;
-		active = createFolderContext(opened.data, { saveAfterMs });
+		const { data: folder, error } = await openFolder({ tables });
+		if (error !== null) return Err(error);
+		context = createFolderContext(folder, { saveAfterMs });
 		try {
-			await active.guardWindowClose();
+			await context.guardWindowClose();
 		} catch (cause) {
-			await active.close();
+			await context.close();
 			throw cause;
 		}
-		return Ok(active);
+		return Ok(context);
 	}
 	let opening = $state(open());
-	function retry() {
-		opening = open();
-	}
 
 	// Teardown: what is typed is sent, every save lands, then the folder is
 	// released. A folder still opening is closed once it opens. Failed row
 	// drafts are offered for copying after their editor has gone away.
 	onDestroy(() => {
 		void opening
-			.then(async (opened) => {
-				if (opened.data === null) return;
-				const unsaved = await opened.data.close();
+			.then(async ({ data: context }) => {
+				if (context === null) return;
+				const unsaved = await context.close();
 				for (const draft of unsaved)
 					toastWriteFailure(draft);
 			})
@@ -87,12 +84,12 @@
 			);
 	});
 	function beforeUnload(event: BeforeUnloadEvent) {
-		if (!active?.leaving) return;
+		if (!context?.leaving) return;
 		event.preventDefault();
 		event.returnValue = '';
 	}
 	function settle() {
-		void opening.then((opened) => opened.data?.settled()).catch((cause: unknown) =>
+		void opening.then(({ data: context }) => context?.settled()).catch((cause: unknown) =>
 			log.error(new Error('The local folder edits did not settle', { cause })),
 		);
 	}
@@ -114,7 +111,7 @@
 		</Empty.Header>
 		{#if refusal.retry}
 			<Empty.Content>
-				<Button variant="outline" size="sm" onclick={retry}>Try again</Button>
+				<Button variant="outline" size="sm" onclick={() => { opening = open(); }}>Try again</Button>
 			</Empty.Content>
 		{/if}
 	</Empty.Root>

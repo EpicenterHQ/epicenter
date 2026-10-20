@@ -24,7 +24,7 @@
 	} from '$lib/local-todos.js';
 	import TodoRow from './TodoRow.svelte';
 
-	const local = getFolder();
+	const { folder, queries, queryClient, edits } = getFolder();
 
 	let {
 		open,
@@ -39,7 +39,7 @@
 		title?: string;
 	} = $props();
 
-	const rows = createQuery(() => local.queries.rows('todos'));
+	const rows = createQuery(() => queries.rows('todos'));
 	const todos = $derived(rows.data === undefined ? undefined : todosOf(rows.data));
 	const repairs = $derived(repairsOf(rows.data ?? []));
 	const unreadable = $derived(unreadableOf(rows.data ?? []));
@@ -53,41 +53,42 @@
 	const create = createMutation(() => ({
 		mutationFn: async (typed: string) => {
 			const id = crypto.randomUUID();
-			const { error } = await local.folder.tables.todos.set(id, null, {
+			const { error } = await folder.tables.todos.set(id, null, {
 				fields: { title: typed, done: false },
 				body: '',
 			});
 			if (error !== null) throw error;
 			// Listed before it opens, so the detail never says it is gone.
-			await local.queryClient.invalidateQueries({ queryKey: local.queries.rows('todos').queryKey });
+			await queryClient.invalidateQueries({ queryKey: queries.rows('todos').queryKey });
 			return id;
 		},
 		onError: (error: Parameters<typeof describeFailure>[0], typed: string) =>
 			toast.error('Could not add the todo', { description: `"${typed}": ${describeFailure(error)}` }),
 	}));
-
-	function add(event: SubmitEvent) {
-		event.preventDefault();
-		const typed = title.trim();
-		if (typed === '' || create.isPending) return;
-		create.mutate(typed, {
-			onSuccess: (id) => {
-				title = '';
-				onOpen?.(id);
-			},
-		});
-	}
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Todo list">
-	<form class="flex shrink-0 items-center gap-2 border-b p-3" onsubmit={add}>
+	<form
+		class="flex shrink-0 items-center gap-2 border-b p-3"
+		onsubmit={(event) => {
+			event.preventDefault();
+			const typed = title.trim();
+			if (typed === '' || create.isPending) return;
+			create.mutate(typed, {
+				onSuccess: (id) => {
+					title = '';
+					onOpen?.(id);
+				},
+			});
+		}}
+	>
 		<Input
 			bind:value={title}
 			placeholder="Add a todo"
 			aria-label="New todo title"
-			disabled={create.isPending || local.edits.fenced}
+			disabled={create.isPending || edits.fenced}
 		/>
-		<Button type="submit" disabled={create.isPending || local.edits.fenced || title.trim() === ''}>
+		<Button type="submit" disabled={create.isPending || edits.fenced || title.trim() === ''}>
 			{create.isPending ? 'Adding…' : 'Add'}
 		</Button>
 	</form>

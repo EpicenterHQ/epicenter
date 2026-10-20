@@ -23,14 +23,12 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { getFolder } from '$lib/folder.js';
-	import type { RowChange } from '@epicenter/svelte/edits';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import type { todosTables } from '$lib/definition.js';
 	import { describeFailure, labelOf, type TodoRow, todoPath } from '$lib/local-todos.js';
 
-	const local = getFolder();
+	const { queries, edits } = getFolder();
 
 	let {
 		id: shownId,
@@ -51,21 +49,15 @@
 	const id = shownId;
 	const path = todoPath(id);
 	const row = createQuery(() => ({
-		...local.queries.rows('todos'),
+		...queries.rows('todos'),
 		select: (rows: TodoRow[]) => rows.find((candidate) => candidate.id === id),
 	}));
-	const draft = local.edits.row('todos', id);
+	const draft = edits.row('todos', id);
 	/** The row as stored, when it reads as a todo. */
 	const stored = $derived(row.data?.issues === null ? row.data : undefined);
 
 	// The draft outlives the view; send what is typed now.
 	onDestroy(() => void draft.save());
-
-	/** Type `change` into the todo as it is stored when the event arrives. */
-	function edit(change: RowChange<(typeof todosTables)['todos']>) {
-		if (stored !== undefined) return draft.change(stored, change);
-		return false;
-	}
 
 	function confirmDiscard() {
 		confirmationDialog.open({
@@ -88,7 +80,7 @@
 			description: `This deletes ${path} from this device. Other files stay in the folder.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
-				const { data, error } = await local.edits.delete('todos', id);
+				const { data, error } = await edits.delete('todos', id);
 				if (error !== null) toast.error(`Could not delete ${path}`, { description: describeFailure(error) });
 				else if (data.deleted || row.data === undefined) onDeleted?.();
 				else toast.error(`${path} was not deleted`, { description: 'It changed while it was deleted, so it was kept.' });
@@ -142,7 +134,8 @@
 				bind:checked={
 					() => shown.fields.done,
 					(done) => {
-						if (edit({ fields: { done } })) void draft.save();
+						if (stored !== undefined && draft.change(stored, { fields: { done } }))
+							void draft.save();
 					}
 				}
 			/>
@@ -151,7 +144,12 @@
 				placeholder="Title"
 				aria-label="Title"
 				disabled={draft.locked}
-				bind:value={() => shown.fields.title, (title) => edit({ fields: { title } })}
+				bind:value={
+					() => shown.fields.title,
+					(title) => {
+						if (stored !== undefined) draft.change(stored, { fields: { title } });
+					}
+				}
 				onblur={() => void draft.save()}
 			/>
 		</div>
@@ -174,7 +172,12 @@
 				placeholder="Notes in Markdown"
 				aria-label="Notes"
 				disabled={draft.locked}
-				bind:value={() => shown.body, (body) => edit({ body })}
+				bind:value={
+					() => shown.body,
+					(body) => {
+						if (stored !== undefined) draft.change(stored, { body });
+					}
+				}
 				onblur={() => void draft.save()}
 			/>
 		</div>
