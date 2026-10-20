@@ -340,13 +340,13 @@ pub fn run() {
         .plugin(log_plugin)
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        // The native folder picker, which Rust opens and answers: no
-        // capability grants a page the dialog plugin's commands.
+        // Rust owns the folder picker. Folder pages may show close
+        // confirmations, but no capability grants a page the file picker.
         .plugin(tauri_plugin_dialog::init())
         .manage(PendingHomeSection::default())
         .manage(folder_opening::FolderOpenings::default())
         .manage(cli::CliChildren::default())
-        .manage(shell::PendingQuit::default())
+        .manage(shell::QuitRequest::default())
         .manage(DownloadManager::default());
 
     // Only native dictation uses these plugins; no capability grants them.
@@ -443,10 +443,6 @@ pub fn run() {
             RunEvent::ExitRequested { api, code, .. } => {
                 shell::request_quit(app, &api, code.unwrap_or(0));
             }
-            RunEvent::WindowEvent {
-                event: WindowEvent::Destroyed,
-                ..
-            } => shell::window_destroyed(app),
             _ => {}
         });
 }
@@ -879,6 +875,8 @@ mod tests {
             serde_json::json!([
                 "epicenter-folder:default",
                 "core:event:allow-listen",
+                "core:event:allow-emit",
+                "dialog:allow-message",
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",
                 "core:window:allow-destroy"
@@ -907,7 +905,7 @@ mod tests {
 
     /// A folder editor window, one per listed folder (`data_folders.rs`), is
     /// selected by `folder-editor.json` alone and holds the folder plugin, its
-    /// visible query refresh, read-only SQL, and destroying itself once typing saved: no
+    /// visible query refresh, read-only SQL, and close confirmation for pending saves: no
     /// listing, launch, account, AI, recorder, or model command.
     #[test]
     fn a_folder_editor_window_holds_files_and_read_only_sql() {
@@ -922,6 +920,8 @@ mod tests {
                 "epicenter-folder:default",
                 "allow-folder-query",
                 "core:event:allow-listen",
+                "core:event:allow-emit",
+                "dialog:allow-message",
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",
                 "core:window:allow-destroy"
@@ -961,6 +961,8 @@ mod tests {
             serde_json::json!([
                 "epicenter-folder:default",
                 "core:event:allow-listen",
+                "core:event:allow-emit",
+                "dialog:allow-message",
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",
                 "core:window:allow-destroy",
@@ -1331,8 +1333,8 @@ mod tests {
                     );
                 }
                 assert!(
-                    !permission.starts_with("dialog:"),
-                    "the folder picker is opened and answered in Rust"
+                    !permission.starts_with("dialog:") || permission == "dialog:allow-message",
+                    "only message dialogs are allowed; the folder picker belongs to Rust"
                 );
                 assert!(
                     !OPENING.contains(&permission),

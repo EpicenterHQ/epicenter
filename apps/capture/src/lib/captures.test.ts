@@ -135,14 +135,14 @@ test('an edit saves after a pause and keeps undeclared frontmatter', async () =>
 	form.inputText('Edited');
 	// The row's body starts after the frontmatter, at its blank separator line.
 	expect(form.body).toBe('\nEdited\n\n## Thoughts\n\n- first\n  nested line\n');
-	expect(harness.captures.unsettled).toBe(true);
+	expect(harness.context.getStatus().saving || harness.context.getStatus().unsaved.length > 0).toBe(true);
 
 	await harness.quiet();
 	expect(form.body).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(
 		withBody('Edited\n\n## Thoughts\n\n- first\n  nested line\n'),
 	);
-	expect(harness.captures.unsettled).toBe(false);
+	expect(harness.context.getStatus().saving || harness.context.getStatus().unsaved.length > 0).toBe(false);
 });
 
 test("another tab's change shows without replacing typing, and the save merges with it", async () => {
@@ -356,7 +356,7 @@ test('a thought typed and not added stays with its capture', async () => {
 
 	expect(captures.formOf('one').newThought).toBe('not yet');
 	expect(captures.formOf('two').newThought).toBe('');
-	expect(captures.unsettled).toBe(true);
+	expect(harness.context.getStatus().saving || harness.context.getStatus().unsaved.length > 0).toBe(false);
 	expect(await harness.text(PATH)).toBe(HAND);
 });
 

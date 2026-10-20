@@ -29,29 +29,18 @@
 
 	let filesOpen = $state(false);
 
-	// Typing not yet saved, or a save or action still running, lives only in
-	// this page. A reload or in-page navigation is cancelled then, and the
-	// browser asks before it leaves. Once the notes are closing,
+	// An accepted Folder change still saving holds reload and navigation.
+	// <FolderApp> owns the browser unload prompt. Once the notes are closing,
 	// `notes.fenced` holds back every input and action here.
 	beforeNavigate(({ cancel }) => {
-		if (notes.busy) cancel();
+		if (context.getStatus().saving || context.getStatus().unsaved.length > 0) cancel();
 	});
 </script>
 
 <svelte:window
-	onbeforeunload={(event) => {
-		if (notes.busy) event.preventDefault();
-	}}
 	onkeydown={async (event) => {
 		const mod = event.metaKey || event.ctrlKey;
-		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && notes.busy) {
-			// A reload would stop a save in flight. The leave prompt below is
-			// the browser's to show or not; refusing the shortcut does not depend on it.
-			event.preventDefault();
-			toast.warning('Reload stopped: a change is still being saved', {
-				description: 'Reload again once it finishes.',
-			});
-		} else if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
+		if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
 			event.preventDefault();
 			filesOpen = !filesOpen;
 		} else if (mod && !event.shiftKey && event.key.toLowerCase() === 'n') {

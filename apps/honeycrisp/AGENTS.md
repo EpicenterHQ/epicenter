@@ -92,9 +92,9 @@ verify it against the code. The constraints below apply to every edit here.
   to change a file must check `fenced`, and a control in a menu, popover, or
   dialog must also be `disabled`, because those render outside the inert
   root.
-- Keep the reload and in-page navigation guards in `HoneycrispApp`
-  (`beforeunload`, `beforeNavigate`, the reload shortcut): they hold a reload
-  back while typing is held or a save or action runs.
+- Keep the browser unload guard in `FolderApp` and the in-page navigation
+  guard (`beforeNavigate`) in `HoneycrispApp`. They ask before leaving only
+  while the Folder has a pending save.
 
 ## The boundary
 

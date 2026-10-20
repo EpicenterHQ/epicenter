@@ -70,19 +70,20 @@ the shell bound to that window before the window existed; the page names no
 path. It never falls back to browser storage if a native open fails. Opening needs
 no account, remote, or network. The root shows a loading or refusal screen,
 sends held input when the page hides, and closes after pending work settles.
-Held input or an unsubmitted form prompts before a browser unload. In a
-desktop window, the editable page appears only after its close listener is
-installed. Closing that window sends held input and waits for accepted local saves;
-failed saves and unsubmitted forms keep it open and bring it forward, including
-when it is a background native tab. The native capability must grant
-`core:window:allow-set-focus` and `core:window:allow-destroy`. Application Quit remains
-immediate. If a save still fails as the route unmounts, the root shows its fields and body for copying in a
+Only a pending Folder save prompts before a browser unload. In a desktop
+window, the editable page appears only after its close listener is
+installed. Closing that window checks `folder.getStatus().saving` and
+`folder.getStatus().unsaved`; if either indicates pending work, a native dialog
+asks whether to close anyway. An unsubmitted form does not prompt. The native
+capability must grant `dialog:allow-message`, `core:window:allow-set-focus`,
+and `core:window:allow-destroy`. Epicenter's Quit asks each mounted folder
+page for the same status and shows one confirmation if needed. If a save still fails as the route unmounts, the root shows its fields and body for copying in a
 notice held by the app layout's toaster.
 
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
 initialization. The context contains `folder`, `queryClient`,
-`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `getStatus()`, `closing`, `getSaveState()`, `busy`, `leaving`, `run`,
-`registerUnsent`, `settled`, `guardWindowClose`, `refresh`, and `close`.
+`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `getStatus()`, `closing`, `getSaveState()`, `run`,
+`guardWindowClose`, `refresh`, and `close`.
 Every save, own or not, reaches the context through the folder's one change
 channel (`onChange`), which also names a save of this handle that changed
 nothing; the context marks the queries over the named paths stale. No save
@@ -141,8 +142,7 @@ to folder changes.
 `getSaveState()` comes from `folder.getStatus()` alone: `saved` only when no input is
 held, no save runs, and no failure is held. Held input whose save failed is
 `failed`. A storage failure with nothing held is `recent-failure`. An app
-action that saves nothing yet, such as a request it waits for, counts in
-`busy` and `leaving` and keeps a window open, but is not `saving`. The app chooses the words shown
+action that saves nothing yet does not affect the departure prompt. The app chooses the words shown
 to a person, such as "Saved on this device".
 
 ## Row and whole-file edits
@@ -213,7 +213,7 @@ reads the operation lock, and `save`, `discard`, `delete`, `retry` and
 through a subscription that lives while an effect reads it.
 
 Use `context.run(action)` for accepted app actions that may write after an
-await. The context counts them in `busy` and waits for them during close;
+await. The context waits for them during normal close;
 their file writes determine `getSaveState()`. `close()` refuses new actions and app input
 (`closing`), lets started actions finish, stops the change channel and
 cancels reads, then calls `folder.close()`, which fences input, sends it, and

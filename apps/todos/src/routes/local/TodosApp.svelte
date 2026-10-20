@@ -12,7 +12,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { type getFolder, setFolder } from '$lib/folder.js';
-	import { onDestroy, tick } from 'svelte';
+	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -29,12 +29,11 @@
 	// svelte-ignore state_referenced_locally
 	setQueryClientContext(context.queryClient);
 
-	// Typing not yet saved, or a save still running, lives only in this page.
-	// Leaving the page then is cancelled; for a reload or a closed tab
+	// An accepted Folder change still saving holds navigation; for a reload or a closed tab
 	// ('leave'), SvelteKit turns the cancel into the browser's own leave
 	// confirmation. Opening another todo changes only the query.
 	beforeNavigate(({ type, from, to, cancel }) => {
-		if (!context.leaving) return;
+		if (!context.getStatus().saving && context.getStatus().unsaved.length === 0) return;
 		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
 	});
 
@@ -43,16 +42,6 @@
 	/** The id of the todo the detail shows. Opening never waits or asks. */
 	const open = $derived(page.url.searchParams.get('todo') ?? undefined);
 	let newTitle = $state('');
-	// A title typed and not added keeps the desktop window open when it is
-	// closed; a browser leave asks before discarding it too.
-	// svelte-ignore state_referenced_locally
-	onDestroy(
-		context.registerUnsent(() =>
-			newTitle.trim() === ''
-				? undefined
-				: 'A new todo is typed and not added. Add it or clear it, then close.',
-		),
-	);
 
 	/**
 	 * Show the todo `id`, or none. Opening adds a history entry, so Back

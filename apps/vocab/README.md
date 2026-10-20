@@ -28,7 +28,7 @@ A file in `entries/` that is not a valid word is named under the list with why, 
 
 Delete asks first. Confirming waits for the word's typing to save, then removes the file. A word whose typing failed to save is not deleted until that typing is saved or discarded. A word changed in another tab in that moment is kept, and a notice says so.
 
-Leaving the page while typing is held or a save runs is cancelled; for a reload or a closed tab, the browser asks first. Closing the page sends what is typed, and every save already started lands.
+Leaving the page while the Folder has an accepted change still saving is cancelled; for a reload or a closed tab, the browser asks first. Normal page teardown sends held edits and waits for started saves.
 
 Vocab records no versions and offers no "Save version" or Sync.
 
@@ -81,7 +81,7 @@ A message's file is named by its chat and its ID. A save reads that file first a
 
 ## Development
 
-Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks. The tests run the real modules over the real local folder on an in-memory IndexedDB (`fake-indexeddb`, loaded from `@epicenter/svelte`'s install). Words, chats, and every save go through the local folder context `<FolderApp>` builds (`getFolder()`): one TanStack Query cache whose table reads the folder's `onChange` marks stale, and one close when the page goes away. The folder holds each word's draft (`folder.tables.entries.edit(id)`), which each card binds with `createRowEdit` from `@epicenter/svelte/edits`. `src/lib/vocab.svelte.ts` builds Vocab over that context; the context counts actions (adding a word, starting a chat, saving a message) so leaving waits for them. `src/lib/entries.svelte.ts` holds the words and each word's draft, `src/lib/repair.svelte.ts` the repair's text, typed through the file's edit handle (`folder.files.edit(path)`), and `src/lib/chat/chats.ts` the chat list and each chat's turn of message saves. `bun run --cwd apps/vocab test` also runs `test:svelte`, which mounts the real word card in jsdom under the browser build of Svelte; it shows what delivered events do, not layout, focus, or IME.
+Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks. The tests run the real modules over the real local folder on an in-memory IndexedDB (`fake-indexeddb`, loaded from `@epicenter/svelte`'s install). Words, chats, and every save go through the local folder context `<FolderApp>` builds (`getFolder()`): one TanStack Query cache whose table reads the folder's `onChange` marks stale, and one close when the page goes away. The folder holds each word's draft (`folder.tables.entries.edit(id)`), which each card binds with `createRowEdit` from `@epicenter/svelte/edits`. `src/lib/vocab.svelte.ts` builds Vocab over that context; the context waits for accepted actions (adding a word, starting a chat, saving a message) during normal teardown. `src/lib/entries.svelte.ts` holds the words and each word's draft, `src/lib/repair.svelte.ts` the repair's text, typed through the file's edit handle (`folder.files.edit(path)`), and `src/lib/chat/chats.ts` the chat list and each chat's turn of message saves. `bun run --cwd apps/vocab test` also runs `test:svelte`, which mounts the real word card in jsdom under the browser build of Svelte; it shows what delivered events do, not layout, focus, or IME.
 
 ## Changed promises
 

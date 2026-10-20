@@ -32,6 +32,7 @@
 		"@tanstack/query-core": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
+		"@tauri-apps/plugin-dialog": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},

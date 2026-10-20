@@ -8,10 +8,9 @@
  * minute for their pause, so only the close can send them.
  *
  * Key behaviors:
- * - A close sends typing still waiting for its pause, then destroys the window
- * - A failed save keeps the window and the typing; once saving works, the
- *   next close saves and destroys
- * - Registered unsent input keeps the window until it is gone
+ * - A saved folder closes without a prompt
+ * - An accepted edit prompts, and Cancel keeps the window and its edit
+ * - Confirm destroys the window without waiting for a save
  * - Two close requests at once destroy the window once
  * - A window that may not destroy itself keeps its guard for the next close
  * - A browser tab registers nothing; closing the context stops listening
@@ -27,6 +26,7 @@ import { expectOk } from 'wellcrafted/testing';
 import type { FolderContext } from './folder-context.js';
 import {
 	desktop,
+	nativeDialog,
 	nativeWindow,
 	requestClose,
 	untilListening,
@@ -74,29 +74,11 @@ async function guarded() {
 
 type Notes = FolderContext<{ notes: typeof notes }>;
 
-/** The title of `milk` as storage holds it. */
-async function storedTitle({ folder }: Notes) {
-	return expectOk(await folder.tables.notes.get('milk'))?.fields.title;
-}
-
 /** Type `title` into `milk` over the row as stored. */
 async function typeTitle({ folder }: Notes, title: string) {
 	const row = expectOk(await folder.tables.notes.get('milk'));
 	if (row === undefined) throw new Error('milk is not stored');
 	expectOk(folder.tables.notes.edit('milk').change(row, { fields: { title } }));
-}
-
-/** Make every IndexedDB write fail the way a full disk does, until restored. */
-function fillDisk() {
-	const put = IDBObjectStore.prototype.put;
-	IDBObjectStore.prototype.put = () => {
-		throw new DOMException('Disk is full', 'QuotaExceededError');
-	};
-	const restore = () => {
-		IDBObjectStore.prototype.put = put;
-	};
-	cleanup.push(restore);
-	return restore;
 }
 
 async function until(check: () => boolean, what: string) {
@@ -108,60 +90,38 @@ async function until(check: () => boolean, what: string) {
 	throw new Error(`Timed out waiting for ${what}`);
 }
 
-test('a close sends typing still waiting for its pause, then destroys the window', async () => {
+test('a saved folder closes without a prompt', async () => {
+	await guarded();
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(1);
+	expect(nativeDialog.count).toBe(0);
+});
+
+test('an accepted edit prompts and Cancel keeps its input', async () => {
 	const { context, milk } = await guarded();
 	await typeTitle(context, 'Oat milk');
 	expect(milk.pending).toBeDefined();
 
 	await requestClose();
 
-	expect(nativeWindow.destroyed).toBe(1);
-	expect(nativeWindow.focused).toBe(0);
-	expect(milk.pending).toBeUndefined();
-	expect(await storedTitle(context)).toBe('Oat milk');
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(nativeDialog.count).toBe(1);
+	expect(milk.pending).toBeDefined();
 });
 
-test('a failed save keeps the window and the typing; the next close saves and destroys', async () => {
+test('Confirm destroys without waiting for the accepted edit to save', async () => {
 	const { context, milk } = await guarded();
 	await typeTitle(context, 'Oat milk');
-	const restore = fillDisk();
+	nativeDialog.answer = true;
 
-	await requestClose();
-
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(nativeWindow.listeners).toBe(1);
-	expect(milk.pending?.error).toBeDefined();
-	expect(context.saveState).toBe('failed');
-	// The close fenced nothing: typing is still taken.
-	await typeTitle(context, 'Oat milk, two litres');
-	expect(milk.locked).toBe(false);
-
-	restore();
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(await storedTitle(context)).toBe('Oat milk, two litres');
+	expect(nativeDialog.count).toBe(1);
+	expect(milk.pending).toBeDefined();
 });
 
-test('registered unsent input keeps the window until it is gone', async () => {
-	const { context } = await guarded();
-	let typed = 'Buy bread';
-	const unregister = context.registerUnsent(() =>
-		typed === '' ? undefined : 'A new note is not added.',
-	);
-
-	await requestClose();
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(typed).toBe('Buy bread');
-	expect(nativeWindow.focused).toBe(1);
-
-	typed = '';
-	await requestClose();
-	expect(nativeWindow.destroyed).toBe(1);
-	unregister();
-});
-
-test('a rejected app action keeps the window even with no held input', async () => {
+test('an app action before its first Folder write does not prompt', async () => {
 	const { context } = await guarded();
 	context
 		.run(() => Promise.reject(new Error('save interrupted')))
@@ -169,61 +129,46 @@ test('a rejected app action keeps the window even with no held input', async () 
 
 	await requestClose();
 
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(nativeWindow.listeners).toBe(1);
-});
-
-test('a refused focus still retains unfinished input and the close guard', async () => {
-	const { context } = await guarded();
-	const unregister = context.registerUnsent(() => 'A new note is not added.');
-	nativeWindow.refuseFocus = true;
-	await requestClose();
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(nativeWindow.listeners).toBe(1);
-	unregister();
-	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
+	expect(nativeDialog.count).toBe(0);
 });
 
-test('whole text that does not save keeps the window with its text held', async () => {
+test('whole text waiting to save prompts and Cancel retains it', async () => {
 	const { context } = await guarded();
 	const path = 'notes/source.md';
 	expectOk(await context.folder.files.write(path, null, 'saved'));
 	const read = expectOk(await context.folder.files.read(path));
 	const text = context.folder.files.edit(path);
 	text.change(await fileBytes(read!.content), 'unsaved source');
-	fillDisk();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
+	expect(nativeDialog.count).toBe(1);
 	expect(text.pending).toMatchObject({ text: 'unsaved source' });
 });
 
 test('two close requests at once destroy the window once', async () => {
-	const { context } = await guarded();
-	await typeTitle(context, 'Oat milk');
+	await guarded();
 
 	await Promise.all([requestClose(), requestClose()]);
 
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(await storedTitle(context)).toBe('Oat milk');
 });
 
 test('a failed destroy keeps the close guard for the next attempt', async () => {
 	const { context } = await guarded();
 	await typeTitle(context, 'Oat milk');
+	nativeDialog.answer = true;
 	nativeWindow.refuseDestroy = true;
 
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(0);
-	expect(await storedTitle(context)).toBe('Oat milk');
 	expect(nativeWindow.listeners).toBe(1);
 	await typeTitle(context, 'Oat milk, two litres');
 	nativeWindow.refuseDestroy = false;
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(await storedTitle(context)).toBe('Oat milk, two litres');
 });
 
 test('registration must finish before the guarded folder can be edited', async () => {
@@ -317,8 +262,9 @@ test('<FolderApp> guards the window it opened its folder in', async () => {
 	await untilListening();
 
 	await typeTitle(opened, 'Typed just before closing');
+	nativeDialog.answer = true;
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(await storedTitle(opened)).toBe('Typed just before closing');
+	expect(nativeDialog.count).toBe(1);
 });

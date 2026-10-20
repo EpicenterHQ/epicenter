@@ -138,7 +138,7 @@ test('a fresh browser opens an empty timeline with no Save version, Sync, or Con
 	);
 });
 
-test('a capture added here is in the folder once the page closes; a reload waits for text not added', async () => {
+test('a capture added here is in the folder once the page closes; unsubmitted text does not hold reload', async () => {
 	freshProfile();
 	const page = mountPage();
 	await until(() => page.text().includes('No captures yet'), 'the timeline');
@@ -148,7 +148,7 @@ test('a capture added here is in the folder once the page closes; a reload waits
 	await tick();
 	const box = document.getElementById('new-capture');
 	type(box, 'Kept in this browser');
-	expect(reload()).toBe(false);
+	expect(reload()).toBe(true);
 
 	click(document, 'Add capture');
 	await until(
@@ -156,7 +156,7 @@ test('a capture added here is in the folder once the page closes; a reload waits
 		'the new capture to open',
 	);
 	type(document.getElementById('new-thought'), 'not added yet');
-	expect(reload()).toBe(false);
+	expect(reload()).toBe(true);
 	type(document.getElementById('new-thought'), '');
 	type(document.getElementById('capture-text'), 'Kept in this browser, edited');
 	await page.close();

@@ -212,7 +212,7 @@ test('a thought typed and not added stays visible to copy when the capture stops
 	);
 	expect(pending?.value).toBe('my pending thought');
 	expect(pending?.readOnly).toBe(true);
-	expect(harness.captures.unsettled).toBe(true);
+	expect(harness.context.getStatus().saving || harness.context.getStatus().unsaved.length > 0).toBe(false);
 });
 
 test('a file that is not a valid capture shows its issues, and opens as a capture once fixed', async () => {

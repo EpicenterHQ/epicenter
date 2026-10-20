@@ -7,6 +7,7 @@
 	"permissions": [
 		"epicenter-folder:default",
 		"core:event:allow-listen",
+		"core:event:allow-emit",
 		"core:event:allow-unlisten",
 		"allow-take-pending-home-section",
 		"allow-list-models",

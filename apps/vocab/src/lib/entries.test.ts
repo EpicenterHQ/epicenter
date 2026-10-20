@@ -194,7 +194,7 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 
 	expect(vocab.entries.setNote(context.word(), 'clear and bright')).toBe(true);
 	expect(edit.pending).toBeDefined();
-	expect(vocab.busy).toBe(true);
+	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(true);
 	// A reread of the list never replaces what is typed.
 	await vocab.queryClient.invalidateQueries();
 	expect(edit.shown(context.word().row).row.fields.note).toBe(
@@ -209,7 +209,7 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 			.note,
 	).toBe('clear and bright');
 	expect(context.word().note).toBe('clear and bright');
-	expect(vocab.busy).toBe(false);
+	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(false);
 });
 
 test('a stage press saves at once and keeps a note typed just before it', async () => {
@@ -373,7 +373,7 @@ test('a file that is not a valid word is named for repair, written as typed text
 	// One repair at a time while text is held.
 	view.change(broken.replace('stage: mastered', 'stage: usab'));
 	expect(repair.start('unparsed')).toBe(false);
-	expect(vocab.busy).toBe(true);
+	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(true);
 	expect(view.text).toBe(broken.replace('stage: mastered', 'stage: usab'));
 	view.change(broken.replace('stage: mastered', 'stage: usable'));
 	await until(() => !repair.busy, 'the repair to save');

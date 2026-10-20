@@ -487,7 +487,7 @@ test('a transcript’s failed run is not sent again over a connection that moved
 	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe('');
 });
 
-test('pasted text stays across pages and guards departure until cleared', async () => {
+test('pasted text stays across pages without holding departure', async () => {
 	const test = await openTestServices();
 	const { remove } = test;
 	const whispering = await openTestWhispering(test);
@@ -508,7 +508,7 @@ test('pasted text stays across pages and guards departure until cleared', async 
 	await quiet(library);
 	expect(library.textOutputsOf(stem)).toHaveLength(1);
 	expect(whispering.blocksNavigation({ willUnload: false })).toBe(false);
-	expect(whispering.blocksNavigation({ willUnload: true })).toBe(true);
+	expect(whispering.blocksNavigation({ willUnload: true })).toBe(false);
 	view.pastedText = '';
 	expect(whispering.blocksNavigation({ willUnload: true })).toBe(false);
 });

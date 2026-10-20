@@ -188,7 +188,7 @@ test('settling saves whole-file edits, and the rows are read again after it', as
 	);
 	cleanup.push(rows.subscribe(() => {}));
 	text.change(observed(), initial.replace('title: A', 'title: Repaired'));
-	expect(await context.settled()).toBe(true);
+	expect(await context.folder.settle()).toEqual([]);
 	expect(text.pending).toBeUndefined();
 	await until(
 		() => rows.getCurrentResult().data?.[0]?.fields.title === 'Repaired',

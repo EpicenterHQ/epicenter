@@ -20,6 +20,22 @@ type Handler = (event: CloseRequested) => void | Promise<void>;
 
 const handlers = new Set<Handler>();
 
+export const nativeDialog = {
+	answer: false,
+	count: 0,
+	reset() {
+		this.answer = false;
+		this.count = 0;
+	},
+};
+
+mock.module('@tauri-apps/plugin-dialog', () => ({
+	confirm: async () => {
+		nativeDialog.count += 1;
+		return nativeDialog.answer;
+	},
+}));
+
 export const nativeWindow = {
 	/** How many times the window was destroyed. */
 	destroyed: 0,
@@ -37,6 +53,7 @@ export const nativeWindow = {
 		return handlers.size;
 	},
 	reset() {
+		nativeDialog.reset();
 		handlers.clear();
 		this.destroyed = 0;
 		this.focused = 0;
@@ -58,6 +75,7 @@ async function destroy() {
 
 mock.module('@tauri-apps/api/window', () => ({
 	getCurrentWindow: () => ({
+		label: 'test-folder',
 		async onCloseRequested(handler: Handler) {
 			await nativeWindow.registration;
 			if (nativeWindow.refuseRegistration)

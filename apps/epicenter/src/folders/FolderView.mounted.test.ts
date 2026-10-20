@@ -13,8 +13,8 @@
  *   again saves it, and the mark goes
  * - What is typed is the folder's own input: settling it, as hiding the
  *   window does, sends it and leaves the box editable; a failed save keeps the
- *   context failed and busy, so closing the window is held; closing the
- *   folder waits for a running save and answers what did not save
+ *   context failed with pending input; closing the folder waits for a running
+ *   save and answers what did not save
  *
  * Run with `--conditions=browser --conditions=svelte`, which mounting needs:
  * `bun test --conditions=browser --conditions=svelte FolderView.mounted`.
@@ -387,19 +387,19 @@ describe.skipIf(!browser)('folder editor', async () => {
 			press(file('a.md'));
 			await until(() => box()?.value === 'alpha\n', 'a.md read');
 			type(box(), 'alpha\nhidden\n');
-			expect(context.busy).toBe(true);
+			expect((context.getStatus().saving || context.getStatus().unsaved.length > 0)).toBe(true);
 
 			// Hidden: what is typed is sent at once, and settling waits for it.
 			let settled: boolean | undefined;
-			const settling = context.settled().then((done) => {
-				settled = done;
+			const settling = context.folder.settle().then((pending) => {
+				settled = pending.length === 0;
 			});
 			await until(() => held.length === 1, 'the save on hide');
 			expect(settled).toBeUndefined();
 			held.shift()!.answer(Ok(undefined));
 			await settling;
 			expect(settled).toBe(true);
-			expect(context.busy).toBe(false);
+			expect((context.getStatus().saving || context.getStatus().unsaved.length > 0)).toBe(false);
 
 			// Shown again, typing goes on in the same box and saves.
 			expect(box()?.readOnly).toBe(false);
@@ -408,18 +408,18 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await until(() => held.length === 1, 'the save after typing');
 			expect(held[0]!.content).toBe('alpha\nhidden\nshown\n');
 
-			// That save fails: the text stays, and the window's close is held.
+			// That save fails: the text stays pending until retried or discarded.
 			held.shift()!.answer(Err(new Error('disk full')));
 			await until(() => context.getSaveState() === 'failed', 'the failure');
-			expect(context.busy).toBe(true);
+			expect((context.getStatus().saving || context.getStatus().unsaved.length > 0)).toBe(true);
 			// Settling retains failure; Try again explicitly sends it once.
-			expect(await context.settled()).toBe(false);
+			expect(await context.folder.settle()).not.toEqual([]);
 			expect(held).toHaveLength(0);
 			click(page.target, 'Try again');
-			const retried = context.settled();
+			const retried = context.folder.settle();
 			await until(() => held.length === 1, 'the explicit retry');
 			held.shift()!.answer(Err(new Error('disk full')));
-			expect(await retried).toBe(false);
+			expect(await retried).not.toEqual([]);
 			expect(box()?.value).toBe('alpha\nhidden\nshown\n');
 			expect(box()?.readOnly).toBe(false);
 
@@ -501,7 +501,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 					(button) => button.textContent?.trim() === 'Discard edit',
 				);
 				press(discard ?? null);
-				await until(() => !page.context.busy, 'discard completion');
+				await until(() => !page.context.getStatus().saving && page.context.getStatus().unsaved.length === 0, 'discard completion');
 			} finally {
 				await closeRefusing(page, disk);
 			}
@@ -577,7 +577,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			press(button('Files'));
 			await until(() => button('Discard edit') !== null, 'the shared failure');
 			press(button('Discard edit'));
-			await until(() => !page.context.busy, 'discard');
+			await until(() => !page.context.getStatus().saving && page.context.getStatus().unsaved.length === 0, 'discard');
 			expect(await disk.text('todos/a.md')).toBe('body\n');
 		} finally {
 			await closeRefusing(page, disk);

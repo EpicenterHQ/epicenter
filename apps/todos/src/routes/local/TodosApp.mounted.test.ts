@@ -325,7 +325,7 @@ test('leaving with a failed draft asks before unloading and offers its text afte
 	expect((await stored('milk'))?.fields.title).toBe('Milk');
 });
 
-test('a new title not added asks before a browser reload', async () => {
+test('a new title not added does not prompt before a browser reload', async () => {
 	freshProfile();
 	const opened = await openPage();
 	type(opened.get('[aria-label="New todo title"]'), 'Buy tea');
@@ -335,8 +335,8 @@ test('a new title not added asks before a browser reload', async () => {
 	);
 	expect(
 		window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
-	).toBe(false);
-	expect(navigation.leave()).toBe(true);
+	).toBe(true);
+	expect(navigation.leave()).toBe(false);
 	expect(opened.get('[aria-label="New todo title"]').value).toBe('Buy tea');
 });
 

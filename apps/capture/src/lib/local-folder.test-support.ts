@@ -57,7 +57,7 @@ export async function openCaptures(
 	const other = await open();
 
 	/** Nothing typed waits, no save runs, and nothing is read. */
-	const idle = () => !context.busy && context.queryClient.isFetching() === 0;
+	const idle = () => !context.getStatus().saving && context.getStatus().unsaved.length === 0 && context.queryClient.isFetching() === 0;
 	/** Storage refusals to undo when the harness closes. */
 	const restores: (() => void)[] = [];
 

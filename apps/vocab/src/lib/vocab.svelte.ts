@@ -32,12 +32,5 @@ export function createVocab(local: VocabContext) {
 		queryClient: local.queryClient,
 		entries,
 		chats,
-		/**
-		 * Whether typing is held, a save or action runs, or the repair holds
-		 * text; read reactively. Leaving then could lose it.
-		 */
-		get busy() {
-			return local.busy;
-		},
 	};
 }

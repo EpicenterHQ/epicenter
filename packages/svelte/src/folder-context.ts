@@ -5,8 +5,7 @@
  * from the moment it opens (`folder.tables.<name>.edit(id)`,
  * `folder.files.edit(path)`, `folder.getStatus()`, `folder.settle()`,
  * `folder.close()`); this context reads its status reactively and adds what
- * belongs to the page: shared reads, app actions in flight, input a page
- * holds outside the folder, and the window's close.
+ * belongs to the page: shared reads, app actions in flight, and the window's close.
  *
  * `<FolderApp>` opens the folder, builds this, and closes it when the page
  * goes away. The app root installs its typed context for descendants to
@@ -20,10 +19,7 @@
  * reads, closes the folder, and clears the cache, in that order.
  *
  * In the desktop app the context also answers its window's close
- * (`guardWindowClose`): what is typed is sent first, without fencing, and
- * the window goes only when nothing would be lost. Input an app holds
- * outside the folder, such as a form not submitted, says so through
- * `registerUnsent`.
+ * (`guardWindowClose`) from the folder's current save status.
  *
  * Plain module, so a store imports the types without loading components.
  */
@@ -33,11 +29,11 @@ import {
 	type InvalidateQueryFilters,
 	QueryClient,
 } from '@tanstack/query-core';
-import { createSubscriber, SvelteSet } from 'svelte/reactivity';
+import { createSubscriber } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
 import { createFolderQueries, folderKeys } from './folder-queries.js';
-import { holdWindowClose } from './window-close.js';
+import { holdWindowClose, reportFolderSaveStatus } from './window-close.js';
 import { pendingFailure, type WriteFailure } from './write-failure.js';
 
 const log = createLogger('svelte/folder');
@@ -45,17 +41,13 @@ const log = createLogger('svelte/folder');
 /** The root of every query over the folder. */
 const KEY = folderKeys.all;
 
-/** Why the window stays: input whose save failed is held. */
-const NOT_SAVED =
-	'A change did not save. It is still on screen to save again or copy.';
-/** Why the window stays: typing or a save arrived while the close was checked. */
-const STILL_SAVING =
-	'A change is still saving. Close the window again once it is saved.';
+/** The confirmation shown when an accepted Folder change has not saved. */
+const NOT_SAVED = 'A change has not saved yet. Close anyway?';
 
 /**
  * Whether what the person did is in this device's storage, from the folder's
  * status alone. `saved` only when no input is held, no save runs, and no
- * failure is outstanding. App actions count in `busy`, not here.
+ * failure is outstanding. App actions are tracked only for normal teardown.
  */
 export type SaveState = 'saved' | 'saving' | 'failed' | 'recent-failure';
 
@@ -154,8 +146,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	const trackStatus = createSubscriber((update) =>
 		folder.getStatus().closing ? () => {} : folder.onStatusChange(update),
 	);
-	const actions = new SvelteSet<Promise<unknown>>();
-	const unsent = new Set<() => string | undefined>();
+	const actions = new Set<Promise<unknown>>();
 	let closing: Promise<WriteFailure[]> | undefined;
 	const closingListeners = new Set<() => void>();
 	const trackClosing = createSubscriber((update) => {
@@ -190,47 +181,23 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		}
 	}
 
-	/** Wait for the app actions started now; answers whether none was rejected. */
-	async function settleActions(): Promise<boolean> {
-		let rejected = false;
+	/** Wait for the app actions started before close and log failures. */
+	async function settleActions(): Promise<void> {
 		for (const result of await Promise.allSettled([...actions]))
 			if (result.status === 'rejected') {
-				rejected = true;
 				log.error(
 					new Error('A folder action did not finish', { cause: result.reason }),
 				);
 			}
-		return !rejected;
 	}
 
-	/** Send held input and wait for app actions, without fencing. Answers whether all of it saved. */
-	async function settled(): Promise<boolean> {
-		const [unsaved, finished] = await Promise.all([
-			folder.getStatus().closing ? Promise.resolve([]) : folder.settle(),
-			settleActions(),
-		]);
-		return unsaved.length === 0 && finished;
-	}
-
-	const working = () =>
-		folder.getStatus().unsaved.length > 0 ||
-		folder.getStatus().saving ||
-		actions.size > 0;
-
-	/** Why closing the window now would lose something, once what is typed was sent. */
-	async function windowBlockers(): Promise<string[]> {
-		const didSettle = await settled();
-		const reasons: string[] = [];
-		if (!didSettle)
-			reasons.push('A save could not finish. Your input is still here.');
-		if (folder.getStatus().failures.length > 0) reasons.push(NOT_SAVED);
-		else if (working()) reasons.push(STILL_SAVING);
-		for (const reason of unsent) {
-			const why = reason();
-			if (why !== undefined) reasons.push(why);
-		}
-		return reasons;
-	}
+	/** Only accepted Folder work determines whether departure needs a prompt. */
+	const pendingSave = () =>
+		folder.getStatus().saving || folder.getStatus().unsaved.length > 0;
+	const quitReporter = reportFolderSaveStatus(pendingSave).catch((cause: unknown) => {
+		log.error(new Error('Could not report this folder’s save status to Quit', { cause }));
+		return () => {};
+	});
 
 	return {
 		folder,
@@ -244,7 +211,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			return closing !== undefined || folder.getStatus().closing;
 		},
 		/**
-		 * Count a started app action in this context's busy state and close.
+		 * Count a started app action in this context's close.
 		 * Its own Folder calls, after any await, still run before the folder
 		 * closes. Refused once close is called.
 		 */
@@ -257,30 +224,18 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			actions.add(result);
 			return result;
 		},
-		/** Send held input and wait for app actions while the page is hidden. */
-		settled,
 		/**
-		 * Input typed outside the folder and not submitted, such as a form
-		 * not added: `reason` says why closing the desktop window now would
-		 * lose it, or nothing. Answers the unregister.
-		 */
-		registerUnsent(reason: () => string | undefined): () => void {
-			unsent.add(reason);
-			return () => {
-				unsent.delete(reason);
-			};
-		},
-		/**
-		 * In the desktop app, until `close`: a close of this window first
-		 * sends what is typed and waits for the saves, then destroys the
-		 * window. A failed save, a save still running, or unsent input keeps
-		 * the window with everything on screen, and a notice says why. A
-		 * browser tab keeps its own unload behavior.
+		 * In the desktop app, prompt when the folder has an accepted save
+		 * pending, then destroy the window on confirmation. A browser tab
+		 * keeps its own unload behavior.
 		 */
 		guardWindowClose(): Promise<void> {
 			if (closing !== undefined)
 				return Promise.reject(new Error('The folder is closing'));
-			guarding ??= holdWindowClose(windowBlockers).then((stop) => {
+			guarding ??= Promise.all([
+				holdWindowClose(pendingSave, NOT_SAVED),
+				quitReporter,
+			]).then(([stop]) => {
 				if (closing !== undefined) stop();
 				else stopWindow = stop;
 			});
@@ -295,22 +250,10 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			return folder.getStatus();
 		},
 		/**
-		 * Whether leaving the page now could lose something: input held, or a
-		 * save, delete or app action still running, read reactively.
-		 */
-		get busy(): boolean {
-			trackStatus();
-			return working();
-		},
-		/** Whether leaving this page would discard held input or explicit form input. */
-		get leaving(): boolean {
-			return this.busy || [...unsent].some((reason) => reason() !== undefined);
-		},
-		/**
 		 * Whether everything is saved on this device, read reactively: the
 		 * folder's own facts, held input and its saves. An app action that
-		 * saves nothing yet, such as a request it waits for, is `busy` but
-		 * not `saving`; its writes are, from their call until they land.
+		 * saves nothing yet, such as a request it waits for, is not `saving`;
+		 * its writes are, from their call until they land.
 		 */
 		getSaveState(): SaveState {
 			trackStatus();
@@ -337,6 +280,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 				clearTimeout(refreshTimer);
 				// A window close from here on is the shell's own.
 				stopWindow?.();
+				(await quitReporter)();
 				// An action already started may still call the folder after an
 				// await; it finishes before the folder closes.
 				await settleActions();

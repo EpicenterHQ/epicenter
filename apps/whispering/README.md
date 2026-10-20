@@ -444,9 +444,9 @@ row and audio and says so.
 
 ### Closing and quitting
 
-Closing a desktop window first settles accepted file edits and app work. A
-failed save or an unfinished settings form or pasted text keeps it open for
-retry, copying, or clearing. When the page unmounts, Whispering finishes its
+Closing a desktop window checks whether its Folder has an unfinished save.
+If so, it asks whether to close anyway. An unfinished settings form or pasted
+text does not prompt. When the page unmounts, Whispering finishes its
 recording and final metadata writes before Folder closes storage.
 
 Application Quit, Force Quit, a crash, and power loss cannot wait for that
@@ -464,7 +464,7 @@ request.
 
 Moving between Home, Recordings, and Transformations keeps the mounted app
 and never prompts. In a browser tab (`bun dev:whispering:ui`), the browser's
-leave warning appears while accepted work or unsubmitted input would be lost.
+leave warning appears while the Folder has an accepted change still saving.
 Reloading or closing the tab loses a browser recording in progress.
 
 ### Editing

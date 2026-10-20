@@ -10,7 +10,6 @@
 	import { setQueryClientContext } from '@tanstack/svelte-query';
 	import { type getFolder, setFolder } from '$lib/folder.js';
 	import { Button } from '@epicenter/ui/button';
-	import { toast } from '@epicenter/ui/sonner';
 	import { beforeNavigate } from '$app/navigation';
 	import { createCaptures } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
@@ -32,11 +31,10 @@
 	/** The capture just added from the timeline, so its view starts at Add a thought. */
 	let created = $state<string>();
 
-	// Leaving would lose something: a save running or held, or text not added.
-	const mustStay = $derived(captures.unsettled);
+	// An accepted Folder change still saving holds navigation.
+	const mustStay = $derived(context.getStatus().saving || context.getStatus().unsaved.length > 0);
 
-	// Text not added lives only in this page. A reload, a tab close, or a
-	// navigation out of the app is held back here.
+	// Reload or navigation out of the app is held while a Folder save is pending.
 	beforeNavigate((navigation) => {
 		if (mustStay && navigation.willUnload) navigation.cancel();
 	});
@@ -44,22 +42,6 @@
 	// hides or goes away.
 </script>
 
-<svelte:window
-	onbeforeunload={(event) => {
-		if (mustStay) event.preventDefault();
-	}}
-	onkeydown={(event) => {
-		const mod = event.metaKey || event.ctrlKey;
-		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && mustStay) {
-			// The leave prompt is the browser's to show or not; refusing the
-			// shortcut does not depend on it.
-			event.preventDefault();
-			toast.warning('Reload stopped: some text is not saved', {
-				description: 'Wait for saving to finish, and add or clear text you typed, then reload.',
-			});
-		}
-	}}
-/>
 
 <header class="border-b">
 	<div class="mx-auto flex h-12 max-w-3xl items-center justify-between gap-4 px-4 sm:px-6">

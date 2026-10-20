@@ -366,8 +366,8 @@ left, stays readable to copy but takes no typing. Starting to type source text d
 a whole-file edit. A failed field edit stays held for explicit retry or discard;
 source repair first requires copying or discarding that intent. Recovery shows
 the field patch separately from the current source, without keeping a stale
-whole-file preview. Hiding and
-closing settle pending work, while failed saves keep the window open. Unsaved
+whole-file preview. Hiding sends pending work. Closing checks the Folder's save
+status and asks whether to close anyway if accepted work is pending. Unsaved
 files stay reachable when their disk entry disappears or the listing fails.
 
 The SQL console uses `documents(path, directory, stem, fields, body, issues)`.
@@ -462,7 +462,8 @@ The Folders window opens one in three ways, each deciding the folder in Rust:
   chose; cancelling opens nothing. The chosen directory must exist and be a
   real directory, never a link, though its parent may be one; it is never
   created. Epicenter's own folder is refused however it is reached. No page
-  passes a path, and no page is granted the dialog plugin.
+  passes a path. Folder pages can show close confirmation, but no page has
+  the dialog plugin's file picker.
 
 The shell passes the app key, admitted directory, page URL, and builder
 configuration to the folder plugin's `open_folder_window`
@@ -495,17 +496,17 @@ them. Windows and Linux keep separate app-and-folder windows.
 
 Each native tab keeps its own window, page, directory binding, and save
 guard. Detaching or merging changes presentation without reopening the
-folder or transferring drafts. Closing a group asks every original member
-to close: tabs that save may close, while a failed save or unsubmitted form
-keeps its tab open and selects it to show the warning. Tab membership lives
-in AppKit, never in `folders.json`. Application Quit remains immediate.
+folder or transferring drafts. Closing a group asks each member to close;
+each page prompts only when its Folder has an unfinished save. Tab membership
+lives in AppKit, never in `folders.json`. Application Quit checks the mounted
+Folder status in each bound window, then asks once if any has pending work.
 
 ### Native commands for a bundled app
 
 `capabilities/bundled-app.json` selects `todos:*`, `capture:*`, and
 `honeycrisp:*` and grants the folder plugin and its change event. The close
-guard can focus its own window when input must stay and destroy it once
-saving succeeds.
+guard focuses its own window for confirmation when a save is pending, then
+destroys it if the person confirms. It also grants `dialog:allow-message`.
 
 `capabilities/whispering.json` selects `whispering:*` and grants what
 Whispering's page calls:
@@ -544,8 +545,8 @@ listed and opens with "Open with…", and nothing moves or adopts it.
 Each kind of window has one capability file, and every file is `"local": true`
 because its page is served on the scheme: `folders.json`, `home.json`,
 `bundled-app.json`, `whispering.json`, and `folder-editor.json`, which selects
-`files:*` and grants the folder plugin, its change event, and destroying its
-own window. A development build selects the same five. This is wiring, not a sandbox (ADR-0179, ADR-0334).
+`files:*` and grants the folder plugin, its change event, close confirmation,
+and destroying its own window. A development build selects the same five. This is wiring, not a sandbox (ADR-0179, ADR-0334).
 
 Whispering's page has no recording overlay and
 registers no global shortcuts, so neither is created or granted.
@@ -567,18 +568,19 @@ plugin is a dependency but stays unregistered until a capability grants it.
 
 ## Quitting Epicenter
 
-Quitting is immediate
-([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
-No window is asked, nothing is waited for, and no dialog appears. Every save
-is an atomic rename into the folder, a recording streams into its folder from
-the moment it starts, and a Whispering run writes its result row when it
-starts, so nothing finished lives only in a page. Text a person typed and did
-not submit is lost, as people expect.
+Application Quit checks the current save status of each bound folder window
+([ADR-0657](../../docs/adr/0657-departure-prompts-only-for-pending-folder-saves.md)).
+If every page reports no pending save, Epicenter exits. If any page has accepted
+input still saving or unsaved, or a page does not answer the bounded check,
+one native confirmation asks whether to quit anyway. Cancel keeps every window
+and its input; Quit Anyway exits without waiting for a save. A repeated Quit
+request joins the check already in progress.
 
-- **Every quit is the same.** The tray's Quit calls `app.exit`. AppKit's own
-  quits (the app menu's Quit and Cmd-Q, the Dock's Quit, logout, restart,
-  shutdown) end Tao's loop directly. Either way Tauri delivers `RunEvent::Exit`,
-  where the Folder plugin fences new work and releases each folder's lock.
+The app menu's Quit, Cmd-Q, and the tray's Quit use this path. Abrupt process
+termination can still interrupt work. Unsubmitted forms and app actions that
+have not reached their first Folder write do not trigger the prompt. Atomic
+file replacement and recording recovery retain their existing guarantees.
+
 - **An account change restarts nothing.** The account is the CLI's desktop
   grant (ADR-0556); a page that uses it reads it again when its window
   regains focus.

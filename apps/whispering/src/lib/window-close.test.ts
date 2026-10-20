@@ -3,12 +3,11 @@
  *
  * Product state over a real folder, run as a desktop window: the stand-in in
  * `tauri-window.test-support`, which runs the close listener as Tauri's
- * API does. Text drafts wait their second; only the close sends them.
+ * API does. Only accepted Folder work changes the close decision.
  *
  * Key behaviors:
- * - Text typed into a file is saved by the close, then the window goes
- * - A failed save of that text keeps the window and the text; once saving
- *   works, explicit retry saves and the next close destroys
+ * - Text held by the Folder prompts; Cancel retains it
+ * - An explicit save can finish, then the window closes without prompting
  * - A recording under way holds nothing: the window goes, and destroying it
  *   is what finishes the recording
  * - A closed whispering no longer holds the window's close
@@ -25,6 +24,7 @@ import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	desktop,
+	nativeDialog,
 	nativeWindow,
 	requestClose,
 	untilListening,
@@ -32,7 +32,6 @@ import {
 import { openText, settle } from './edits.test-support.js';
 import type { Whispering } from './whispering.svelte.js';
 import {
-	deferred,
 	openGatedTestFolder,
 	openTestServices,
 	whisperingDirectory,
@@ -81,14 +80,19 @@ async function recordAsText({
 	return { path, text };
 }
 
-test('text typed into a file is saved by the close, then the window goes', async () => {
+test('text held by the Folder prompts; Cancel retains it', async () => {
 	const window = await openWindow();
 	const { path, text } = await recordAsText(window);
 	const typed = `${text.draft}Typed just before closing.\n`;
-	text.input(typed);
+	window.library.editText(text.view, typed);
 
 	await requestClose();
 
+	expect(nativeDialog.count).toBe(1);
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(window.library.editedText(path)).toBe(typed);
+	await window.library.saveText(path);
+	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);
 });
@@ -100,17 +104,17 @@ test('a failed save keeps the window until explicit retry saves the text', async
 	const typed = `${before}Typed but not saved.\n`;
 	window.control.refuse = true;
 	window.library.editText(text.view, typed);
+	await window.library.saveText(path);
 
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(0);
+	expect(nativeDialog.count).toBe(1);
 	expect(window.library.editedText(path)).toBe(typed);
 	expect(window.library.unsaved).toBe(true);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(before);
 
 	window.control.refuse = false;
-	await requestClose();
-	expect(nativeWindow.destroyed).toBe(0);
 	await window.library.retry(path);
 	await requestClose();
 
@@ -124,6 +128,7 @@ test('a thrown file write leaves a failed draft that can save on retry', async (
 	const typed = `${text.draft}Retained after throw.\n`;
 	window.control.throwWrite = true;
 	window.library.editText(text.view, typed);
+	await window.library.saveText(path);
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(window.library.editedText(path)).toBe(typed);
@@ -144,44 +149,22 @@ test('a recording under way holds nothing: the window goes', async () => {
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
-test('unsubmitted connection settings and pasted text keep the window', async () => {
+test('unsubmitted connection settings do not prompt', async () => {
 	const window = await openWindow();
-	const previous = window.whispering.settings.transcription.model;
 	window.whispering.settings.transcription.model = 'new model';
 	await requestClose();
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(window.whispering.settings.transcription.model).toBe('new model');
-	window.whispering.settings.transcription.model = previous;
-	window.whispering.view.pastedText = 'Run this later';
-	await requestClose();
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(window.whispering.view.pastedText).toBe('Run this later');
-	window.whispering.view.pastedText = '';
-	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
+	expect(nativeDialog.count).toBe(0);
 });
 
-test('an accepted connection save finishes before the window closes', async () => {
+test('a connection save before a Folder write does not prompt', async () => {
 	const window = await openWindow();
-	const waiting = deferred<void>();
-	const set = window.whispering.library.services.connections.set;
-	window.whispering.library.services.connections.set = async (...args) => {
-		await waiting.promise;
-		return set(...args);
-	};
 	window.whispering.settings.transcription.model = 'saved before close';
 	const saving = window.whispering.settings.transcription.save();
-	const closing = requestClose();
-	await Bun.sleep(5);
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(window.whispering.settings.transcription.saving).toBe(true);
-	waiting.resolve();
-	expect(await saving).toBeUndefined();
-	await closing;
+	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(window.whispering.settings.transcription.saved?.model).toBe(
-		'saved before close',
-	);
+	expect(nativeDialog.count).toBe(0);
+	expect(await saving).toBeUndefined();
 });
 
 test('a closed whispering no longer holds the window’s close', async () => {

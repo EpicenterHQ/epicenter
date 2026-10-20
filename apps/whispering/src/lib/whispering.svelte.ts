@@ -67,18 +67,6 @@ export function createWhispering(context: WhisperingContext) {
 		postProcessing: undefined as string | undefined,
 	});
 	const settings = createSettingsDraft(library);
-	// The product state owns these explicit forms. Closing never presses Save or Run
-	// for a person; accepted connection saves run through the local context.
-	const unregisterSettings = context.registerUnsent(() =>
-		settings.transcription.unsent || settings.text.unsent
-			? 'A connection setting has not been saved. Save or clear it before closing.'
-			: undefined,
-	);
-	const unregisterPasted = context.registerUnsent(() =>
-		view.pastedText !== ''
-			? 'Pasted text has not been run or cleared. Copy or clear it before closing.'
-			: undefined,
-	);
 	const unlist = library.onRecordingsListed((present) => {
 		if (view.recordingSelected.some((path) => !present.has(path)))
 			view.recordingSelected = view.recordingSelected.filter((path) =>
@@ -118,7 +106,7 @@ export function createWhispering(context: WhisperingContext) {
 		 * in a browser tab that raises the browser's own leave warning.
 		 */
 		blocksNavigation(navigation: { readonly willUnload: boolean }): boolean {
-			return navigation.willUnload && (library.busy || context.leaving);
+			return navigation.willUnload && (context.getStatus().saving || context.getStatus().unsaved.length > 0);
 		},
 		/** Maintain exclusions before reads. A failed start stops the library and preserves its cause. */
 		start(): Promise<void> {
@@ -152,8 +140,6 @@ export function createWhispering(context: WhisperingContext) {
 		 */
 		stop(): Promise<void> {
 			return (stopping ??= (() => {
-				unregisterSettings();
-				unregisterPasted();
 				unlist();
 				const stopped = library.stop();
 				return context.run(() => stopped);

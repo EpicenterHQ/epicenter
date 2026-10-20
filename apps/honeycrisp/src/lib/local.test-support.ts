@@ -126,7 +126,7 @@ export async function until(check: () => boolean, what: string) {
 
 /** Wait until nothing is saving or fetching. */
 export async function quiet(notes: Notes) {
-	const idle = () => !notes.busy && notes.queryClient.isFetching() === 0;
+	const idle = () => !notes.folder.getStatus().saving && notes.folder.getStatus().unsaved.length === 0 && notes.queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 1000; tries++) {
 		if (idle()) {
 			await Bun.sleep(0);

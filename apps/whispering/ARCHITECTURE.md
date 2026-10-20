@@ -306,7 +306,7 @@ repeats startup.
 Leaving is guarded in one place, the shell. `beforeNavigate` holds a navigation
 only when it unloads the document while a change is still being written; a navigation between
 routes is never held. In a browser tab that raises the browser's own leave
-warning. The desktop window settles edits before it closes;
+warning. The desktop window prompts when accepted Folder work is still pending;
 see "Closing".
 
 Every page is prerendered in Epicenter's build, and Epicenter serves the app's
@@ -558,15 +558,17 @@ state, and answers whose files are not written. Folder retains accepted
 file edits. Renaming a file saves its typing, saves its exact
 bytes under the new name, then deletes the old name as read; the selection
 follows it. Recording and transformation files keep their names. Once the
-app is closing, typing changes nothing; closing waits for tracked work and
-the folder's held input, and never asks to discard.
+context is closing during normal teardown, typing changes nothing; teardown
+waits for tracked work and the folder's held input. This differs from the
+person confirming immediate departure.
 
 ## Closing
 
-Closing the desktop window first sends pending text and waits for local saves.
-A failed save or an unfinished setting or pasted text keeps the window open so
-the person can retry, copy, or clear it. Recorded audio and started requests
-have their own lifetimes:
+Closing the desktop window checks whether accepted Folder work is saving or
+unsaved. Pending work prompts: Cancel keeps the window and input; Close Anyway
+destroys it without waiting for a save. Unsubmitted settings and pasted text
+do not prompt. Normal page teardown still waits for tracked app actions before
+closing the Folder. Recorded audio and started requests have their own lifetimes:
 
 - A recording is in the folder from its start
   ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
@@ -577,8 +579,9 @@ have their own lifetimes:
 - A transcription or recipe run writes its result row before the request goes
   out. An answer that has not arrived when the app quits is lost, and the row
   stays unfinished, to run again.
-- File edits autosave while the window is open. The close guard waits for
-  their result before allowing destruction.
+- File edits autosave while the window is open. Failed edits remain available
+  to retry, copy, or discard while the page stays open; confirming departure
+  can lose them.
 
 A save is staged and then renamed over its path by the shell, so one cut off
 between them leaves the path as it was and a staged copy, which a later

@@ -114,11 +114,10 @@ typed character counts, spaces included, until you add it or clear it.
 - Each capture keeps its own Add a thought text and thought edit while you
   open other captures. Leaving a capture never asks anything.
 - The New capture text stays in its form while you open and leave captures.
-- Reloading, closing the tab, or leaving the app asks first while any of it
-  exists, a save is still running or waiting, or an edit could not be saved.
-  The reload shortcut is refused with a message.
+- Reloading, closing the tab, or leaving the app asks first only while the
+  Folder has an accepted change still saving or held unsaved.
 
-Nothing persists text not added across a reload you confirm.
+Text not added does not prompt and does not persist across a reload.
 
 ## How it is wired
 

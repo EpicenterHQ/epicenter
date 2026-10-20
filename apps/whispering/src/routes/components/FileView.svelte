@@ -227,7 +227,6 @@
 	{/if}
 
 	<FileNameBar
-		local={context}
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
 		onRename={(next) => library.rename(path, next)}

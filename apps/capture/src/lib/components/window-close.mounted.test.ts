@@ -8,8 +8,8 @@
  * reads what was stored.
  *
  * Key behaviors:
- * - New capture text not added keeps the window until it is cleared
- * - Text typed with Edit as text is saved by the close, then the window goes
+ * - New capture text not added closes without prompting
+ * - Text held by Folder prompts; Cancel retains it
  * - A failed save of that text keeps the window and the text; once saving
  *   works, explicit retry saves and the next close destroys
  *
@@ -28,6 +28,7 @@ import {
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import {
 	desktop,
+	nativeDialog,
 	nativeWindow,
 	requestClose,
 	untilListening,
@@ -74,6 +75,14 @@ const storedText = () =>
 		async (folder) =>
 			(await expectOk(await folder.files.read(PATH))?.content.text()) ?? '',
 	);
+
+async function untilStoredText(expected: string) {
+	for (let tries = 0; tries < 400; tries++) {
+		if (await storedText() === expected) return;
+		await Bun.sleep(5);
+	}
+	throw new Error('Timed out waiting for the text to save');
+}
 
 /** Make every IndexedDB write fail the way a full disk does, until restored. */
 function fillDisk() {
@@ -131,10 +140,7 @@ async function editAsText(page: Awaited<ReturnType<typeof openWindow>>) {
 	return () => page.target.querySelector<HTMLTextAreaElement>(CONTENTS);
 }
 
-const said = (text: string) =>
-	document.body.textContent?.includes(text) ?? false;
-
-test('New capture text not added keeps the window until it is cleared', async () => {
+test('New capture text not added closes without prompting', async () => {
 	const page = await openWindow();
 	click(page.target, 'New capture');
 	flushSync();
@@ -143,26 +149,33 @@ test('New capture text not added keeps the window until it is cleared', async ()
 
 	await requestClose();
 
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(
-		(document.getElementById('new-capture') as HTMLTextAreaElement | null)
-			?.value,
-	).toBe('Not added yet');
-	await until(() => said('Some text is typed and not added.'), 'the notice');
-
-	type(document.getElementById('new-capture'), '');
-	await requestClose();
-
 	expect(nativeWindow.destroyed).toBe(1);
+	expect(nativeDialog.count).toBe(0);
 });
 
-test('text typed with Edit as text is saved by the close, then the window goes', async () => {
+test('text held by Folder prompts; Cancel retains it', async () => {
 	const page = await openWindow();
 	const contents = await editAsText(page);
 	type(contents(), FILE.replace('Before', 'After'));
 
+	for (const keys of [
+		{ key: 'F5' },
+		{ key: 'r', ctrlKey: true },
+		{ key: 'r', metaKey: true },
+	]) {
+		expect(window.dispatchEvent(new KeyboardEvent('keydown', {
+			...keys, bubbles: true, cancelable: true,
+		}))).toBe(true);
+	}
+
 	await requestClose();
 
+	expect(nativeDialog.count).toBe(1);
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(contents()?.value).toBe(FILE.replace('Before', 'After'));
+	contents()?.dispatchEvent(new FocusEvent('blur'));
+	await untilStoredText(FILE.replace('Before', 'After'));
+	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await storedText()).toBe(FILE.replace('Before', 'After'));
 });
@@ -173,19 +186,19 @@ test('a failed save keeps the window and the text; explicit retry saves and the 
 	const draft = FILE.replace('Before', 'Typed but not saved');
 	type(contents(), draft);
 	const restore = fillDisk();
+	contents()?.dispatchEvent(new FocusEvent('blur'));
+	await until(() => page.text().includes('Not saved'), 'the failed save');
 
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(contents()?.value).toBe(draft);
-	await until(() => said('A change did not save.'), 'the notice');
+	expect(nativeDialog.count).toBe(1);
 	restore();
 	expect(await storedText()).toBe(FILE);
 
-	await requestClose();
-	expect(nativeWindow.destroyed).toBe(0);
 	click(page.target, 'Save again');
-	await until(() => page.text().includes('Saved to'), 'the explicit retry');
+	await untilStoredText(draft);
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);

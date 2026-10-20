@@ -103,7 +103,7 @@
 	// Leaving then is cancelled; for a reload or a closed tab, SvelteKit turns
 	// the cancel into the browser's own leave confirmation.
 	beforeNavigate((navigation) => {
-		if (!vocab.busy) return;
+		if (!context.getStatus().saving && context.getStatus().unsaved.length === 0) return;
 		if (navigation.willUnload || navigation.to?.route.id !== page.route.id) navigation.cancel();
 	});
 

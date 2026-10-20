@@ -1103,14 +1103,6 @@ export function createLibrary(
 			const failure = local.getStatus().storageFailure;
 			return failure === null ? undefined : describeError(failure);
 		},
-		/**
-		 * Whether leaving the page now could lose something: typing held, a
-		 * save running, or work under way; read reactively.
-		 */
-		get busy() {
-			trackMutations();
-			return local.busy || queryClient.isMutating() > 0;
-		},
 		/** Whether input is refused now: while closing, or while `path` is renamed or deleted. */
 		locked: (path?: string) =>
 			path === undefined

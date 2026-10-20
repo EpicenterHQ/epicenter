@@ -13,7 +13,6 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { getFolder } from '$lib/folder.js';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { beforeNavigate } from '$app/navigation';
 	import {
 		describeFailure,
 		reasonOf,
@@ -44,11 +43,6 @@
 	const todos = $derived(rows.data === undefined ? undefined : todosOf(rows.data));
 	const repairs = $derived(repairsOf(rows.data ?? []));
 	const unreadable = $derived(unreadableOf(rows.data ?? []));
-	/** Leaving with an unsubmitted title would drop it. */
-	beforeNavigate(({ type, from, to, cancel }) => {
-		if (title.trim() === '' && !create.isPending) return;
-		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
-	});
 	// The failure is reported by the mutation, not this call, so it shows even
 	// when the list unmounted while the todo was being added.
 	const create = createMutation(() => ({

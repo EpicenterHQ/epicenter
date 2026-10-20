@@ -567,8 +567,8 @@ test('a tutor reply is written in its chat’s turn, and leaving waits while it 
 	const writing = Promise.withResolvers<void>();
 	context.gate.heldSet = writing.promise;
 	await chat.retry();
-	const busy = () => vocab.busy;
-	while (!busy()) await nextTurn();
+	const busy = () => vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0;
+	while (!chat.isSaving) await nextTurn();
 	// The finished reply is on screen while its file is being written.
 	expect(roles(chat)).toEqual(['assistant']);
 	expect(chat.isSaving).toBe(true);

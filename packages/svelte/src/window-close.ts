@@ -1,16 +1,15 @@
 /**
- * A desktop window's close, held until the page says it may go: the one
+ * A desktop window's close, answered from the folder's current status: the one
  * close listener of the window a `FolderContext` guards
  * (`context.guardWindowClose()`).
  *
  * Tauri sends a close request to the page once a listener is registered,
  * and closes the window only if the page destroys it. Each request is
  * refused at once (`preventDefault`), so Tauri never destroys the window
- * itself; `blockers` then answers. No reason: the page destroys the window.
- * Reasons: the window stays with everything typed in it, is brought forward, and a notice says
- * why. A request while one is answered is refused and answered by the
+ * itself. If a Folder save is pending, the person confirms whether to close
+ * anyway. A request while one is answered is refused and answered by the
  * first. Destroying needs `core:window:allow-destroy`; a failed destroy keeps
- * the listener, so another close must pass the same save check.
+ * the listener, so another close can be attempted.
  *
  * Outside the desktop app nothing listens, and the browser's unload
  * behavior stands. Tauri's window API loads only inside the desktop app,
@@ -23,6 +22,28 @@ import { createLogger } from 'wellcrafted/logger';
 
 const log = createLogger('svelte/window-close');
 let holding = false;
+
+/** Let Epicenter ask this page whether its one mounted folder has pending saves. */
+export async function reportFolderSaveStatus(
+	pendingSave: () => boolean,
+): Promise<() => void> {
+	if (!isTauri() || globalThis.location?.protocol !== 'epicenter-app:')
+		return () => {};
+	const [{ emit, listen }, { getCurrentWindow }] = await Promise.all([
+		import('@tauri-apps/api/event'),
+		import('@tauri-apps/api/window'),
+	]);
+	const label = getCurrentWindow().label;
+	return listen<number>('epicenter://quit-check', ({ payload }) => {
+		void emit('epicenter://quit-status', {
+			id: payload,
+			label,
+			pending: pendingSave(),
+		}).catch((cause: unknown) =>
+			log.error(new Error('Could not report the folder save status', { cause })),
+		);
+	}, { target: { kind: 'WebviewWindow', label } });
+}
 
 /** Tell the person why the window did what it did. */
 async function notify(current: Window, title: string, description: string) {
@@ -43,9 +64,10 @@ async function notify(current: Window, title: string, description: string) {
 	}
 }
 
-/** Hold each close of this window until `blockers` answers none. Answers the stop. */
+/** Prompt only for accepted Folder work that has not saved. Answers the stop. */
 export async function holdWindowClose(
-	blockers: () => Promise<readonly string[]>,
+	pendingSave: () => boolean,
+	message: string,
 ): Promise<() => void> {
 	if (!isTauri()) return () => {};
 	if (holding) throw new Error('This window already has a Folder close guard');
@@ -66,22 +88,33 @@ export async function holdWindowClose(
 		if (answering || stopped) return;
 		answering = true;
 		try {
-			let reasons: readonly string[];
+			let pending: boolean;
 			try {
-				reasons = await blockers();
+				pending = pendingSave();
 			} catch (cause) {
 				log.error(
-					new Error('The window could not check its typing', { cause }),
+					new Error('The window could not check its save status', { cause }),
 				);
-				reasons = ['Whether everything typed is saved could not be checked.'];
+				pending = true;
 			}
 			if (stopped) return;
-			if (reasons.length > 0) {
-				await notify(current, 'The window stayed open', reasons.join(' '));
-				return;
+			if (pending) {
+				try {
+					await current.setFocus();
+					const { confirm } = await import('@tauri-apps/plugin-dialog');
+					// A fast save may finish while the dialog module loads.
+					if (pendingSave() && !(await confirm(message, {
+						title: 'Close window?',
+						kind: 'warning',
+						okLabel: 'Close Anyway',
+						cancelLabel: 'Cancel',
+					}))) return;
+				} catch (cause) {
+					log.error(new Error('The window could not ask about its pending save', { cause }));
+					return;
+				}
 			}
-			// Once the save check succeeds, no new typing may arrive while the
-			// shell is destroying the window. A refused destroy restores the page.
+			// A refused destroy restores the page.
 			const page = globalThis.document?.documentElement;
 			const wasInert = page?.inert;
 			if (page) page.inert = true;

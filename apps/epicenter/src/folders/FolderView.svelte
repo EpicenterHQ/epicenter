@@ -4,7 +4,6 @@
 	import { Input } from '@epicenter/ui/input';
 	import * as Select from '@epicenter/ui/select';
 	import { readSavedViews } from '@epicenter/folder/declaration';
-	import { onDestroy } from 'svelte';
 	import {
 		createViews,
 		savedKey,
@@ -78,13 +77,6 @@
 			);
 		},
 	});
-	onDestroy(
-		context.registerUnsent(() =>
-			views.failed
-				? 'View settings did not save. Retry, reload or dismiss the failed save before closing.'
-				: undefined,
-		),
-	);
 	const recipe = $derived(views.value(view));
 	const needsDirectory = $derived(
 		recipe !== undefined &&

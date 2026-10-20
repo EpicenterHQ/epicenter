@@ -14,10 +14,9 @@
 
 	Opening needs no account, remote, or network, and writes nothing. A
 	folder that cannot open is shown as that refusal; nothing else is opened
-	in its place. When the page is hidden, what is typed is sent at once. A
-	pending draft prompts before the browser unloads the page. In the desktop
-	app, closing the window first sends what is typed and waits for it to
-	save; a failed save or input the app reports as unsent keeps the window
+	in its place. When the page is hidden, accepted edits are sent at once.
+	A pending Folder save prompts before browser unload. In the desktop app,
+	closing the window uses the same status and asks whether to close anyway
 	(`guardWindowClose`). Importing this component opens nothing.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
@@ -81,12 +80,14 @@
 			);
 	});
 	function beforeUnload(event: BeforeUnloadEvent) {
-		if (!context?.leaving) return;
+		if (!context || (!context.getStatus().saving && context.getStatus().unsaved.length === 0)) return;
 		event.preventDefault();
 		event.returnValue = '';
 	}
 	function settle() {
-		void opening.then(({ data: context }) => context?.settled()).catch((cause: unknown) =>
+		void opening.then(({ data: context }) => {
+			if (context && !context.getStatus().closing) return context.folder.settle();
+		}).catch((cause: unknown) =>
 			log.error(new Error('The local folder edits did not settle', { cause })),
 		);
 	}

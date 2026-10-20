@@ -470,10 +470,6 @@ export function createNotes(local: NotesFolder) {
 		// State read reactively
 		// ------------------------------------------------------------------
 
-		/** Whether the folder has an accepted change still saving. */
-		get busy() {
-			return local.getStatus().saving || local.getStatus().unsaved.length > 0;
-		},
 		/** Whether everything typed is saved on this device, as the header says it. */
 		get saves() {
 			return saveLine(local.getStatus());

@@ -540,7 +540,7 @@ test('an older listing delivered after a newer one does not replace it', async (
 	expect([...store.entries()]).toEqual([{ key: question.id, val: question }]);
 });
 
-test('one chat’s message writes run one at a time in its turn, leaving waits for them, and close lets the started one land', async () => {
+test('one chat’s message writes run one at a time, and close lets the started one land', async () => {
 	await using context = await setup();
 	const { folder } = context;
 	const { gate, folder: gatedFolder } = gatedMessages(folder);
@@ -558,12 +558,12 @@ test('one chat’s message writes run one at a time in its turn, leaving waits f
 	await Bun.sleep(5);
 	// The answer waits its turn behind the question.
 	expect(gate.sets).toBe(0);
-	expect(vocab.busy).toBe(true);
+	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(false);
 	writing.resolve();
 	expectOk(await first);
 	expectOk(await second);
 	expect(gate.sets).toBe(2);
-	expect(vocab.busy).toBe(false);
+	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(false);
 
 	// A save that started before close lands; close waits for it.
 	const landing = Promise.withResolvers<void>();

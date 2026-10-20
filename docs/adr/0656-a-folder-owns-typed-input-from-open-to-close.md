@@ -35,10 +35,12 @@ it. Every runtime (browser, Bun, Tauri, plain JavaScript) gets the same owner.
 
 **What the folder does not own.** App actions and jobs (a request it waits
 for, a recording), forms not yet submitted (a new thought, a connection
-draft), and the page's query cache stay the app's. The Svelte context counts
-started actions in `busy`, `leaving`, and the window's close; a form says what
-it holds through `registerUnsent`. Their lifetimes do not determine file save
-status: `getSaveState()` is read from `folder.getStatus()` alone.
+draft), and the page's query cache stay the app's. The Svelte context's
+`run` tracks started app actions so normal teardown waits for writes they may
+make after an await. A form that has not been submitted has no accepted
+Folder edit. Their lifetimes do not determine file save status: `getSaveState()`
+is read from `folder.getStatus()` alone. Departure prompts are a separate UI
+policy from the Folder's close and recovery contract.
 
 ### Entry points
 
@@ -73,6 +75,11 @@ text source is the file's bytes (`Uint8Array`). `undefined` means no
 observation is available; a text change can then continue held text using its
 existing base, but cannot start a new edit.
 
+`change` and `changeFields` return `Result<void, ChangeError>`. Success means
+accepted into memory, not saved; a refusal explains why input was not
+accepted. A Svelte row binding without an observed row returns
+`ChangeError.NoSource` and leaves existing input readable through `pending`.
+
 ### Sources and presentations
 
 Every command names the source the person saw. `shown(observed)` answers a
@@ -85,12 +92,14 @@ view showed, held input included. A change is merged when it is made:
   body or text merges by line into what is held.
 - Any other value is read as what the person saw.
 
-Each view uses its own binding for display and commands. The Svelte binding
-names the presentation it last displayed; a command that composes its change
-from the row (Capture's thought form) reads `seen`, that same row, which
-reading neither moves nor tracks. Whether a position the person picked is
-still current is a separate question, answered from the latest read through
-`shown`, which moves no view. React's `row` is already the render's snapshot,
+Each view uses its own binding over its observed source. Svelte's getters
+and commands project that source with held input and own saves at the time
+they run. Reading a getter changes no command policy: there is no last-read
+snapshot or `seen` value. A synchronous command that composes new content
+reads `row` or `text` and passes its change to the binding. A delayed command
+that intentionally edits an earlier presentation instead keeps
+`const shown = handle.shown(observed)` and later calls
+`handle.change(shown.source, patch)`. React's `row` is the render's snapshot,
 and its commands name that render's presentation.
 
 ### Reads are noted, never matched
@@ -172,9 +181,10 @@ stored format changes; nothing migrates.
 
 - One owner decides what a view shows and what a save starts from, for every
   app and every runtime, and close cannot miss input.
-- A view must name a presentation it displayed. Rendering one value and
-  sending another is the remaining way to lose a merge, and the bindings make
-  it the hard path.
+- Core commands name their source explicitly. Svelte bindings supply the
+  current projection for immediate edits; React bindings supply the render's
+  presentation. Delayed edits of an earlier snapshot keep its explicit
+  source rather than relying on which getter was last read.
 - Committed contributions live as long as the folder is open: per path, the
   composed text, the last value of each field typed, and the last body.
 - The handle serializes saves per path, so typing fast on one path waits for
@@ -185,10 +195,10 @@ stored format changes; nothing migrates.
 ## Considered
 
 - **Retrying storage failures during close.** It gave disposal a different
-  authorization rule from blur and settlement. The window guard already
-  keeps a window open while input remains unsaved, and disposal returns
-  copyable input. One rule for every edit and trigger removes the special
-  shutdown retry without silently losing failed input. After storage recovers,
+  authorization rule from blur and settlement. Disposal returns copyable
+  input, and the UI decides how to warn before departure. One rule for every
+  edit and trigger removes the special shutdown retry without silently losing
+  failed input. After storage recovers,
   the person chooses Try again or types a new change.
 
 - **An owner attached after open.** Close could not tell whether one was still
