@@ -657,4 +657,42 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await page.context.close();
 		}
 	});
+	test('table-view Save waits for a top-level directory and explains the choice', async () => {
+		const disk = standIn({
+			'root.md': '---\ntitle: Root\n---\nBody\n',
+			'notes/a.md': '---\ntitle: A\n---\nBody\n',
+			'notes/deep/b.md': '---\ntitle: B\n---\nBody\n',
+		});
+		const page = openEditor(disk.folder);
+		const button = (label: string) =>
+			[...page.target.querySelectorAll('button')].find(
+				(entry) => entry.textContent?.trim() === label,
+			) ?? null;
+		try {
+			await until(() => button('Tables') !== null, 'navigation');
+			press(button('Tables'));
+			await until(
+				() =>
+					page.target.querySelector('input[aria-label="notes/a.md: title"]') !==
+					null,
+				'documents',
+			);
+			expect(button('Save view')?.disabled).toBe(true);
+			expect(button('Save as new')?.disabled).toBe(true);
+			expect(page.target.textContent).toContain('Choose a top-level directory');
+			await choose(page.target.querySelector('#table-directory'), 'notes');
+			expect(button('Save view')?.disabled).toBe(false);
+			expect(button('Save as new')?.disabled).toBe(false);
+			await choose(page.target.querySelector('#table-directory'), 'notes/deep');
+			expect(button('Save view')?.disabled).toBe(true);
+			await choose(
+				page.target.querySelector('#table-directory'),
+				'Folder root',
+			);
+			expect(button('Save view')?.disabled).toBe(true);
+		} finally {
+			await page.close();
+			await page.context.close();
+		}
+	});
 });

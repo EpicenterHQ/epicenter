@@ -96,6 +96,13 @@
 		),
 	);
 	const recipe = $derived(views.value(view));
+	const needsDirectory = $derived(
+		recipe !== undefined &&
+			recipe.type !== 'sql' &&
+			(recipe.table === '*' ||
+				recipe.table === '.' ||
+				recipe.table.includes('/')),
+	);
 	const viewError = $derived(views.error(view));
 	const storedEntries = $derived(
 		Object.entries(saved.data?.views ?? {}).map(
@@ -200,7 +207,9 @@
 				>{/if}
 			<Button
 				size="sm"
-				disabled={source.exclusivePending || declaration.isPending}
+				disabled={source.exclusivePending ||
+					declaration.isPending ||
+					needsDirectory}
 				onclick={() => void save()}
 				>{source.exclusivePending
 					? 'Saving…'
@@ -211,7 +220,9 @@
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={source.exclusivePending || declaration.isPending}
+				disabled={source.exclusivePending ||
+					declaration.isPending ||
+					needsDirectory}
 				onclick={() => void save(true)}>Save as new</Button
 			>
 			{#if view !== TABLES && view !== SQL}
@@ -236,6 +247,13 @@
 				>
 			{/if}
 		</div>
+		{#if needsDirectory}
+			<p class="px-4 py-2 text-sm text-muted-foreground" role="status">
+				Choose a top-level directory below before saving this table view. All
+				Markdown, the folder root, and nested directories remain available for
+				browsing.
+			</p>
+		{/if}
 		{#if views.notice(view)}<Alert.Root
 				><Alert.Description
 					>{views.notice(view)}
