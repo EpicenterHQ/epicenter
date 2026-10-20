@@ -36,7 +36,7 @@ Commands below run from the repository root and require Bun. The offline pass
 reads the stored corpus and descriptions:
 
 ```bash
-bun run .agents/skills/agent-instructions/scripts/run-trigger-eval.ts
+bun run .agents/skills/skills-and-instructions/scripts/run-trigger-eval.ts
 ```
 
 It checks lexical coverage, not routing. `--case <id>` selects a case;
@@ -46,7 +46,7 @@ lexical findings fail the command. Those findings still need interpretation.
 The opt-in live probe requires an authenticated Claude CLI and consumes quota:
 
 ```bash
-bun run .agents/skills/agent-instructions/scripts/run-trigger-eval.ts --live --case <id> --runs 3 --budget-ms 120000
+bun run .agents/skills/skills-and-instructions/scripts/run-trigger-eval.ts --live --case <id> --runs 3 --budget-ms 120000
 ```
 
 The probe permits only the Skill tool and asks the model to select a skill and
@@ -71,7 +71,7 @@ work; it does not establish a general routing law or require measuring every
 instruction edit. Its rates are not current evidence.
 
 ```bash
-bun run .agents/skills/agent-instructions/scripts/run-trigger-eval.ts --verify-runs .agents/skills/agent-instructions/evals/runs
+bun run .agents/skills/skills-and-instructions/scripts/run-trigger-eval.ts --verify-runs .agents/skills/skills-and-instructions/evals/runs
 ```
 
 This compares AGENTS.md and CLAUDE.md fingerprints only. A comparable verdict

@@ -43,7 +43,7 @@ export type LinkFinding = {
 	target: string;
 };
 
-const USAGE = `Usage: bun run .agents/skills/agent-instructions/scripts/audit-skill-links.ts [options]
+const USAGE = `Usage: bun run .agents/skills/skills-and-instructions/scripts/audit-skill-links.ts [options]
 
 Checks every Markdown link under the skill tree against the filesystem.
 

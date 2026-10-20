@@ -165,7 +165,7 @@ export type LexicalFinding = {
 	detail: string;
 };
 
-const USAGE = `Usage: bun run .agents/skills/agent-instructions/scripts/run-trigger-eval.ts [options]
+const USAGE = `Usage: bun run .agents/skills/skills-and-instructions/scripts/run-trigger-eval.ts [options]
 
 Default mode is offline and reports description coverage, not routing.
 

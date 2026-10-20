@@ -68,7 +68,7 @@ keep the diagnosis provisional rather than assigning blame or adding a rule.
 
 ## Improve the responsible skills
 
-Use [agent-instructions](../agent-instructions/SKILL.md) to place and make the
+Use [skills-and-instructions](../skills-and-instructions/SKILL.md) to place and make the
 resulting skill edits. Prefer changing the existing owner and removing guidance
 that encouraged the failure over adding compensating rules. Do not spread the
 same lesson across every skill involved. Some findings warrant no skill change.
@@ -82,7 +82,7 @@ relevant change and its effect.
 
 Keep comparison inputs consistent, distinguish illustrative responses from
 actual runs, and check a materially different request for transfer or regression.
-Use agent-instructions' [evaluation guidance](../agent-instructions/references/evaluation.md)
+Use skills-and-instructions' [evaluation guidance](../skills-and-instructions/references/evaluation.md)
 when designing behavioral comparisons. Report what remains unmeasured; success
 on the motivating exchange alone does not establish improved accuracy.
 

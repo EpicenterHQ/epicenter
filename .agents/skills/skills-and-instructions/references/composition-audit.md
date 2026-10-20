@@ -11,7 +11,7 @@ can be useful; neither requires a taxonomy or a unique owner for every phrase.
 From the repository root:
 
 ```bash
-bun run .agents/skills/agent-instructions/scripts/audit-skill-links.ts --root .agents/skills/<skill-name>
+bun run .agents/skills/skills-and-instructions/scripts/audit-skill-links.ts --root .agents/skills/<skill-name>
 ```
 
 The scanner checks Markdown links and heading anchors, excluding fenced and
@@ -24,7 +24,7 @@ search for incoming references and a check of the associated Claude symlink.
 For a phrase involved in an actual selection problem:
 
 ```bash
-bun run .agents/skills/agent-instructions/scripts/audit-routing-collisions.ts --explain "trigger phrase"
+bun run .agents/skills/skills-and-instructions/scripts/audit-routing-collisions.ts --explain "trigger phrase"
 ```
 
 Stdout lists `phrase -> skill/SKILL.md` matches, annotated as `[claims]` or

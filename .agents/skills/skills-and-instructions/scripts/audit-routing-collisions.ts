@@ -39,7 +39,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const defaultSkillsDir = join(scriptDir, '..', '..');
 const repoRoot = join(scriptDir, '..', '..', '..', '..');
 
-const USAGE = `Usage: bun run .agents/skills/agent-instructions/scripts/audit-routing-collisions.ts [--explain] "trigger phrase"
+const USAGE = `Usage: bun run .agents/skills/skills-and-instructions/scripts/audit-routing-collisions.ts [--explain] "trigger phrase"
 
 Reports which skill descriptions mention the phrase.
 
