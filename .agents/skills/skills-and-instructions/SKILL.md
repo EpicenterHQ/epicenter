@@ -1,9 +1,9 @@
 ---
-name: agent-instructions
-description: Write and maintain repository guidance across AGENTS.md, CLAUDE.md, and .agents/skills. Use whenever the user asks to create, edit, improve, review, or troubleshoot a skill or agent instruction, including changes to another named skill. Also use when deciding where instructions belong or diagnosing instruction sprawl and skill selection. Do not use merely because another skill is being executed.
+name: skills-and-instructions
+description: Design, write, and maintain skills and agent instructions. Use when the user asks to create, edit, improve, review, or troubleshoot skills or agent instructions, decide where guidance belongs, or diagnose instruction sprawl, conflicting guidance, or skill selection. Do not use merely because another skill is being executed.
 ---
 
-# Agent Instructions
+# Skills and Instructions
 
 Preserve useful judgment in guidance a future agent can find and apply.
 A skill earns its place through knowledge, preferences, or recurring failures
@@ -39,10 +39,13 @@ apply them to cases you did not anticipate. Give criteria and boundaries;
 prescribe a sequence only when the order affects correctness. Keep enough
 context to prevent the recurring mistake without dictating unrelated work.
 
-Describe the capability and the user intent that should select it in the
-frontmatter description. Add exclusions for plausible near misses, and revisit
-the description when the capability changes. The body supplies the judgment and
-workflow rather than repeating a list of trigger phrases.
+Start the frontmatter description with a sentence stating what the skill does.
+Begin the second sentence with "Use when" and name the user intents or situations
+that should select it. This makes both the capability and its selection
+conditions clear. Use examples when they clarify the boundary, and add
+exclusions for plausible near misses. Revisit the description when the
+capability changes. The body supplies the judgment and workflow rather than
+repeating a list of trigger phrases.
 
 Keep the core readable on its own. Link to a reference with a concrete reason
 to read it, and retain examples only when they reveal something the principle
@@ -78,8 +81,8 @@ request compared with the current skill**. Include enough of the interaction
 or result for the user to judge the difference.
 
 Alongside that comparison, **show the actual skill wording being changed**.
-Put prose comparisons in blockquotes and bold the consequential differences
-in both the skill wording and the example.
+Use [writing-voice's comparison guidance](../writing-voice/SKILL.md#show-revisions-in-context)
+for both the proposed instructions and the sample outputs.
 
 Keep the request and unrelated material consistent. Clearly identify examples
 you are illustrating versus results you actually obtained by running the skill.

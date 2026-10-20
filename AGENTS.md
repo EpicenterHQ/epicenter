@@ -152,15 +152,21 @@ only once that visibility and repair path are established. See [the repairabilit
 
 ## Agent collaboration
 
-Codex owns continuity, decisions, live-checkout edits, testing, and integration.
-Claude provides a read-only second opinion when the user requests it or a
-workflow the user chose includes it. `adversarial-review` owns the reviewer
-setup for that workflow; complexity alone does not enlist Claude.
-Follow `consult-claude` for briefing and follow-ups and `adversarial-review`
-for the review method. Use `delegate-claude` only when the user explicitly
-authorizes Claude to own implementation or experimental execution. Authorization
-for the parent task alone does not authorize that delegation. Codex verifies
-the returned work, applies accepted changes, and reruns verification.
+Codex owns overall task continuity and focused acceptance. Use Claude Opus 5.5
+high by default for reasoning, design choices, investigations, and work where
+taste affects the result. Bring it in early instead of solving the hard part
+in Codex before requesting an opinion. Claude can also own bounded delivery, including
+applying changes in the current checkout; Codex pauses its own edits there and
+checks the result without repeating the investigation. Resume the same Claude
+session for new evidence or corrections on the same assignment. Prefer Claude
+where its reasoning and design judgment can improve the result; Codex handles
+straightforward execution and supporting work. Choose the division of work for
+the quality of the result.
+Use `consult-claude` for read-only answers and `delegate-claude` for completed
+changes or experiments within the parent task's authorization. Claude owns its
+investigation strategy, implementation briefs, and checks of helper results.
+The launcher fixes helper permissions; each checkout has one code writer.
+`adversarial-review` owns independent review staffing and method.
 
 ## Review routing
 

@@ -118,7 +118,7 @@ test('external and anchor-only targets are skipped', () => {
 		write(
 			dir,
 			'alpha/SKILL.md',
-			'# Alpha\n\n## Setup\n\n[docs](https://example.com/x.md), [mail](mailto:a@b.co), [jump](#setup).\n',
+			'# Alpha\n\n## Setup\n\n[docs](https://example.com/x.md), [mail](mailto:a@b.co), [chat](thread://123?hostId=local), [jump](#setup).\n',
 		);
 
 		const { code, out } = run(dir);

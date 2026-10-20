@@ -19,12 +19,20 @@ not the default destination for the improvement.
 
 ## Establish the purpose and evidence
 
-**Use [dialectic](../dialectic/SKILL.md) to develop a shared understanding of what
-went wrong before proposing skill changes.** Offer an explanation grounded in
-the conversation and the skills actually invoked. Let the user's reactions
-help locate and revise the diagnosis. Once that understanding is established,
-develop the corresponding skill change and show what it would produce. Revisit
-the diagnosis if considering the change exposes something it missed.
+**Use [dialectic](../dialectic/SKILL.md) to establish the intended outcome before
+diagnosing the correction or suggesting changes.** State what the user wants
+the reviewed conversation or workflow to help them understand, decide, or do.
+Put that proposed intent in a blockquote and bold the words that state it;
+emphasizing a question such as "Is that the job you want?" leaves the intent
+itself hard to find. Let the user sharpen that understanding before building
+on it. Carry forward intent already established; a settled correction can
+proceed directly.
+
+Once the purpose is understood, examine one concrete issue or suggestion at a
+time against it. Ground the diagnosis in the conversation and the skills
+actually invoked, and let the user's reactions shape the next attempt. Develop
+the corresponding skill change once the diagnosis is understood. Revisit it
+if considering the change exposes something it missed.
 
 Read the referenced conversation through the available conversation tools. For
 Codex chat references, use `read_thread` and follow pagination far enough to
@@ -40,26 +48,27 @@ separate later changes from the baseline. State gaps in that evidence.
 
 ## Work backward from a correction
 
-Choose a consequential miss and show the request, response, and correction with
-enough context to expose the mismatch. Develop one coherent issue at a time.
+**Connect the user’s correction, the agent’s behavior, and the skill wording
+that may explain it.** Show the relevant excerpts and explain your current
+reading in plain language. Use dialectic to examine that connection with the
+user, including discrepancies between what the skill says and what the agent
+did. Develop one concrete issue at a time, letting their reactions and the
+evidence revise the explanation before deciding what to change.
+
 Distinguish a misunderstanding the agent could have avoided from a preference
 or idea that emerged through useful exploration. A disagreement is evidence to
 investigate, not proof that the agent was wrong.
 
 Inspect the implicated skills and relevant surrounding instructions together.
 Determine whether the problem was missing or misleading guidance, competing
-instructions, skill selection,
-or failure to apply guidance already present. **Loading a skill does not
-establish that it caused the mistake.** If the record cannot support attribution,
+instructions, skill selection, or failure to apply guidance already present.
+**Loading a skill does not establish that it caused the mistake.** If the
+record cannot support attribution,
 keep the diagnosis provisional rather than assigning blame or adding a rule.
-
-Make the suspected cause concrete enough for the user to correct. Their
-reaction may change the diagnosis or the responsible owner. Preserve what
-they recognize and synthesize the next attempt yourself.
 
 ## Improve the responsible skills
 
-Use [agent-instructions](../agent-instructions/SKILL.md) to place and make the
+Use [skills-and-instructions](../skills-and-instructions/SKILL.md) to place and make the
 resulting skill edits. Prefer changing the existing owner and removing guidance
 that encouraged the failure over adding compensating rules. Do not spread the
 same lesson across every skill involved. Some findings warrant no skill change.
@@ -73,7 +82,7 @@ relevant change and its effect.
 
 Keep comparison inputs consistent, distinguish illustrative responses from
 actual runs, and check a materially different request for transfer or regression.
-Use agent-instructions' [evaluation guidance](../agent-instructions/references/evaluation.md)
+Use skills-and-instructions' [evaluation guidance](../skills-and-instructions/references/evaluation.md)
 when designing behavioral comparisons. Report what remains unmeasured; success
 on the motivating exchange alone does not establish improved accuracy.
 

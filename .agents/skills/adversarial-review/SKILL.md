@@ -35,6 +35,9 @@ Opus reviewer through [consult-claude](../consult-claude/SKILL.md). Explicit
 user choices override this default. Ordinary final checks remain local under
 post-implementation-review.
 
+A requested Claude reviewer occupies one of the two seats unless the user
+specifies different staffing; do not automatically add a third reviewer.
+
 Give both reviewers the same evidence and complementary starting questions.
 Run them in parallel when possible, and withhold each reviewer's findings from
 the other until both initial verdicts arrive. Assign the starting questions
@@ -99,6 +102,10 @@ authorizes Claude execution.
 For a proposal without implementation, supply the proposal and any existing
 system it would replace. Distinguish observed behavior from design assumptions;
 name what a prototype or caller would need to establish.
+
+A Claude reviewer may use host-provided read-only Codex evidence
+assistance, while retaining the review judgment and checking deciding sources.
+That helper is an evidence gatherer, not an additional independent reviewer.
 
 Hold the reviewed surface stable until the available reviewers return. Use that
 interval for verification preparation or an independent question outside the surface.

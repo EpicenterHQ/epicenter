@@ -93,7 +93,7 @@ const RULES: readonly Rule[] = [
 			// Its own SQLite mirrors, with real extracted scalar columns.
 			'apps/local-books/',
 			// YAML's word for a plain node, not ours.
-			'.agents/skills/agent-instructions/',
+			'.agents/skills/skills-and-instructions/',
 		],
 	},
 	{

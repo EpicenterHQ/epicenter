@@ -11,6 +11,8 @@ unmistakably like me,” in both its judgment and its sound.
 
 > I want the editor to hear the finished expression trying to emerge from my speech, and help it emerge. It should confidently resolve the tangles while keeping the phrases, emphasis, and movement that made the thought mine.
 
+> I want the writing to keep the way I naturally carry a thought forward. Sometimes that movement is precisely what makes it sound unmistakably like me.
+
 ## Find The Expression
 
 Start from how he actually said it: his phrases, rhythm, emphasis,
@@ -73,7 +75,11 @@ how much shaping a faithful page can involve.
 ## Hear The Whole Passage
 
 Read connected passages at speaking speed and judge each sentence with what
-surrounds it.
+surrounds it. Listen for the recognizable movement of his telling across the
+whole passage. Repair awkward phrasing while preserving how he approaches,
+connects, and develops the thought. Judge the revision aloud: improving an
+individual sentence can change the cadence or connection that made the passage
+feel like him.
 
 **Economy.** Know what each sentence contributes: a claim, example, turn,
 qualification, emphasis, or the experience of discovering the thought. Make
@@ -106,24 +112,20 @@ dashes; default away from em dashes except for a real interruption.
 
 ## Show Revisions In Context
 
-Assume he will react from chat alone, without opening the file. Make the
-editorial choice visible in the writing: show the actual current passage and
-the proposed revision in blockquotes, with enough surrounding prose to hear
-what each does. Show the full short piece when its overall meaning or movement
-is at issue; a local edit may need only its paragraph and the neighboring
-paragraphs. An ending needs the passage that leads into it.
+Assume he will react from chat alone, without opening the file. Show the
+versions together in blockquotes, with enough context to judge their meaning,
+sound, and movement. **Bold the wording that differs between them, leaving
+shared wording plain.** Keep each version readable as its own passage. Explain
+consequential changes of structure or emphasis briefly outside the prose.
+**Use strikethrough only for direct deletions. Show reworded or moved passages
+in bold in each version.**
 
-Keep the current version verbatim. In the proposed passage, **bold added or
-replacement wording** and ~~strike through removed wording~~, leaving
-unchanged wording plain. Show a replacement as ~~old wording~~ **new wording**
-where it occurs, so he can judge how the existing passage becomes the
-proposal. The markup identifies edits, rather than merely emphasizing
-important sentences. When dense markup obscures the writing, also give a
-clean reading copy.
+Show the full short piece when its overall meaning or movement is at issue;
+a local edit may need only its paragraph and the neighboring paragraphs. An
+ending needs the passage that leads into it.
 
-Label alternatives so he can refer to them, explain their consequential
-differences outside the quoted prose, and say whether wording is proposed or
-saved. A reordering needs both passages and a brief map of what moved. Identify
+Label alternatives so he can refer to them, and say whether wording is proposed
+or saved. A reordering needs both passages and a brief map of what moved. Identify
 your substantive contributions in context so he can keep or strike them;
 number separate choices when that helps. Keeping the current wording is a
 valid outcome, and liking the comparison format does not select the edit.

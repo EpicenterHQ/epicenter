@@ -32,7 +32,7 @@ other one, which is the finding these runs exist to support. So ask the tree
 rather than the file:
 
 ```bash
-bun run agent-instructions/scripts/run-trigger-eval.ts --verify-runs agent-instructions/evals/runs
+bun run skills-and-instructions/scripts/run-trigger-eval.ts --verify-runs skills-and-instructions/evals/runs
 ```
 
 ```txt

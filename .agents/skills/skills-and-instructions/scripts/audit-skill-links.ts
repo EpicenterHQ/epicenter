@@ -20,7 +20,7 @@
  *     example posts and templates with placeholder links like `[here](link)`.
  *   - A target is only treated as a file claim when it contains `/` or ends in
  *     a filename extension. That skips the remaining placeholders.
- *   - `http:`, `https:`, `mailto:`, and bare `#anchor` targets are skipped.
+ *   - `http:`, `https:`, `mailto:`, `thread:`, and bare `#anchor` targets are skipped.
  *   - A relative target resolves against the linking file's directory, so
  *     `../svelte/references/x.md` resolves the same way a reader's
  *     editor resolves it.
@@ -43,7 +43,7 @@ export type LinkFinding = {
 	target: string;
 };
 
-const USAGE = `Usage: bun run .agents/skills/agent-instructions/scripts/audit-skill-links.ts [options]
+const USAGE = `Usage: bun run .agents/skills/skills-and-instructions/scripts/audit-skill-links.ts [options]
 
 Checks every Markdown link under the skill tree against the filesystem.
 
@@ -100,7 +100,7 @@ export function collectHeadingSlugs(markdown: string): Set<string> {
 // `[text](target)` with an optional title. Targets with whitespace or nested
 // parens are not link syntax we write, so the simple form is enough.
 const LINK = /\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-const EXTERNAL = /^(https?|mailto|tel|ftp|data):/i;
+const EXTERNAL = /^(https?|mailto|tel|ftp|data|thread):/i;
 
 /** Does this target name a file, rather than being prose or a placeholder? */
 function isFileClaim(target: string): boolean {
