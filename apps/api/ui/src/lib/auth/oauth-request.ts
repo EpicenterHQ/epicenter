@@ -46,19 +46,19 @@ export function deviceAuthorizeUrl(userCode: string) {
 }
 
 /** What each scope lets an app do, in the words a person reads. */
-const SCOPE_COPY: Record<string, string> = {
-	'folders:read': 'Read your folders',
-	'folders:write': 'Change your folders',
-	ai: 'Use Epicenter AI on your plan',
-	profile: 'See your name, plan, and usage',
-	email: 'See your email address',
-	offline_access: 'Stay signed in on that device',
-};
+const SCOPE_COPY = new Map([
+	['folders:read', 'Read your folders'],
+	['folders:write', 'Change your folders'],
+	['ai', 'Use Epicenter AI on your plan'],
+	['profile', 'See your name, plan, and usage'],
+	['email', 'See your email address'],
+	['offline_access', 'Stay signed in on that device'],
+]);
 
 /** The scope lines to show, skipping the ones that grant nothing on their own. */
 export function describeScopes(scopes: readonly string[]): string[] {
 	return scopes.flatMap((scope) => {
-		const copy = SCOPE_COPY[scope];
+		const copy = SCOPE_COPY.get(scope);
 		return copy ? [copy] : [];
 	});
 }

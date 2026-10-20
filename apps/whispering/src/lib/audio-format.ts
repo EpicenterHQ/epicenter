@@ -5,18 +5,18 @@
  * a WAV's own header gives its play length.
  */
 
-const BY_EXTENSION: Record<string, string> = {
-	wav: 'audio/wav',
-	webm: 'audio/webm',
-	m4a: 'audio/mp4',
-	mp4: 'audio/mp4',
-	ogg: 'audio/ogg',
-	oga: 'audio/ogg',
-	opus: 'audio/ogg',
-	mp3: 'audio/mpeg',
-	flac: 'audio/flac',
-	aac: 'audio/aac',
-};
+const BY_EXTENSION = new Map([
+	['wav', 'audio/wav'],
+	['webm', 'audio/webm'],
+	['m4a', 'audio/mp4'],
+	['mp4', 'audio/mp4'],
+	['ogg', 'audio/ogg'],
+	['oga', 'audio/ogg'],
+	['opus', 'audio/ogg'],
+	['mp3', 'audio/mpeg'],
+	['flac', 'audio/flac'],
+	['aac', 'audio/aac'],
+]);
 
 const ascii = (bytes: Uint8Array, offset: number, length: number) =>
 	String.fromCharCode(...bytes.subarray(offset, offset + length));
@@ -29,7 +29,7 @@ export function extensionOf(path: string): string {
 
 /** The playback MIME type for a file in the folder, by its extension. */
 export function audioMimeTypeOf(path: string): string | undefined {
-	return BY_EXTENSION[extensionOf(path)];
+	return BY_EXTENSION.get(extensionOf(path));
 }
 
 const isWav = (bytes: Uint8Array) =>

@@ -4,7 +4,7 @@ import {
 	describeScopes,
 	deviceAuthorizeUrl,
 	readOAuthRequest,
-} from './oauth-request';
+} from './oauth-request.js';
 
 const signed =
 	'response_type=code&client_id=so.epicenter&scope=offline_access+folders%3Aread&prompt=login&state=s&exp=1&ba_iat=2&ba_param=client_id&sig=abc';
@@ -46,4 +46,10 @@ test('scope lines skip scopes that grant nothing on their own', () => {
 		'Change your folders',
 		'Use Epicenter AI on your plan',
 	]);
+});
+
+test('scope lines ignore inherited object keys and keep declared scopes', () => {
+	expect(
+		describeScopes(['constructor', 'toString', '__proto__', 'folders:read']),
+	).toEqual(['Read your folders']);
 });

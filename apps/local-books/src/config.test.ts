@@ -46,6 +46,15 @@ test('a valid config.json is read', () => {
 	expect(config.pageSize).toBe(500);
 });
 
+test('config refuses inherited object keys as entity names', () => {
+	writeConfig(
+		JSON.stringify({ entities: ['constructor', 'toString', '__proto__'] }),
+	);
+	expect(() => loadConfig()).toThrow(
+		'Unknown entities in config: constructor, toString, __proto__',
+	);
+});
+
 test('a field that does not read stops loading and is named, so read-only is never dropped', () => {
 	const path = writeConfig(JSON.stringify({ readOnly: true, pageSize: '500' }));
 	expect(() => loadConfig()).toThrow(`${path}: /pageSize must be number`);

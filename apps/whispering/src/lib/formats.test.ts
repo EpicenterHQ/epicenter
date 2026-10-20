@@ -18,6 +18,11 @@ test('a file’s extension names its playback type, ignoring case', () => {
 	expect(audioMimeTypeOf('recordings/a.md')).toBeUndefined();
 });
 
+test('inherited object keys are not audio file extensions', () => {
+	expect(audioMimeTypeOf('recordings/a.constructor')).toBeUndefined();
+	expect(audioMimeTypeOf('recordings/a.__proto__')).toBeUndefined();
+});
+
 test('a WAV reports its own length', () => {
 	expect(wavDurationMs(toneWav({ seconds: 3 }))).toBe(3000);
 	expect(wavDurationMs(new Uint8Array(64))).toBeUndefined();
