@@ -161,6 +161,18 @@
 		void current.choose(id);
 	}
 
+	function settle() {
+		const drafts = current.opened?.drafts;
+		if (drafts === undefined) return;
+		void Promise.allSettled(drafts.held.map((path) => drafts.file(path).save()));
+	}
+
+	function beforeUnload(event: BeforeUnloadEvent) {
+		if (!current.opened?.drafts.held.length) return;
+		event.preventDefault();
+		event.returnValue = '';
+	}
+
 	onMount(() => {
 		queryClient.mount();
 		// The window's own listener: a global one would hear other windows' events too.
@@ -183,6 +195,13 @@
 		};
 	});
 </script>
+
+<svelte:window onpagehide={settle} onbeforeunload={beforeUnload} />
+<svelte:document
+	onvisibilitychange={() => {
+		if (document.visibilityState === 'hidden') settle();
+	}}
+/>
 
 <main class="flex h-full min-h-0">
 	<nav class="flex w-80 shrink-0 flex-col overflow-auto border-r" aria-label="Folders">
