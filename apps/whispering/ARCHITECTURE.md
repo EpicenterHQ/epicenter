@@ -638,7 +638,7 @@ their modules until public entries export them.
 | `src/lib/deletion.ts` | What a deletion deletes, read fresh for the person to confirm, and running it. |
 | `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one mounted app. |
-| `src/lib/audio-source.ts` | What a player holds, reloaded by the bytes' hash on each folder refresh. |
+| `src/lib/file-reads.ts` | Text and audio query representations; unchanged audio bytes retain the player's Blob. |
 | `src/lib/microphone-preference.ts` | The device's saved microphone choice, shared by both platforms. |
 | `src/lib/status.ts`, `files.ts` | The header's status line; file messages, the listing, and reading a file's bytes. |
 | `src/routes/` | The layout that mounts FolderApp, the product root, and the three pages. |

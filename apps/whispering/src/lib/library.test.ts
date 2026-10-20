@@ -42,27 +42,27 @@ import { dirname, join } from 'node:path';
 import { pathProblem } from '@epicenter/folder/file-browser';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { loadAudio } from './audio-source.js';
 import { createFixtureDevice, toneWav } from './capture.js';
 import { recordingAudioStem } from './definition.js';
 import { describeDeletion } from './deletion.js';
 import { openText, settle } from './edits.test-support.js';
+import { audioRead } from './file-reads.js';
 import { readBytes } from './files.js';
 import type { Library } from './library.svelte.js';
-import { quiet } from './query.test-support.js';
-import { filesLine } from './status.js';
 import type { WhisperingServices } from './platform/types.js';
+import { QueryObserver, quiet } from './query.test-support.js';
 import {
 	eventually,
 	openTestFolder,
 	type ResultFailures,
+	replaceTables,
 	TEST_BASE_URL,
 	testConnections,
 	whisperingDirectory,
 	withObstructedCreates,
 	withResultFailures,
-	replaceTables,
 } from './services.test-support.js';
+import { filesLine } from './status.js';
 
 /** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
 const recordingFiles = async (root: string) =>
@@ -72,6 +72,13 @@ const recordingFiles = async (root: string) =>
 	].sort();
 
 const { recordingId } = await import('./library.svelte.ts');
+
+/** Read through the player's query policy, fetching current bytes each time. */
+const readAudio = (library: Library, path: string) =>
+	library.local.queryClient.fetchQuery({
+		...library.local.queries.file(path, audioRead),
+		staleTime: 0,
+	});
 
 const opened: Library[] = [];
 const roots: string[] = [];
@@ -301,9 +308,7 @@ test('record and stop leave a row naming the audio’s exact bytes, and reopenin
 		expectOk(await readBytes(second.library.local.folder, fields.audioPath)),
 	).toEqual(toneWav());
 	// The player reads the same bytes, typed as the container they are.
-	const audio = expectOk(
-		await loadAudio(second.library.local.folder.files, fields.audioPath, undefined),
-	);
+	const audio = await readAudio(second.library, fields.audioPath);
 	expect(audio.blob.type).toBe('audio/wav');
 	expect<Uint8Array>(new Uint8Array(await audio.blob.arrayBuffer())).toEqual(
 		toneWav(),
@@ -526,9 +531,9 @@ test('files an earlier version left in an ordinary directory read as they are, e
 	expect(library.resultsFor('kept').map((item) => item.row.body)).toEqual([
 		'hello there\n',
 	]);
-	expect(expectOk(await readBytes(library.local.folder, 'audio/kept.wav'))).toEqual(
-		toneWav(),
-	);
+	expect(
+		expectOk(await readBytes(library.local.folder, 'audio/kept.wav')),
+	).toEqual(toneWav());
 
 	// Editing the notes keeps the field this version does not know.
 	const view = library.rowView('recordings', entry.path);
@@ -593,25 +598,30 @@ test('audio replaced by bytes of the same length is noticed by its content', asy
 	const { library, root } = await open();
 	await record(library);
 	const path = library.entries[0]!.row.fields.audioPath;
-	const first = expectOk(
-		await loadAudio(library.local.folder.files, path, undefined),
+	const observer = new QueryObserver(
+		library.local.queryClient,
+		library.local.queries.file(path, audioRead),
 	);
+	const stop = observer.subscribe(() => {});
+	try {
+		const first = await readAudio(library, path);
 
-	await settle(library);
-	expect(expectOk(await loadAudio(library.local.folder.files, path, first))).toBe(
-		first,
-	);
+		await settle(library);
+		expect(await readAudio(library, path)).toBe(first);
 
-	const replaced = new Uint8Array(toneWav({ frequency: 880 }));
-	expect(replaced.length).toBe(toneWav().length);
-	await writeFile(join(root, path), replaced);
-	await settle(library);
+		const replaced = new Uint8Array(toneWav({ frequency: 880 }));
+		expect(replaced.length).toBe(toneWav().length);
+		await writeFile(join(root, path), replaced);
+		await settle(library);
 
-	const next = expectOk(await loadAudio(library.local.folder.files, path, first));
-	expect(next).not.toBe(first);
-	expect<Uint8Array>(new Uint8Array(await next.blob.arrayBuffer())).toEqual(
-		replaced,
-	);
+		const next = await readAudio(library, path);
+		expect(next).not.toBe(first);
+		expect<Uint8Array>(new Uint8Array(await next.blob.arrayBuffer())).toEqual(
+			replaced,
+		);
+	} finally {
+		stop();
+	}
 });
 
 // ============================================================================
@@ -646,9 +656,9 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	expect(second.library.resultsFor(entry.stem)[0]!.row.body).toBe(
 		'a steady tone\n',
 	);
-	expect(expectOk(await readBytes(second.library.local.folder, audioPath))).toEqual(
-		toneWav(),
-	);
+	expect(
+		expectOk(await readBytes(second.library.local.folder, audioPath)),
+	).toEqual(toneWav());
 });
 
 const transcripts = (root: string) =>
@@ -665,7 +675,9 @@ function newest(library: Library, recording: string) {
 
 test('a transcript row is written with an empty body before the request goes out, and filled when the answer arrives', async () => {
 	const answer =
-		Promise.withResolvers<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
+		Promise.withResolvers<
+			Awaited<ReturnType<WhisperingServices['transcribe']>>
+		>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -704,7 +716,9 @@ test('a transcript row is written with an empty body before the request goes out
 
 test('an answer is filled as a change from the empty row: a field changed meanwhile is kept', async () => {
 	const answer =
-		Promise.withResolvers<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
+		Promise.withResolvers<
+			Awaited<ReturnType<WhisperingServices['transcribe']>>
+		>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -836,7 +850,9 @@ test('after a reload, a row whose answer was never written is unfinished, and ru
 
 test('a running transcription cannot be asked for again; deleting its row discards it, and its answer writes nothing', async () => {
 	const answer =
-		Promise.withResolvers<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
+		Promise.withResolvers<
+			Awaited<ReturnType<WhisperingServices['transcribe']>>
+		>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -920,12 +936,7 @@ test('deleting the audio a recording names keeps the recording, and the missing 
 	expect(await recordingFiles(root)).toEqual([`${entry.stem}.md`]);
 	expect(library.entries[0]!.row.fields.audioPath).toBe(audioPath);
 	expect(library.audioOf(library.entries[0]!).kind).toBe('absent');
-	const { error: loadError } = await loadAudio(
-		library.local.folder.files,
-		audioPath,
-		undefined,
-	);
-	expect(loadError?.message).toContain('No file exists');
+	await expect(readAudio(library, audioPath)).rejects.toThrow('No file exists');
 });
 
 test('a file is deleted as it holds when the deletion runs, whatever changed since the person was asked', async () => {
@@ -972,7 +983,9 @@ test('a recording is not deleted while a result cannot say which recording it be
 });
 
 test('a recording cannot be deleted while its transcription runs, including one started after confirming', async () => {
-	let answer!: (value: Awaited<ReturnType<WhisperingServices['transcribe']>>) => void;
+	let answer!: (
+		value: Awaited<ReturnType<WhisperingServices['transcribe']>>,
+	) => void;
 	const { library, root } = await open({
 		transcribe: () => new Promise((resolve) => (answer = resolve)),
 	});

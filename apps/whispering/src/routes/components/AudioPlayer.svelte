@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import type { LoadedAudio } from '$lib/audio-source.js';
+	import type { LoadedAudio } from '$lib/file-reads.js';
 	import type { QueryObserverOptions } from '@tanstack/query-core';
 
 	/** Active audio reads share the folder's query polling and keep unchanged bytes playing. */

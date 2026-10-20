@@ -450,11 +450,6 @@ export function createLibrary(
 		return row?.issues === null ? (row as ReadRow<T>) : undefined;
 	}
 
-	/** Read again what the folder shows at `paths`, or everything. */
-	async function invalidate(paths?: readonly string[]) {
-		if (fenced) return;
-		await local.refresh(paths);
-	}
 
 	// --- drafts ----------------------------------------------------------------
 
@@ -1187,7 +1182,10 @@ export function createLibrary(
 		 * Read the folder again at `paths`, or all of it, as after a read that
 		 * failed, or before a step that goes by what is listed now.
 		 */
-		readAgain: (paths?: readonly string[]) => invalidate(paths),
+		async readAgain(paths?: readonly string[]) {
+			if (fenced) return;
+			await local.refresh(paths);
+		},
 		/** Why recordings cut off by a quit or crash could not be checked. */
 		get captureNotice() {
 			return captureNotice;
