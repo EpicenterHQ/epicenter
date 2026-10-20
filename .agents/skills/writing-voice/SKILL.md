@@ -111,8 +111,8 @@ versions together in blockquotes, with enough context to judge their meaning,
 sound, and movement. **Bold the wording that differs between them, leaving
 shared wording plain.** Keep each version readable as its own passage. Explain
 consequential changes of structure or emphasis briefly outside the prose.
-**Use strikethrough when showing a particular deletion helps the judgment; it
-need not accompany every rewording or restructuring.**
+**Use strikethrough only for direct deletions. Show reworded or moved passages
+in bold in each version.**
 
 Show the full short piece when its overall meaning or movement is at issue;
 a local edit may need only its paragraph and the neighboring paragraphs. An
