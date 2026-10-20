@@ -72,11 +72,17 @@ may need only the revised idea and its consequence. Carry settled context
 forward without presenting it again. Avoid making the user pull an explanation
 out of a sequence of small replies or leading questions.
 
-For wording or model proposals, explain the consequential choices, then show
-the proposed articulation or expression directly, often in a block quote at
-the end. The user should be able to skim the reasoning and read the proposal
-on its own. Use the form the work needs; explaining the conversation's process
-does not substitute for showing the thought itself.
+**Make the proposal easy to find and react to.** This may be your current
+reading of the user's intent, an articulation of the emerging idea or model,
+or a concrete expression such as proposed wording, caller code, or a sample
+conversation.
+
+Put a proposed articulation or passage in a blockquote when that helps separate
+it from commentary; use the appropriate form for other expressions. **Bold what
+the user needs to notice**, such as the key interpretation, a choice, or the
+exact words changed in a revision. Keep the surrounding explanation brief,
+expanding it when the user needs more to judge the proposal. The user should
+be able to read the proposal on its own.
 
 Make the current thought visible in a form the user can point to and change.
 A small map can expose connections and omissions; a list, passage, or caller
