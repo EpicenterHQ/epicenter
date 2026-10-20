@@ -2,6 +2,7 @@
 import '../svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
+import { SaveError } from '@epicenter/folder';
 import type { Whispering } from '../../lib/whispering.svelte.js';
 import type { WhisperingContext } from '../../lib/folder.js';
 import type {
@@ -184,11 +185,36 @@ test('unmount closes during a held first listing and starts no later reads', asy
 	await new Promise((resolve) => setTimeout(resolve, 100));
 	flushSync();
 	expect(app.seen).toHaveLength(0);
-	expect(await readdir(app.test.root)).toEqual([]);
+	expect(await readdir(app.test.root)).toEqual(['.gitignore']);
 	expect(connections).toBe(0);
 	expect(microphones).toBe(0);
 	expect(listings).toBe(1);
 	expect(app.test.closes).toBe(1);
+});
+
+test('unmount waits for exclusion maintenance before closing', async () => {
+	const gate = deferred<void>();
+	const begun = deferred<void>();
+	const app = await render({
+		change(folder) {
+			const write = folder.files.write;
+			folder.files.write = async (...args) => {
+				if (args[0] === '.gitignore') {
+					begun.resolve();
+					await gate.promise;
+				}
+				return write(...args);
+			};
+		},
+	});
+	await begun.promise;
+	await app.destroy();
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(app.test.closes).toBe(0);
+	gate.resolve();
+	await eventually(() => app.test.closes === 1);
+	expect(await readdir(app.test.root)).toEqual(['.gitignore']);
+	expect(app.seen).toHaveLength(0);
 });
 
 test('startup failure shows the original error and unmount closes once', async () => {
@@ -210,6 +236,25 @@ test('startup failure shows the original error and unmount closes once', async (
 	);
 	await app.destroy();
 	await eventually(() => app.test.closes === 1);
+});
+
+test('a refused exclusion write is visible in the shell', async () => {
+	const app = await render({
+		change(folder) {
+			const write = folder.files.write;
+			folder.files.write = async (...args) =>
+				args[0] === '.gitignore'
+					? SaveError.StorageFailed({
+							cause: new Error('ignore file is read-only'),
+						})
+					: write(...args);
+		},
+	});
+	await app.ready();
+	expect(app.target.textContent).toContain(
+		'Audio exclusion could not be confirmed at startup',
+	);
+	expect(app.target.textContent).toContain('ignore file is read-only');
 });
 
 test('the page waits for the desktop close listener before starting', async () => {

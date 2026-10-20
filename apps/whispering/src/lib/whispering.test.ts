@@ -2,6 +2,7 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
+import { SaveError } from '@epicenter/folder';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { recordingEditor, settle } from './edits.test-support.js';
@@ -37,11 +38,55 @@ async function fixture(
 	return { test, whispering, library: whispering.library };
 }
 
-test('startup reads connections without creating files', async () => {
-	const { test, whispering, library } = await fixture();
+test('startup reads connections and maintains exclusions before any listing', async () => {
+	let checked = false;
+	const { test, whispering, library } = await fixture((folder) => {
+		const files = folder.files;
+		return replaceTables(
+			folder,
+			{},
+			{
+				...files,
+				async list() {
+					expect(expectOk(await files.read('.gitignore'))).toBeDefined();
+					checked = true;
+					return files.list();
+				},
+			},
+		);
+	});
 	await whispering.start();
+	expect(checked).toBe(true);
 	expect(library.connections?.transcription?.model).toBe('verification-model');
-	expect(await readdir(test.root)).toEqual([]);
+	expect(await readdir(test.root)).toEqual(['.gitignore']);
+	expect(await Bun.file(`${test.root}/.gitignore`).text()).toBe('/audio/\n');
+});
+
+test('a refused exclusion write stays visible and files remain writable', async () => {
+	const { test, whispering, library } = await fixture((folder) => {
+		const files = folder.files;
+		return replaceTables(
+			folder,
+			{},
+			{
+				...files,
+				write: (path, from, change) =>
+					path === '.gitignore'
+						? Promise.resolve(
+								SaveError.StorageFailed({
+									cause: new Error('ignore file is read-only'),
+								}),
+							)
+						: files.write(path, from, change),
+			},
+		);
+	});
+	await whispering.start();
+	expect(whispering.exclusionNotice).toContain('ignore file is read-only');
+	expectOk(
+		await library.local.folder.files.write('note.md', null, 'Still editable\n'),
+	);
+	expect(await readdir(test.root)).toEqual(['note.md']);
 });
 
 test('internal navigation is allowed; unload waits for a write, not recording or transcription', async () => {
@@ -88,6 +133,44 @@ test('a first-read failure rejects with its own error and leaves the library sto
 	expect(library.closing).toBe(true);
 });
 
+test('stop during exclusion maintenance waits for its save and starts no listings', async () => {
+	const begun = deferred<void>();
+	const gate = deferred<void>();
+	let listings = 0;
+	const { test, whispering } = await fixture((folder) => {
+		const files = folder.files;
+		return replaceTables(
+			folder,
+			{},
+			{
+				...files,
+				list: () => {
+					listings++;
+					return files.list();
+				},
+				async write(...args) {
+					begun.resolve();
+					await gate.promise;
+					return files.write(...args);
+				},
+			},
+		);
+	});
+	const starting = whispering.start();
+	const rejected = starting.catch((cause: unknown) => cause);
+	await begun.promise;
+	const stopping = closeTestWhispering(whispering);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(test.closes).toBe(0);
+	gate.resolve();
+	expect(await rejected).toMatchObject({
+		message: expect.stringContaining('stopped'),
+	});
+	await stopping;
+	expect(listings).toBe(0);
+	expect(await readdir(test.root)).toEqual(['.gitignore']);
+});
+
 test('stop and folder close finish while the first listing is held and start rejects as stopped', async () => {
 	const begun = deferred<void>();
 	const gate = deferred<void>();
@@ -124,7 +207,7 @@ test('stop and folder close finish while the first listing is held and start rej
 	expect(library.closing).toBe(true);
 	expect(connections).toBe(0);
 	expect(listings).toBe(1);
-	expect(await readdir(test.root)).toEqual([]);
+	expect(await readdir(test.root)).toEqual(['.gitignore']);
 });
 
 test('folder close waits for recording recovery and starts no listings after stop', async () => {
@@ -157,4 +240,21 @@ test('folder close waits for recording recovery and starts no listings after sto
 	expect(await rejected).toMatchObject({ message: STOPPED });
 	expect(test.closes).toBe(1);
 	expect(listings).toBe(0);
+});
+
+test('an unexpected exclusion read rejection preserves its error', async () => {
+	const lost = new Error('folder connection lost');
+	const { test, whispering } = await fixture((folder) => {
+		const files = folder.files;
+		return replaceTables(
+			folder,
+			{},
+			{
+				...files,
+				read: () => Promise.reject(lost),
+			},
+		);
+	});
+	await expect(whispering.start()).rejects.toBe(lost);
+	expect(await readdir(test.root)).toEqual([]);
 });

@@ -216,7 +216,7 @@ test('the settings draft saves a connection on the device only, keeps the saved 
 	expect(device.stored.transcription?.apiKey).toBe('typed-key');
 
 	// Settings reached no folder file or endpoint; only startup's ignore file exists.
-	expect(await readdir(root)).toEqual([]);
+	expect(await readdir(root)).toEqual(['.gitignore']);
 	expect(transcribed).toEqual([]);
 	expect(transformed).toEqual([]);
 });

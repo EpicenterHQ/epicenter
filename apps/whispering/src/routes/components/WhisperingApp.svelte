@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as Alert from '@epicenter/ui/alert';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import * as Resizable from '@epicenter/ui/resizable';
@@ -92,6 +93,14 @@
 		filesOpen={wide.current ? view.filesPane : view.filesSheet}
 		onToggleFiles={toggleFiles}
 	/>
+	{#if whispering.exclusionNotice !== undefined}
+		<Alert.Root variant="warning" class="rounded-none">
+			<Alert.Title>Audio exclusion could not be confirmed at startup</Alert.Title>
+			<Alert.Description>
+				{whispering.exclusionNotice} Open .gitignore in Files to repair it, then reload Whispering to check again. Audio may be included in Git commits.
+			</Alert.Description>
+		</Alert.Root>
+	{/if}
 {/snippet}
 
 {#await starting}

@@ -21,6 +21,7 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 
 ```text
 ~/Epicenter/Whispering/
+├── .gitignore                     app-maintained exclusions, initially /audio/
 ├── recordings/
 │   └── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
 ├── audio/
@@ -35,10 +36,10 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
     └── <run-id>.md                  a result on pasted text you saved: what was sent and with what; the result in the body
 ```
 
-Opening the folder writes nothing. Where requests go is set up per device in
-Settings and is never in the folder; until you set it up, nothing is sent and
-nothing is saved. Recording, transcript, transformation, and
-result files are created by explicit actions. A folder has no
+Startup maintains `.gitignore` to exclude untracked audio from Git. Where
+requests go is set up per device in Settings and is never in the folder;
+until you set it up, nothing is sent to a provider. Recording, transcript,
+transformation, and result files are created by explicit actions. A folder has no
 `transformations/` until you create a transformation, and no `text_runs/`
 until you save a result on pasted text.
 
@@ -56,20 +57,35 @@ A recording's ID is its file stem, set when the recording starts
 frontmatter and never moves a file. Audio is an ordinary file under `audio/`,
 saved as its exact bytes. Whispering keeps no history and copies the folder
 nowhere, and a fresh folder has no `epicenter.json`: opening and recording
-declare nothing. Audio is not excluded from Git by Whispering. A copy of the
+declare nothing. Whispering maintains `/audio/` in `.gitignore`. A copy of the
 folder that leaves `audio/` out has each recording's row, notes, and
 transcripts, and no audio. There a recording says "This recording's audio
 isn't on this device", and it cannot be played or transcribed.
 
-Two things leave `audio/` out of a copy. The `epicenter` CLI's `save-version`
-and `sync` refuse a folder with no `epicenter.json`, committing nothing; to
-exchange a Whispering folder through them, add an `epicenter.json` holding
-`{"local": ["audio/"]}`, and they keep `audio/` out of every commit, even
-audio an earlier version tracked. Plain `git` in a repository you manage
-commits whatever its own `.gitignore` allows, so name `audio/` there yourself.
+The `epicenter` CLI's `save-version` and `sync` use Git's tracked-file
+and ignore rules, without requiring `epicenter.json`. The root `.gitignore`
+excludes untracked recordings after Whispering confirms its startup update.
+Already-tracked audio remains tracked. Removing the rule can make untracked
+audio eligible; there is no extra binary refusal or declaration privacy policy.
 
-Files an earlier build left in the folder read as they are, `epicenter.json`
-and `.gitignore` included; Whispering no longer writes either.
+Whispering reads `.gitignore` before starting its first product reads. If its rules
+already exclude the root `audio/` directory, startup writes nothing. Otherwise
+it preserves the existing text and appends `/audio/` through `folder.files.write`,
+using the exact bytes read as the merge base. This also restores an exclusion
+overridden by a later exception. Comments, unrelated rules, a UTF-8 BOM, and
+existing line endings survive. App upgrades can add further exclusions through
+the same read-modify-write; no version flag or rule registry is stored.
+
+A changed file is read again to confirm its effective rule after merging.
+An unreadable file or failed update shows a warning while the rest of Whispering
+and Files remain available. Fix `.gitignore` in Files, then reload to check again.
+Startup leaves invalid UTF-8 or binary source unchanged. Removing a required
+rule can cause Whispering to restore it on the next startup. Other writers and
+sync can change it afterward; this is no permanent exclusion guarantee.
+
+A successful save is local; later commit or sync records it. Whispering creates
+no `epicenter.json`, initializes no Git repository, and sends no Git requests at
+startup. The folder opener and clone do not perform app maintenance themselves.
 
 A recording's file names its audio in `audioPath`, such as
 `audioPath: audio/20260102-030405-k3f9.wav`. That line is the only link
@@ -518,7 +534,8 @@ is saved (ADR-0632). These promises of the earlier build changed:
 
 - No versions, Connect, or Sync. **Save version** and the status lines about
   changes since the last version are gone, and Whispering no longer writes
-  `epicenter.json` or `.gitignore` into its folder.
+  `epicenter.json` into its folder. Startup maintains `.gitignore` through the
+  ordinary files API, separately from committing or syncing.
 - In a browser tab, recordings an earlier build kept in OPFS are not read or
   changed. An origin with only those recordings opens an empty current folder.
 - Typing into a row deleted elsewhere brings it back with what you typed. The

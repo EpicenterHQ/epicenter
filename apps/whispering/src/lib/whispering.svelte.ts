@@ -1,6 +1,8 @@
 /** Product state for one mounted Whispering app, beside FolderApp's context. */
 import { createContext } from 'svelte';
 import { createLogger } from 'wellcrafted/logger';
+import { maintainExclusions } from './exclusions.js';
+import { describeError } from './files.js';
 import type { WhisperingContext } from './folder.js';
 import { createLibrary, STOPPED } from './library.svelte.js';
 import type { PostProcessingChoice } from './post-processing.js';
@@ -9,7 +11,7 @@ import { createSettingsDraft } from './settings-draft.svelte.js';
 import type { Workspace } from './workspace/index.js';
 const log = createLogger('whispering');
 
-/** Construct without reading; start performs recording recovery and product reads. */
+/** Construct without reading; start maintains exclusions before the first product reads. */
 export function createWhispering(
 	context: WhisperingContext,
 	workspace: Workspace,
@@ -86,12 +88,16 @@ export function createWhispering(
 				present.has(path),
 			);
 	});
+	let exclusionNotice = $state<string | undefined>();
 	let starting: Promise<void> | undefined;
 	let stopping: Promise<void> | undefined;
 	return {
 		library,
 		view,
 		settings,
+		get exclusionNotice() {
+			return exclusionNotice;
+		},
 		/**
 		 * The post-processing choice read against the transformations as last
 		 * listed and the library's one recipe resolver. The folder is the truth
@@ -117,10 +123,15 @@ export function createWhispering(
 		blocksNavigation(navigation: { readonly willUnload: boolean }): boolean {
 			return navigation.willUnload && (library.busy || context.leaving);
 		},
-		/** Start product work. A failed start stops the library and preserves its cause. */
+		/** Maintain exclusions before reads. A failed start stops the library and preserves its cause. */
 		start(): Promise<void> {
 			return (starting ??= (async () => {
 				try {
+					const { error } = await context.run(() =>
+						maintainExclusions(context.folder.files),
+					);
+					if (library.closing) throw new Error(STOPPED);
+					exclusionNotice = error === null ? undefined : describeError(error);
 					await library.start();
 					if (library.closing) throw new Error(STOPPED);
 				} catch (cause) {
@@ -139,7 +150,7 @@ export function createWhispering(
 		},
 		/**
 		 * Register teardown synchronously. Root close waits for the recorder's
-		 * final writes, accepted actions, and recording
+		 * final writes, accepted actions, exclusion maintenance, and recording
 		 * recovery through context.run, never for startup display reads.
 		 */
 		stop(): Promise<void> {

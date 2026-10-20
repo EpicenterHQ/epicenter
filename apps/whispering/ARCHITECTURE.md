@@ -268,8 +268,16 @@ with `createWhispering(context, workspace)`, and provides `getWhispering()`
 and `getFolder()` to descendants. Pages build no library and open no folder.
 There is no module-level mutable state.
 
-Product construction is synchronous and reads nothing.
-`library.start()` calls `workspace.recoverRecordings()` before reading
+Product construction is synchronous and reads nothing. Its `start()` first
+calls `maintainExclusions` (`src/lib/exclusions.ts`), before any product read.
+It reads the root `.gitignore`, evaluates its ordered rules with `ignore`, and
+appends `/audio/` only if needed. The exact bytes read are the base of an
+ordinary `files.write`, preserving unrelated source. A write is followed by a
+read to check the merged rules. A refusal becomes `exclusionNotice`, shown by
+the shell while Files and other work remain available. Reload checks a repair.
+No Git or provider request is made.
+
+Then `library.start()` calls `workspace.recoverRecordings()` before reading
 the folder and device settings. A thrown startup error stops the library and
 shows its original message under "Whispering could not start". The folder
 remains owned by FolderApp until unmount.
