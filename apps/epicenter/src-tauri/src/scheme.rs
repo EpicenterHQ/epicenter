@@ -3,6 +3,7 @@
 //!
 //! ```txt
 //! epicenter-app://localhost/<page>/…                Epicenter's own pages (`BuiltInApp`), from `<pages>/<page>/`
+//! epicenter-app://localhost/todos/…                 Todos, which Epicenter bundles (`todos.rs`), from `<pages>/todos/`
 //! epicenter-app://localhost/apps/<id>/<commit>/…    an installed app's build of one commit, from `<builds>/<id>/<commit>/`
 //! ```
 //!
@@ -27,7 +28,7 @@ use tauri::http::{header, Method, Request, Response, StatusCode};
 use tauri::utils::mime_type::MimeType;
 use tauri::{Builder, Manager, Runtime, Url};
 
-use crate::{installed_apps, BuiltInApp};
+use crate::{installed_apps, todos, BuiltInApp};
 
 /// The scheme every Epicenter window loads. Not `epicenter`, the deep-link
 /// scheme.
@@ -36,7 +37,8 @@ const HOST: &str = "localhost";
 
 /// The directories the scheme reads, resolved once at startup.
 pub struct Roots {
-    /// Epicenter's own pages, one directory per `BuiltInApp` id.
+    /// Epicenter's own pages, one directory per `BuiltInApp` id, and
+    /// Todos' build in `todos/`.
     pub pages: PathBuf,
     /// Installed apps' builds: `<builds>/<id>/<commit>/`, the commit named by
     /// the URL (ADR-0588).
@@ -143,10 +145,19 @@ fn resolve(roots: &Roots, path: &str) -> Option<PathBuf> {
             }
             (build, rest)
         }
-        [page, rest @ ..] => (roots.pages.join(BuiltInApp::from_id(page)?.id()), rest),
+        [page, rest @ ..] => (roots.pages.join(page_dir(page)?), rest),
         [] => return None,
     };
     contained_file(&root, rest)
+}
+
+/// The directory below the pages directory that serves `page`: one of
+/// Epicenter's own pages, or Todos, which Epicenter bundles.
+fn page_dir(page: &str) -> Option<&'static str> {
+    match BuiltInApp::from_id(page) {
+        Some(built_in) => Some(built_in.id()),
+        None => (page == todos::PAGE).then_some(todos::PAGE),
+    }
 }
 
 /// The regular file at `rest` below `root`, or `root`'s `index.html` for a
@@ -330,7 +341,7 @@ mod tests {
         let base = temporary.path().canonicalize().unwrap();
         let pages = base.join("pages");
         let builds = base.join("builds");
-        for page in ["folders", "home"] {
+        for page in ["folders", "home", "todos"] {
             fs::create_dir_all(pages.join(page).join("assets")).unwrap();
             fs::write(
                 pages.join(page).join("index.html"),
@@ -389,6 +400,14 @@ mod tests {
             body(&get(&roots, "/home/")),
             "<!doctype html><title>home</title>"
         );
+        // Todos, which Epicenter bundles, and its client-side routes.
+        for page in [todos::PATH, "/todos/index.html", "/todos/todo/42"] {
+            assert_eq!(
+                body(&get(&roots, page)),
+                "<!doctype html><title>todos</title>",
+                "{page}"
+            );
+        }
         assert_eq!(
             body(&get(&roots, "/folders/index.html")),
             "<!doctype html><title>folders</title>"
@@ -709,6 +728,8 @@ mod tests {
             ("/folders/", "/folders/".to_string()),
             ("/folders/", "/folders/table/notes?row=1#x".to_string()),
             ("/home/", "/home/".to_string()),
+            (todos::PATH, "/todos/".to_string()),
+            (todos::PATH, "/todos/todo/42".to_string()),
             (todos.as_str(), todos.clone()),
             (todos.as_str(), format!("{todos}?folder=data%3AGroceries")),
             (todos.as_str(), format!("{todos}todo/42")),
@@ -724,6 +745,10 @@ mod tests {
             ("/folders/", "/folders".to_string()),
             ("/home/", "/folders/".to_string()),
             ("/home/", todos.clone()),
+            (todos::PATH, "/folders/".to_string()),
+            (todos::PATH, "/home/".to_string()),
+            (todos::PATH, todos.clone()),
+            ("/folders/", "/todos/".to_string()),
             (todos.as_str(), "/folders/".to_string()),
             (todos.as_str(), "/home/".to_string()),
             (todos.as_str(), todos_earlier.clone()),

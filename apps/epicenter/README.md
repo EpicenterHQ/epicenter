@@ -7,21 +7,22 @@ local opening and saving require no account or Git repository. Git commands
 still exist outside a Folder handle, but the current folder and product pages
 offer no Save version, Connect, or Sync action.
 
-The existing app owns one Tauri runtime, one native command API, and the short list of what it compiles in. It ships with no apps installed (ADR-0552): every app, Todos, Capture, Whispering, and Honeycrisp included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
+The existing app owns one Tauri runtime, one native command API, and the short list of what it compiles in. It bundles [Todos](#todos), built from `apps/todos` with Epicenter's own pages. Every other app, Capture, Whispering, and Honeycrisp included, is a folder in a Git repository that Epicenter clones and builds on this machine (ADR-0552, see [Installed apps](#installed-apps)); that path can still install Todos too, until it is removed.
 
 ```text
 page source                        build output            served at
 
 apps/epicenter/src/ui -----------> dist/home ------------> epicenter-app://localhost/home/
 apps/epicenter/src/folders ------> dist/folders ---------> epicenter-app://localhost/folders/
+apps/todos (build:installed) ----> dist/todos -----------> epicenter-app://localhost/todos/
 an installed app's folder -------> builds/<id>/<commit>/ -> epicenter-app://localhost/apps/<id>/<commit>/
 ```
 
 Rust serves every page Epicenter shows from one origin,
 `epicenter-app://localhost`, through a scheme the shell registers
 (`src-tauri/src/scheme.rs`, ADR-0561): Settings (the `home` window) at
-`/home/`, the Folders window at `/folders/`, and each installed app's build of
-one commit at `/apps/<app-id>/<commit>/`. No server listens on a port and no Bun process outlives a
+`/home/`, the Folders window at `/folders/`, Todos at `/todos/`, and each
+installed app's build of one commit at `/apps/<app-id>/<commit>/`. No server listens on a port and no Bun process outlives a
 command. The `epicenter-host` build condition selects each product's host
 integrations.
 
@@ -32,8 +33,9 @@ directory's `index.html`, so client-side routes load. Every response carries
 one Content-Security-Policy: a page reaches its own origin and Tauri's IPC
 (`connect-src 'self' ipc: http://ipc.localhost`) and nothing else, and a
 document's policy admits each of its inline scripts by hash. Each window
-navigates only below the path it opened at: a built-in page's, or an installed
-app's `/apps/<app-id>/<commit>/`, so an app window never loads another build;
+navigates only below the path it opened at: a built-in page's, Todos'
+`/todos/`, or an installed app's `/apps/<app-id>/<commit>/`, so an app window
+never loads another build;
 a new-window link opens in the system browser only when it is the hosted
 account website.
 
@@ -187,8 +189,8 @@ bun dev:epicenter
 
 This starts the local API on `http://localhost:8787` and the desktop app.
 Before the app starts, Tauri runs `bun run build:desktop`, which builds
-Settings and the Folders window into `dist/` and compiles the `epicenter`
-binary. A development build's scheme serves the pages from that `dist/`
+Settings, the Folders window, and Todos into `dist/` and compiles the
+`epicenter` binary. A development build's scheme serves the pages from that `dist/`
 directly, so after changing a page, run `bun run --cwd apps/epicenter build`
 and reload its window (Cmd-R). There is no dev server and no hot reload: the
 scheme is the one way a page is served, in development as in a release.
@@ -204,9 +206,10 @@ Todos uses the same `Folder` table schema on desktop and in the browser.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
-it. It lists your data folders, offers "Open in <app>" for each installed app
-on every folder, lists the installed apps under Apps, and opens
-Settings from its Settings button with `open_home`. Opening an app opens its own
+it. It lists your data folders, offers "Open Todos" and, on every folder,
+"Open in Todos" and "Open in <app>" for each installed app, lists the
+installed apps under Apps, and opens Settings from its Settings button with
+`open_home`. Opening an app opens its own
 window; the OS is the switcher from there, and closing the Folders window
 leaves everything it opened running.
 
@@ -293,11 +296,49 @@ changes from other windows and processes. File drafts belong to the Folders
 window and survive switching files. A failed save keeps its text visible and
 prevents leaving the directory until the person retries or discards it.
 
-Beside each directory, the page offers every installed app ready to run through
-"Open in". The shell hands that directory's scope to the app window; the app
-interprets its files through its own schemas. Opening an app from the Apps list
-hands it its own directory. The Folders view does not use `epicenter.json` to
-authorize either action.
+Beside each listed directory except Epicenter's own settings folder, the page offers "Open in Todos" and every installed app
+ready to run through "Open in". The shell hands that directory's scope to the
+app window; the app interprets its files through its own schemas. Opening an
+app from the Apps list hands it its own directory. The Folders view does not
+use `epicenter.json` to authorize either action.
+
+## Todos
+
+Epicenter bundles Todos (`src-tauri/src/todos.rs`). `build:todos` runs Todos'
+own `build:installed` in `apps/todos` and copies its `dist/` to
+`dist/todos/`, which the scheme serves at `/todos/`. Opening it clones no
+repository, reads no `epicenter.app.json`, and asks for no approval, account,
+or Git action.
+
+The Folders window opens it with `open_todos(folder)`:
+
+- **Open Todos**, in the header, passes no folder. The shell opens the fixed
+  default, `<folderDir>/Todos` (`~/Epicenter/Todos` in production), and
+  creates it first when it is missing. The name is a launch policy, not the
+  app id, and Todos' rows land directly in it as `todos/<id>.md`.
+- **Open in Todos**, beside a listed folder, passes that folder's listed
+  scope. The shell maps it back to the directory it listed; a scope it never
+  listed, Epicenter's own folder, or a directory that is gone, is refused. Nothing is created and the
+  default is never opened instead.
+
+Each directory gets one Todos window, labelled `todos:<directory name in
+hex>`, and one scope, `todos:<directory name>`, registered as a data folder
+for that window alone. The shell registers and hands the window its scope
+before the WebView exists; the page calls `openFolder({ tables })`, which asks
+for that assignment (`window_folder`) and is granted it, and never names a
+path. A folder removed after its window opened is refused `Missing` at the
+next grant, not made again. Opening the same folder again reveals its window;
+closing the window destroys it.
+
+`capabilities/todos.json` selects `todos:*` and grants the folder plugin and
+its change event, and nothing else. The save lock,
+`.<directory name>.epicenter-save-lock`, sits beside the folder in the folder
+root; WebView data, the page build, and installed-app builds live in the
+application data, resource, and cache directories. The current Folder engine
+still stages a save's bytes in `.git/epicenter/scratch` inside the folder.
+
+The installed-app path below can still install and open Todos as
+`so.epicenter.todos` beside this one until it is removed.
 
 ## Installed apps
 
@@ -477,8 +518,9 @@ Every installed app's window gets the same grant, one capability file,
   created when the app's window opens, never at startup.
 
 Each kind of window has one capability file, and every file is `"local": true`
-because its page is served on the scheme: `folders.json`, `home.json`, and
-`installed-app.json`. A development build selects the same three.
+because its page is served on the scheme: `folders.json`, `home.json`,
+`installed-app.json`, and `todos.json`. A development build selects the same
+four.
 
 Whispering's page has no recording overlay and registers no global shortcuts,
 so neither is created or granted.
@@ -522,7 +564,7 @@ not submit is lost, as people expect.
 ## Build and verify
 
 ```bash
-# Build Settings, the Folders window, and the epicenter binary
+# Build Settings, the Folders window, Todos, and the epicenter binary
 bun run --cwd apps/epicenter build:desktop
 
 # Package the complete native application

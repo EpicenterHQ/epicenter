@@ -198,6 +198,12 @@ export const commands = {
 	 *  scope is its id (ADR-0552).
 	 */
 	openInstalledApp: (id: string, title: string, commit: string, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_installed_app", { id, title, commit, folder })),
+	/**
+	 *  Open Todos on the fixed default folder, or with `folder`, on a folder the
+	 *  Folders window listed under that scope. A window already open on the
+	 *  folder is revealed.
+	 */
+	openTodos: (folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_todos", { folder })),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("get_unload_policy"),
 	/**
@@ -438,8 +444,8 @@ export type GrantError =
 /**  The scope exists, but is not registered for this window. */
 { name: "WindowNotPermitted"; scope: string; window: string } | 
 /**
- *  A data folder's directory is not there. The shell creates only an
- *  application's own folder.
+ *  The registered directory is missing. The shell creates a fixed
+ *  application folder only on its first grant.
  */
 { name: "Missing"; root: string } | 
 /**  The folder could not be prepared or reached. */

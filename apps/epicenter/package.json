@@ -6,11 +6,12 @@
 	"type": "module",
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",
-		"build:apps": "bun run clean:dist && bun run build:home && bun run build:folders",
+		"build:apps": "bun run clean:dist && bun run build:home && bun run build:folders && bun run build:todos",
 		"build:desktop": "bun run build && bun run build:sidecar",
 		"build:folders": "vite build --config vite.folders.config.ts",
 		"build:home": "vite build",
 		"build:sidecar": "bun run scripts/build-sidecar.ts",
+		"build:todos": "bun run scripts/build-todos.ts",
 		"clean:dist": "bun run scripts/clean-dist.ts",
 		"desktop:build": "tauri build",
 		"dev": "bun run dev:desktop",

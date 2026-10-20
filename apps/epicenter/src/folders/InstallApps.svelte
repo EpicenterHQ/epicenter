@@ -5,9 +5,7 @@
 	 * "Install from a repository…" takes a Git URL or an absolute path, lists
 	 * the apps the `epicenter` CLI finds in it (`epicenter app list
 	 * --repository`), each with the folder it is in, and installs the one
-	 * chosen (`epicenter app install`), saying each step it reports. With no
-	 * app installed yet, "Install Todos" is the same install with Epicenter's
-	 * own repository and Todos' folder filled in. Installing clones and builds
+	 * chosen (`epicenter app install`), saying each step it reports. Installing clones and builds
 	 * nothing; the caller shows the approval, as for any install.
 	 */
 	import * as Alert from '@epicenter/ui/alert';
@@ -20,16 +18,9 @@
 		type RepositoryApp,
 	} from './app-commands.ts';
 
-	/** Epicenter's repository, as the root `package.json` names it. */
-	const EPICENTER_REPOSITORY = 'https://github.com/EpicenterHQ/epicenter.git';
-	const TODOS_FOLDER = 'apps/todos';
-
 	let {
-		offerTodos,
 		oninstalled,
 	}: {
-		/** Whether to offer "Install Todos", as the window does before any app is installed. */
-		offerTodos: boolean;
 		/** Called with the app just cloned, which waits for approval. */
 		oninstalled: (app: InstalledApp) => void | Promise<void>;
 	} = $props();
@@ -94,14 +85,6 @@
 	<p class="px-1 py-1.5 text-sm text-muted-foreground">{doing}</p>
 {:else if source === undefined}
 	<div class="flex flex-col items-start gap-1">
-		{#if offerTodos}
-			<Button
-				size="sm"
-				onclick={() => void install(EPICENTER_REPOSITORY, TODOS_FOLDER, 'Todos')}
-			>
-				Install Todos
-			</Button>
-		{/if}
 		<Button variant="ghost" size="sm" onclick={() => (source = '')}>
 			Install from a repository…
 		</Button>

@@ -23,6 +23,7 @@ mod data_folders;
 mod history;
 mod installed_apps;
 mod scheme;
+mod todos;
 
 pub mod audio;
 
@@ -59,8 +60,9 @@ pub mod clipboard;
 
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 
-/// Epicenter's own windows. Every app is installed and opened with
-/// `open_installed_app` (ADR-0552).
+/// Epicenter's own windows. Todos, which Epicenter bundles, opens one window
+/// per folder through `open_todos` (`todos.rs`); every other app is installed
+/// and opened with `open_installed_app` (ADR-0552).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
@@ -149,6 +151,7 @@ macro_rules! shell_commands {
             installed_apps::approve_app,
             installed_apps::update_app,
             installed_apps::open_installed_app,
+            todos::open_todos,
             get_unload_policy,
             set_unload_policy,
             list_models,
@@ -333,6 +336,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(PendingHomeSection::default())
         .manage(data_folders::DataFolderScopes::default())
+        .manage(todos::TodosScopes::default())
         .manage(cli::CliChildren::default())
         .manage(DownloadManager::default());
 
@@ -366,6 +370,7 @@ pub fn run() {
             specta_builder.mount_events(app);
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
+            std::fs::create_dir_all(&desktop_paths.folder_dir)?;
             data_folders::register_epicenter_folder(app.folders(), &desktop_paths.folder_dir)
                 .map_err(anyhow::Error::msg)?;
             match data_folders::watch_data_folders(app.handle(), &desktop_paths.folder_dir) {
@@ -854,9 +859,10 @@ mod tests {
     const FOLDERS: &str = include_str!("../capabilities/folders.json");
     const HOME: &str = include_str!("../capabilities/home.json");
     const INSTALLED_APP: &str = include_str!("../capabilities/installed-app.json");
+    const TODOS: &str = include_str!("../capabilities/todos.json");
 
     /// Every capability file, for checks that hold for all of them.
-    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, INSTALLED_APP];
+    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, INSTALLED_APP, TODOS];
 
     /// Opening an app whose window was opened on another commit is refused,
     /// so that build is never shown as the one asked for; a window opened on
@@ -982,7 +988,15 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect();
         files.sort();
-        assert_eq!(files, ["folders.json", "home.json", "installed-app.json"]);
+        assert_eq!(
+            files,
+            [
+                "folders.json",
+                "home.json",
+                "installed-app.json",
+                "todos.json"
+            ]
+        );
 
         let mut identifiers = Vec::new();
         for encoded in ALL_CAPABILITIES {
@@ -1095,8 +1109,8 @@ mod tests {
     }
 
     /// The AI commands reach Settings, the Folders window, and every
-    /// installed app, and no other window (ADR-0557, ADR-0570). Each is one
-    /// fixed CLI invocation that never hands a page a saved key.
+    /// installed app, and not Todos' windows (ADR-0557, ADR-0570). Each is
+    /// one fixed CLI invocation that never hands a page a saved key.
     #[test]
     fn ai_commands_are_granted_to_settings_folders_and_installed_apps() {
         const AI: [&str; 4] = [
@@ -1109,11 +1123,51 @@ mod tests {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             let permissions = capability["permissions"].as_array().unwrap();
             for permission in AI {
-                assert!(
+                assert_eq!(
                     permissions.contains(&serde_json::json!(permission)),
+                    *encoded != TODOS,
                     "{} {permission}",
                     capability["identifier"]
                 );
+            }
+        }
+    }
+
+    /// Todos' windows, one per folder (`todos.rs`), hold the folder plugin
+    /// and its change event, and nothing else: no account, AI, history, or
+    /// app command is on Todos' path. The capability selects every label
+    /// `todos::open_todos` makes and none of Epicenter's other windows, and
+    /// no other capability selects a Todos window.
+    #[test]
+    fn todos_windows_hold_the_folder_plugin_alone() {
+        let capability: serde_json::Value = serde_json::from_str(TODOS).unwrap();
+        assert_eq!(
+            capability["windows"],
+            serde_json::json!([format!("{}*", todos::WINDOW_PREFIX)])
+        );
+        assert_eq!(
+            capability["permissions"],
+            serde_json::json!([
+                "epicenter-folder:default",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten"
+            ])
+        );
+        let todos_windows = ["todos:546f646f73", "todos:4d79206e6f746573"];
+        for label in todos_windows {
+            assert!(selects(&capability, label), "{label}");
+        }
+        for built_in in BuiltInApp::ALL {
+            assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
+        }
+        assert!(!selects(
+            &capability,
+            &installed_window_label("so.epicenter.todos", Some("data:Todos"))
+        ));
+        for encoded in ALL_CAPABILITIES.iter().filter(|encoded| **encoded != TODOS) {
+            let other: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            for label in todos_windows {
+                assert!(!selects(&other, label), "{} {label}", other["identifier"]);
             }
         }
     }
@@ -1409,8 +1463,8 @@ mod tests {
     /// The Folders window holds the folder plugin, its own listing, a granted
     /// folder's history through the CLI and starting what installs `git`
     /// (ADR-0559), the AI commands
-    /// (ADR-0557), installing and opening apps, and opening Settings
-    /// (ADR-0537, ADR-0552), and nothing else: it reaches
+    /// (ADR-0557), installing and opening apps, opening Todos (`todos.rs`),
+    /// and opening Settings (ADR-0537, ADR-0552), and nothing else: it reaches
     /// folders only through scopes the listing registered or permitted it
     /// into, and it administers no model.
     #[test]
@@ -1439,6 +1493,7 @@ mod tests {
                 "allow-approve-app",
                 "allow-update-app",
                 "allow-open-installed-app",
+                "allow-open-todos",
                 "allow-open-home"
             ]),
             "folders"
@@ -1457,6 +1512,10 @@ mod tests {
                 assert_ne!(
                     permission, "allow-list-data-folders",
                     "the listing belongs to the Folders window alone"
+                );
+                assert_ne!(
+                    permission, "allow-open-todos",
+                    "opening Todos belongs to the Folders window alone"
                 );
                 assert!(
                     !permission.ends_with("-app"),

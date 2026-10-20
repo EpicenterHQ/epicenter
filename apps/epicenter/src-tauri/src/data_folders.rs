@@ -124,6 +124,23 @@ pub struct DataFolder {
 #[derive(Default)]
 pub struct DataFolderScopes(Mutex<BTreeMap<String, String>>);
 
+impl DataFolderScopes {
+    /// The directory name of the folder listed under `scope`: one this run
+    /// registered, or Epicenter's own folder. Another window opens a listed
+    /// folder by the scope the Folders window passed, never by a path.
+    pub fn listed_name(&self, scope: &str) -> Option<String> {
+        if scope == EPICENTER_FOLDER {
+            return Some(EPICENTER_FOLDER.to_string());
+        }
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .find(|(_, id)| id.as_str() == scope)
+            .map(|(name, _)| name.clone())
+    }
+}
+
 /// List the data folders under the Epicenter folder root, and let the Folders
 /// window open each one.
 ///
@@ -184,7 +201,7 @@ fn register_own_folder(folders: &Folders, folder_dir: &Path, id: &str) -> Result
     })
 }
 
-fn list_in(
+pub(crate) fn list_in(
     folder_dir: &Path,
     apps_dir: &Path,
     folders: &Folders,

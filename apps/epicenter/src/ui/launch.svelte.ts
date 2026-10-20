@@ -15,6 +15,10 @@
  *
  * Each caller gets its own instance, so a failure is reported where the click
  * happened rather than following the user into another pane.
+ *
+ * Todos, which Epicenter bundles, opens through `open_todos` instead
+ * (`src-tauri/src/todos.rs`): on the folder it was offered on, or on its
+ * default folder. The installed-app path stays beside it until it is removed.
  */
 
 import type { Opener } from '../folders/openers.ts';
@@ -41,6 +45,22 @@ export function createLaunch() {
 				if (error !== null) throw new Error(error);
 			} catch (error) {
 				failure = `${application.title} did not open. ${
+					error instanceof Error ? error.message : String(error)
+				}`;
+			}
+		},
+		/**
+		 * Open Todos, which Epicenter bundles, on the scope `folder` the Folders
+		 * window listed, or on its default folder. No install, approval, or
+		 * account is on the way: the shell assigns the window its folder.
+		 */
+		async todos(folder?: string) {
+			failure = null;
+			try {
+				const { error } = await commands.openTodos(folder ?? null);
+				if (error !== null) throw new Error(error);
+			} catch (error) {
+				failure = `Todos did not open. ${
 					error instanceof Error ? error.message : String(error)
 				}`;
 			}

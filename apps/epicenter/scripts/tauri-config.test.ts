@@ -45,5 +45,6 @@ test('starting and packaging the app both compile the CLI and build the pages fi
 		expect(reached).toContain('build:sidecar');
 		expect(reached).toContain('build:home');
 		expect(reached).toContain('build:folders');
+		expect(reached).toContain('build:todos');
 	}
 });

@@ -27,6 +27,12 @@
 	 * ADR-0560); each app interprets it through its own table schemas. The Settings button
 	 * opens Settings with `open_home`.
 	 *
+	 * Todos, which Epicenter bundles, opens with `open_todos`: "Open Todos" on
+	 * its default folder under the Epicenter folder, and "Open in Todos" on
+	 * the listed folder, which must still be there. Nothing is installed or
+	 * approved for it, and the page passes only the listed scope, never a
+	 * path.
+	 *
 	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
 	 * an app installed from a folder in a Git repository (`InstallApps`,
 	 * ADR-0552) is shown for approval before anything builds, and a commit
@@ -114,6 +120,7 @@
 	let settingsProblem = $state<string | undefined>(undefined);
 
 	let installed = $state<InstalledApp[]>([]);
+	const visibleInstalled = $derived(installed.filter((app) => app.id !== 'so.epicenter.todos'));
 	let appsProblem = $state<string | undefined>(undefined);
 	/** The app whose approval is shown in place of a folder. */
 	let reviewing = $state<{ app: InstalledApp; review: Review } | undefined>(
@@ -123,7 +130,7 @@
 	let busy = $state<string | undefined>(undefined);
 
 	/** The apps every folder offers; each interprets the opened files through its own schemas. */
-	const openers = $derived(installedOpeners(installed));
+	const openers = $derived(installedOpeners(visibleInstalled));
 	/** Each listed folder with the apps it offers. */
 	const listed = $derived(
 		(folders ?? []).map((folder) => ({ folder, openers })),
@@ -213,6 +220,14 @@
 		await listInstalled();
 	}
 
+	/** Open Todos on the scope `folder` the shell listed, or on its default folder. */
+	async function openTodos(folder?: string) {
+		busy = 'Opening Todos…';
+		await launcher.todos(folder);
+		busy = undefined;
+		await list();
+	}
+
 	async function openSettings() {
 		settingsProblem = undefined;
 		try {
@@ -258,9 +273,14 @@
 	<nav class="flex w-80 shrink-0 flex-col overflow-auto border-r" aria-label="Folders">
 		<header class="flex items-center justify-between gap-2 px-4 py-3">
 			<h1 class="text-lg font-semibold">Folders</h1>
-			<Button variant="ghost" size="sm" onclick={() => void openSettings()}>
-				Settings
-			</Button>
+			<div class="flex items-center gap-1">
+				<Button variant="ghost" size="sm" onclick={() => void openTodos()}>
+					Open Todos
+				</Button>
+				<Button variant="ghost" size="sm" onclick={() => void openSettings()}>
+					Settings
+				</Button>
+			</div>
 		</header>
 		{#if launcher.failure ?? settingsProblem}
 			<div class="px-3 pb-3">
@@ -297,6 +317,11 @@
 						>
 							{folder.title}
 						</button>
+						{#if folder.id !== 'so.epicenter'}
+							<Button variant="ghost" size="xs" onclick={() => void openTodos(folder.id)}>
+								Open in Todos
+							</Button>
+						{/if}
 						{#if openers.length === 1}
 							{@const application = openers[0]!}
 							<Button
@@ -336,7 +361,7 @@
 			</div>
 		{/if}
 		<ul class="flex flex-col gap-0.5 px-2 pb-1" aria-label="Apps">
-			{#each installed as app (app.id)}
+			{#each visibleInstalled as app (app.id)}
 				<li class="flex items-center gap-1">
 					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm" title={app.source}>
 						{app.title}
@@ -387,7 +412,7 @@
 			{#if busy !== undefined}
 				<p class="px-1 py-1.5 text-sm text-muted-foreground">{busy}</p>
 			{:else}
-				<InstallApps offerTodos={installed.length === 0} oninstalled={showInstalled} />
+				<InstallApps oninstalled={showInstalled} />
 			{/if}
 		</div>
 	</nav>

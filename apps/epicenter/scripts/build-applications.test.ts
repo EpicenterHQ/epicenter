@@ -50,4 +50,21 @@ describe('page builds', () => {
 			BUILD_TIMEOUT_MS,
 		);
 	}
+
+	// Todos, which Epicenter bundles, is built from `apps/todos` and served
+	// below `/todos/` (`src-tauri/src/todos.rs`). Its installed build loads
+	// its assets by relative path, so it runs wherever the shell serves it.
+	test(
+		'todos builds into dist/todos with relative assets',
+		async () => {
+			await run('build:todos', epicenterDir);
+
+			const document = await Bun.file(
+				join(epicenterDir, 'dist', 'todos', 'index.html'),
+			).text();
+			expect(document).toContain('"./_app/');
+			expect(document).not.toContain('"/_app/');
+		},
+		BUILD_TIMEOUT_MS,
+	);
 });

@@ -36,6 +36,7 @@ pub const COMMANDS: &[&str] = &[
     "approve_app",
     "update_app",
     "open_installed_app",
+    "open_todos",
     "set_active_model",
     "get_unload_policy",
     "set_unload_policy",
