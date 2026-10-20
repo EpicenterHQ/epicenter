@@ -7,7 +7,7 @@
  * Key behaviors:
  * - Neither build carries a Yjs, Node, or Bun module, or the directory
  *   folder and Git host that run on them
- * - The installed build carries the native folder engine and no browser
+ * - The bundled host build carries the native folder engine and no browser
  *   engine or OPFS store; the browser build carries the browser engine
  *   and no native engine
  */
@@ -45,7 +45,7 @@ const folderModule = (name: string) => (path: string) =>
 	path.endsWith(`packages/folder/src/${name}`);
 
 test(
-	'the installed build carries the native engine and no browser storage',
+	'the bundled host build carries the native engine and no browser storage',
 	async () => {
 		const modules = await bundledModules(
 			appDir,

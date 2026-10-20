@@ -3,12 +3,12 @@
  *
  * Bundles the page's root and its store through the app's Vite resolution, as
  * each build resolves them, and reads every module the bundle pulls in.
- * `installedAppViteConfig` resolves `@epicenter/folder`, which
+ * `hostAppViteConfig` resolves `@epicenter/folder`, which
  * `<FolderApp>` opens with, to one entry per build; a dropped alias
  * fails no build.
  *
  * Key behaviors:
- * - The installed build carries the native folder engine and no browser
+ * - The host build carries the native folder engine and no browser
  *   engine, OPFS store, or Node or Bun module
  * - The browser build carries the browser engine and no native engine
  */
@@ -27,7 +27,7 @@ const folderModule = (name: string) => (path: string) =>
 	path.endsWith(`packages/folder/src/${name}`);
 
 test(
-	'the installed build carries the native engine and no browser storage',
+	'the host build carries the native engine and no browser storage',
 	async () => {
 		const modules = await bundledModules(appDir, ENTRY, 'epicenter-host');
 		expect(modules.some(folderModule('native/tauri.ts'))).toBe(true);

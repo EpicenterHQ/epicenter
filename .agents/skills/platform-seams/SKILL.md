@@ -33,7 +33,7 @@ read the [folder package](../../../packages/folder/README.md).
 
 Todos, Capture, Honeycrisp, and Whispering keep their data in a folder of
 files. Each picks its folder leaf at build time through `#platform/*` (for
-Whispering, `#platform/workspace`), and `installedAppViteConfig` from
+Whispering, `#platform/workspace`), and `hostAppViteConfig` from
 `@epicenter/vite-config` aliases the bare `@epicenter/folder` to
 `@epicenter/folder/tauri` in the `epicenter-host` build and to
 `@epicenter/folder/browser` otherwise. The "storage is not a seam" rule above
@@ -62,12 +62,12 @@ import { auth } from '#platform/auth';
 ```
 
 **3. Activate the condition in Vite.** A folder app gets the `epicenter-host`
-condition from `installedAppViteConfig` in `@epicenter/vite-config`, which
-turns it on in the installed build (`EPICENTER_HOST=1`):
+condition from `hostAppViteConfig` in `@epicenter/vite-config`, which
+turns it on in the bundled host build (`EPICENTER_HOST=1`):
 
 ```ts
 // apps/honeycrisp/vite.config.ts
-export default defineConfig(installedAppViteConfig(APPS.HONEYCRISP));
+export default defineConfig(hostAppViteConfig(APPS.HONEYCRISP));
 ```
 
 Inside, the condition list keeps Vite's defaults:
@@ -77,14 +77,14 @@ resolve: {
 	// Custom conditions REPLACE Vite's defaults, so the
 	// ...defaultClientConditions spread is LOAD-BEARING: drop it and all
 	// dependency resolution breaks.
-	...(installed && {
+	...(host && {
 		conditions: ['epicenter-host', ...defaultClientConditions],
 	}),
 },
 ```
 
-The same package owns the rest of the installed build's choice:
-`installedAppAdapterOptions` (from `@epicenter/vite-config/installed-app`) gives
+The same package owns the rest of the host build's choice:
+`hostAppAdapterOptions` (from `@epicenter/vite-config/host-app`) gives
 each `svelte.config.js` its adapter-static output, and each
 `src/routes/+layout.ts` prerenders when `import.meta.env.EPICENTER_HOST` is
 `'1'`.
@@ -139,7 +139,7 @@ with `bundledModules` from `@epicenter/vite-config/module-graph`, reads every
 module they pull in, and names the broken seam guards each one: Todos'
 `src/lib/platform-selection.test.ts` for `#platform/auth`, Whispering's for
 `#platform/workspace`. The folder is no seam; the same alias trap holds for
-`installedAppViteConfig`'s alias of `@epicenter/folder`, which Honeycrisp's
+`hostAppViteConfig`'s alias of `@epicenter/folder`, which Honeycrisp's
 and Capture's `src/lib/bundle.test.ts` guard.
 `apps/epicenter/scripts/build-applications.test.ts` also runs the real build and
 reads the emitted bytes.
@@ -168,7 +168,7 @@ of the import graph stays ordinary.
 - Reintroducing `resolve.extensions` suffixes or tsconfig `moduleSuffixes`.
 - Dropping `...defaultClientConditions` from the `epicenter-host`
   `conditions` array.
-- Copying the installed-build switch into an app's `vite.config.ts` or
+- Copying the host-build switch into an app's `vite.config.ts` or
   `svelte.config.js` instead of using `@epicenter/vite-config`.
 - Adding a condition leaf with no `tsconfig.<condition>.json`, which means it is
   never typechecked.

@@ -102,7 +102,7 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 		'@epicenter/folder/tauri',
 	]);
 	// Each build points the exact bare specifier at its workspace's entry
-	// (`installedAppViteConfig`); `platform-selection.test.ts` reads what each
+	// (`hostAppViteConfig`); `platform-selection.test.ts` reads what each
 	// build pulls in.
 });
 
