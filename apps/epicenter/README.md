@@ -293,13 +293,15 @@ are not.
 
 A standalone app can ask Epicenter to open `epicenter://open?path=<percent-encoded absolute directory>`. Receiving the link only queues it and shows the launcher. **Open** resolves the existing directory and opens its own bound editor; **Dismiss** reads none of its files. Handoffs refuse folders overlapping Epicenter's Settings or app data, including linked spellings. The editor receives the same canonical directory that passed that check.
 
-After the editor opens, Epicenter adds the original path to `folders` in
-`<app data>/folders.json`. Failed persistence leaves the editor open and the
-shortcut available for this run, with the problem shown. **Opened folders**
-lists stored paths and this run's unpersisted acceptances. Reopening requires
-fresh membership in that list and checks the directory again. Missing or
-refused entries remain visible and can be forgotten. **Forget** removes only
-the shortcut; existing editors and their drafts stay open.
+After the editor opens, a visible direct child of the Epicenter folder root
+is already in the Folders listing and needs no shortcut. For another folder,
+Epicenter adds the original path to `folders` in `<app data>/folders.json`.
+Failed persistence leaves the editor open and the shortcut available for this
+run, with the problem shown. **Opened folders** lists stored paths and this
+run's unpersisted acceptances. Reopening through that list requires fresh
+membership and checks the directory again. Missing or refused entries remain
+visible and can be forgotten. **Forget** removes only the shortcut; existing
+editors and their drafts stay open.
 
 The same object's `epicenter` field selects Epicenter's portable records
 directory. `null` means no selection has been made. Settings or the first
@@ -451,10 +453,10 @@ The Folders window opens one in three ways, each deciding the folder in Rust:
 
 - **Open**, under Apps, calls `open_bundled_app(app, null)`. The shell opens
   the app's fixed default, such as `<folderDir>/Todos` (`~/Epicenter/Todos` in
-  production), and creates it first when it is missing. The name is a launch
-  policy, not the app id, and the app's rows land directly in it, such as
-  `todos/<id>.md`. A disk that stores the default under another casing opens
-  that directory.
+  production), and creates it first when it is missing. Its durable folder
+  name is independent of the displayed app title and app id. The app's rows
+  land directly in it, such as `todos/<id>.md`. A disk that stores the default
+  under another casing opens that directory.
 - **Open with…**, beside a listed folder, calls `open_bundled_app(app, name)`.
   The shell finds the directory again as a real direct child of the folder
   root. A folder that is gone, a name that is not one listed entry, or

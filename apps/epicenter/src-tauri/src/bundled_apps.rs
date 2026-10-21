@@ -78,9 +78,19 @@ impl BundledApp {
         }
     }
 
-    /// The app's name: its windows' title, and its fixed default folder under
-    /// the authored folder root.
+    /// The app's display name in window titles and messages.
     pub const fn name(self) -> &'static str {
+        match self {
+            Self::Todos => "Todos",
+            Self::Capture => "Capture",
+            Self::Honeycrisp => "Honeycrisp",
+            Self::Whispering => "Whispering",
+        }
+    }
+
+    /// Durable default directory name under the authored folder root.
+    /// Changing a display name must not redirect existing work.
+    pub const fn folder_name(self) -> &'static str {
         match self {
             Self::Todos => "Todos",
             Self::Capture => "Capture",
@@ -111,7 +121,7 @@ impl BundledApp {
     }
 
     fn window_title(self, name: &str) -> String {
-        if name == self.name() {
+        if name == self.folder_name() {
             self.name().to_string()
         } else {
             format!("{}: {name}", self.name())
@@ -209,7 +219,10 @@ fn app_directory(
 ) -> Result<Directory, String> {
     let folder_dir = &paths.folder_dir;
     let (path, create) = match target {
-        AppFolder::Default => (folder_dir.join(default_name(folder_dir, app.name())), true),
+        AppFolder::Default => (
+            folder_dir.join(default_name(folder_dir, app.folder_name())),
+            true,
+        ),
         AppFolder::Listed(name) => (listed_folder(folder_dir, &name)?, false),
         AppFolder::Chosen(path) => (path, false),
     };

@@ -9,9 +9,11 @@
 //! (`accept_folder_opening`).
 //!
 //! Accepting resolves an existing directory and opens its own bound editor
-//! window. The launcher stays unbound. The accepted path is remembered in
-//! `folders.json`; bookmarks are shortcuts, never native file permissions.
-//! Reopening requires a stored or this-run accepted path and checks it again.
+//! window. The launcher stays unbound. An accepted path absent from the folder
+//! root listing is remembered in `folders.json`; a visible direct child is
+//! already discoverable there. Bookmarks are shortcuts, never permissions.
+//! Reopening through a bookmark requires a stored or this-run accepted path
+//! and checks it again.
 //! Like a bundled app's launcher, the handoff refuses paths overlapping
 //! Epicenter's own folder or app data (`overlaps_epicenter_files`). Receiving or
 //! dismissing a request reads none of its files.
@@ -244,8 +246,22 @@ fn remember_accepted(
     openings: &FolderOpenings,
     paths: &DesktopPaths,
     directory: &str,
+    opened: &Directory,
 ) -> AcceptedOpening {
-    let remember_problem = folders_config::add(&paths.data_dir, directory).err();
+    // Use the admitted directory, not the handed-off spelling: a linked
+    // parent may change between admission and remembering.
+    let listed_by_root =
+        opened.root().parent().is_some_and(|parent| {
+            same_file::is_same_file(parent, &paths.folder_dir).unwrap_or(false)
+        }) && opened
+            .root()
+            .file_name()
+            .is_some_and(|name| !name.to_string_lossy().starts_with('.'));
+    let remember_problem = if listed_by_root {
+        None
+    } else {
+        folders_config::add(&paths.data_dir, directory).err()
+    };
     if let Some(problem) = &remember_problem {
         openings.keep_temporarily(directory);
         log::warn!("an opened folder was not remembered: {problem}");
@@ -326,9 +342,9 @@ pub async fn accept_folder_opening(
             let openings = app.state::<FolderOpenings>();
             let paths = app.state::<DesktopPaths>();
             let directory = requested_directory(&openings, &paths, &path)?;
-            crate::folder_windows::open_editor(&app, directory)
+            crate::folder_windows::open_editor(&app, directory.clone())
                 .map_err(|error| format!("{error:#}"))?;
-            Ok(remember_accepted(&openings, &paths, &path))
+            Ok(remember_accepted(&openings, &paths, &path, &directory))
         })();
         let _ = app.emit_to(BuiltInApp::Folders.id(), FOLDER_OPENINGS_CHANGED, ());
         result
@@ -414,8 +430,13 @@ mod tests {
         fn accept(&self, path: &Path) -> Result<AcceptedOpening, String> {
             let path = path.to_str().unwrap();
             let directory = requested_directory(&self.openings, &self.paths, path)?;
-            self.editor(directory);
-            Ok(remember_accepted(&self.openings, &self.paths, path))
+            self.editor(directory.clone());
+            Ok(remember_accepted(
+                &self.openings,
+                &self.paths,
+                path,
+                &directory,
+            ))
         }
         fn reopen(&self, path: &Path) -> Result<String, String> {
             let directory =
@@ -610,6 +631,17 @@ mod tests {
         assert!(f.openings.temporary().is_empty());
     }
     #[test]
+    fn a_visible_child_of_the_folder_root_needs_no_shortcut() {
+        let f = fixture();
+        let todos = f.paths.folder_dir.join("Todos");
+        fs::create_dir(&todos).unwrap();
+        f.request(&todos);
+        assert_eq!(f.accept(&todos).unwrap().remember_problem, None);
+        assert!(f.listed().folders.is_empty());
+        assert!(!folders_config::file(&f.paths.data_dir).exists());
+        assert!(f.openings.temporary().is_empty());
+    }
+    #[test]
     fn a_missing_directory_is_refused_and_never_created() {
         let f = fixture();
         let missing = f.temp.path().join("missing");
@@ -675,8 +707,8 @@ mod tests {
         fs::create_dir(&protected).unwrap();
         fs::remove_file(&alias).unwrap();
         symlink(&f.paths.data_dir, &alias).unwrap();
-        let first = f.editor(admitted);
-        remember_accepted(&f.openings, &f.paths, path.to_str().unwrap());
+        let first = f.editor(admitted.clone());
+        remember_accepted(&f.openings, &f.paths, path.to_str().unwrap(), &admitted);
         assert_eq!(f.root(&first), f.elsewhere);
         assert!(f
             .reopen(&path)
