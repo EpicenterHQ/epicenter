@@ -1,114 +1,31 @@
 //! Standalone Todos opens one directory in one window.
 //!
 //! The native wrapper defaults to `~/Epicenter/Todos` (or the development
-//! root) and binds it before loading the static page. Existing authored work
-//! in the former whole-AppData Folder requires an explicit launch choice.
+//! root) and binds it before loading the static page.
 //! The page calls `openFolder({ tables })` and never selects or discovers a
 //! path. Epicenter can load the same page
 //! over another folder selected by its own launcher. Standalone Todos has
 //! no folder picker, recent-folder list, or extra-folder windows.
 
 use std::error::Error;
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager, WebviewUrl};
-use tauri_plugin_dialog::{
-    DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
-};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_epicenter_folder::{Directory, FolderExt, Folders};
 use tauri_plugin_opener::OpenerExt;
-
-mod launch;
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_epicenter_folder::init())
-        // Only reports a startup failure; no page receives dialog commands.
+        // Native startup errors and the page's unfinished-save confirmation.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![open_in_epicenter])
         .setup(|app| {
-            let handle = app.handle().clone();
-            let launch = (|| -> Result<launch::Launch, Box<dyn Error>> {
-                let legacy = app.path().app_data_dir()?;
-                let home = app.path().home_dir()?;
-                let target = launch::root(
-                    &app.config().identifier,
-                    &home,
-                    std::env::var_os("EPICENTER_FOLDER_DIR").as_deref(),
-                )?;
-                Ok(launch::decide(&legacy, &target)?)
-            })();
-            match launch {
-                Ok(launch::Launch::Default(target)) => open_or_report(&handle, &target, true),
-                Ok(launch::Launch::Choose { legacy, target, target_status }) => {
-                    match target_status {
-                        launch::TargetStatus::Unavailable(error) => {
-                            let message = format!(
-                                "Todos found work in its previous location, but the Epicenter folder cannot be opened: {error}\n\nExisting: {}\nEpicenter: {}",
-                                legacy.display(), target.display()
-                            );
-                            let choice_handle = handle.clone();
-                            app.dialog()
-                                .message(message)
-                                .title("Open existing Todos work")
-                                .buttons(MessageDialogButtons::OkCancelCustom(
-                                    "Open Existing".into(),
-                                    "Quit".into(),
-                                ))
-                                .show_with_result(move |choice| match choice {
-                                    MessageDialogResult::Ok => {
-                                        open_or_report(&choice_handle, &legacy, false)
-                                    }
-                                    MessageDialogResult::Custom(label) if label == "Open Existing" => {
-                                        open_or_report(&choice_handle, &legacy, false)
-                                    }
-                                    _ => choice_handle.exit(0),
-                                });
-                        }
-                        status => {
-                            let create_target = status == launch::TargetStatus::Empty;
-                            let message = match status {
-                                launch::TargetStatus::HasWork => format!(
-                                    "Todos work exists in both locations. Choose which folder to open. Nothing will be copied or merged.\n\nExisting: {}\nEpicenter: {}",
-                                    legacy.display(), target.display()
-                                ),
-                                launch::TargetStatus::Empty => format!(
-                                    "Todos found work in its previous location. Open that work, or create the new Epicenter folder. Nothing will be copied or moved.\n\nExisting: {}\nEpicenter: {}",
-                                    legacy.display(), target.display()
-                                ),
-                                launch::TargetStatus::Uninspected(error) => format!(
-                                    "Todos found work in its previous location. The Epicenter folder exists, but some contents could not be inspected: {error}\n\nYou can try opening the existing Epicenter folder. Nothing will be created, copied, or merged.\n\nExisting: {}\nEpicenter: {}",
-                                    legacy.display(), target.display()
-                                ),
-                                launch::TargetStatus::Unavailable(_) => unreachable!(),
-                            };
-                            let choice_handle = handle.clone();
-                            app.dialog()
-                                .message(message)
-                                .title("Choose Todos folder")
-                                .buttons(MessageDialogButtons::YesNoCancelCustom(
-                                    "Open Existing".into(),
-                                    "Open Epicenter".into(),
-                                    "Quit".into(),
-                                ))
-                                .show_with_result(move |choice| match choice {
-                                    MessageDialogResult::Yes => open_or_report(&choice_handle, &legacy, false),
-                                    MessageDialogResult::No => {
-                                        open_or_report(&choice_handle, &target, create_target)
-                                    }
-                                    MessageDialogResult::Custom(label) if label == "Open Existing" => {
-                                        open_or_report(&choice_handle, &legacy, false)
-                                    }
-                                    MessageDialogResult::Custom(label) if label == "Open Epicenter" => {
-                                        open_or_report(&choice_handle, &target, create_target)
-                                    }
-                                    _ => choice_handle.exit(0),
-                                });
-                        }
-                    }
-                }
-                Err(error) => report_open_error(&handle, error.to_string()),
+            if let Err(error) = open_default(app.handle()) {
+                report_open_error(app.handle(), error.to_string());
             }
             Ok(())
         })
@@ -116,27 +33,55 @@ pub fn run() {
         .expect("Todos could not start");
 }
 
-fn open_or_report(app: &AppHandle, root: &Path, create: bool) {
-    let opened = (|| -> Result<(), Box<dyn Error>> {
-        let directory = if create {
-            Directory::create(root)?
-        } else {
-            Directory::existing(root)?
-        };
-        // Keep WebView runtime files outside whichever Folder is opened.
-        let webview_data = app.path().app_cache_dir()?.join("webview");
-        app.open_folder_window("todos", directory, WebviewUrl::default(), move |builder| {
-            Ok(builder
-                .title("Todos")
-                .inner_size(960.0, 720.0)
-                .min_inner_size(480.0, 400.0)
-                .data_directory(webview_data))
-        })?;
-        Ok(())
-    })();
-    if let Err(error) = opened {
-        report_open_error(app, error.to_string());
-    }
+/// Create and bind the fixed default before constructing the app's window.
+fn open_default(app: &AppHandle) -> Result<(), Box<dyn Error>> {
+    let root = default_folder(
+        &app.config().identifier,
+        &app.path().home_dir()?,
+        std::env::var_os("EPICENTER_FOLDER_DIR").as_deref(),
+    )?;
+    let directory = Directory::create(&root)?;
+    // Keep WebView runtime files outside the authored Folder.
+    let webview_data = app.path().app_cache_dir()?.join("webview");
+    app.open_folder_window("todos", directory, WebviewUrl::default(), move |builder| {
+        Ok(builder
+            .title("Todos")
+            .inner_size(960.0, 720.0)
+            .min_inner_size(480.0, 400.0)
+            .data_directory(webview_data))
+    })?;
+    Ok(())
+}
+
+fn default_folder(
+    identifier: &str,
+    home: &Path,
+    override_value: Option<&OsStr>,
+) -> Result<PathBuf, String> {
+    let base = match override_value {
+        Some(value) if !value.is_empty() => {
+            let path = Path::new(value);
+            if !path.is_absolute() {
+                return Err(format!(
+                    "EPICENTER_FOLDER_DIR must be an absolute path, not {value:?}."
+                ));
+            }
+            path.to_path_buf()
+        }
+        _ => {
+            let name = match identifier {
+                "so.epicenter.todos" => "Epicenter",
+                "so.epicenter.todos.dev" => "Epicenter Dev",
+                _ => {
+                    return Err(format!(
+                        "No authored root for {identifier}; set EPICENTER_FOLDER_DIR explicitly"
+                    ))
+                }
+            };
+            home.join(name)
+        }
+    };
+    Ok(base.join("Todos"))
 }
 
 fn report_open_error(app: &AppHandle, message: String) {
@@ -201,6 +146,28 @@ mod tests {
     use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
     use super::*;
+
+    #[test]
+    fn roots_match_host_storage_environments_and_require_absolute_overrides() {
+        let home = Path::new("/home/person");
+        assert_eq!(
+            default_folder("so.epicenter.todos", home, None).unwrap(),
+            home.join("Epicenter/Todos")
+        );
+        assert_eq!(
+            default_folder("so.epicenter.todos.dev", home, None).unwrap(),
+            home.join("Epicenter Dev/Todos")
+        );
+        assert_eq!(
+            default_folder("so.epicenter.todos", home, Some(OsStr::new("/other"))).unwrap(),
+            Path::new("/other/Todos")
+        );
+        assert!(default_folder("so.epicenter.todos", home, Some(OsStr::new("relative"))).is_err());
+        assert_eq!(
+            default_folder("unrecognized", home, Some(OsStr::new("/other"))).unwrap(),
+            Path::new("/other/Todos")
+        );
+    }
 
     /// A mock app with the folder plugin, and Todos's default folder at
     /// `root`, which does not exist yet.
@@ -300,8 +267,8 @@ mod tests {
     #[test]
     fn a_path_is_encoded_with_one_reading() {
         assert_eq!(
-            encode_path("/Users/me/Library/Application Support/so.epicenter.todos"),
-            "/Users/me/Library/Application%20Support/so.epicenter.todos"
+            encode_path("/Users/me/Epicenter Dev/Todos"),
+            "/Users/me/Epicenter%20Dev/Todos"
         );
         assert_eq!(
             encode_path("/tmp/a+b&c=d%e;f#g?h/notés"),
