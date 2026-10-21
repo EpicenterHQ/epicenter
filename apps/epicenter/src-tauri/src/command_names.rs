@@ -16,6 +16,7 @@ pub const COMMANDS: &[&str] = &[
     "get_local_transcription_readiness",
     "open_home",
     "take_pending_home_section",
+    "window_is_recording",
     "list_data_folders",
     "open_folder_editor",
     "folder_query",

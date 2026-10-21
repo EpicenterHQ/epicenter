@@ -19,7 +19,8 @@
  * reads, closes the folder, and clears the cache, in that order.
  *
  * In the desktop app the context also answers its window's close
- * (`guardWindowClose`) from the folder's current save status.
+ * (`guardWindowClose`) from the folder's current save status; inside
+ * Epicenter it also reports that status for the separate application Quit.
  *
  * Plain module, so a store imports the types without loading components.
  */
@@ -230,8 +231,9 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		},
 		/**
 		 * In the desktop app, prompt when the folder has an accepted save
-		 * pending, then destroy the window on confirmation. A browser tab
-		 * keeps its own unload behavior.
+		 * pending or its native recorder is capturing, then destroy the window
+		 * on confirmation. Application Quit checks all folders separately.
+		 * A browser tab keeps its own unload behavior.
 		 */
 		guardWindowClose(): Promise<void> {
 			if (closing !== undefined)

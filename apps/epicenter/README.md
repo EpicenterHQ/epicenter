@@ -503,17 +503,32 @@ them. Windows and Linux keep separate app-and-folder windows.
 
 Each native tab keeps its own window, page, directory binding, and save
 guard. Detaching or merging changes presentation without reopening the
-folder or transferring drafts. Closing a group asks each member to close;
-each page prompts only when its Folder has an unfinished save. Tab membership
-lives in AppKit, never in `folders.json`. Application Quit checks the mounted
-Folder status in each bound window, then asks once if any has pending work.
+folder or transferring drafts. Tab membership lives in AppKit, never in
+`folders.json`.
+
+Each folder page answers its own close with an awaited native confirmation
+(ADR-0663). It reads `window_is_recording`, a read-only command whose caller
+window comes from Tauri, and combines that fact with the Folder's unsaved
+status. Cancel keeps input and recording; confirmation destroys the window
+without waiting for a save. Native destruction finalizes captured audio.
+Repeated requests for the same window share its answer. Other windows close
+independently, so closing a tab group does not drop later members' requests.
+A dispatched destruction keeps the page inert until it is gone; a rejected
+close restores it for another attempt.
+
+Application Quit remains one separate check and native confirmation for all
+bound folders and any recording. It never closes windows individually before
+the person decides, so Cancel preserves every window. Close and Quit have
+separate prompts; there is no global departure gate that discards other
+windows' close requests.
 
 ### Native commands for a bundled app
 
 `capabilities/bundled-app.json` selects `todos:*`, `capture:*`, and
-`honeycrisp:*` and grants the folder plugin and its change event. The close
-guard focuses its own window for confirmation when a save is pending, then
-destroys it if the person confirms. It also grants `dialog:allow-message`.
+`honeycrisp:*` and grants the folder plugin and its change event. Inside
+Epicenter the close guard reads `allow-window-is-recording` and confirms
+through `dialog:allow-message`, focuses with `core:window:allow-set-focus`,
+and destroys with `core:window:allow-destroy`.
 
 `capabilities/whispering.json` selects `whispering:*` and grants what
 Whispering's page calls:
@@ -577,14 +592,20 @@ plugin is a dependency but stays unregistered until a capability grants it.
 
 Application Quit checks the current save status of each bound folder window
 ([ADR-0657](../../docs/adr/0657-departure-prompts-only-for-pending-folder-saves.md)).
-If every page reports no pending save, Epicenter exits. If any page has accepted
-input still saving or unsaved, or a page does not answer the bounded check,
+If every page reports no pending save and no recording is running, Epicenter
+exits. If any page has accepted input still saving or unsaved, a recording is
+running, or a page does not answer the bounded check,
 one native confirmation asks whether to quit anyway. Cancel keeps every window
 and its input; Quit Anyway exits without waiting for a save. A repeated Quit
 request joins the check already in progress.
 
-The app menu's Quit, Cmd-Q, and the tray's Quit use this path. Abrupt process
-termination can still interrupt work. Unsubmitted forms and app actions that
+Window close remains independent. If an approved window close destroys the
+Quit sheet's parent, that Quit attempt is abandoned and can be retried. Each
+attempt has an identity so a late answer cannot approve or cancel its successor.
+
+The app menu's Quit, Cmd-Q, and the tray's Quit use this path. macOS Dock Quit,
+logout, and abrupt process termination are outside this guarded path and can
+interrupt work. Unsubmitted forms and app actions that
 have not reached their first Folder write do not trigger the prompt. Atomic
 file replacement and recording recovery retain their existing guarantees.
 

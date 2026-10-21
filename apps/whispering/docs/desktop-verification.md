@@ -6,6 +6,63 @@
 > The page now runs the folder engine over a directory the shell grants. Read
 > this file as what was checked then, not as current behavior.
 
+## Closing and quitting inside Epicenter (October 21, 2026)
+
+The page awaits one native confirmation for its pending or failed Folder saves
+and its native recording. Cancel keeps both. Confirmed destruction finalizes
+captured audio without waiting for pending metadata saves. Each window answers
+independently; application Quit separately checks all folder pages and the
+recorder. Standalone Todos' macOS Quit uses its one window's ordinary close.
+See [ADR-0663](../../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md).
+
+**Verified live on macOS with isolated packaged debug apps and disposable
+folders:**
+
+- Standalone Todos' Cmd-Q and app-menu Quit use the page's native Close
+  confirmation. Saved windows leave silently. Pending and failed saves warn;
+  repeated requests show one sheet. Cancel retains the exact complete title,
+  including from a minimized window. Confirmed close does not write a failed
+  title. A real SQLite save lock exercised a pending save separately from a
+  permission-denied failure.
+- Epicenter Quit detects failed input in another folder window. Repeated Cmd-Q
+  shows one Quit sheet; Cancel keeps the folder windows and unfinished input.
+  With a real recording in Whispering and failed input in Todos, the one Quit
+  warning includes both. Cancel keeps recording; Quit Anyway exits and finalizes
+  a second readable WAV (16 kHz, 1,229,483 frames, 76.843 seconds). Both failed
+  todo titles remained unchanged on disk. After retrying all saves in a later
+  run, multiwindow application Quit exited silently.
+- Close while recording shows the native recording warning. Cancel keeps the
+  real microphone recording. Close Anyway finalized a readable mono PCM16 WAV
+  at 16 kHz, 1,245,013 frames (77.813 seconds), with no `durationMs` in its row.
+  Reopening displayed its native audio controls and duration. No transcription
+  was configured or sent.
+- Combined recording and failed metadata input in the same window shows one
+  native Close sheet mentioning both. Repeated Cmd-W adds no sheet. Cancel
+  retains the complete unfinished title and keeps recording. Close Anyway
+  finalized a readable 16 kHz PCM16 WAV with 1,044,309 frames (65.269 seconds),
+  while the failed title remained unwritten and the row had no `durationMs`.
+  This used the single-snapshot close flow and a permission-denied save in a
+  disposable folder. The folder's permissions were restored afterward.
+- Close on dirty window A, Cmd-Q while its sheet is open, then Close Anyway on
+  A reproduced a stuck Quit. The repaired build releases the parent-owned Quit
+  attempt; a fresh Cmd-Q on dirty window B showed its warning and Cancel worked.
+  Late answers are rejected by attempt ID in native regression coverage.
+- Closing a native group of two dirty Todos tabs prompts for both. Cancel
+  retains both complete titles, and each tab can prompt again. The computer-use
+  surface briefly selected an inactive alert after the second Cancel; selecting
+  the native tab through the Window menu returned to usable input.
+
+Automated checks in the working checkout: 55 shared and mounted close/Quit tests passed; the
+shared Svelte typecheck had zero diagnostics; Epicenter's native suite passed
+145 tests with one ignored; standalone Todos' seven native tests passed. Both
+isolated macOS packages built successfully. Dialog and destruction rejection
+recovery has automated coverage, without a live permission fault injection.
+
+Windows and Linux presentation remain unverified. Quit samples status without
+freezing input across windows. macOS Dock Quit and logout are outside the custom
+menu/tray route. Dialog/destroy failure recovery has automated coverage without
+live permission fault injection. No check moved user data.
+
 This file has four dated parts. The first records moving the desktop folder to
 the shell's Rust owner, which has TypeScript checks only and an uncompiled
 shell. The second records the adoption of the shared folder package, which has

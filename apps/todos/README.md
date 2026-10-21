@@ -43,6 +43,19 @@ Both shells call the folder plugin's `open_folder_window("todos", directory, url
 
 Standalone Todos has one window and no general folder picker, recent-folder list, or extra-folder windows. To use Todos on another existing folder, open Todos through Epicenter's launcher and choose the folder there. Both wrappers load the same static host build; its `openFolder({ tables })` call reaches the directory its native shell already bound to the invoking window.
 
+On macOS, the app menu's Quit and Cmd-Q request that window's ordinary close.
+The page awaits a native confirmation only while a Folder save is pending or
+has failed. Cancel preserves the window and unfinished input; Close Anyway
+closes without waiting for the save. Saved windows leave silently. Epicenter's
+multiwindow application Quit remains a separate decision.
+
+An isolated packaged macOS run verified saved Quit, pending and failed saves,
+repeated Cmd-Q, app-menu Quit, Cancel retaining the complete title, confirmed
+close leaving the failed title unwritten, and the warning from a minimized
+window. The pending-save check held the Folder's SQLite save lock; releasing
+it let the save finish while the prompt was open. These checks used disposable
+folders, separate from user data.
+
 The shell binds the window's directory to it in trusted Rust before the window exists ([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)). The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` selects `todos:*` and gives that window the folder plugin's commands and its change event, plus reading the app identifier and its own handoff command. The page receives no opener permission.
 
 Standalone Todos also offers **Open in Epicenter**. Rust reads the calling window's bound directory and asks the operating system to open `epicenter://open?path=…`. The page passes no path. Epicenter shows the full path and asks the person to accept before opening a separate file editor. The handoff opens the currently bound directory in Epicenter; it does not copy or move files. The message confirms only that the computer was asked, since Epicenter may not be installed ([ADR-0646](../../docs/adr/0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md)).

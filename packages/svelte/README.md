@@ -73,11 +73,19 @@ sends held input when the page hides, and closes after pending work settles.
 Only a pending Folder save prompts before a browser unload. In a desktop
 window, the editable page appears only after its close listener is
 installed. Closing that window checks `folder.getStatus().saving` and
-`folder.getStatus().unsaved`; if either indicates pending work, a native dialog
-asks whether to close anyway. An unsubmitted form does not prompt. The native
-capability must grant `dialog:allow-message`, `core:window:allow-set-focus`,
-and `core:window:allow-destroy`. Epicenter's Quit asks each mounted folder
-page for the same status and shows one confirmation if needed. If a save still fails as the route unmounts, the root shows its fields and body for copying in a
+`folder.getStatus().unsaved`. An unsubmitted form does not prompt. A page
+Epicenter serves reads `window_is_recording`, which answers whether its own
+native recorder is capturing, then awaits one native `confirm(...)` for that
+recording and any unsaved input. Each window answers independently; repeated
+requests for that window share its current answer. Successful destruction
+keeps the page inert until it is gone. Cancel or failure leaves it usable.
+Save status is sampled once for that request. A save finishing while the native
+question opens does not withdraw it.
+Desktop capabilities grant `dialog:allow-message`, `core:window:allow-set-focus`,
+and `core:window:allow-destroy`; Epicenter also grants `allow-window-is-recording`.
+Application Quit separately asks every mounted folder page for save status and
+checks the native recorder. If a save still fails as the route unmounts, the
+root shows its fields and body for copying in a
 notice held by the app layout's toaster.
 
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during

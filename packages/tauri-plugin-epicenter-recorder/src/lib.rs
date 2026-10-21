@@ -152,6 +152,16 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new().build()
 }
 
+/// The label of the window whose recording is capturing now, if one is: what
+/// a shell asks before a window closes or the app quits, since leaving ends
+/// that recording. The recorder is the only record of it; no page mirrors it.
+pub fn recording_owner<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    app.try_state::<Recorders<R>>()?
+        .lock()
+        .capturing_owner()
+        .map(str::to_owned)
+}
+
 /// The typed command contract. The TypeScript bindings in
 /// `../recorder/src/native/bindings.gen.ts` are generated from this builder.
 fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {

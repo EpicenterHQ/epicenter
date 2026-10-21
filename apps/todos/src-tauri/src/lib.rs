@@ -17,7 +17,7 @@ use tauri_plugin_epicenter_folder::{Directory, FolderExt, Folders};
 use tauri_plugin_opener::OpenerExt;
 
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_epicenter_folder::init())
         // Native startup errors and the page's unfinished-save confirmation.
         .plugin(tauri_plugin_dialog::init())
@@ -28,9 +28,57 @@ pub fn run() {
                 report_open_error(app.handle(), error.to_string());
             }
             Ok(())
-        })
+        });
+    // AppKit's predefined Quit terminates the process without asking the
+    // page. This one-window app quits by requesting its guarded window close.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(quit_menu).on_menu_event(|app, event| {
+        if event.id().as_ref() != "quit-todos" {
+            return;
+        }
+        let Some(window) = app.webview_windows().into_values().next() else {
+            app.exit(0);
+            return;
+        };
+        if let Err(error) = window.close() {
+            app.dialog()
+                .message(format!("The window could not close. Try again.\n\n{error}"))
+                .title("Todos stayed open")
+                .kind(MessageDialogKind::Error)
+                .show(|_| {});
+        }
+    });
+    builder
         .run(tauri::generate_context!())
         .expect("Todos could not start");
+}
+
+#[cfg(target_os = "macos")]
+fn quit_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{Menu, MenuItem};
+
+    let menu = Menu::default(app)?;
+    let application = menu
+        .items()?
+        .first()
+        .and_then(|item| item.as_submenu())
+        .cloned()
+        .ok_or_else(|| std::io::Error::other("default application menu is missing"))?;
+    let quit = application
+        .items()?
+        .last()
+        .and_then(|item| item.as_predefined_menuitem())
+        .cloned()
+        .ok_or_else(|| std::io::Error::other("default Quit item is missing"))?;
+    application.remove(&quit)?;
+    application.append(&MenuItem::with_id(
+        app,
+        "quit-todos",
+        quit.text()?,
+        true,
+        Some("Cmd+Q"),
+    )?)?;
+    Ok(menu)
 }
 
 /// Create and bind the fixed default before constructing the app's window.

@@ -1,7 +1,9 @@
 /**
  * The close guard's async boundary, without a Folder or mounted app.
  * A retired guard cannot destroy its window after a late dialog answer;
- * status or registration failures leave another close attempt possible.
+ * status, dialog or registration failures leave another close possible.
+ * Repeated requests share a pending prompt, and a dispatched destruction
+ * leaves the page inert and refuses further requests until it is gone.
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -40,16 +42,26 @@ test('a late confirmation from a stopped guard cannot destroy the replacement pa
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
-test('a save finishing while the window is focused needs no confirmation', async () => {
+test('close uses one save-status snapshot even when saving finishes during focus', async () => {
 	desktop(true);
 	let pending = true;
-	cleanup.push(await holdWindowClose(() => pending));
+	const focus = Promise.withResolvers<void>();
+	nativeWindow.focus = focus.promise;
+	const observed = Promise.withResolvers<void>();
+	cleanup.push(
+		await holdWindowClose(() => {
+			observed.resolve();
+			return pending;
+		}),
+	);
 	const closing = requestClose();
+	await observed.promise;
 	pending = false;
+	focus.resolve();
 	await closing;
 
-	expect(nativeDialog.count).toBe(0);
-	expect(nativeWindow.destroyed).toBe(1);
+	expect(nativeDialog.count).toBe(1);
+	expect(nativeWindow.destroyed).toBe(0);
 });
 
 test('a status check that throws keeps the window and allows another attempt', async () => {
@@ -68,6 +80,20 @@ test('a status check that throws keeps the window and allows another attempt', a
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
+test('a focus failure still offers confirmation and Cancel leaves another close possible', async () => {
+	desktop(true);
+	cleanup.push(await holdWindowClose(() => true));
+	nativeWindow.refuseFocus = true;
+	await requestClose();
+	expect(nativeDialog.count).toBe(1);
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(document.documentElement.inert).toBe(false);
+	nativeDialog.answer = true;
+	await requestClose();
+	expect(nativeDialog.count).toBe(2);
+	expect(nativeWindow.destroyed).toBe(1);
+});
+
 test('failed registration releases ownership for a new guard', async () => {
 	desktop(true);
 	nativeWindow.refuseRegistration = true;
@@ -77,5 +103,52 @@ test('failed registration releases ownership for a new guard', async () => {
 	nativeWindow.refuseRegistration = false;
 	cleanup.push(await holdWindowClose(() => false));
 	await requestClose();
+	expect(nativeWindow.destroyed).toBe(1);
+});
+
+test('repeated pending close requests show one prompt and Cancel allows another', async () => {
+	desktop(true);
+	cleanup.push(await holdWindowClose(() => true));
+	const answer = Promise.withResolvers<boolean>();
+	nativeDialog.answer = answer.promise;
+	const first = requestClose();
+	for (let tries = 0; tries < 400 && nativeDialog.count === 0; tries++)
+		await Bun.sleep(1);
+	await requestClose();
+	expect(nativeDialog.count).toBe(1);
+	answer.resolve(false);
+	await first;
+	expect(nativeWindow.destroyed).toBe(0);
+	nativeDialog.answer = false;
+	await requestClose();
+	expect(nativeDialog.count).toBe(2);
+});
+
+test('a rejected dialog preserves usable input and allows another close', async () => {
+	desktop(true);
+	cleanup.push(await holdWindowClose(() => true));
+	const answer = Promise.withResolvers<boolean>();
+	nativeDialog.answer = answer.promise;
+	const closing = requestClose();
+	for (let tries = 0; tries < 400 && nativeDialog.count === 0; tries++)
+		await Bun.sleep(1);
+	answer.reject(new Error('The native dialog was unavailable'));
+	await closing;
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(document.documentElement.inert).toBe(false);
+	expect(nativeWindow.listeners).toBe(1);
+	nativeDialog.answer = true;
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(1);
+});
+
+test('a dispatched destroy stays inert and cannot prompt or destroy again', async () => {
+	desktop(true);
+	cleanup.push(await holdWindowClose(() => true));
+	nativeDialog.answer = true;
+	await requestClose();
+	expect(document.documentElement.inert).toBe(true);
+	await requestClose();
+	expect(nativeDialog.count).toBe(1);
 	expect(nativeWindow.destroyed).toBe(1);
 });

@@ -910,6 +910,16 @@ impl Recorder {
                 .is_some_and(|active| active.ended_reason.is_none())
     }
 
+    /// The window whose recording is still capturing. A recording whose
+    /// capture ended holds the slot until its owner stops it, but leaving
+    /// would no longer cut anything off, so it is not counted.
+    pub fn capturing_owner(&self) -> Option<&str> {
+        self.active
+            .as_ref()
+            .filter(|active| active.ended_reason.is_none())
+            .map(|active| active.owner_label.as_str())
+    }
+
     /// The file of the held recording, which `recover` must not rewrite.
     pub fn held_path(&self) -> Option<PathBuf> {
         self.active.as_ref().map(|active| active.path.clone())
@@ -1964,6 +1974,7 @@ pub(crate) mod tests {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
+        assert_eq!(recorder.capturing_owner(), Some("app-notes"));
 
         assert!(
             recorder
@@ -1974,6 +1985,7 @@ pub(crate) mod tests {
 
         // The microphone is closed, so the tray must stop claiming otherwise.
         assert!(!recorder.is_capturing());
+        assert_eq!(recorder.capturing_owner(), None);
 
         // Everything else is unchanged: same recording, same owner, now carrying
         // the reason its capture ended.

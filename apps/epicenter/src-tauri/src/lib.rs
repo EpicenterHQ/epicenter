@@ -137,6 +137,7 @@ macro_rules! shell_commands {
             get_local_transcription_readiness,
             open_home,
             take_pending_home_section,
+            shell::window_is_recording::<tauri::Wry>,
             data_folders::list_data_folders,
             folder_opening::pending_folder_openings,
             folder_opening::accept_folder_opening,
@@ -340,8 +341,8 @@ pub fn run() {
         .plugin(log_plugin)
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        // Rust owns the folder picker. Folder pages may show close
-        // confirmations, but no capability grants a page the file picker.
+        // Rust owns the folder picker and application Quit confirmation.
+        // Pages confirm their own window close; none may open the file picker.
         .plugin(tauri_plugin_dialog::init())
         .manage(PendingHomeSection::default())
         .manage(folder_opening::FolderOpenings::default())
@@ -369,6 +370,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
+                shell::quit_parent_ended(window.app_handle(), window.label());
                 window
                     .state::<cli::CliChildren>()
                     .page_ended(window.label());
@@ -879,7 +881,8 @@ mod tests {
                 "dialog:allow-message",
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",
-                "core:window:allow-destroy"
+                "core:window:allow-destroy",
+                "allow-window-is-recording"
             ])
         );
         for app in BundledApp::ALL {
@@ -924,7 +927,8 @@ mod tests {
                 "dialog:allow-message",
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",
-                "core:window:allow-destroy"
+                "core:window:allow-destroy",
+                "allow-window-is-recording"
             ])
         );
         for label in folder_labels(crate::folder_windows::EDITOR_PREFIX) {
@@ -966,6 +970,7 @@ mod tests {
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",
                 "core:window:allow-destroy",
+                "allow-window-is-recording",
                 "epicenter-recorder:default",
                 {
                     "identifier": "opener:allow-open-url",

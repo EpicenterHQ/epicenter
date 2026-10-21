@@ -23,15 +23,18 @@ const handlers = new Set<Handler>();
 export const nativeDialog = {
 	answer: false as boolean | Promise<boolean>,
 	count: 0,
+	messages: [] as string[],
 	reset() {
 		this.answer = false;
 		this.count = 0;
+		this.messages.length = 0;
 	},
 };
 
 mock.module('@tauri-apps/plugin-dialog', () => ({
-	confirm: async () => {
+	confirm: async (message: string) => {
 		nativeDialog.count += 1;
+		nativeDialog.messages.push(message);
 		return nativeDialog.answer;
 	},
 }));
@@ -40,6 +43,7 @@ export const nativeWindow = {
 	/** How many times the window was destroyed. */
 	destroyed: 0,
 	focused: 0,
+	focus: undefined as Promise<void> | undefined,
 	refuseFocus: false,
 	/** Whether `destroy` rejects, as it does without `core:window:allow-destroy`. */
 	refuseDestroy: false,
@@ -57,11 +61,14 @@ export const nativeWindow = {
 		handlers.clear();
 		this.destroyed = 0;
 		this.focused = 0;
+		this.focus = undefined;
 		this.refuseFocus = false;
 		this.refuseDestroy = false;
 		this.registration = undefined;
 		this.refuseRegistration = false;
 		this.destruction = undefined;
+		// A destroyed native page takes its inert DOM with it. Tests reuse one.
+		if (globalThis.document) document.documentElement.inert = false;
 		desktop(false);
 	},
 };
@@ -87,6 +94,7 @@ mock.module('@tauri-apps/api/window', () => ({
 		},
 		destroy,
 		async setFocus() {
+			await nativeWindow.focus;
 			if (nativeWindow.refuseFocus) throw new Error('Window focus was refused');
 			nativeWindow.focused += 1;
 		},

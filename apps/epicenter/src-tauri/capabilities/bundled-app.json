@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "bundled-app",
-	"description": "Todos, Capture, and Honeycrisp, which Epicenter bundles (`bundled_apps.rs`), each run in one window per folder, labelled <page>:<digest of the folder's directory>. The shell binds each window's one folder to it before the window exists, and the page opens it with the folder plugin and refreshes visible queries in TypeScript. Each page asks for confirmation when its Folder has an unfinished save, focuses the window for the prompt, and destroys it on confirmation. These pages call no account, AI, history, or app command. Whispering's windows have their own file, whispering.json. Its pages are served on the epicenter-app scheme, so the capability is local (ADR-0561).",
+	"description": "Todos, Capture, and Honeycrisp, which Epicenter bundles (`bundled_apps.rs`), each run in one window per folder, labelled <page>:<digest of the folder's directory>. The shell binds each window's one folder to it before the window exists, and the page opens it with the folder plugin and refreshes visible queries in TypeScript. Each page asks for confirmation when its Folder has an unfinished save, focuses the window for the prompt, and destroys it on confirmation. The page reads only its own recording flag for close confirmation and calls no account, AI, or history command. Whispering's windows have their own file, whispering.json. Its pages are served on the epicenter-app scheme, so the capability is local (ADR-0561).",
 	"local": true,
 	"windows": ["todos:*", "capture:*", "honeycrisp:*"],
 	"permissions": [
@@ -11,6 +11,7 @@
 		"dialog:allow-message",
 		"core:event:allow-unlisten",
 		"core:window:allow-set-focus",
-		"core:window:allow-destroy"
+		"core:window:allow-destroy",
+		"allow-window-is-recording"
 	]
 }
