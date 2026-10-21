@@ -5,7 +5,6 @@
 	Saving an edit to a recording deleted elsewhere restores its Markdown file.
 -->
 <script lang="ts">
-	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { getFolder } from '$lib/folder.js';
 	import { textRead } from '$lib/file-reads.js';
@@ -24,7 +23,7 @@
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { RECORDINGS, rowIdOf } from '$lib/definition.js';
-	import type { RecordingEntry } from '$lib/whispering.svelte.js';
+	import { getWhispering, type RecordingEntry } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './AudioAbsent.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete, lf } from './file-actions.js';

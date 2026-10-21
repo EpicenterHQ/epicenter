@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { toast } from '@epicenter/ui/sonner';
@@ -8,7 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
-	import type { TranscriptionEntry } from '$lib/whispering.svelte.js';
+	import { getWhispering, type TranscriptionEntry } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
 	import { confirmDelete, copyText, formatTime } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';

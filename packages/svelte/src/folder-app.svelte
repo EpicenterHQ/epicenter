@@ -85,11 +85,14 @@
 		event.returnValue = '';
 	}
 	function settle() {
-		void opening.then(({ data: context }) => {
-			if (context && !context.getStatus().closing) return context.folder.settle();
-		}).catch((cause: unknown) =>
-			log.error(new Error('The local folder edits did not settle', { cause })),
-		);
+		void opening
+			.then(({ data: context }) => {
+				if (context && !context.getStatus().closing)
+					return context.folder.settle();
+			})
+			.catch((cause: unknown) =>
+				log.error(new Error('The local folder edits did not settle', { cause })),
+			);
 	}
 </script>
 

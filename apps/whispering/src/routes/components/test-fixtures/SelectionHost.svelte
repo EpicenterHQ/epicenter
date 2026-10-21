@@ -17,7 +17,6 @@
 		$props();
 	// svelte-ignore state_referenced_locally
 	setWhispering(whispering);
-	// svelte-ignore state_referenced_locally
 	// The test mounts the same opened context as the product root.
 	// svelte-ignore state_referenced_locally
 	setFolder(context);

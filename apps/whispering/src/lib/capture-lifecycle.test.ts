@@ -333,7 +333,6 @@ test('a recording that answers after closing writes no row', async () => {
 	).toEqual([]);
 });
 
-
 test('the current audio path stays known until Stop finishes its bytes', async () => {
 	const release = Promise.withResolvers<void>();
 	const { whispering } = await open({

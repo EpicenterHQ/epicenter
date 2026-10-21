@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { toast } from '@epicenter/ui/sonner';
-	import type { TextRunEntry, TransformationRunEntry } from '$lib/whispering.svelte.js';
+	import { getWhispering, type TextRunEntry, type TransformationRunEntry } from '$lib/whispering.svelte.js';
 	import { copyText, formatTime, recordingTitle } from './file-actions.js';
 	import ResultStatus from './ResultStatus.svelte';
 

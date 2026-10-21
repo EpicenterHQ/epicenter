@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import type { ResultState } from '$lib/whispering.svelte.js';
+	import { getWhispering, type ResultState } from '$lib/whispering.svelte.js';
 	import { copyText } from './file-actions.js';
 
 	/**

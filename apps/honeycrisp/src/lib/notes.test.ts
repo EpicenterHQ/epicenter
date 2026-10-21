@@ -230,14 +230,19 @@ test('a note whose text is not a note is listed for repair, opens as text, saves
 	expect(notes.patchNote(A, { pinned: true })).toBeDefined();
 
 	expectOk(typeInto(notes, A, noteText()));
-	expect(notes.folder.files.edit(A).getPending()).toMatchObject({ kind: 'text', text: noteText() });
+	expect(notes.folder.files.edit(A).getPending()).toMatchObject({
+		kind: 'text',
+		text: noteText(),
+	});
 	await notes.folder.files.edit(A).save();
 	await quiet(notes);
 	expect(await text(A)).toBe(noteText());
 	expect(notes.folder.files.edit(A).getPending()).toBeUndefined();
 	expect(repairsOf(rows(notes))).toEqual([]);
 	notes.open(A, 'note');
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.fields?.pinned).toBe(false);
+	expect(
+		notes.folder.tables.notes.edit('a').getMarkdown()?.fields?.pinned,
+	).toBe(false);
 });
 
 test('a note open as its file takes text edits merged by line with another tab, and permits row patches meanwhile', async () => {
@@ -435,13 +440,22 @@ test('a failed file edit stays visible across selection and accepts a field patc
 	notes.open(A);
 	expect(notes.selected?.as).toBe('note');
 	expect(notes.isUnsaved(A)).toBe(true);
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Keep this unfinished file\n');
-	expect(notes.folder.files.edit(A).getPending()).toMatchObject({ kind: 'text', text: changed });
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+		'Keep this unfinished file\n',
+	);
+	expect(notes.folder.files.edit(A).getPending()).toMatchObject({
+		kind: 'text',
+		text: changed,
+	});
 	failSaves(false);
 	expect(notes.patchNote(A, { pinned: true })).toBeUndefined();
 	await notes.folder.files.edit(A).save();
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.fields?.pinned).toBe(true);
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Keep this unfinished file\n');
+	expect(
+		notes.folder.tables.notes.edit('a').getMarkdown()?.fields?.pinned,
+	).toBe(true);
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+		'Keep this unfinished file\n',
+	);
 });
 
 test('reading a file never sends pending body changes', async () => {
@@ -453,7 +467,9 @@ test('reading a file never sends pending body changes', async () => {
 	expect(read.kind).toBe('text');
 	expect(saves(A)).toBe(0);
 	expect(await text(A)).toContain('Body.');
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Unsent body\n');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+		'Unsent body\n',
+	);
 });
 
 test('a folder rename patches held text instead of requiring it to save first', async () => {

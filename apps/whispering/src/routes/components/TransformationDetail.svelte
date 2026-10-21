@@ -5,7 +5,6 @@
 	changes saved elsewhere. Run sends what is typed first.
 -->
 <script lang="ts">
-	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { getFolder } from '$lib/folder.js';
 	import { textRead } from '$lib/file-reads.js';
@@ -28,7 +27,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import { rowIdOf, TRANSFORMATIONS } from '$lib/definition.js';
-	import type { TransformationEntry } from '$lib/whispering.svelte.js';
+	import { getWhispering, type TransformationEntry } from '$lib/whispering.svelte.js';
 	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import SaveStatus from './SaveStatus.svelte';
