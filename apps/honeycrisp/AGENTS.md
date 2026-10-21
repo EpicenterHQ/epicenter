@@ -37,7 +37,7 @@ verify it against the code. The constraints below apply to every edit here.
   lone surrogate with U+FFFD in its transaction. The folder reads a body with
   its file's line endings; the editor presentation shows it with line feeds, so the
   editors read and write line feeds (ADR-0572) and opening writes nothing.
-  `FileView` edits a file's exact text, so it keeps `withFileNewlines`.
+  `FileDetail` edits a file's exact text, so it keeps `withFileNewlines`.
 - Nothing goes stale on its own (`staleTime: Infinity`) and focus never
   refetches. The folder's change channel reports this page's own saves and
   another tab's; do not add a manual reread after an action.
@@ -80,8 +80,8 @@ verify it against the code. The constraints below apply to every edit here.
 
 - `<FolderApp>` closes the folder when the page goes away: Folder refuses
   new edit input, sends every draft, waits for the saves, then closes the
-  handle. Views send their own drafts as they go away,
-  and the shared root sends pending edits when the page is hidden. App actions check `fenced`; FileEdit refuses new input itself. Controls in
+  handle. FileEdit owns autosave after input blur and view departure; the
+  shared root sends pending edits when the page is hidden. App actions check `fenced`; FileEdit refuses new input itself. Controls in
   menus, popovers, and dialogs must also be `disabled`, because those render
   outside the inert root.
 - Keep the browser unload guard in `FolderApp` and the in-page navigation
