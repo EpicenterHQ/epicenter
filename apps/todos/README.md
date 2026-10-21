@@ -15,6 +15,13 @@ bun dev:todos:ui
 
 Open the URL Vite prints. Use a fresh browser profile or origin for a fresh workspace. The header says **Saved on this device** after IndexedDB confirms each save and no draft or failure remains. Open a second tab at the same URL to see saved changes propagate. Once the page has loaded, editing needs no network connection. A cold offline launch requires an offline app shell and is separate work.
 
+A clean todo follows saved changes from another tab. Once typing begins, its
+whole unsaved source stays pinned, including fields that have not been edited.
+If another tab saves a different source, saving reports a conflict and preserves
+both the local typing and the other tab's saved file. Try again does not
+overwrite that file. Copy any local changes you need before confirming Discard
+changes, which returns the controls to the saved source.
+
 For an isolated automated walkthrough, from the repository root run:
 
 ```sh

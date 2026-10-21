@@ -7,9 +7,10 @@
 
 	The title, done, and notes are typed into that edit: what is typed shows
 	at once and saves a second after the last keystroke, or at once when the
-	person ticks the checkbox. A reread never replaces it. Each save merges with whatever was saved
-	meanwhile, here or in another tab. A save that fails keeps the typing and
-	offers Try again.
+	person ticks the checkbox. The whole unsaved source stays pinned across
+	rereads. A save compares against the source observed when typing began;
+	another tab's changed source causes a conflict and remains saved. The
+	typing stays available to copy or discard, and a failed save offers Try again.
 
 	A row that does not read as a todo shows its text and issues, read-only.
 -->

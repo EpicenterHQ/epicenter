@@ -11,7 +11,8 @@
  * Key behaviors:
  * - Add, edit, complete, and delete persist across close and reopen; close
  *   saves typing that still waited for its pause
- * - Another tab's committed change shows without replacing typing here
+ * - Another tab's committed change updates clean controls; unsaved source
+ *   stays pinned and a conflicting save preserves both versions
  * - A failed save keeps the typing and offers Try again; the header says
  *   Saved on this device only once it saved
  * - A row that does not fit is listed with its source and issues, and an
@@ -223,13 +224,10 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 	expect(await stored(id)).toBeUndefined();
 });
 
-test("another tab's change shows without replacing typing here", async () => {
+test("another tab's change updates a clean todo without replacing its controls", async () => {
 	const { get, folder } = await onMilk();
 	const title = get(TITLE);
 	const notes = get<HTMLTextAreaElement>(NOTES);
-	type(title, 'Oat milk');
-	flushSync();
-	expect(title.value).toBe('Oat milk');
 
 	const from = expectOk(await folder.tables.todos.get('milk'))!;
 	expectOk(
@@ -241,8 +239,9 @@ test("another tab's change shows without replacing typing here", async () => {
 	);
 	expect(get(TITLE)).toBe(title);
 	expect(get(NOTES)).toBe(notes);
-	expect(title.value).toBe('Oat milk');
+	expect(title.value).toBe('Milk');
 
+	type(title, 'Oat milk');
 	type(notes, 'Three litres, unsweetened');
 	flushSync();
 	expect(notes.value).toBe('Three litres, unsweetened');
@@ -255,6 +254,60 @@ test("another tab's change shows without replacing typing here", async () => {
 	const saved = await stored('milk');
 	expect(saved?.fields).toMatchObject({ title: 'Oat milk', done: false });
 	expect(saved?.body).toBe('Three litres, unsweetened');
+});
+
+test("another tab's change keeps the whole unsaved todo pinned until discarded", async () => {
+	const { get, folder } = await onMilk();
+	const title = get(TITLE);
+	const notes = get<HTMLTextAreaElement>(NOTES);
+	type(title, 'Oat milk');
+	flushSync();
+	expect(title.value).toBe('Oat milk');
+
+	const from = expectOk(await folder.tables.todos.get('milk'))!;
+	expectOk(
+		await folder.tables.todos.set('milk', from, { body: 'Three litres' }),
+	);
+	await until(
+		() => get(STATUS).textContent?.includes('Not saved:') ?? false,
+		'the conflicting save',
+	);
+	expect(get(TITLE)).toBe(title);
+	expect(get(NOTES)).toBe(notes);
+	expect(title.value).toBe('Oat milk');
+	expect(notes.value).toBe('Two litres');
+	expect(get(STATUS).textContent).toContain('The file changed');
+	const saved = await stored('milk');
+	expect(saved?.fields).toMatchObject({ title: 'Milk', done: false });
+	expect(saved?.body).toBe('Three litres');
+
+	type(notes, 'Two litres, unsweetened');
+	flushSync();
+	expect(notes.value).toBe('Two litres, unsweetened');
+	click(get(STATUS), 'Try again');
+	await until(
+		() => get(STATUS).textContent?.includes('Not saved:') ?? false,
+		'the retry to retain the conflict',
+	);
+	expect(await stored('milk')).toEqual(saved);
+	expect(title.value).toBe('Oat milk');
+	expect(notes.value).toBe('Two litres, unsweetened');
+
+	click(get(STATUS), 'Discard changes');
+	await until(
+		() => document.querySelector('[role="alertdialog"]') !== null,
+		'the discard confirmation',
+	);
+	click(document.querySelector('[role="alertdialog"]')!, 'Discard changes');
+	await until(
+		() =>
+			get(TITLE).value === 'Milk' &&
+			get<HTMLTextAreaElement>(NOTES).value === 'Three litres',
+		'the saved source after discarding',
+	);
+	expect(get(TITLE)).toBe(title);
+	expect(get(NOTES)).toBe(notes);
+	expect(get(STATUS).textContent?.trim()).toBe('Saved on this device');
 });
 
 test('the list labels a todo by its saved title while its checkbox shows what is held', async () => {
