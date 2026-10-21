@@ -231,13 +231,8 @@ export function createNotes(local: NotesFolder) {
 	 */
 	function patchNote(path: string, fields: Partial<NoteFields>) {
 		const why = changeNote(path, { fields });
-		if (why === undefined) void saveRow(path);
+		if (why === undefined) void folder.files.edit(path).save();
 		return why;
-	}
-
-	/** Send the row typed at `path` now, as leaving it does. */
-	function saveRow(path: string): Promise<void> {
-		return rowEditOf(path)?.save() ?? Promise.resolve();
 	}
 
 	/** Give a refused action its app-level reason even after the context closes. */
@@ -533,31 +528,6 @@ export function createNotes(local: NotesFolder) {
 			void rowEdit.save();
 			return undefined;
 		},
-
-		// ------------------------------------------------------------------
-		// A file's exact text
-		// ------------------------------------------------------------------
-
-		/** The text typed into `path` and not yet saved, read reactively. */
-		typedText: (path: string) => {
-			const pending = textAt(path).pending;
-			return pending?.kind === 'text' ? pending.text : undefined;
-		},
-		/** Why the last save of the text typed into `path` failed, while it is held. */
-		textError: (path: string) => {
-			const error = textAt(path).pending?.error;
-			return error === undefined ? undefined : describeFailure(error);
-		},
-		/**
-		 * The folder's edit of `path` as its whole text, as a view shows and
-		 * types it: held text, else the file as stored. Typing saves a second
-		 * after the last change, or at once with `saveText`.
-		 */
-		fileText: textAt,
-		/** Send the whole-file text held at this path. */
-		saveText: (path: string) => folder.files.edit(path).save(),
-		/** Let go of the whole-file text held at this path, as the person chose. */
-		discardText: (path: string) => folder.files.edit(path).discard(),
 
 		// ------------------------------------------------------------------
 		// Actions; each answers what the person is told, if anything

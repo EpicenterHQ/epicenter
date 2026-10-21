@@ -4,8 +4,8 @@
 	saved a second after the last keystroke, when the person leaves the text,
 	and when the view goes away, from the text it started from, merged by
 	line with a change saved elsewhere. A note or folder file whose text does
-	not read as a row shows its issues as the folder read it after its last
-	save, and is repaired here; a note that reads opens as a note again.
+	not read as a row shows its current issues, including unsaved input,
+	and is repaired here; a note that reads opens as a note again.
 -->
 <script lang="ts">
 	import { textRead } from '$lib/file-reads.js';
@@ -21,11 +21,12 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
-	import { createRowEdit } from '@epicenter/svelte/edits';
+	import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { folderIdOf, noteIdOf } from '$lib/data.js';
 	import type { Notes } from '$lib/notes.svelte.js';
+	import { describeFailure } from '$lib/status.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
 	let {
@@ -41,7 +42,7 @@
 	// the prop already reads the next item, so this view keeps its own.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
-	onDestroy(() => void notes.saveText(path));
+	onDestroy(() => void textEdit.save());
 
 	/**
 	 * What the file is: text, binary, or too large to open, with its size.
@@ -51,7 +52,7 @@
 	const file = createQuery(() => notes.queries.file(path, textRead));
 	/** The folder's edit of the file: held text, else the file as stored. Keyed by its opening. */
 	// svelte-ignore state_referenced_locally
-	const textEdit = notes.fileText(path);
+	const textEdit = createTextEdit(notes.folder.files, path);
 	const name = basename(path);
 	const noteId = noteIdOf(path);
 	const folderId = folderIdOf(path);
@@ -65,15 +66,15 @@
 	 * stored, while the file reads as text. A file gone, no longer text, or
 	 * too large shows as that, and is never read into the textEdit.
 	 */
-	const typing = $derived(textEdit.pending !== undefined);
-	const text = $derived(typing || file.data?.kind === 'text' ? textEdit.text : undefined);
-	/** Why the saved text is not a row, as the folder read it after its last save. */
+	const pending = $derived(textEdit.pending);
+	const text = $derived(pending !== undefined || file.data?.kind === 'text' ? textEdit.text : undefined);
+	/** Why the current text is not a row, including unsaved input. */
 	const issues = $derived(rowEdit?.row?.issues ?? undefined);
 	/** Edits wait once the notes are closing, and while this file is deleted. */
 	const locked = $derived(notes.isLocked(path));
 	/** A failed read with nothing of this file to show but what it held before. */
-	const reading = $derived(!typing && file.isError && file.data?.kind !== 'text');
-	const failed = $derived(notes.textError(path));
+	const reading = $derived(pending === undefined && file.isError && file.data?.kind !== 'text');
+	const failed = $derived(pending?.error === undefined ? undefined : describeFailure(pending.error));
 
 	/** A file shown as details: its extension names the type, then its size. */
 	function details(size: number) {
@@ -111,8 +112,7 @@
 
 	{#if text !== undefined}
 		{@const shown = text}
-		{#if textEdit.pending?.error !== undefined && textEdit.pending.kind !== 'text'}
-			{@const pending = textEdit.pending}
+		{#if pending?.error !== undefined && pending.kind !== 'text'}
 			<div class="space-y-2 p-4" role="status">
 				<p>These changes have not saved. If they cannot be applied to this file, copy them before discarding.</p>
 				<pre class="max-h-40 overflow-auto whitespace-pre-wrap" aria-label="Unsaved note changes">{unsavedText(pending)}</pre>
@@ -127,7 +127,7 @@
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					This text does not read as a {noteId !== undefined ? 'note' : 'folder'} yet. Fix it here; it saves as you type, and these are checked again after each save.
+					This text does not read as a {noteId !== undefined ? 'note' : 'folder'} yet. Fix it here; it is checked as you type and saves when you pause.
 				</p>
 				<ul class="space-y-0.5 text-muted-foreground">
 					{#each issues as issue, index (index)}
@@ -150,14 +150,14 @@
 						if (changed.error !== null) toast.warning('That change was not made', { description: changed.error.message });
 					}
 				}
-				onblur={() => void notes.saveText(path)}
+				onblur={() => void textEdit.save()}
 			/>
 		</div>
 		<p class="flex shrink-0 items-center gap-2 border-t px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
 			{#if failed !== undefined && !notes.isWriting(path)}
 				Not saved: {failed}
 				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => void textEdit.retry()}>Save again</Button>
-				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => notes.discardText(path)}>Discard changes</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => textEdit.discard()}>Discard changes</Button>
 			{:else}
 				{notes.isWriting(path) ? 'Saving…' : 'Saved'}
 			{/if}

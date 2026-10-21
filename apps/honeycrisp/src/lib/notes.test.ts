@@ -46,7 +46,7 @@ const A = 'notes/a.md';
  * edit of the file, whose document the lists already read.
  */
 function typeInto(notes: NotesFixture['notes'], path: string, text: string) {
-	return notes.fileText(path).change(text);
+	return notes.folder.files.edit(path).change(text);
 }
 
 /** Send what is typed into note `a` now, as leaving the note does. */
@@ -230,11 +230,11 @@ test('a note whose text is not a note is listed for repair, opens as text, saves
 	expect(notes.noteBody(A).patch({ pinned: true })).toBeDefined();
 
 	expectOk(typeInto(notes, A, noteText()));
-	expect(notes.typedText(A)).toBe(noteText());
-	await notes.saveText(A);
+	expect(notes.folder.files.edit(A).getPending()).toMatchObject({ kind: 'text', text: noteText() });
+	await notes.folder.files.edit(A).save();
 	await quiet(notes);
 	expect(await text(A)).toBe(noteText());
-	expect(notes.typedText(A)).toBeUndefined();
+	expect(notes.folder.files.edit(A).getPending()).toBeUndefined();
 	expect(repairsOf(rows(notes))).toEqual([]);
 	notes.open(A, 'note');
 	expect(notes.noteBody(A).getRow()?.fields.pinned).toBe(false);
@@ -256,7 +256,7 @@ test('a note open as its file takes text edits merged by line with another tab, 
 	expectOk(await tab.tables.notes.set('a', theirs, { body: 'one\n\ntwo?\n' }));
 	const typed = noteText({ title: 'Mine', body: 'one!\n\ntwo\n' });
 	expectOk(typeInto(notes, A, typed));
-	await notes.saveText(A);
+	await notes.folder.files.edit(A).save();
 	await quiet(notes);
 	const saved = (await text(A)) ?? '';
 	expect(saved).toContain('title: "Mine"');
@@ -400,16 +400,16 @@ test('a failed file edit stays visible across selection and accepts a field patc
 	const changed = noteText({ body: 'Keep this unfinished file\n' });
 	typeInto(notes, A, changed);
 	failSaves();
-	await notes.saveText(A);
+	await notes.folder.files.edit(A).save();
 	notes.open('notes/b.md');
 	notes.open(A);
 	expect(notes.selected?.as).toBe('note');
 	expect(notes.isUnsaved(A)).toBe(true);
 	expect(notes.noteBody(A).getRow()?.body).toBe('Keep this unfinished file\n');
-	expect(notes.typedText(A)).toBe(changed);
+	expect(notes.folder.files.edit(A).getPending()).toMatchObject({ kind: 'text', text: changed });
 	failSaves(false);
 	expect(notes.patchNote(A, { pinned: true })).toBeUndefined();
-	await notes.saveText(A);
+	await notes.folder.files.edit(A).save();
 	expect(notes.noteBody(A).getRow()?.fields.pinned).toBe(true);
 	expect(notes.noteBody(A).getRow()?.body).toBe('Keep this unfinished file\n');
 });
@@ -438,8 +438,8 @@ test('a folder rename patches held text instead of requiring it to save first', 
 	await quiet(notes);
 	typeInto(notes, path, source.replace('First', 'Keep this name'));
 	failSaves();
-	await notes.saveText(path);
+	await notes.folder.files.edit(path).save();
 	notes.open(A);
 	expect(notes.patchFolder(path, { name: 'Other name' })).toBeUndefined();
-	expect(notes.typedText(path)).toContain('Other name');
+	expect(notes.folder.files.edit(path).getText()).toContain('Other name');
 });

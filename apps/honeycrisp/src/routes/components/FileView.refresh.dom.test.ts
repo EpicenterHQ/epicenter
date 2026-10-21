@@ -91,7 +91,7 @@ test('saved words stay shown when the reread fails, and typing on keeps them', a
 	});
 	type(input(), 'Committed words');
 	flushSync();
-	await notes.saveText('draft.txt');
+	await notes.folder.files.edit('draft.txt').save();
 	await local.refresh(['draft.txt']);
 	flushSync();
 	expect(folder.files.edit('draft.txt').getPending()).toBeUndefined();
@@ -101,7 +101,7 @@ test('saved words stay shown when the reread fails, and typing on keeps them', a
 
 	type(input(), 'Committed words, and more');
 	flushSync();
-	await notes.saveText('draft.txt');
+	await notes.folder.files.edit('draft.txt').save();
 	expect(await text('draft.txt')).toBe('Committed words, and more');
 	folder.files.read = read;
 	await local.refresh(['draft.txt']);
@@ -114,7 +114,7 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	type(input(), 'Keep this unsaved text');
 	flushSync();
 	failSaves();
-	await notes.saveText('draft.txt');
+	await notes.folder.files.edit('draft.txt').save();
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
 	failSaves(false);
@@ -130,5 +130,5 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	await local.refresh(['draft.txt']);
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
-	expect(notes.typedText('draft.txt')).toBe('Keep this unsaved text');
+	expect(notes.folder.files.edit('draft.txt').getPending()).toMatchObject({ kind: 'text', text: 'Keep this unsaved text' });
 });

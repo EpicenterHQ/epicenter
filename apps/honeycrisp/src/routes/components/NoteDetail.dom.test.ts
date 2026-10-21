@@ -58,12 +58,12 @@ test('Edit as file keeps a note whose body changes failed to save', async () => 
 	const body = 'Keep this body\n';
 	notes.noteBody(PATH).change({ body });
 	failSaves();
-	await notes.saveText(PATH);
- expect(notes.isUnsaved(PATH)).toBe(true);
- click(target, 'Edit as file');
- expect(notes.selected?.as).toBe('text');
- expect(notes.fileText(PATH).text).toContain(body);
- expect(notes.fileText(PATH).pending?.error).toBeDefined();
+	await notes.folder.files.edit(PATH).save();
+	expect(notes.isUnsaved(PATH)).toBe(true);
+	click(target, 'Edit as file');
+	expect(notes.selected?.as).toBe('text');
+	expect(notes.folder.files.edit(PATH).getText()).toContain(body);
+	expect(notes.folder.files.edit(PATH).getPending()?.error).toBeDefined();
 	expect(notes.noteBody(PATH).getRow()?.body).toBe(body);
 	failSaves(false);
 	click(target, 'Save again');
