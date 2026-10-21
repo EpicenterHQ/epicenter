@@ -228,7 +228,7 @@ impl Level {
 #[derive(Debug)]
 enum RecorderCmd {
     Stop(mpsc::Sender<Result<FinishedRecording>>),
-    Cancel,
+    Cancel(mpsc::Sender<Result<()>>),
     EndCapture,
 }
 
@@ -264,7 +264,9 @@ impl CaptureFile {
             match RateConverter::new(device_rate, RECORDING_RATE) {
                 Ok(converter) => Some(Box::new(converter)),
                 Err(error) => {
-                    remove_recording(&path);
+                    if let Err(cleanup) = remove_recording(&path) {
+                        warn!("{cleanup}");
+                    }
                     return Err(error);
                 }
             }
@@ -285,7 +287,9 @@ impl CaptureFile {
             // A file nothing can write a header to is debris, not a recording
             // waiting to happen.
             Err(error) => {
-                remove_recording(&path);
+                if let Err(cleanup) = remove_recording(&path) {
+                    warn!("{cleanup}");
+                }
                 Err(RecorderError::failed(format!(
                     "open wav writer {}: {error}",
                     path.display()
@@ -451,19 +455,22 @@ impl CaptureFile {
     /// Delete the recording without finalizing it.
     ///
     /// Drop the encoder first so it cannot patch a WAV after the file is gone.
-    fn discard(mut self) {
+    fn discard(mut self) -> Result<()> {
         drop(self.writer.take());
-        remove_recording(&self.path);
+        remove_recording(&self.path)
     }
 }
 
 /// Remove a recording's file, which only `cancel` and a capture that never
 /// started do. A file already gone is not a failure.
-fn remove_recording(path: &Path) {
-    if let Err(error) = std::fs::remove_file(path) {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            warn!("Could not remove the recording {}: {error}", path.display());
-        }
+fn remove_recording(path: &Path) -> Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(RecorderError::failed(format!(
+            "remove the recording {}: {error}",
+            path.display()
+        ))),
     }
 }
 
@@ -732,7 +739,9 @@ impl Recorder {
                 Err(error) => {
                     // Nothing was ever captured, so the file this created is
                     // debris rather than a recording anyone could claim.
-                    capture.discard();
+                    if let Err(cleanup) = capture.discard() {
+                        warn!("{cleanup}");
+                    }
                     let _ = ready_tx.send(Err(error));
                     return;
                 }
@@ -851,11 +860,12 @@ impl Recorder {
     ///
     /// Restricted to the owner window, for the same reason `stop` is: a
     /// recording another window is relying on must not vanish under it.
+    /// Removal failures are reported after the microphone and recorder slot
+    /// are released; a file already gone counts as removed.
     pub fn cancel(&mut self, id: &str, caller_label: &str) -> Result<()> {
         self.require_owned(id, caller_label)?;
         let active = self.active.take().expect("ownership was just verified");
-        discard(active);
-        Ok(())
+        discard(active)
     }
 
     /// Finalize the held recording if `owner_label` owns it. The host's own
@@ -989,14 +999,30 @@ fn finish(active: HeldRecording) -> Result<FinishedRecording> {
     finished
 }
 
-/// End a recording without producing anything: tell the worker to delete its
-/// file, then join it so the cpal stream is released before returning.
-fn discard(active: HeldRecording) {
-    // A send failure means the worker is already gone, which is the same
-    // outcome by another route, so it is not an error to report.
-    let _ = active.cmd_tx.send(RecorderCmd::Cancel);
+/// Tell the worker to remove the recording, then join it so the cpal stream
+/// is released before returning, whether or not the removal succeeded.
+fn discard(active: HeldRecording) -> Result<()> {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let cancelled = match active.cmd_tx.send(RecorderCmd::Cancel(reply_tx)) {
+        Ok(()) => reply_rx
+            .recv()
+            .map_err(|error| {
+                RecorderError::failed(format!(
+                    "Worker dropped the cancel reply for {}: {error}",
+                    active.id
+                ))
+            })
+            .and_then(|result| result),
+        Err(error) => Err(RecorderError::failed(format!(
+            "Failed to send cancel command: {error}"
+        ))),
+    };
+    // Release the microphone and the worker even when deleting the file failed.
     let _ = active.worker.join();
-    debug!("Recording {} cancelled", active.id);
+    if cancelled.is_ok() {
+        debug!("Recording {} cancelled", active.id);
+    }
+    cancelled
 }
 
 /// A recorder going away keeps what it holds: the file is finalized, never
@@ -1022,7 +1048,7 @@ struct CaptureContext<'a> {
 /// What the capture phase left behind.
 enum CaptureOutcome {
     /// The owner already resolved the recording: a `Stop` finalized the file,
-    /// or a `Cancel` deleted it. Nothing is left to wait for.
+    /// or a `Cancel` answered its removal. Nothing is left to wait for.
     Resolved,
     /// Capture ended with the recording still unclaimed. The file is as
     /// capture left it and its owner may still stop or cancel it.
@@ -1071,9 +1097,9 @@ fn run_capture<S>(
                 let _ = reply.send(capture.finish());
                 return CaptureOutcome::Resolved;
             }
-            Ok(RecorderCmd::Cancel) => {
+            Ok(RecorderCmd::Cancel(reply)) => {
                 drop(stream);
-                capture.discard();
+                let _ = reply.send(capture.discard());
                 return CaptureOutcome::Resolved;
             }
             // Capture is over but the recording is not: hand the file up so it
@@ -1253,8 +1279,8 @@ fn await_resolution(capture: CaptureFile, cmd_rx: &mpsc::Receiver<RecorderCmd>) 
                 let _ = reply.send(capture.finish());
                 return;
             }
-            Ok(RecorderCmd::Cancel) => {
-                capture.discard();
+            Ok(RecorderCmd::Cancel(reply)) => {
+                let _ = reply.send(capture.discard());
                 return;
             }
             // `end_capture` refuses to signal an already-ended recording, so
@@ -1804,6 +1830,96 @@ pub(crate) mod tests {
         assert!(!recorder.is_capturing());
         assert!(!root.path().join("1.wav").exists());
         recorder.require_free_slot().unwrap();
+    }
+
+    #[test]
+    fn cancel_reports_a_failed_removal_and_releases_the_recorder() {
+        for ended in [false, true] {
+            let root = folder_root();
+            let mut recorder = Recorder::new();
+            recording_owned_by(&mut recorder, &root, "1", "app-notes");
+            if ended {
+                recorder.end_capture("1", EndedReason::StreamFailed);
+            }
+
+            // A directory cannot be removed as a file on any test user's permissions.
+            // Keep the actual audio beside it, rather than deleting the fixture's input.
+            let path = root.path().join("1.wav");
+            let preserved = root.path().join("preserved.wav");
+            std::fs::rename(&path, &preserved).unwrap();
+            std::fs::create_dir(&path).unwrap();
+
+            let error = recorder
+                .cancel("1", "app-notes")
+                .expect_err("cancel must report that its file could not be removed");
+            assert_eq!(error_name(&error), "Failed");
+            assert!(
+                error.to_string().contains("remove the recording"),
+                "{error}"
+            );
+            assert!(error.to_string().contains("1.wav"), "{error}");
+            assert!(path.is_dir(), "a refused removal leaves the path untouched");
+            assert!(preserved.is_file(), "the audio is not lost");
+            assert!(!recorder.is_capturing());
+            assert!(recorder.held_path().is_none());
+            recorder
+                .require_free_slot()
+                .expect("a failed removal releases the slot");
+
+            recording_owned_by(&mut recorder, &root, "2", "app-notes");
+            recorder.cancel("2", "app-notes").unwrap();
+        }
+    }
+
+    #[test]
+    fn a_live_capture_reports_failed_cancel_after_releasing_its_stream() {
+        let root = folder_root();
+        let capture = capture_holding(&root, "1.wav", &tone(TEST_RATE, 1));
+        let path = root.path().join("1.wav");
+        std::fs::rename(&path, root.path().join("preserved.wav")).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        let (_sample_tx, sample_rx) = mpsc::sync_channel(CAPTURE_QUEUE_CHUNKS);
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (reply_tx, reply_rx) = mpsc::channel();
+        cmd_tx.send(RecorderCmd::Cancel(reply_tx)).unwrap();
+        let stream = Arc::new(());
+        let dropped = AtomicU32::new(0);
+
+        let outcome = run_capture(
+            sample_rx,
+            &cmd_rx,
+            capture,
+            stream.clone(),
+            CaptureContext {
+                id: "1",
+                dropped_chunks: &dropped,
+                signals: no_page(),
+                on_ended: Arc::new(|_, _| panic!("an explicit cancel is not an interruption")),
+            },
+        );
+
+        assert!(matches!(outcome, CaptureOutcome::Resolved));
+        assert_eq!(Arc::strong_count(&stream), 1, "the stream was released");
+        let error = reply_rx.recv().unwrap().expect_err("removal failed");
+        assert_eq!(error_name(&error), "Failed");
+    }
+
+    #[test]
+    fn cancel_accepts_a_recording_file_that_is_already_gone() {
+        for ended in [false, true] {
+            let root = folder_root();
+            let mut recorder = Recorder::new();
+            recording_owned_by(&mut recorder, &root, "1", "app-notes");
+            if ended {
+                recorder.end_capture("1", EndedReason::StreamFailed);
+            }
+            std::fs::remove_file(root.path().join("1.wav")).unwrap();
+            recorder
+                .cancel("1", "app-notes")
+                .expect("already removed is cancelled");
+            assert!(recorder.held_path().is_none());
+            recorder.require_free_slot().unwrap();
+        }
     }
 
     #[test]

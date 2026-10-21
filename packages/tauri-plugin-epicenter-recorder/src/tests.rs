@@ -462,6 +462,33 @@ fn cancel_deletes_the_recording() {
     assert!(!path.exists());
 }
 
+#[test]
+fn cancel_reports_a_file_that_could_not_be_removed() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    let path = fixture.root.join("a.wav");
+    crate::recorder::tests::hold_recording(
+        &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),
+        &path,
+        "a.wav",
+        "7",
+        "main",
+    );
+    std::fs::rename(&path, fixture.root.join("preserved.wav")).unwrap();
+    std::fs::create_dir(&path).unwrap();
+
+    let refused = invoke(&main, "cancel", json!({ "id": "7" })).unwrap_err();
+    assert_eq!(name(&refused), "Failed", "{refused}");
+    assert!(refused["message"].as_str().unwrap().contains("a.wav"));
+    assert!(path.is_dir());
+    assert!(fixture
+        .app
+        .state::<Recorders<MockRuntime>>()
+        .lock()
+        .held_path()
+        .is_none());
+}
+
 /// What the plugin does when a window is destroyed: its page can no longer
 /// stop the recording, so it is finalized for it and the slot is free.
 #[test]
