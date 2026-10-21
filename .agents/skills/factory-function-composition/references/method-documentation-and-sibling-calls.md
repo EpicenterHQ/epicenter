@@ -21,7 +21,7 @@ declare const counter: Counter;
 counter.current();
 ```
 
-Prefer a documented method or getter in the return object when that is the clearest definition of the public API. A method used only through the public object can live there directly:
+Prefer a documented method in the return object when that is the clearest definition of the public API. Svelte reactive adapters may expose tracked getters, following the [read API convention](../../typescript/SKILL.md#core-rules). A method used only through the public object can live there directly:
 
 ```ts
 function createCounter() {

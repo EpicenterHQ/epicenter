@@ -150,75 +150,44 @@ and mount lifetime.
 - `docs/articles/svelte-5-createsubscriber-pattern.md` covers `createSubscriber` for wrapping external event sources into reactive values: a different job than component-scoped handles.
 - `docs/articles/20260420T160000-state-handle-null-is-the-component-lifecycle-in-disguise.md` walks through why this rule exists and when Pattern B is still correct.
 
-# Shallow Template Aliases: Inline Direct Reads
+# Template locals: narrow reactive values before use
 
-Svelte template expressions already track reactive property reads. Do not add a `$derived` or `{@const}` whose only job is to rename a shallow property read for markup.
-
-```svelte
-<!-- Bad: the alias does not compute anything -->
-<script lang="ts">
-	const current = $derived(session.current);
-</script>
-
-{#if current}
-	<AccountPopover principal={current.principal} />
-{/if}
-```
+Svelte template expressions already track reactive property reads. Introduce
+`{@const}` or `$derived` when a repeated optional property access loses its
+narrowing inside a deferred callback, or when a useful computation needs a
+name. An already-narrowed local needs no extra alias. A reactive local is not
+a second draft or a mount-time snapshot.
 
 ```svelte
-<!-- Good: read the source directly in markup -->
-{#if session.current}
-	<AccountPopover principal={session.current.principal} />
-{/if}
-```
-
-The same rule applies to block-local `{@const}` passthroughs:
-
-```svelte
-<!-- Bad -->
-{#await session.whenReady}
-	<Loading />
-{:then _}
-	{@const current = session.current}
-	{#if current}
-		<SignedInApp principal={current.principal} />
+{#each edits as edit (edit.path)}
+	{@const row = edit.row}
+	{#if row?.issues === null}
+		<Input bind:value={() => row.fields.title, title => edit.change({ fields: { title } })} />
+		<Textarea bind:value={() => row.body, body => edit.change({ body })} />
 	{/if}
-{/await}
+{/each}
 ```
 
-```svelte
-<!-- Good -->
-{#await session.whenReady}
-	<Loading />
-{:then _}
-	{#if session.current}
-		<SignedInApp principal={session.current.principal} />
-	{/if}
-{/await}
-```
+In this case, read the row once, then check presence and validity. Use the actual contract:
+Folder rows are absent as `undefined`, and valid when `issues === null`.
+The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
+explains event-time composition through the current owner.
 
-Keep the alias when it owns real work:
+Use `const row = $derived(edit.row)` if script code also needs it. Do not
+replace either reactive form with a component-level `const row = edit.row`:
+that captures only the initial value. A simple display that needs no shared
+narrowing may read `session.current` directly; do not add an alias just to
+rename it, and do not remove a useful local merely because its initializer
+is a shallow property read.
 
-- Computed predicates or values: `const isSelected = $derived(selectedId === item.id)`.
-- A named computation or selection shared by script logic, effects, or other derived values; those consumers can also read shallow properties directly.
-- Expensive or noisy computations that should run once per block.
-- A change filter for downstream effects: `$derived` skips downstream updates when its value remains referentially identical, even if the source notifies more broadly. Check effect behavior before replacing a derived read with a direct getter read. See [Svelte update propagation](https://svelte.dev/docs/svelte/$derived#Update-propagation).
-- Dynamic component binding: `{@const Icon = item.icon}` before `<Icon />`.
-- Discriminated union payloads inside an `{#each}` branch when the alias improves narrowing and readability: `{@const bookmark = item.bookmark}`.
+Other reasons to keep a local include a computed predicate, an expensive
+projection shared by several consumers, a change filter that skips downstream
+work when its value stays identical, or a dynamic component such as
+`{@const Icon = item.icon}`. Inspect the consumers before inlining.
 
-Repeating a shallow read does not require an alias. Prefer `editor.row` at each
-use when seeing the owner helps the reader. Do not replace a reactive alias with
-a component-level `const row = editor.row`: that captures an initial value.
-An operation-local snapshot can earn its place when it keeps narrowing and a
-read-modify-write operation coherent. Capture it when the handler runs, and
-re-read or check the operation's validity after an `await` before writing.
-
-Searches:
-
-```bash
-rg -n '\$derived\([^)]*\.[A-Za-z_$][A-Za-z0-9_$]*\)' --glob '*.svelte'
-rg -n '\{@const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*[^}\n]+\.[A-Za-z_$][A-Za-z0-9_$]*\s*\}' --glob '*.svelte'
-```
+An operation-local snapshot can keep a read-modify-write operation coherent.
+Capture it when the handler runs, and re-read or check the operation's
+validity after an `await` before writing.
 
 # Stable adapters and reactive reads
 

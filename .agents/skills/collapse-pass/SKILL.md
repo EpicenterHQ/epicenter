@@ -126,6 +126,7 @@ Trace callers and mentally inline the candidate. Preserve evaluation timing,
 receiver binding, caching, and snapshot semantics when inlining. Keep a boundary when it names
 non-obvious work, enforces a shared rule, owns a lifecycle, isolates unsafe input,
 or makes a long phase understandable. Caller count alone does not decide.
+A local that preserves type narrowing inside a deferred callback can earn its place even when it only reads a property; inspect its consumers before inlining it.
 Use [one-sentence-test](../one-sentence-test/SKILL.md) when a file's purpose is
 unclear, rather than forcing the exercise on every small change.
 

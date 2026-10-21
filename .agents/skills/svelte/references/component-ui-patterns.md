@@ -119,14 +119,40 @@ them when they only control the same value. Keep commands as callback props.
 />
 ```
 
-Keep reads connected to the current owner: use `editor.row.body` and
-`editor.row.fields` directly in the getter and synchronous setter rather than
-introducing a forwarding `const row = editor.row`. Read at the event so a
-replacement preserves the other fields as they exist then. Keep a snapshot only
-when one consistent read is necessary, such as across `await`, or repeated reads
-have side effects; name that reason. A render-narrowed valid row can make a getter total; its setter still reads
-the current owner. A snapshot captured when the component mounts can overwrite
-later edits.
+A callback can run after the check that created it. TypeScript may therefore
+lose narrowing for a repeated optional property access inside the binding
+getter. This occurs with ordinary properties as well as JavaScript getters.
+In that case, read and narrow a reactive local:
+
+```svelte
+{#each edits as edit (edit.path)}
+	{@const row = edit.row}
+	{#if row?.issues === null}
+		<Input
+			bind:value={() => row.fields.title, title => edit.change({ fields: { title } })}
+		/>
+	{/if}
+{/each}
+```
+
+`{@const}` stays reactive within its template block. Use `$derived(edit.row)`
+when script code also needs the row; a plain script `const row = edit.row`
+captures only the initial value. Narrow absent or invalid rows outside the
+control instead of putting `?.` and an empty fallback into every binding.
+Use the source's actual sentinel (`undefined` or `null`); a Folder row is valid
+when present and `issues === null`.
+
+Do not add this local mechanically. If an `{#each}` variable or a value already
+held in a `const` is narrowed for the callback, use it directly. A simple
+display can also read the property directly when its guard suffices. The local
+earns its place by preserving narrowing or sharing a useful computation, not
+by the mere presence of a getter or `bind:value`.
+
+The setter sends a field patch or body through `edit.change`; it does not mutate
+the snapshot or send the whole row back. If a command composes a replacement
+from existing content, read the current owner synchronously at the event so it
+preserves changes made since rendering. Retain a snapshot across `await` only
+when that particular operation requires it and checks whether it still applies.
 
 When the transformation has substantial format rules, keep its read and
 write-back operations together in the format's codec or module. Give the write

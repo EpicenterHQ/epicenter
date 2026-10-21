@@ -93,7 +93,7 @@ Use this pattern when:
 
 When a factory is curried, derive from the inner return with `ReturnType<ReturnType<typeof createThing>>`. When a factory is generic, instantiate the `typeof` expression as needed, such as `ReturnType<typeof createThing<TActions>>`.
 
-If the concrete implementation has writable state but the public surface should be readonly, return getters or narrowed methods before deriving the alias. The derived type should describe the public object, not leak accidental implementation mutability.
+If the concrete implementation has writable state but the public surface should be readonly, keep that state private and return read methods before deriving the alias. Svelte reactive adapters may expose tracked getters, following the [read API convention](../SKILL.md#core-rules). The derived type should describe the public object, not leak accidental implementation mutability.
 
 Do not use it when the type is a shared contract implemented by multiple factories, a protocol shape, or a deliberate abstraction boundary. In those cases, keep the contract as the source of truth and make implementations `satisfies` it when you want conformance without losing implementation navigation.
 
