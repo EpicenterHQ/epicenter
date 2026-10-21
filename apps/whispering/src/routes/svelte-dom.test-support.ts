@@ -126,7 +126,6 @@ Bun.plugin({
 		build.module('$app/navigation', () => ({
 			exports: {
 				goto: async () => {},
-				beforeNavigate: () => {},
 				afterNavigate: () => {},
 			},
 			loader: 'object',

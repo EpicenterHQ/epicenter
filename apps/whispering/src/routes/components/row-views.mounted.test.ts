@@ -1,10 +1,10 @@
 /**
  * Row views, mounted.
  *
- * The real library over a real directory (the Bun opener), and the real
+ * The real whispering over a real directory (the Bun opener), and the real
  * FileView, RecordingDetail, and TransformationDetail components mounted in
  * jsdom inside a fixture that renders them as the recordings and
- * transformations pages do, under the library's query client.
+ * transformations pages do, under Whispering's query client.
  *
  * Key behaviors:
  * - typing in a view edits the path it shows, and autosaves after a pause
@@ -30,16 +30,19 @@ import { dirname, join } from 'node:path';
 import { ReadError } from '@epicenter/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
-import type { Library } from '../../lib/library.svelte.js';
-import { closeTestWhispering } from '../../lib/library.test-support.js';
+import type { WhisperingContext } from '../../lib/folder.js';
 import { quiet } from '../../lib/query.test-support.js';
+import type { Whispering } from '../../lib/whispering.svelte.js';
+import { closeTestWhispering } from '../../lib/whispering.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
 
 // Load the services after the mounted loader registered its plugin.
 const { openGatedTestFolder, openTestServices, whisperingDirectory, eventually } =
 	await import('../../lib/services.test-support.js');
 const { flushSync, mount, unmount } = await import('svelte');
-const { createTestWhispering } = await import('../../lib/library.test-support.js');
+const { createTestWhispering } = await import(
+	'../../lib/whispering.test-support.js'
+);
 const { pageState } = await import('../page-state.test-support.svelte.js');
 const Host = (await import('./test-fixtures/SelectionHost.svelte')).default;
 
@@ -58,12 +61,12 @@ const recording = (title: string, body: string) =>
 	`---\ntitle: ${title}\nrecordedAt: 2026-10-01T00:00:00.000Z\ndurationMs: 1000\ncapture: fixture\n---\n${body}`;
 
 test('new captures play their sibling without audioPath and conflicting formats disable transcription', async () => {
-	const { library, target, root } = await open({});
-	await library.startRecording();
-	await library.stopRecording();
-	await settle(library);
-	const entry = library.entries[0]!;
-	await show(library, entry.path);
+	const { context, whispering, target, root } = await open({});
+	await whispering.startRecording();
+	await whispering.stopRecording();
+	await settle(context);
+	const entry = whispering.entries[0]!;
+	await show(whispering, context, entry.path);
 	expect(target.querySelector('[data-testid="audio-player"]')).not.toBeNull();
 	expect(
 		field<HTMLButtonElement>(target, '[data-testid="transcribe"]')?.disabled,
@@ -72,7 +75,7 @@ test('new captures play their sibling without audioPath and conflicting formats 
 		join(root, entry.path.replace(/\.md$/, '.webm')),
 		new Uint8Array([1, 2]),
 	);
-	await reportChanged(library);
+	await reportChanged(whispering, context);
 	flushSync();
 	expect(target.querySelector('[data-testid="audio-player"]')).toBeNull();
 	expect(target.textContent).toContain(
@@ -84,7 +87,7 @@ test('new captures play their sibling without audioPath and conflicting formats 
 });
 
 /**
- * A library over files on disk, mounted in the fixture with `tab` showing.
+ * A whispering over files on disk, mounted in the fixture with `tab` showing.
  * While `disk.refusing`, the disk refuses every write, whoever saves.
  */
 async function open(
@@ -100,39 +103,42 @@ async function open(
 	});
 	for (const [path, text] of Object.entries(files))
 		await Bun.write(join(root, path), text);
-	const whispering = await createTestWhispering(stubs);
+	const { whispering, context } = await createTestWhispering(stubs);
 	await whispering.start();
-	const { library } = whispering;
 	const notices: WriteFailure[] = [];
-	library.onWriteFailure((notice) => notices.push(notice));
+	whispering.onWriteFailure((notice) => notices.push(notice));
 	const page = pageState({ shown: true, tab });
 	const target = document.createElement('main');
 	document.body.append(target);
-	const host = mount(Host, { target, props: { whispering, page } });
+	const host = mount(Host, { target, props: { whispering, context, page } });
 	cleanups.push(async () => {
 		unmount(host);
-		await closeTestWhispering(whispering);
+		await closeTestWhispering({ whispering, context });
 		await stubs.remove();
 		await rm(dirname(root), { recursive: true, force: true });
 	});
-	return { whispering, library, page, target, notices, root, disk };
+	return { whispering, context, page, target, notices, root, disk };
 }
 
 /** Select a file and let the views render it, with any text they read. */
-async function show(library: Library, path: string) {
-	expect(await library.open(path)).toBeUndefined();
+async function show(
+	whispering: Whispering,
+	context: WhisperingContext,
+	path: string,
+) {
+	expect(whispering.open(path)).toBe(true);
 	flushSync();
-	await quiet(library);
+	await quiet(context);
 	flushSync();
 }
 
 /** Let writes and the views settle. */
-async function settle(library: Library) {
-	await eventually(() => library.local.folder.getStatus().unsaved.every((path) => {
-		const pending = library.local.folder.files.edit(path).getPending();
+async function settle(context: WhisperingContext) {
+	await eventually(() => context.folder.getStatus().unsaved.every((path) => {
+		const pending = context.folder.files.edit(path).getPending();
 		return pending === undefined || (!pending.saving && pending.error !== undefined);
 	}));
-	await quiet(library);
+	await quiet(context);
 	flushSync();
 }
 
@@ -140,9 +146,12 @@ async function settle(library: Library) {
  * Read the folder again, as a change the folder reports makes it read: this
  * process's directory opener has no watcher of other programs' edits.
  */
-async function reportChanged(library: Library) {
-	await library.readAgain();
-	await settle(library);
+async function reportChanged(
+	whispering: Whispering,
+	context: WhisperingContext,
+) {
+	await whispering.readAgain();
+	await settle(context);
 }
 
 const field = <T extends Element>(target: ParentNode, selector: string) =>
@@ -154,8 +163,10 @@ const writeStatus = (target: ParentNode) =>
 
 test('saved file text stays shown when the reread fails, and typing on keeps it', async () => {
 	const path = 'draft.txt';
-	const { library, target, root } = await open({ [path]: 'Original text' });
-	await show(library, path);
+	const { context, whispering, target, root } = await open({
+		[path]: 'Original text',
+	});
+	await show(whispering, context, path);
 	const input = () =>
 		field<HTMLTextAreaElement>(
 			target,
@@ -167,25 +178,25 @@ test('saved file text stays shown when the reread fails, and typing on keeps it'
 		flushSync();
 	}
 	expect(input()?.value).toBe('Original text');
-	const read = library.local.folder.files.read;
-	library.local.folder.files.read = async (file) =>
+	const read = context.folder.files.read;
+	context.folder.files.read = async (file) =>
 		file === path
 			? ReadError.StorageFailed({ cause: new Error('read refused') })
 			: read(file);
 	cleanups.push(() => {
-		library.local.folder.files.read = read;
+		context.folder.files.read = read;
 	});
 	type(input(), 'Committed words');
 	flushSync();
-	await library.edit(path).save();
-	await reportChanged(library);
+	await whispering.edit(path).save();
+	await reportChanged(whispering, context);
 	expect(await readFile(join(root, path), 'utf8')).toBe('Committed words');
 	expect(input()?.value).toBe('Committed words');
 
 	type(input(), 'Committed words, and more');
 	flushSync();
-	await library.edit(path).save();
-	await reportChanged(library);
+	await whispering.edit(path).save();
+	await reportChanged(whispering, context);
 	expect(await readFile(join(root, path), 'utf8')).toBe(
 		'Committed words, and more',
 	);
@@ -193,24 +204,26 @@ test('saved file text stays shown when the reread fails, and typing on keeps it'
 });
 
 test('a saved transcript stays shown when the reread fails, and typing on keeps it', async () => {
-	const { library, target, root } = await open({ [A]: transcript('Alpha.\n') });
-	await show(library, A);
+	const { context, whispering, target, root } = await open({
+		[A]: transcript('Alpha.\n'),
+	});
+	await show(whispering, context, A);
 	const body = () =>
 		field<HTMLTextAreaElement>(
 			target,
 			'textarea[aria-label="Contents of a.md"]',
 		);
 	expect(body()?.value).toBe('Alpha.\n');
-	const list = library.local.folder.tables.transcriptions.list;
-	library.local.folder.tables.transcriptions.list = async () =>
+	const list = context.folder.tables.transcriptions.list;
+	context.folder.tables.transcriptions.list = async () =>
 		ReadError.StorageFailed({ cause: new Error('read refused') });
 	cleanups.push(() => {
-		library.local.folder.tables.transcriptions.list = list;
+		context.folder.tables.transcriptions.list = list;
 	});
 	type(body(), 'Alpha, saved.\n');
 	flushSync();
-	await library.edit(A).save();
-	await reportChanged(library);
+	await whispering.edit(A).save();
+	await reportChanged(whispering, context);
 	expect(await readFile(join(root, A), 'utf8')).toBe(
 		transcript('Alpha, saved.\n'),
 	);
@@ -218,23 +231,23 @@ test('a saved transcript stays shown when the reread fails, and typing on keeps 
 
 	type(body(), 'Alpha, saved.\nMore.\n');
 	flushSync();
-	await library.edit(A).save();
+	await whispering.edit(A).save();
 	expect(await readFile(join(root, A), 'utf8')).toBe(
 		transcript('Alpha, saved.\nMore.\n'),
 	);
 });
 
 test('a transcript card shows valid unsaved Source input and keeps it when returning to its body', async () => {
-	const { library, target, root, disk } = await open({
+	const { context, whispering, target, root, disk } = await open({
 		'recordings/one.md': recording('One', ''),
 		[A]: transcript('Alpha.\n'),
 	});
-	await show(library, 'recordings/one.md');
+	await show(whispering, context, 'recordings/one.md');
 	expect(
 		target.querySelector('[data-testid="transcript-text"]'),
 	).not.toBeNull();
-	expect(await library.editSource(A)).toBeUndefined();
-	library.edit(A).replaceText(transcript('Typed in Source.\n'));
+	expect(await whispering.editSource(A)).toBeUndefined();
+	whispering.edit(A).replaceText(transcript('Typed in Source.\n'));
 	flushSync();
 	expect(
 		target.querySelector('[data-testid="transcript-text-readonly"]')
@@ -242,28 +255,28 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 	).toBe('Typed in Source.\n');
 
 	disk.refusing = true;
-	await library.edit(A).save();
+	await whispering.edit(A).save();
 	flushSync();
 	expect(
 		target.querySelector('[data-testid="transcript-text-readonly"]')
 			?.textContent,
 	).toBe('Typed in Source.\n');
-	expect(await library.useForm(A)).toBeUndefined();
+	expect(await whispering.useForm(A)).toBeUndefined();
 	flushSync();
 	expect(
 		target.querySelector<HTMLTextAreaElement>('[data-testid="transcript-text"]')
 			?.value,
 	).toBe('Typed in Source.\n');
-	expect(library.local.folder.files.edit(A).getPending()?.error).toBeDefined();
+	expect(context.folder.files.edit(A).getPending()?.error).toBeDefined();
 	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha.\n'));
 });
 
 test('a transcript autosaves to its own path after switching files', async () => {
-	const { library, target, notices, root } = await open({
+	const { context, whispering, target, notices, root } = await open({
 		[A]: transcript('Alpha.\n'),
 		'other.txt': 'Another file',
 	});
-	await show(library, A);
+	await show(whispering, context, A);
 	const body = field<HTMLTextAreaElement>(
 		target,
 		'textarea[aria-label="Contents of a.md"]',
@@ -274,25 +287,25 @@ test('a transcript autosaves to its own path after switching files', async () =>
 	flushSync();
 	expect(writeStatus(target)).toBe('Saving…');
 	leave(body);
-	expect(library.local.folder.files.edit(A).getPending()?.saving).toBe(false);
-	await show(library, 'other.txt');
-	expect(library.local.folder.files.edit(A).getPending()?.saving).toBe(false);
-	await settle(library);
+	expect(context.folder.files.edit(A).getPending()?.saving).toBe(false);
+	await show(whispering, context, 'other.txt');
+	expect(context.folder.files.edit(A).getPending()?.saving).toBe(false);
+	await settle(context);
 
 	expect(notices).toEqual([]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith(
 		'---\nAlpha, typed.\n',
 	);
 	expect(await readFile(join(root, 'other.txt'), 'utf8')).toBe('Another file');
-	await show(library, A);
+	await show(whispering, context, A);
 	expect(writeStatus(target)).toBe('Saved');
 });
 
 test('a change made elsewhere shows once the folder reports it', async () => {
-	const { library, target, root } = await open({
+	const { context, whispering, target, root } = await open({
 		[A]: transcript('Alpha.\n'),
 	});
-	await show(library, A);
+	await show(whispering, context, A);
 	const body = () =>
 		field<HTMLTextAreaElement>(
 			target,
@@ -301,17 +314,17 @@ test('a change made elsewhere shows once the folder reports it', async () => {
 
 	await writeFile(join(root, A), transcript('Theirs.\n'));
 	// Nothing reads it until the folder says it changed.
-	await settle(library);
+	await settle(context);
 	expect(body()?.value).toBe('Alpha.\n');
-	await reportChanged(library);
+	await reportChanged(whispering, context);
 	expect(body()?.value).toBe('Theirs.\n');
 });
 
 test('typing over a change made elsewhere merges with it, and the typing wins where both changed, with no notice', async () => {
-	const { library, target, notices, root } = await open({
+	const { context, whispering, target, notices, root } = await open({
 		[A]: transcript('Alpha.\n'),
 	});
-	await show(library, A);
+	await show(whispering, context, A);
 	const body = () =>
 		field<HTMLTextAreaElement>(
 			target,
@@ -321,28 +334,28 @@ test('typing over a change made elsewhere merges with it, and the typing wins wh
 	await writeFile(join(root, A), transcript('Theirs.\n'));
 	type(body(), 'Mine.\n');
 	leave(body());
-	await settle(library);
+	await settle(context);
 	expect(notices).toEqual([]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
 	expect(body()?.value).toBe('Mine.\n');
 });
 
 test('typing into a recording deleted elsewhere brings it back with the typing: nothing typed is lost', async () => {
-	const { library, target, notices, root } = await open({
+	const { context, whispering, target, notices, root } = await open({
 		[RECORDING]: recording('Take', 'Notes.\n'),
 	});
-	await show(library, RECORDING);
+	await show(whispering, context, RECORDING);
 	await rm(join(root, RECORDING));
 	const notes = field(target, 'textarea[aria-label="Notes"]');
 	type(notes, 'Mine.\n');
 	leave(notes);
-	await settle(library);
+	await settle(context);
 
 	expect(notices).toEqual([]);
 	expect(await readFile(join(root, RECORDING), 'utf8')).toEndWith(
 		'---\nMine.\n',
 	);
-	expect(library.selection?.path).toBe(RECORDING);
+	expect(whispering.selection?.path).toBe(RECORDING);
 	expect(
 		target.querySelector('[data-testid="recording-detail"]'),
 	).not.toBeNull();
@@ -350,11 +363,11 @@ test('typing into a recording deleted elsewhere brings it back with the typing: 
 
 test('a transformation opens in Source when invalid and clears repaired diagnostics before saving', async () => {
 	const broken = '---\ntitle: Clean up\n---\nTidy.\n';
-	const { library, target, root } = await open(
+	const { context, whispering, target, root } = await open(
 		{ [RECIPE]: broken },
 		'transformations',
 	);
-	await show(library, RECIPE);
+	await show(whispering, context, RECIPE);
 	const source = () =>
 		field<HTMLTextAreaElement>(target, '[data-testid="transformation-source"]');
 	const instructions = () =>
@@ -369,14 +382,14 @@ test('a transformation opens in Source when invalid and clears repaired diagnost
 	flushSync();
 	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
 	expect(instructions()?.disabled).toBe(false);
-	expect(library.local.folder.files.edit(RECIPE).getPending()).toBeDefined();
+	expect(context.folder.files.edit(RECIPE).getPending()).toBeDefined();
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(broken);
 	leave(source());
-	await settle(library);
+	await settle(context);
 	flushSync();
 	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
 	expect(instructions()?.disabled).toBe(false);
-	expect(await library.useForm(RECIPE)).toBeUndefined();
+	expect(await whispering.useForm(RECIPE)).toBeUndefined();
 	flushSync();
 	expect(
 		field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]')
@@ -387,11 +400,11 @@ test('a transformation opens in Source when invalid and clears repaired diagnost
 
 test('a transformation’s title, model, and instructions save from their own controls; a field leaves a CRLF body as it is, and typed instructions save in LF (ADR-0572)', async () => {
 	const seed = '---\ntitle: Clean up\nmodel: null\n---\nTidy.\r\n';
-	const { library, target, root } = await open(
+	const { context, whispering, target, root } = await open(
 		{ [RECIPE]: seed },
 		'transformations',
 	);
-	await show(library, RECIPE);
+	await show(whispering, context, RECIPE);
 	const title = () =>
 		field<HTMLInputElement>(target, '[data-testid="transformation-title"]');
 	const prompt = () =>
@@ -407,7 +420,7 @@ test('a transformation’s title, model, and instructions save from their own co
 	expect(model()?.value).toBe('');
 	type(model(), 'chat-model');
 	leave(model());
-	await settle(library);
+	await settle(context);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(
 		'---\ntitle: Clean up\nmodel: chat-model\n---\nTidy.\r\n',
 	);
@@ -419,7 +432,7 @@ test('a transformation’s title, model, and instructions save from their own co
 	leave(title());
 	type(prompt(), 'Tidy.\nThen check.\n');
 	leave(prompt());
-	await settle(library);
+	await settle(context);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(
 		'---\ntitle: Tidied\nmodel: null\n---\nTidy.\nThen check.\n',
 	);
@@ -428,7 +441,7 @@ test('a transformation’s title, model, and instructions save from their own co
 });
 
 test('a recording whose audio is not in the folder says it is not on this device, and offers no player, transcription, or run again until the audio arrives', async () => {
-	const { library, target, root } = await open({
+	const { context, whispering, target, root } = await open({
 		[RECORDING]: recording('Take', ''),
 		// A transcription that never got its answer: running it again needs the audio.
 		'transcriptions/unfinished.md':
@@ -436,7 +449,7 @@ test('a recording whose audio is not in the folder says it is not on this device
 	});
 	const runAgain = () =>
 		target.querySelector<HTMLButtonElement>('[data-testid="run-again"]');
-	await show(library, RECORDING);
+	await show(whispering, context, RECORDING);
 	const absent = () => target.querySelector('[data-testid="audio-absent"]');
 	const transcribe = () =>
 		target.querySelector<HTMLButtonElement>('[data-testid="transcribe"]');
@@ -449,41 +462,41 @@ test('a recording whose audio is not in the folder says it is not on this device
 
 	// The audio is copied in: it is this device's to play and transcribe now.
 	await Bun.write(join(root, 'recordings/take.wav'), 'RIFF');
-	await reportChanged(library);
+	await reportChanged(whispering, context);
 	expect(absent()).toBeNull();
 	expect(transcribe()?.disabled).toBe(false);
 	expect(runAgain()?.disabled).toBe(false);
 });
 
 test('a recording just stopped never reads as missing its audio while the folder has not listed it yet', async () => {
-	const { library, target } = await open({});
+	const { context, whispering, target } = await open({});
 	const seen: string[] = [];
 	const look = () => {
 		flushSync();
-		const entry = library.entries[0];
-		if (entry !== undefined) seen.push(library.audioOf(entry).kind);
+		const entry = whispering.entries[0];
+		if (entry !== undefined) seen.push(whispering.audioOf(entry).kind);
 		if (target.querySelector('[data-testid="audio-absent"]') !== null)
 			seen.push('shown absent');
 	};
-	await library.startRecording();
+	await whispering.startRecording();
 	look();
-	const stopping = library.stopRecording();
+	const stopping = whispering.stopRecording();
 	look();
 	await stopping;
 	look();
-	await settle(library);
+	await settle(context);
 	look();
 	expect(seen).not.toContain('absent');
 	expect(seen).not.toContain('shown absent');
-	expect(library.audioOf(library.entries[0]!).kind).toBe('here');
+	expect(whispering.audioOf(whispering.entries[0]!).kind).toBe('here');
 });
 
 test('failed file text stays visible when polling finds a binary replacement', async () => {
 	const path = 'draft.txt';
-	const { library, target, root, disk } = await open({
+	const { context, whispering, target, root, disk } = await open({
 		[path]: 'Original text',
 	});
-	await show(library, path);
+	await show(whispering, context, path);
 	const input = () =>
 		field<HTMLTextAreaElement>(
 			target,
@@ -493,14 +506,14 @@ test('failed file text stays visible when polling finds a binary replacement', a
 	type(input(), 'Keep this unsaved text');
 	flushSync();
 	disk.refusing = true;
-	await library.edit(path).save();
+	await whispering.edit(path).save();
 	flushSync();
 	disk.refusing = false;
 	await writeFile(join(root, path), new Uint8Array([0, 1, 2]));
-	await reportChanged(library);
+	await reportChanged(whispering, context);
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
-	expect(library.isUnsaved(path)).toBe(true);
+	expect(whispering.isUnsaved(path)).toBe(true);
 	expect(writeStatus(target)).toContain('Not saved');
 });
 
@@ -518,13 +531,13 @@ for (const item of [
 ]) {
 	for (const replacement of ['binary', 'missing', 'unreadable'] as const) {
 		test(`failed ${item.tab} source remains visible after a ${replacement} reread`, async () => {
-			const { library, target, root, disk } = await open(
+			const { context, whispering, target, root, disk } = await open(
 				{ [item.path]: item.text },
 				item.tab,
 			);
-			await show(library, item.path);
-			expect(await library.editSource(item.path)).toBeUndefined();
-			await settle(library);
+			await show(whispering, context, item.path);
+			expect(await whispering.editSource(item.path)).toBeUndefined();
+			await settle(context);
 			flushSync();
 			const source = () =>
 				field<HTMLTextAreaElement>(
@@ -535,36 +548,38 @@ for (const item of [
 			type(source(), 'Keep this failed source');
 			flushSync();
 			disk.refusing = true;
-			await library.edit(item.path).save();
+			await whispering.edit(item.path).save();
 			disk.refusing = false;
 			flushSync();
-			const read = library.local.folder.files.read;
+			const read = context.folder.files.read;
 			if (replacement === 'binary')
 				await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
 			if (replacement === 'missing') await rm(join(root, item.path));
 			if (replacement === 'unreadable')
-				library.local.folder.files.read = async (path) =>
+				context.folder.files.read = async (path) =>
 					path === item.path
 						? Promise.reject(new Error('Read unavailable'))
 						: read(path);
-			await reportChanged(library);
+			await reportChanged(whispering, context);
 			flushSync();
 			expect(source()?.value).toBe('Keep this failed source');
-			expect(library.isUnsaved(item.path)).toBe(true);
-			library.local.folder.files.read = read;
+			expect(whispering.isUnsaved(item.path)).toBe(true);
+			context.folder.files.read = read;
 		});
 	}
 }
 
 test('a slow audio read joins polling, keeps unchanged playback, and detects same-length replacements', async () => {
 	const path = 'recordings/take.wav';
-	const { library, target, root } = await open({ [path]: 'First audio' });
-	const read = library.local.folder.files.read;
+	const { context, whispering, target, root } = await open({
+		[path]: 'First audio',
+	});
+	const read = context.folder.files.read;
 	const gate = Promise.withResolvers<void>();
 	let started = 0,
 		active = 0,
 		maximum = 0;
-	library.local.folder.files.read = async (...args) => {
+	context.folder.files.read = async (...args) => {
 		if (args[0] !== path) return read(...args);
 		started++;
 		active++;
@@ -577,10 +592,10 @@ test('a slow audio read joins polling, keeps unchanged playback, and detects sam
 		}
 	};
 	cleanups.push(() => {
-		library.local.folder.files.read = read;
+		context.folder.files.read = read;
 		gate.resolve();
 	});
-	await library.open(path);
+	whispering.open(path);
 	flushSync();
 	for (let n = 0; n < 100 && started === 0; n++) {
 		await Bun.sleep(5);
@@ -592,27 +607,27 @@ test('a slow audio read joins polling, keeps unchanged playback, and detects sam
 	expect(started).toBe(1);
 	expect(maximum).toBe(1);
 	gate.resolve();
-	await settle(library);
+	await settle(context);
 	flushSync();
 	const player = () => target.querySelector<HTMLAudioElement>('audio');
 	expect(player()).not.toBeNull();
 	const url = player()!.src;
-	await library.local.refresh([path]);
+	await context.refresh([path]);
 	flushSync();
 	expect(player()!.src).toBe(url);
 	const playing = player();
-	library.local.folder.files.read = async (file) =>
+	context.folder.files.read = async (file) =>
 		file === path
 			? Promise.reject(new Error('Audio temporarily unreadable'))
 			: read(file);
-	await library.local.refresh([path]);
+	await context.refresh([path]);
 	flushSync();
 	expect(player()).toBe(playing);
 	expect(player()!.src).toBe(url);
 	expect(target.textContent).toContain('Audio temporarily unreadable');
-	library.local.folder.files.read = read;
+	context.folder.files.read = read;
 	await writeFile(join(root, path), 'Other audio');
-	await library.local.refresh([path]);
+	await context.refresh([path]);
 	flushSync();
 	expect(player()!.src).not.toBe(url);
 	expect(maximum).toBe(1);
@@ -640,13 +655,13 @@ for (const item of [
 ]) {
 	for (const replacement of ['missing', 'binary'] as const) {
 		test(`failed ${item.tab} fields remain reachable after a ${replacement} reread`, async () => {
-			const { library, target, root, disk } = await open(
+			const { context, whispering, target, root, disk } = await open(
 				{ [item.path]: item.text },
 				item.tab,
 			);
-			await show(library, item.path);
+			await show(whispering, context, item.path);
 			disk.refusing = true;
-			const view = library.edit(item.table, item.path);
+			const view = whispering.edit(item.table, item.path);
 			expect(view.markdown).toBeDefined();
 			expectOk(
 				view.change({
@@ -655,14 +670,14 @@ for (const item of [
 				}),
 			);
 			await view.save();
-			await settle(library);
+			await settle(context);
 			disk.refusing = false;
-			expect(library.isUnsaved(item.path)).toBe(true);
+			expect(whispering.isUnsaved(item.path)).toBe(true);
 			if (replacement === 'missing') await rm(join(root, item.path));
 			else await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
-			await reportChanged(library);
+			await reportChanged(whispering, context);
 			if (replacement === 'binary')
-				await library.local.folder.files.edit(item.path).read();
+				await context.folder.files.edit(item.path).read();
 			flushSync();
 			const retained = target.querySelector<HTMLTextAreaElement>(
 				`textarea[aria-label="${item.label}"]`,
@@ -691,11 +706,11 @@ for (const item of [
 ]) {
 	for (const replacement of ['missing', 'repaired'] as const) {
 		test(`automatically opened ${item.tab} source keeps its failed draft after a ${replacement} reread`, async () => {
-			const { library, target, root, disk } = await open(
+			const { context, whispering, target, root, disk } = await open(
 				{ [item.path]: 'Malformed row\n' },
 				item.tab,
 			);
-			await show(library, item.path);
+			await show(whispering, context, item.path);
 			const source = () =>
 				field<HTMLTextAreaElement>(
 					target,
@@ -705,23 +720,23 @@ for (const item of [
 			type(source(), 'Keep my automatic Source draft');
 			flushSync();
 			disk.refusing = true;
-			await library.edit(item.path).save();
+			await whispering.edit(item.path).save();
 			disk.refusing = false;
 			if (replacement === 'missing') await rm(join(root, item.path));
 			else await writeFile(join(root, item.path), item.repaired);
-			await reportChanged(library);
+			await reportChanged(whispering, context);
 			expect(source()?.value).toBe('Keep my automatic Source draft');
-			expect(library.isUnsaved(item.path)).toBe(true);
+			expect(whispering.isUnsaved(item.path)).toBe(true);
 		});
 	}
 }
 
 for (const replacement of ['missing', 'binary'] as const) {
 	test(`failed transcript body remains copyable after a ${replacement} reread`, async () => {
-		const { library, target, root, disk } = await open({
+		const { context, whispering, target, root, disk } = await open({
 			[A]: transcript('Alpha.\n'),
 		});
-		await show(library, A);
+		await show(whispering, context, A);
 		disk.refusing = true;
 		type(
 			field<HTMLTextAreaElement>(
@@ -731,13 +746,12 @@ for (const replacement of ['missing', 'binary'] as const) {
 			'Keep my transcript',
 		);
 		flushSync();
-		await library.edit(A).save();
+		await whispering.edit(A).save();
 		disk.refusing = false;
 		if (replacement === 'missing') await rm(join(root, A));
 		else await writeFile(join(root, A), new Uint8Array([0, 1, 2]));
-		await reportChanged(library);
-		if (replacement === 'binary')
-			await library.local.folder.files.edit(A).read();
+		await reportChanged(whispering, context);
+		if (replacement === 'binary') await context.folder.files.edit(A).read();
 		flushSync();
 		expect(
 			field<HTMLTextAreaElement>(
@@ -749,34 +763,51 @@ for (const replacement of ['missing', 'binary'] as const) {
 	});
 }
 
-
 test('a Source control remains mounted after external repair and keeps failed input until explicitly returning to fields', async () => {
-	const { library, target, root, disk } = await open({ [RECIPE]: 'Needs a header' }, 'transformations');
-	await show(library, RECIPE);
-	const source = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]');
+	const { whispering, context, target, root, disk } = await open(
+		{ [RECIPE]: 'Needs a header' },
+		'transformations',
+	);
+	await show(whispering, context, RECIPE);
+	const source = field<HTMLTextAreaElement>(
+		target,
+		'textarea[aria-label="Markdown source"]',
+	);
 	expect(source).not.toBeNull();
-	await writeFile(join(root, RECIPE), '---\ntitle: Repaired\nmodel: null\n---\nValid instructions\n');
-	await reportChanged(library);
+	await writeFile(
+		join(root, RECIPE),
+		'---\ntitle: Repaired\nmodel: null\n---\nValid instructions\n',
+	);
+	await reportChanged(whispering, context);
 	flushSync();
-	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBe(source);
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBe(
+		source,
+	);
 	disk.refusing = true;
 	type(source, '---\ntitle: Typed\nmodel: null\n---\nFailed instructions\n');
-	await library.edit(RECIPE).save();
+	await whispering.edit(RECIPE).save();
 	flushSync();
-	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBe(source);
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBe(
+		source,
+	);
 	expect(source?.value).toContain('Failed instructions');
-	expect(library.isUnsaved(RECIPE)).toBe(true);
-	expect(library.useForm(RECIPE)).toBeUndefined();
+	expect(whispering.isUnsaved(RECIPE)).toBe(true);
+	expect(whispering.useForm(RECIPE)).toBeUndefined();
 	flushSync();
-	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBeNull();
-	expect(field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]')?.value).toContain('Failed instructions');
+	expect(
+		target.querySelector('textarea[aria-label="Markdown source"]'),
+	).toBeNull();
+	expect(
+		field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]')
+			?.value,
+	).toContain('Failed instructions');
 	disk.refusing = false;
 });
 
 test('transformation controls share the mounted app state across remounts and isolate another app', async () => {
 	const files = { [RECIPE]: '---\ntitle: Clean up\n---\nTidy.\n' };
 	const first = await open(files, 'transformations');
-	await show(first.library, RECIPE);
+	await show(first.whispering, first.context, RECIPE);
 	const { view } = first.whispering;
 	view.applyTo = 'transcriptions/a.md';
 	view.applySource = 'pasted';
@@ -803,7 +834,7 @@ test('transformation controls share the mounted app state across remounts and is
 	expect(view.applySource).toBe('pasted');
 
 	const second = await open(files, 'transformations');
-	await show(second.library, RECIPE);
+	await show(second.whispering, second.context, RECIPE);
 	field<HTMLButtonElement>(second.target, '[data-testid="tab-try"]')!.click();
 	flushSync();
 	field<HTMLButtonElement>(

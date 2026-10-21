@@ -20,26 +20,26 @@
 	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import { confirmDelete, copyPath, openItem } from './file-actions.js';
+	import { confirmDelete, copyPath } from './file-actions.js';
 
 	let { onOpen }: {
 		/** Called once a file is selected, so the shell can show the page it opens on. */
 		onOpen: (path: string) => void;
 	} = $props();
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 
 	/**
 	 * The tree: folders before files at each level, into the expanded folders.
 	 * A folder is where files are, so a listing names files and no sizes.
 	 */
 	const rows = $derived(
-		library.listing
+		whispering.listing
 			? visibleRows(
 					{
-						files: library.listing.files.map((path) => ({ path, size: 0 })),
-						directories: library.listing.directories,
+						files: whispering.listing.files.map((path) => ({ path, size: 0 })),
+						directories: whispering.listing.directories,
 					},
-					library.expanded,
+					whispering.expanded,
 				)
 			: [],
 	);
@@ -61,22 +61,22 @@
 
 	function activate(row: TreeRow) {
 		if (row.kind === 'directory') {
-			if (library.expanded.has(row.path)) library.expanded.delete(row.path);
-			else library.expanded.add(row.path);
+			if (whispering.expanded.has(row.path)) whispering.expanded.delete(row.path);
+			else whispering.expanded.add(row.path);
 			return;
 		}
-		void openItem(library, row.path).then((opened) => opened && onOpen(row.path));
+		if (whispering.open(row.path)) onOpen(row.path);
 	}
 
 	function startCreate(directory: string) {
-		if (directory !== '') library.expanded.add(directory);
+		if (directory !== '') whispering.expanded.add(directory);
 		editing = { kind: 'create', directory };
 	}
 
 	/** The same actions back the right-click menu and the visible "…" menu. */
 	function actionGroups(row: TreeRow): Action[][] {
 		const copy: Action = { label: 'Copy path', run: () => void copyPath(row.path) };
-		const remove = () => void confirmDelete(library, row.path);
+		const remove = () => void confirmDelete(whispering, row.path);
 		// A folder is where its files are: it goes when they do.
 		if (row.kind === 'directory') return [[{ label: 'New file', run: () => startCreate(row.path) }], [copy]];
 		return [
@@ -101,7 +101,7 @@
 		const index = rows.findIndex((row) => row.path === path);
 		const row = rows[index];
 		if (row === undefined) return;
-		const open = row.kind === 'directory' && library.expanded.has(row.path);
+		const open = row.kind === 'directory' && whispering.expanded.has(row.path);
 		switch (event.key) {
 			case 'ArrowDown':
 				focusRow(rows[index + 1]?.path);
@@ -118,10 +118,10 @@
 			case 'ArrowRight':
 				if (row.kind !== 'directory') return;
 				if (open) focusRow(rows[index + 1]?.path);
-				else library.expanded.add(row.path);
+				else whispering.expanded.add(row.path);
 				break;
 			case 'ArrowLeft':
-				if (open) library.expanded.delete(row.path);
+				if (open) whispering.expanded.delete(row.path);
 				else focusRow(dirname(row.path) || undefined);
 				break;
 			case 'F2':
@@ -131,7 +131,7 @@
 			case 'Delete':
 			case 'Backspace':
 				if (row.kind !== 'file') return;
-				void confirmDelete(library, row.path);
+				void confirmDelete(whispering, row.path);
 				break;
 			case 'ContextMenu':
 				menuPath = row.path;
@@ -159,8 +159,8 @@
 		committing = true;
 		const problem =
 			current.kind === 'rename'
-				? await library.rename(current.path, name)
-				: await library.createFile(directory, name);
+				? await whispering.rename(current.path, name)
+				: await whispering.createFile(directory, name);
 		committing = false;
 		if (problem) {
 			toast.error(`Could not ${current.kind === 'rename' ? 'rename' : 'create the file'}`, { description: problem });
@@ -243,28 +243,28 @@
 		</div>
 	</div>
 
-	{#if library.listing === undefined}
-		{#if library.listingError}
+	{#if whispering.listing === undefined}
+		{#if whispering.listingError}
 			<Empty.Root class="flex-1 p-6">
 				<Empty.Title>Could not read the folder</Empty.Title>
-				<Empty.Description>{library.listingError}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void library.readAgain()}>Try again</Button>
+				<Empty.Description>{whispering.listingError}</Empty.Description>
+				<Button variant="outline" size="sm" onclick={() => void whispering.readAgain()}>Try again</Button>
 			</Empty.Root>
 		{:else}
 			<Loading class="flex-1" label="Reading files…" />
 		{/if}
 	{:else}
-		{#if library.listingError}
+		{#if whispering.listingError}
 			<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-				Could not read the folder: {library.listingError}. Showing the last list that was read.
+				Could not read the folder: {whispering.listingError}. Showing the last list that was read.
 			</p>
 		{/if}
 		<nav class="min-h-0 flex-1 overflow-y-auto p-1.5" aria-label="Folder files">
 			<Sidebar.Menu bind:ref={tree} class="gap-0.5" onkeydown={navigate}>
 				{@render createField('', 0)}
 				{#each rows as row (row.path)}
-					{@const selected = library.selectedPath === row.path || library.selectedTransformationPath === row.path}
-					{@const open = row.kind === 'directory' && library.expanded.has(row.path)}
+					{@const selected = whispering.selectedPath === row.path || whispering.selectedTransformationPath === row.path}
+					{@const open = row.kind === 'directory' && whispering.expanded.has(row.path)}
 					<Sidebar.MenuItem>
 						{#if editing?.kind === 'rename' && editing.path === row.path}
 							{@render nameField(row.name, row.depth, `New name for ${row.name}`)}
@@ -285,9 +285,9 @@
 										>
 											{#if row.kind === 'directory'}
 												{#if open}<FolderOpenIcon />{:else}<FolderIcon />{/if}
-											{:else if library.isRecording(row.path)}
+											{:else if whispering.isRecording(row.path)}
 												<MicIcon />
-											{:else if library.isTransformation(row.path)}
+											{:else if whispering.isTransformation(row.path)}
 												<WandSparklesIcon />
 										{:else if audioMimeTypeOf(row.path) !== undefined}
 											<AudioLinesIcon />

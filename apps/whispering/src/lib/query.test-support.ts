@@ -1,5 +1,5 @@
 /**
- * Test helper: TanStack Query for tests that drive the library without
+ * Test helper: TanStack Query for tests that drive Whispering without
  * mounting components.
  *
  * The app imports the query client from `@tanstack/svelte-query`, whose
@@ -10,7 +10,7 @@
  * the two shares every class and manager. Change the two pins together.
  */
 import { QueryClient, QueryObserver } from '@tanstack/query-core';
-import type { Library } from './library.svelte.js';
+import type { WhisperingContext } from './folder.js';
 
 export { QueryClient, QueryObserver };
 
@@ -18,9 +18,7 @@ export { QueryClient, QueryObserver };
  * Wait until no save runs, and nothing is mutating or fetching. Typing that
  * waits for its pause is not waited for.
  */
-export async function quiet({
-	local: { queryClient, folder },
-}: Pick<Library, 'local'>) {
+export async function quiet({ queryClient, folder }: WhisperingContext) {
 	const idle = () =>
 		!folder.getStatus().saving &&
 		queryClient.isMutating() === 0 &&

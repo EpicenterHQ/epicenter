@@ -11,7 +11,7 @@ import { toneWav } from './capture.js';
 import type { StoredConnection } from './connections.js';
 import { transcribeOverConnection } from './transcription.js';
 
-const { recordingId } = await import('./library.svelte.ts');
+const { recordingId } = await import('./whispering.svelte.js');
 
 test('a file’s extension names its playback type, ignoring case', () => {
 	expect(audioMimeTypeOf('recordings/a.M4A')).toBe('audio/mp4');

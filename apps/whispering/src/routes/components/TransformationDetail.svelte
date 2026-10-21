@@ -28,7 +28,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import { rowIdOf, TRANSFORMATIONS } from '$lib/definition.js';
-	import type { TransformationEntry } from '$lib/library.svelte.js';
+	import type { TransformationEntry } from '$lib/whispering.svelte.js';
 	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import SaveStatus from './SaveStatus.svelte';
@@ -49,9 +49,10 @@
 		onBack?: () => void;
 		onOpenFile: (path: string) => void;
 	} = $props();
-	const { library, view } = getWhispering();
+	const whispering = getWhispering();
+	const { view } = whispering;
 
-	const asText = $derived(library.showsText(path));
+	const asText = $derived(whispering.showsText(path));
 	// The parent keys this view by the file; keep its original path.
 	// svelte-ignore state_referenced_locally
 	const own = path;
@@ -59,7 +60,7 @@
 	 * One file edit supplies fields, body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = library.edit(TRANSFORMATIONS, own);
+	const fileEdit = whispering.edit(TRANSFORMATIONS, own);
 	const context = getFolder();
 	/** What the file is while it shows as text; its reads keep the text edit current. */
 	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
@@ -87,13 +88,13 @@
 	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
 	const id = $derived(rowIdOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
-	const resolved = $derived(library.resolve(recipe));
-	const connection = $derived(library.connections?.text);
+	const resolved = $derived(whispering.resolve(recipe));
+	const connection = $derived(whispering.connections?.text);
 	/** Saved results on transcripts and on pasted text, newest first. */
 	const outputs = $derived(
 		[
-			...library.outputsOf(id).map((item) => ({ source: 'transcript' as const, entry: item })),
-			...library.textOutputsOf(id).map((item) => ({ source: 'text' as const, entry: item })),
+			...whispering.outputsOf(id).map((item) => ({ source: 'transcript' as const, entry: item })),
+			...whispering.textOutputsOf(id).map((item) => ({ source: 'text' as const, entry: item })),
 		].sort((a, b) => b.entry.row.fields.createdAt.localeCompare(a.entry.row.fields.createdAt)),
 	);
 	/** The model a run would use: this transformation's own, or the text connection's. */
@@ -108,8 +109,8 @@
 	 * else in its file needs fixing.
 	 */
 	const transcripts = $derived(
-		library.entries.flatMap((recording) =>
-			library
+		whispering.entries.flatMap((recording) =>
+			whispering
 				.resultsFor(recording.stem)
 				.filter((result) => result.row.body.trim() !== '')
 				.map((result) => ({
@@ -120,8 +121,8 @@
 	);
 	const chosen = $derived(transcripts.find((item) => item.result.path === view.applyTo));
 	/** This recipe's runs under way, on a transcript and on pasted text. Each result shows below once its file is written. */
-	const running = $derived(library.recipeRuns.some((run) => run.transformationId === id && run.transcriptionId !== undefined));
-	const runningOnText = $derived(library.recipeRuns.some((run) => run.transformationId === id && run.transcriptionId === undefined));
+	const running = $derived(whispering.recipeRuns.some((run) => run.transformationId === id && run.transcriptionId !== undefined));
+	const runningOnText = $derived(whispering.recipeRuns.some((run) => run.transformationId === id && run.transcriptionId === undefined));
 	/** Authoring comes first. */
 	// Workflow selection within the fields view; whether the file shows as text says whether Source shows.
 	let tab = $state<'instructions' | 'try'>('instructions');
@@ -148,7 +149,7 @@
 		if (chosen === undefined) return 'Choose a transcript to run this on.';
 		return undefined;
 	});
-	/** What a person fixes when the library's decision is what blocks Run. */
+	/** What a person fixes when Whispering's decision is what blocks Run. */
 	const fix = $derived(entry !== undefined && resolved.kind === 'blocked' ? resolved.fix : undefined);
 
 	async function run() {
@@ -156,8 +157,8 @@
 		void fileEdit.save();
 		const problem =
 			view.applySource === 'pasted'
-				? await library.transformText(path, view.pastedText)
-				: chosen && (await library.transform(chosen.result.path, path));
+				? await whispering.transformText(path, view.pastedText)
+				: chosen && (await whispering.transform(chosen.result.path, path));
 		if (problem) toast.error('The transformation did not run', { description: problem });
 	}
 
@@ -176,7 +177,7 @@
 	/** Show Instructions with the model notes open. The button pressed leaves with Try it, so focus moves to the tab. */
 	async function goToInstructions() {
 		const from = document.activeElement;
-		const problem = library.useForm(path);
+		const problem = whispering.useForm(path);
 		if (problem) {
 			toast.error('The fields were not opened', { description: problem });
 			return;
@@ -210,7 +211,7 @@
 
 	/** Show the fields or the whole text. Answers whether it switched. */
 	function show(asSource: boolean) {
-		const problem = asSource ? library.editSource(path) : library.useForm(path);
+		const problem = asSource ? whispering.editSource(path) : whispering.useForm(path);
 		if (problem) toast.error(asSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 		return problem === undefined;
 	}
@@ -314,9 +315,9 @@
 							<Button {...props} variant="ghost" size="sm" class="group -ml-2 max-w-full text-muted-foreground" data-testid="transformation-notes">
 								<ChevronRightIcon class="transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none" />
 								Model and connection
-								<span class={['truncate font-normal', (library.connectionsProblem || !connection || !model) && 'text-destructive']}>
+								<span class={['truncate font-normal', (whispering.connectionsProblem || !connection || !model) && 'text-destructive']}>
 									· {model ?? 'no model named'} ·
-									{library.connectionsProblem ? 'the text connection could not be read' : (connection?.baseUrl ?? 'no text connection')}
+									{whispering.connectionsProblem ? 'the text connection could not be read' : (connection?.baseUrl ?? 'no text connection')}
 								</span>
 							</Button>
 						{/snippet}
@@ -351,12 +352,12 @@
 						<div class="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="transform-note">
 							{#if connection}
 								<p>Sends to the text connection: {connection.baseUrl}{connection.keyPresent ? ', with its key' : ', with no key'}.</p>
-							{:else if library.connectionsProblem}
-								<p class="text-destructive">The text connection could not be read: {library.connectionsProblem}</p>
+							{:else if whispering.connectionsProblem}
+								<p class="text-destructive">The text connection could not be read: {whispering.connectionsProblem}</p>
 							{:else}
 								<p>No text connection is set up. Set one up in Settings to run this.</p>
 							{/if}
-							<p>{library.services.transformNote}</p>
+							<p>{whispering.services.transformNote}</p>
 							<p>
 								A result on a transcript is saved as a new file in <code class="font-mono">transformation_runs/</code>, and a result on
 								pasted text in <code class="font-mono">text_runs/</code>. Each file is written when the run starts and gets its answer
@@ -442,7 +443,7 @@
 									<Popover.Trigger>
 										{#snippet child({ props })}
 											<Button {...props} size="xs" variant="outline" data-testid="set-up-text-connection">
-												{library.connectionsProblem ? 'Text connection settings' : 'Set up the text connection'}
+												{whispering.connectionsProblem ? 'Text connection settings' : 'Set up the text connection'}
 											</Button>
 										{/snippet}
 									</Popover.Trigger>
@@ -476,9 +477,9 @@
 
 				<div class="flex flex-col gap-2">
 					<h3 class="text-sm font-medium">Results</h3>
-					{#if library.textResultsError}
+					{#if whispering.textResultsError}
 						<p class="text-xs text-destructive" role="alert" data-testid="text-results-error">
-							Results on pasted text could not be listed, so this is the last list that was: {library.textResultsError}
+							Results on pasted text could not be listed, so this is the last list that was: {whispering.textResultsError}
 						</p>
 					{/if}
 					{#each outputs as output (output.entry.path)}
@@ -486,10 +487,10 @@
 					{:else}
 						<p class="text-sm text-muted-foreground">No results yet.</p>
 					{/each}
-					{#if library.textRepairs.length > 0}
+					{#if whispering.textRepairs.length > 0}
 						<p class="text-xs text-warning" role="status">
 							Files in <code class="font-mono">text_runs/</code> that do not read as results:
-							{library.textRepairs.map((item) => item.path).join(', ')}
+							{whispering.textRepairs.map((item) => item.path).join(', ')}
 						</p>
 					{/if}
 				</div>
@@ -504,7 +505,7 @@
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
-					{@attach () => { library.editSource(path); }}
+					{@attach () => { whispering.editSource(path); }}
 					disabled={fileEdit.locked}
 					aria-label="Markdown source"
 					spellcheck={false}
@@ -517,7 +518,7 @@
 
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<span><code class="font-mono">{path}</code></span>
-		<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(library, path)} data-testid="delete-transformation">
+		<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(whispering, path)} data-testid="delete-transformation">
 			Delete transformation
 		</Button>
 	</div>

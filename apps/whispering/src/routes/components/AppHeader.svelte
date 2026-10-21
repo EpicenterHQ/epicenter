@@ -22,15 +22,15 @@
 		filesOpen: boolean;
 		onToggleFiles: () => void;
 	} = $props();
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 
 	/** Whether what the person did is in the folder on this device. The folder keeps no versions and does not sync here. */
 	const files = $derived(
 		filesLine({
-			saving: library.saving,
-			unsaved: library.unsaved,
-			storageFailure: library.storageFailure,
-			unwrittenAnswers: library.unwrittenAnswers,
+			saving: whispering.saving,
+			unsaved: whispering.unsaved,
+			storageFailure: whispering.storageFailure,
+			unwrittenAnswers: whispering.unwrittenAnswers,
 		}),
 	);
 	/** The home page has the large recorder; every other page gets this compact one. */
@@ -38,33 +38,33 @@
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
-	{#if library.services.capture.source === 'fixture'}
+	{#if whispering.services.capture.source === 'fixture'}
 		<Badge variant="outline" class="shrink-0 border-warning text-warning" data-testid="fixture-badge">Fixture<span class="max-sm:sr-only">&nbsp;audio</span></Badge>
 	{/if}
 
 	<!-- A live recording is visible and stoppable from every page. -->
-	{#if library.recorder.phase === 'recording'}
-		<Button variant="destructive" size="sm" class="shrink-0" onclick={() => void library.stopRecording()} data-testid="header-stop-recording">
+	{#if whispering.recorder.phase === 'recording'}
+		<Button variant="destructive" size="sm" class="shrink-0" onclick={() => void whispering.stopRecording()} data-testid="header-stop-recording">
 			<SquareIcon class="fill-current" />
 			<span class="max-sm:sr-only">Stop</span>
-			<RecorderClock startedAt={library.recorder.startedAt} />
+			<RecorderClock startedAt={whispering.recorder.startedAt} />
 		</Button>
-	{:else if library.recorder.phase !== 'idle'}
+	{:else if whispering.recorder.phase !== 'idle'}
 		<span class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground" role="status">
 			<Spinner class="size-3.5" />
-			{library.recorder.phase === 'starting' ? 'Starting…' : 'Finishing…'}
+			{whispering.recorder.phase === 'starting' ? 'Starting…' : 'Finishing…'}
 		</span>
 	{:else if !onHome}
-		<Button variant="ghost" size="icon-sm" tooltip="Start recording" aria-label="Start recording" onclick={() => void library.startRecording()} data-testid="header-start-recording">
+		<Button variant="ghost" size="icon-sm" tooltip="Start recording" aria-label="Start recording" onclick={() => void whispering.startRecording()} data-testid="header-start-recording">
 			<MicIcon />
 		</Button>
 	{/if}
-	{#if library.recorderError && !onHome}
-		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={library.recorderError}>{library.recorderError}</span>
+	{#if whispering.recorderError && !onHome}
+		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={whispering.recorderError}>{whispering.recorderError}</span>
 	{/if}
 
 	<StatusPopover summary={files} details={[{ name: 'Files', testid: 'status-files', line: files }]}>
-		<StatusRow name="Folder" class="text-xs break-all" data-testid="status-folder">{library.services.location}</StatusRow>
+		<StatusRow name="Folder" class="text-xs break-all" data-testid="status-folder">{whispering.services.location}</StatusRow>
 	</StatusPopover>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">

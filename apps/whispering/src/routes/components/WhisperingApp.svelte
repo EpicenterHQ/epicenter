@@ -33,13 +33,13 @@
 	// svelte-ignore state_referenced_locally
 	const whispering = createWhispering(context);
 	setWhispering(whispering);
-	const { library, view } = whispering;
+	const { view } = whispering;
 	const starting = whispering.start();
 	// Leaving waits for nothing; a recording under way ends with the page.
-	onDestroy(() => library.stop());
+	onDestroy(whispering.dispose);
 
 	// A save of a file's text that failed is told, with the text to copy.
-	$effect(() => library.onWriteFailure(toastWriteFailure));
+	$effect(() => whispering.onWriteFailure(toastWriteFailure));
 
 	/** Below this width the sidebar becomes a bottom bar and panes take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
@@ -52,7 +52,7 @@
 	/** Show what was just opened: a transformation on its page, anything else beside the recordings. */
 	function showOpened(path: string) {
 		view.filesSheet = false;
-		if (library.selectedTransformationPath === path) {
+		if (whispering.selectedTransformationPath === path) {
 			view.showingTransformation = true;
 			void goto(resolve('/transformations'));
 		} else {

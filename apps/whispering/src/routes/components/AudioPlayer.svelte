@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { createQuery } from '@tanstack/svelte-query';
+	import { getFolder } from '$lib/folder.js';
 	import { audioRead } from '$lib/file-reads.js';
 
 	/** Play a finished file; live capture owns its bytes until Stop finalizes them. */
@@ -8,10 +9,11 @@
 		path: string;
 		label: string;
 	} = $props();
-	const { library } = getWhispering();
-	const capture = $derived(library.capturePhase(path));
+	const whispering = getWhispering();
+	const context = getFolder();
+	const capture = $derived(whispering.capturePhase(path));
 	const reading = createQuery(() => ({
-		...library.local.queries.file(path, audioRead),
+		...context.queries.file(path, audioRead),
 		enabled: capture === undefined,
 	}));
 	const audio = $derived(capture === undefined ? reading.data : undefined);

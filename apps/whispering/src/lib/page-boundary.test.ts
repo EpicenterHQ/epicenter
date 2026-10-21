@@ -163,7 +163,7 @@ test('FolderApp owns the folder and WhisperingApp owns product state', () => {
 	expect(callers('createWhispering')).toEqual([
 		'routes/components/WhisperingApp.svelte',
 	]);
-	expect(callers('createLibrary')).toEqual(['lib/whispering.svelte.ts']);
+
 	expect(callers('createFolderContext')).toEqual([]);
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
 	expect(importers((s) => s === '@epicenter/svelte/folder-app')).toEqual([

@@ -6,7 +6,7 @@
  * against the folder as `whispering.postProcessing`. Nothing here runs a
  * transformation.
  */
-import type { TransformationEntry } from './library.svelte.js';
+import type { TransformationEntry } from './whispering.svelte.js';
 
 /** A transformation's title, or its file when the title cannot be read. */
 export function transformationName(entry: TransformationEntry): string {

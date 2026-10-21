@@ -12,7 +12,7 @@ import type { WhisperingServices } from '../../lib/platform/types.js';
 const { mount, unmount, flushSync } = await import('svelte');
 const { createFixtureDevice, toneWav } = await import('../../lib/capture.js');
 const { createTestWhispering, closeTestWhispering } = await import(
-	'../../lib/library.test-support.js'
+	'../../lib/whispering.test-support.js'
 );
 const { openTestServices, deferred, eventually } = await import(
 	'../../lib/services.test-support.js'
@@ -29,15 +29,14 @@ afterEach(async () => {
 for (const view of ['home', 'detail', 'file'] as const) {
 	test(`${view} shows capture progress until Stop finishes, then reads only finalized audio`, async () => {
 		const app = await open(view === 'home');
-		const { library } = app.whispering;
-		await library.startRecording();
-		await library.readAgain();
-		const entry = library.entries[0]!;
+		const { whispering, context } = app;
+		await whispering.startRecording();
+		await whispering.readAgain();
+		const entry = whispering.entries[0]!;
 		const path = entry.path.replace(/\.md$/, '.wav');
-		if (view !== 'home')
-			await library.open(view === 'detail' ? entry.path : path);
+		if (view !== 'home') whispering.open(view === 'detail' ? entry.path : path);
 		flushSync();
-		await quiet(library);
+		await quiet(context);
 		flushSync();
 
 		expect(app.target.querySelector('audio') === null).toBe(true);
@@ -49,7 +48,7 @@ for (const view of ['home', 'detail', 'file'] as const) {
 					'[data-testid^="transcribe"]',
 				)?.disabled,
 			).toBe(true);
-		const stopping = library.stopRecording();
+		const stopping = whispering.stopRecording();
 		flushSync();
 		expect(app.target.textContent).toContain('Stopping…');
 		expect(app.target.querySelector('audio') === null).toBe(true);
@@ -81,21 +80,21 @@ for (const view of ['home', 'detail', 'file'] as const) {
 
 test('a completed recording stays playable while a different recording is active', async () => {
 	const app = await open(false);
-	const { library } = app.whispering;
-	await library.startRecording();
+	const { whispering } = app;
+	await whispering.startRecording();
 	app.finish.resolve();
-	await library.stopRecording();
-	await library.readAgain();
-	const first = library.entries[0]!;
-	await library.open(first.path);
+	await whispering.stopRecording();
+	await whispering.readAgain();
+	const first = whispering.entries[0]!;
+	whispering.open(first.path);
 	await eventually(() => {
 		flushSync();
 		return app.target.querySelector('audio') !== null;
 	});
 	const player = app.target.querySelector('audio');
-	await library.startRecording();
+	await whispering.startRecording();
 	flushSync();
-	expect(library.recorder.phase).toBe('recording');
+	expect(whispering.recorder.phase).toBe('recording');
 	expect(app.target.querySelector('audio') === player).toBe(true);
 });
 
@@ -140,16 +139,19 @@ async function open(home: boolean) {
 			reads.push(result.data.content.size);
 		return result;
 	};
-	const whispering = await createTestWhispering({ ...stubs, services });
+	const { whispering, context } = await createTestWhispering({
+		...stubs,
+		services,
+	});
 	await whispering.start();
 	const target = document.createElement('main');
 	document.body.append(target);
-	const host = mount(Host, { target, props: { whispering, home } });
+	const host = mount(Host, { target, props: { whispering, context, home } });
 	cleanups.push(async () => {
 		finish.resolve();
 		await unmount(host);
-		await closeTestWhispering(whispering);
+		await closeTestWhispering({ whispering, context });
 		await stubs.remove();
 	});
-	return { whispering, target, finish, reads };
+	return { whispering, context, target, finish, reads };
 }

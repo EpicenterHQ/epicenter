@@ -35,11 +35,12 @@
  *   request and one result, while another pair and a later run stay separate;
  *   a row run again twice at once is sent once
  */
+import type { WhisperingContext } from './folder.js';
 import {
-	closeTestLibrary,
-	createTestLibrary,
+	closeTestWhispering,
+	createTestWhispering,
 	headerLine,
-} from './library.test-support.js';
+} from './whispering.test-support.js';
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -55,7 +56,6 @@ import {
 	transcriptEditor,
 	transformationEditor,
 } from './edits.test-support.js';
-import type { Library } from './library.svelte.js';
 import { quiet } from './query.test-support.js';
 import {
 	deferred,
@@ -65,6 +65,7 @@ import {
 	type TestServicesOptions,
 } from './services.test-support.js';
 import { TransformationError } from './transformation.js';
+import type { Whispering } from './whispering.svelte.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -76,27 +77,31 @@ const CLEANUP = STARTER_TRANSFORMATIONS[0]!;
 
 async function open(options: TestServicesOptions = {}) {
 	const test = await openTestServices(options);
-	const library = await createTestLibrary(test);
+	const { whispering, context } = await createTestWhispering(test);
 	cleanups.push(async () => {
-		await closeTestLibrary(library);
+		await closeTestWhispering({ whispering, context });
 		await test.remove();
 	});
-	await library.start();
-	return { library, ...test };
+	await whispering.start();
+	return { whispering, context, ...test };
 }
 
 const names = (root: string, directory: string) =>
 	readdir(join(root, directory)).catch(() => [] as string[]);
 
 /** A recording with one saved transcript, and the transcript's bytes on disk. */
-async function transcribed(library: Library, root: string) {
-	await library.startRecording();
-	await library.stopRecording();
-	await quiet(library);
-	const recording = library.entries[0]!;
-	await library.transcribe(recording);
-	await quiet(library);
-	const transcript = library.resultsFor(recording.stem)[0]!;
+async function transcribed(
+	whispering: Whispering,
+	context: WhisperingContext,
+	root: string,
+) {
+	await whispering.startRecording();
+	await whispering.stopRecording();
+	await quiet(context);
+	const recording = whispering.entries[0]!;
+	await whispering.transcribe(recording);
+	await quiet(context);
+	const transcript = whispering.resultsFor(recording.stem)[0]!;
 	const transcriptBytes = await readFile(join(root, transcript.path));
 	return {
 		recording,
@@ -107,13 +112,16 @@ async function transcribed(library: Library, root: string) {
 }
 
 /** Create the cleanup starter and give it a model, as a person would before running it. */
-async function cleanupProfile(library: Library) {
-	expect(await library.createTransformation(CLEANUP)).toBeUndefined();
-	const session = transformationEditor(library);
+async function cleanupProfile(
+	whispering: Whispering,
+	context: WhisperingContext,
+) {
+	expect(await whispering.createTransformation(CLEANUP)).toBeUndefined();
+	const session = transformationEditor(whispering);
 	session.edit((row) => {
 		row.fields.model = 'chat-model';
 	});
-	await settle(library);
+	await settle(whispering, context);
 	return session;
 }
 
@@ -122,15 +130,15 @@ async function cleanupProfile(library: Library) {
 // ============================================================================
 
 test('opening a folder seeds no transformation; creating one writes an ordinary Markdown row', async () => {
-	const { library, root } = await open();
-	expect(library.transformations).toHaveLength(0);
+	const { whispering, root } = await open();
+	expect(whispering.transformations).toHaveLength(0);
 	expect(await names(root, 'transformations')).toEqual([]);
 
-	expect(await library.createTransformation(CLEANUP)).toBeUndefined();
+	expect(await whispering.createTransformation(CLEANUP)).toBeUndefined();
 
-	expect(library.transformations).toHaveLength(1);
-	const entry = library.transformations[0]!;
-	expect(library.selectedTransformationPath).toBe(entry.path);
+	expect(whispering.transformations).toHaveLength(1);
+	const entry = whispering.transformations[0]!;
+	expect(whispering.selectedTransformationPath).toBe(entry.path);
 	const source = await readFile(join(root, entry.path), 'utf8');
 	// A new recipe names no model: it runs with the text connection.
 	expect(entry.row.fields).toEqual({ title: 'Clean up', model: null });
@@ -140,42 +148,45 @@ test('opening a folder seeds no transformation; creating one writes an ordinary 
 });
 
 test('a new transformation copies no model from another one', async () => {
-	const { library } = await open();
-	const editor = await cleanupProfile(library);
+	const { context, whispering } = await open();
+	const editor = await cleanupProfile(whispering, context);
 	editor.edit((row) => {
 		row.fields.model = 'other-model';
 	});
-	await settle(library);
+	await settle(whispering, context);
 
-	await library.createTransformation({ title: 'Summarize', prompt: 'Sum.\n' });
+	await whispering.createTransformation({
+		title: 'Summarize',
+		prompt: 'Sum.\n',
+	});
 
-	const created = library.selectedTransformation!.entry!;
+	const created = whispering.selectedTransformation!.entry!;
 	expect(created.row.fields).toEqual({ title: 'Summarize', model: null });
 });
 
 test('editing a transformation keeps fields the app does not know and the person’s own lines', async () => {
-	const { library, root } = await open();
+	const { context, whispering, root } = await open();
 	await mkdir(join(root, 'transformations'));
 	const source =
 		'---\n# a comment\ntitle: Mine\nmodel: chat-model\ntemperature: 0.2\n---\nOriginal prompt\n';
 	const path = join(root, 'transformations', 'mine.md');
 	await writeFile(path, source);
-	await settle(library);
-	await library.open('transformations/mine.md');
-	const editor = transformationEditor(library);
+	await settle(whispering, context);
+	whispering.open('transformations/mine.md');
+	const editor = transformationEditor(whispering);
 	// Opening reads; it writes nothing.
-	expect(library.isSaving(editor.path)).toBe(false);
+	expect(whispering.isSaving(editor.path)).toBe(false);
 	expect(await readFile(path, 'utf8')).toBe(source);
 
 	editor.edit((row) => {
 		row.fields.title = 'Renamed';
 		row.body = 'A new prompt\n';
 	});
-	await settle(library);
+	await settle(whispering, context);
 
 	const written = await readFile(path, 'utf8');
 	const row = expectOk(
-		await library.local.folder.tables.transformations.get('mine'),
+		await context.folder.tables.transformations.get('mine'),
 	)!;
 	expect<Record<string, unknown>>(row.fields).toEqual({
 		title: 'Renamed',
@@ -186,29 +197,29 @@ test('editing a transformation keeps fields the app does not know and the person
 	// A field the app does not declare is kept, and so is the person's comment.
 	expect(written).toContain('temperature: 0.2');
 	expect(written).toContain('# a comment');
-	expect(await library.rename(editor.path, 'other.md')).toContain(
+	expect(await whispering.rename(editor.path, 'other.md')).toContain(
 		'named by its ID',
 	);
 });
 
 test('a transformation that does not read is named for repair, cannot run, and is repaired as text', async () => {
-	const { library, root, transformed } = await open();
-	const { transcript } = await transcribed(library, root);
+	const { context, whispering, root, transformed } = await open();
+	const { transcript } = await transcribed(whispering, context, root);
 	await mkdir(join(root, 'transformations'));
 	const broken = '---\ntitle: *missing\nmood: curious\n---\nStill here\n';
 	const path = 'transformations/broken.md';
 	await writeFile(join(root, path), broken);
-	await settle(library);
+	await settle(whispering, context);
 
-	expect(library.transformations).toEqual([]);
-	expect(library.transformationRepairs.map((item) => item.path)).toEqual([
+	expect(whispering.transformations).toEqual([]);
+	expect(whispering.transformationRepairs.map((item) => item.path)).toEqual([
 		path,
 	]);
-	await library.open(path);
-	expect(library.showsText(path)).toBe(true);
-	const text = await openText(library, path);
+	whispering.open(path);
+	expect(whispering.showsText(path)).toBe(true);
+	const text = await openText(whispering, context, path);
 	expect(text.draft).toBe(broken);
-	expect(await library.transform(transcript.path, path)).toBe(
+	expect(await whispering.transform(transcript.path, path)).toBe(
 		'Repair this transformation before running it.',
 	);
 	expect(transformed).toHaveLength(0);
@@ -217,13 +228,13 @@ test('a transformation that does not read is named for repair, cannot run, and i
 	text.input(
 		'---\ntitle: Repaired\nmodel: chat-model\nmood: curious\n---\nStill here\n',
 	);
-	await settle(library);
-	expect(library.transformations.map((item) => item.path)).toEqual([path]);
-	expect(await library.transform(transcript.path, path)).toBeUndefined();
+	await settle(whispering, context);
+	expect(whispering.transformations.map((item) => item.path)).toEqual([path]);
+	expect(await whispering.transform(transcript.path, path)).toBeUndefined();
 	expect(transformed).toHaveLength(1);
 	// Repaired, it is edited as fields again, with its unknown field kept.
-	expect(await library.useForm(path)).toBeUndefined();
-	expect(transformationEditor(library).draft.fields).toMatchObject({
+	expect(await whispering.useForm(path)).toBeUndefined();
+	expect(transformationEditor(whispering).draft.fields).toMatchObject({
 		title: 'Repaired',
 		mood: 'curious',
 	});
@@ -234,16 +245,19 @@ test('a transformation that does not read is named for repair, cannot run, and i
 // ============================================================================
 
 test('applying a transformation writes a new result row and leaves the transcript untouched', async () => {
-	const { library, root, transformed } = await open();
+	const { context, whispering, root, transformed } = await open();
 	const { recording, transcript, transcriptBytes } = await transcribed(
-		library,
+		whispering,
+		context,
 		root,
 	);
-	const editor = await cleanupProfile(library);
-	const profile = library.transformations[0]!;
+	const editor = await cleanupProfile(whispering, context);
+	const profile = whispering.transformations[0]!;
 
-	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
-	await quiet(library);
+	expect(
+		await whispering.transform(transcript.path, editor.path),
+	).toBeUndefined();
+	await quiet(context);
 
 	// Prepared for the text connection; the recipe's own model is used.
 	expect(transformed).toEqual([
@@ -254,8 +268,8 @@ test('applying a transformation writes a new result row and leaves the transcrip
 			input: 'um so a steady tone\n',
 		},
 	]);
-	expect(library.recipeRuns).toHaveLength(0);
-	const outputs = library.outputsFor(transcript.stem);
+	expect(whispering.recipeRuns).toHaveLength(0);
+	const outputs = whispering.outputsFor(transcript.stem);
 	expect(outputs).toHaveLength(1);
 	const output = outputs[0]!;
 	expect(output.row.body).toBe('Transformed: um so a steady tone\n');
@@ -269,7 +283,7 @@ test('applying a transformation writes a new result row and leaves the transcrip
 		prompt: CLEANUP.prompt,
 		input: 'um so a steady tone\n',
 	});
-	expect(library.outputsOf(profile.stem)).toEqual(outputs);
+	expect(whispering.outputsOf(profile.stem)).toEqual(outputs);
 	// The original transcript is the same bytes, and still the only transcript.
 	expect(await readFile(join(root, transcript.path))).toEqual(transcriptBytes);
 	expect(await names(root, 'transcriptions')).toHaveLength(1);
@@ -277,33 +291,39 @@ test('applying a transformation writes a new result row and leaves the transcrip
 });
 
 test('what is sent is the saved transformation: a save still running settles first', async () => {
-	const { library, root, transformed } = await open();
-	const { transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
+	const { context, whispering, root, transformed } = await open();
+	const { transcript } = await transcribed(whispering, context, root);
+	const editor = await cleanupProfile(whispering, context);
 	editor.edit((row) => {
 		row.body = 'Edited just now.\n';
 	});
-	expect(library.isSaving(editor.path)).toBe(true);
+	expect(whispering.isSaving(editor.path)).toBe(true);
 
-	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
+	expect(
+		await whispering.transform(transcript.path, editor.path),
+	).toBeUndefined();
 
-	expect(library.isSaving(editor.path)).toBe(false);
+	expect(whispering.isSaving(editor.path)).toBe(false);
 	expect(transformed[0]!.prompt).toBe('Edited just now.\n');
 	expect(await readFile(join(root, editor.path), 'utf8')).toContain(
 		'Edited just now.',
 	);
-	expect(library.outputsFor(transcript.stem)[0]!.row.fields.prompt).toBe(
+	expect(whispering.outputsFor(transcript.stem)[0]!.row.fields.prompt).toBe(
 		'Edited just now.\n',
 	);
 });
 
 test('a transformation with no instructions, or a transcript with no text, sends nothing', async () => {
-	const { library, root, transformed } = await open();
-	const { transcript, transcriptText } = await transcribed(library, root);
-	await library.createTransformation({ title: 'Empty', prompt: '' });
-	const editor = transformationEditor(library);
+	const { context, whispering, root, transformed } = await open();
+	const { transcript, transcriptText } = await transcribed(
+		whispering,
+		context,
+		root,
+	);
+	await whispering.createTransformation({ title: 'Empty', prompt: '' });
+	const editor = transformationEditor(whispering);
 
-	expect(await library.transform(transcript.path, editor.path)).toBe(
+	expect(await whispering.transform(transcript.path, editor.path)).toBe(
 		'Write instructions to run this.',
 	);
 	editor.edit((row) => {
@@ -313,12 +333,12 @@ test('a transformation with no instructions, or a transcript with no text, sends
 		join(root, transcript.path),
 		transcriptText.replace(transcript.row.body, ' \n'),
 	);
-	expect(await library.transform(transcript.path, editor.path)).toContain(
+	expect(await whispering.transform(transcript.path, editor.path)).toContain(
 		'no text',
 	);
 
 	expect(transformed).toHaveLength(0);
-	expect(library.recipeRuns).toHaveLength(0);
+	expect(whispering.recipeRuns).toHaveLength(0);
 	expect(await names(root, RUNS)).toEqual([]);
 });
 
@@ -327,25 +347,31 @@ test('a transformation with no instructions, or a transcript with no text, sends
 // ============================================================================
 
 test('a transcript edited outside is sent as the folder has it now, and is not rewritten', async () => {
-	const { library, root, transformed } = await open();
-	const { transcript, transcriptText } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
+	const { context, whispering, root, transformed } = await open();
+	const { transcript, transcriptText } = await transcribed(
+		whispering,
+		context,
+		root,
+	);
+	const editor = await cleanupProfile(whispering, context);
 	// Another program rewrites the transcript and adds a field. No refresh follows.
-	await settle(library);
+	await settle(whispering, context);
 	const outside = transcriptText
 		.replace('---\n', '---\nreviewedBy: someone\n')
 		.replace(transcript.row.body, 'A steady tone, corrected by hand.\n');
 	await writeFile(join(root, transcript.path), outside);
 	expect(
-		library.resultsFor(transcript.row.fields.recordingId)[0]!.row.body,
+		whispering.resultsFor(transcript.row.fields.recordingId)[0]!.row.body,
 	).toBe('um so a steady tone\n');
 
-	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
-	await quiet(library);
+	expect(
+		await whispering.transform(transcript.path, editor.path),
+	).toBeUndefined();
+	await quiet(context);
 
 	expect(transformed).toHaveLength(1);
 	expect(transformed[0]!.input).toBe('A steady tone, corrected by hand.\n');
-	const output = library.outputsFor(transcript.stem)[0]!;
+	const output = whispering.outputsFor(transcript.stem)[0]!;
 	expect(output.row.fields.input).toBe('A steady tone, corrected by hand.\n');
 	expect(output.row.body).toBe(
 		'Transformed: A steady tone, corrected by hand.\n',
@@ -355,68 +381,76 @@ test('a transcript edited outside is sent as the folder has it now, and is not r
 });
 
 test('a transcript deleted or broken outside refuses, and nothing stale is sent', async () => {
-	const { library, root, transformed } = await open();
-	const { transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
+	const { context, whispering, root, transformed } = await open();
+	const { transcript } = await transcribed(whispering, context, root);
+	const editor = await cleanupProfile(whispering, context);
 	// Settle the list now, so what it shows below is known to predate the outside changes.
-	await settle(library);
+	await settle(whispering, context);
 
 	const broken = '---\nrecordingId: *missing\n---\nStill some text\n';
 	await writeFile(join(root, transcript.path), broken);
-	expect(await library.transform(transcript.path, editor.path)).toContain(
+	expect(await whispering.transform(transcript.path, editor.path)).toContain(
 		'needs repair',
 	);
 	expect(await readFile(join(root, transcript.path), 'utf8')).toBe(broken);
 
 	await rm(join(root, transcript.path));
 	// The list still shows the transcript: nothing has refreshed it.
-	expect(library.resultsFor(transcript.row.fields.recordingId)).toHaveLength(1);
-	expect(await library.transform(transcript.path, editor.path)).toBe(
+	expect(whispering.resultsFor(transcript.row.fields.recordingId)).toHaveLength(
+		1,
+	);
+	expect(await whispering.transform(transcript.path, editor.path)).toBe(
 		'This transcript is no longer in the folder.',
 	);
 
 	expect(transformed).toHaveLength(0);
-	expect(library.recipeRuns).toHaveLength(0);
+	expect(whispering.recipeRuns).toHaveLength(0);
 	expect(await names(root, RUNS)).toEqual([]);
 });
 
 test('a transcript whose recording was deleted outside refuses', async () => {
-	const { library, root, transformed } = await open();
-	const { recording, transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	await settle(library);
+	const { context, whispering, root, transformed } = await open();
+	const { recording, transcript } = await transcribed(
+		whispering,
+		context,
+		root,
+	);
+	const editor = await cleanupProfile(whispering, context);
+	await settle(whispering, context);
 	await rm(join(root, recording.path));
 	await rm(join(root, recording.path.replace(/\.md$/, '.wav')));
 	// The list still shows the recording: nothing has refreshed it.
-	expect(library.entries).toHaveLength(1);
+	expect(whispering.entries).toHaveLength(1);
 
-	expect(await library.transform(transcript.path, editor.path)).toBe(
+	expect(await whispering.transform(transcript.path, editor.path)).toBe(
 		'The recording this transcript was made from is no longer in the folder.',
 	);
 
 	expect(transformed).toHaveLength(0);
-	expect(library.recipeRuns).toHaveLength(0);
+	expect(whispering.recipeRuns).toHaveLength(0);
 });
 
 /** A transcript's file opened from Files, as its view edits it. */
-async function openedTranscript(library: Library, path: string) {
-	await library.open(path);
-	return transcriptEditor(library, path);
+async function openedTranscript(whispering: Whispering, path: string) {
+	whispering.open(path);
+	return transcriptEditor(whispering, path);
 }
 
 test('a save of the transcript’s file still running settles first, then what it saved is sent', async () => {
-	const { library, root, transformed } = await open();
-	const { transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	const source = await openedTranscript(library, transcript.path);
+	const { context, whispering, root, transformed } = await open();
+	const { transcript } = await transcribed(whispering, context, root);
+	const editor = await cleanupProfile(whispering, context);
+	const source = await openedTranscript(whispering, transcript.path);
 	source.edit((row) => {
 		row.body = 'Typed in Files.\n';
 	});
-	expect(library.isSaving(source.path)).toBe(true);
+	expect(whispering.isSaving(source.path)).toBe(true);
 
-	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
+	expect(
+		await whispering.transform(transcript.path, editor.path),
+	).toBeUndefined();
 
-	expect(library.isSaving(source.path)).toBe(false);
+	expect(whispering.isSaving(source.path)).toBe(false);
 	expect(await readFile(join(root, transcript.path), 'utf8')).toContain(
 		'Typed in Files.',
 	);
@@ -424,24 +458,26 @@ test('a save of the transcript’s file still running settles first, then what i
 });
 
 test('a transformation saves previously failed transcript input before sending it', async () => {
-	const { library, root, transformed } = await open();
-	const { transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	const source = await openedTranscript(library, transcript.path);
+	const { context, whispering, root, transformed } = await open();
+	const { transcript } = await transcribed(whispering, context, root);
+	const editor = await cleanupProfile(whispering, context);
+	const source = await openedTranscript(whispering, transcript.path);
 	chmodSync(join(root, 'transcriptions'), 0o555);
 	try {
 		source.edit((row) => {
 			row.body = 'Mine.\n';
 		});
-		await settle(library);
+		await settle(whispering, context);
 	} finally {
 		chmodSync(join(root, 'transcriptions'), 0o755);
 	}
 	// The typing is kept, and the transcript says it did not save.
-	expect(library.isUnsaved(transcript.path)).toBe(true);
+	expect(whispering.isUnsaved(transcript.path)).toBe(true);
 	expect(source.draft.body).toBe('Mine.\n');
 
-	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
+	expect(
+		await whispering.transform(transcript.path, editor.path),
+	).toBeUndefined();
 
 	expect(transformed).toHaveLength(1);
 	expect(transformed[0]?.input).toBe('Mine.\n');
@@ -458,40 +494,48 @@ test('a transformation saves previously failed transcript input before sending i
  * The state of the newest result made from `transcriptionId`, once the
  * reads its row's saves started have landed.
  */
-async function newestResult(library: Library, transcriptionId: string) {
-	await quiet(library);
-	const output = library.outputsFor(transcriptionId)[0]!;
+async function newestResult(
+	whispering: Whispering,
+	context: WhisperingContext,
+	transcriptionId: string,
+) {
+	await quiet(context);
+	const output = whispering.outputsFor(transcriptionId)[0]!;
 	return {
 		output,
-		state: library.resultState(output.path, output.row.body),
+		state: whispering.resultState(output.path, output.row.body),
 	};
 }
 
 test('a recording cannot be deleted while a transformation of it runs, including one started after confirming', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
+		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>();
 	const started = deferred<void>();
-	const { library, root } = await open({
+	const { context, whispering, root } = await open({
 		transform: () => {
 			started.resolve();
 			return answer.promise;
 		},
 	});
-	const { recording, transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	// The person is asked, and agrees, before any request exists.
-	const confirmed = expectOk(await library.deletionFor(recording.path));
-
-	const running = library.transform(transcript.path, editor.path);
-	await started.promise;
-	expect((await newestResult(library, transcript.stem)).state.kind).toBe(
-		'running',
+	const { recording, transcript } = await transcribed(
+		whispering,
+		context,
+		root,
 	);
+	const editor = await cleanupProfile(whispering, context);
+	// The person is asked, and agrees, before any request exists.
+	const confirmed = expectOk(await whispering.deletionFor(recording.path));
+
+	const running = whispering.transform(transcript.path, editor.path);
+	await started.promise;
+	expect(
+		(await newestResult(whispering, context, transcript.stem)).state.kind,
+	).toBe('running');
 
 	// Asking now refuses, and so does the deletion already confirmed.
-	const { error: refusal } = await library.deletionFor(recording.path);
+	const { error: refusal } = await whispering.deletionFor(recording.path);
 	expect(refusal).toContain('still running');
-	expect(await library.delete(confirmed)).toContain('still running');
+	expect(await whispering.delete(confirmed)).toContain('still running');
 	expect(
 		[
 			...(await names(root, 'recordings')),
@@ -503,11 +547,11 @@ test('a recording cannot be deleted while a transformation of it runs, including
 	await running;
 
 	// The result written since was never named to the person, so they are asked again.
-	expect(await library.delete(confirmed)).toContain('after you were asked');
+	expect(await whispering.delete(confirmed)).toContain('after you were asked');
 	expect(await names(root, RUNS)).toHaveLength(1);
-	const again = expectOk(await library.deletionFor(recording.path));
+	const again = expectOk(await whispering.deletionFor(recording.path));
 	expect(again).toMatchObject({ kind: 'recording' });
-	expect(await library.delete(again!)).toBeUndefined();
+	expect(await whispering.delete(again!)).toBeUndefined();
 	// The row and the results are gone. The audio is an ordinary file and stays.
 	expect(
 		(await names(root, 'recordings')).filter((path) => path.endsWith('.md')),
@@ -517,21 +561,29 @@ test('a recording cannot be deleted while a transformation of it runs, including
 });
 
 test('a failed run does not block deletion, and its row goes with the recording', async () => {
-	const { library, root, transformed } = await open({
+	const { context, whispering, root, transformed } = await open({
 		transform: async () =>
 			TransformationError.Unreachable({ url: 'http://x', reason: 'down' }),
 	});
-	const { recording, transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	await library.transform(transcript.path, editor.path);
-	const { output, state } = await newestResult(library, transcript.stem);
+	const { recording, transcript } = await transcribed(
+		whispering,
+		context,
+		root,
+	);
+	const editor = await cleanupProfile(whispering, context);
+	await whispering.transform(transcript.path, editor.path);
+	const { output, state } = await newestResult(
+		whispering,
+		context,
+		transcript.stem,
+	);
 	expect(state.kind).toBe('failed');
 
-	const deletion = expectOk(await library.deletionFor(recording.path));
-	expect(await library.delete(deletion!)).toBeUndefined();
+	const deletion = expectOk(await whispering.deletionFor(recording.path));
+	expect(await whispering.delete(deletion!)).toBeUndefined();
 
 	// Nothing is left that could be run again against the deleted recording.
-	expect(await library.runAgain(output.path)).toContain(
+	expect(await whispering.runAgain(output.path)).toContain(
 		'no longer in the folder',
 	);
 	expect(transformed).toHaveLength(1);
@@ -539,64 +591,72 @@ test('a failed run does not block deletion, and its row goes with the recording'
 });
 
 test('a transformation asked for while its recording is being deleted sends nothing', async () => {
-	const { library, root, transformed } = await open();
-	const { recording, transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	const deletion = expectOk(await library.deletionFor(recording.path));
+	const { context, whispering, root, transformed } = await open();
+	const { recording, transcript } = await transcribed(
+		whispering,
+		context,
+		root,
+	);
+	const editor = await cleanupProfile(whispering, context);
+	const deletion = expectOk(await whispering.deletionFor(recording.path));
 
-	const removing = library.delete(deletion!);
-	const problem = await library.transform(transcript.path, editor.path);
+	const removing = whispering.delete(deletion!);
+	const problem = await whispering.transform(transcript.path, editor.path);
 	expect(await removing).toBeUndefined();
 
 	expect(problem).toMatch(/being deleted|no longer in the folder/);
 	expect(transformed).toHaveLength(0);
-	expect(library.recipeRuns).toEqual([]);
+	expect(whispering.recipeRuns).toEqual([]);
 	expect(await names(root, RUNS)).toEqual([]);
 });
 
 test('a result outlives edits to its transformation and the transformation’s deletion', async () => {
-	const { library, root } = await open();
-	const { transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	await library.transform(transcript.path, editor.path);
-	const output = library.outputsFor(transcript.stem)[0]!;
+	const { context, whispering, root } = await open();
+	const { transcript } = await transcribed(whispering, context, root);
+	const editor = await cleanupProfile(whispering, context);
+	await whispering.transform(transcript.path, editor.path);
+	const output = whispering.outputsFor(transcript.stem)[0]!;
 	const result = await readFile(join(root, output.path), 'utf8');
 
 	editor.edit((row) => {
 		row.fields.title = 'Renamed';
 		row.body = 'A different prompt.\n';
 	});
-	await settle(library);
+	await settle(whispering, context);
 	expect(await readFile(join(root, output.path), 'utf8')).toBe(result);
 
-	const deletion = expectOk(await library.deletionFor(editor.path));
+	const deletion = expectOk(await whispering.deletionFor(editor.path));
 	expect(deletion).toMatchObject({ kind: 'transformation', results: 1 });
-	expect(await library.delete(deletion!)).toBeUndefined();
+	expect(await whispering.delete(deletion!)).toBeUndefined();
 
-	expect(library.transformations).toHaveLength(0);
-	expect(library.selectedTransformation).toBeUndefined();
+	expect(whispering.transformations).toHaveLength(0);
+	expect(whispering.selectedTransformation).toBeUndefined();
 	expect(await names(root, 'transformations')).toEqual([]);
 	expect(await readFile(join(root, output.path), 'utf8')).toBe(result);
-	const kept = library.outputsFor(transcript.stem)[0]!;
+	const kept = whispering.outputsFor(transcript.stem)[0]!;
 	expect(kept.row.fields.transformationTitle).toBe('Clean up');
 	expect(kept.row.fields.prompt).toBe(CLEANUP.prompt);
 });
 
 test('deleting a recording removes the results made from its transcripts', async () => {
-	const { library, root } = await open();
-	const { recording, transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	await library.transform(transcript.path, editor.path);
+	const { context, whispering, root } = await open();
+	const { recording, transcript } = await transcribed(
+		whispering,
+		context,
+		root,
+	);
+	const editor = await cleanupProfile(whispering, context);
+	await whispering.transform(transcript.path, editor.path);
 	expect(await names(root, RUNS)).toHaveLength(1);
 
-	const deletion = expectOk(await library.deletionFor(recording.path));
+	const deletion = expectOk(await whispering.deletionFor(recording.path));
 	expect(deletion).toMatchObject({ kind: 'recording' });
-	expect(await library.delete(deletion!)).toBeUndefined();
+	expect(await whispering.delete(deletion!)).toBeUndefined();
 
 	expect(await names(root, RUNS)).toEqual([]);
 	expect(await names(root, 'transcriptions')).toEqual([]);
 	// The transformation itself is not the recording's.
-	expect(library.transformations).toHaveLength(1);
+	expect(whispering.transformations).toHaveLength(1);
 });
 
 // ============================================================================
@@ -605,21 +665,25 @@ test('deleting a recording removes the results made from its transcripts', async
 
 test('a run’s row is in the folder from its start with every field and no body, and holds nothing in the window', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
+		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>();
 	const started = deferred<void>();
-	const { library, root } = await open({
+	const { context, whispering, root } = await open({
 		transform: () => {
 			started.resolve();
 			return answer.promise;
 		},
 	});
-	const { transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
+	const { transcript } = await transcribed(whispering, context, root);
+	const editor = await cleanupProfile(whispering, context);
 
-	const running = library.transform(transcript.path, editor.path);
+	const running = whispering.transform(transcript.path, editor.path);
 	await started.promise;
 
-	const { output, state } = await newestResult(library, transcript.stem);
+	const { output, state } = await newestResult(
+		whispering,
+		context,
+		transcript.stem,
+	);
 	expect(state.kind).toBe('running');
 	expect(output.row.body).toBe('');
 	expect(output.row.fields).toMatchObject({
@@ -628,21 +692,21 @@ test('a run’s row is in the folder from its start with every field and no body
 		input: 'um so a steady tone\n',
 	});
 	expect(await names(root, RUNS)).toEqual([`${output.stem}.md`]);
-	expect(library.recipeRuns).toHaveLength(1);
+	expect(whispering.recipeRuns).toHaveLength(1);
 
 	answer.resolve(Ok({ text: 'done' }));
 	await running;
 
-	expect(library.recipeRuns).toEqual([]);
-	expect((await newestResult(library, transcript.stem)).state.kind).toBe(
-		'answered',
-	);
-	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe('done\n');
+	expect(whispering.recipeRuns).toEqual([]);
+	expect(
+		(await newestResult(whispering, context, transcript.stem)).state.kind,
+	).toBe('answered');
+	expect(whispering.outputsFor(transcript.stem)[0]!.row.body).toBe('done\n');
 });
 
 test('a refused request leaves its row unfinished; running it again sends the same request into the same row', async () => {
 	let attempts = 0;
-	const { library, root, transformed } = await open({
+	const { context, whispering, root, transformed } = await open({
 		transform: async ({ input }) => {
 			attempts += 1;
 			if (attempts === 1)
@@ -655,12 +719,22 @@ test('a refused request leaves its row unfinished; running it again sends the sa
 			return Ok({ text: `Third try: ${input.trim()}` });
 		},
 	});
-	const { transcript, transcriptBytes } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
+	const { transcript, transcriptBytes } = await transcribed(
+		whispering,
+		context,
+		root,
+	);
+	const editor = await cleanupProfile(whispering, context);
 
-	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
+	expect(
+		await whispering.transform(transcript.path, editor.path),
+	).toBeUndefined();
 
-	const { output, state } = await newestResult(library, transcript.stem);
+	const { output, state } = await newestResult(
+		whispering,
+		context,
+		transcript.stem,
+	);
 	expect(state).toEqual({
 		kind: 'failed',
 		message: 'The endpoint answered 429: slow down',
@@ -669,18 +743,20 @@ test('a refused request leaves its row unfinished; running it again sends the sa
 	expect(await readFile(join(root, transcript.path))).toEqual(transcriptBytes);
 
 	// A transport that throws is a failure too, never a run left running.
-	expect(await library.runAgain(output.path)).toBeUndefined();
-	expect((await newestResult(library, transcript.stem)).state).toMatchObject({
+	expect(await whispering.runAgain(output.path)).toBeUndefined();
+	expect(
+		(await newestResult(whispering, context, transcript.stem)).state,
+	).toMatchObject({
 		kind: 'failed',
 		message: expect.stringContaining('the folder host went away'),
 	});
 
-	expect(await library.runAgain(output.path)).toBeUndefined();
-	await quiet(library);
+	expect(await whispering.runAgain(output.path)).toBeUndefined();
+	await quiet(context);
 
 	expect(transformed).toHaveLength(3);
 	expect(transformed[2]).toEqual(transformed[0]!);
-	const filled = library.outputsFor(transcript.stem);
+	const filled = whispering.outputsFor(transcript.stem);
 	expect(filled.map((item) => item.stem)).toEqual([output.stem]);
 	expect(filled[0]!.row.fields).toEqual(output.row.fields);
 	expect(filled[0]!.row.body).toBe('Third try: um so a steady tone\n');
@@ -688,74 +764,80 @@ test('a refused request leaves its row unfinished; running it again sends the sa
 
 test('running again sends what the row holds, not what the transcript holds now', async () => {
 	let refuse = true;
-	const { library, root, transformed } = await open({
+	const { context, whispering, root, transformed } = await open({
 		transform: async ({ input }) =>
 			refuse
 				? TransformationError.Unreachable({ url: 'http://x', reason: 'down' })
 				: Ok({ text: input }),
 	});
-	const { transcript, transcriptText } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	await library.transform(transcript.path, editor.path);
-	const { output } = await newestResult(library, transcript.stem);
+	const { transcript, transcriptText } = await transcribed(
+		whispering,
+		context,
+		root,
+	);
+	const editor = await cleanupProfile(whispering, context);
+	await whispering.transform(transcript.path, editor.path);
+	const { output } = await newestResult(whispering, context, transcript.stem);
 	refuse = false;
 	await writeFile(
 		join(root, transcript.path),
 		transcriptText.replace(transcript.row.body, 'Different now.\n'),
 	);
 
-	expect(await library.runAgain(output.path)).toBeUndefined();
-	await quiet(library);
+	expect(await whispering.runAgain(output.path)).toBeUndefined();
+	await quiet(context);
 
 	expect(transformed.map((request) => request.input)).toEqual([
 		'um so a steady tone\n',
 		'um so a steady tone\n',
 	]);
-	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe(
+	expect(whispering.outputsFor(transcript.stem)[0]!.row.body).toBe(
 		'um so a steady tone\n',
 	);
 });
 
 test('an answer whose write fails is written again while the page lives', async () => {
-	const { library, root, transformed, failures } = await open();
-	const { transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	await settle(library);
+	const { context, whispering, root, transformed, failures } = await open();
+	const { transcript } = await transcribed(whispering, context, root);
+	const editor = await cleanupProfile(whispering, context);
+	await settle(whispering, context);
 	failures.answers = 2;
 
-	await library.transform(transcript.path, editor.path);
+	await whispering.transform(transcript.path, editor.path);
 
-	expect((await newestResult(library, transcript.stem)).state).toMatchObject({
+	expect(
+		(await newestResult(whispering, context, transcript.stem)).state,
+	).toMatchObject({
 		kind: 'writing',
 		text: 'Transformed: um so a steady tone',
 		message: expect.stringContaining('disk refused the result'),
 	});
-	expect(headerLine(library).label).toBe('1 answer not written yet');
+	expect(headerLine(whispering).label).toBe('1 answer not written yet');
 
-	await eventually(() => library.unwrittenAnswers === 0);
-	await settle(library);
+	await eventually(() => whispering.unwrittenAnswers === 0);
+	await settle(whispering, context);
 
 	expect(transformed).toHaveLength(1);
-	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe(
+	expect(whispering.outputsFor(transcript.stem)[0]!.row.body).toBe(
 		'Transformed: um so a steady tone\n',
 	);
-	expect(headerLine(library).tone).toBe('good');
+	expect(headerLine(whispering).tone).toBe('good');
 });
 
 test('an answer for a row someone filled meanwhile stands after their text, and one for a row deleted meanwhile writes nothing', async () => {
 	const answers = [
-		deferred<Awaited<ReturnType<Library['services']['transform']>>>(),
-		deferred<Awaited<ReturnType<Library['services']['transform']>>>(),
+		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>(),
+		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>(),
 	];
-	const { library, root, transformed } = await open({
+	const { context, whispering, root, transformed } = await open({
 		transform: () => answers[transformed.length - 1]!.promise,
 	});
-	const { transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
+	const { transcript } = await transcribed(whispering, context, root);
+	const editor = await cleanupProfile(whispering, context);
 
-	const first = library.transform(transcript.path, editor.path);
+	const first = whispering.transform(transcript.path, editor.path);
 	await eventually(() => transformed.length === 1);
-	const { output } = await newestResult(library, transcript.stem);
+	const { output } = await newestResult(whispering, context, transcript.stem);
 	const path = join(root, output.path);
 	await writeFile(
 		path,
@@ -769,18 +851,20 @@ test('an answer for a row someone filled meanwhile stands after their text, and 
 		filled.indexOf('Typed by hand.'),
 	);
 
-	const second = library.transform(transcript.path, editor.path);
+	const second = whispering.transform(transcript.path, editor.path);
 	await eventually(() => transformed.length === 2);
-	await settle(library);
-	const discarded = library
+	await settle(whispering, context);
+	const discarded = whispering
 		.outputsFor(transcript.stem)
 		.find((item) => item.stem !== output.stem)!;
-	expect(await library.deleteTransformationResult(discarded)).toBeUndefined();
+	expect(
+		await whispering.deleteTransformationResult(discarded),
+	).toBeUndefined();
 	answers[1]!.resolve(Ok({ text: 'too late' }));
 	await second;
 
 	expect(await names(root, RUNS)).toEqual([`${output.stem}.md`]);
-	expect(library.unwrittenAnswers).toBe(0);
+	expect(whispering.unwrittenAnswers).toBe(0);
 });
 
 /**
@@ -789,15 +873,15 @@ test('an answer for a row someone filled meanwhile stands after their text, and 
  */
 async function fillRace(typed: string) {
 	const answer =
-		deferred<Awaited<ReturnType<Library['services']['transform']>>>();
-	const { library, root, folder, transformed } = await open({
+		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>();
+	const { context, whispering, root, folder, transformed } = await open({
 		transform: () => answer.promise,
 	});
-	const { transcript } = await transcribed(library, root);
-	const editor = await cleanupProfile(library);
-	const running = library.transform(transcript.path, editor.path);
+	const { transcript } = await transcribed(whispering, context, root);
+	const editor = await cleanupProfile(whispering, context);
+	const running = whispering.transform(transcript.path, editor.path);
 	await eventually(() => transformed.length === 1);
-	const { output } = await newestResult(library, transcript.stem);
+	const { output } = await newestResult(whispering, context, transcript.stem);
 	const path = join(root, output.path);
 	const table = folder.tables.transformation_runs;
 	const get = table.get;
@@ -813,13 +897,13 @@ async function fillRace(typed: string) {
 
 	answer.resolve(Ok({ text: 'from the endpoint' }));
 	await running;
-	await settle(library);
+	await settle(whispering, context);
 
 	expect(filled).toBe(true);
-	expect(library.unwrittenAnswers).toBe(0);
+	expect(whispering.unwrittenAnswers).toBe(0);
 	return {
 		text: await readFile(path, 'utf8'),
-		shown: library.outputsFor(transcript.stem)[0]?.row.body,
+		shown: whispering.outputsFor(transcript.stem)[0]?.row.body,
 	};
 }
 
@@ -847,7 +931,7 @@ async function until(condition: () => boolean) {
 }
 
 /**
- * A library whose reads of one table's rows wait while `reads.hold` is set.
+ * A whispering whose reads of one table's rows wait while `reads.hold` is set.
  * A run reads its transformation and its transcript before anything is sent,
  * so holding those reads is what puts two asks inside that time together.
  */
@@ -859,7 +943,7 @@ async function openHoldingReads(
 	const reads: { hold?: Promise<void>; waiting: number } = { waiting: 0 };
 	const { tables } = test.folder;
 	const table = tables[held];
-	const library = await createTestLibrary({
+	const { whispering, context } = await createTestWhispering({
 		folder: replaceTables(test.folder, {
 			[held]: {
 				...table,
@@ -875,32 +959,36 @@ async function openHoldingReads(
 		},
 	});
 	cleanups.push(async () => {
-		await closeTestLibrary(library);
+		await closeTestWhispering({ whispering, context });
 		await test.remove();
 	});
-	await library.start();
-	return { library, reads, ...test };
+	await whispering.start();
+	return { whispering, context, reads, ...test };
 }
 
 test('two asks for the same transcript and transformation at once send one request and write one result; another pair and a later run are separate', async () => {
-	const { library, root, transformed, reads } =
+	const { whispering, context, root, transformed, reads } =
 		await openHoldingReads('transformations');
-	const { transcript, transcriptBytes } = await transcribed(library, root);
-	const cleanup = await cleanupProfile(library);
+	const { transcript, transcriptBytes } = await transcribed(
+		whispering,
+		context,
+		root,
+	);
+	const cleanup = await cleanupProfile(whispering, context);
 	expect(
-		await library.createTransformation(STARTER_TRANSFORMATIONS[1]!),
+		await whispering.createTransformation(STARTER_TRANSFORMATIONS[1]!),
 	).toBeUndefined();
-	const summarize = transformationEditor(library);
+	const summarize = transformationEditor(whispering);
 	summarize.edit((row) => {
 		row.fields.model = 'chat-model';
 	});
-	await settle(library);
+	await settle(whispering, context);
 	const reading = deferred<void>();
 	reads.hold = reading.promise;
 
-	const first = library.transform(transcript.path, cleanup.path);
-	const second = library.transform(transcript.path, cleanup.path);
-	const other = library.transform(transcript.path, summarize.path);
+	const first = whispering.transform(transcript.path, cleanup.path);
+	const second = whispering.transform(transcript.path, cleanup.path);
+	const other = whispering.transform(transcript.path, summarize.path);
 
 	// The second ask is refused while the first is still reading: nothing has been sent yet.
 	expect(await second).toContain('already running on this transcript');
@@ -918,11 +1006,11 @@ test('two asks for the same transcript and transformation at once send one reque
 		].sort(),
 	);
 	expect(await names(root, RUNS)).toHaveLength(2);
-	expect(library.recipeRuns).toEqual([]);
+	expect(whispering.recipeRuns).toEqual([]);
 
 	// Asked again once the first has ended, it runs again and is its own result.
 	expect(
-		await library.transform(transcript.path, cleanup.path),
+		await whispering.transform(transcript.path, cleanup.path),
 	).toBeUndefined();
 	expect(transformed).toHaveLength(3);
 	expect(await names(root, RUNS)).toHaveLength(3);
@@ -931,28 +1019,30 @@ test('two asks for the same transcript and transformation at once send one reque
 
 test('a failed run run again twice at once is sent once more, not twice', async () => {
 	let attempts = 0;
-	const { library, root, transformed, reads } = await openHoldingReads(
-		'transformation_runs',
-		{
+	const { whispering, context, root, transformed, reads } =
+		await openHoldingReads('transformation_runs', {
 			transform: async () => {
 				attempts += 1;
 				if (attempts === 1) throw new Error('the folder host went away');
 				return Ok({ text: 'after the host came back' });
 			},
-		},
+		});
+	const { transcript } = await transcribed(whispering, context, root);
+	const cleanup = await cleanupProfile(whispering, context);
+	await whispering.transform(transcript.path, cleanup.path);
+	const { output, state } = await newestResult(
+		whispering,
+		context,
+		transcript.stem,
 	);
-	const { transcript } = await transcribed(library, root);
-	const cleanup = await cleanupProfile(library);
-	await library.transform(transcript.path, cleanup.path);
-	const { output, state } = await newestResult(library, transcript.stem);
 	expect(state.kind).toBe('failed');
 	const reading = deferred<void>();
 	reads.hold = reading.promise;
 	reads.waiting = 0;
 
 	const again = Promise.all([
-		library.runAgain(output.path),
-		library.runAgain(output.path),
+		whispering.runAgain(output.path),
+		whispering.runAgain(output.path),
 	]);
 	await until(() => reads.waiting > 0);
 	reads.hold = undefined;
@@ -963,8 +1053,8 @@ test('a failed run run again twice at once is sent once more, not twice', async 
 	expect(answers).toContain('This is already running.');
 	expect(transformed).toHaveLength(2);
 	expect(await names(root, RUNS)).toEqual([`${output.stem}.md`]);
-	await quiet(library);
-	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe(
+	await quiet(context);
+	expect(whispering.outputsFor(transcript.stem)[0]!.row.body).toBe(
 		'after the host came back\n',
 	);
 });

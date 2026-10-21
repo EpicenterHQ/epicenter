@@ -11,7 +11,8 @@
 	import RecordingDetail from '../components/RecordingDetail.svelte';
 	import RecordingList from '../components/RecordingList.svelte';
 
-	const { library, view } = getWhispering();
+	const whispering = getWhispering();
+	const { view } = whispering;
 
 	/**
 	 * The table is the page. Opening a recording shows its details: beside the
@@ -24,7 +25,7 @@
 
 	/** Close the details and put focus back on the row they were opened from. */
 	async function close() {
-		const path = library.selectedPath;
+		const path = whispering.selectedPath;
 		view.showingDetail = false;
 		await tick();
 		if (path !== undefined)
@@ -35,7 +36,7 @@
 <svelte:head><title>Recordings · Whispering</title></svelte:head>
 
 {#snippet detail(onBack: (() => void) | undefined, onClose: (() => void) | undefined)}
-	{@const selection = library.selection}
+	{@const selection = whispering.selection}
 	{#if selection?.kind === 'recording'}
 		{#key selection.path}
 			<RecordingDetail path={selection.path} entry={selection.entry} {onBack} {onClose} />
@@ -46,8 +47,8 @@
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">
-			{#if library.selectedPath !== undefined}
-				<Empty.Title>{basename(library.selectedPath)} is no longer in the folder</Empty.Title>
+			{#if whispering.selectedPath !== undefined}
+				<Empty.Title>{basename(whispering.selectedPath)} is no longer in the folder</Empty.Title>
 				<Empty.Description>It was renamed or deleted outside this window.</Empty.Description>
 			{:else}
 				<Empty.Title>Select a recording</Empty.Title>

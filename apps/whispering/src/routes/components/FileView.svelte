@@ -24,9 +24,9 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
-	import { type Library, rowTableOf } from '$lib/library.svelte.js';
+	import { type Whispering, rowTableOf } from '$lib/whispering.svelte.js';
 	import AudioPlayer from './AudioPlayer.svelte';
-	import { confirmDelete, copyPath, lf, openItem } from './file-actions.js';
+	import { confirmDelete, copyPath, lf } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
 	import SaveStatus from './SaveStatus.svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -40,19 +40,19 @@
 		/** Shown on narrow windows, where the list and the editor take turns. */
 		onBack?: () => void;
 	} = $props();
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 
 	// The parent keys this view by the file; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	const table = $derived(rowTableOf(path));
 	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
-	const asText = $derived(!audio && library.showsText(path));
+	const asText = $derived(!audio && whispering.showsText(path));
 	/**
 	 * One file edit supplies the transcript body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = library.edit(own);
+	const fileEdit = whispering.edit(own);
 	const context = getFolder();
 	/** What the file is while it shows as text; its reads keep the text edit current. */
 	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
@@ -73,7 +73,7 @@
 	const pending = $derived(fileEdit.pending);
 
 	function show(source: boolean) {
-		const problem = source ? library.editSource(path) : library.useForm(path);
+		const problem = source ? whispering.editSource(path) : whispering.useForm(path);
 		if (problem)
 			toast.error(source ? 'The text was not opened for editing' : 'The text was not opened alone', {
 				description: problem,
@@ -83,7 +83,7 @@
 	const name = $derived(basename(path));
 	const directory = $derived(dirname(path));
 	/** The recording whose row names this file as its audio, if one does. */
-	const owner = $derived(library.recordingNaming(path));
+	const owner = $derived(whispering.recordingNaming(path));
 
 	/** A file shown as details: its extension names the type, then its size when it is known. */
 	function details(size?: number) {
@@ -132,7 +132,7 @@
 				<dt class="text-muted-foreground">Recording</dt>
 				<dd>
 					{#if owner}
-						<Button variant="link" class="h-auto p-0" onclick={() => void openItem(library, owner.path)}>
+						<Button variant="link" class="h-auto p-0" onclick={() => whispering.open(owner.path)}>
 							{owner.row.fields.title || owner.path}
 						</Button>
 					{:else}
@@ -189,7 +189,7 @@
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
 				bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
-				{@attach () => { library.editSource(path); }}
+				{@attach () => { whispering.editSource(path); }}
 				disabled={fileEdit.locked}
 				aria-label="Contents of {name}"
 				spellcheck={false}
@@ -220,7 +220,7 @@
 	<FileNameBar
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
-		onRename={(next) => library.rename(path, next)}
-		onDelete={() => void confirmDelete(library, path)}
+		onRename={(next) => whispering.rename(path, next)}
+		onDelete={() => void confirmDelete(whispering, path)}
 	/>
 </section>

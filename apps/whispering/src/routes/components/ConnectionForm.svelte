@@ -17,7 +17,8 @@
 	 */
 	let { operation }: { operation: 'transcription' | 'text' } = $props();
 
-	const { library, settings } = getWhispering();
+	const whispering = getWhispering();
+	const { settings } = whispering;
 	const draft = $derived(settings[operation]);
 	const readOnly = $derived(draft.readOnlyReason !== undefined);
 	const id = $derived(`connection-${operation}`);
@@ -95,9 +96,9 @@
 				/>
 			{/if}
 			<span class="text-xs text-muted-foreground">
-				Kept in {library.services.connections.storedIn}. It is sent only to this endpoint; a new endpoint needs its key entered again.
+				Kept in {whispering.services.connections.storedIn}. It is sent only to this endpoint; a new endpoint needs its key entered again.
 			</span>
-			{#if library.services.kind === 'browser'}
+			{#if whispering.services.kind === 'browser'}
 				<span class="text-xs text-warning" data-testid="{id}-key-warning">
 					This key is saved in this browser. Code running on this site can read it.
 				</span>

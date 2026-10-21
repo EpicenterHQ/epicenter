@@ -4,7 +4,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { toast } from '@epicenter/ui/sonner';
-	import type { TextRunEntry, TransformationRunEntry } from '$lib/library.svelte.js';
+	import type { TextRunEntry, TransformationRunEntry } from '$lib/whispering.svelte.js';
 	import { copyText, formatTime, recordingTitle } from './file-actions.js';
 	import ResultStatus from './ResultStatus.svelte';
 
@@ -23,11 +23,11 @@
 		naming: 'transformation' | 'source';
 		onOpenFile: (path: string) => void;
 	} = $props();
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 
 	const recording = $derived(
 		output.source === 'transcript'
-			? library.entries.find((item) => item.stem === output.entry.row.fields.recordingId)
+			? whispering.entries.find((item) => item.stem === output.entry.row.fields.recordingId)
 			: undefined,
 	);
 	const heading = $derived.by(() => {
@@ -37,7 +37,7 @@
 		return `Recording ${output.entry.row.fields.recordingId} (no longer in the folder)`;
 	});
 
-	const progress = $derived(library.resultState(output.entry.path, output.entry.row.body));
+	const progress = $derived(whispering.resultState(output.entry.path, output.entry.row.body));
 
 	function remove() {
 		confirmationDialog.open({
@@ -50,8 +50,8 @@
 			async onConfirm() {
 				const problem =
 					output.source === 'text'
-						? await library.deleteTextResult(output.entry)
-						: await library.deleteTransformationResult(output.entry);
+						? await whispering.deleteTextResult(output.entry)
+						: await whispering.deleteTransformationResult(output.entry);
 				if (problem) toast.error('Could not delete the result', { description: problem });
 			},
 		});

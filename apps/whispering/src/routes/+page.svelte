@@ -11,45 +11,45 @@
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './components/AudioAbsent.svelte';
 	import AudioPlayer from './components/AudioPlayer.svelte';
-	import { confirmDelete, copyText, formatTime, openItem, recordingTitle } from './components/file-actions.js';
+	import { confirmDelete, copyText, formatTime, recordingTitle } from './components/file-actions.js';
 	import RecorderCard from './components/RecorderCard.svelte';
 	import ResultStatus from './components/ResultStatus.svelte';
 	import TransformationOutput from './components/TransformationOutput.svelte';
 
 	const whispering = getWhispering();
-	const { library, view } = whispering;
+	const { view } = whispering;
 
 	/** The newest saved recording. A capture still being saved is in the notice under the header. */
-	const latest = $derived(library.entries[0]);
+	const latest = $derived(whispering.entries[0]);
 	/** Playback and transcription use the same sibling resolution as recording details. */
-	const audio = $derived(latest ? library.audioOf(latest) : undefined);
+	const audio = $derived(latest ? whispering.audioOf(latest) : undefined);
 	const audioPath = $derived(audio?.kind === 'here' ? audio.path : undefined);
 	/** Whether the audio the newest recording names is missing from this device's folder. */
 	const absent = $derived(audio?.kind === 'absent');
-	const transcript = $derived(latest ? library.resultsFor(latest.stem)[0] : undefined);
-	const run = $derived(latest ? library.transcriptionRun(latest.stem) : undefined);
+	const transcript = $derived(latest ? whispering.resultsFor(latest.stem)[0] : undefined);
+	const run = $derived(latest ? whispering.transcriptionRun(latest.stem) : undefined);
 	/** Whether the newest transcript has its answer, or what is happening to it. */
-	const progress = $derived(transcript && library.resultState(transcript.path, transcript.row.body));
-	const model = $derived(library.connections?.transcription?.model);
+	const progress = $derived(transcript && whispering.resultState(transcript.path, transcript.row.body));
+	const model = $derived(whispering.connections?.transcription?.model);
 
 	/** The transformation chosen beside the recorder, as the folder and the text connection have it now. */
 	const postProcessing = $derived(whispering.postProcessing);
 	/** Whether a transformation of the newest transcript is under way. Its result shows below once its file is written. */
 	const postRunning = $derived(
-		transcript !== undefined && library.recipeRuns.some((item) => item.transcriptionId === transcript.stem),
+		transcript !== undefined && whispering.recipeRuns.some((item) => item.transcriptionId === transcript.stem),
 	);
-	const outputs = $derived(transcript ? library.outputsFor(transcript.stem) : []);
+	const outputs = $derived(transcript ? whispering.outputsFor(transcript.stem) : []);
 
 	/** Run the chosen transformation on the latest transcript. This press is the only thing that sends it. */
 	async function runPostProcessing() {
 		if (transcript === undefined || postProcessing.kind !== 'ready') return;
-		const problem = await library.transform(transcript.path, postProcessing.entry.path);
+		const problem = await whispering.transform(transcript.path, postProcessing.entry.path);
 		if (problem) toast.error('Post-processing did not run', { description: problem });
 	}
 
 	/** Show the recording, or one of its results, on the Recordings page. */
 	async function openFile(path: string) {
-		if (!(await openItem(library, path))) return;
+		if (!whispering.open(path)) return;
 		view.showingDetail = true;
 		await goto(resolve('/recordings'));
 	}
@@ -83,7 +83,7 @@
 						path={transcript.path}
 						result={progress}
 						audioAbsent={absent}
-						onDelete={() => void confirmDelete(library, transcript.path)}
+						onDelete={() => void confirmDelete(whispering, transcript.path)}
 					/>
 				{:else if transcript}
 					<div class="flex items-start gap-2 rounded-md border p-3 text-sm">
@@ -97,7 +97,7 @@
 
 					<!-- Post-processing never starts by itself. The transcript above is not changed by it: a result is its own file. -->
 					{#if postProcessing.kind === 'ready'}
-						{@const chosen = library.resolve(postProcessing.entry.row)}
+						{@const chosen = whispering.resolve(postProcessing.entry.row)}
 						{@const name = transformationName(postProcessing.entry)}
 						<div class="flex flex-wrap items-center gap-2 text-sm">
 							<!-- The visible label stays short: a title can be longer than a narrow window. The name is in the accessible label and the tooltip. -->
@@ -168,8 +168,8 @@
 						<Button
 							size="sm"
 							tooltip={model ? `Transcribes with ${model}` : undefined}
-							disabled={audioPath === undefined || library.capturePhase(audioPath) !== undefined || run?.kind === 'running'}
-							onclick={() => void library.transcribe(latest)}
+							disabled={audioPath === undefined || whispering.capturePhase(audioPath) !== undefined || run?.kind === 'running'}
+							onclick={() => void whispering.transcribe(latest)}
 							data-testid="transcribe-latest"
 						>
 							{#if run?.kind === 'running'}<Spinner class="size-3.5" />{/if}

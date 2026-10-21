@@ -7,7 +7,7 @@ import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeDeletion } from '$lib/deletion.js';
-import type { Library } from '$lib/library.svelte.js';
+import type { Whispering } from '$lib/whispering.svelte.js';
 
 export { recordingTitle } from '$lib/deletion.js';
 
@@ -54,8 +54,8 @@ export function formatTime(value: unknown, style: 'short' | 'full' = 'full') {
  * Ask before deleting `path`. What the dialog names is read first, and the
  * deletion deletes those files, whatever they hold by then (ADR-0576).
  */
-export async function confirmDelete(library: Library, path: string) {
-	const { data: deletion, error: refusal } = await library.deletionFor(path);
+export async function confirmDelete(whispering: Whispering, path: string) {
+	const { data: deletion, error: refusal } = await whispering.deletionFor(path);
 	if (refusal !== null) {
 		toast.error(`Could not delete ${basename(path)}`, {
 			description: refusal,
@@ -66,23 +66,11 @@ export async function confirmDelete(library: Library, path: string) {
 		...describeDeletion(deletion),
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
-			const problem = await library.delete(deletion);
+			const problem = await whispering.delete(deletion);
 			if (problem)
 				toast.error(`Could not delete ${basename(path)}`, {
 					description: problem,
 				});
 		},
 	});
-}
-
-/**
- * Open `path`. Opening never waits or asks: edits already made are in the
- * folder or on their way. Answers whether `path` opened.
- */
-export async function openItem(
-	library: Library,
-	path: string,
-): Promise<boolean> {
-	await library.open(path);
-	return !library.closing;
 }

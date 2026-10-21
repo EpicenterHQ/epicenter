@@ -3,26 +3,26 @@
  * rows a search keeps, what order they are in, which are selected, and what
  * the actions on several of them do.
  *
- * Everything here is read from the library's current observation of the
+ * Everything here is read from Whispering's current observation of the
  * folder. Nothing is kept: the search text, the sort, and the selection are
  * the product's, and are handed in. A row's identity is its file path, so a
  * selection survives a new sort, a new search, and a refresh, and a path
  * that has left the folder is simply no longer selected.
  *
- * The actions on several rows are the library's own actions on one row,
+ * The actions on several rows are Whispering's own actions on one row,
  * taken one at a time in table order. A transcription is asked for once for
  * each row that needs one and never asked again here; a deletion is captured
  * for each row first, as a single deletion is, and removed only as captured.
  */
 import { TRANSCRIPTIONS } from './definition.js';
 import { recordingTitle } from './deletion.js';
+import type { RecordingAudio } from './recording-audio.js';
 import type {
 	Deletion,
-	Library,
 	RecordingEntry,
 	TranscriptionEntry,
-} from './library.svelte.js';
-import type { RecordingAudio } from './recording-audio.js';
+	Whispering,
+} from './whispering.svelte.js';
 
 export type RecordingStatus =
 	| 'transcribing'
@@ -66,21 +66,21 @@ export const DEFAULT_SORT: RecordingSort = {
 };
 
 type Source = Pick<
-	Library,
+	Whispering,
 	'entries' | 'resultsFor' | 'transcriptionRun' | 'resultState' | 'audioOf'
 >;
 
 /** What the newest transcript of a recording shows, or undefined when it has none. */
-function newestState(library: Source, id: string) {
-	const newest = library.resultsFor(id)[0];
-	return newest && library.resultState(newest.path, newest.row.body);
+function newestState(whispering: Source, id: string) {
+	const newest = whispering.resultsFor(id)[0];
+	return newest && whispering.resultState(newest.path, newest.row.body);
 }
 
-function statusOf(library: Source, id: string): RecordingStatus {
-	const run = library.transcriptionRun(id);
+function statusOf(whispering: Source, id: string): RecordingStatus {
+	const run = whispering.transcriptionRun(id);
 	if (run?.kind === 'running') return 'transcribing';
 	if (run?.kind === 'failed') return 'failed';
-	switch (newestState(library, id)?.kind) {
+	switch (newestState(whispering, id)?.kind) {
 		case undefined:
 			return 'untranscribed';
 		case 'answered':
@@ -96,16 +96,16 @@ function statusOf(library: Source, id: string): RecordingStatus {
 }
 
 /** One row for every recording the folder lists, in the folder's own order. */
-export function recordingRows(library: Source): RecordingRow[] {
-	return library.entries.map((entry) => ({
+export function recordingRows(whispering: Source): RecordingRow[] {
+	return whispering.entries.map((entry) => ({
 		path: entry.path,
 		entry,
 		title: recordingTitle(entry),
-		transcripts: library
+		transcripts: whispering
 			.resultsFor(entry.stem)
 			.filter((transcript) => transcript.row.body !== ''),
-		status: statusOf(library, entry.stem),
-		audio: library.audioOf(entry),
+		status: statusOf(whispering, entry.stem),
+		audio: whispering.audioOf(entry),
 	}));
 }
 
@@ -211,11 +211,11 @@ export function nextSort(
 
 /** The table as it is shown: searched, then sorted. */
 export function shownRows(
-	library: Source,
+	whispering: Source,
 	query: string,
 	sort: RecordingSort,
 ): RecordingRow[] {
-	return sortRows(searchRows(recordingRows(library), query), sort);
+	return sortRows(searchRows(recordingRows(whispering), query), sort);
 }
 
 // --- selection ------------------------------------------------------------
@@ -231,12 +231,12 @@ export function shownRows(
 export function selectionIn(
 	selected: readonly string[],
 	shown: readonly RecordingRow[],
-	library: Pick<Library, 'entries'>,
+	whispering: Pick<Whispering, 'entries'>,
 ): { rows: RecordingRow[]; hidden: number } {
 	const chosen = new Set(selected);
 	const rows = shown.filter((row) => chosen.has(row.path));
 	let present = 0;
-	for (const entry of library.entries) if (chosen.has(entry.path)) present++;
+	for (const entry of whispering.entries) if (chosen.has(entry.path)) present++;
 	return { rows, hidden: present - rows.length };
 }
 
@@ -245,9 +245,9 @@ export function toggleSelected(
 	selected: readonly string[],
 	path: string,
 	on: boolean,
-	library: Pick<Library, 'entries'>,
+	whispering: Pick<Whispering, 'entries'>,
 ): string[] {
-	const present = new Set(library.entries.map((entry) => entry.path));
+	const present = new Set(whispering.entries.map((entry) => entry.path));
 	const next = selected.filter((item) => item !== path && present.has(item));
 	return on && present.has(path) ? [...next, path] : next;
 }
@@ -260,9 +260,9 @@ export function toggleAllShown(
 	selected: readonly string[],
 	shown: readonly RecordingRow[],
 	on: boolean,
-	library: Pick<Library, 'entries'>,
+	whispering: Pick<Whispering, 'entries'>,
 ): string[] {
-	const present = new Set(library.entries.map((entry) => entry.path));
+	const present = new Set(whispering.entries.map((entry) => entry.path));
 	const visible = new Set(shown.map((row) => row.path));
 	const kept = selected.filter(
 		(item) => present.has(item) && !visible.has(item),
@@ -308,16 +308,16 @@ export type BulkTranscription = {
 
 /**
  * Transcribe the rows that have no transcript, one at a time in the order
- * given. Each is the library's own transcription of that row: only the audio
+ * given. Each is Whispering's own transcription of that row: only the audio
  * its file names is sent, once. A row that already has a transcript, finished
  * or not, names no audio, names audio not on this device, or has a
  * transcription under way is not sent.
  * Nothing is sent again here after a failure: trying again is the person's
- * choice. Once the library is closing, the rows still waiting are not sent;
+ * choice. Once Whispering is closing, the rows still waiting are not sent;
  * the one already sent ends as it would have and is reported as it ended.
  */
 export async function transcribeRows(
-	library: Source & Pick<Library, 'transcribe' | 'closing' | 'readAgain'>,
+	whispering: Source & Pick<Whispering, 'transcribe' | 'closing' | 'readAgain'>,
 	paths: readonly string[],
 	onProgress?: (done: number) => void,
 ): Promise<BulkTranscription> {
@@ -330,18 +330,18 @@ export async function transcribeRows(
 	// What each row is called when the run starts, for a row the folder no
 	// longer lists by its turn, such as after the app closed.
 	const titles = new Map(
-		library.entries.map((entry) => [entry.path, recordingTitle(entry)]),
+		whispering.entries.map((entry) => [entry.path, recordingTitle(entry)]),
 	);
 	for (const path of paths) {
 		// Read again for each row: the folder may have changed while the last one ran.
-		const entry = library.entries.find((item) => item.path === path);
+		const entry = whispering.entries.find((item) => item.path === path);
 		const title = entry ? recordingTitle(entry) : (titles.get(path) ?? path);
 		const skip = (reason: string) => outcome.skipped.push({ title, reason });
-		const running = entry && library.transcriptionRun(entry.stem);
-		const before = entry && newestState(library, entry.stem)?.kind;
+		const running = entry && whispering.transcriptionRun(entry.stem);
+		const before = entry && newestState(whispering, entry.stem)?.kind;
 		// Asked before every row: a row still waiting its turn when the app
 		// began closing is not sent, and says so.
-		if (library.closing) skip('The app was closing, so it was not sent.');
+		if (whispering.closing) skip('The app was closing, so it was not sent.');
 		else if (entry === undefined) skip('It is no longer in the folder.');
 		else if (
 			running?.kind === 'running' ||
@@ -352,18 +352,18 @@ export async function transcribeRows(
 		else if (before === 'answered') skip('It already has a transcript.');
 		else if (before !== undefined)
 			skip('Its transcription did not finish. Open it to run it again.');
-		else if (library.audioOf(entry).kind === 'absent')
+		else if (whispering.audioOf(entry).kind === 'absent')
 			skip('Its audio isn’t on this device.');
-		else if (library.audioOf(entry).kind === 'ambiguous')
+		else if (whispering.audioOf(entry).kind === 'ambiguous')
 			skip('More than one audio file matches it. Keep one matching file.');
 		else {
-			await library.transcribe(entry);
+			await whispering.transcribe(entry);
 			// Counted by what the folder lists now, not by the call having returned:
-			// the library declines without a word when the recording is on its way
+			// Whispering declines without a word when the recording is on its way
 			// out. The transcriptions are read for this count, after the save.
-			await library.readAgain([TRANSCRIPTIONS]);
-			const run = library.transcriptionRun(entry.stem);
-			const state = newestState(library, entry.stem);
+			await whispering.readAgain([TRANSCRIPTIONS]);
+			const run = whispering.transcriptionRun(entry.stem);
+			const state = newestState(whispering, entry.stem);
 			if (state?.kind === 'answered') outcome.transcribed.push(title);
 			else
 				outcome.failed.push({
@@ -386,25 +386,26 @@ export async function transcribeRows(
 export type CapturedDeletions = {
 	/** What each deletion would remove, captured as a single deletion is. */
 	readonly deletions: Extract<Deletion, { kind: 'recording' }>[];
-	/** Recordings that cannot be deleted now, with the library's own reason. */
+	/** Recordings that cannot be deleted now, with Whispering's own reason. */
 	readonly refused: { readonly title: string; readonly reason: string }[];
 };
 
 /**
  * Capture a deletion for each recording, in the order given, before anyone
- * is asked. Each is the library's own capture, so pending typing is saved
+ * is asked. Each is Whispering's own capture, so pending typing is saved
  * first and a recording with work under way, or with results that cannot be
  * told apart from its own, is refused with that reason and left out.
  */
 export async function captureDeletions(
-	library: Pick<Library, 'deletionFor' | 'entries'>,
+	whispering: Pick<Whispering, 'deletionFor' | 'entries'>,
 	paths: readonly string[],
 ): Promise<CapturedDeletions> {
 	const captured: CapturedDeletions = { deletions: [], refused: [] };
 	for (const path of paths) {
-		const entry = library.entries.find((item) => item.path === path);
+		const entry = whispering.entries.find((item) => item.path === path);
 		const title = entry ? recordingTitle(entry) : path;
-		const { data: deletion, error: refusal } = await library.deletionFor(path);
+		const { data: deletion, error: refusal } =
+			await whispering.deletionFor(path);
 		if (refusal !== null) captured.refused.push({ title, reason: refusal });
 		else if (deletion.kind === 'recording') captured.deletions.push(deletion);
 		else
@@ -452,18 +453,18 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 
 /**
  * Delete exactly what was captured and confirmed, one recording at a time.
- * Each is the library's own deletion, so a recording with work under way, or
+ * Each is Whispering's own deletion, so a recording with work under way, or
  * a result saved since it was captured, is refused there and reported here;
  * the rest still go.
  */
 export async function deleteCaptured(
-	library: Pick<Library, 'delete'>,
+	whispering: Pick<Whispering, 'delete'>,
 	deletions: CapturedDeletions['deletions'],
 ): Promise<{ deleted: number; problems: { title: string; reason: string }[] }> {
 	let deleted = 0;
 	const problems: { title: string; reason: string }[] = [];
 	for (const deletion of deletions) {
-		const problem = await library.delete(deletion);
+		const problem = await whispering.delete(deletion);
 		if (problem === undefined) deleted += 1;
 		else problems.push({ title: deletion.title, reason: problem });
 	}

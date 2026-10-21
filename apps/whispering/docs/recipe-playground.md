@@ -42,7 +42,7 @@ registry, catalog, or per-recipe binding.
 - `src/lib/recipe.ts` is the one resolver. The Run check, the post-processing
   chooser, the transcript Transform menu, the recipe page, and both run entry
   points use it.
-- One run lifecycle in `library.svelte.ts` serves transcript and pasted-text
+- One run lifecycle in `runs.svelte.ts` serves transcript and pasted-text
   runs; the destination is the only difference. Pasted-text answers are held
   until Save and written to the new `text_runs/` table.
 

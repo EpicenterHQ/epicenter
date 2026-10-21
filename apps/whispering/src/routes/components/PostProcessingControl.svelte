@@ -26,7 +26,7 @@
 	let content = $state<HTMLElement | null>(null);
 
 	const whispering = getWhispering();
-	const { library, view } = whispering;
+	const { view } = whispering;
 
 	const choice = $derived(whispering.postProcessing);
 	const name = $derived(
@@ -89,7 +89,7 @@
 	>
 		<div class="flex items-center gap-2">
 			<p class="flex-1 font-medium" id="post-processing-heading">Post-processing</p>
-			{#if library.refreshing}<Spinner class="size-3.5" aria-label="Reading the folder" />{/if}
+			{#if whispering.refreshing}<Spinner class="size-3.5" aria-label="Reading the folder" />{/if}
 		</div>
 		<p class="text-xs text-muted-foreground">
 			Choosing sends nothing. It runs only when you press Run on a transcript.
@@ -105,8 +105,8 @@
 				<RadioGroup.Item value={NONE} id="post-processing-none" />
 				<Label for="post-processing-none" class="font-normal">None</Label>
 			</div>
-			{#each library.transformations as item, index (item.path)}
-				{@const resolved = library.resolve(item.row)}
+			{#each whispering.transformations as item, index (item.path)}
+				{@const resolved = whispering.resolve(item.row)}
 				{@const runnable = resolved.kind === 'ready'}
 				<!-- The group is a grid, so a row shrinks to the popover only with min-w-0; the label then takes what the radio leaves and the title truncates in it. -->
 				<div class="flex min-w-0 items-center gap-2">
@@ -133,20 +133,20 @@
 			{/if}
 		</RadioGroup.Root>
 
-		{#if library.transformationsError}
+		{#if whispering.transformationsError}
 			<p class="text-xs text-destructive" role="alert" data-testid="post-processing-error">
-				The transformations could not be read, so this is the last list that was: {library.transformationsError}
+				The transformations could not be read, so this is the last list that was: {whispering.transformationsError}
 			</p>
-		{:else if library.transformations.length === 0}
+		{:else if whispering.transformations.length === 0}
 			<p class="text-xs text-muted-foreground" data-testid="post-processing-empty">
 				This folder has no transformations yet. Create one to choose it here.
 			</p>
 		{/if}
-		{#if library.transformationRepairs.length > 0}
+		{#if whispering.transformationRepairs.length > 0}
 			<p class="text-xs text-warning" role="status">
-				{library.transformationRepairs.length === 1
+				{whispering.transformationRepairs.length === 1
 					? '1 file in transformations/ needs repair and is not listed.'
-					: `${library.transformationRepairs.length} files in transformations/ need repair and are not listed.`}
+					: `${whispering.transformationRepairs.length} files in transformations/ need repair and are not listed.`}
 			</p>
 		{/if}
 		{#if choice.kind === 'repair'}

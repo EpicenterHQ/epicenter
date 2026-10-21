@@ -24,21 +24,21 @@
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 
 	/** A recording keeps the microphone it opened, so the choice waits for it to end. */
-	const locked = $derived(library.recorder.phase !== 'idle');
-	const devices = $derived(library.input.list.kind === 'listed' ? library.input.list.devices : []);
+	const locked = $derived(whispering.recorder.phase !== 'idle');
+	const devices = $derived(whispering.input.list.kind === 'listed' ? whispering.input.list.devices : []);
 	/** Whether the choice's own ID is listed. A listed input with the same name is not it. */
-	const listed = $derived(devices.some((device) => device.deviceId === library.input.choice?.deviceId));
+	const listed = $derived(devices.some((device) => device.deviceId === whispering.input.choice?.deviceId));
 	/**
 	 * Nothing is listed by name. In a browser that is usually access not yet
 	 * allowed, and enabling is the one thing to do; in Epicenter, which names
 	 * every input, it means no microphone is connected.
 	 */
-	const unnamed = $derived(library.input.list.kind === 'listed' && devices.length === 0);
+	const unnamed = $derived(whispering.input.list.kind === 'listed' && devices.length === 0);
 	const name = $derived(
-		!library.input.available ? 'Fixture audio' : library.input.choice === undefined ? 'System default' : library.input.choice.label || 'Chosen microphone',
+		!whispering.input.available ? 'Fixture audio' : whispering.input.choice === undefined ? 'System default' : whispering.input.choice.label || 'Chosen microphone',
 	);
 
 	/**
@@ -47,14 +47,14 @@
 	 * allowed nothing is listed, and that says nothing about the choice.
 	 */
 	const warning = $derived(
-		!library.input.available
+		!whispering.input.available
 			? undefined
-			: library.input.denied
+			: whispering.input.denied
 				? 'Microphone access was denied'
-				: library.input.choiceListed === false
+				: whispering.input.choiceListed === false
 					? 'This input is not listed'
-					: library.input.preferenceProblem
-						? library.input.preferenceProblem
+					: whispering.input.preferenceProblem
+						? whispering.input.preferenceProblem
 						: undefined,
 	);
 	/** The trigger is an icon, so this is its whole name: what it is, what is chosen, and what is wrong. */
@@ -64,12 +64,12 @@
 	// Radio values: a listed ID never equals the system default's value.
 	const SYSTEM = 'system';
 	const valueOf = (deviceId: string) => `device:${deviceId}`;
-	const value = $derived(library.input.choice === undefined ? SYSTEM : valueOf(library.input.choice.deviceId));
+	const value = $derived(whispering.input.choice === undefined ? SYSTEM : valueOf(whispering.input.choice.deviceId));
 
 	function choose(next: string) {
 		const device = devices.find((item) => valueOf(item.deviceId) === next);
 		// A value that is neither is the unlisted choice itself, which is already chosen.
-		if (next === SYSTEM || device !== undefined) void library.input.select(device);
+		if (next === SYSTEM || device !== undefined) void whispering.input.select(device);
 	}
 
 	// While this is the open popover the inputs are listed. When it stops being
@@ -77,8 +77,8 @@
 	// left), whatever it was opening or testing is released.
 	$effect(() => {
 		if (!open) return;
-		untrack(() => void library.input.refresh());
-		return () => library.input.release();
+		untrack(() => void whispering.input.refresh());
+		return () => whispering.input.release();
 	});
 </script>
 
@@ -97,7 +97,7 @@
 							aria-label={summary}
 							data-testid="microphone-control"
 						>
-							<MicIcon class={cn('text-muted-foreground', !warning && library.input.choice && library.input.choiceListed === true && 'text-success brightness-75 dark:brightness-100', warning && 'text-warning')} />
+							<MicIcon class={cn('text-muted-foreground', !warning && whispering.input.choice && whispering.input.choiceListed === true && 'text-success brightness-75 dark:brightness-100', warning && 'text-warning')} />
 						</Button>
 					{/snippet}
 				</Popover.Trigger>
@@ -113,10 +113,10 @@
 		class="max-h-(--bits-popover-content-available-height) w-72 max-w-[calc(100vw-1rem)] gap-3 overflow-y-auto"
 		data-testid="microphone-popover"
 	>
-		{#if !library.input.available}
+		{#if !whispering.input.available}
 			<p class="font-medium">No real input</p>
 			<p class="text-xs text-muted-foreground" data-testid="microphone-fixture">
-				Recordings use {library.services.capture.label}. No microphone is listed, asked for, or opened.
+				Recordings use {whispering.services.capture.label}. No microphone is listed, asked for, or opened.
 			</p>
 		{:else}
 			<div class="flex items-center gap-2">
@@ -126,11 +126,11 @@
 					variant="ghost"
 					size="icon-xs"
 					aria-label="List inputs again"
-					disabled={library.input.listing}
-					onclick={() => void library.input.refresh()}
+					disabled={whispering.input.listing}
+					onclick={() => void whispering.input.refresh()}
 					data-testid="microphone-refresh"
 				>
-					{#if library.input.listing}<Spinner />{:else}<RefreshCwIcon />{/if}
+					{#if whispering.input.listing}<Spinner />{:else}<RefreshCwIcon />{/if}
 				</Button>
 			</div>
 
@@ -145,76 +145,76 @@
 						<Label for="microphone-{index}" class="min-w-0 font-normal"><span class="truncate">{device.label}</span></Label>
 					</div>
 				{/each}
-				{#if library.input.choice && !listed}
+				{#if whispering.input.choice && !listed}
 					<!-- The choice is kept as it is: it is never swapped for a microphone that happens to be listed. -->
 					<div class="flex items-center gap-2" data-testid="microphone-unlisted">
-						<RadioGroup.Item value={valueOf(library.input.choice.deviceId)} id="microphone-chosen" />
+						<RadioGroup.Item value={valueOf(whispering.input.choice.deviceId)} id="microphone-chosen" />
 						<Label for="microphone-chosen" class="min-w-0 font-normal">
-							<span class="truncate">{library.input.choice.label || 'Chosen microphone'}</span>
+							<span class="truncate">{whispering.input.choice.label || 'Chosen microphone'}</span>
 							<span class="shrink-0 text-xs text-warning">not listed</span>
 						</Label>
 					</div>
 				{/if}
 			</RadioGroup.Root>
 
-			{#if library.input.list.kind === 'unsupported' || library.input.list.kind === 'failed'}
-				<p class="text-xs text-destructive" role="alert" data-testid="microphone-list-problem">{library.input.list.message}</p>
+			{#if whispering.input.list.kind === 'unsupported' || whispering.input.list.kind === 'failed'}
+				<p class="text-xs text-destructive" role="alert" data-testid="microphone-list-problem">{whispering.input.list.message}</p>
 			{:else if locked}
 				<p class="text-xs text-muted-foreground" role="status">In use by this recording. Change it when the recording ends.</p>
-			{:else if library.input.choiceListed === false}
+			{:else if whispering.input.choiceListed === false}
 				<p class="text-xs text-warning" role="status" data-testid="microphone-unlisted-note">
 					This input is not listed. If it cannot be opened, recording will not start and no other microphone is used
 					in its place.
 				</p>
 			{:else if unnamed}
 				<p class="text-xs text-muted-foreground" data-testid="microphone-unnamed">
-					{!library.input.canAllow
+					{!whispering.input.canAllow
 						? 'No microphone is connected.'
-						: library.input.list.kind === 'listed' && library.input.list.namesWithheld
+						: whispering.input.list.kind === 'listed' && whispering.input.list.namesWithheld
 							? 'Microphones are listed by name once you allow access.'
 							: 'No microphone is listed. Allowing access may show them.'}
 				</p>
 			{/if}
 
-			{#if library.input.test.phase === 'running'}
+			{#if whispering.input.test.phase === 'running'}
 				<div class="flex flex-col gap-1.5" data-testid="microphone-meter">
-					<Progress value={Math.round(library.input.level * 100)} aria-label="Input level of {library.input.test.label}" />
-					<p class="text-xs text-muted-foreground">Listening to {library.input.test.label}. Nothing is recorded.</p>
+					<Progress value={Math.round(whispering.input.level * 100)} aria-label="Input level of {whispering.input.test.label}" />
+					<p class="text-xs text-muted-foreground">Listening to {whispering.input.test.label}. Nothing is recorded.</p>
 				</div>
 			{/if}
-			{#if library.input.problem}
-				<p class="text-xs text-destructive" role="alert" data-testid="microphone-problem">{library.input.problem}</p>
+			{#if whispering.input.problem}
+				<p class="text-xs text-destructive" role="alert" data-testid="microphone-problem">{whispering.input.problem}</p>
 			{/if}
-			{#if library.input.denied && library.input.canOpenSettings}
-				<Button size="sm" variant="outline" onclick={() => void library.input.openSettings()} data-testid="microphone-settings">
+			{#if whispering.input.denied && whispering.input.canOpenSettings}
+				<Button size="sm" variant="outline" onclick={() => void whispering.input.openSettings()} data-testid="microphone-settings">
 					Open Microphone Settings
 				</Button>
 			{/if}
-			{#if library.input.preferenceProblem}
-				<p class="text-xs text-destructive" role="alert">Microphone setting: {library.input.preferenceProblem}</p>
+			{#if whispering.input.preferenceProblem}
+				<p class="text-xs text-destructive" role="alert">Microphone setting: {whispering.input.preferenceProblem}</p>
 			{/if}
 
 			<!-- One action at a time: enabling while nothing is named, otherwise the test. -->
-			{#if library.input.test.phase !== 'idle'}
-				<Button size="sm" variant="outline" onclick={() => library.input.release()} data-testid="microphone-test-stop">
-					{#if library.input.test.phase === 'opening'}<Spinner class="size-3.5" />{/if}
+			{#if whispering.input.test.phase !== 'idle'}
+				<Button size="sm" variant="outline" onclick={() => whispering.input.release()} data-testid="microphone-test-stop">
+					{#if whispering.input.test.phase === 'opening'}<Spinner class="size-3.5" />{/if}
 					Stop test
 				</Button>
-			{:else if unnamed && !library.input.canAllow}
+			{:else if unnamed && !whispering.input.canAllow}
 				<!-- Nothing is connected, so there is nothing to enable or test. -->
 			{:else if unnamed}
 				<Button
 					size="sm"
 					tooltip="Asks for microphone access. Nothing is recorded."
-					disabled={locked || library.input.allowing}
-					onclick={() => void library.input.allow()}
+					disabled={locked || whispering.input.allowing}
+					onclick={() => void whispering.input.allow()}
 					data-testid="microphone-enable"
 				>
-					{#if library.input.allowing}<Spinner class="size-3.5" />{/if}
+					{#if whispering.input.allowing}<Spinner class="size-3.5" />{/if}
 					Enable microphones
 				</Button>
 			{:else}
-				<Button size="sm" variant="outline" disabled={locked || library.input.allowing} onclick={() => void library.input.startTest()} data-testid="microphone-test">
+				<Button size="sm" variant="outline" disabled={locked || whispering.input.allowing} onclick={() => void whispering.input.startTest()} data-testid="microphone-test">
 					Test microphone
 				</Button>
 			{/if}

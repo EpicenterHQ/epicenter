@@ -22,7 +22,7 @@
  * - A recording whose audio the folder does not hold says so on its row, and
  *   it is skipped rather than sent
  * - Deleting several captures each deletion first, leaves out what the
- *   library refuses, removes only what was captured, and keeps the audio
+ *   whispering refuses, removes only what was captured, and keeps the audio
  * - A transcript is edited in its own draft beside its recording, which stays
  *   selected, and saves as it is typed; an outside change merges with the
  *   next save; closing the details or changing page discards nothing
@@ -35,7 +35,7 @@
 import {
 	closeTestWhispering,
 	openTestWhispering,
-} from './library.test-support.js';
+} from './whispering.test-support.js';
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -184,7 +184,7 @@ async function history(
 		'Second take, cleaner. Ideas for the garden layout and the path.\n',
 	);
 
-	const whispering = await openTestWhispering({
+	const { whispering, context } = await openTestWhispering({
 		folder: folderOf(test.folder),
 		services: {
 			...test.services,
@@ -197,12 +197,13 @@ async function history(
 		},
 	});
 	cleanups.push(async () => {
-		await closeTestWhispering(whispering);
+		await closeTestWhispering({ whispering, context });
 		await test.remove();
 	});
 	return {
 		whispering,
-		library: whispering.library,
+		context,
+
 		view: whispering.view,
 		sent,
 		root: test.root,
@@ -213,8 +214,8 @@ const path = (stem: string) => `recordings/${stem}.md`;
 const stems = (rows: readonly { entry: { stem: string } }[]) =>
 	rows.map((row) => row.entry.stem);
 /** One recording's row as the table has it now. */
-function rowOf(library: Whispering['library'], stem: string) {
-	const row = shownRows(library, '', DEFAULT_SORT).find(
+function rowOf(whispering: Whispering, stem: string) {
+	const row = shownRows(whispering, '', DEFAULT_SORT).find(
 		(item) => item.entry.stem === stem,
 	);
 	if (row === undefined) throw new Error(`${stem} is listed`);
@@ -226,9 +227,9 @@ function rowOf(library: Whispering['library'], stem: string) {
 // ============================================================================
 
 test('text remembered from an older transcript finds its recording and shows the passage', async () => {
-	const { library } = await history();
+	const { whispering } = await history();
 
-	const found = shownRows(library, '  Persimmon Tree ', DEFAULT_SORT);
+	const found = shownRows(whispering, '  Persimmon Tree ', DEFAULT_SORT);
 
 	expect(stems(found)).toEqual(['walk']);
 	const walk = found[0]!;
@@ -244,24 +245,24 @@ test('text remembered from an older transcript finds its recording and shows the
 });
 
 test('a search also reads notes, titles, and IDs, and says nothing for a recording with no transcript', async () => {
-	const { library } = await history();
+	const { whispering } = await history();
 	const search = (query: string) =>
-		stems(shownRows(library, query, DEFAULT_SORT));
+		stems(shownRows(whispering, query, DEFAULT_SORT));
 
 	expect(search('garage')).toEqual(['dentist']);
 	expect(search('STANDUP')).toEqual(['standup']);
 	expect(search('lectur')).toEqual(['lecture']);
 	expect(search('nothing has this')).toEqual([]);
 	// Found by its notes, it has no transcript to show a line of.
-	const dentist = rowOf(library, 'dentist');
+	const dentist = rowOf(whispering, 'dentist');
 	expect(transcriptExcerpt(dentist, 'garage')).toBeUndefined();
 	expect(dentist.status).toBe('untranscribed');
 	// A file with no audio named, and one that does not read, need repair: they are listed apart.
-	expect(library.repairs.map((item) => item.stem)).toEqual([
+	expect(whispering.repairs.map((item) => item.stem)).toEqual([
 		'broken',
 		'orphan',
 	]);
-	expect(library.repairs[1]!.reason).toContain('capture');
+	expect(whispering.repairs[1]!.reason).toContain('capture');
 });
 
 // ============================================================================
@@ -269,11 +270,11 @@ test('a search also reads notes, titles, and IDs, and says nothing for a recordi
 // ============================================================================
 
 test('sorting gives one order every time: ties keep their order both ways', async () => {
-	const { library } = await history();
+	const { whispering } = await history();
 	const order = (
 		key: 'recordedAt' | 'durationMs' | 'title' | 'status',
 		direction: 'asc' | 'desc',
-	) => stems(shownRows(library, '', { key, direction }));
+	) => stems(shownRows(whispering, '', { key, direction }));
 
 	expect(order('recordedAt', 'desc')).toEqual([
 		'dentist',
@@ -326,7 +327,7 @@ test('sorting gives one order every time: ties keep their order both ways', asyn
 // ============================================================================
 
 test('a selection is by path: it holds through a search, a sort, and a refresh, and drops what left the folder', async () => {
-	const { library, view } = await history();
+	const { context, whispering, view } = await history();
 	expect(view.recordingSelected).toEqual([]);
 	expect(view.recordingSort).toEqual(DEFAULT_SORT);
 
@@ -335,23 +336,29 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 			view.recordingSelected,
 			path(stem),
 			true,
-			library,
+			whispering,
 		);
-	const all = shownRows(library, '', DEFAULT_SORT);
+	const all = shownRows(whispering, '', DEFAULT_SORT);
 	// In table order, whatever order they were ticked in.
-	expect(stems(selectionIn(view.recordingSelected, all, library).rows)).toEqual(
-		['dentist', 'walk', 'lecture'],
-	);
+	expect(
+		stems(selectionIn(view.recordingSelected, all, whispering).rows),
+	).toEqual(['dentist', 'walk', 'lecture']);
 
 	// A search that hides two of them says so, and acts only on what it shows.
 	view.recordingQuery = 'garden';
-	const searched = shownRows(library, view.recordingQuery, view.recordingSort);
+	const searched = shownRows(
+		whispering,
+		view.recordingQuery,
+		view.recordingSort,
+	);
 	expect(stems(searched)).toEqual(['walk']);
-	expect(selectionIn(view.recordingSelected, searched, library)).toMatchObject({
+	expect(
+		selectionIn(view.recordingSelected, searched, whispering),
+	).toMatchObject({
 		hidden: 2,
 	});
 	expect(
-		stems(selectionIn(view.recordingSelected, searched, library).rows),
+		stems(selectionIn(view.recordingSelected, searched, whispering).rows),
 	).toEqual(['walk']);
 
 	// Clearing what is shown leaves what is hidden; selecting what is shown adds to it.
@@ -359,7 +366,7 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 		view.recordingSelected,
 		searched,
 		false,
-		library,
+		whispering,
 	);
 	expect(view.recordingSelected.sort()).toEqual([
 		path('dentist'),
@@ -369,7 +376,7 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 		view.recordingSelected,
 		searched,
 		true,
-		library,
+		whispering,
 	);
 	expect(view.recordingSelected.sort()).toEqual(
 		['dentist', 'lecture', 'walk'].map(path),
@@ -378,31 +385,31 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 	// A new order and a refresh change nothing about what is selected.
 	view.recordingQuery = '';
 	view.recordingSort = nextSort(view.recordingSort, 'title');
-	await settle(library);
-	const sorted = shownRows(library, view.recordingQuery, view.recordingSort);
+	await settle(whispering, context);
+	const sorted = shownRows(whispering, view.recordingQuery, view.recordingSort);
 	expect(
-		stems(selectionIn(view.recordingSelected, sorted, library).rows),
+		stems(selectionIn(view.recordingSelected, sorted, whispering).rows),
 	).toEqual(['dentist', 'lecture', 'walk']);
 
 	// A selected recording deleted from the folder is no longer selected, or counted as hidden.
-	const deletion = expectOk(await library.deletionFor(path('lecture')));
-	expect(await library.delete(deletion)).toBeUndefined();
-	const after = shownRows(library, 'standup', view.recordingSort);
-	expect(selectionIn(view.recordingSelected, after, library)).toMatchObject({
+	const deletion = expectOk(await whispering.deletionFor(path('lecture')));
+	expect(await whispering.delete(deletion)).toBeUndefined();
+	const after = shownRows(whispering, 'standup', view.recordingSort);
+	expect(selectionIn(view.recordingSelected, after, whispering)).toMatchObject({
 		hidden: 2,
 	});
 	expect(
-		stems(selectionIn(view.recordingSelected, after, library).rows),
+		stems(selectionIn(view.recordingSelected, after, whispering).rows),
 	).toEqual([]);
 	view.recordingSelected = toggleSelected(
 		view.recordingSelected,
 		path('standup'),
 		true,
-		library,
+		whispering,
 	);
 	expect(view.recordingSelected).not.toContain(path('lecture'));
 	// A path that is not in the folder cannot be selected.
-	expect(toggleSelected([], path('lecture'), true, library)).toEqual([]);
+	expect(toggleSelected([], path('lecture'), true, whispering)).toEqual([]);
 });
 
 // ============================================================================
@@ -410,12 +417,12 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 // ============================================================================
 
 test('copying takes the newest transcript of each selected row, in table order, and counts the rows with none', async () => {
-	const { library } = await history();
-	const rows = shownRows(library, '', { key: 'title', direction: 'asc' });
+	const { whispering } = await history();
+	const rows = shownRows(whispering, '', { key: 'title', direction: 'asc' });
 	const selected = selectionIn(
 		[path('walk'), path('dentist'), path('standup')],
 		rows,
-		library,
+		whispering,
 	).rows;
 
 	expect(transcriptsToCopy(selected)).toEqual({
@@ -435,14 +442,14 @@ test('copying takes the newest transcript of each selected row, in table order, 
 // ============================================================================
 
 test('transcribing several sends the audio each row names once, in order, and skips what has a transcript or no audio', async () => {
-	const { library, sent, root } = await history();
-	const rows = shownRows(library, '', DEFAULT_SORT);
+	const { whispering, sent, root } = await history();
+	const rows = shownRows(whispering, '', DEFAULT_SORT);
 	// Everything is selected; nothing has been sent by selecting.
 	expect(sent).toEqual([]);
 	const progress: number[] = [];
 
 	const outcome = await transcribeRows(
-		library,
+		whispering,
 		rows.map((row) => row.path),
 		(done) => progress.push(done),
 	);
@@ -458,33 +465,33 @@ test('transcribing several sends the audio each row names once, in order, and sk
 		{ title: 'Monday standup', reason: 'It already has a transcript.' },
 	]);
 	expect(progress).toEqual([1, 2, 3, 4]);
-	expect(library.resultsFor('dentist')[0]!.row.body).toBe(
+	expect(whispering.resultsFor('dentist')[0]!.row.body).toBe(
 		'words from recordings/dentist.wav\n',
 	);
 	expect((await readdir(join(root, 'transcriptions'))).length).toBe(5);
 
 	// Asked again, everything now has a transcript: nothing more is sent.
 	await transcribeRows(
-		library,
+		whispering,
 		rows.map((row) => row.path),
 	);
 	expect(sent).toHaveLength(2);
 });
 
 test('a recording whose audio is not in the folder says so on its row and is not sent', async () => {
-	const { library, sent, root } = await history();
+	const { context, whispering, sent, root } = await history();
 	await rm(join(root, 'recordings', 'lecture.wav'));
-	await settle(library);
-	expect(rowOf(library, 'lecture').audio).toEqual({
+	await settle(whispering, context);
+	expect(rowOf(whispering, 'lecture').audio).toEqual({
 		kind: 'absent',
 		path: 'recordings/lecture.*',
 	});
-	expect(rowOf(library, 'dentist').audio).toEqual({
+	expect(rowOf(whispering, 'dentist').audio).toEqual({
 		kind: 'here',
 		path: 'recordings/dentist.wav',
 	});
 
-	const outcome = await transcribeRows(library, [
+	const outcome = await transcribeRows(whispering, [
 		path('dentist'),
 		path('lecture'),
 	]);
@@ -500,13 +507,13 @@ test('a recording whose audio is not in the folder says so on its row and is not
 });
 
 test('a transcription that fails is reported, is not sent again, and does not stop the ones after it', async () => {
-	const { library, sent } = await history(async ({ audioPath }) => {
+	const { whispering, sent } = await history(async ({ audioPath }) => {
 		if (audioPath === 'recordings/dentist.wav')
 			throw new Error('the endpoint hung up');
 		return Ok({ text: 'arrived' });
 	});
 
-	const outcome = await transcribeRows(library, [
+	const outcome = await transcribeRows(whispering, [
 		path('dentist'),
 		path('lecture'),
 		path('gone'),
@@ -525,27 +532,30 @@ test('a transcription that fails is reported, is not sent again, and does not st
 	]);
 	// The failure is on the transcript's row, which stays without a body, there
 	// to be run again by the person.
-	expect(rowOf(library, 'dentist').status).toBe('failed');
-	expect(library.resultsFor('dentist').map((item) => item.row.body)).toEqual([
-		'',
-	]);
+	expect(rowOf(whispering, 'dentist').status).toBe('failed');
+	expect(whispering.resultsFor('dentist').map((item) => item.row.body)).toEqual(
+		[''],
+	);
 });
 
 test('several are transcribed one at a time: the next is not sent until the one before it has answered', async () => {
 	const first = deferred<Awaited<ReturnType<Transcribe>>>();
-	const { library, sent } = await history(({ audioPath }) =>
+	const { whispering, sent } = await history(({ audioPath }) =>
 		audioPath === 'recordings/dentist.wav'
 			? first.promise
 			: Promise.resolve(Ok({ text: 'arrived' })),
 	);
 
-	const running = transcribeRows(library, [path('dentist'), path('lecture')]);
+	const running = transcribeRows(whispering, [
+		path('dentist'),
+		path('lecture'),
+	]);
 	await eventually(() => sent.length > 0);
 	for (let turn = 0; turn < 50; turn++) await Promise.resolve();
 	expect(sent.map((request) => request.audioPath)).toEqual([
 		'recordings/dentist.wav',
 	]);
-	expect(rowOf(library, 'dentist').status).toBe('transcribing');
+	expect(rowOf(whispering, 'dentist').status).toBe('transcribing');
 
 	first.resolve(Ok({ text: 'arrived late' }));
 	expect((await running).transcribed).toEqual([
@@ -560,9 +570,9 @@ test('several are transcribed one at a time: the next is not sent until the one 
 // ============================================================================
 
 test('deleting several captures each deletion first, removes exactly those with their results, and keeps the audio', async () => {
-	const { library, root } = await history();
+	const { whispering, root } = await history();
 
-	const captured = await captureDeletions(library, [
+	const captured = await captureDeletions(whispering, [
 		path('walk'),
 		path('standup'),
 	]);
@@ -573,14 +583,14 @@ test('deleting several captures each deletion first, removes exactly those with 
 		'standup',
 	]);
 	// Capturing deletes nothing.
-	expect(library.entries).toHaveLength(4);
+	expect(whispering.entries).toHaveLength(4);
 	const told = describeDeletions(captured);
 	expect(told.title).toBe('Delete 2 recordings?');
 	expect(told.description).toContain('2 recording files, 3 results');
 	expect(told.description).toContain('“Walk ideas”, “Monday standup”');
 	expect(told.description).toContain('The 2 audio files are not deleted');
 
-	expect(await deleteCaptured(library, captured.deletions)).toEqual({
+	expect(await deleteCaptured(whispering, captured.deletions)).toEqual({
 		deleted: 2,
 		problems: [],
 	});
@@ -598,14 +608,14 @@ test('deleting several captures each deletion first, removes exactly those with 
 	expect(await readdir(join(root, 'transcriptions'))).toEqual([]);
 });
 
-test('a recording with a transcription under way is left out with the library’s reason, and the rest are still captured', async () => {
+test('a recording with a transcription under way is left out with Whispering’s reason, and the rest are still captured', async () => {
 	const answer = deferred<Awaited<ReturnType<Transcribe>>>();
-	const { library } = await history(() => answer.promise);
-	const running = library.transcribe(
-		library.entries.find((entry) => entry.stem === 'dentist')!,
+	const { whispering } = await history(() => answer.promise);
+	const running = whispering.transcribe(
+		whispering.entries.find((entry) => entry.stem === 'dentist')!,
 	);
 
-	const captured = await captureDeletions(library, [
+	const captured = await captureDeletions(whispering, [
 		path('dentist'),
 		path('lecture'),
 	]);
@@ -621,20 +631,20 @@ test('a recording with a transcription under way is left out with the library’
 });
 
 test('while a result cannot be told apart from a recording’s own, none is captured, and a recording changed after capture is not removed', async () => {
-	const { library, root } = await history();
-	const captured = await captureDeletions(library, [
+	const { context, whispering, root } = await history();
+	const captured = await captureDeletions(whispering, [
 		path('standup'),
 		path('walk'),
 	]);
 	// Something else writes a result that cannot say whose it is.
 	await writeFile(join(root, 'transcriptions', 'stray.md'), 'not a row\n');
-	await settle(library);
+	await settle(whispering, context);
 
 	expect(
-		(await captureDeletions(library, [path('standup')])).deletions,
+		(await captureDeletions(whispering, [path('standup')])).deletions,
 	).toEqual([]);
 	const { deleted, problems } = await deleteCaptured(
-		library,
+		whispering,
 		captured.deletions,
 	);
 
@@ -644,7 +654,7 @@ test('while a result cannot be told apart from a recording’s own, none is capt
 		'Walk ideas',
 	]);
 	expect(problems[0]!.reason).toContain('cannot be told apart');
-	expect(library.entries).toHaveLength(4);
+	expect(whispering.entries).toHaveLength(4);
 });
 
 // ============================================================================
@@ -654,20 +664,20 @@ test('while a result cannot be told apart from a recording’s own, none is capt
 const TRANSCRIPT = 'transcriptions/standup-t1.md';
 
 test('a transcript is edited beside its recording, which stays selected, and is written at once', async () => {
-	const { library, root } = await history();
-	await library.open(path('standup'));
+	const { context, whispering, root } = await history();
+	whispering.open(path('standup'));
 	const before = await readFile(join(root, TRANSCRIPT), 'utf8');
 
-	const editor = transcriptEditor(library, TRANSCRIPT);
+	const editor = transcriptEditor(whispering, TRANSCRIPT);
 	editor.edit((row) => {
 		row.body = 'Yesterday I finished the importer. Today: the exporter.\n';
 	});
 	// Written from the moment it is typed.
-	expect(library.isSaving(TRANSCRIPT)).toBe(true);
-	expect(library.saving).toBe(true);
-	await settle(library);
+	expect(whispering.isSaving(TRANSCRIPT)).toBe(true);
+	expect(whispering.saving).toBe(true);
+	await settle(whispering, context);
 	// The list shows the saved text: the save put it in the listing.
-	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toBe(
+	expect(transcriptExcerpt(rowOf(whispering, 'standup'), '')).toBe(
 		'Yesterday I finished the importer. Today: the exporter.',
 	);
 
@@ -675,24 +685,27 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 	// The fields as they were, the new text.
 	expect(saved.split('---')[1]).toBe(before.split('---')[1]);
 	expect(saved).toContain('Today: the exporter.');
-	expect(library.saving).toBe(false);
-	expect(library.selectedPath).toBe(path('standup'));
-	expect(library.selection?.kind).toBe('recording');
+	expect(whispering.saving).toBe(false);
+	expect(whispering.selectedPath).toBe(path('standup'));
+	expect(whispering.selection?.kind).toBe('recording');
 
 	// Opening the file from Files edits the same row.
-	expect(await library.open(TRANSCRIPT)).toBeUndefined();
-	expect(library.selection).toMatchObject({ kind: 'file', path: TRANSCRIPT });
-	expect(library.edit('transcriptions', TRANSCRIPT).markdown?.body).toBe(
+	expect(whispering.open(TRANSCRIPT)).toBe(true);
+	expect(whispering.selection).toMatchObject({
+		kind: 'file',
+		path: TRANSCRIPT,
+	});
+	expect(whispering.edit('transcriptions', TRANSCRIPT).markdown?.body).toBe(
 		'Yesterday I finished the importer. Today: the exporter.\n',
 	);
 });
 
 test('typing over a transcript changed outside, before the window read it again, merges with the change', async () => {
-	const { library, root } = await history();
-	await library.open(path('standup'));
+	const { context, whispering, root } = await history();
+	whispering.open(path('standup'));
 	const notices: WriteFailure[] = [];
-	library.onWriteFailure((notice) => notices.push(notice));
-	const editor = transcriptEditor(library, TRANSCRIPT);
+	whispering.onWriteFailure((notice) => notices.push(notice));
+	const editor = transcriptEditor(whispering, TRANSCRIPT);
 	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8')).replace(
 		'importer',
 		'migration',
@@ -704,19 +717,19 @@ test('typing over a transcript changed outside, before the window read it again,
 	editor.edit((row) => {
 		row.body = 'What I typed.\n';
 	});
-	await settle(library);
+	await settle(whispering, context);
 	expect(notices).toEqual([]);
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	expect(saved).toContain('What I typed.');
 	expect(saved).not.toContain('migration');
-	expect(library.selectedPath).toBe(path('standup'));
+	expect(whispering.selectedPath).toBe(path('standup'));
 });
 
 test('closing the details and changing page lose no typing: the draft belongs to the app and saves as typed', async () => {
-	const { library, view, root } = await history();
-	await library.open(path('standup'));
+	const { context, whispering, view, root } = await history();
+	whispering.open(path('standup'));
 	view.showingDetail = true;
-	const draft = transcriptEditor(library, TRANSCRIPT);
+	const draft = transcriptEditor(whispering, TRANSCRIPT);
 	draft.edit((row) => {
 		row.body = 'Typed just before closing the details.\n';
 	});
@@ -724,9 +737,9 @@ test('closing the details and changing page lose no typing: the draft belongs to
 
 	// Closing the pane, then a change of page: neither unloads the document.
 	view.showingDetail = false;
-	expect(library.selectedPath).toBe(path('standup'));
+	expect(whispering.selectedPath).toBe(path('standup'));
 
-	await settle(library);
+	await settle(whispering, context);
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
 		'Typed just before closing the details.',
 	);
@@ -738,45 +751,48 @@ test('closing the details and changing page lose no typing: the draft belongs to
 
 test('a selected recording that left the folder is unticked once a listing confirms it, so a new file at its path is not ticked', async () => {
 	const listing = { fails: false };
-	const { library, view, root } = await history(undefined, (folder) => {
-		const { recordings } = folder.tables;
-		return replaceTables(folder, {
-			recordings: {
-				...recordings,
-				list: async () =>
-					listing.fails
-						? ({
-								data: null,
-								error: { name: 'Io', message: 'the disk did not answer' },
-							} as never)
-						: recordings.list(),
-			},
-		});
-	});
+	const { context, whispering, view, root } = await history(
+		undefined,
+		(folder) => {
+			const { recordings } = folder.tables;
+			return replaceTables(folder, {
+				recordings: {
+					...recordings,
+					list: async () =>
+						listing.fails
+							? ({
+									data: null,
+									error: { name: 'Io', message: 'the disk did not answer' },
+								} as never)
+							: recordings.list(),
+				},
+			});
+		},
+	);
 	const row = await readFile(join(root, path('standup')), 'utf8');
 	for (const stem of ['standup', 'walk'])
 		view.recordingSelected = toggleSelected(
 			view.recordingSelected,
 			path(stem),
 			true,
-			library,
+			whispering,
 		);
 
 	// A search that hides a selected row unticks nothing, however often the folder is read.
 	view.recordingQuery = 'garden';
-	await settle(library);
+	await settle(whispering, context);
 	expect(view.recordingSelected).toEqual([path('standup'), path('walk')]);
 
 	// The file goes, but the listing that would say so fails: nothing is taken as gone.
 	await rm(join(root, path('standup')));
 	listing.fails = true;
-	await settle(library);
-	expect(library.listError).toContain('the disk did not answer');
+	await settle(whispering, context);
+	expect(whispering.listError).toContain('the disk did not answer');
 	expect(view.recordingSelected).toEqual([path('standup'), path('walk')]);
 
 	// A listing that is read confirms it gone, and it is unticked then.
 	listing.fails = false;
-	await settle(library);
+	await settle(whispering, context);
 	expect(view.recordingSelected).toEqual([path('walk')]);
 
 	// Another file made at that path later is another recording: it arrives unticked.
@@ -785,13 +801,13 @@ test('a selected recording that left the folder is unticked once a listing confi
 		row.replace('Monday standup', 'A different recording'),
 	);
 	view.recordingQuery = '';
-	await settle(library);
-	expect(rowOf(library, 'standup').title).toBe('A different recording');
-	const shown = shownRows(library, '', DEFAULT_SORT);
+	await settle(whispering, context);
+	expect(rowOf(whispering, 'standup').title).toBe('A different recording');
+	const shown = shownRows(whispering, '', DEFAULT_SORT);
 	expect(
-		stems(selectionIn(view.recordingSelected, shown, library).rows),
+		stems(selectionIn(view.recordingSelected, shown, whispering).rows),
 	).toEqual(['walk']);
-	expect(selectionIn(view.recordingSelected, shown, library).hidden).toBe(0);
+	expect(selectionIn(view.recordingSelected, shown, whispering).hidden).toBe(0);
 });
 
 // ============================================================================
@@ -800,7 +816,7 @@ test('a selected recording that left the folder is unticked once a listing confi
 
 test('nothing is opened or read after closing', async () => {
 	const reads: string[] = [];
-	const { whispering, library } = await history(undefined, (folder) => {
+	const { context, whispering } = await history(undefined, (folder) => {
 		const { files } = folder;
 		return replaceTables(
 			folder,
@@ -814,23 +830,23 @@ test('nothing is opened or read after closing', async () => {
 			},
 		);
 	});
-	await library.open(path('standup'));
-	await closeTestWhispering(whispering);
-	expect(library.closing).toBe(true);
+	whispering.open(path('standup'));
+	await closeTestWhispering({ whispering, context });
+	expect(whispering.closing).toBe(true);
 	const before = reads.length;
-	await library.open('transcriptions/walk-t2.md');
-	await library.open(path('walk'));
-	expect(library.selectedPath).toBe(path('standup'));
+	whispering.open('transcriptions/walk-t2.md');
+	whispering.open(path('walk'));
+	expect(whispering.selectedPath).toBe(path('standup'));
 	expect(reads).toHaveLength(before);
 });
 
 test('typing in a transcript that was opened before closing is saved before the folder closes', async () => {
-	const { whispering, library, root } = await history();
-	transcriptEditor(library, TRANSCRIPT).edit((row) => {
+	const { context, whispering, root } = await history();
+	transcriptEditor(whispering, TRANSCRIPT).edit((row) => {
 		row.body = 'Typed just before quitting.\n';
 	});
 
-	await closeTestWhispering(whispering);
+	await closeTestWhispering({ whispering, context });
 
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
 		'Typed just before quitting.',
@@ -839,11 +855,11 @@ test('typing in a transcript that was opened before closing is saved before the 
 
 test('closing while several are being transcribed sends nothing more: the one under way ends as it ends, the rest are reported as not sent', async () => {
 	const first = deferred<Awaited<ReturnType<Transcribe>>>();
-	const { whispering, library, sent, root } = await history(
+	const { context, whispering, sent, root } = await history(
 		() => first.promise,
 	);
 
-	const running = transcribeRows(library, [
+	const running = transcribeRows(whispering, [
 		path('dentist'),
 		path('lecture'),
 		path('standup'),
@@ -854,7 +870,7 @@ test('closing while several are being transcribed sends nothing more: the one un
 		'recordings/dentist.wav',
 	]);
 
-	await closeTestWhispering(whispering);
+	await closeTestWhispering({ whispering, context });
 	first.resolve(Ok({ text: 'arrived after the close' }));
 	const outcome = await running;
 
@@ -887,10 +903,10 @@ test('closing while several are being transcribed sends nothing more: the one un
 	expect(
 		await readFile(join(root, 'transcriptions', written[0]!), 'utf8'),
 	).toEndWith('---\n');
-	// Asked again after closing, the library sends nothing.
-	await library.transcribe({
+	// Asked again after closing, Whispering sends nothing.
+	await whispering.transcribe({
 		stem: 'lecture',
 	});
 	expect(sent).toHaveLength(1);
-	expect(library.transcriptionRun('lecture')).toBeUndefined();
+	expect(whispering.transcriptionRun('lecture')).toBeUndefined();
 });

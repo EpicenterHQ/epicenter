@@ -1,7 +1,7 @@
 /**
  * Save, repair, and delete sequences over the desktop opener.
  *
- * The real library and its local folder context run over the native
+ * The real whispering and its local folder context run over the native
  * `Folder` the desktop page opens (`openTauriFolder`, reached by its module
  * until a public entry exports it), in a directory the shell grants
  * (`granted-shell.test-support.ts` in the folder package). That is where a
@@ -23,9 +23,9 @@
  * - `../../editing.test.ts` for editing over a directory this process opens
  */
 import {
-	closeTestLibrary,
-	createTestLibrary,
-} from '../../library.test-support.js';
+	closeTestWhispering,
+	createTestWhispering,
+} from '../../whispering.test-support.js';
 
 import '../../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
@@ -69,7 +69,7 @@ afterEach(async () => {
 const PATH = 'transformations/clean.md';
 const SEED = '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n';
 
-/** The library over the desktop opener, in a granted directory holding `files`. */
+/** Whispering over the desktop opener, in a granted directory holding `files`. */
 async function open(files: Record<string, string>, path = PATH) {
 	const root = await grantedDirectory();
 	shell = createGrantedShell(root);
@@ -80,16 +80,21 @@ async function open(files: Record<string, string>, path = PATH) {
 	const services: WhisperingServices = {
 		...stubs.services,
 	};
-	const library = await createTestLibrary({ services, folder });
+	const { whispering, context } = await createTestWhispering({
+		services,
+		folder,
+	});
 	cleanups.push(async () => {
-		await closeTestLibrary(library);
+		await closeTestWhispering({ whispering, context });
 		await stubs.folder.close();
 		await stubs.remove();
 		await rm(root, { recursive: true, force: true });
 	});
-	await library.start();
-	await library.open(path);
-	return { library, session: transformationEditor(library) };
+	await whispering.start();
+	// The sequence below starts after app initialization has saved its exclusions.
+	shell.changes.length = 0;
+	whispering.open(path);
+	return { whispering, context, session: transformationEditor(whispering) };
 }
 
 /** Type a new body into the open transformation. */
@@ -118,7 +123,7 @@ function holdNext(kind: DataChange['kind']) {
 }
 
 test('a save whose reply could not be confirmed keeps the typing as not saved, and it saves again over what landed', async () => {
-	const { library, session } = await open({ [PATH]: SEED });
+	const { context, whispering, session } = await open({ [PATH]: SEED });
 	shell.control.loseReplies = 1;
 	// The engine reads the file to check it before it writes. Once the write
 	// is under way, the file cannot be read back either.
@@ -128,36 +133,36 @@ test('a save whose reply could not be confirmed keeps the typing as not saved, a
 	};
 
 	type(session, 'Tidy it.\n');
-	await settle(library);
-	expect(library.isUnsaved(PATH)).toBe(true);
-	expect(library.unsaved).toBe(true);
+	await settle(whispering, context);
+	expect(whispering.isUnsaved(PATH)).toBe(true);
+	expect(whispering.unsaved).toBe(true);
 	expect(await shell.text(PATH)).toContain('Tidy it.');
 
 	shell.control.failReads.delete(PATH);
-	await settle(library);
+	await settle(whispering, context);
 	type(session, 'Tidy it all.\n');
-	await settle(library);
+	await settle(whispering, context);
 	// Whether the lost save landed was unknown, so the typing saves again from
 	// where it started, over what did land, and wins.
-	expect(library.unsaved).toBe(false);
+	expect(whispering.unsaved).toBe(false);
 	expect(session.draft.body).toBe('Tidy it all.\n');
 	expect(await shell.text(PATH)).toContain('Tidy it all.\n');
 });
 
 test('typing during a save is shown at once and saved after it; input superseded meanwhile is never written', async () => {
-	const { library, session } = await open({ [PATH]: SEED });
+	const { context, whispering, session } = await open({ [PATH]: SEED });
 	const first = holdNext('write');
 
 	type(session, 'First.\n');
 	await first.reached;
-	expect(library.isSaving(PATH)).toBe(true);
+	expect(whispering.isSaving(PATH)).toBe(true);
 	type(session, 'Second.\n');
 	type(session, 'Third.\n');
 	expect(session.draft.body).toBe('Third.\n');
 	first.release();
-	await settle(library);
+	await settle(whispering, context);
 
-	expect(library.unsaved).toBe(false);
+	expect(whispering.unsaved).toBe(false);
 	expect(shell.kinds).toEqual(['write', 'write']);
 	expect(written(0)).toContain('First.\n');
 	expect(written(1)).toContain('Third.\n');
@@ -165,57 +170,57 @@ test('typing during a save is shown at once and saved after it; input superseded
 });
 
 test('a refused save keeps the typing as not saved; the next edit saves it', async () => {
-	const { library, session } = await open({ [PATH]: SEED });
+	const { context, whispering, session } = await open({ [PATH]: SEED });
 	shell.control.refuseNext = 1;
 
 	type(session, 'Mine.\n');
-	await settle(library);
-	expect(library.isUnsaved(PATH)).toBe(true);
+	await settle(whispering, context);
+	expect(whispering.isUnsaved(PATH)).toBe(true);
 	expect(session.draft.body).toBe('Mine.\n');
 	expect(await shell.text(PATH)).toBe(SEED);
 
 	type(session, 'Mine, again.\n');
-	await settle(library);
-	expect(library.unsaved).toBe(false);
+	await settle(whispering, context);
+	expect(whispering.unsaved).toBe(false);
 	expect(await shell.text(PATH)).toContain('Mine, again.\n');
 });
 
 test('another writer’s change merges with the typing: where both changed, the typing wins', async () => {
-	const { library, session } = await open({ [PATH]: SEED });
+	const { context, whispering, session } = await open({ [PATH]: SEED });
 	await shell.write(PATH, SEED.replace('Tidy.', 'Theirs.'));
 
 	type(session, 'Mine.\n');
-	await settle(library);
-	expect(library.unsaved).toBe(false);
+	await settle(whispering, context);
+	expect(whispering.unsaved).toBe(false);
 	expect(await shell.text(PATH)).toContain('Mine.\n');
 	expect(await shell.text(PATH)).not.toContain('Theirs.');
 });
 
 test('a deletion waits for the save of the row, then removes what it saved', async () => {
-	const { library, session } = await open({ [PATH]: SEED });
+	const { context, whispering, session } = await open({ [PATH]: SEED });
 	const save = holdNext('write');
 	type(session, 'Saved first.\n');
 	await save.reached;
 
-	const capturing = library.deletionFor(PATH);
+	const capturing = whispering.deletionFor(PATH);
 	save.release();
 	const deletion = expectOk(await capturing);
 
-	expect(await library.delete(deletion)).toBeUndefined();
+	expect(await whispering.delete(deletion)).toBeUndefined();
 	expect(shell.kinds).toEqual(['write', 'remove']);
 	expect(await shell.text(PATH)).toBeUndefined();
-	await settle(library);
-	expect(library.selectedTransformation).toBeUndefined();
-	expect(library.edit(session.path).locked).toBe(false);
+	await settle(whispering, context);
+	expect(whispering.selectedTransformation).toBeUndefined();
+	expect(whispering.edit(session.path).locked).toBe(false);
 });
 
 test('a deletion whose reply was lost is confirmed by reading back, and recreates nothing', async () => {
-	const { library } = await open({ [PATH]: SEED });
-	const deletion = expectOk(await library.deletionFor(PATH));
+	const { whispering } = await open({ [PATH]: SEED });
+	const deletion = expectOk(await whispering.deletionFor(PATH));
 	shell.control.loseReplies = 1;
 
 	// The file is gone, so the removal landed after all.
-	expect(await library.delete(deletion)).toBeUndefined();
+	expect(await whispering.delete(deletion)).toBeUndefined();
 	expect(await shell.text(PATH)).toBeUndefined();
 	expect(shell.kinds).toEqual(['remove']);
 });

@@ -19,14 +19,14 @@
 		saved?: string;
 		class?: string;
 	} = $props();
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 
-	const fileEdit = $derived(library.edit(path));
-	const saving = $derived(library.isSaving(path));
-	const unsaved = $derived(library.isUnsaved(path));
+	const fileEdit = $derived(whispering.edit(path));
+	const saving = $derived(whispering.isSaving(path));
+	const unsaved = $derived(whispering.isUnsaved(path));
 
 	function discard() {
-		const typing = library.discard(path);
+		const typing = whispering.discard(path);
 		if (!typing) return;
 		toast.info('Your unsaved typing was let go', {
 			description: 'The file keeps what it held.',

@@ -17,7 +17,7 @@ export function nameProblem(
 }
 
 /**
- * Library errors state failures precisely; these are the ones a person acts
+ * Whispering errors state failures precisely; these are the ones a person acts
  * on. A save that failed changed nothing (ADR-0632).
  */
 export function describeError(

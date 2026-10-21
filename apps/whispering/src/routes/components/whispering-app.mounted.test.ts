@@ -3,19 +3,17 @@ import '../svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import { SaveError } from '@epicenter/folder';
-import type { Whispering } from '../../lib/whispering.svelte.js';
-import type { WhisperingContext } from '../../lib/folder.js';
-import type { WhisperingFolder } from '../../lib/folder.js';
-import type { WhisperingServices } from '../../lib/platform/types.js';
 import {
 	desktop,
 	nativeWindow,
 } from '../../../../../packages/svelte/src/tauri-window.test-support.js';
+import type { WhisperingContext, WhisperingFolder } from '../../lib/folder.js';
+import type { WhisperingServices } from '../../lib/platform/types.js';
+import type { Whispering } from '../../lib/whispering.svelte.js';
 
 const { mount, unmount, flushSync } = await import('svelte');
-const { openTestServices, provideServices, deferred, eventually } = await import(
-	'../../lib/services.test-support.js'
-);
+const { openTestServices, provideServices, deferred, eventually } =
+	await import('../../lib/services.test-support.js');
 const { pageState } = await import('../page-state.test-support.svelte.js');
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -27,7 +25,9 @@ afterEach(async () => {
 async function render(
 	options: {
 		change?: (folder: WhisperingFolder, services: WhisperingServices) => void;
-		opener?: (open: Awaited<ReturnType<typeof openTestServices>>['open']) => Awaited<ReturnType<typeof openTestServices>>['open'];
+		opener?: (
+			open: Awaited<ReturnType<typeof openTestServices>>['open'],
+		) => Awaited<ReturnType<typeof openTestServices>>['open'];
 	} = {},
 ) {
 	const test = await openTestServices();
@@ -71,15 +71,15 @@ test('route changes share one opened folder and keep recording', async () => {
 	const app = await render();
 	const first = await app.ready();
 	expect(first.context.folder).toBe(app.test.folder);
-	expect(first.whispering.library.connections?.transcription).toBeDefined();
-	await first.whispering.library.startRecording();
+	expect(first.whispering.connections?.transcription).toBeDefined();
+	await first.whispering.startRecording();
 	app.page.route = 'recordings';
 	flushSync();
 	expect(app.target.querySelector('[data-testid="route"]')?.textContent).toBe(
 		'recordings',
 	);
 	expect(app.seen[1]?.whispering).toBe(first.whispering);
-	expect(first.whispering.library.recorder.phase).toBe('recording');
+	expect(first.whispering.recorder.phase).toBe('recording');
 	await first.context.folder.settle();
 	// Recording alone adds no browser departure warning. FolderApp still
 	// guards accepted edits, covered by its mounted beforeunload test.
@@ -91,7 +91,7 @@ test('route changes share one opened folder and keep recording', async () => {
 test('unmount leaves a recording to the page’s departure and closes the folder exactly once', async () => {
 	const app = await render();
 	const { whispering } = await app.ready();
-	await whispering.library.startRecording();
+	await whispering.startRecording();
 	// Save completion no longer waits for the display queries to catch up.
 	const rows = await readdir(`${app.test.root}/recordings`);
 	expect(rows).toHaveLength(1);
@@ -122,7 +122,7 @@ test('unmount waits for no file command held before the Folder', async () => {
 		},
 	});
 	const { whispering } = await app.ready();
-	const creating = whispering.library.createFile('', 'kept.md');
+	const creating = whispering.createFile('', 'kept.md');
 	await begun.promise;
 	await app.destroy();
 	await eventually(() => app.test.closes === 1);

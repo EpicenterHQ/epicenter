@@ -112,7 +112,7 @@ What Whispering adds on top:
 - The chosen microphone is not folder data either: it names hardware on one
   device. It is `whispering.microphone` in the origin's `localStorage`
   (`src/lib/microphone-preference.ts`). Epicenter serves
-  every app from one fixed loopback origin, so it lasts between launches.
+  every app from its one origin, so it lasts between launches.
 
 Every file action, including settings saves, file creation, rename, and
 deletion, is ordinary work refused once closing begins. Closing waits for
@@ -160,7 +160,7 @@ refusal (a window with no folder, a folder that is gone, a missing
 permission) remains the folder opener's own error, as does a folder
 the engine cannot open.
 
-Everything above the seam (`library.svelte.ts`, its query cache, the components)
+Everything above the seam (`whispering.svelte.ts`, its query cache, the components)
 is the same code for both. Opening returns a `Result`, and a refusal is shown
 on the "Could not open storage" screen as it is. The two
 storages are never substitutes: nothing that is missing or refuses inside a
@@ -283,7 +283,7 @@ routes/+layout.svelte      mounts one shared FolderApp
 `FolderApp` owns opening, the folder context, and closing. `WhisperingApp`
 receives only that context, constructs product state
 with `createWhispering(context)`, and provides `getWhispering()`
-and `getFolder()` to descendants. Pages build no library and open no folder.
+and `getFolder()` to descendants. Pages build no product state and open no folder.
 There is no module-level mutable state.
 
 Product construction is synchronous and reads nothing. Its `start()` first
@@ -298,12 +298,12 @@ A refusal becomes `exclusionNotice`, shown by
 the shell while Files and other work remain available. Reload checks a repair.
 No Git or provider request is made.
 
-Then `library.start()` calls `services.recoverRecordings()` before reading
-the folder and device settings. A thrown startup error stops the library and
+The same startup attempt then calls `services.recoverRecordings()` before reading
+the folder and device settings. A thrown startup error disposes Whispering and
 shows its original message under "Whispering could not start". The folder
 remains owned by FolderApp until unmount.
 
-On destruction, WhisperingApp calls `library.stop()`, which returns at once:
+On destruction, WhisperingApp calls `whispering.dispose()`, which returns at once:
 it refuses new work and late answers, releases a microphone test, and stops
 observers and listeners. It finishes no recording and waits for no write; a
 recording under way ends with the page (ADR-0663). It never closes the folder
@@ -319,11 +319,12 @@ running requests, pasted text, settings draft, and query cache survive them.
 Only page-local presentation state resets. Reload mounts a fresh root and
 repeats startup.
 
-Leaving is guarded in one place, the shell. `beforeNavigate` holds a navigation
-only when it unloads the document while a change is still being written; a navigation between
-routes is never held. In a browser tab that raises the browser's own leave
-warning; a recording does not hold it. The desktop window prompts when accepted
-Folder work is still pending or it is recording; see "Closing".
+FolderApp guards document departure from the Folder's own save status. Its
+`beforeunload` handler raises the browser's leave warning for accepted edits
+that have not saved. Internal route changes keep the mounted app and need no
+guard. Inside Epicenter, each page confirms window Close only for unfinished
+Folder saves. The host always confirms application Quit and adds its native
+recording warning; see "Closing".
 
 Every page is prerendered in Epicenter's build, and Epicenter serves the app's
 document for any other path below it; a browser build serves a fallback page.
@@ -331,32 +332,36 @@ So `/recordings` and `/transformations` open directly and survive a refresh.
 
 ## Recording
 
-The library holds one capture state: idle, starting with its abort controller,
-recording with its handle and initial row save, or stopping with that Stop's
-completion, which a repeated Stop joins. The recorder UI and transcription
-guard derive from that state.
+Whispering holds one capture state: idle, starting with its abort controller,
+recording with its handle and initial row save, or stopping with its handle.
+The recorder UI and transcription guard derive from it. Stop's completion can
+outlive capture while its duration write finishes: the microphone is already
+free for another recording. A repeated Stop joins that completion. Capture
+state and Stop completion stay separate because their lifetimes differ.
 
-A recording is in the folder from the moment it starts (ADR-0543). The
-library names it and writes its row first: `startRecording` makes the ID from
-the start time, asks the capture device to record into
+A recording is in the folder from the moment it starts (ADR-0543). Whispering
+names it at start: `startRecording` makes the ID from the start time,
+asks the capture device to record into
 `recordings/<id>` (`recordingAudioStem`), and writes the row with the start
-time and capture source. The device adds its format extension; the row stores no path. `stopRecording` stops the
+time and capture source. A native start interrupted before that row lands can
+leave audio without a Markdown row; Files still exposes the audio. The device
+adds its format extension; the row stores no path. `stopRecording` stops the
 device and writes the length (`durationMs`) onto the row it reads again, so a
 title typed meanwhile is kept. Stop reports separately when audio was saved
-but its row could not be created. Nothing in the page deletes a recording.
-Closing the library neither stops nor deletes a running recording: leaving
+but its row could not be created. Capture has no discard operation.
+Closing Whispering neither stops nor deletes a running recording: leaving
 the page ends it. On the desktop the shell finalizes its WAV and frees the
 recorder; in a browser the recording held in the page is lost. Its row,
-written at start, gets no length. A Stop already under way when the library
+written at start, gets no length. A Stop already under way when Whispering
 closes writes no length either. Nothing in a row says whether a recording is
-running: the library's live capture says that, and a running recording is
+running: Whispering's live capture says that, and a running recording is
 refused transcription.
 
 The capture forwards the recorder's first unexpected ending, including one
 received before subscription. The active capture alone handles it, through
 `finishRecording`, so it is finalized like an explicit Stop. Repeated or
-stale endings cannot stop another capture, and an ending heard after the
-library closed finishes nothing. Stop retires the recorder's listeners;
+stale endings cannot stop another capture, and an ending heard after Whispering
+closed finishes nothing. Stop retires the recorder's listeners;
 interruption adds no persisted status or second save queue. The browser
 listens for final encoder output from startup, so an encoder that already
 stopped can still save its bytes.
@@ -367,7 +372,7 @@ There are two capture devices, and each mounted product has exactly one, chosen 
   each platform adapter supplies, over that adapter's inputs: the desktop
   adapter imports `@epicenter/recorder/tauri` and the browser adapter
   `@epicenter/recorder/browser`; shared code names only the bare contract.
-  The library calls the desktop adapter's `recoverRecordings()` before reads, and
+  Whispering calls the desktop adapter's `recoverRecordings()` before reads, and
   shows a failure as its capture notice. Inside the
   desktop app (`src/lib/platform/desktop/microphone.ts`) Rust owns the
   microphone (ADR-0571): the shell's `tauri-plugin-epicenter-recorder` lists
@@ -379,7 +384,7 @@ There are two capture devices, and each mounted product has exactly one, chosen 
 - The fixture device (`src/lib/capture.ts`) writes fixed bytes on stop, under
   the fixture's own extension, and marks the row `fixture`.
 
-When the library starts it calls `recoverRecordings` over `recordings/`: on
+When Whispering starts it calls `recoverRecordings` over `recordings/`: on
 the desktop the shell rewrites the header of any WAV a quit or a crash cut
 off, so it plays to its end; a browser has none. The row of such a recording
 has no length.
@@ -416,20 +421,20 @@ asks for, or opens a microphone.
   open.
 
 `src/lib/microphone-input.svelte.ts` is the app's state over that, a field
-of the library (`library.input`): the choice, the listing, and the one request
+of Whispering (`whispering.input`): the choice, the listing, and the one request
 that may open a microphone outside a recording. Enabling and a test share that
 one owner: at most one is under way, and `release` aborts it and stops its
 meter and polling timer. The enabling/opening/running state owns those
 resources together. An ending received before the meter's open reply is replayed to
 its subscriber; releasing that test also retires its timer. The popover's close, leaving Home, a new choice, `startRecording`, and
-closing the library all call it, so nothing they leave behind holds a stream.
+closing Whispering all call it, so nothing they leave behind holds a stream.
 The recorder and that request never hold a microphone together.
 `startRecording` releases before it asks for its own microphone and passes the
 choice it read at that moment; the choice, a test, and `allow` are refused
 while a recording is starting, running, or finishing. A recording closed while
 its microphone is opening aborts that request: a browser releases the
 microphone when it answers, and on the desktop the shell stops what it
-started, keeping its audio. Closing the library releases a test's microphone
+started, keeping its audio. Closing Whispering releases a test's microphone
 at once, waits for no save of the choice, and stops listening for
 `devicechange` (a browser announces
 connected inputs; the shell does not, so there the person lists again).
@@ -466,18 +471,18 @@ carries the key: an endpoint that echoes it has it removed.
 recipe as read (a listed row, or its text as typed in Source) and the text connection
 as last read: the file must read without issues and have instructions; a text
 connection must be set up; the model is the recipe's if it names one, else the
-connection's. The library
-exposes it as `library.resolve`, and the Run check, the post-processing
+connection's. Whispering
+exposes it as `whispering.resolve`, and the Run check, the post-processing
 choice, a transcript's Transform menu, the recipe's page, and both run entry
 points call it, so they cannot disagree.
 
-`library.transform` applies a saved recipe to a saved transcript, both named
+`whispering.transform` applies a saved recipe to a saved transcript, both named
 by path. Nothing is taken from a list entry, which may predate an edit or a
 deletion made outside. It saves open edits to either file (and refuses if
 they cannot be saved), then reads the recipe and resolves it, then the
 transcription row and the recording that row names. A missing, malformed, or
 empty transcript, or a missing recording, refuses and nothing is sent.
-`library.transformText` applies a saved recipe to pasted text; the text is
+`whispering.transformText` applies a saved recipe to pasted text; the text is
 taken when it is called, and needs no recording.
 
 Both fix a run before anything is sent: the result's stem, and every field the
@@ -510,7 +515,7 @@ from its body and this window's live state:
 | No body, answer received and its write failing | The text, with Copy, and why the write failed. The header counts these. |
 | No body, nothing in this window | Unfinished: the window that sent it closed first. Run again and Delete. |
 
-Run again (`library.runAgain`) reads the row now and sends the request its
+Run again (`whispering.runAgain`) reads the row now and sends the request its
 fields record, into the same row, only while the connection is still the base
 URL the row names; for a transcript, the audio is the one its recording names
 now. It never reads the transcript a result came from: the row records the
@@ -583,7 +588,7 @@ the Svelte edits expose tracked properties over its read methods. A read never r
   deletion or close attempts current input, including previously failed input.
   Discard leaves the file as it is and offers
   what was typed to copy. A failed save of a file's whole text is also told
-  with the shared failure toast. The library emits the shared `WriteFailure`
+  with the shared failure toast. Whispering emits the shared `WriteFailure`
   directly; the app root passes it to `toastWriteFailure`.
 - **A row deleted elsewhere** with typing held for it comes back with that
   typing: an unseen deletion never erases an edit (ADR-0632). With nothing
@@ -605,20 +610,22 @@ state, and answers whose files are not written. Folder retains accepted
 file edits. Renaming a file saves its typing, saves its exact
 bytes under the new name, then deletes the old name as read; the selection
 follows it. Recording and transformation files keep their names. Once the
-library stops, it calls `folder.stopEditing()` so all core and Svelte handles
+Whispering is disposed, it calls `folder.stopEditing()` so all core and Svelte handles
 refuse new input. It does not drain workflows. The Folder preserves accepted
 input and admitted storage actions, which can finish during close. This differs from the
 person confirming immediate departure.
 
 ## Closing
 
-Closing the desktop window sends Epicenter whether accepted Folder work is
-saving or unsaved; Epicenter adds whether the window is recording, from its
-recorder, and asks once, sharing that one question with application Quit
+Closing a desktop window prompts only while its Folder is saving or holds
+unsaved input. A recording alone closes silently; Rust still finalizes and
+keeps its audio. Cancel keeps the window, its input, and its recording; Close
+Anyway destroys the window without waiting for page workflows. Epicenter
+always confirms application Quit and mentions active capture from its native
+recorder, without querying pages
 ([ADR-0663](../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md)).
-Cancel keeps the window, its input, and its recording; Close Anyway destroys
-the window without waiting for the page. Unsubmitted settings and pasted text
-do not prompt. Recorded audio and started requests have their own lifetimes:
+Unsubmitted settings and pasted text do not cause a window-close prompt.
+Recorded audio and started requests have their own lifetimes:
 
 - A recording is in the folder from its start
   ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
@@ -640,16 +647,15 @@ opening sweeps.
 A window whose folder could not be opened closes the same way: nothing is
 open in it.
 
-In a browser tab the browser owns leaving: `beforeNavigate` in `WhisperingApp`
-holds an unload while a change is still being written, which raises the
-browser's own leave warning. A recording in a browser tab is held in the page
-until it stops, so reloading or closing the tab loses it.
+In a browser tab, FolderApp's `beforeunload` handler warns for accepted edits
+that have not saved. Recording adds no warning. Browser audio stays in the page
+until Stop saves it, so reloading or closing the tab loses an unfinished take.
 
 ## Saving and status
 
 Whispering keeps no versions and does not sync its folder: Save version,
 Connect, and Sync were removed with the move to the local `Folder`.
-`src/lib/status.ts` words the header's one line from what the library knows
+`src/lib/status.ts` words the header's one line from what Whispering knows
 about saving: an answer whose file is not written yet, typing that did not
 save, a save running, or the last save storage refused (the folder's
 `status.storageFailure`), and otherwise "All changes saved on this device".
@@ -680,13 +686,12 @@ their modules until public entries export them.
 | --- | --- |
 | `src/lib/definition.ts` | The tables, each row's schema, and row paths. |
 | `src/lib/platform/` | The service contract, browser implementation, and native adapters grouped under `desktop/`. |
-| `src/lib/whispering.svelte.ts` | Product state for the mounted root: what the shell shows, post-processing, pasted text, settings, startup, and teardown. |
+| `src/lib/whispering.svelte.ts` | One mounted app owner: startup, capture and inference workflows, lists, selections, settings drafts, file actions, and synchronous disposal. |
 | `src/lib/folder.ts` | Whispering's typed folder context, provided by WhisperingApp. |
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | The post-processing choice type and how a transformation is named. The app reads the current choice (`whispering.postProcessing`). It runs nothing. |
-| `src/lib/library.svelte.ts` | Recording and inference workflows, product lists and selections, and actions over the shared Folder and query context. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs: the result row written when each starts, its answer written into it, and what each row shows. |
 | `src/lib/deletion.ts` | What a deletion deletes, read fresh for the person to confirm, and running it. |
 | `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |

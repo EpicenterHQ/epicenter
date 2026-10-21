@@ -3,7 +3,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import type { ResultState } from '$lib/library.svelte.js';
+	import type { ResultState } from '$lib/whispering.svelte.js';
 	import { copyText } from './file-actions.js';
 
 	/**
@@ -24,10 +24,10 @@
 		/** The recording's audio is not in this device's folder, so nothing can be sent again from here. */
 		audioAbsent?: boolean;
 	} = $props();
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 
 	async function runAgain() {
-		const problem = await library.runAgain(path);
+		const problem = await whispering.runAgain(path);
 		if (problem) toast.error('It was not run again', { description: problem });
 	}
 </script>

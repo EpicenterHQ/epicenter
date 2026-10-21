@@ -12,15 +12,15 @@
 	 */
 	let { only }: { only?: Operation } = $props();
 
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 	const operations = $derived<Operation[]>(only ? [only] : ['transcription', 'text']);
 </script>
 
 <div class="flex flex-col gap-4 text-sm">
-	{#if library.connectionsProblem}
+	{#if whispering.connectionsProblem}
 		<div class="flex flex-col gap-2 text-xs text-destructive" role="alert" data-testid="connections-problem">
-			<p>The connections on this device could not be read, so none is used: {library.connectionsProblem}</p>
-			<Button size="xs" variant="outline" class="self-start" onclick={() => void library.readConnections()}>Read again</Button>
+			<p>The connections on this device could not be read, so none is used: {whispering.connectionsProblem}</p>
+			<Button size="xs" variant="outline" class="self-start" onclick={() => void whispering.readConnections()}>Read again</Button>
 		</div>
 	{/if}
 	{#each operations as operation, index (operation)}

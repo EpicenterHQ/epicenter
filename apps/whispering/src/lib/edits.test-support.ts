@@ -1,27 +1,30 @@
 /**
- * What a view does to edit a file, for tests that drive the library without
+ * What a view does to edit a file, for tests that drive Whispering without
  * mounting components: change the row or the text, and send it, as a view
  * does once the person pauses or leaves. A changed field or body is the
  * row's draft, saved as a change from the row it started from; a changed
  * text is a text draft saved over the text it started from. `draft` reads
  * what the view shows now: what is typed over the cache. Type-only imports
- * from the library, so this loads before the Svelte compiler plugin is
+ * from Whispering, so this loads before the Svelte compiler plugin is
  * registered.
  */
-import { textRead } from './file-reads.js';
 
 import { rowIdOf } from './definition.js';
-import type { Library, ReadRow, RowTable } from './library.svelte.js';
+import { textRead } from './file-reads.js';
+import type { WhisperingContext } from './folder.js';
 import { QueryObserver, quiet } from './query.test-support.js';
+import type { ReadRow, RowTable, Whispering } from './whispering.svelte.js';
 
 /** A mutable copy for simulating input; field names and values come from the row schema. */
 type Shown<T extends RowTable> = {
-	fields: { -readonly [K in keyof ReadRow<T>['fields']]: ReadRow<T>['fields'][K] };
+	fields: {
+		-readonly [K in keyof ReadRow<T>['fields']]: ReadRow<T>['fields'][K];
+	};
 	body: string;
 };
 
 function rowEditor<T extends RowTable>(
-	library: Library,
+	whispering: Whispering,
 	table: T,
 	path: string | undefined,
 ) {
@@ -29,7 +32,7 @@ function rowEditor<T extends RowTable>(
 	if (rowIdOf(table, path) === undefined)
 		throw new Error(`${path} is not a ${table} row`);
 	// One view of the row, kept as a mounted view keeps it.
-	const view = library.edit(table, path);
+	const view = whispering.edit(table, path);
 	const shown = (): Shown<T> | undefined => {
 		const row = view.markdown;
 		return row?.fields === undefined || row.body === undefined
@@ -68,22 +71,26 @@ function rowEditor<T extends RowTable>(
 }
 
 /** The selected recording, as its detail view edits it. */
-export const recordingEditor = (library: Library) =>
-	rowEditor(library, 'recordings', library.selectedPath);
+export const recordingEditor = (whispering: Whispering) =>
+	rowEditor(whispering, 'recordings', whispering.selectedPath);
 
 /** The selected transformation, as its detail view edits it. */
-export const transformationEditor = (library: Library) =>
-	rowEditor(library, 'transformations', library.selectedTransformationPath);
+export const transformationEditor = (whispering: Whispering) =>
+	rowEditor(
+		whispering,
+		'transformations',
+		whispering.selectedTransformationPath,
+	);
 
 /** The transcript at `path`, as its card edits it. */
-export const transcriptEditor = (library: Library, path: string) =>
-	rowEditor(library, 'transcriptions', path);
+export const transcriptEditor = (whispering: Whispering, path: string) =>
+	rowEditor(whispering, 'transcriptions', path);
 
 /** The text of `path`, as a text view edits it; the file must be open as text. */
-export function textEditor(library: Library, path: string) {
+export function textEditor(whispering: Whispering, path: string) {
 	// One view of the text, as a mounted view keeps it.
-	const view = library.edit(path);
-	library.editSource(path);
+	const view = whispering.edit(path);
+	whispering.editSource(path);
 	return {
 		view,
 		get draft(): string {
@@ -103,23 +110,31 @@ export function textEditor(library: Library, path: string) {
  * is into the cache and the folder's edit of it, and keep observing both,
  * so each is read again when the file changes.
  */
-export async function openText(library: Library, path: string) {
-	await library.local.queryClient.fetchQuery(library.local.queries.file(path, textRead));
-	new QueryObserver(library.local.queryClient, library.local.queries.file(path, textRead)).subscribe(
-		() => {},
-	);
-	const edit = library.local.folder.files.edit(path);
+export async function openText(
+	whispering: Whispering,
+	context: WhisperingContext,
+	path: string,
+) {
+	await context.queryClient.fetchQuery(context.queries.file(path, textRead));
+	new QueryObserver(
+		context.queryClient,
+		context.queries.file(path, textRead),
+	).subscribe(() => {});
+	const edit = context.folder.files.edit(path);
 	edit.subscribe(() => {});
 	await edit.read();
-	return textEditor(library, path);
+	return textEditor(whispering, path);
 }
 
 /**
  * Let drafts, saves, and actions land, then read the folder again, as a
  * report that files changed does, and let that read land.
  */
-export async function settle(library: Library) {
-	await quiet(library);
-	await library.readAgain();
-	await quiet(library);
+export async function settle(
+	whispering: Whispering,
+	context: WhisperingContext,
+) {
+	await quiet(context);
+	await whispering.readAgain();
+	await quiet(context);
 }

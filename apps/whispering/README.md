@@ -12,9 +12,9 @@ the browser's storage for the site.
 
 This is a development milestone, not a release. Its voice-note workflow is launch, record,
 stop, save, play, transcribe, transform, inspect files, quit, reopen.
-The bundled app has not been run in Epicenter by hand: recording into the
-folder through Epicenter's recorder, and transcription through Epicenter, are
-covered by tests, not yet by a desktop run. Dictating into other apps is not part
+Native recording, Close/Quit and reopening were exercised on macOS with
+copied test folders and a silent virtual input. Provider transcription remains
+covered by tests, rather than a live endpoint run. Dictating into other apps is not part
 of it. [What is not supported](#what-is-not-supported) lists the rest.
 
 ## App composition
@@ -26,8 +26,11 @@ constructs its own platform services internally; callers do not assemble a
 workspace or provide a second folder lifetime. The build selects browser or
 native capture and inference through `#platform/services`.
 
-Product shutdown registers recording finalization and accepted workflow writes
-before FolderApp closes storage. Route changes retain the same product state.
+One Whispering owner holds capture, requests, selections and settings drafts.
+Its startup maintains exclusions before recovery and reads. Its synchronous
+`dispose()` refuses new work and late replies without finishing recordings or
+waiting for workflows. FolderApp protects accepted saves; native departure
+finalizes captured audio. Route changes retain the same app state.
 
 Product-specific components read that mounted instance with `getWhispering()`
 during initialization. Props select files or supply UI actions. Transformation
@@ -472,12 +475,13 @@ row and audio and says so.
 
 ### Closing and quitting
 
-Closing a desktop window, or quitting Epicenter, asks once if a window is
-recording or its Folder has an unfinished save. Cancel keeps the window, its
-input, and the recording going. Close Anyway or Quit Anyway leaves at once:
-the recording's audio is finished and kept, without its length, and the
-window waits for nothing in the page. An unfinished settings form or pasted
-text does not prompt.
+Closing a desktop window asks only if its Folder has an unfinished save.
+A recording alone closes without a warning; native cleanup finishes and keeps
+its audio. Epicenter always confirms application Quit and mentions any active
+recording. Cancel keeps the windows, input, and recording going. Close Anyway
+or Quit Anyway leaves without waiting for page workflows; unsaved input may
+be lost, and departure does not promise recording length metadata. An
+unfinished settings form or pasted text does not cause a window-close prompt.
 
 Force Quit, a crash, and power loss cannot ask. A recording is in the desktop
 folder from its start; a transcription or transformation writes its result

@@ -17,8 +17,8 @@
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
-	const { library } = getWhispering();
-	const connection = $derived(library.connections?.transcription);
+	const whispering = getWhispering();
+	const connection = $derived(whispering.connections?.transcription);
 	const summary = $derived(
 		connection
 			? `Transcription model: ${connection.model}, at ${connection.baseUrl}`

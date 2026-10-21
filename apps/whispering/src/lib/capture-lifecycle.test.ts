@@ -24,7 +24,6 @@ import {
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
-import { closeTestLibrary, openTestLibrary } from './library.test-support.js';
 import { createMicrophoneDevice } from './microphone.js';
 import {
 	eventually,
@@ -32,6 +31,10 @@ import {
 	replaceTables,
 	withObstructedCreates,
 } from './services.test-support.js';
+import {
+	closeTestWhispering,
+	openTestWhispering,
+} from './whispering.test-support.js';
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -83,16 +86,17 @@ async function open({
 			});
 		},
 	});
-	const library = await openTestLibrary({
+	const { whispering, context } = await openTestWhispering({
 		folder: test.folder,
 		services: { ...test.services, capture },
 	});
 	cleanups.push(async () => {
-		await closeTestLibrary(library);
+		await closeTestWhispering({ whispering, context });
 		await test.remove();
 	});
 	return {
-		library,
+		whispering,
+		context,
 		capture,
 		test,
 		starts: () => starts,
@@ -131,32 +135,32 @@ test('a delayed failed initial row save reports the recording after Stop truthfu
 			},
 		},
 	});
-	const library = await openTestLibrary(test);
+	const { whispering, context } = await openTestWhispering(test);
 	cleanups.push(async () => {
-		await closeTestLibrary(library);
+		await closeTestWhispering({ whispering, context });
 		await test.remove();
 	});
-	const starting = library.startRecording();
+	const starting = whispering.startRecording();
 	await reached.promise;
-	const ending = library.stopRecording();
+	const ending = whispering.stopRecording();
 	try {
 		// Finish audio first while the initial row write is still held.
-		await eventually(() => library.recorder.phase === 'idle');
+		await eventually(() => whispering.recorder.phase === 'idle');
 	} finally {
 		release.resolve();
 		await Promise.all([starting, ending]);
 	}
-	expect(library.recorder.phase).toBe('idle');
+	expect(whispering.recorder.phase).toBe('idle');
 	expect(
 		(await readdir(join(test.root, 'recordings'))).filter((path) =>
 			path.endsWith('.wav'),
 		),
 	).toHaveLength(1);
-	expect(library.recorderError).toContain('audio is saved');
-	expect(library.recorderError).toContain(
+	expect(whispering.recorderError).toContain('audio is saved');
+	expect(whispering.recorderError).toContain(
 		'recording file could not be written',
 	);
-	expect(library.recorderError).not.toContain('recording is running');
+	expect(whispering.recorderError).not.toContain('recording is running');
 });
 
 for (const reason of [
@@ -176,12 +180,12 @@ for (const reason of [
 			},
 		});
 		test = opened.test;
-		await opened.library.startRecording();
+		await opened.whispering.startRecording();
 		opened.end(reason);
-		await eventually(() => opened.library.recorder.phase === 'idle');
+		await eventually(() => opened.whispering.recorder.phase === 'idle');
 		// The length is written by the Stop the ending started, before closing.
-		await opened.library.stopRecording();
-		await closeTestLibrary(opened.library);
+		await opened.whispering.stopRecording();
+		await closeTestWhispering(opened);
 		expect(opened.stops()).toBe(1);
 		const [name] = await rows(test.root);
 		const saved = await readFile(join(test.root, 'recordings', name!), 'utf8');
@@ -189,41 +193,43 @@ for (const reason of [
 		expect(new Uint8Array(await readFile(join(test.root, audioPath)))).toEqual(
 			new Uint8Array(toneWav()),
 		);
-		expect(opened.library.recorderError).toContain('Recording stopped');
+		expect(opened.whispering.recorderError).toContain('Recording stopped');
 	});
 }
 
 test('an interruption already reported at startup finishes the capture once', async () => {
-	const { library, stops } = await open({ earlyEnding: 'permissionRevoked' });
-	await library.startRecording();
-	await eventually(() => library.recorder.phase === 'idle');
+	const { whispering, stops } = await open({
+		earlyEnding: 'permissionRevoked',
+	});
+	await whispering.startRecording();
+	await eventually(() => whispering.recorder.phase === 'idle');
 	expect(stops()).toBe(1);
-	expect(library.recorderError).toContain('permission');
+	expect(whispering.recorderError).toContain('permission');
 });
 
 test.each(['refused', 'thrown'] as const)(
 	'an interrupted capture whose final save is %s keeps its row and reports the failure',
 	async (failure) => {
-		const { library, test, end } = await open({
+		const { whispering, test, end } = await open({
 			stop: async () => {
 				if (failure === 'thrown') throw new Error('disk is full');
 				return RecorderError.Refused({ reason: 'disk is full' });
 			},
 		});
-		await library.startRecording();
+		await whispering.startRecording();
 		end('storageFailed');
-		await eventually(() => library.recorder.phase === 'idle');
+		await eventually(() => whispering.recorder.phase === 'idle');
 		expect(expectOk(await test.folder.tables.recordings.list())).toHaveLength(
 			1,
 		);
-		expect(library.recorderError).toContain('disk is full');
-		expect(library.recorderError).not.toContain('audio was saved');
+		expect(whispering.recorderError).toContain('disk is full');
+		expect(whispering.recorderError).not.toContain('audio was saved');
 	},
 );
 
 test('a Stop pressed again joins the first, which ends once the length is written', async () => {
-	const { library, test, end, stops } = await open();
-	await library.startRecording();
+	const { whispering, test, end, stops } = await open();
+	await whispering.startRecording();
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const recordings = test.folder.tables.recordings;
@@ -237,15 +243,15 @@ test('a Stop pressed again joins the first, which ends once the length is writte
 			},
 		},
 	});
-	const first = library.stopRecording();
+	const first = whispering.stopRecording();
 	// Pressed again, and an ending heard meanwhile: neither stops twice.
-	expect(library.stopRecording()).toBe(first);
+	expect(whispering.stopRecording()).toBe(first);
 	end('deviceDisconnected');
 	await reached.promise;
 	// The microphone is free and the recorder idle while the length is
 	// written; a Stop pressed now still joins the one writing it.
-	expect(library.recorder.phase).toBe('idle');
-	const again = library.stopRecording();
+	expect(whispering.recorder.phase).toBe('idle');
+	const again = whispering.stopRecording();
 	expect(again).toBe(first);
 	let joined = false;
 	void again.then(() => {
@@ -263,15 +269,15 @@ test('a Stop pressed again joins the first, which ends once the length is writte
 });
 
 test('closing leaves a recording under way to the page’s departure: nothing is stopped, deleted, or written', async () => {
-	const { library, test, end, stops } = await open();
+	const { context, whispering, test, end, stops } = await open();
 	// Answers once the row written at start is saved.
-	await library.startRecording();
+	await whispering.startRecording();
 	expect(await rows(test.root)).toHaveLength(1);
 
-	await closeTestLibrary(library);
+	await closeTestWhispering({ whispering, context });
 	// An ending heard after closing finishes nothing either.
 	end('deviceDisconnected');
-	await library.stopRecording();
+	await whispering.stopRecording();
 
 	expect(stops()).toBe(0);
 	expect(test.closes).toBe(1);
@@ -284,44 +290,44 @@ test('closing leaves a recording under way to the page’s departure: nothing is
 
 test('closing during an interrupted capture’s Stop waits for neither the Stop nor its length', async () => {
 	const release = Promise.withResolvers<void>();
-	const { library, test, end, stops } = await open({
+	const { context, whispering, test, end, stops } = await open({
 		stop: async () => {
 			await release.promise;
 			return Ok({ path: 'recordings/interrupted.wav', durationMs: 1000 });
 		},
 	});
-	await library.startRecording();
+	await whispering.startRecording();
 	end('deviceDisconnected');
 	end('streamFailed');
-	expect(library.recorder.phase).toBe('stopping');
+	expect(whispering.recorder.phase).toBe('stopping');
 	expect(stops()).toBe(1);
 
-	await closeTestLibrary(library);
+	await closeTestWhispering({ whispering, context });
 
 	expect(test.closes).toBe(1);
 	expect(stops()).toBe(1);
 	release.resolve();
-	await eventually(() => library.recorder.phase === 'idle');
+	await eventually(() => whispering.recorder.phase === 'idle');
 	// The Stop answered after closing, so its length is never written.
 	const [name] = await rows(test.root);
 	expect(
 		await readFile(join(test.root, 'recordings', name!), 'utf8'),
 	).not.toContain('durationMs');
-	expect(library.recorderError).toContain('Recording stopped');
+	expect(whispering.recorderError).toContain('Recording stopped');
 });
 
 test('a recording that answers after closing writes no row', async () => {
 	const answer = Promise.withResolvers<void>();
-	const { library, test, starts, stops } = await open({
+	const { context, whispering, test, starts, stops } = await open({
 		beforeStart: answer.promise,
 	});
-	const starting = library.startRecording();
+	const starting = whispering.startRecording();
 	await eventually(() => starts() === 1);
-	await closeTestLibrary(library);
+	await closeTestWhispering({ whispering, context });
 	answer.resolve();
 	await starting;
 	expect(stops()).toBe(0);
-	expect(library.recorder.phase).toBe('idle');
+	expect(whispering.recorder.phase).toBe('idle');
 	expect(
 		await readdir(join(test.root, 'recordings')).catch(() => [] as string[]),
 	).toEqual([]);
@@ -330,21 +336,21 @@ test('a recording that answers after closing writes no row', async () => {
 
 test('the current audio path stays known until Stop finishes its bytes', async () => {
 	const release = Promise.withResolvers<void>();
-	const { library } = await open({
+	const { whispering } = await open({
 		stop: async (path) => {
 			await release.promise;
 			return Ok({ path, durationMs: 1000 });
 		},
 	});
-	await library.startRecording();
-	await eventually(() => library.entries.length === 1);
-	const entry = library.entries[0]!;
-	const expected = library.audioOf(entry);
+	await whispering.startRecording();
+	await eventually(() => whispering.entries.length === 1);
+	const entry = whispering.entries[0]!;
+	const expected = whispering.audioOf(entry);
 	expect(expected.kind).toBe('here');
-	const stopping = library.stopRecording();
+	const stopping = whispering.stopRecording();
 	try {
-		expect(library.capturePhase(expected.kind === 'here' ? expected.path : '')).toBe('stopping');
-		expect(library.audioOf(entry)).toEqual(expected);
+		expect(whispering.capturePhase(expected.kind === 'here' ? expected.path : '')).toBe('stopping');
+		expect(whispering.audioOf(entry)).toEqual(expected);
 	} finally {
 		release.resolve();
 		await stopping;

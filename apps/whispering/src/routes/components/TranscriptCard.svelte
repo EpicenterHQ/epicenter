@@ -8,9 +8,9 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
-	import type { TranscriptionEntry } from '$lib/library.svelte.js';
+	import type { TranscriptionEntry } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
-	import { confirmDelete, copyText, formatTime, openItem } from './file-actions.js';
+	import { confirmDelete, copyText, formatTime } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ResultStatus from './ResultStatus.svelte';
 	import SaveStatus from './SaveStatus.svelte';
@@ -29,16 +29,16 @@
 		result,
 		audioAbsent = false,
 	}: { result: TranscriptionEntry; audioAbsent?: boolean } = $props();
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 	// The list keys each card by its file; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
 	const own = result.path;
 
 	/** Edited here unless the person opened its file as text in Files. */
-	const asText = $derived(library.showsText(result.path));
+	const asText = $derived(whispering.showsText(result.path));
 	/** This card's transcript row: the folder's edit of it, as stored with what is typed over it. */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = library.edit(TRANSCRIPTIONS, own);
+	const fileEdit = whispering.edit(TRANSCRIPTIONS, own);
 	const row = $derived.by(() => {
 		const shown = fileEdit.markdown;
 		return shown?.issues === null ? shown : undefined;
@@ -46,20 +46,20 @@
 	/** The text now: as typed while an edit is unsaved, else as the file holds it. */
 	const pending = $derived(fileEdit.pending);
 	const text = $derived(row?.body ?? (pending?.kind === 'document' ? pending.body : undefined) ?? result.row.body);
-	const progress = $derived(library.resultState(result.path, text));
+	const progress = $derived(whispering.resultState(result.path, text));
 
-	const outputs = $derived(library.outputsFor(result.stem));
-	const transforming = $derived(library.recipeRuns.some((item) => item.transcriptionId === result.stem));
+	const outputs = $derived(whispering.outputsFor(result.stem));
+	const transforming = $derived(whispering.recipeRuns.some((item) => item.transcriptionId === result.stem));
 	/**
 	 * Every transformation, with whether it can run now by the one decision
 	 * the run itself makes. One that cannot is shown with why, and fixed on its
 	 * own page or in Settings first.
 	 */
-	const choices = $derived(library.transformations.map((item) => ({ item, resolved: library.resolve(item.row) })));
+	const choices = $derived(whispering.transformations.map((item) => ({ item, resolved: whispering.resolve(item.row) })));
 
 	/** Apply a transformation to this transcript. The result is a new file; the transcript is not changed by it. */
 	async function transform(path: string) {
-		const problem = await library.transform(result.path, path);
+		const problem = await whispering.transform(result.path, path);
 		if (problem) toast.error('The transformation did not run', { description: problem });
 	}
 </script>
@@ -70,7 +70,7 @@
 			path={result.path}
 			result={progress}
 			{audioAbsent}
-			onDelete={() => void confirmDelete(library, result.path)}
+			onDelete={() => void confirmDelete(whispering, result.path)}
 		/>
 	{/if}
 	{#if progress.kind === 'running' || progress.kind === 'writing'}
@@ -88,7 +88,7 @@
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"
 			data-testid="transcript-text"
 		/>
-		{#if library.isSaving(result.path) || library.isUnsaved(result.path)}
+		{#if whispering.isSaving(result.path) || whispering.isUnsaved(result.path)}
 			<SaveStatus path={result.path} />
 		{/if}
 	{:else}
@@ -144,7 +144,7 @@
 		<TransformationOutput
 			output={{ source: 'transcript', entry: output }}
 			naming="transformation"
-			onOpenFile={(path) => void openItem(library, path)}
+			onOpenFile={(path) => whispering.open(path)}
 		/>
 	{/each}
 </article>

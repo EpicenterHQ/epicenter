@@ -24,7 +24,7 @@
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { RECORDINGS, rowIdOf } from '$lib/definition.js';
-	import type { RecordingEntry } from '$lib/library.svelte.js';
+	import type { RecordingEntry } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './AudioAbsent.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete, lf } from './file-actions.js';
@@ -47,14 +47,14 @@
 		/** Shown on wide windows, where the details are a pane beside the table. */
 		onClose?: () => void;
 	} = $props();
-	const { library } = getWhispering();
+	const whispering = getWhispering();
 
 	/**
 	 * What is worked on comes first: the audio, then the transcript beside it,
 	 * then notes. What describes the files (when, how long, where, which ID) is
 	 * kept, one press away, under File details.
 	 */
-	const asText = $derived(library.showsText(path));
+	const asText = $derived(whispering.showsText(path));
 	// The parent keys this view by the file; keep its original path.
 	// svelte-ignore state_referenced_locally
 	const own = path;
@@ -62,7 +62,7 @@
 	 * One file edit supplies fields, body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = library.edit(RECORDINGS, own);
+	const fileEdit = whispering.edit(RECORDINGS, own);
 	const context = getFolder();
 	/** What the file is while it shows as text; its reads keep the text edit current. */
 	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
@@ -82,10 +82,10 @@
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 	const pending = $derived(fileEdit.pending);
 
-	const results = $derived(library.resultsFor(id));
-	const run = $derived(library.transcriptionRun(id));
+	const results = $derived(whispering.resultsFor(id));
+	const run = $derived(whispering.transcriptionRun(id));
 	/** Playback requires one unambiguous audio file. */
-	const audio = $derived(entry ? library.audioOf(entry) : undefined);
+	const audio = $derived(entry ? whispering.audioOf(entry) : undefined);
 	const audioPath = $derived(audio?.kind === 'here' ? audio.path : undefined);
 	/** Whether the audio the row names is missing from this device's folder. */
 	const absent = $derived(audio?.kind === 'absent');
@@ -96,7 +96,7 @@
 	}
 
 	function show(source: boolean) {
-		const problem = source ? library.editSource(path) : library.useForm(path);
+		const problem = source ? whispering.editSource(path) : whispering.useForm(path);
 		if (problem) toast.error(source ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 	}
 </script>
@@ -186,8 +186,8 @@
 						<Button
 							class="ml-auto"
 							size="sm"
-							disabled={entry === undefined || audioPath === undefined || library.capturePhase(audioPath) !== undefined || run?.kind === 'running'}
-							onclick={() => entry && void library.transcribe(entry)}
+							disabled={entry === undefined || audioPath === undefined || whispering.capturePhase(audioPath) !== undefined || run?.kind === 'running'}
+							onclick={() => entry && void whispering.transcribe(entry)}
 							data-testid="transcribe"
 						>
 							{#if run?.kind === 'running'}<Spinner class="size-3.5" />{/if}
@@ -197,7 +197,7 @@
 					{#if run?.kind === 'failed'}
 						<p class="text-sm text-destructive" role="alert" data-testid="transcription-error">
 							{run.message}
-							<Button size="xs" variant="outline" class="ml-2" onclick={() => library.dismissRun(id)}>Dismiss</Button>
+							<Button size="xs" variant="outline" class="ml-2" onclick={() => whispering.dismissRun(id)}>Dismiss</Button>
 						</p>
 					{/if}
 					{#each results as result (result.path)}
@@ -252,8 +252,8 @@
 						</dd>
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">
-							{#if library.connections?.transcription}
-								{library.connections.transcription.model} at {library.connections.transcription.baseUrl}
+							{#if whispering.connections?.transcription}
+								{whispering.connections.transcription.model} at {whispering.connections.transcription.baseUrl}
 							{:else}
 								Not set up
 							{/if}
@@ -279,7 +279,7 @@
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
-					{@attach () => { library.editSource(path); }}
+					{@attach () => { whispering.editSource(path); }}
 					disabled={fileEdit.locked}
 					aria-label="Markdown source"
 					spellcheck={false}
@@ -290,7 +290,7 @@
 	{/if}
 
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
-		<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(library, path)}>
+		<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(whispering, path)}>
 			Delete recording
 		</Button>
 	</div>

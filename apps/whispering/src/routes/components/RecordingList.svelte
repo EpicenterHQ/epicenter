@@ -35,7 +35,7 @@
 		transcriptsToCopy,
 	} from '$lib/recording-collection.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import { copyText, formatTime, openItem } from './file-actions.js';
+	import { copyText, formatTime } from './file-actions.js';
 
 	/**
 	 * Every recording in the folder as one table: search, sort, tick, and act
@@ -48,11 +48,12 @@
 		onOpen: () => void;
 	} = $props();
 
-	const { library, view } = getWhispering();
+	const whispering = getWhispering();
+	const { view } = whispering;
 
-	const rows = $derived(shownRows(library, view.recordingQuery, view.recordingSort));
-	const hidden = $derived(library.entries.length - rows.length);
-	const selection = $derived(selectionIn(view.recordingSelected, rows, library));
+	const rows = $derived(shownRows(whispering, view.recordingQuery, view.recordingSort));
+	const hidden = $derived(whispering.entries.length - rows.length);
+	const selection = $derived(selectionIn(view.recordingSelected, rows, whispering));
 	const selectedPaths = $derived(new Set(selection.rows.map((row) => row.path)));
 	const allSelected = $derived(rows.length > 0 && selection.rows.length === rows.length);
 	const busy = $derived(view.recordingBulk !== undefined);
@@ -110,8 +111,8 @@
 		return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 	}
 
-	async function openRow(path: string) {
-		if (await openItem(library, path)) onOpen();
+	function openRow(path: string) {
+		if (whispering.open(path)) onOpen();
 	}
 
 	const several = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -141,7 +142,7 @@
 		const paths = selection.rows.map((row) => row.path);
 		view.recordingBulk = { label: 'Transcribing', done: 0, total: paths.length };
 		try {
-			const outcome = await transcribeRows(library, paths, (done) => {
+			const outcome = await transcribeRows(whispering, paths, (done) => {
 				view.recordingBulk = { label: 'Transcribing', done, total: paths.length };
 			});
 			const summary = [
@@ -162,7 +163,7 @@
 	async function deleteSelected() {
 		if (busy) return;
 		const captured = await captureDeletions(
-			library,
+			whispering,
 			selection.rows.map((row) => row.path),
 		);
 		if (captured.deletions.length === 0) {
@@ -175,7 +176,7 @@
 			async onConfirm() {
 				view.recordingBulk = { label: 'Deleting', done: 0, total: captured.deletions.length };
 				try {
-					const { deleted, problems } = await deleteCaptured(library, captured.deletions);
+					const { deleted, problems } = await deleteCaptured(whispering, captured.deletions);
 					if (problems.length > 0)
 						toast.error(`${several(deleted, 'recording', 'recordings')} deleted, ${problems.length} not`, {
 							description: reasons(problems),
@@ -195,7 +196,7 @@
 			<SectionHeader.Root class="min-w-0 flex-1">
 				<SectionHeader.Title level={1} class="text-lg">Recordings</SectionHeader.Title>
 				<SectionHeader.Description class="text-xs">
-					{several(library.entries.length, 'recording', 'recordings')} in the folder{#if hidden > 0}, {hidden} hidden by the search{/if}
+					{several(whispering.entries.length, 'recording', 'recordings')} in the folder{#if hidden > 0}, {hidden} hidden by the search{/if}
 				</SectionHeader.Description>
 			</SectionHeader.Root>
 			<Select.Root
@@ -253,7 +254,7 @@
 						size="sm"
 						variant="outline"
 						disabled={busy || selection.rows.length === 0}
-						tooltip="Sends each selected recording shown here that has no transcript, one at a time, with {library.connections?.transcription?.model ?? 'the transcription connection in Settings'}"
+						tooltip="Sends each selected recording shown here that has no transcript, one at a time, with {whispering.connections?.transcription?.model ?? 'the transcription connection in Settings'}"
 						onclick={() => void transcribeSelected()}
 						data-testid="transcribe-selected"
 					>
@@ -279,9 +280,9 @@
 		{/if}
 	</div>
 
-	{#if library.listError}
+	{#if whispering.listError}
 		<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-			Could not read the recordings folder: {library.listError}. Showing the last list that was read.
+			Could not read the recordings folder: {whispering.listError}. Showing the last list that was read.
 		</p>
 	{/if}
 
@@ -295,7 +296,7 @@
 								checked={allSelected}
 								indeterminate={selection.rows.length > 0 && !allSelected}
 								onCheckedChange={(checked) =>
-									(view.recordingSelected = toggleAllShown(view.recordingSelected, rows, checked === true, library))}
+									(view.recordingSelected = toggleAllShown(view.recordingSelected, rows, checked === true, whispering))}
 								aria-label={allSelected ? 'Clear the selection of the recordings shown' : 'Select every recording shown'}
 								data-testid="select-all"
 							/>
@@ -322,7 +323,7 @@
 				</Table.Header>
 				<Table.Body>
 					{#each rows as row (row.path)}
-						{@const open = view.showingDetail && library.selectedPath === row.path}
+						{@const open = view.showingDetail && whispering.selectedPath === row.path}
 						{@const excerpt = transcriptExcerpt(row, view.recordingQuery)}
 						{@const recorded = formatTime(row.entry.row.fields.recordedAt, 'short')}
 						{@const duration = length(row.entry.row.fields.durationMs)}
@@ -341,7 +342,7 @@
 								<Checkbox
 									checked={selectedPaths.has(row.path)}
 									onCheckedChange={(checked) =>
-										(view.recordingSelected = toggleSelected(view.recordingSelected, row.path, checked === true, library))}
+										(view.recordingSelected = toggleSelected(view.recordingSelected, row.path, checked === true, whispering))}
 									aria-label="Select {row.title}"
 								/>
 							</Table.Cell>
@@ -409,11 +410,11 @@
 		{/if}
 	</div>
 
-	{#if library.repairs.length > 0}
+	{#if whispering.repairs.length > 0}
 		<div class="border-t bg-warning/10 px-3 py-2 text-xs" data-testid="recording-repairs">
 			<p class="font-medium">Needs repair</p>
 			<ul class="mt-1 space-y-0.5">
-				{#each library.repairs as item (item.path)}
+				{#each whispering.repairs as item (item.path)}
 					<li>
 						<button type="button" class="font-mono underline" onclick={() => void openRow(item.path)}>{item.path}</button>: {item.reason}
 					</li>
