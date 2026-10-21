@@ -30,11 +30,18 @@ principal and same-principal replacement.
 
 ## Decision
 
-**An app composes selected Result-returning service functions into separate
+**An app composes regular Result-returning service functions into separate
 query and mutation namespaces using Wellcrafted's options factories.** The
 application owns selection and cache policy; Wellcrafted owns mechanical key
 generation and Result adaptation. The proposed helper exports are not present
 in Epicenter's installed Wellcrafted 0.44 API.
+
+Folder's `createFolderQueries` and file-representation readers keep their
+explicit options: their keys describe paths and representations, and their
+functions use query context or resource objects. Whispering's `track` and
+`action` adapters also stay explicit because they own scope-keyed work and
+closing fences. The shared library upgrade changes their execution adapters,
+not their product responsibilities.
 
 Compose the two namespaces directly where their service instance is available:
 
@@ -113,8 +120,11 @@ replaces attachment identity.
 
 Returned values are ordinary TanStack options: `.queryKey` identifies a read,
 `.mutationKey` identifies a mutation operation, and `.key` on a generated
-factory is its group prefix. Components own their individual query or mutation
-observers. Workflows that need Results execute the same options through
+factory is its group prefix. Generated query keys end with one argument tuple,
+including `[]` for zero-argument reads. Exact filters and cache reads use the
+full `.queryKey`; method prefixes can also match nested namespaces and carry
+no type claim about one cached value. Components own their individual query or
+mutation observers. Workflows that need Results execute the same options through
 Wellcrafted's `runQuery` or `runMutation` after the compatible library upgrade.
 Direct service calls remain available and bypass adapter cache policy.
 
@@ -130,6 +140,9 @@ Direct service calls remain available and bypass adapter cache policy.
   Wellcrafted's checked-out 0.45 source has options adapters and Result runners,
   but neither proposed namespace helper. No dashboard migration happens merely
   by recording the decision.
+- Align the framework adapter and direct query-core dependencies during that
+  upgrade. Wellcrafted's runners require query-core 5.102 or later; Epicenter's
+  pinned 5.96.2 and installed Svelte adapter cannot supply `client.query`.
 - Migration preserves mutation pending/error state, conditional checkout
   behavior, and the dashboard's late-result isolation tests. The proposal does
   not replace Folder's edit lifecycle with service mutations.
