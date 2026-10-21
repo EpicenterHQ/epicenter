@@ -9,7 +9,7 @@
  * Plain module: a store imports it without loading Svelte components.
  */
 import type { SaveError } from '@epicenter/folder';
-import type { ActionError, Pending } from '@epicenter/folder/edits';
+import type { ActionError, Recovery } from '@epicenter/folder/edits';
 
 /** The errors `describeWriteError` words by name. */
 export type DescribedError = SaveError | ActionError;
@@ -45,19 +45,19 @@ export type WriteFailure = {
 };
 
 /** The exact held source a person can copy. */
-export function unsavedText(pending: Pending): string {
-	return pending.text;
+export function unsavedText(recovery: Recovery): string {
+	return recovery.text;
 }
 
 /** The failure a person is shown for held input that did not save. */
-export function pendingFailure(pending: Pending): WriteFailure {
+export function recoveryFailure(recovery: Recovery): WriteFailure {
 	return {
-		path: pending.path,
-		error: pending.error ?? {
+		path: recovery.path,
+		error: recovery.error ?? {
 			name: 'Unsaved',
 			message: 'The edit did not save.',
 		},
-		unsaved: unsavedText(pending),
+		unsaved: unsavedText(recovery),
 	};
 }
 

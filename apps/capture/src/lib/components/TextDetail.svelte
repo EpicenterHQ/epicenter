@@ -22,7 +22,6 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createFileEdit } from '@epicenter/svelte/edits';
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
 	import { resultMutationOptions } from 'wellcrafted/query';
@@ -43,11 +42,10 @@
 	const path = untrack(() => capturePath(stem));
 	/** The folder's edit of the file: its exact text as stored, and what is typed over it. */
 	const fileEdit = untrack(() => createFileEdit(captures.folder.tables.captures.edit(stem)));
-	const status = $derived(fileEdit.readStatus);
-	const unreadable = $derived(status.known === 'not-text');
-	const pending = $derived(fileEdit.pending);
-	const unsaved = $derived(pending === undefined ? undefined : unsavedText(pending));
-	const conflict = $derived(pending?.error?.name === 'Conflict' ? pending.error : undefined);
+	const buffer = $derived(fileEdit.buffer);
+	const unreadable = $derived(buffer.error?.name === 'SourceUnavailable' && buffer.error.reason === 'not-text');
+	const unsaved = $derived(buffer.status === 'ready' ? buffer.unsaved : undefined);
+	const conflict = $derived(unsaved?.status === 'conflict' ? unsaved.error : undefined);
 	const savedConflictSource = $derived.by(() => {
 		if (conflict === undefined) return undefined;
 		if (conflict.current === null) return '(deleted)';
@@ -65,7 +63,6 @@
 	}));
 	const draft = $derived(fileEdit.markdown?.issues === null && fileEdit.markdown.fields.draft === true);
 	const locked = $derived(fileEdit.locked || finishDraft.isPending);
-	let refusal = $state<string>();
 
 	function finish() {
 		if (locked || !draft || !fileEdit.markdown?.body?.trim()) return;
@@ -132,31 +129,33 @@
 		</Alert.Root>
 	{/if}
 
-	{#if pending?.error && !pending.saving}
-		<Alert.Root variant="destructive" aria-label="Not saved">
-			<Alert.Title>Your edit is not saved</Alert.Title>
-			<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
-			{#if conflict !== undefined}
-				<details class="mt-2"><summary>Compare sources</summary><p>Saved source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{savedConflictSource}</pre><p>Your source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{unsaved}</pre></details>
-			{/if}
-			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
+	{#if unsaved}
+		{#if unsaved.status === 'failed' || unsaved.status === 'conflict'}
+			<Alert.Root variant="destructive" aria-label="Not saved">
+				<Alert.Title>Your edit is not saved</Alert.Title>
+				<Alert.Description>{describeFailure(unsaved.error)} Your edit is still here.</Alert.Description>
 				{#if conflict !== undefined}
-					<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
-					<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
-				{:else}
-					<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+					<details class="mt-2"><summary>Compare sources</summary><p>Saved source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{savedConflictSource}</pre><p>Your source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{text}</pre></details>
 				{/if}
-				<Button size="sm" variant="outline" onclick={() => copy(unsaved, 'Your text')}>Copy your text</Button>
-				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
-			</div>
-		</Alert.Root>
+				<div class="mt-2 flex flex-wrap gap-2 text-foreground">
+					{#if conflict !== undefined}
+						<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
+						<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
+					{:else}
+						<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+					{/if}
+					<Button size="sm" variant="outline" onclick={() => copy(text, 'Your text')}>Copy your text</Button>
+					<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
+				</div>
+			</Alert.Root>
+		{/if}
 	{/if}
 
-	{#if text !== undefined}
-		{@const shown = text}
+	{#if buffer.status === 'ready'}
+		{@const shown = buffer.text}
 		<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-			{#if fileEdit.pending}
-				{#if fileEdit.pending.error && !fileEdit.pending.saving}
+			{#if buffer.unsaved}
+				{#if buffer.unsaved.status === 'failed' || buffer.unsaved.status === 'conflict'}
 					Not saved
 				{:else}
 					Saving…
@@ -170,7 +169,7 @@
 			<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					{pending === undefined
+					{unsaved === undefined
 						? 'This text does not read as a capture yet. Fix it here; it saves when you pause.'
 						: 'This text does not read as a capture yet. It is checked as you type.'}
 				</p>
@@ -187,14 +186,13 @@
 			class="min-h-96 font-mono text-xs"
 			spellcheck={false}
 			readonly={locked}
-			aria-invalid={refusal !== undefined}
+			aria-invalid={buffer.error !== undefined}
 			bind:value={
 				() => shown.replace(/\r\n?/g, '\n'),
 				(typing) => {
 					// The first change starts from the source shown; later ones keep theirs.
 					if (locked) return;
 					const { error } = fileEdit.replaceText(withFileNewlines(typing.toWellFormed(), shown));
-					refusal = error?.message;
 					if (error === null) finishDraft.reset();
 				}
 			}
@@ -205,7 +203,7 @@
 			}}
 			{@attach selectThought}
 		/>
-		{#if refusal}<p role="alert" class="text-sm text-destructive">{refusal} Your previous text is kept.</p>{/if}
+		{#if buffer.error}<p role="alert" class="text-sm text-destructive">{buffer.error.message} Your previous text is kept.</p>{/if}
 	{:else if unreadable}
 		<Empty.Root role="alert">
 			<Empty.Header>
@@ -213,18 +211,18 @@
 				<Empty.Description>It is not text. Nothing in it was changed.</Empty.Description>
 			</Empty.Header>
 		</Empty.Root>
-	{:else if status.known === 'missing'}
+	{:else if buffer.error?.name === 'SourceUnavailable' && buffer.error.reason === 'missing'}
 		<Empty.Root role="alert">
 			<Empty.Header>
 				<Empty.Title>This capture is no longer here</Empty.Title>
 				<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 			</Empty.Header>
 		</Empty.Root>
-	{:else if status.error}
+	{:else if buffer.error}
 		<Empty.Root role="alert">
 			<Empty.Header>
 				<Empty.Title>This capture could not be opened</Empty.Title>
-				<Empty.Description>{status.error.message}</Empty.Description>
+				<Empty.Description>{buffer.error.message}</Empty.Description>
 			</Empty.Header>
 			<Empty.Content>
 				<Button variant="outline" size="sm" onclick={() => void fileEdit.read()}>Try again</Button>

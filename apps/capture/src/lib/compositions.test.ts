@@ -15,6 +15,7 @@
  */
 import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
+import { unsavedOf } from './local-folder.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { captureTables, composeBody } from '@epicenter/capture';
 import { openFolder } from '@epicenter/folder/browser';
@@ -120,7 +121,7 @@ test('finishing saves raw input first, then opens the same file at Add a thought
 	const row = expectOk(await t.folder.tables.captures.get('one'));
 	expect(row?.fields?.draft).toBeUndefined();
 	expect(row?.body).toBe('\nHello\nworld\n\n## Thoughts\n');
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(t.captures.opened).toEqual({
 		stem: 'one',
 		mode: 'capture',
@@ -143,7 +144,7 @@ test('failed autosave and blocked discard keep raw input until another save atte
 	const { stem, edit, path } = await typeInto(t, 'one', 'unfinished ```\n');
 	const restore = t.failSaves();
 	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
+	expect(unsavedOf(edit)?.error?.name).toBe('StorageFailed');
 	expect(edit.getMarkdown()?.body).toBe('unfinished ```\n');
 	expect(t.captures.failures.map((failure) => failure.path)).toContain(path);
 	const refused = expectErr(
@@ -153,7 +154,7 @@ test('failed autosave and blocked discard keep raw input until another save atte
 	expect(edit.getMarkdown()?.body).toBe('unfinished ```\n');
 	restore();
 	await edit.save();
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(await t.text(path)).toBe(draftFile('unfinished ```\n'));
 	expect(
 		expectOk(await t.captures.delete(t.captures.deletionFor(stem))).deleted,
@@ -170,7 +171,7 @@ test('a failed promotion leaves the stored and editable raw draft; retry appends
 	expect(expectErr(await t.captures.finishDraft('one')).name).toBe(
 		'StorageFailed',
 	);
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(edit.getMarkdown()?.body).toBe('Still composing\n');
 	expect(edit.getMarkdown()?.fields?.draft).toBe(true);
 	restore();
@@ -250,13 +251,13 @@ test("another tab's finish conflicts with held source until the saved capture is
 	await edit.read();
 	expect(edit.getText()).toBe(held);
 	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('Conflict');
-	expect(edit.getPending()?.text).toBe(held);
+	expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
+	expect(edit.getText()).toBe(held);
 	expect(await t.text('captures/one.md')).toBe(finished);
 	expect(finished).toContain('Before');
 	expect(finished).toContain('## Thoughts');
 	expect(finished).not.toContain('draft:');
 	await edit.resolveConflict('current');
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(edit.getText()).toBe(finished);
 });

@@ -1,3 +1,4 @@
+import { unsavedOf } from './edits.test-support.js';
 /**
  * Whispering workflow tests
  *
@@ -416,7 +417,7 @@ test('stopping preserves its length while an earlier title draft conflicts until
 	await whispering.stopRecording();
 	await edit.save();
 	await settle(whispering, context);
-	expect(edit.pending?.error?.name).toBe('Conflict');
+	expect(unsavedOf(edit.buffer)?.error?.name).toBe('Conflict');
 	expect(edit.markdown?.fields?.title).toBe('Standup notes');
 	expect(whispering.entries[0]!.row.fields).toMatchObject({
 		title: entry.row.fields.title,
@@ -426,7 +427,7 @@ test('stopping preserves its length while an earlier title draft conflicts until
 	// Accept the completed recording's source before explicitly reapplying
 	// the title; a retry alone cannot merge that title with the new length.
 	await edit.resolveConflict('current');
-	expect(edit.pending).toBeUndefined();
+	expect(unsavedOf(edit.buffer)).toBeUndefined();
 	expectOk(edit.change({ fields: { title: 'Standup notes' } }));
 	await edit.save();
 	await settle(whispering, context);
@@ -1239,7 +1240,7 @@ test('stopping Whispering fences direct row and source input while keeping accep
 	expect(textEdit.replaceText('Too late').error).not.toBeNull();
 	expect(rowEdit.text).toBe(accepted);
 	await rowEdit.save();
-	expect(rowEdit.pending).toBeUndefined();
+	expect(unsavedOf(rowEdit.buffer)).toBeUndefined();
 });
 
 test('rename reserves both addresses against direct edits before waiting for held input', async () => {
@@ -1301,7 +1302,7 @@ test('cascade deletion reserves every confirmed path and aborts all deletes if a
 	expect(await deleting).toContain('unsaved changes');
 	expect(await Bun.file(join(root, entry.path)).exists()).toBe(true);
 	expect(await Bun.file(join(root, result)).exists()).toBe(true);
-	expect(resultEdit.pending).toBeDefined();
+	expect(unsavedOf(resultEdit.buffer)).toBeDefined();
 	refusedPath = undefined;
 });
 
@@ -1330,7 +1331,6 @@ test('an admitted rename finishes its copy and deletion while Whispering closes'
 	expect(await Bun.file(join(root, 'original.txt')).exists()).toBe(false);
 	expect(await readFile(join(root, 'renamed.txt'), 'utf8')).toBe('');
 });
-
 
 test('a result changed during its admitted deletion is kept and reread after close starts', async () => {
 	const path = 'text_runs/result.md';

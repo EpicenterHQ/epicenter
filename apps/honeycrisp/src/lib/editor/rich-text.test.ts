@@ -30,6 +30,7 @@
  */
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
+const { unsavedOf } = await import('../local.test-support.js');
 import { afterEach, describe, expect, test } from 'bun:test';
 import { toggleMark } from 'prosemirror-commands';
 import {
@@ -620,7 +621,7 @@ describe('the editor follows the note', () => {
 		expect(body()).toBe('one!\n');
 		const edit = fixture.folder.tables.notes.edit('a');
 		await edit.save();
-		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 		expect(failures()).toMatchObject([
 			{ path: PATH, error: { name: 'Conflict' } },
 		]);
@@ -648,7 +649,7 @@ describe('the editor follows the note', () => {
 		);
 		const edit = fixture.folder.tables.notes.edit('a');
 		await edit.save();
-		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 		expect(failures()).toMatchObject([
 			{ path: PATH, error: { name: 'Conflict' } },
 		]);

@@ -32,4 +32,4 @@
 {#if text !== undefined}
 	<textarea aria-label="Whole row text" bind:value={() => text, value => textEdit.replaceText(value)}></textarea>
 {/if}
-<output aria-label="Shared pending">{textEdit.pending?.text ?? 'saved'}</output>
+<output aria-label="Shared pending">{textEdit.buffer.status === 'ready' && textEdit.buffer.unsaved ? textEdit.buffer.text : 'saved'}</output>

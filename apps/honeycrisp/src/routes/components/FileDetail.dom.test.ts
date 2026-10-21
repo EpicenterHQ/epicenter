@@ -28,6 +28,7 @@
 // IndexedDB on it rather than on the global the folder reads.
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+const { unsavedOf } = await import('../../lib/local.test-support.js');
 import { afterEach, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -72,7 +73,7 @@ test('failed changes share one recovery surface across note and whole-file prese
 	}, 'the whole-file editor');
 	expect(notes.selected?.as).toBe('text');
 	expect(notes.folder.files.edit(PATH).getText()).toContain(body);
-	expect(notes.folder.files.edit(PATH).getPending()?.error).toBeDefined();
+	expect(unsavedOf(notes.folder.files.edit(PATH))?.error).toBeDefined();
 	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(body);
 	expect(
 		target.querySelector('[aria-label="Unsaved note changes"]'),
@@ -226,12 +227,12 @@ test.each(['title', 'body source', 'whole-file source'] as const)(
 		blur(input);
 		flushSync();
 		const edit = folder.files.edit(PATH);
-		expect(edit.getPending()?.saving).toBe(false);
+		expect(unsavedOf(edit)?.status === 'saving').toBe(false);
 		const leaving = leave();
-		expect(edit.getPending()?.saving).toBe(false);
+		expect(unsavedOf(edit)?.status === 'saving').toBe(false);
 		await leaving;
 		await until(
-			() => edit.getPending() === undefined,
+			() => unsavedOf(edit) === undefined,
 			'autosave after the view leaves',
 		);
 		expect(await text(PATH)).toContain('Saved after leaving');
@@ -339,7 +340,7 @@ test('changing presentation keeps rich-text input pending without requesting a s
 	flushSync();
 	expect(richOf(target)).toBe(rich);
 	expect(undoButton(target).disabled).toBe(false);
-	expect(notes.folder.files.edit(PATH).getPending()).toBeDefined();
+	expect(unsavedOf(notes.folder.files.edit(PATH))).toBeDefined();
 	expect(await text(PATH)).not.toContain('Typed');
 });
 
@@ -388,7 +389,9 @@ test('a title typed before another tab saves stays pinned until explicit replace
 		}),
 	);
 	await folder.tables.notes.edit('a').save();
-	expect(folder.tables.notes.edit('a').getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(folder.tables.notes.edit('a'))?.error?.name).toBe(
+		'Conflict',
+	);
 	expect((await text(PATH)) ?? '').toContain('Their body.\n');
 	click(target, 'Replace saved file');
 	await settle();

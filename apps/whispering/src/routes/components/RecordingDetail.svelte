@@ -5,7 +5,6 @@
 	Restoring a recording deleted elsewhere requires explicit conflict resolution.
 -->
 <script lang="ts">
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { getFolder } from '$lib/folder.js';
 	import { textRead } from '$lib/file-reads.js';
 
@@ -71,15 +70,20 @@
 		const shown = fileEdit.markdown;
 		return shown?.issues === null ? shown : undefined;
 	});
+	// Save metadata stays passive until this view actually demands text.
+	const buffer = $derived(
+		!asText || opened.data?.kind === 'text' || whispering.isSaving(path) || whispering.isUnsaved(path)
+			? fileEdit.buffer : undefined,
+	);
+	const unsaved = $derived(buffer?.status === 'ready' ? buffer.unsaved : undefined);
 	/** The file's text as typed while an edit is unsaved, else as stored. */
 	const text = $derived(
-		asText && (fileEdit.pending !== undefined || opened.data?.kind === 'text') ? fileEdit.text : undefined,
+		asText && buffer?.status === 'ready' && (buffer.unsaved !== undefined || opened.data?.kind === 'text') ? buffer.text : undefined,
 	);
 	/** Why the current source does not read as a recording, including unsaved input. */
-	const issues = $derived(asText ? (fileEdit.markdown?.issues ?? undefined) : undefined);
+	const issues = $derived(asText && text !== undefined ? (fileEdit.markdown?.issues ?? undefined) : undefined);
 	const id = $derived(rowIdOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
-	const pending = $derived(fileEdit.pending);
 
 	const results = $derived(whispering.resultsFor(id));
 	const run = $derived(whispering.transcriptionRun(id));
@@ -126,7 +130,7 @@
 		{/if}
 	</div>
 
-	<SaveStatus {path} saved="Saved to {path}" class="shrink-0 border-b px-4 py-1" />
+	<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
@@ -142,16 +146,20 @@
 		</div>
 	{/if}
 
-	{#if pending !== undefined && (fileEdit.readStatus.known === 'missing' || fileEdit.readStatus.known === 'not-text') && (asText ? text !== undefined : row !== undefined)}
+	{#if buffer?.error && buffer?.error.name !== 'SourceUnavailable'}
+		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{buffer?.error.message}</p>
+	{/if}
+
+	{#if unsaved !== undefined && buffer?.error?.name === 'SourceUnavailable' && (asText ? text !== undefined : row !== undefined)}
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file changed. Your draft remains available.</p>
-			<Textarea readonly aria-label="Unsaved recording changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
+			<Textarea readonly aria-label="Unsaved recording changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
 		</div>
 	{/if}
-	{#if (asText ? text === undefined : row === undefined) && pending !== undefined}
+	{#if (asText ? text === undefined : row === undefined) && unsaved !== undefined}
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
-			<Textarea readonly aria-label="Unsaved recording changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
+			<Textarea readonly aria-label="Unsaved recording changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
 		</div>
 	{:else if asText && text === undefined && opened.isError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">

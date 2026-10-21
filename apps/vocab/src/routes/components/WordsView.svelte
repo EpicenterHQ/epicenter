@@ -139,7 +139,8 @@
 			<section class="space-y-3 rounded-lg border border-destructive/50 p-3 text-xs" aria-label="Unsaved changes">
 				{#each orphaned as draft (draft.path)}
 					{@const held = entries.edit(draft.path.slice('entries/'.length, -'.md'.length))}
-					{@const saving = held.pending?.saving ?? false}
+					{@const buffer = held.buffer}
+					{@const saving = buffer.status === 'ready' && buffer.unsaved?.status === 'saving'}
 					<div class="space-y-1" role="alert">
 						<p>A change to <code>{draft.path}</code> was not saved, and the file is no longer a word here.{draft.error ? ` ${describeFailure(draft.error)}` : ''}</p>
 						<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{unsavedText(draft)}</pre>

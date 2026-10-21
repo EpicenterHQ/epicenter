@@ -1,3 +1,4 @@
+import type { FileEdit as NativeFileEdit } from '@epicenter/folder/edits';
 /**
  * What a view does to edit a file, for tests that drive Whispering without
  * mounting components: change the row or the text, and send it, as a view
@@ -137,4 +138,9 @@ export async function settle(
 	await quiet(context);
 	await whispering.readAgain();
 	await quiet(context);
+}
+
+/** Inspect held input after narrowing the current buffer snapshot. */
+export function unsavedOf(buffer: ReturnType<NativeFileEdit['getBuffer']> | undefined) {
+	return buffer?.status === 'ready' ? buffer.unsaved : undefined;
 }

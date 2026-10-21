@@ -39,8 +39,9 @@
 	const fileEdit = createFileEdit(folder.tables.connections.edit(id));
 	/** The connection with what is typed over it, or as the list read it while that is not known. */
 	const fields = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown.fields : row.fields);
-	const pending = $derived(fileEdit.pending);
-	const failure = $derived(pending?.saving ? undefined : pending?.error);
+	const buffer = $derived(fileEdit.buffer);
+	const unsaved = $derived(buffer.status === 'ready' ? buffer.unsaved : undefined);
+	const failure = $derived(unsaved?.error);
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -116,7 +117,7 @@
 			<Input
 				value={fields.title}
 				disabled={fileEdit.locked}
-				aria-invalid={pending?.error !== undefined}
+				aria-invalid={unsaved?.error !== undefined || buffer.error !== undefined}
 				oninput={(event) => type('title', event.currentTarget.value)}
 			/>
 		</label>
@@ -126,11 +127,14 @@
 				value={fields.model}
 				placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
 				disabled={fileEdit.locked}
-				aria-invalid={pending?.error !== undefined}
+				aria-invalid={unsaved?.error !== undefined || buffer.error !== undefined}
 				oninput={(event) => type('model', event.currentTarget.value)}
 			/>
 		</label>
 	</div>
+	{#if buffer.error}
+		<p role="alert" class="text-sm text-destructive">{buffer.error.message}</p>
+	{/if}
 	{#if failure !== undefined}
 		<p role="alert" class="text-destructive">
 			Not saved: {saveFailureText(failure)}

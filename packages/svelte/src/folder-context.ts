@@ -35,7 +35,7 @@ import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
 import { createFolderQueries, folderKeys } from './folder-queries.js';
 import { holdWindowClose } from './window-close.js';
-import { pendingFailure, type WriteFailure } from './write-failure.js';
+import { recoveryFailure, type WriteFailure } from './write-failure.js';
 
 const log = createLogger('svelte/folder');
 
@@ -242,7 +242,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 				// A window close from here on is the shell's own.
 				stopWindow?.();
 				await queryClient.cancelQueries({ queryKey: KEY });
-				const unsaved = (await folderClose).map(pendingFailure);
+				const unsaved = (await folderClose).map(recoveryFailure);
 				for (const draft of unsaved)
 					log.warn(
 						new Error(

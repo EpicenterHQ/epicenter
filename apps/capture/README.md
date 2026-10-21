@@ -178,6 +178,13 @@ Switching between valid views saves and refreshes nothing: both show the same
 unsaved input and any save failure. The current editable document determines
 whether it can be shown as a capture.
 
+The vanilla edit exposes `getBuffer()`; its Svelte adapter exposes `.buffer`.
+A ready buffer holds exact `text` and optional `unsaved` state (`dirty`,
+`saving`, `failed`, or `conflict`). Non-save feedback is `buffer.error`.
+Reading `.buffer`, `.text`, or `.markdown` reactively starts the first read;
+views need no separate mount-time read. Folder-wide save indicators read
+aggregate status without opening file contents.
+
 `hostAppViteConfig` (from `@epicenter/vite-config`) points the bare
 `@epicenter/folder` specifier at one entry per build, so each build emits
 one adapter.

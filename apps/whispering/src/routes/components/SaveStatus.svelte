@@ -1,7 +1,8 @@
 <!--
-	Whether what is typed into one file is saved: Saving…, the saved line, or
-	Not saved with recovery actions. A whole-file conflict shows both sources
-	and asks for an explicit choice. Discard offers the exact source to copy.
+	Whether one path holds edits: Saving…, No unsaved changes, or
+	Not saved with recovery actions. This passive indicator reads save metadata;
+	it does not establish whether the stored file exists or can be read.
+	A whole-file conflict shows both sources and asks for an explicit choice. Discard offers the exact source to copy.
 -->
 <script lang="ts">
 	import { getWhispering } from '$lib/whispering.svelte.js';
@@ -12,12 +13,9 @@
 
 	let {
 		path,
-		saved = 'Saved',
 		class: className = '',
 	}: {
 		path: string;
-		/** What the line says once everything typed is saved. */
-		saved?: string;
 		class?: string;
 	} = $props();
 	const whispering = getWhispering();
@@ -25,8 +23,8 @@
 	const fileEdit = $derived(whispering.edit(path));
 	const saving = $derived(whispering.isSaving(path));
 	const unsaved = $derived(whispering.isUnsaved(path));
-	const pending = $derived(fileEdit.pending);
-	const conflict = $derived(pending?.error?.name === 'Conflict' ? pending.error : undefined);
+	const failure = $derived(whispering.getWriteFailure(path));
+	const conflict = $derived(failure?.status === 'conflict' ? failure.error : undefined);
 	const savedSource = $derived.by(() => {
 		if (conflict === undefined) return undefined;
 		if (conflict.current === null) return '(deleted)';
@@ -50,7 +48,7 @@
 
 <div class={['text-xs text-muted-foreground', className]} role="status" data-testid="write-status">
 	<p>
-		{saving ? 'Saving…' : unsaved ? 'Not saved' : saved}
+		{saving ? 'Saving…' : unsaved ? 'Not saved' : 'No unsaved changes'}
 		{#if unsaved && !saving}
 			{#if conflict !== undefined}
 				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
@@ -61,11 +59,11 @@
 			<Button variant="link" size="xs" class="h-auto p-0" onclick={discard}>Discard</Button>
 		{/if}
 	</p>
-	{#if conflict !== undefined && pending !== undefined}
+	{#if conflict !== undefined && failure !== undefined}
 		<details>
 			<summary>Compare sources</summary>
 			<p>Saved source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text">{savedSource}</pre>
-			<p>Your source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text">{unsavedText(pending)}</pre>
+			<p>Your source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text">{unsavedText(failure)}</pre>
 		</details>
 	{/if}
 </div>

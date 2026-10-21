@@ -11,7 +11,7 @@ import {
 	ActionError,
 	CLOSING,
 	createEditOwner,
-	type Pending,
+	type Recovery,
 } from './edit-owner.js';
 import type {
 	EditOptions,
@@ -114,7 +114,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	tables: TTables,
 	{ saveAfterMs }: EditOptions = {},
 ): Folder<TTables> {
-	let closing: Promise<Pending[]> | undefined;
+	let closing: Promise<Recovery[]> | undefined;
 	/** Set by close once nothing it waits for remains, before the engine is released. */
 	let released = false;
 	/** Saves and complete admitted actions share one lifetime registry. */
@@ -446,8 +446,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				name,
 				{
 					...usable(table),
-					edit: (id: string) =>
-						edits.edit(`${name}/${id}.md`, tables[name]),
+					edit: (id: string) => edits.edit(`${name}/${id}.md`, tables[name]),
 				},
 			]),
 		),
@@ -485,7 +484,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			if (closing !== undefined) return closing;
 			// Assigned before the fence publishes, so a listener it calls is
 			// refused and a close it calls answers this same promise.
-			const completion = Promise.withResolvers<Pending[]>();
+			const completion = Promise.withResolvers<Recovery[]>();
 			closing = completion.promise;
 			(async () => {
 				// New input, actions and listeners already refuse; storage stays

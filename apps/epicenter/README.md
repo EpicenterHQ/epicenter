@@ -362,7 +362,11 @@ close, through `folder.files.edit(path)`
 ([ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
 Files, grid, and board use `createFileEdit(folder.files.edit(path, schema))` and keep no
 separate save queue. The reactive `.markdown` getter reads the current structured view, `.text` reads its source,
-`.pending` reads unsaved input, and `replaceText(text)` or `change({ fields })`
+`.buffer` holds read availability and current text; a ready buffer's optional
+`.unsaved` value records dirty, saving, failed, or conflicting input. Observing
+content starts its first read automatically; save-only indicators read the
+Folder's aggregate status without opening file contents. Commands
+ `replaceText(text)` or `change({ fields })`
 accepts new input without a source argument. Input
 and its autosave timer survive view switches; blur and editor teardown need
 no save hooks. A dirty draft stays pinned when another writer changes storage.

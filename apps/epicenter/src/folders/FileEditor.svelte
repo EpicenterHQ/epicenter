@@ -6,7 +6,6 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 
 	/**
 	 * One file of the window's folder, edited as the exact text it holds.
@@ -31,13 +30,13 @@
 	const fileEdit = createFileEdit(folder.files.edit(path));
 	// Poll for outside programs' changes; the edit owns the document and read status.
 	createQuery(() => queries.read(fileEdit));
-	const status = $derived(fileEdit.readStatus);
-	const pending = $derived(fileEdit.pending);
-	/** Whether the file is shown as it is stored, with no typing over it. */
-	const untyped = $derived(pending === undefined);
+	const buffer = $derived(fileEdit.buffer);
+	const unsaved = $derived(buffer.status === 'ready' ? buffer.unsaved : undefined);
+	const missing = $derived(buffer.error?.name === 'SourceUnavailable' && buffer.error.reason === 'missing');
+	const notText = $derived(buffer.error?.name === 'SourceUnavailable' && buffer.error.reason === 'not-text');
 	/** A held source remains editable after an outside deletion or replacement. */
-	const sourceLocked = $derived(pending === undefined && status.known !== 'file');
-	const conflict = $derived(pending?.error?.name === 'Conflict' ? pending.error : undefined);
+	const sourceLocked = $derived(buffer.status !== 'ready');
+	const conflict = $derived(unsaved?.status === 'conflict' ? unsaved.error : undefined);
 	function conflictText(bytes: Uint8Array): string | undefined {
 		try {
 			return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -61,7 +60,7 @@
 	const text = $derived.by(() => {
 		const now = fileEdit.text;
 		if (now !== undefined) lastShown = now;
-		return now ?? (status.known === 'missing' ? lastShown : undefined);
+		return now ?? (missing ? lastShown : undefined);
 	});
 	/** A textarea would rewrite mixed line endings or lone carriage returns. */
 	const mixed = $derived.by(() => {
@@ -69,7 +68,6 @@
 		const other = text.replaceAll('\r\n', '');
 		return other.includes('\r') || (text.includes('\r\n') && other.includes('\n'));
 	});
-	let refusal = $state<string>();
 	/** The text box's text: one line feed per line, as a text box holds it. */
 	const boxText = $derived(text?.replaceAll('\r\n', '\n') ?? '');
 </script>
@@ -80,54 +78,55 @@
 		<span class="text-xs text-muted-foreground" role="status">
 			{#if fileEdit.locked}
 				Another operation is using this file.
-			{:else if pending !== undefined && pending.error === undefined}
+			{:else if unsaved?.status === 'dirty' || unsaved?.status === 'saving'}
 				Saving…
-			{:else if pending?.error !== undefined}
+			{:else if unsaved?.error !== undefined}
 				Not saved
 			{:else if text !== undefined && !sourceLocked && !mixed}
 				Saved when you pause or leave the box.
 			{/if}
 		</span>
 	</header>
-	{#if pending?.error !== undefined && !pending.saving}
-		<Alert.Root variant="destructive" class="rounded-none border-x-0 border-t-0">
-			<Alert.Description>
-				<p>Your edit was not saved: {pending.error.message}</p>
-				{#if conflict !== undefined}
-					<p>The saved file changed. Your source remains in the editor below. You can keep the saved file, replace it with your source, or edit your source before replacing it.</p>
-					<details><summary>Compare sources</summary><p>Saved source</p><pre class="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs">{conflictCurrent ?? '(binary file)'}</pre><p>Your source</p><pre class="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs">{unsavedText(pending)}</pre></details>
-				{/if}
-				<div class="mt-1 flex gap-2">
+	{#if unsaved}
+		{#if unsaved.status === 'failed' || unsaved.status === 'conflict'}
+			<Alert.Root variant="destructive" class="rounded-none border-x-0 border-t-0">
+				<Alert.Description>
+					<p>Your edit was not saved: {unsaved.error.message}</p>
 					{#if conflict !== undefined}
-						<Button size="xs" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
-						<Button size="xs" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
-					{:else}
-						<Button size="xs" variant="outline" onclick={() => void fileEdit.save()}>Try again</Button>
+						<p>The saved file changed. Your source remains in the editor below. You can keep the saved file, replace it with your source, or edit your source before replacing it.</p>
+						<details><summary>Compare sources</summary><p>Saved source</p><pre class="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs">{conflictCurrent ?? '(binary file)'}</pre><p>Your source</p><pre class="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs">{fileEdit.text}</pre></details>
 					{/if}
-					<Button size="xs" variant="ghost" onclick={() => fileEdit.discard()}>
-						Discard edit
-					</Button>
-				</div>
-			</Alert.Description>
-		</Alert.Root>
+					<div class="mt-1 flex gap-2">
+						{#if conflict !== undefined}
+							<Button size="xs" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
+							<Button size="xs" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
+						{:else}
+							<Button size="xs" variant="outline" onclick={() => void fileEdit.save()}>Try again</Button>
+						{/if}
+						<Button size="xs" variant="ghost" onclick={() => fileEdit.discard()}>
+							Discard edit
+						</Button>
+					</div>
+				</Alert.Description>
+			</Alert.Root>
+		{/if}
 	{/if}
-	{#if refusal}<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{refusal}</p>{/if}
-	{#if status.error}
+	{#if buffer.error && buffer.error.name !== 'SourceUnavailable'}
 		<div class="p-4">
 			<Alert.Root variant="destructive">
 				<Alert.Description>
-					This file does not read: {status.error.message}
+					This file could not be updated: {buffer.error.message}
 					<Button size="xs" variant="outline" onclick={() => void fileEdit.read()}>Try reading again</Button>
 				</Alert.Description>
 			</Alert.Root>
 		</div>
 	{/if}
 	<!-- A failed reread does not remove the text already presented. -->
-	{#if untyped && text === undefined && status.known === 'nothing'}
-		{#if status.reading}<p class="p-4 text-sm text-muted-foreground">Reading…</p>{/if}
-	{:else if untyped && text === undefined && status.known === 'missing'}
+	{#if buffer.status === 'loading' || buffer.status === 'unread'}
+		<p class="p-4 text-sm text-muted-foreground">Reading…</p>
+	{:else if buffer.status === 'unavailable' && text === undefined && missing}
 		<p class="p-4 text-sm text-muted-foreground">This file no longer exists.</p>
-	{:else if untyped && status.known === 'not-text'}
+	{:else if buffer.status === 'unavailable' && notText}
 		<p class="p-4 text-sm text-muted-foreground">
 			This file is not text, so it is not shown here. It is left as it is.
 		</p>
@@ -139,7 +138,7 @@
 			<pre class="min-h-0 flex-1 overflow-auto rounded-md border p-2 font-mono text-xs whitespace-pre-wrap">{text}</pre>
 		</div>
 	{:else if text !== undefined}
-		{#if status.known === 'missing'}
+		{#if missing}
 			<p class="border-b px-4 py-2 text-sm text-muted-foreground">
 				This file was deleted elsewhere. Your unsaved source is still available; saving will report a conflict.
 			</p>
@@ -150,8 +149,7 @@
 			spellcheck="false"
 			readonly={sourceLocked || fileEdit.locked}
 			bind:value={() => boxText, (value) => {
-				const { error } = fileEdit.replaceText(withFileNewlines(value, text ?? ''));
-				refusal = error?.message;
+				if (text !== undefined) fileEdit.replaceText(withFileNewlines(value, text));
 			}}
 		/>
 	{/if}

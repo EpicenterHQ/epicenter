@@ -1,3 +1,4 @@
+import { unsavedOf } from '../../lib/edits.test-support.js';
 /**
  * Row views, mounted.
  *
@@ -36,8 +37,12 @@ import { closeTestWhispering } from '../../lib/whispering.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
 
 // Load the services after the mounted loader registered its plugin.
-const { openGatedTestFolder, openTestServices, whisperingDirectory, eventually } =
-	await import('../../lib/services.test-support.js');
+const {
+	openGatedTestFolder,
+	openTestServices,
+	whisperingDirectory,
+	eventually,
+} = await import('../../lib/services.test-support.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTestWhispering } = await import(
 	'../../lib/whispering.test-support.js'
@@ -133,10 +138,15 @@ async function show(
 
 /** Let writes and the views settle. */
 async function settle(context: WhisperingContext) {
-	await eventually(() => context.folder.getStatus().unsaved.every((path) => {
-		const pending = context.folder.files.edit(path).getPending();
-		return pending === undefined || (!pending.saving && pending.error !== undefined);
-	}));
+	await eventually(() =>
+		context.folder.getStatus().unsaved.every((path) => {
+			const pending = unsavedOf(context.folder.files.edit(path).getBuffer());
+			return (
+				pending === undefined ||
+				(pending.status !== 'saving' && pending.error !== undefined)
+			);
+		}),
+	);
 	await quiet(context);
 	flushSync();
 }
@@ -156,7 +166,7 @@ async function reportChanged(
 const field = <T extends Element>(target: ParentNode, selector: string) =>
 	target.querySelector<T>(selector);
 
-/** What the write status line says: Saving… or Saved. */
+/** What the write status line says: Saving…, Not saved, or No unsaved changes. */
 const writeStatus = (target: ParentNode) =>
 	target.querySelector('[data-testid="write-status"]')?.textContent?.trim();
 
@@ -266,7 +276,9 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 		target.querySelector<HTMLTextAreaElement>('[data-testid="transcript-text"]')
 			?.value,
 	).toBe('Typed in Source.\n');
-	expect(context.folder.files.edit(A).getPending()?.error).toBeDefined();
+	expect(
+		unsavedOf(context.folder.files.edit(A).getBuffer())?.error,
+	).toBeDefined();
 	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha.\n'));
 });
 
@@ -286,9 +298,13 @@ test('a transcript autosaves to its own path after switching files', async () =>
 	flushSync();
 	expect(writeStatus(target)).toBe('Saving…');
 	leave(body);
-	expect(context.folder.files.edit(A).getPending()?.saving).toBe(false);
+	expect(unsavedOf(context.folder.files.edit(A).getBuffer())?.status).not.toBe(
+		'saving',
+	);
 	await show(whispering, context, 'other.txt');
-	expect(context.folder.files.edit(A).getPending()?.saving).toBe(false);
+	expect(unsavedOf(context.folder.files.edit(A).getBuffer())?.status).not.toBe(
+		'saving',
+	);
 	await settle(context);
 
 	expect(notices).toEqual([]);
@@ -297,7 +313,24 @@ test('a transcript autosaves to its own path after switching files', async () =>
 	);
 	expect(await readFile(join(root, 'other.txt'), 'utf8')).toBe('Another file');
 	await show(whispering, context, A);
-	expect(writeStatus(target)).toBe('Saved');
+	expect(writeStatus(target)).toBe('No unsaved changes');
+});
+
+test('the passive clean save line leaves an unopened path unread', async () => {
+	const { context, whispering, target } = await open({});
+	const { default: SaveStatusHost } = await import(
+		'./test-fixtures/SaveStatusHost.svelte'
+	);
+	const path = 'never-opened.txt';
+	const edit = context.folder.files.edit(path);
+	expect(edit.getBuffer().status).toBe('unread');
+	const host = mount(SaveStatusHost, { target, props: { whispering, path } });
+	cleanups.push(() => unmount(host));
+	flushSync();
+	await quiet(context);
+	flushSync();
+	expect(writeStatus(target)).toBe('No unsaved changes');
+	expect(edit.getBuffer().status).toBe('unread');
 });
 
 test('a change made elsewhere shows once the folder reports it', async () => {
@@ -334,7 +367,9 @@ test('typing over an outside change stays pinned until explicit replacement', as
 	type(body(), 'Mine.\n');
 	leave(body());
 	await settle(context);
-	expect(context.folder.files.edit(A).getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(context.folder.files.edit(A).getBuffer())?.error?.name).toBe(
+		'Conflict',
+	);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nTheirs.\n');
 	await context.folder.files.edit(A).resolveConflict('draft');
 	await settle(context);
@@ -352,7 +387,9 @@ test('typing into a deleted recording stays held until explicit replacement', as
 	type(notes, 'Mine.\n');
 	leave(notes);
 	await settle(context);
-	expect(context.folder.files.edit(RECORDING).getPending()?.error?.name).toBe('Conflict');
+	expect(
+		unsavedOf(context.folder.files.edit(RECORDING).getBuffer())?.error?.name,
+	).toBe('Conflict');
 	await context.folder.files.edit(RECORDING).resolveConflict('draft');
 	await settle(context);
 	expect(await readFile(join(root, RECORDING), 'utf8')).toEndWith(
@@ -385,7 +422,9 @@ test('a transformation opens in Source when invalid and clears repaired diagnost
 	flushSync();
 	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
 	expect(instructions()?.disabled).toBe(false);
-	expect(context.folder.files.edit(RECIPE).getPending()).toBeDefined();
+	expect(
+		unsavedOf(context.folder.files.edit(RECIPE).getBuffer()),
+	).toBeDefined();
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(broken);
 	leave(source());
 	await settle(context);
@@ -685,7 +724,7 @@ for (const item of [
 			const retained = target.querySelector<HTMLTextAreaElement>(
 				`textarea[aria-label="${item.label}"]`,
 			);
-			expect(retained?.value).toBe(view.pending?.text);
+			expect(retained?.value).toBe(view.text);
 			expect(retained?.value).toContain('title: Keep my title');
 			expect(retained?.value).not.toContain(`${item.remove}:`);
 			expect(retained?.value).toContain('Keep my notes');

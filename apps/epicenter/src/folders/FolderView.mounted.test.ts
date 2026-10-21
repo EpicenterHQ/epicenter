@@ -1,3 +1,4 @@
+import { unsavedOf } from './buffer.test-support.js';
 /**
  * Folder Editor Mounted Tests
  *
@@ -309,7 +310,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 					.value.slice(page.box()!.selectionStart, page.box()!.selectionEnd),
 			).toBe('alpha\nmine\n');
 			blur(page.box());
-			expect(disk.folder.files.edit('a.md').getPending()).toBeUndefined();
+			expect(unsavedOf(disk.folder.files.edit('a.md').getBuffer())).toBeUndefined();
 			expect(disk.held).toHaveLength(0);
 			expect(page.target.textContent).not.toContain(
 				'Saving puts your text back',
@@ -439,7 +440,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await page.context.refresh(['a.md']);
 			expect(page.box()?.value).toBe('---\ntitle: Typed\n---\nbody\n');
 			expect(page.box()?.readOnly).toBe(false);
-			expect(textEdit.getPending()?.text).toBe(textEdit.getText());
+			expect(textEdit.getText()).toBe(textEdit.getText());
 		} finally {
 			await closeRefusing(page, disk);
 		}
@@ -481,7 +482,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await disk.put('a.md', 'alpha\nexternal\n');
 			await page.context.refresh(['a.md']);
 			type(page.box(), 'alpha\nmine\nlast\n');
-			expect(disk.folder.files.edit('a.md').getPending()?.text).toBe(
+			expect(disk.folder.files.edit('a.md').getText()).toBe(
 				'alpha\r\nmine\r\nlast\r\n',
 			);
 		} finally {
@@ -759,7 +760,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			);
 			await until(
 				() =>
-					disk.folder.files.edit('todos/a.md').getPending() !== undefined,
+					unsavedOf(disk.folder.files.edit('todos/a.md').getBuffer()) !== undefined,
 				'source takeover',
 			);
 			expect(disk.folder.files.edit('todos/a.md').getText()).toContain(
@@ -957,7 +958,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(page.box()?.readOnly).toBe(false);
 			press(button('Try again'));
 			await until(
-				() => disk.folder.files.edit('tasks/a.md').getPending()?.error?.name === 'Conflict',
+				() => unsavedOf(disk.folder.files.edit('tasks/a.md').getBuffer())?.error?.name === 'Conflict',
 				'the whole-file conflict',
 			);
 			type(page.box(), '---\nstatus: done\nextra: kept\n---\nOutside body\n');
@@ -1169,7 +1170,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(page.box()?.readOnly).toBe(false);
 			type(page.box(), '---\ntitle: Repaired\n---\nbody\n');
 			await until(
-				() => fileEdit.getPending() !== undefined,
+				() => unsavedOf(fileEdit.getBuffer()) !== undefined,
 				'the source repair',
 			);
 			expect(fileEdit.getMarkdown()?.fields).toEqual({ title: 'Repaired' });

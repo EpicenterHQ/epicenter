@@ -1,7 +1,7 @@
 /**
  * A React snapshot of one path-owned file edit. The folder owns input,
  * reading and saving. Document reads request an initial read after commit;
- * pending-only observers do not. Commands apply to the owner's current
+ * lock-only observers do not. Commands apply to the owner's current
  * source draft in call order, including multiple handlers in one event.
  */
 import type { FileEdit } from '@epicenter/folder/edits';
@@ -17,30 +17,22 @@ export function useFileEdit<TDocumentSchema extends TSchema>(
 		edit.getMarkdown,
 		edit.getMarkdown,
 	);
-	const text = useSyncExternalStore(edit.subscribe, edit.getText, edit.getText);
-	const pending = useSyncExternalStore(
-		edit.subscribe,
-		edit.getPending,
-		edit.getPending,
-	);
 	const locked = useSyncExternalStore(
 		edit.subscribe,
 		edit.isLocked,
 		edit.isLocked,
 	);
-	const status = useSyncExternalStore(
+	const buffer = useSyncExternalStore(
 		edit.subscribe,
-		edit.getReadStatus,
-		edit.getReadStatus,
+		edit.getBuffer,
+		edit.getBuffer,
 	);
 	// This render requests a first read only if one of its read methods is used.
 	// An abandoned render never runs this effect.
 	let requested = false;
 	useEffect(() => {
 		if (!requested) return;
-		const { known, reading, error } = edit.getReadStatus();
-		if (known === 'nothing' && !reading && error === undefined)
-			edit.read().catch(() => {});
+		if (edit.getBuffer().status === 'unread') edit.read().catch(() => {});
 	});
 	return {
 		...edit,
@@ -50,15 +42,12 @@ export function useFileEdit<TDocumentSchema extends TSchema>(
 		},
 		getText() {
 			requested = true;
-			return text;
+			return buffer.status === 'ready' ? buffer.text : undefined;
 		},
-		getReadStatus() {
+		getBuffer() {
 			requested = true;
-			return status;
+			return buffer;
 		},
-		getPending: () => pending,
 		isLocked: () => locked,
-		change: edit.change,
-		replaceText: edit.replaceText,
 	};
 }

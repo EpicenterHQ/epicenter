@@ -24,7 +24,6 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { getFolder } from '$lib/folder.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -54,8 +53,8 @@
 	const fileEdit = createFileEdit(folder.tables.todos.edit(id));
 	const todo = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown : undefined);
 	/** What is known of the file, and why the last read failed. */
-	const status = $derived(fileEdit.readStatus);
-	const pending = $derived(fileEdit.pending);
+	const buffer = $derived(fileEdit.buffer);
+	const unsaved = $derived(buffer.status === 'ready' ? buffer.unsaved : undefined);
 
 	function confirmDiscard() {
 		confirmationDialog.open({
@@ -98,7 +97,7 @@
 {#snippet fileBar(label: string)}
 	<div class="flex shrink-0 items-center gap-2 border-t px-4 py-2">
 		<span class="min-w-0 truncate font-mono text-xs text-muted-foreground" data-testid="file-path">{path}</span>
-		{#if status.known === 'not-text'}
+		{#if (buffer.error?.name === 'SourceUnavailable' && buffer.error.reason === 'not-text')}
 			<span class="ml-auto text-xs text-muted-foreground">Open this file elsewhere to remove it</span>
 		{:else}
 			<Button class="ml-auto" size="sm" variant="ghost-destructive" disabled={fileEdit.locked} onclick={() => void confirmDelete(label)}>Delete</Button>
@@ -107,17 +106,17 @@
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
-	{#if status.error && fileEdit.markdown}
+	{#if buffer.error && fileEdit.markdown}
 		<div class="border-b bg-destructive/10 px-4 py-2 text-xs text-destructive" role="status">
-			Could not read the latest todo: {status.error.message}.
+			Could not read the latest todo: {buffer.error.message}.
 			<Button variant="link" size="xs" onclick={() => void fileEdit.read()}>Try again</Button>
 		</div>
 	{/if}
-	{#if !todo && pending}
+	{#if !todo && unsaved}
 		<div class="border-b bg-destructive/10 px-4 py-2 text-xs" role="status" data-testid="held-draft">
 			<p>Unsaved changes for {path} are still here. Select and copy them before closing this tab if saving keeps failing.</p>
-			{#if pending.error}<p>Not saved: {describeFailure(pending.error)}</p>{/if}
-			<pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved changes">{unsavedText(pending)}</pre>
+			{#if unsaved.error}<p>Not saved: {describeFailure(unsaved.error)}</p>{/if}
+			<pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved changes">{fileEdit.text}</pre>
 			<Button variant="outline" size="xs" onclick={() => void fileEdit.save()}>Try saving again</Button>
 			<Button variant="ghost-destructive" size="xs" onclick={confirmDiscard}>Discard changes</Button>
 		</div>
@@ -146,9 +145,9 @@
 		</div>
 
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{#if fileEdit.pending}
-				{#if fileEdit.pending.error && !fileEdit.pending.saving}
-					Not saved: {describeFailure(fileEdit.pending.error)}
+			{#if unsaved}
+				{#if unsaved.status === 'failed' || unsaved.status === 'conflict'}
+					Not saved: {describeFailure(unsaved.error)}
 					<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
 					<Button variant="link" size="xs" class="h-auto p-0" onclick={confirmDiscard}>Discard changes</Button>
 				{:else}
@@ -193,13 +192,13 @@
 			class="min-h-48 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap"
 			aria-label="Text of {path}">{broken.text}</pre>
 		{@render fileBar(`${id}.md`)}
-	{:else if status.error}
+	{:else if buffer.error && buffer.error.name !== 'SourceUnavailable'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read this todo</Empty.Title>
-			<Empty.Description>{status.error.message}</Empty.Description>
+			<Empty.Description>{buffer.error.message}</Empty.Description>
 			<Button variant="outline" size="sm" onclick={() => void fileEdit.read()}>Try again</Button>
 		</Empty.Root>
-	{:else if status.known === 'nothing'}
+	{:else if buffer.status === 'unread' || buffer.status === 'loading'}
 		<Loading class="flex-1" label="Opening the todo…" />
 	{:else}
 		<Empty.Root class="flex-1">

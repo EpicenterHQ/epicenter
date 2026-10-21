@@ -6,6 +6,7 @@
  * `createFileEdit(folder.files.edit(path))`. Storage refusals come from
  * IndexedDB itself.
  */
+import { unsavedIn, unsavedOf } from './buffer.test-support.js';
 import './svelte-modules.test-support.js';
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
@@ -117,14 +118,14 @@ test('failed text stays visible to the row view, whose next change preserves oth
 	expectOk(textEdit.replaceText(initial.replace('one', 'unfinished source')));
 	await textEdit.save();
 	const rowEdit = context.folder.tables.notes.edit('a');
-	expect(rowEdit.getPending()).toBe(textEdit.getPending());
+	expect(unsavedOf(rowEdit)).toBe(unsavedOf(textEdit));
 	expect(rowEdit.getMarkdown()?.body).toContain('unfinished source');
-	expect(rowEdit.getPending()?.error?.name).toBe('StorageFailed');
+	expect(unsavedOf(rowEdit)?.error?.name).toBe('StorageFailed');
 	restore();
 	expectOk(rowEdit.change({ fields: { title: 'A row change' } }));
 	expect(textEdit.getText()).toContain('unfinished source');
 	await rowEdit.save();
-	expect(textEdit.getPending()).toBeUndefined();
+	expect(unsavedOf(textEdit)).toBeUndefined();
 	expect(textEdit.getText()).toContain('title: A row change');
 });
 
@@ -151,7 +152,7 @@ test('deletion fences text immediately and sends its held text before removing t
 	await text.save();
 	expect(expectOk(await deleting).deleted).toBe(true);
 	expect(await sourceOf(other)).toBeUndefined();
-	expect(text.getPending()).toBeUndefined();
+	expect(unsavedOf(text)).toBeUndefined();
 	expect(text.getText()).toBeUndefined();
 });
 
@@ -161,12 +162,14 @@ test('failed whole-file input refuses deletion and close returns its exact text'
 	const changed = '---\nbroken: [\nkeep this\r\n';
 	text.replaceText(changed);
 	expect(expectErr(await text.delete()).name).toBe('NotStarted');
-	expect(text.getPending()).toMatchObject({ text: changed });
+	expect(unsavedOf(text)).toBeDefined();
+	expect(text.getText()).toBe(changed);
 	expect(await context.close()).toMatchObject([
 		{ path, unsaved: changed, error: { name: 'StorageFailed' } },
 	]);
 	expectErr(text.replaceText('late'));
-	expect(text.getPending()).toMatchObject({ text: changed });
+	expect(unsavedOf(text)).toBeDefined();
+	expect(text.getText()).toBe(changed);
 });
 
 test('settling saves whole-file edits, and the rows are read again after it', async () => {
@@ -178,7 +181,7 @@ test('settling saves whole-file edits, and the rows are read again after it', as
 	cleanup.push(rows.subscribe(() => {}));
 	text.replaceText(initial.replace('title: A', 'title: Repaired'));
 	expect(await context.folder.settle()).toEqual([]);
-	expect(text.getPending()).toBeUndefined();
+	expect(unsavedOf(text)).toBeUndefined();
 	await until(
 		() => rows.getCurrentResult().data?.[0]?.fields?.title === 'Repaired',
 	);
@@ -191,7 +194,7 @@ test('a refused delete leaves failed text held for another save attempt', async 
 	expectErr(await text.delete());
 	restore();
 	await Bun.sleep(50);
-	expect(text.getPending()).toBeDefined();
+	expect(unsavedOf(text)).toBeDefined();
 	expect(await sourceOf(other)).toBe(initial);
 	await text.save();
 	expect(await sourceOf(other)).toBe('Keep this failed text');
@@ -216,7 +219,7 @@ test('the text binding shows held text over the stored file, BOM kept, and the s
 		(value, index) => index === 0 || value !== shown.values[index - 1],
 	);
 	expect(changes).toEqual(['﻿one\r\n', '﻿one!\r\n', '﻿one!!\r\n']);
-	expect(view.pending).toBeUndefined();
+	expect(unsavedIn(view.buffer)).toBeUndefined();
 	const saved = expectOk(await other.files.read(path));
 	expect(await bytesOf(saved!.content)).toEqual(
 		new TextEncoder().encode('﻿one!!\r\n'),
@@ -228,16 +231,18 @@ test('the text binding reads a file the first time a view shows it, and a missin
 	expectOk(await folder.files.write('notes/b.md', null, 'b\n'));
 	const view = createFileEdit(folder.files.edit('notes/b.md'));
 	const ghost = createFileEdit(folder.files.edit('notes/ghost.md'));
-	const shown = follow(() => [view.readStatus.known, view.text] as const);
-	const missing = follow(() => [ghost.readStatus.known, ghost.text] as const);
+	const shown = follow(() => [view.buffer.status, view.text] as const);
+	const missing = follow(() => [ghost.buffer.status, ghost.text] as const);
 	cleanup.push(shown.stop, missing.stop);
 	flushSync();
-	expect(shown.values[0]).toEqual(['nothing', undefined]);
-	await until(() => view.text !== undefined && !ghost.readStatus.reading);
+	expect(shown.values[0]).toEqual(['loading', undefined]);
+	await until(
+		() => view.text !== undefined && ghost.buffer.status !== 'loading',
+	);
 	flushSync();
-	expect(shown.values.at(-1)).toEqual(['file', 'b\n']);
-	expect(missing.values.at(-1)).toEqual(['missing', undefined]);
-	expect(ghost.readStatus.error).toBeUndefined();
+	expect(shown.values.at(-1)).toEqual(['ready', 'b\n']);
+	expect(missing.values.at(-1)).toEqual(['unavailable', undefined]);
+	expect(ghost.buffer.error?.name).toBe('SourceUnavailable');
 	expect(expectErr(ghost.replaceText('x')).name).toBe('NoSource');
 });
 
@@ -246,12 +251,16 @@ test('the text binding shows a file that is not text as such, and refuses to typ
 	const bytes = new Uint8Array([255, 254, 0]);
 	expectOk(await folder.files.write('notes/raw.md', null, bytes));
 	const view = createFileEdit(folder.files.edit('notes/raw.md'));
-	const known = follow(() => view.readStatus.known);
+	const known = follow(() => view.buffer.status);
 	cleanup.push(known.stop);
 	flushSync();
-	await until(() => view.readStatus.known !== 'nothing');
+	await until(() => view.buffer.status === 'unavailable');
 	flushSync();
-	expect(known.values.at(-1)).toBe('not-text');
+	expect(known.values.at(-1)).toBe('unavailable');
+	expect(view.buffer.error).toMatchObject({
+		name: 'SourceUnavailable',
+		reason: 'not-text',
+	});
 	expect(view.text).toBeUndefined();
 	expect(expectErr(view.replaceText('x')).name).toBe('NotText');
 	const stored = expectOk(await folder.files.read('notes/raw.md'));
@@ -271,7 +280,7 @@ test('the text binding keeps a landed save shown when the reread fails, and typi
 	view.replaceText('one\nmine\n');
 	await view.save();
 	await until(() => query.getCurrentResult().isError);
-	expect(view.pending).toBeUndefined();
+	expect(unsavedIn(view.buffer)).toBeUndefined();
 	expect(view.text).toBe('one\nmine\n');
 	view.replaceText(`${view.text}more\n`);
 	await view.save();

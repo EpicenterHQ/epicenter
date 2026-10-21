@@ -42,6 +42,7 @@ for (const view of ['home', 'detail', 'file'] as const) {
 		expect(app.target.querySelector('audio') === null).toBe(true);
 		expect(app.target.textContent).toContain('Recording…');
 		expect(app.reads).toEqual([]);
+		if (view === 'file') expect(context.folder.files.edit(path).getBuffer().status).toBe('unread');
 		if (view !== 'file')
 			expect(
 				app.target.querySelector<HTMLButtonElement>(
@@ -53,6 +54,7 @@ for (const view of ['home', 'detail', 'file'] as const) {
 		expect(app.target.textContent).toContain('Stopping…');
 		expect(app.target.querySelector('audio') === null).toBe(true);
 		expect(app.reads).toEqual([]);
+		if (view === 'file') expect(context.folder.files.edit(path).getBuffer().status).toBe('unread');
 		if (view !== 'file')
 			expect(
 				app.target.querySelector<HTMLButtonElement>(

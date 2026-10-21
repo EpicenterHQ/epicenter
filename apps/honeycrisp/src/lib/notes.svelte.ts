@@ -446,15 +446,12 @@ export function createNotes(local: NotesFolder) {
 		},
 		/** Whether a save at `path` runs, or typing there waits to be sent. */
 		isWriting(path: string) {
-			const pending = editAt(path).pending;
-			return (
-				pending !== undefined && (pending.error === undefined || pending.saving)
-			);
+			const status = local.getStatus();
+			return status.unsaved.includes(path) && !status.failures.some((failure) => failure.path === path);
 		},
 		/** Whether typing at `path` did not save, with no save running. */
 		isUnsaved(path: string) {
-			const pending = editAt(path).pending;
-			return pending?.error !== undefined && !pending.saving;
+			return local.getStatus().failures.some((failure) => failure.path === path);
 		},
 		/** Whether input and actions are held back because the notes are closing. */
 		get fenced() {

@@ -25,6 +25,7 @@
  */
 import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
+const { unsavedOf } = await import('./local.test-support.js');
 import { afterEach, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import type { NotesFixture } from './local.test-support.ts';
@@ -144,7 +145,7 @@ test('a read that lands while a body is held leaves it pinned until resolution',
 	expect(note.getMarkdown()?.body).toBe('one!\n\ntwo\n');
 
 	await saveA(fixture);
-	expect(note.getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(note)?.error?.name).toBe('Conflict');
 	expect(await text(A)).toContain('one\n\ntwo?\n');
 	expectOk(note.change({ body: 'one!\n\ntwo?\n' }));
 	await note.resolveConflict('draft');
@@ -164,7 +165,10 @@ test('a list action stays pinned when another tab changed a field', async () => 
 	expect(notes.patchNote(A, { pinned: true })).toBeUndefined();
 	await until(() => !notes.isWriting(A), 'the pin to save');
 	const edit = notes.folder.tables.notes.edit('a');
-	await until(() => edit.getPending()?.error?.name === 'Conflict', 'the field conflict');
+	await until(
+		() => unsavedOf(edit)?.error?.name === 'Conflict',
+		'the field conflict',
+	);
 	expectOk(edit.change({ fields: { title: 'Theirs' } }));
 	await edit.resolveConflict('draft');
 	await quiet(notes);
@@ -238,11 +242,11 @@ test('a note whose text is not a note is listed for repair, opens as text, saves
 	expect(notes.patchNote(A, { pinned: true })).toBeDefined();
 
 	expectOk(typeInto(notes, A, noteText()));
-	expect(notes.folder.files.edit(A).getPending()?.text).toBe(noteText());
+	expect(notes.folder.files.edit(A).getText()).toBe(noteText());
 	await notes.folder.files.edit(A).save();
 	await quiet(notes);
 	expect(await text(A)).toBe(noteText());
-	expect(notes.folder.files.edit(A).getPending()).toBeUndefined();
+	expect(unsavedOf(notes.folder.files.edit(A))).toBeUndefined();
 	expect(repairsOf(rows(notes))).toEqual([]);
 	notes.open(A, 'note');
 	expect(
@@ -267,8 +271,10 @@ test('a note open as its file permits row commands and resolves outside text exp
 	const typed = noteText({ title: 'Mine', body: 'one!\n\ntwo\n' });
 	expectOk(typeInto(notes, A, typed));
 	await notes.folder.files.edit(A).save();
-	expect(note.getPending()?.error?.name).toBe('Conflict');
-	expectOk(note.replaceText(noteText({ title: 'Mine', body: 'one!\n\ntwo?\n' })));
+	expect(unsavedOf(note)?.error?.name).toBe('Conflict');
+	expectOk(
+		note.replaceText(noteText({ title: 'Mine', body: 'one!\n\ntwo?\n' })),
+	);
 	await note.resolveConflict('draft');
 	await quiet(notes);
 	const saved = (await text(A)) ?? '';
@@ -374,7 +380,7 @@ test('a folder deletion saves a note being moved into it, even one the page does
 	expectOk(b.change({ fields: { folderId: 'work' } }));
 
 	expect(await notes.deleteFolder(folderEntry(notes, 'work'))).toBeUndefined();
-	expect(b.getPending()).toBeUndefined();
+	expect(unsavedOf(b)).toBeUndefined();
 	expect(await text('notes/b.md')).toContain('folderId: null');
 	expect(await text('folders/work.md')).toBeUndefined();
 });
@@ -503,7 +509,7 @@ test('a failed file edit stays visible across selection and accepts a field patc
 	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
 		'Keep this unfinished file\n',
 	);
-	expect(notes.folder.files.edit(A).getPending()?.text).toBe(changed);
+	expect(notes.folder.files.edit(A).getText()).toBe(changed);
 	failSaves(false);
 	expect(notes.patchNote(A, { pinned: true })).toBeUndefined();
 	await notes.folder.files.edit(A).save();
@@ -545,4 +551,24 @@ test('a folder rename patches held text instead of requiring it to save first', 
 	notes.open(A);
 	expect(notes.patchFolder(path, { name: 'Other name' })).toBeUndefined();
 	expect(notes.folder.files.edit(path).getText()).toContain('Other name');
+});
+
+test('save indicators leave an unopened file unread', async () => {
+	const { notes, folder } = await setup();
+	const edit = folder.files.edit('unopened.txt');
+	const { follow } = await import(
+		'../../../../packages/svelte/src/reactive.test-support.svelte.js'
+	);
+	const { flushSync } = await import('svelte');
+	expect(edit.getBuffer().status).toBe('unread');
+	cleanup.push(
+		follow(() => [
+			notes.isWriting('unopened.txt'),
+			notes.isUnsaved('unopened.txt'),
+		]).stop,
+	);
+	flushSync();
+	expect(notes.isWriting('unopened.txt')).toBe(false);
+	expect(notes.isUnsaved('unopened.txt')).toBe(false);
+	expect(edit.getBuffer().status).toBe('unread');
 });

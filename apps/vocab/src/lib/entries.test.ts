@@ -1,3 +1,4 @@
+import { unsavedOf } from './query.test-support.js';
 /**
  * Saved word tests.
  * The real Vocab store runs over the local folder context
@@ -188,7 +189,7 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 	const before = await fileText(context.folder, context.path);
 
 	expect(vocab.entries.setNote(context.word(), 'clear and bright')).toBe(true);
-	expect(edit.getPending()).toBeDefined();
+	expect(unsavedOf(edit.getBuffer())).toBeDefined();
 	expect(
 		vocab.folder.getStatus().saving ||
 			vocab.folder.getStatus().unsaved.length > 0,
@@ -198,7 +199,7 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 	expect(edit.getMarkdown()?.fields?.note).toBe('clear and bright');
 	expect(await fileText(context.folder, context.path)).toBe(before);
 
-	await until(() => edit.getPending() === undefined, 'the note to save');
+	await until(() => unsavedOf(edit.getBuffer()) === undefined, 'the note to save');
 	await quiet(vocab);
 	expect(
 		expectOk(await context.folder.tables.entries.get(context.word().id))?.fields
@@ -224,7 +225,7 @@ test('a stage press saves at once and keeps a note typed just before it', async 
 	await edit.save();
 	const saved = expectOk(await context.folder.tables.entries.get(word.id));
 	expect(saved?.fields).toMatchObject({ note: 'clear', stage: 'understood' });
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit.getBuffer())).toBeUndefined();
 });
 
 test("another tab's save updates the list while the whole local draft stays pinned", async () => {
@@ -249,7 +250,7 @@ test("another tab's save updates the list while the whole local draft stays pinn
 
 	const edit = slow.vocab.folder.tables.entries.edit(mine.id);
 	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(edit.getBuffer())?.error?.name).toBe('Conflict');
 	expect(edit.getMarkdown()?.fields).toMatchObject({
 		note: 'mine',
 		stage: 'new',
@@ -257,7 +258,7 @@ test("another tab's save updates the list while the whole local draft stays pinn
 	const saved = expectOk(await context.folder.tables.entries.get(mine.id));
 	expect(saved?.fields).toMatchObject({ note: '', stage: 'usable' });
 	await edit.resolveConflict('current');
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit.getBuffer())).toBeUndefined();
 	expect(edit.getMarkdown()?.fields).toMatchObject({
 		note: '',
 		stage: 'usable',
@@ -280,13 +281,13 @@ test('a note changed elsewhere is replaced only after explicit conflict resoluti
 	);
 	const edit = slow.vocab.folder.tables.entries.edit(word.id);
 	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(edit.getBuffer())?.error?.name).toBe('Conflict');
 	expect(edit.getMarkdown()?.fields?.note).toBe('mine');
 	expect(
 		expectOk(await context.folder.tables.entries.get(word.id))?.fields?.note,
 	).toBe('theirs');
 	await edit.resolveConflict('draft');
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit.getBuffer())).toBeUndefined();
 	expect(
 		expectOk(await context.folder.tables.entries.get(word.id))?.fields?.note,
 	).toBe('mine');
@@ -308,7 +309,7 @@ test('a saved stage stays shown when the reread fails, and pressing the old stag
 		await quiet(vocab);
 		// The list still holds the word as read before the save.
 		expect(context.word().stage).toBe('new');
-		expect(card.pending).toBeUndefined();
+		expect(unsavedOf(card.buffer)).toBeUndefined();
 		expect(card.markdown?.fields?.stage).toBe('usable');
 
 		expect(card.setStage('new')).toBe(true);
@@ -329,16 +330,20 @@ test('a save that fails keeps the typing and its error, and saving again writes 
 	const edit = folder.tables.entries.edit(context.word().id);
 	vocab.entries.setNote(context.word(), 'clear');
 	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
+	expect(unsavedOf(edit.getBuffer())?.error?.name).toBe('StorageFailed');
 	expect(edit.getMarkdown()?.fields?.note).toBe('clear');
-	expect(vocab.entries.failures.map((failure) => failure.kind === 'document' ? failure.fields : undefined)).toEqual([
-		{ note: 'clear' },
+	expect(vocab.entries.failures).toMatchObject([
+		{
+			path: context.path,
+			text: edit.getText(),
+			error: { name: 'StorageFailed' },
+		},
 	]);
 	expect(context.word().note).toBe('');
 
 	saves.failing = false;
 	await edit.save();
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit.getBuffer())).toBeUndefined();
 	expect(
 		expectOk(await folder.tables.entries.get(context.word().id))?.fields?.note,
 	).toBe('clear');
@@ -399,7 +404,7 @@ test('a file that is not a valid word is named for repair, written as typed text
 	).toBe(true);
 	expect(view.text).toBe(broken.replace('stage: mastered', 'stage: usab'));
 	view.replaceText(broken.replace('stage: mastered', 'stage: usable'));
-	await until(() => repair.view()?.pending === undefined, 'the repair to save');
+	await until(() => unsavedOf(repair.view()?.buffer) === undefined, 'the repair to save');
 	await quiet(vocab);
 	expect(await fileText(folder, 'entries/broken.md')).toBe(
 		broken.replace('stage: mastered', 'stage: usable'),
@@ -435,7 +440,7 @@ test('a valid unsaved repair returns to structured editing without saving or ref
 	expect(opened.vocab.entries.edit('broken').markdown?.fields?.stage).toBe(
 		'usable',
 	);
-	expect(fileEdit.pending).toBeDefined();
+	expect(unsavedOf(fileEdit.buffer)).toBeDefined();
 });
 
 test('a delete waits for the typing to save, then removes the word', async () => {
@@ -452,7 +457,7 @@ test('a delete waits for the typing to save, then removes the word', async () =>
 	expect(expectOk(await deleting)).toEqual({ deleted: true });
 	expect(await tableFiles(folder, 'entries')).toEqual([]);
 	expect(
-		slow.vocab.folder.tables.entries.edit(word.id).getPending(),
+		unsavedOf(slow.vocab.folder.tables.entries.edit(word.id).getBuffer()),
 	).toBeUndefined();
 	await until(
 		() => wordsOf(rows(vocab)).length === 0,
@@ -472,11 +477,11 @@ test('typing that failed to save keeps its word from being deleted', async () =>
 	);
 	saves.failing = false;
 	expect(await tableFiles(folder, 'entries')).toEqual([context.path]);
-	expect(edit.getPending()).toBeDefined();
+	expect(unsavedOf(edit.getBuffer())).toBeDefined();
 	// Discarding is the learner's explicit choice, and lets the delete go ahead.
 	const held = edit.getText();
 	expect(edit.getMarkdown()?.fields?.note).toBe('clear');
-	expect(edit.discard()?.text).toBe(held);
+	expect(expectOk(edit.discard())?.text).toBe(held);
 	expect(expectOk(await vocab.entries.delete(context.word()))).toEqual({
 		deleted: true,
 	});
@@ -492,13 +497,13 @@ test('a word deleted elsewhere stays deleted until the held source is explicitly
 	expectOk(await context.folder.tables.entries.delete(word.id, word.row));
 	const edit = slow.vocab.folder.tables.entries.edit(word.id);
 	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(edit.getBuffer())?.error?.name).toBe('Conflict');
 	expect(edit.getMarkdown()?.fields?.note).toBe('clear');
 	expect(
 		expectOk(await context.folder.tables.entries.get(word.id)),
 	).toBeUndefined();
 	await edit.resolveConflict('draft');
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit.getBuffer())).toBeUndefined();
 	expect(
 		expectOk(await context.folder.tables.entries.get(word.id))?.fields,
 	).toMatchObject({ text: 'lucid', note: 'clear' });

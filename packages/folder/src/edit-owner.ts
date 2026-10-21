@@ -26,7 +26,10 @@ import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderFileOperations } from './folder.js';
 import { callObserver } from './observer.js';
 import { readablePath } from './paths.js';
-import { ownFields, sameValue as sharedValue } from './shared/content/canonical.js';
+import {
+	ownFields,
+	sameValue as sharedValue,
+} from './shared/content/canonical.js';
 import { mergeLinesWith } from './shared/content/merge-lines.js';
 import { ReadError, SaveError } from './shared/errors.js';
 import { changeMarkdown, readMarkdown } from './shared/markdown-codec.js';
@@ -78,7 +81,7 @@ export const ChangeError = defineErrors({
 });
 export type ChangeError = InferErrors<typeof ChangeError>;
 
-/** Accepted into memory, or refused. A later save reports failures through `getPending().error`. */
+/** Accepted into memory, or refused. A later save reports failures through `getBuffer().unsaved`. */
 export type ChangeResult = Result<void, ChangeError>;
 
 /** Generic frontmatter, when no read schema is bound to an editor. */
@@ -96,26 +99,57 @@ export type MarkdownContent<TRowSchema extends TSchema = typeof anyFields> =
 	Readonly<MarkdownValue<TRowSchema>>;
 
 /** Exact unsaved source, independent of the schema used to view it. */
-export type Pending = {
+type Pending = {
 	readonly path: string;
 	readonly text: string;
 	readonly saving: boolean;
 	readonly error: SaveError | undefined;
 };
 
-/**
- * What an edit knows of its file, and how reading it goes. `known` is
- * `nothing` until a read or a row list says what is stored, and again
- * after its cached document is released; then `missing`
- * for no file, `file` for a file, or `not-text` for bytes that are not
- * UTF-8 text without NUL. `reading` while a read of the edit runs; `error`
- * is why the last read failed, until one succeeds, whatever is known.
- */
-export type ReadStatus = {
-	readonly known: 'nothing' | 'missing' | 'file' | 'not-text';
-	readonly reading: boolean;
-	readonly error: ReadError | undefined;
-};
+/** Why stored content cannot supply an editable buffer. */
+export const SourceUnavailable = defineErrors({
+	SourceUnavailable: ({ reason }: { reason: 'missing' | 'not-text' }) => ({
+		reason,
+		message:
+			reason === 'missing'
+				? 'The saved file no longer exists.'
+				: 'The saved file is not text.',
+	}),
+});
+export type SourceUnavailable = InferErrors<typeof SourceUnavailable>;
+export type SaveFailure = Exclude<SaveError, { name: 'Conflict' }>;
+export type SaveConflict = Extract<SaveError, { name: 'Conflict' }>;
+/** Held work, whose text belongs to the enclosing ready buffer. */
+export type Unsaved =
+	| { status: 'dirty' | 'saving'; error?: never }
+	| { status: 'failed'; error: SaveFailure }
+	| { status: 'conflict'; error: SaveConflict };
+/** A detached, copyable source retained after discard, settle or close. */
+export type Recovery = { path: string; text: string } & Unsaved;
+export type SaveFailureRecovery = Extract<
+	Recovery,
+	{ status: 'failed' | 'conflict' }
+>;
+/** Latest non-save feedback. Read and refusal causes remain separately owned. */
+export type BufferIssue =
+	| ReadError
+	| ChangeError
+	| ActionError
+	| SourceUnavailable
+	| SaveError;
+/** Effective source availability; held input always supplies a ready buffer. */
+export type BufferSnapshot = { error?: BufferIssue } & (
+	| { status: 'unread' | 'loading' }
+	| { status: 'unavailable'; error: BufferIssue }
+	| { status: 'ready'; text: string; unsaved?: Unsaved }
+);
+const UNREAD: BufferSnapshot = Object.freeze({ status: 'unread' });
+const MISSING = Object.freeze(
+	SourceUnavailable.SourceUnavailable({ reason: 'missing' }).error,
+);
+const NOT_TEXT = Object.freeze(
+	SourceUnavailable.SourceUnavailable({ reason: 'not-text' }).error,
+);
 
 /** A delete's outcome: whether the file went, or why nothing started. */
 export type DeleteResult = Result<
@@ -128,8 +162,7 @@ export type FileEdit<TRowSchema extends TSchema = typeof anyFields> = {
 	readonly path: string;
 	getText(): string | undefined;
 	getMarkdown(): MarkdownContent<TRowSchema> | undefined;
-	getPending(): Pending | undefined;
-	getReadStatus(): ReadStatus;
+	getBuffer(): BufferSnapshot;
 	isLocked(): boolean;
 	/** Refresh this path. Read the current snapshot through the getters afterwards. */
 	read(): Promise<Result<void, ReadError>>;
@@ -139,11 +172,13 @@ export type FileEdit<TRowSchema extends TSchema = typeof anyFields> = {
 	/** Replace the editable source, over the currently displayed draft. */
 	replaceText(text: string): ChangeResult;
 	/** Attempt held input, including an earlier failure, or join its running attempt. */
-	save(): Promise<void>;
+	save(): Promise<Result<void, SaveError | ActionError>>;
 	/** Resolve the last whole-file conflict against the exact source it reported. */
-	resolveConflict(choice: 'current' | 'draft' | { text: string }): Promise<void>;
+	resolveConflict(
+		choice: 'current' | 'draft' | { text: string },
+	): Promise<Result<void, ReadError | SaveError | ActionError>>;
 	/** Release held input, returning it for recovery. Refused while a save or action runs. */
-	discard(): Pending | undefined;
+	discard(): Result<Recovery | undefined, ActionError>;
 	delete(): Promise<DeleteResult>;
 };
 
@@ -154,8 +189,14 @@ export function mergeText(base: string, current: string, change: string) {
 }
 
 /** Explicit file merge for callers that choose content merging themselves. */
-export function mergeFileText(path: string, base: string, current: string, change: string): string {
-	return mergeWith(diffArrays, path, { base, current, change }).content as string;
+export function mergeFileText(
+	path: string,
+	base: string,
+	current: string,
+	change: string,
+): string {
+	return mergeWith(diffArrays, path, { base, current, change })
+		.content as string;
 }
 
 /**
@@ -228,7 +269,7 @@ type PathState = {
 	input: Input | undefined;
 	timer: ReturnType<typeof setTimeout> | undefined;
 	/** The save loop, while one runs. */
-	running: Promise<void> | undefined;
+	running: Promise<Result<void, SaveError>> | undefined;
 	/** Asked to save again while a save ran. */
 	again: boolean;
 	/** The action holding the path, while one runs. */
@@ -241,13 +282,22 @@ type PathState = {
 	/** What the source and document getters answered, while their inputs hold. */
 	text: Kept<string | undefined> | undefined;
 	documents: WeakMap<TSchema, MarkdownContent>;
-	status: ReadStatus;
+	buffer: BufferSnapshot | undefined;
+	refusal:
+		| {
+				error: BufferIssue;
+				kind: ReturnType<typeof sourceKind>;
+				text: string | undefined;
+				reason: string | undefined;
+				running: PathState['running'];
+		  }
+		| undefined;
 };
 
 /** What the owner tells the handle: input held, failures, and whether work runs. */
 export type EditAggregate = {
 	readonly unsaved: readonly string[];
-	readonly failures: readonly Pending[];
+	readonly failures: readonly SaveFailureRecovery[];
 	readonly working: boolean;
 };
 
@@ -271,15 +321,24 @@ function textOf(content: FileContent): string | undefined {
 	return text.includes('\0') || !text.isWellFormed() ? undefined : text;
 }
 
-const NOTHING: ReadStatus = Object.freeze({
-	known: 'nothing',
-	reading: false,
-	error: undefined,
-});
-
 /** Whether a row's source is not text, as a row list reads one without its bytes. */
 const notText = ({ issues }: Pick<Row, 'issues'>) =>
 	issues?.some((issue) => issue.kind === 'not-text') ?? false;
+
+function sourceKind(state: PathState) {
+	if (
+		state.input !== undefined ||
+		(state.doc !== undefined &&
+			state.doc !== null &&
+			textOf(state.doc) !== undefined)
+	)
+		return 'text';
+	return state.doc === undefined
+		? 'unread'
+		: state.doc === null
+			? 'missing'
+			: 'not-text';
+}
 
 function withState(
 	input: Input,
@@ -340,6 +399,7 @@ export function createEditOwner({
 	let saves = 0;
 	let aggregate: EditAggregate = { unsaved: [], failures: [], working: false };
 	let phase: 'open' | 'closing' | 'closed' = 'open';
+	let notifying = 0;
 
 	function stateOf(path: string): PathState {
 		let state = states.get(path);
@@ -360,7 +420,8 @@ export function createEditOwner({
 				decoded: undefined,
 				text: undefined,
 				documents: new WeakMap(),
-				status: NOTHING,
+				buffer: undefined,
+				refusal: undefined,
 			};
 			states.set(path, state);
 		}
@@ -385,6 +446,7 @@ export function createEditOwner({
 			state.listeners.size === 0 &&
 			state.doc === undefined &&
 			state.error === undefined &&
+			state.refusal === undefined &&
 			reads === 0
 		)
 			states.delete(path);
@@ -394,7 +456,11 @@ export function createEditOwner({
 		const unsaved = [...held].sort();
 		const failures = unsaved.flatMap((path) => {
 			const pending = states.get(path)?.input?.pending;
-			return pending?.error !== undefined && !pending.saving ? [pending] : [];
+			if (pending === undefined) return [];
+			const recovery = recoveryOf(pending);
+			return recovery.status === 'failed' || recovery.status === 'conflict'
+				? [recovery]
+				: [];
 		});
 		const working = reservations > 0 || saves > 0;
 		if (
@@ -407,27 +473,132 @@ export function createEditOwner({
 		onAggregate();
 	}
 
-	/** What `state` says of reading, kept as the same value while it says the same. */
-	function statusOf(state: PathState): ReadStatus {
-		const doc = state.doc;
-		const known: ReadStatus['known'] =
-			doc === undefined
-				? 'nothing'
-				: doc === null
-					? 'missing'
-					: decodedOf(state, doc) === undefined
-						? 'not-text'
-						: 'file';
-		const reading = state.reading !== undefined;
-		const { status, error } = state;
+	const snapshots = new WeakMap<
+		Pending,
+		{ unsaved: Unsaved; recovery: Recovery }
+	>();
+	function snapshotOf(pending: Pending) {
+		const previous = snapshots.get(pending);
+		if (previous !== undefined) return previous;
+		const unsaved: Unsaved = Object.freeze(
+			pending.saving
+				? { status: 'saving' }
+				: pending.error === undefined
+					? { status: 'dirty' }
+					: pending.error.name === 'Conflict'
+						? { status: 'conflict', error: pending.error }
+						: { status: 'failed', error: pending.error },
+		);
+		const value = {
+			unsaved,
+			recovery: Object.freeze({
+				path: pending.path,
+				text: pending.text,
+				...unsaved,
+			}),
+		};
+		snapshots.set(pending, value);
+		return value;
+	}
+	const recoveryOf = (pending: Pending) => snapshotOf(pending).recovery;
+	function refusalOf(state: PathState) {
+		const refusal = state.refusal;
 		if (
-			status.known === known &&
-			status.reading === reading &&
-			status.error === error
+			refusal !== undefined &&
+			(refusal.kind !== sourceKind(state) ||
+				refusal.text !== shownText(state) ||
+				refusal.reason !== lockReason(state) ||
+				refusal.running !== state.running)
 		)
-			return status;
-		state.status = Object.freeze({ known, reading, error });
-		return state.status;
+			state.refusal = undefined;
+		return state.refusal?.error;
+	}
+	function record<TResult extends Result<unknown, BufferIssue>>(
+		path: string,
+		result: TResult,
+	): TResult {
+		const state = stateOf(path);
+		const previous = state.refusal;
+		if (
+			result.error !== null &&
+			previous?.error.name === result.error.name &&
+			previous.error.message === result.error.message &&
+			refusalOf(state) !== undefined
+		)
+			return result;
+		const changed = state.refusal !== undefined || result.error !== null;
+		state.refusal =
+			result.error === null
+				? undefined
+				: {
+						error: result.error,
+						kind: sourceKind(state),
+						text: shownText(state),
+						reason: lockReason(state),
+						running: state.running,
+					};
+		if (changed) {
+			// A listener may issue a refused command before finishing its own work.
+			// Expose the issue now, but notify after that publication has unwound.
+			if (notifying > 0) queueMicrotask(() => publish(path));
+			else publish(path);
+		}
+		return result;
+	}
+	function execute<TResult extends Result<unknown, BufferIssue>>(
+		path: string,
+		operation: () => TResult,
+	): TResult {
+		const state = stateOf(path);
+		const previous = state.refusal;
+		state.refusal = undefined;
+		const result = operation();
+		if (result.error !== null) {
+			if (state.refusal === undefined) state.refusal = previous;
+			return record(path, result);
+		}
+		// Publication inside the command may already have recorded a newer issue.
+		if (previous !== undefined && state.refusal === undefined) publish(path);
+		return result;
+	}
+
+	function bufferOf(state: PathState): BufferSnapshot {
+		const text = shownText(state);
+		const sourceIssue =
+			state.doc === null
+				? MISSING
+				: state.doc !== undefined && decodedOf(state, state.doc) === undefined
+					? NOT_TEXT
+					: undefined;
+		const error = refusalOf(state) ?? state.error ?? sourceIssue;
+		const next: BufferSnapshot =
+			text !== undefined
+				? {
+						status: 'ready',
+						text,
+						error,
+						unsaved:
+							state.input === undefined
+								? undefined
+								: snapshotOf(state.input.pending).unsaved,
+					}
+				: state.reading !== undefined
+					? { status: 'loading', error }
+					: (state.error !== undefined || sourceIssue !== undefined) &&
+							error !== undefined
+						? { status: 'unavailable', error }
+						: { status: 'unread', error };
+		const previous = state.buffer;
+		if (
+			previous?.status === next.status &&
+			previous.error === next.error &&
+			(previous.status !== 'ready' ||
+				next.status !== 'ready' ||
+				(previous.text === next.text && previous.unsaved === next.unsaved))
+		)
+			return previous;
+		state.buffer = Object.freeze(next);
+		return state.buffer;
 	}
 
 	/** Tell the listeners of `path`, or of every path, that what they read may differ. */
@@ -436,9 +607,16 @@ export function createEditOwner({
 			path === undefined
 				? [...states.values()]
 				: [states.get(path)].filter((state) => state !== undefined);
-		for (const state of touched)
-			for (const listener of [...state.listeners])
-				callObserver('edit listener', listener, undefined);
+		notifying++;
+		try {
+			for (const state of touched) {
+				refusalOf(state);
+				for (const listener of [...state.listeners])
+					callObserver('edit listener', listener, undefined);
+			}
+		} finally {
+			notifying--;
+		}
 		if (path !== undefined) prune(path);
 		updateAggregate();
 	}
@@ -620,18 +798,19 @@ export function createEditOwner({
 	 */
 	function flush(path: string, forAction = false) {
 		const state = states.get(path);
-		if (state === undefined) return Promise.resolve();
+		if (state === undefined) return Promise.resolve(Ok(undefined));
 		clearTimer(state);
-		if (state.action !== undefined && !forAction) return Promise.resolve();
+		if (state.action !== undefined && !forAction)
+			return Promise.resolve(Ok(undefined));
 		const input = state.input;
 		if (state.running !== undefined) {
 			state.again = true;
 			return state.running;
 		}
-		if (input === undefined) return Promise.resolve();
+		if (input === undefined) return Promise.resolve(Ok(undefined));
 		// Set before the loop starts: it tells listeners at once, and one
 		// that asks for another save then joins this one.
-		const started = Promise.withResolvers<void>();
+		const started = Promise.withResolvers<Result<void, SaveError>>();
 		state.running = started.promise;
 		saves++;
 		// Registered for its whole loop, not only each storage call, so close
@@ -640,7 +819,10 @@ export function createEditOwner({
 		return started.promise;
 	}
 
-	async function send(path: string, input: Input): Promise<Result<void, SaveError>> {
+	async function send(
+		path: string,
+		input: Input,
+	): Promise<Result<void, SaveError>> {
 		try {
 			return await replaceSource(path, input.from, input.pending.text);
 		} catch (cause) {
@@ -648,45 +830,52 @@ export function createEditOwner({
 		}
 	}
 
-	async function drain(path: string, state: PathState) {
+	async function drain(
+		path: string,
+		state: PathState,
+	): Promise<Result<void, SaveError>> {
+		let outcome: Result<void, SaveError> = Ok(undefined);
 		try {
 			do {
 				state.again = false;
 				const input = state.input;
-				if (input === undefined) return;
+				if (input === undefined) return outcome;
 				clearTimer(state);
 				setInput(
 					path,
 					state,
 					withState(input, { saving: true, error: undefined }),
 				);
-				const { error } = await send(path, input);
+				outcome = await send(path, input);
+				const { error } = outcome;
 				const settled = state.input;
-				if (settled === undefined) return;
+				if (settled === undefined) return outcome;
 				if (error !== null) {
 					const same = settled.revision === input.revision;
 					// The error belongs to the input that was sent; newer input has
 					// not been tried.
-					setInput(
-						path,
-						state,
-						{
-							...withState(settled, {
-								saving: false,
-								error: same || error.name === 'Conflict' ? error : undefined,
-							}),
-							conflictCurrent: error.name === 'Conflict'
-								? error.current === null ? null : owned(error.current)
+					setInput(path, state, {
+						...withState(settled, {
+							saving: false,
+							error: same || error.name === 'Conflict' ? error : undefined,
+						}),
+						conflictCurrent:
+							error.name === 'Conflict'
+								? error.current === null
+									? null
+									: owned(error.current)
 								: settled.conflictCurrent,
-						},
-					);
+					});
 					// A listener may have typed and requested another save during
 					// publication. The same failed revision stops this attempt.
-					if (state.input?.revision === input.revision) return;
+					if (state.input?.revision === input.revision) return outcome;
 					continue;
 				}
 				// The document already holds what storage kept (`stored`).
-				if (settled.revision === input.revision || settled.pending.text === input.pending.text)
+				if (
+					settled.revision === input.revision ||
+					settled.pending.text === input.pending.text
+				)
 					setInput(path, state, undefined);
 				else
 					setInput(path, state, {
@@ -697,6 +886,7 @@ export function createEditOwner({
 				// Close drains eligible input accepted before its fence, including
 				// input a listener added as this attempt finished.
 			} while (state.again || phase !== 'open');
+			return outcome;
 		} finally {
 			// Stop accepting joins in the same turn that draining ends. A
 			// queued listener can then start the next save, never join a dead one.
@@ -709,7 +899,7 @@ export function createEditOwner({
 	/**
 	 * Send available input now, then newly released paths after actions drain.
 	 */
-	async function settle(): Promise<Pending[]> {
+	async function settle(): Promise<Recovery[]> {
 		const attempted = new Map<string, number>();
 		const sendReady = () =>
 			[...held].flatMap((path) => {
@@ -734,10 +924,10 @@ export function createEditOwner({
 	}
 
 	/** The input held now, by path. */
-	function heldPending(): Pending[] {
+	function heldPending(): Recovery[] {
 		return [...held].sort().flatMap((path) => {
 			const pending = states.get(path)?.input?.pending;
-			return pending === undefined ? [] : [pending];
+			return pending === undefined ? [] : [recoveryOf(pending)];
 		});
 	}
 
@@ -818,15 +1008,20 @@ export function createEditOwner({
 	}
 
 	/** Let go of held input on request, unless a save or action of it runs. */
-	function discard(path: string) {
+	function discard(path: string): Result<Recovery | undefined, ActionError> {
 		const state = states.get(path);
-		if (state === undefined || isLocked(state) || state.running !== undefined)
-			return undefined;
-		const input = state.input;
-		if (input === undefined) return undefined;
-		clearTimer(state);
-		setInput(path, state, undefined);
-		return input.pending;
+		const reason =
+			lockReason(state) ?? (state?.running !== undefined ? BUSY : undefined);
+		if (reason !== undefined)
+			return record(path, ActionError.NotStarted({ reason }));
+		const recovery =
+			state?.input === undefined ? undefined : recoveryOf(state.input.pending);
+		if (state !== undefined) {
+			clearTimer(state);
+			state.refusal = undefined;
+			setInput(path, state, undefined);
+		}
+		return Ok(recovery);
 	}
 
 	/**
@@ -858,6 +1053,8 @@ export function createEditOwner({
 					now.doc = undefined;
 					now.decoded = undefined;
 					now.text = undefined;
+					now.buffer = undefined;
+					now.refusal = undefined;
 					now.documents = new WeakMap();
 				}
 				prune(path);
@@ -896,7 +1093,9 @@ export function createEditOwner({
 	function shownText(state: PathState): string | undefined {
 		if (state.input !== undefined) return state.input.pending.text;
 		const doc = state.doc;
-		return doc === undefined || doc === null ? undefined : decodedOf(state, doc);
+		return doc === undefined || doc === null
+			? undefined
+			: decodedOf(state, doc);
 	}
 
 	function edit<TRowSchema extends TSchema = typeof anyFields>(
@@ -934,9 +1133,14 @@ export function createEditOwner({
 			}
 			if (typed === current) return Ok(undefined);
 			const input = state?.input;
-			const from = input === undefined ? owned(state!.doc as FileContent) : input.from;
+			const from =
+				input === undefined ? owned(state!.doc as FileContent) : input.from;
 			const target = stateOf(path);
-			if (from !== null && textOf(from) === typed && target.running === undefined) {
+			if (
+				from !== null &&
+				textOf(from) === typed &&
+				target.running === undefined
+			) {
 				clearTimer(target);
 				setInput(path, target, undefined);
 				return Ok(undefined);
@@ -946,9 +1150,10 @@ export function createEditOwner({
 					path,
 					text: typed,
 					saving: input?.pending.saving ?? false,
-					error: input?.pending.error?.name === 'Conflict'
-						? input.pending.error
-						: undefined,
+					error:
+						input?.pending.error?.name === 'Conflict'
+							? input.pending.error
+							: undefined,
 				},
 				from,
 				conflictCurrent: input?.conflictCurrent,
@@ -957,87 +1162,143 @@ export function createEditOwner({
 			schedule(path, target);
 			return Ok(undefined);
 		};
+		const change = (change: DocumentChange<TRowSchema>): ChangeResult => {
+			const state = states.get(path);
+			const reason = lockReason(state);
+			if (reason !== undefined) return ChangeError.Locked({ reason });
+			const ownedFields = ownFields(change.fields ?? {});
+			if (ownedFields.error !== null)
+				return ChangeError.InvalidFields({ reason: ownedFields.error.reason });
+			const source = getText();
+			if (source === undefined) {
+				const doc = state?.doc;
+				return doc !== undefined && doc !== null
+					? ChangeError.NotText()
+					: ChangeError.NoSource();
+			}
+			const parsed = readMarkdown(source, anyFields);
+			const fields: Record<string, unknown> = {};
+			for (const [key, value] of Object.entries(ownedFields.data)) {
+				if (
+					parsed.fields !== undefined &&
+					sharedValue(parsed.fields[key], value)
+				)
+					continue;
+				Object.defineProperty(fields, key, { value, enumerable: true });
+			}
+			const body = change.body === parsed.body ? undefined : change.body;
+			if (Object.keys(fields).length === 0 && body === undefined)
+				return Ok(undefined);
+			const put = changeMarkdown(parsed, {
+				fields: Object.keys(fields).length === 0 ? undefined : fields,
+				body,
+			});
+			if (put.error !== null)
+				return ChangeError.InvalidFields({ reason: put.error.reason });
+			return submitText(put.data.text);
+		};
+		const save = async (): Promise<Result<void, SaveError | ActionError>> => {
+			const state = states.get(path);
+			const reason = phase === 'closed' ? CLOSING : state?.action?.reason;
+			if (reason !== undefined)
+				return record(path, ActionError.NotStarted({ reason }));
+			const hadRefusal = state?.refusal !== undefined;
+			if (state !== undefined) state.refusal = undefined;
+			const saving = flush(path);
+			if (hadRefusal) publish(path);
+			return saving;
+		};
 		return {
 			path,
 			getText,
 			getMarkdown,
-			getPending: () => states.get(path)?.input?.pending,
-			getReadStatus: () => {
+			getBuffer: () => {
 				const state = states.get(path);
-				return state === undefined ? NOTHING : statusOf(state);
+				return state === undefined ? UNREAD : bufferOf(state);
 			},
 			isLocked: () => isLocked(states.get(path)),
 			read: () => read(path),
 			subscribe: (listener) => subscribeTo(path, listener),
-			replaceText: submitText,
-			change(change) {
-				const state = states.get(path);
-				const reason = lockReason(state);
-				if (reason !== undefined) return ChangeError.Locked({ reason });
-				const ownedFields = ownFields(change.fields ?? {});
-				if (ownedFields.error !== null)
-					return ChangeError.InvalidFields({ reason: ownedFields.error.reason });
-				const source = getText();
-				if (source === undefined) {
-					const doc = state?.doc;
-					return doc !== undefined && doc !== null
-						? ChangeError.NotText()
-						: ChangeError.NoSource();
-				}
-				const parsed = readMarkdown(source, anyFields);
-				const fields: Record<string, unknown> = {};
-				for (const [key, value] of Object.entries(ownedFields.data)) {
-					if (parsed.fields !== undefined &&
-						sharedValue(parsed.fields[key], value)) continue;
-					Object.defineProperty(fields, key, { value, enumerable: true });
-				}
-				const body = change.body === parsed.body ? undefined : change.body;
-				if (Object.keys(fields).length === 0 && body === undefined)
-					return Ok(undefined);
-				const put = changeMarkdown(parsed, {
-					fields: Object.keys(fields).length === 0 ? undefined : fields,
-					body,
-				});
-				if (put.error !== null)
-					return ChangeError.InvalidFields({ reason: put.error.reason });
-				return submitText(put.data.text);
-			},
-			save: () => (phase === 'closed' ? Promise.resolve() : flush(path)),
+			replaceText: (text) => execute(path, () => submitText(text)),
+			change: (value) => execute(path, () => change(value)),
+			save,
 			async resolveConflict(choice) {
 				const state = states.get(path);
 				const input = state?.input;
 				const error = input?.pending.error;
-				if (state === undefined || input === undefined || error?.name !== 'Conflict' || state.running !== undefined || phase !== 'open')
-					return;
+				const reason =
+					lockReason(state) ??
+					(state?.running !== undefined ? BUSY : undefined);
+				if (reason !== undefined)
+					return record(path, ActionError.NotStarted({ reason }));
+				if (
+					state === undefined ||
+					input === undefined ||
+					error?.name !== 'Conflict'
+				)
+					return record(
+						path,
+						ActionError.NotStarted({
+							reason: 'There is no conflict to resolve.',
+						}),
+					);
+				state.refusal = undefined;
 				if (choice === 'current') {
 					const refreshed = await read(path);
-					if (refreshed.error !== null || state.input !== input || state.doc === undefined)
-						return;
-					const current = input.conflictCurrent === undefined ? error.current : input.conflictCurrent;
+					if (refreshed.error !== null) return refreshed;
+					if (state.input !== input || state.doc === undefined)
+						return record(
+							path,
+							ActionError.NotStarted({
+								reason: 'The input changed while resolving the conflict.',
+							}),
+						);
+					const current =
+						input.conflictCurrent === undefined
+							? error.current
+							: input.conflictCurrent;
 					if (sameContent(state.doc, current)) {
 						setInput(path, state, undefined);
-						return;
+						return Ok(undefined);
 					}
+					const conflict = SaveError.Conflict({
+						path,
+						base: input.from,
+						current: state.doc,
+					});
 					setInput(path, state, {
 						...input,
 						conflictCurrent: state.doc === null ? null : owned(state.doc),
 						pending: {
 							...input.pending,
-							error: SaveError.Conflict({ path, base: input.from, current: state.doc }).error,
+							error: conflict.error,
 						},
 					});
-					return;
+					return conflict;
 				}
 				const text = choice === 'draft' ? input.pending.text : choice.text;
 				setInput(path, state, {
-					from: input.conflictCurrent === undefined ? error.current : input.conflictCurrent,
+					from:
+						input.conflictCurrent === undefined
+							? error.current
+							: input.conflictCurrent,
 					pending: { path, text, saving: false, error: undefined },
 					revision: ++revisions,
 				});
-				await flush(path);
+				return save();
 			},
 			discard: () => discard(path),
-			delete: () => remove(path),
+			async delete() {
+				const state = states.get(path);
+				if (state !== undefined) state.refusal = undefined;
+				const result = await remove(path);
+				if (
+					result.error === null ||
+					states.get(path)?.input?.pending.error === result.error
+				)
+					return result;
+				return record(path, result);
+			},
 		};
 	}
 
@@ -1057,7 +1318,7 @@ export function createEditOwner({
 	 * and releases storage: from then on `save()` does nothing. Answers the
 	 * input still held then, for the handle's one close completion.
 	 */
-	function release(): Pending[] {
+	function release(): Recovery[] {
 		phase = 'closed';
 		return heldPending();
 	}

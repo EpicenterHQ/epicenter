@@ -3,7 +3,7 @@
  * observe the same source draft; commands go directly to its folder owner.
  *
  * A tracked document read starts the first file read when nothing is known.
- * Pending and lock observers request no initial read. The folder keeps input,
+ * Lock observers request no initial read. The folder keeps input,
  * timers, saves and failures as views come and go. Construction is passive;
  * recreate the adapter reactively only when its address changes.
  */
@@ -18,21 +18,12 @@ import type { TSchema } from 'typebox';
 export function createFileEdit<TDocumentSchema extends TSchema>(
 	fileEdit: FolderFileEdit<TDocumentSchema>,
 ) {
-	const {
-		getText,
-		getMarkdown,
-		getReadStatus,
-		getPending,
-		isLocked,
-		...commands
-	} = fileEdit;
-	// Pending and lock observers do not request an initial file read.
+	const { getText, getMarkdown, getBuffer, isLocked, ...commands } = fileEdit;
+	// Lock observers do not request an initial file read.
 	const trackChanges = createSubscriber((update) => fileEdit.subscribe(update));
 	const trackRead = createSubscriber((update) => {
 		const stop = fileEdit.subscribe(update);
-		const { known, reading, error } = getReadStatus();
-		if (known === 'nothing' && !reading && error === undefined)
-			fileEdit.read().catch(() => {});
+		if (getBuffer().status === 'unread') fileEdit.read().catch(() => {});
 		return stop;
 	});
 	return {
@@ -47,13 +38,10 @@ export function createFileEdit<TDocumentSchema extends TSchema>(
 			trackRead();
 			return getMarkdown();
 		},
-		get readStatus() {
+		/** Availability, current text, and its nested unsaved save lifecycle. */
+		get buffer() {
 			trackRead();
-			return getReadStatus();
-		},
-		get pending() {
-			trackChanges();
-			return getPending();
+			return getBuffer();
 		},
 		get locked() {
 			trackChanges();

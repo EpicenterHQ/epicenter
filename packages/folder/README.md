@@ -36,7 +36,8 @@ if (saved.error !== null) return show(saved.error.message);      // nothing was 
 const fileEdit = folder.tables.notes.edit('milk');
 const read = await fileEdit.read();                                // refresh; inspect the getters afterwards
 if (read.error !== null) return show(read.error.message);
-fileEdit.change({ fields: { done: true }, body: 'Two litres\n' }); // over what getMarkdown() shows
+const changed = fileEdit.change({ fields: { done: true }, body: 'Two litres\n' });
+if (changed.error !== null) return show(changed.error.message); // accepted in memory; autosave follows
 fileEdit.getMarkdown();                         // current Markdown content, including applicable unsaved input
 folder.getStatus();                       // { saving, storageFailure, unsaved, failures, closing }
 await folder.settle();               // send held input now; answers what did not save
@@ -54,7 +55,7 @@ const unsaved = await folder.close(); // sends held input once; answers what did
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
 | `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, and saved-view types. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
 | `@epicenter/folder/documents` | Saved Markdown documents with optional schema diagnostics, including root and nested paths. | Generic file, grid, board, or SQL interpretation. |
-| `@epicenter/folder/edits` | The vocabulary of a path's source draft and Markdown interpretation (`FileEdit`, `MarkdownContent`, `DocumentChange`, `Pending`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)), `ReadStatus`, and explicit `mergeText`/`mergeFileText` helpers. Opens nothing. | Code that names those types. |
+| `@epicenter/folder/edits` | The vocabulary of a path's source draft and Markdown interpretation (`FileEdit`, `BufferSnapshot`, `Unsaved`, `Recovery`, `MarkdownContent`, `DocumentChange`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)), and explicit `mergeText`/`mergeFileText` helpers. Opens nothing. | Code that names those types. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
 type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
@@ -91,7 +92,7 @@ the saved files.
 | `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or reserved action running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
 | `settle()` | Attempts unreserved held input now, drains admitted work and started saves, then attempts newly released paths. A failed revision is not retried within the same call. Unscoped reads are not waited for. Answers the input that did not save. |
 | `run(paths, action)` | Admits a complete action that close waits for. `paths` is its reservation, declared up front and fixed for the action: those paths are reserved together against local input and competing reservations, and their held input is flushed before the callback. `[]` admits lifetime only. The callback takes no argument and uses this Folder's `files` and `tables`. |
-| `close()` | At once, new input and actions are refused, and `onChange`, `onStatusChange` and `settle` throw. `files` and `tables` stay usable while close drains: admitted actions and running deletes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started, including ones any caller starts during the drain, finish with their real outcome; reads still running are not waited for. Then listeners and storage are released, and `files` and `tables` throw from then on. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` attempts its path during close and does nothing after completion. Answers the input that did not save. Calling it again returns the same promise. |
+| `close()` | At once, new input and actions are refused, and `onChange`, `onStatusChange` and `settle` throw. `files` and `tables` stay usable while close drains: admitted actions and running deletes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started, including ones any caller starts during the drain, finish with their real outcome; reads still running are not waited for. Then listeners and storage are released, and `files` and `tables` throw from then on. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getBuffer()` and `discard()` answer, whose `read()` rejects, and whose `save()` attempts its path during close and returns `ActionError.NotStarted` after completion. Answers the input that did not save. Calling it again returns the same promise. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
 saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
@@ -200,15 +201,21 @@ const read = await edit.read();
 if (read.error !== null) return show(read.error.message);
 edit.getMarkdown(); // { text, body, fields, issues }, or undefined
 edit.getText(); // exact displayed source
-edit.change({ fields: { done: true }, body: 'Two litres\n' });
-edit.getPending(); // { path, text, saving, error }, or undefined
-edit.getReadStatus(); // { known, reading, error }
-await edit.save(); // or wait saveAfterMs
+const changed = edit.change({ fields: { done: true }, body: 'Two litres\n' });
+if (changed.error !== null) return show(changed.error.message);
+const buffer = edit.getBuffer();
+if (buffer.status === 'ready') {
+  showSource(buffer.text);
+  if (buffer.unsaved) showSaveStatus(buffer.unsaved.status);
+}
+const saved = await edit.save(); // or wait saveAfterMs
+if (saved.error !== null) return show(saved.error.message);
 
 const file = folder.files.edit('notes/a.md');
-await file.read();
-file.change({ fields: { title: 'x' } });
-file.replaceText(editedText); // replaces the displayed source
+const fileRead = await file.read();
+if (fileRead.error !== null) return show(fileRead.error.message);
+const replacement = file.replaceText(editedText); // replaces the displayed source
+if (replacement.error !== null) return show(replacement.error.message);
 // The callback uses this same folder. Its reservation is declared before it
 // starts and cannot grow.
 await folder.run(['notes/a.md', 'audio/a.bin'], async () => {
@@ -235,31 +242,73 @@ fence, the entire source is body with empty fields in file and table views
 Adding a field creates a fence; a body change keeps a headerless file
 headerless unless its new body would itself begin with an opening fence.
 
-`getPending()` answers `undefined` when clean, otherwise the exact unsaved
-source, path, saving state, and last save error. Pending has no text/document
-variants, field patches, or schema policy. The draft stays visible and pinned
-when another handle or program changes storage. `getReadStatus()` describes
-what is known of storage, so it may change while `getText()` stays pinned.
-A failed read keeps the last displayed source. `read()` performs I/O and
-returns a result; getters perform none. The last subscriber leaving releases
-clean cached source, while pending source remains available after unmount or
-close.
+`getBuffer()` answers one immutable snapshot of the displayed editor. Its
+outer status says whether text is available:
+
+```ts
+type BufferSnapshot = { error?: BufferIssue } & (
+  | { status: 'unread' | 'loading' }
+  | { status: 'unavailable'; error: BufferIssue }
+  | { status: 'ready'; text: string; unsaved?: Unsaved }
+);
+
+type Unsaved =
+  | { status: 'dirty' | 'saving' }
+  | { status: 'failed'; error: SaveFailure }
+  | { status: 'conflict'; error: SaveConflict };
+```
+
+`unread` means no source is known and no read is active; `loading` means a read
+is running without text to show. `unavailable` means a read failed or found
+missing or non-text content, with no retained text. A `ready` buffer provides
+`text`, including any unsaved input. Its nested `unsaved` tracks that input's
+save lifecycle. Presence means work remains even while saving or resolving a
+conflict. Absence means no held input; it says nothing about an unread or
+unavailable file. `unsaved` carries neither path nor another text copy.
+
+`buffer.error` is non-save feedback: a command refusal, otherwise a read
+failure, otherwise `SourceUnavailable` with `reason: 'missing' | 'not-text'`.
+The owner retains these causes separately, so clearing a refusal can reveal
+a read failure beneath it. Save failures and conflicts belong to
+`buffer.unsaved.error`. Commands record their refusals before notifying
+subscribers and still return their Results for imperative callers.
+
+A failed read keeps the last displayed source. Held input also keeps the
+buffer `ready` after another writer deletes the file or replaces it with
+binary content; `buffer.error` reports the stored source problem. Snapshots
+retain identity while their fields are unchanged. Capture a ready snapshot
+before creating deferred UI callbacks so its text remains narrowed.
+`getText()` remains a scalar convenience, and `getMarkdown()` supplies the
+schema-bound interpretation.
+
+`read()` performs I/O and returns a Result; vanilla getters perform none.
+The last subscriber leaving releases clean cached source, while unsaved
+source remains available after unmount or close.
 
 A save compares the draft with the exact source observed when editing began,
 inside each guarded storage attempt. It succeeds if storage still has that
 source or already has the same draft. Any other stored source, including a
 delete or binary replacement, yields `SaveError.Conflict` with the observed
 base and current content. The draft stays pending, with its source and error.
-`save()` resolves after the attempt; inspect `getPending()` for the outcome.
-Typing during a save stays pending after the older revision lands. A storage
-failure also retains the draft for retry or recovery.
+`save()` returns `Result<void, SaveError | ActionError>` after the attempt.
+The snapshot records a save failure as `failed` or `conflict`. Typing during
+a save remains unsaved after the older revision lands. A storage failure
+also retains the source for retry or recovery.
 
 On conflict, `resolveConflict('current')` accepts the saved file after a
 refresh, `resolveConflict('draft')` explicitly submits the held source, and
 `resolveConflict({ text })` submits an edited whole-file resolution. The latter
 two compare against the conflicted current source at storage again, so a later
 outside change produces a new conflict. The application should present both
-sources and a choice; `discard()` returns the held source without saving it.
+sources and a choice. `resolveConflict()` returns a Result whose errors
+include read, save, and action failures.
+
+`discard()` returns `Result<Recovery | undefined, ActionError>`. A successful
+discard releases the held source without saving it; a running save or reserved
+action refuses the discard. A detached recovery contains `{ path, text }`
+plus the `Unsaved` variant, so it remains copyable after the live buffer
+changes. Folder `settle()` and `close()` return detached recoveries too;
+`getStatus().failures` contains the failed or conflicting variants.
 
 `mergeFileText(path, base, current, change)` and `mergeText(base, current,
 change)` remain explicit helpers for callers that choose automatic content
@@ -301,16 +350,25 @@ action, because they wait for that action.
 Close refuses new input immediately, drains admitted actions and saves, then
 attempts newly released input once. `FileEdit.save()` attempts or joins only its path
 while closing, so it never waits on an action that might be calling it. After
-close finishes it does nothing; failed input remains readable for recovery.
+close finishes it returns `ActionError.NotStarted` without I/O; failed input
+remains readable for recovery.
 
 `subscribe(listener)` reports source, read status, input and lock changes.
 Reported outside changes refresh held/subscribed sources; native queries poll
 for changes no watcher reports. The last subscriber leaving releases source
 when no input or save holds it. Svelte's `createFileEdit(edit)` exposes tracked
-`.markdown`, `.text`, `.pending`, `.readStatus` and `.locked`; React's
-`useFileEdit(edit)` retains explicit methods over render snapshots. Both start
-the first read when a view asks for a document with nothing known and no read
-failure.
+`.buffer`, `.markdown`, `.text`, and `.locked`; React's `useFileEdit(edit)`
+retains explicit methods over render snapshots. A Svelte component that
+observes `.buffer`, `.text`, or `.markdown` starts the first read when nothing
+is known. It needs no additional `onMount(() => edit.read())`. A concurrent
+query read is joined; a failed first read waits for an explicit retry.
+React retains automatic first reads as part of its hook lifecycle.
+
+Construction and lock observation remain passive. Save indicators use
+Folder aggregate status rather than observing a buffer, so listing save
+metadata does not demand file contents. Polling or classification queries
+remain responsible for their own reads; a file view can classify size before
+observing content and avoid opening a large or binary file.
 
 ## Browser storage
 

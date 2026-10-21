@@ -1,11 +1,7 @@
 /** Schema precision survives the framework adapter. Checked, never run. */
 import { expectTypeOf } from 'bun:test';
 import type { Folder } from '@epicenter/folder';
-import type {
-	MarkdownContent,
-	Pending,
-	ReadStatus,
-} from '@epicenter/folder/edits';
+import type { BufferSnapshot, MarkdownContent } from '@epicenter/folder/edits';
 import { Type } from 'typebox';
 import { createFileEdit } from './edits.js';
 
@@ -16,10 +12,7 @@ expectTypeOf(fileEdit.markdown).toEqualTypeOf<
 	MarkdownContent<typeof notes> | undefined
 >();
 expectTypeOf(fileEdit.text).toEqualTypeOf<string | undefined>();
-expectTypeOf(fileEdit.readStatus).toEqualTypeOf<ReadStatus>();
-expectTypeOf(fileEdit.pending).toEqualTypeOf<
-	Pending | undefined
->();
+expectTypeOf(fileEdit.buffer).toEqualTypeOf<BufferSnapshot>();
 expectTypeOf(fileEdit.locked).toEqualTypeOf<boolean>();
 const markdown = fileEdit.markdown;
 if (markdown?.issues === null)
@@ -43,3 +36,16 @@ generic.replaceText('source');
 fileEdit.getMarkdown();
 // @ts-expect-error Tracked reads are readonly.
 fileEdit.markdown = undefined;
+
+// A captured snapshot narrows content and save feedback together.
+const buffer = fileEdit.buffer;
+if (buffer.status === 'ready') {
+	expectTypeOf(buffer.text).toEqualTypeOf<string>();
+	if (buffer.unsaved?.status === 'conflict')
+		expectTypeOf(buffer.unsaved.error.name).toEqualTypeOf<'Conflict'>();
+} else {
+	// @ts-expect-error Nonready buffers have no editable text.
+	buffer.text;
+	// @ts-expect-error Unsaved input always belongs to a ready buffer.
+	buffer.unsaved;
+}

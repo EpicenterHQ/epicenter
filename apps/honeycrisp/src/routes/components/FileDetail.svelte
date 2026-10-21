@@ -18,7 +18,6 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { InstantString } from '@epicenter/definition';
 	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { folderIdOf, noteIdOf } from '$lib/data.js';
@@ -73,23 +72,24 @@
 	 * stored, while the file reads as text. A file gone, no longer text, or
 	 * too large shows as that, and is never read into the fileEdit.
 	 */
-	const pending = $derived(fileEdit.pending);
-	const writing = $derived(pending !== undefined && (pending.error === undefined || pending.saving));
-	const unsaved = $derived(pending?.error !== undefined && !pending.saving);
-	const text = $derived(pending !== undefined || file.data?.kind === 'text' ? fileEdit.text : undefined);
+	// The file-size query decides whether an arbitrary file should be opened.
+	// Aggregate save indicators observe metadata without demanding file contents.
+	const buffer = $derived(
+		noteEdit !== undefined || file.data?.kind === 'text' || notes.isWriting(path) || notes.isUnsaved(path)
+			? fileEdit.buffer : undefined,
+	);
+	const unsaved = $derived(buffer?.status === 'ready' ? buffer.unsaved : undefined);
+	const text = $derived(buffer?.status === 'ready' && (unsaved !== undefined || file.data?.kind === 'text') ? buffer.text : undefined);
 	/** Why the current text is not a row, including unsaved input. */
 	const issues = $derived(fileEdit.markdown?.issues ?? undefined);
 	/** Edits wait once the notes are closing, and while this file is deleted. */
 	const locked = $derived(fileEdit.locked);
 	/** A failed read with nothing of this file to show but what it held before. */
-	const reading = $derived(pending === undefined && file.isError && file.data?.kind !== 'text');
-	const failed = $derived(pending?.error === undefined ? undefined : describeFailure(pending.error));
-	const missing = $derived(fileEdit.readStatus.known === 'missing');
+	const reading = $derived(unsaved === undefined && file.isError && file.data?.kind !== 'text');
+	const missing = $derived(buffer?.error?.name === 'SourceUnavailable' && buffer.error.reason === 'missing');
 	/** Keep the exact held source copyable after a whole-file conflict or deletion. */
-	const recovery = $derived(
-		pending !== undefined && (missing || pending.error?.name === 'Conflict'),
-	);
-	const conflict = $derived(pending?.error?.name === 'Conflict' ? pending.error : undefined);
+	const recovery = $derived(unsaved !== undefined && (missing || unsaved.status === 'conflict'));
+	const conflict = $derived(unsaved?.status === 'conflict' ? unsaved.error : undefined);
 	const savedConflictSource = $derived.by(() => {
 		if (conflict === undefined) return undefined;
 		if (conflict.current === null) return '(deleted)';
@@ -184,10 +184,7 @@
 						readonly={reading}
 						bind:value={
 							() => shown.replace(/\r\n?/g, '\n'),
-							(typed) => {
-								const changed = fileEdit.replaceText(withFileNewlines(typed.toWellFormed(), shown));
-								if (changed.error !== null) toast.warning('That change was not made', { description: changed.error.message });
-							}
+							(typed) => fileEdit.replaceText(withFileNewlines(typed.toWellFormed(), shown))
 						}
 					/>
 				</div>
@@ -221,10 +218,11 @@
 		</section>
 	{/if}
 
-	{#if pending !== undefined || note !== undefined || text !== undefined || (as === 'text' && file.data !== undefined && file.data.kind !== 'missing')}
+	{#if unsaved !== undefined || note !== undefined || text !== undefined || (as === 'text' && file.data !== undefined && file.data.kind !== 'missing')}
 		<div class="shrink-0 space-y-2 border-t px-4 py-2 text-xs text-muted-foreground">
-			{#if recovery && pending !== undefined}
-				<p>{pending.error?.name === 'Conflict'
+			{#if buffer?.error}<p role="alert">{buffer.error.message}</p>{/if}
+			{#if buffer?.status === 'ready' && buffer.unsaved && recovery}
+				<p>{buffer.unsaved.status === 'conflict'
 					? 'The file changed elsewhere. Compare this held source with the saved file before choosing which to keep.'
 					: 'This file was deleted elsewhere. Your unsaved source remains available.'}</p>
 				{#if conflict !== undefined}
@@ -232,26 +230,32 @@
 					<pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Saved source">{savedConflictSource}</pre>
 				{/if}
 				<p>Your source</p>
-				<pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved source">{unsavedText(pending)}</pre>
+				<pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved source">{buffer.text}</pre>
 			{/if}
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="min-w-0 flex-1" role="status" data-testid="write-status">
-					{#if failed !== undefined && !writing}
-						Not saved: {failed}
-					{:else if writing}
-						Saving…
+					{#if unsaved}
+						{#if unsaved.status === 'failed' || unsaved.status === 'conflict'}
+							Not saved: {describeFailure(unsaved.error)}
+						{:else}
+							Saving…
+						{/if}
+					{:else if buffer?.status !== 'ready'}
+						No unsaved changes
 					{:else if as === 'note'}
 						Saved to <code class="font-mono">{path}</code>
 					{:else}
 						Saved
 					{/if}
 				</span>
-				{#if pending?.error?.name === 'Conflict'}
-					<Button size="sm" variant="outline" disabled={locked || pending.saving} onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
-					<Button size="sm" variant="outline" disabled={locked || pending.saving} onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
-				{:else if pending !== undefined && (recovery || unsaved)}
-					<Button size="sm" variant="outline" disabled={locked || pending.saving} onclick={() => void fileEdit.save()}>{missing && as === 'note' ? 'Save it again' : 'Save again'}</Button>
-					<Button size="sm" variant="ghost-destructive" disabled={locked || pending.saving} onclick={confirmDiscard}>{missing && as === 'note' ? 'Discard it' : 'Discard changes'}</Button>
+				{#if unsaved}
+					{#if unsaved.status === 'conflict'}
+						<Button size="sm" variant="outline" disabled={locked} onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
+						<Button size="sm" variant="outline" disabled={locked} onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
+					{:else if recovery || unsaved.status === 'failed'}
+						<Button size="sm" variant="outline" disabled={locked || unsaved.status === 'saving'} onclick={() => void fileEdit.save()}>{missing && as === 'note' ? 'Save it again' : 'Save again'}</Button>
+						<Button size="sm" variant="ghost-destructive" disabled={locked || unsaved.status === 'saving'} onclick={confirmDiscard}>{missing && as === 'note' ? 'Discard it' : 'Discard changes'}</Button>
+					{/if}
 				{/if}
 				{#if as === 'note' && note !== undefined}
 					<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" disabled={locked} onclick={() => notes.open(path, 'text')}>Edit as file</Button>

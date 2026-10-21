@@ -1,3 +1,4 @@
+import { unsavedOf } from '../../lib/query.test-support.js';
 /**
  * Entry card tests.
  * The real `EntryCard` is mounted in jsdom over the real Vocab store and the
@@ -119,7 +120,7 @@ async function setup(text: string, { saveAfterMs = 60 } = {}) {
 
 /** What the folder holds typed into `lucid` and not saved yet. */
 const held = ({ folder, vocab }: Awaited<ReturnType<typeof setup>>) =>
-	folder.tables.entries.edit(cached(vocab, 'lucid').id).getPending();
+	unsavedOf(folder.tables.entries.edit(cached(vocab, 'lucid').id).getBuffer());
 
 test('the note is editable at once, and saved after a pause in typing', async () => {
 	await using context = await setup('lucid');
@@ -141,9 +142,9 @@ test('blur and leaving the card keep the owner’s autosave timer', async () => 
 	await using context = await setup('lucid', { saveAfterMs: 100 });
 	type(context.note(), 'left');
 	blur(context.note());
-	expect(held(context)?.saving).toBe(false);
+	expect(held(context)?.status).not.toBe('saving');
 	await context.unmount();
-	expect(held(context)?.saving).toBe(false);
+	expect(held(context)?.status).not.toBe('saving');
 	expect((await context.saved())?.note).toBe('');
 	await until(() => held(context) === undefined, 'autosave after leaving the card');
 	await quiet(context.vocab);
@@ -249,7 +250,7 @@ test('a valid unsaved repair opens its structured controls even when saving fail
 		await until(() => target.querySelector('textarea[aria-label="Your note for lucid"]') !== null, 'the structured editor');
 		expect(opened.vocab.entries.repair.open).toBeUndefined();
 		expect((await folder.tables.entries.get('broken')).data?.fields?.stage).toBe('invalid');
-		expect(folder.tables.entries.edit('broken').getPending()).toBeDefined();
+		expect(unsavedOf(folder.tables.entries.edit('broken').getBuffer())).toBeDefined();
 	} finally {
 		IDBObjectStore.prototype.put = put;
 		await unmount(view);

@@ -8,6 +8,7 @@
  * Covers command order while saving, owned nested field values, and `run`
  * reservations around held source.
  */
+import { unsavedOf } from './edit-buffer.test-support.js';
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
@@ -54,7 +55,14 @@ async function setup(files: Record<string, string> = {}) {
 	let started = Promise.withResolvers<void>();
 	/** Whether each write is refused as a full disk. */
 	let refusing = false;
-	engine.files.write = async (path, from, content, fields, checkBody, replaceExact) => {
+	engine.files.write = async (
+		path,
+		from,
+		content,
+		fields,
+		checkBody,
+		replaceExact,
+	) => {
 		writes.push({ path, from, content });
 		started.resolve();
 		if (gate !== undefined) await gate.promise;
@@ -154,7 +162,7 @@ test('a structured patch requires a known source; missing and binary sources ref
 	expect(expectErr(missing.change({ fields: { title: 'x' } })).name).toBe(
 		'NoSource',
 	);
-	expect(missing.getPending()).toBeUndefined();
+	expect(unsavedOf(missing)).toBeUndefined();
 
 	expectOk(await folder.files.write('raw.md', null, new Uint8Array([255, 0])));
 	const raw = folder.files.edit('raw.md');
@@ -174,7 +182,7 @@ test.each([false, true])(
 		await text.read();
 		text.change({ fields: { title: 'mine' } });
 		text.change({ fields: { link: 'mine too' } });
-		let fieldSave: Promise<void> | undefined;
+		let fieldSave: Promise<unknown> | undefined;
 		if (saving) {
 			const started = disk.hold();
 			fieldSave = text.save();
@@ -184,9 +192,9 @@ test.each([false, true])(
 			'---\ntitle: mine\nlink: mine too\n---\nbody\n',
 		);
 		expectOk(text.replaceText(`${text.getText()}append\n`));
-		expect(text.getPending()).toMatchObject({
-			text: '---\ntitle: mine\nlink: mine too\n---\nbody\nappend\n',
-		});
+		expect(text.getText()).toBe(
+			'---\ntitle: mine\nlink: mine too\n---\nbody\nappend\n',
+		);
 		disk.release();
 		await fieldSave;
 		await text.save();
@@ -237,16 +245,16 @@ test.each([false, true])(
 		disk.release();
 		await first;
 		disk.refuse(false);
-		const held = text.getPending();
+		const held = unsavedOf(text);
 		if (held === undefined) throw new Error('The text was lost');
-		expect(held.text).toContain('body typed in Files');
-		expect(held.text).toContain('title: changed in grid');
-		expect(held.text).not.toContain('obsolete:');
+		expect(text.getText()).toContain('body typed in Files');
+		expect(text.getText()).toContain('title: changed in grid');
+		expect(text.getText()).not.toContain('obsolete:');
 
 		await text.save();
 		expect(writes[1]?.from).toEqual(refused ? encode(seen) : typed);
-		expect(writes[1]?.content).toBe(held.text);
-		expect(text.getPending()).toBeUndefined();
+		expect(writes[1]?.content).toBe(text.getText());
+		expect(unsavedOf(text)).toBeUndefined();
 	},
 );
 
@@ -304,7 +312,7 @@ test('a reservation locks input at once, sends held input first, and settle wait
 	});
 	expect(source.isLocked()).toBe(true);
 	expectErr(source.replaceText('untracked typing'));
-	expect(source.discard()).toBeUndefined();
+	expect(expectErr(source.discard()).name).toBe('NotStarted');
 	// Leaving the field does not wait for the fence's own save.
 	await source.save();
 	expect(changed).toBe(false);
@@ -349,11 +357,9 @@ test('held input that does not save refuses reserved work and stays readable', a
 	);
 	expect(refused).toMatchObject({ name: 'NotStarted', reason: UNSAVED });
 	expect(changed).toBe(false);
-	expect(source.getPending()).toMatchObject({
-		text: 'my source',
-	});
+	expect(source.getText()).toBe('my source');
 	expect(source.isLocked()).toBe(false);
-	expect(source.discard()).toMatchObject({ text: 'my source' });
+	expect(expectOk(source.discard())).toMatchObject({ text: 'my source' });
 	expect(source.getText()).toBe('{}');
 });
 
@@ -372,7 +378,7 @@ test('failed reserved work releases its path while another file saves independen
 	expect(expectErr(source.replaceText('blocked')).name).toBe('Locked');
 	expectOk(other.replaceText('independent edit'));
 	await other.save();
-	expect(other.getPending()).toBeUndefined();
+	expect(unsavedOf(other)).toBeUndefined();
 	expect(source.isLocked()).toBe(true);
 
 	let settled = false;
@@ -386,32 +392,32 @@ test('failed reserved work releases its path while another file saves independen
 	await settling;
 	expect(source.isLocked()).toBe(false);
 	expectOk(source.replaceText('repair'));
-	expect(source.discard()).toMatchObject({ text: 'repair' });
+	expect(expectOk(source.discard())).toMatchObject({ text: 'repair' });
 	expect(folder.getStatus()).toMatchObject({ saving: false, unsaved: [] });
 });
 
 test('accepted nested fields are owned copies in the source draft', async () => {
-		const disk = await setup({ 'a.md': before });
-		const edit = disk.folder.files.edit('a.md');
-		expectOk(await edit.read());
-		const payload = new Proxy(
-			{ tags: new Proxy(['accepted'], {}), options: { level: 1 } },
-			{},
-		);
-		expectOk(edit.change({ fields: { payload } }));
-		payload.tags.push('mutated after acceptance');
-		payload.options.level = 9;
-		expect(edit.getMarkdown()?.fields?.payload).toEqual({
-			tags: ['accepted'], options: { level: 1 },
-		});
-		expect(edit.getPending()?.text).toBe(edit.getText());
-		await edit.save();
-		expect(edit.getPending()).toBeUndefined();
-		expect(edit.getMarkdown()?.fields?.payload).toEqual({
-			tags: ['accepted'],
-			options: { level: 1 },
-		});
+	const disk = await setup({ 'a.md': before });
+	const edit = disk.folder.files.edit('a.md');
+	expectOk(await edit.read());
+	const payload = new Proxy(
+		{ tags: new Proxy(['accepted'], {}), options: { level: 1 } },
+		{},
+	);
+	expectOk(edit.change({ fields: { payload } }));
+	payload.tags.push('mutated after acceptance');
+	payload.options.level = 9;
+	expect(edit.getMarkdown()?.fields?.payload).toEqual({
+		tags: ['accepted'],
+		options: { level: 1 },
 	});
+	await edit.save();
+	expect(unsavedOf(edit)).toBeUndefined();
+	expect(edit.getMarkdown()?.fields?.payload).toEqual({
+		tags: ['accepted'],
+		options: { level: 1 },
+	});
+});
 
 test('nested values accepted while saving remain owned through the next save', async () => {
 	const disk = await setup({ 'a.md': before });
@@ -429,6 +435,6 @@ test('nested values accepted while saving remain owned through the next save', a
 	disk.release();
 	await saving;
 	await edit.save();
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(edit.getMarkdown()?.fields?.payload).toEqual({ values: ['next'] });
 });

@@ -5,7 +5,6 @@
 	causes a whole-file conflict; the draft stays pinned. Run sends what is typed first.
 -->
 <script lang="ts">
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { getFolder } from '$lib/folder.js';
 	import { textRead } from '$lib/file-reads.js';
 
@@ -69,19 +68,25 @@
 		const shown = fileEdit.markdown;
 		return shown?.issues === null ? shown : undefined;
 	});
+	// Save metadata stays passive until this view actually demands text.
+	const buffer = $derived(
+		!asText || opened.data?.kind === 'text' || whispering.isSaving(path) || whispering.isUnsaved(path)
+			? fileEdit.buffer : undefined,
+	);
+	const unsaved = $derived(buffer?.status === 'ready' ? buffer.unsaved : undefined);
 	/** The file's text as typed while an edit is unsaved, else as stored. */
 	const source = $derived(
-		asText && (fileEdit.pending !== undefined || opened.data?.kind === 'text') ? fileEdit.text : undefined,
+		asText && buffer?.status === 'ready' && (buffer.unsaved !== undefined || opened.data?.kind === 'text') ? buffer.text : undefined,
 	);
 	/** The current source as a row, including unsaved input and its issues. */
-	const sourceRow = $derived(asText ? fileEdit.markdown : undefined);
+	const sourceRow = $derived(asText && source !== undefined ? fileEdit.markdown : undefined);
 	const issues = $derived(sourceRow?.issues ?? undefined);
 
 	/** Either view resolves the same current recipe, including unsaved input. */
 	const recipe = $derived(
 		row ?? (sourceRow?.issues === null ? sourceRow : undefined),
 	);
-	const pending = $derived(fileEdit.pending);
+
 	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
 
 	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
@@ -238,7 +243,7 @@
 		{/if}
 	</div>
 
-	<SaveStatus {path} saved="Saved to {path}" class="shrink-0 border-b px-4 py-1" />
+	<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
@@ -254,16 +259,20 @@
 		</div>
 	{/if}
 
-	{#if pending !== undefined && (fileEdit.readStatus.known === 'missing' || fileEdit.readStatus.known === 'not-text') && (asText ? source !== undefined : row !== undefined)}
+	{#if buffer?.error && buffer?.error.name !== 'SourceUnavailable'}
+		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{buffer?.error.message}</p>
+	{/if}
+
+	{#if unsaved !== undefined && buffer?.error?.name === 'SourceUnavailable' && (asText ? source !== undefined : row !== undefined)}
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file changed. Your draft remains available.</p>
-			<Textarea readonly aria-label="Unsaved transformation changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
+			<Textarea readonly aria-label="Unsaved transformation changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
 		</div>
 	{/if}
-	{#if (asText ? source === undefined : row === undefined) && pending !== undefined}
+	{#if (asText ? source === undefined : row === undefined) && unsaved !== undefined}
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
-			<Textarea readonly aria-label="Unsaved transformation changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
+			<Textarea readonly aria-label="Unsaved transformation changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
 		</div>
 	{:else if asText && source === undefined && opened.isError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">

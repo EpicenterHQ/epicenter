@@ -1,3 +1,4 @@
+import { unsavedOf } from './edits.test-support.js';
 /**
  * Editing Tests
  *
@@ -259,7 +260,7 @@ test('a read never touches notes typed, and their save reports an outside confli
 	// A retry reports the whole-file conflict and leaves both sources intact.
 	await context.folder.files.edit(editor.path).save();
 	const edit = context.folder.files.edit(editor.path);
-	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(edit.getBuffer())?.error?.name).toBe('Conflict');
 	expect(await text(root, editor.path)).toBe(recordingText('Theirs'));
 	expectOk(edit.replaceText(`${recordingText('Theirs')}Mine.\n`));
 	await edit.resolveConflict('draft');
@@ -367,7 +368,7 @@ test('discarded field input preserves removals, literal values and the body for 
 	expect(discarded).toContain('title: "[remove field]"');
 	expect(discarded).not.toContain('durationMs:');
 	expect(discarded).toEndWith('Kept notes.\n');
-	expect(edit.pending).toBeUndefined();
+	expect(unsavedOf(edit.buffer)).toBeUndefined();
 	expect(await text(root, editor.path)).toBe(before);
 	failWrites();
 });
@@ -384,7 +385,7 @@ test('typing into a recording deleted elsewhere stays held until explicit replac
 	});
 	await settle(whispering, context);
 	const edit = context.folder.files.edit(path);
-	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(edit.getBuffer())?.error?.name).toBe('Conflict');
 	expect(await text(root, path)).toBeUndefined();
 	await edit.resolveConflict('draft');
 	await settle(whispering, context);
@@ -453,7 +454,7 @@ test('text typed over a changed file stays held until explicit replacement', asy
 
 	source.input(recordingText('Mine'));
 	await settle(whispering, context);
-	expect(context.folder.files.edit(path).getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(context.folder.files.edit(path).getBuffer())?.error?.name).toBe('Conflict');
 	expect(await text(root, path)).toBe(recordingText('Theirs'));
 	await context.folder.files.edit(path).resolveConflict('draft');
 	await settle(whispering, context);
@@ -473,7 +474,7 @@ test('Source shows unsaved row input while its save is still running', async () 
 	await held;
 	expect(await whispering.editSource(path)).toBeUndefined();
 	expect(whispering.edit(path).text).toEndWith('---\nTyped in the fields.\n');
-	expect(whispering.edit(path).pending?.saving).toBe(true);
+	expect(unsavedOf(whispering.edit(path).buffer)?.status).toBe('saving');
 	release();
 	expect(whispering.showsText(path)).toBe(true);
 	const source = await openText(whispering, context, path);
@@ -500,7 +501,7 @@ test('switching between fields and Source preserves failed input and recovery in
 	expect(await whispering.editSource(path)).toBeUndefined();
 	expect(whispering.showsText(path)).toBe(true);
 	expect(whispering.edit(path).text).toEndWith('Older body.\n');
-	expect(whispering.edit(path).pending?.error).toBeDefined();
+	expect(unsavedOf(whispering.edit(path).buffer)?.error).toBeDefined();
 	expect(whispering.discard(path)).toContain('Older body.\n');
 	expect(whispering.isUnsaved(path)).toBe(false);
 
@@ -625,4 +626,19 @@ test('close waits for a save being written, and it lands before the folder close
 	await closing;
 	expect(closed).toBe(true);
 	expect(await text(root, path)).toContain('title: Typed before closing');
+});
+
+test('save indicators and failure recovery do not demand file contents', async () => {
+	const { whispering, context } = await open();
+	const path = 'unopened.txt';
+	const edit = context.folder.files.edit(path);
+	expect(edit.getBuffer().status).toBe('unread');
+
+	expect(whispering.isSaving(path)).toBe(false);
+	expect(whispering.isUnsaved(path)).toBe(false);
+	expect(whispering.getWriteFailure(path)).toBeUndefined();
+	expect(whispering.edit(path).locked).toBe(false);
+	await Bun.sleep(0);
+
+	expect(edit.getBuffer().status).toBe('unread');
 });

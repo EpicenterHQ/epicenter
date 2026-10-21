@@ -1,3 +1,4 @@
+import type { FileEdit as NativeFileEdit } from '@epicenter/folder/edits';
 /**
  * Test helper: Vocab over the local folder context, without mounting
  * components.
@@ -59,7 +60,7 @@ export function observe(vocab: Vocab) {
 export async function quiet(vocab: Vocab) {
 	const idle = () =>
 		!vocab.folder.getStatus().saving &&
-		!vocab.entries.repair.view()?.pending?.saving &&
+		unsavedOf(vocab.entries.repair.view()?.buffer)?.status !== 'saving' &&
 		vocab.queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 400; tries++) {
 		if (idle()) {
@@ -87,4 +88,9 @@ export function cached(vocab: Vocab, text: string): Entry {
 	);
 	if (entry === undefined) throw new Error(`${text} is not in the cache`);
 	return entry;
+}
+
+/** Inspect held input after narrowing the current buffer snapshot. */
+export function unsavedOf(buffer: ReturnType<NativeFileEdit['getBuffer']> | undefined) {
+	return buffer?.status === 'ready' ? buffer.unsaved : undefined;
 }

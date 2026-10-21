@@ -11,7 +11,6 @@
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { untrack } from 'svelte';
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { rowPath } from '$lib/data.js';
 	import type { Entries } from '$lib/entries.svelte.js';
 	import { describeFailure } from '$lib/failure.js';
@@ -23,10 +22,9 @@
 	// svelte-ignore state_referenced_locally
 	const { repair } = entries;
 	const fileEdit = untrack(() => repair.view());
-	const status = $derived(fileEdit?.readStatus);
-	const pending = $derived(fileEdit?.pending);
-	const unsaved = $derived(pending === undefined ? undefined : unsavedText(pending));
-	const notText = $derived(status?.known === 'not-text');
+	const buffer = $derived(fileEdit?.buffer);
+	const unsaved = $derived(buffer?.status === 'ready' ? buffer.unsaved : undefined);
+	const notText = $derived(buffer?.error?.name === 'SourceUnavailable' && buffer.error.reason === 'not-text');
 </script>
 
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
@@ -47,10 +45,13 @@
 				/>
 			{/if}
 		{/if}
-		{#if fileEdit.pending}
-			{#if fileEdit.pending.error && !fileEdit.pending.saving}
+		{#if buffer?.error}
+			<p role="alert" class="text-sm text-destructive">{buffer?.error.message}</p>
+		{/if}
+		{#if unsaved}
+			{#if unsaved.status === 'failed' || unsaved.status === 'conflict'}
 				<p role="alert" class="text-destructive">
-					Not saved: {describeFailure(fileEdit.pending.error)}
+					Not saved: {describeFailure(unsaved.error)}
 					<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit?.save()}>Try again</Button>
 				</p>
 			{:else}
@@ -66,17 +67,17 @@
 		{:else}
 			<Button size="sm" variant="outline" onclick={() => void repair.close()}>Show note and stage</Button>
 		{/if}
-	{:else if notText || status?.known === 'missing'}
+	{:else if notText || (buffer?.error?.name === 'SourceUnavailable' && buffer.error.reason === 'missing')}
 		<p role="alert" class="text-destructive">
 			<code>{path}</code> {notText ? 'is no longer text' : 'is no longer here'}, so it cannot be shown here.
 		</p>
 		{#if unsaved !== undefined}
-			<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved text">{unsaved}</pre>
-			<CopyButton size="sm" variant="outline" text={unsaved}>Copy</CopyButton>
+			<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved text">{fileEdit?.text}</pre>
+			<CopyButton size="sm" variant="outline" text={fileEdit?.text ?? ''}>Copy</CopyButton>
 		{/if}
 		<Button size="sm" variant="outline" onclick={() => repair.discard()}>Close</Button>
-	{:else if status?.error}
-		<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {status.error.message}</p>
+	{:else if buffer?.error}
+		<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {buffer.error.message}</p>
 		<Button size="sm" variant="outline" onclick={() => void fileEdit?.read()}>Read again</Button>
 	{:else}
 		<p>Reading <code>{path}</code>…</p>

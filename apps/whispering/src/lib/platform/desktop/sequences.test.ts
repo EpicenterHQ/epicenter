@@ -1,3 +1,4 @@
+import { unsavedOf } from '../../edits.test-support.js';
 /**
  * Save, repair, and delete sequences over the desktop opener.
  *
@@ -144,7 +145,7 @@ test('more typing after an unconfirmed save conflicts with what landed until exp
 	await settle(whispering, context);
 	// The observed base remains the original source; the unconfirmed write
 	// is a different stored source, so newer typing cannot silently replace it.
-	expect(whispering.edit(PATH).pending?.error?.name).toBe('Conflict');
+	expect(unsavedOf(whispering.edit(PATH).buffer)?.error?.name).toBe('Conflict');
 	expect(whispering.unsaved).toBe(true);
 	expect(session.draft.body).toBe('Tidy it all.\n');
 	expect(await shell.text(PATH)).toContain('Tidy it.\n');
@@ -196,7 +197,7 @@ test('another writer’s change is kept until the typing explicitly replaces it'
 
 	type(session, 'Mine.\n');
 	await settle(whispering, context);
-	expect(whispering.edit(PATH).pending?.error?.name).toBe('Conflict');
+	expect(unsavedOf(whispering.edit(PATH).buffer)?.error?.name).toBe('Conflict');
 	expect(whispering.unsaved).toBe(true);
 	expect(session.draft.body).toBe('Mine.\n');
 	expect(await shell.text(PATH)).toBe(SEED.replace('Tidy.', 'Theirs.'));

@@ -126,7 +126,10 @@ export async function until(check: () => boolean, what: string) {
 
 /** Wait until nothing is saving or fetching. */
 export async function quiet(notes: Notes) {
-	const idle = () => !notes.folder.getStatus().saving && notes.folder.getStatus().unsaved.length === 0 && notes.queryClient.isFetching() === 0;
+	const idle = () =>
+		!notes.folder.getStatus().saving &&
+		notes.folder.getStatus().unsaved.length === 0 &&
+		notes.queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 1000; tries++) {
 		if (idle()) {
 			await Bun.sleep(0);
@@ -181,3 +184,19 @@ export function noteText({
 /** A folder's text in Honeycrisp's form. */
 export const folderText = (name: string) =>
 	`---\nname: ${JSON.stringify(name)}\nicon: null\n---\n`;
+
+/** Read the held save state without starting a file read. */
+export function unsavedOf(edit: {
+	getBuffer(): import('@epicenter/folder/edits').BufferSnapshot;
+}) {
+	const buffer = edit.getBuffer();
+	return buffer.status === 'ready' ? buffer.unsaved : undefined;
+}
+
+/** Missing storage remains visible even while unsaved text keeps the buffer ready. */
+export function isMissing(edit: {
+	getBuffer(): import('@epicenter/folder/edits').BufferSnapshot;
+}) {
+	const error = edit.getBuffer().error;
+	return error?.name === 'SourceUnavailable' && error.reason === 'missing';
+}

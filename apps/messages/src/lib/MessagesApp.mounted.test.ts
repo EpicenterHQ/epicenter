@@ -1,3 +1,4 @@
+import { unsavedOf } from './buffer.test-support.js';
 /** Draft previews over real Markdown files and Folder-owned pending input. */
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
@@ -122,7 +123,7 @@ test('a preview follows pending Markdown input across chat switches and disappea
 				) === true,
 		'the unsaved preview',
 	);
-	expect(edit.getPending()?.saving).toBe(false);
+	expect(unsavedOf(edit.getBuffer())?.status).not.toBe('saving');
 	expect(expectOk(await app.folder.tables.drafts.get(id))?.body).toBe('');
 	await app.open('Community garden');
 	expect(app.composer()?.value).toBe('');
@@ -220,7 +221,7 @@ test('failed autosave retains its preview, uncertain sends are distinct, and sen
 	type(app.composer(), 'Keep this reply');
 	await app.open('Community garden');
 	await until(
-		() => app.folder.tables.drafts.edit(id).getPending()?.error !== undefined,
+		() => unsavedOf(app.folder.tables.drafts.edit(id).getBuffer())?.error !== undefined,
 		'the failed autosave',
 	);
 	expect(app.conversation('Maya Chen').textContent).toContain(
@@ -231,7 +232,7 @@ test('failed autosave retains its preview, uncertain sends are distinct, and sen
 	expect(app.composer()?.value).toBe('Keep this reply');
 	click(app.target, 'Save draft again');
 	await until(
-		() => app.folder.tables.drafts.edit(id).getPending() === undefined,
+		() => unsavedOf(app.folder.tables.drafts.edit(id).getBuffer()) === undefined,
 		'the retry',
 	);
 	click(app.target, 'Simulate send failure');

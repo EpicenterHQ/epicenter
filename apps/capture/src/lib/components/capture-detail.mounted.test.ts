@@ -31,6 +31,7 @@
 // IndexedDB on it rather than on the global the folder reads.
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { unsavedOf, isMissing } from '../local-folder.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -170,7 +171,7 @@ test("another tab's change leaves typing pinned until a whole-source resolution"
 
 	const edit = harness.folder.files.edit(PATH);
 	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 	expect(await harness.text(PATH)).toBe(`${FILE}- theirs\n`);
 	expectOk(edit.replaceText(saved('Mine', '- first\n- theirs\n')));
 	await edit.resolveConflict('draft');
@@ -208,12 +209,16 @@ test('failed row input stays copyable in the text view after switching and forei
 	const restore = harness.failSaves();
 	type(field('capture-text'), 'Kept row input');
 	blur(field('capture-text'));
-	expect(harness.folder.files.edit(PATH).getPending()?.saving).toBe(false);
+	expect(unsavedOf(harness.folder.files.edit(PATH))?.status === 'saving').toBe(
+		false,
+	);
 	await harness.captures.open('one', 'text');
 	flushSync();
-	expect(harness.folder.files.edit(PATH).getPending()?.saving).toBe(false);
+	expect(unsavedOf(harness.folder.files.edit(PATH))?.status === 'saving').toBe(
+		false,
+	);
 	await until(
-		() => harness.folder.files.edit(PATH).getPending()?.error !== undefined,
+		() => unsavedOf(harness.folder.files.edit(PATH))?.error !== undefined,
 		'the failed autosave after leaving the row view',
 	);
 	restore();
@@ -222,7 +227,9 @@ test('failed row input stays copyable in the text view after switching and forei
 	Object.defineProperty(navigator, 'clipboard', {
 		configurable: true,
 		value: {
-			writeText: async (value: string) => { copied = value; },
+			writeText: async (value: string) => {
+				copied = value;
+			},
 		},
 	});
 	try {
@@ -231,7 +238,7 @@ test('failed row input stays copyable in the text view after switching and forei
 		expect(copied ?? '').toContain('Kept row input');
 		await harness.deleteElsewhere('one');
 		await until(
-			() => harness.folder.files.edit(PATH).getReadStatus().known === 'missing',
+			() => isMissing(harness.folder.files.edit(PATH)),
 			'the foreign deletion',
 		);
 		flushSync();
@@ -291,7 +298,10 @@ test("a thought's Edit as text opens the file with that thought's lines selected
 	harness.captures.open('one', 'text', range);
 	await until(() => {
 		flushSync();
-		return harness.target.querySelector('textarea[aria-label^="Contents of"]') !== null;
+		return (
+			harness.target.querySelector('textarea[aria-label^="Contents of"]') !==
+			null
+		);
 	}, 'the text view');
 	const contents = harness.target.querySelector<HTMLTextAreaElement>(
 		'textarea[aria-label^="Contents of"]',
@@ -334,7 +344,10 @@ test('a thought typed and not added stays visible to copy when the capture stops
 	);
 	expect(pending?.value).toBe('my pending thought');
 	expect(pending?.readOnly).toBe(true);
-	expect(harness.context.getStatus().saving || harness.context.getStatus().unsaved.length > 0).toBe(false);
+	expect(
+		harness.context.getStatus().saving ||
+			harness.context.getStatus().unsaved.length > 0,
+	).toBe(false);
 });
 
 test('a file that is not a valid capture shows its issues, and opens as a capture once fixed', async () => {
@@ -386,6 +399,6 @@ test('while the folder closes, the text boxes take nothing', async () => {
 	type(field('new-thought'), 'Too late');
 	submit(field('new-thought')?.form);
 	flushSync();
-	expect(harness.folder.tables.captures.edit('one').getPending()).toBeUndefined();
+	expect(unsavedOf(harness.folder.tables.captures.edit('one'))).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(FILE);
 });

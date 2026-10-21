@@ -53,8 +53,7 @@ export function createRepair(folder: Pick<VocabFolder, 'tables'>) {
 		/** Discard this path's input, then close unless a running operation retains it. */
 		discard() {
 			const fileEdit = view();
-			fileEdit?.discard();
-			if (fileEdit?.pending !== undefined) return;
+			if (fileEdit?.discard().error) return;
 			open = undefined;
 		},
 	};

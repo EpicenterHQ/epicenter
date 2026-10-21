@@ -70,15 +70,16 @@
 	})));
 	const rows = $derived(
 		edits.map(({ doc, fileEdit }) => {
-			const pending = fileEdit.pending;
+			const buffer = fileEdit.buffer;
+			const unsaved = buffer.status === 'ready' ? buffer.unsaved : undefined;
 			const markdown = fileEdit.markdown;
 			const shown = markdown === undefined ? doc : { ...doc, ...markdown };
 			return {
 				doc,
 				fileEdit,
 				shown,
-				held: pending !== undefined,
-				error: pending?.saving ? undefined : pending?.error,
+				held: unsaved !== undefined,
+				error: unsaved?.error ?? buffer.error,
 				locked:
 					fileText(doc.content).kind !== 'text' ||
 					!!shown.issues?.some((issue) => issue.kind !== 'schema') ||

@@ -99,6 +99,13 @@ A failed edit remains available when selecting the note again, including if
 another writer deletes or replaces its saved file. It can be saved again,
 copied, or explicitly discarded.
 
+The vanilla edit exposes `getBuffer()`; its Svelte adapter exposes `.buffer`.
+A ready buffer holds exact `text` and optional `unsaved` state (`dirty`,
+`saving`, `failed`, or `conflict`). Non-save feedback is `buffer.error`.
+Reading `.buffer`, `.text`, or `.markdown` reactively starts the first read;
+views need no separate mount-time read. Folder-wide save indicators read
+aggregate status without opening file contents.
+
 The body is edited with line feeds (ADR-0572): a note whose file has CRLF line
 endings shows normally, and its first edit saves it with line feeds.
 

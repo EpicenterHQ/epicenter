@@ -42,9 +42,7 @@ export async function openCaptures(
 	for (const [path, text] of Object.entries(files))
 		expectOk(await folder.files.write(path, null, text));
 	// Loaded on use, after the test file registered its runes-module loader.
-	const { createFolderContext } = await import(
-		'@epicenter/svelte/folder'
-	);
+	const { createFolderContext } = await import('@epicenter/svelte/folder');
 	const { createCaptures } = await import('./captures.svelte.ts');
 	const context = createFolderContext(folder);
 	const captures: Captures = createCaptures(context);
@@ -57,7 +55,10 @@ export async function openCaptures(
 	const other = await open();
 
 	/** Nothing typed waits, no save runs, and nothing is read. */
-	const idle = () => !context.getStatus().saving && context.getStatus().unsaved.length === 0 && context.queryClient.isFetching() === 0;
+	const idle = () =>
+		!context.getStatus().saving &&
+		context.getStatus().unsaved.length === 0 &&
+		context.queryClient.isFetching() === 0;
 	/** Storage refusals to undo when the harness closes. */
 	const restores: (() => void)[] = [];
 
@@ -118,3 +119,19 @@ export async function openCaptures(
 }
 
 export type CapturesHarness = Awaited<ReturnType<typeof openCaptures>>;
+
+/** Read the held save state without starting a file read. */
+export function unsavedOf(edit: {
+	getBuffer(): import('@epicenter/folder/edits').BufferSnapshot;
+}) {
+	const buffer = edit.getBuffer();
+	return buffer.status === 'ready' ? buffer.unsaved : undefined;
+}
+
+/** Missing storage remains visible even while unsaved text keeps the buffer ready. */
+export function isMissing(edit: {
+	getBuffer(): import('@epicenter/folder/edits').BufferSnapshot;
+}) {
+	const error = edit.getBuffer().error;
+	return error?.name === 'SourceUnavailable' && error.reason === 'missing';
+}

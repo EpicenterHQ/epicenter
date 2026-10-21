@@ -32,7 +32,7 @@
 
 import { InstantString } from '@epicenter/definition';
 import type { Row } from '@epicenter/folder';
-import type { Pending } from '@epicenter/folder/edits';
+import type { Recovery } from '@epicenter/folder/edits';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import { createFileEdit, type FileEdit } from '@epicenter/svelte/edits';
 import {
@@ -479,9 +479,9 @@ export function createWhispering(context: WhisperingContext) {
 	// Each save of a file's text that fails is told once, with the text to
 	// copy, a save and a discard: a failure the folder reports that was not
 	// reported before. Typing over failed text clears it and tells nothing.
-	let told = new Set<Pending>();
+	let told = new Set<Recovery>();
 	const stopTelling = folder.onStatusChange(({ failures }) => {
-		const failed = new Set<Pending>();
+		const failed = new Set<Recovery>();
 		for (const pending of failures) {
 			if (pending.error === undefined) continue;
 			failed.add(pending);
@@ -498,7 +498,7 @@ export function createWhispering(context: WhisperingContext) {
 				},
 				discard: () => {
 					const discarded = folder.files.edit(path).discard();
-					return discarded?.text;
+					return discarded.data?.text;
 				},
 			});
 		}
@@ -527,7 +527,7 @@ export function createWhispering(context: WhisperingContext) {
 	async function settlePath(path: string): Promise<boolean> {
 		const fileEdit = folder.files.edit(path);
 		await fileEdit.save();
-		return fileEdit.getPending() !== undefined;
+		return folder.getStatus().unsaved.includes(path);
 	}
 
 	/** After a rename: the caches and the selection follow the file. */
@@ -1037,15 +1037,16 @@ export function createWhispering(context: WhisperingContext) {
 		},
 		/** Whether a save of `path` runs or waits, or typing there waits to be sent; read reactively. */
 		isSaving(path: string) {
-			const pending = editAt(path).pending;
-			return (
-				pending !== undefined && (pending.saving || pending.error === undefined)
-			);
+			const { unsaved, failures } = context.getStatus();
+			return unsaved.includes(path) && !failures.some((failure) => failure.path === path);
+		},
+		/** The held source and error of a failed save, without starting a content read. */
+		getWriteFailure(path: string) {
+			return context.getStatus().failures.find((failure) => failure.path === path);
 		},
 		/** Whether typing at `path` did not save, with no save running; read reactively. */
 		isUnsaved(path: string) {
-			const pending = editAt(path).pending;
-			return pending?.error !== undefined && !pending.saving;
+			return context.getStatus().failures.some((failure) => failure.path === path);
 		},
 
 		/**
@@ -1055,8 +1056,8 @@ export function createWhispering(context: WhisperingContext) {
 		 */
 		discard(path: string): string | undefined {
 			const discarded = folder.files.edit(path).discard();
-			if (discarded === undefined) return undefined;
-			return unsavedText(discarded);
+			if (discarded.error !== null || discarded.data === undefined) return undefined;
+			return unsavedText(discarded.data);
 		},
 		/** Whether a save runs, or typing waits to be sent; read reactively. */
 		get saving() {

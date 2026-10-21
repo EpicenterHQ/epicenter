@@ -25,7 +25,12 @@
  */
 import type { TSchema as Schema, TRecord, TUnknown } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { ActionError, FileEdit, Pending } from './edit-owner.js';
+import type {
+	ActionError,
+	FileEdit,
+	Recovery,
+	SaveFailureRecovery,
+} from './edit-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
@@ -53,7 +58,7 @@ export type FolderStatus = {
 	/** The paths whose input is held: not sent yet, saving, or failed. Sorted. */
 	readonly unsaved: readonly string[];
 	/** Held input whose last save failed and that no save is retrying. */
-	readonly failures: readonly Pending[];
+	readonly failures: readonly SaveFailureRecovery[];
 	/** Whether `close` was called: no input, action, or listener is taken from then on. */
 	readonly closing: boolean;
 };
@@ -174,7 +179,7 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	 * admitted work, then attempt newly released paths. Answers what did not
 	 * save without retrying the same failed revision; editing stays open.
 	 */
-	settle(): Promise<Pending[]>;
+	settle(): Promise<Recovery[]>;
 	/**
 	 * Refuse new input, new actions, `settle`, and new listeners immediately.
 	 * Save available input and drain admitted actions and started saves, then
@@ -187,7 +192,7 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	 * after completion. Answers input that did not save. Repeated calls return
 	 * the same promise. Do not await close inside an action it waits for.
 	 */
-	close(): Promise<Pending[]>;
+	close(): Promise<Recovery[]>;
 };
 
 /**

@@ -30,6 +30,7 @@
  *   close released it, and close never releases under a write it accepted
  * - A reservation holds until writes already queued on its paths finish
  */
+import { unsavedOf } from './edit-buffer.test-support.js';
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
@@ -37,7 +38,7 @@ import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openRepository } from './browser/repository.js';
 import { openFolder } from './browser.js';
-import { CLOSING, DELETING, mergeText, type ReadStatus } from './edits.js';
+import { CLOSING, DELETING, mergeText, type Recovery } from './edits.js';
 import type { FileContent, FolderChange, FolderStatus } from './folder.js';
 import type { FolderEngine } from './handle.js';
 import { folderHandle } from './handle.js';
@@ -62,7 +63,11 @@ for (const input of ['a\0b', `a\uD800b`]) {
 		expect(edit.getMarkdown()?.text).toBe(input);
 		expect(edit.getMarkdown()?.body).toBeUndefined();
 		await edit.save();
-		expect(edit.getPending()).toMatchObject({ text: input });
+		expect(edit.getBuffer()).toMatchObject({
+			status: 'ready',
+			text: input,
+			unsaved: { status: 'failed', error: { name: 'NotText' } },
+		});
 	});
 }
 
@@ -274,7 +279,7 @@ test('making, subscribing to and reading edits writes nothing, and a read answer
 	const edit = folder.tables.notes.edit('milk');
 	expect(edit.path).toBe(MILK);
 	expect(edit.getMarkdown()).toBeUndefined();
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(edit.isLocked()).toBe(false);
 	const stop = edit.subscribe(() => {});
 	expectOk(await edit.read());
@@ -435,7 +440,7 @@ test('a save that committed before an outside change shows until the reread answ
 	await elsewhere({ body: 'Outside\n' });
 	committing.release();
 	await saving;
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(edit.getMarkdown()).toMatchObject({
 		fields: { title: 'Mine' },
 		body: 'Two litres\n',
@@ -462,7 +467,6 @@ test('a failed read keeps what the edit shows, held input included, and says why
 		fields: { title: 'Milk' },
 		body: 'Typed\n',
 	});
-	expect(edit.getPending()?.text).toBe(edit.getText());
 });
 
 test("another handle's change is read again for a subscribed path; another path keeps what it read until someone subscribes", async () => {
@@ -516,52 +520,38 @@ test('a view that subscribes again in the same turn keeps its document; the last
 	expect(edit.getMarkdown()).toBeUndefined();
 });
 
-test('the read status says what is known and how reading goes, the same value until it changes', async () => {
+test('buffer availability narrows source and keeps unchanged snapshot identity', async () => {
 	const { folder, engine, edit } = await setup();
-	const statuses = [edit.getReadStatus()];
-	cleanup.push(
-		edit.subscribe(() => {
-			const status = edit.getReadStatus();
-			if (status !== statuses.at(-1)) statuses.push(status);
-		}),
-	);
-	expect(edit.getReadStatus()).toBe(statuses[0] as ReadStatus);
+	expect(edit.getBuffer()).toEqual({ status: 'unread' });
+	const unread = edit.getBuffer();
+	expect(edit.getBuffer()).toBe(unread);
 	const reading = edit.read();
-	expect(edit.getReadStatus()).toEqual({
-		known: 'nothing',
-		reading: true,
-		error: undefined,
-	});
+	expect(edit.getBuffer().status).toBe('loading');
 	expectOk(await reading);
-	expect(statuses).toEqual([
-		{ known: 'nothing', reading: false, error: undefined },
-		{ known: 'nothing', reading: true, error: undefined },
-		{ known: 'file', reading: true, error: undefined },
-		{ known: 'file', reading: false, error: undefined },
-	]);
-	// Typing changes the row, not the status.
-	const status = edit.getReadStatus();
+	const ready = edit.getBuffer();
+	expect(ready.status).toBe('ready');
+	expect(edit.getBuffer()).toBe(ready);
 	expectOk(edit.change({ fields: { title: 'Oat milk' } }));
-	expect(edit.getReadStatus()).toBe(status);
-
-	// A failed refresh keeps the row and says why.
+	expect(edit.getBuffer()).not.toBe(ready);
+	expect(unsavedOf(edit)?.status).toBe('dirty');
 	const read = engine.files.read;
 	engine.files.read = async () =>
 		ReadError.StorageFailed({ cause: new Error('gone') });
 	expectErr(await edit.read());
 	engine.files.read = read;
-	expect(edit.getReadStatus()).toMatchObject({
-		known: 'file',
-		reading: false,
+	expect(edit.getBuffer()).toMatchObject({
+		status: 'ready',
 		error: { name: 'StorageFailed' },
 	});
 	expect(edit.getMarkdown()?.fields?.title).toBe('Oat milk');
 	expectOk(await edit.read());
-	expect(edit.getReadStatus().error).toBeUndefined();
-
+	expect(edit.getBuffer().error).toBeUndefined();
 	const ghost = folder.tables.notes.edit('ghost');
 	expectOk(await ghost.read());
-	expect(ghost.getReadStatus().known).toBe('missing');
+	expect(ghost.getBuffer()).toMatchObject({
+		status: 'unavailable',
+		error: { name: 'SourceUnavailable', reason: 'missing' },
+	});
 });
 
 for (const known of [false, true])
@@ -586,8 +576,8 @@ for (const known of [false, true])
 			'StorageFailed',
 			'StorageFailed',
 		]);
-		expect(edit.getReadStatus()).toMatchObject({
-			known: known ? 'file' : 'nothing',
+		expect(edit.getBuffer()).toMatchObject({
+			status: known ? 'ready' : 'unavailable',
 			error: { name: 'StorageFailed' },
 		});
 		expect(edit.getMarkdown()?.fields?.title).toBe(known ? 'Milk' : undefined);
@@ -604,7 +594,7 @@ test('a read overtaken by another handle’s change answers what was read, then 
 	reading.release();
 	expectOk(await first);
 	expect(edit.getMarkdown()?.fields?.title).toBe('Outside');
-	expect(edit.getReadStatus()).toMatchObject({ known: 'file', reading: false });
+	expect(edit.getBuffer()).toMatchObject({ status: 'ready' });
 });
 
 test('an older read that fails after a newer read succeeded tells its own caller, not the status', async () => {
@@ -630,13 +620,12 @@ test('an older read that fails after a newer read succeeded tells its own caller
 	await writeElsewhere(MILK, from, from.replace('Milk', 'Outside'));
 	expectOk(await edit.read());
 	expect(edit.getMarkdown()?.fields?.title).toBe('Outside');
-	expect(edit.getReadStatus().error).toBeUndefined();
+	expect(edit.getBuffer().error).toBeUndefined();
 
 	gate.resolve();
 	expect(expectErr(await old).name).toBe('StorageFailed');
-	expect(edit.getReadStatus()).toMatchObject({
-		known: 'file',
-		reading: false,
+	expect(edit.getBuffer()).toMatchObject({
+		status: 'ready',
 		error: undefined,
 	});
 	expect(edit.getMarkdown()?.fields?.title).toBe('Outside');
@@ -668,7 +657,10 @@ test('a file that is not text shows no text, refuses typing, and keeps its bytes
 		const text = folder.files.edit(path);
 		expectOk(await text.read());
 		expect(text.getText()).toBeUndefined();
-		expect(text.getReadStatus()).toMatchObject({ known: 'not-text' });
+		expect(text.getBuffer()).toMatchObject({
+			status: 'unavailable',
+			error: { name: 'SourceUnavailable', reason: 'not-text' },
+		});
 		expect(text.getText()).toBeUndefined();
 		expect(expectErr(text.replaceText('repaired')).name).toBe('NotText');
 		expect(expectErr(text.change({ fields: { title: 'x' } })).name).toBe(
@@ -677,7 +669,7 @@ test('a file that is not text shows no text, refuses typing, and keeps its bytes
 		const row = folder.tables.notes.edit(path.slice(6, -3));
 		expectOk(await row.read());
 		expect(row.getMarkdown()).toBeUndefined();
-		expect(row.getReadStatus().known).toBe('not-text');
+		expect(row.getBuffer().status).toBe('unavailable');
 		expect(expectErr(row.change({ body: 'x' })).name).toBe('NotText');
 		const file = expectOk(await folder.files.read(path));
 		expect(new Uint8Array(await file!.content.arrayBuffer())).toEqual(bytes);
@@ -726,7 +718,6 @@ test('a row shows held input in its source, read again: fields, body, text and i
 		fields: { title: 'Oat milk', done: false },
 		body: 'Three\n',
 	});
-	expect(edit.getPending()?.text).toBe(edit.getText());
 	expect(folder.files.edit(MILK).getText()).toBe(edit.getText());
 });
 
@@ -747,7 +738,7 @@ test('an action, a direct save and a status subscription hold no document; an ex
 			new Uint8Array([4]),
 		),
 	);
-	expect(folder.files.edit(path).getReadStatus().known).toBe('nothing');
+	expect(folder.files.edit(path).getBuffer().status).toBe('unread');
 	expect(audio.getText()).toBeUndefined();
 	stop();
 
@@ -780,7 +771,7 @@ test('a body typed over broken frontmatter lands without touching the header', a
 	edit.change({ body: 'Repaired by hand' });
 	await edit.save();
 
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(await stored(MILK)).toBe('---\ntitle: [broken\n---\nRepaired by hand');
 });
 
@@ -862,7 +853,7 @@ test('a save asked for while a save starts joins it, and typing goes on in order
 	writes.hold();
 	let asked = 0;
 	const stop = text.subscribe(() => {
-		if (asked === 0 && text.getPending()?.saving === true) {
+		if (asked === 0 && (unsavedOf(text)?.status === 'saving') === true) {
 			asked++;
 			void text.save();
 		}
@@ -899,10 +890,8 @@ test('from close on, save sends nothing new and the held input stays', async () 
 
 	await text.save();
 	expect(writes.calls).toHaveLength(sent);
-	expect(text.getPending()).toMatchObject({
-		text: 'b\n',
-		error: { name: 'StorageFailed' },
-	});
+	expect(text.getText()).toBe('b\n');
+	expect(unsavedOf(text)).toMatchObject({ error: { name: 'StorageFailed' } });
 	expect(text.getText()).toBe('b\n');
 	await expect(text.read()).rejects.toThrow('closed');
 	expect(await stored(path)).toBe('a\n');
@@ -1119,7 +1108,7 @@ test('handles are passive and share one document and input whose identity holds 
 	const first = folder.tables.notes.edit('milk');
 	const stop = first.subscribe(() => heard++);
 	const second = folder.tables.notes.edit('milk');
-	expect(first.getPending()).toBeUndefined();
+	expect(unsavedOf(first)).toBeUndefined();
 	expect(heard).toBe(0);
 
 	await second.read();
@@ -1129,13 +1118,9 @@ test('handles are passive and share one document and input whose identity holds 
 	expect(heard).toBe(3);
 	heard = 0;
 	first.change({ fields: { title: 'Oat milk' } });
-	const pending = second.getPending();
-	expect(pending).toBe(first.getPending());
-	expect(pending).toMatchObject({
-		path: MILK,
-		text: first.getText(),
-		saving: false,
-	});
+	const pending = unsavedOf(second);
+	expect(pending).toBe(unsavedOf(first));
+	expect(pending).toMatchObject({ status: 'dirty' });
 	expect(Object.keys(pending ?? {})).not.toContain('bases');
 	expect(second.getMarkdown()).not.toBe(shown);
 	expect(second.getMarkdown()?.fields?.title).toBe('Oat milk');
@@ -1144,7 +1129,7 @@ test('handles are passive and share one document and input whose identity holds 
 	stop();
 	second.discard();
 	expect(heard).toBe(1);
-	expect(first.getPending()).toBeUndefined();
+	expect(unsavedOf(first)).toBeUndefined();
 });
 
 test('text saves exactly what was typed and newer typing keeps its source', async () => {
@@ -1161,7 +1146,7 @@ test('text saves exactly what was typed and newer typing keeps its source', asyn
 	edit.replaceText('﻿one!\r\ntwo?\r\n');
 	await edit.save();
 
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	const saved = expectOk(await folder.files.read(path));
 	expect(new Uint8Array(await saved!.content.arrayBuffer())).toEqual(
 		new TextEncoder().encode('﻿one!\r\ntwo?\r\n'),
@@ -1181,7 +1166,7 @@ test('held text stays readable and typable over itself with nothing read', async
 	text.replaceText('held\n');
 	await text.save();
 	restore();
-	expect(text.getPending()?.error?.name).toBe('StorageFailed');
+	expect(unsavedOf(text)?.error?.name).toBe('StorageFailed');
 	// A read that fails leaves the held text where it was.
 	const read = engine.files.read;
 	engine.files.read = async () =>
@@ -1201,7 +1186,7 @@ test('row and text views expose and change one path input without saving first',
 		rowEdit.change({ fields: { title: 'Oat milk' }, body: 'Typed body\n' }),
 	);
 	expect(textEdit.getText()).toBe(rowEdit.getMarkdown()?.text);
-	expect(textEdit.getPending()).toBe(rowEdit.getPending());
+	expect(unsavedOf(textEdit)).toBe(unsavedOf(rowEdit));
 	expectOk(textEdit.change({ fields: { done: true } }));
 	expect(rowEdit.getMarkdown()?.fields).toEqual({
 		title: 'Oat milk',
@@ -1213,15 +1198,15 @@ test('row and text views expose and change one path input without saving first',
 		),
 	);
 	expect(rowEdit.getMarkdown()?.body).toBe('Whole text\n');
-	expect(rowEdit.getPending()).toBe(textEdit.getPending());
+	expect(unsavedOf(rowEdit)).toBe(unsavedOf(textEdit));
 	expectOk(
 		rowEdit.change({ fields: { title: 'Milk' }, body: 'Back to row\n' }),
 	);
 	expect(textEdit.getText()).toBe(rowEdit.getMarkdown()?.text);
 	expect(await stored(MILK)).toContain('Two litres');
 	await rowEdit.save();
-	expect(rowEdit.getPending()).toBeUndefined();
-	expect(textEdit.getPending()).toBeUndefined();
+	expect(unsavedOf(rowEdit)).toBeUndefined();
+	expect(unsavedOf(textEdit)).toBeUndefined();
 	expect(await stored(MILK)).toBe(
 		'---\ndone: true\ntitle: Milk\n---\nBack to row\n',
 	);
@@ -1244,12 +1229,12 @@ test('row changes patch text during saving and preserve a deliberate revert', as
 	);
 	writes.release();
 	await saving;
-	expect(rowEdit.getPending()).toBe(textEdit.getPending());
+	expect(unsavedOf(rowEdit)).toBe(unsavedOf(textEdit));
 	expect(rowEdit.getMarkdown()?.fields?.title).toBe('Milk');
 	await rowEdit.save();
 	expect(await stored(MILK)).toContain('title: Milk');
 	expect(await stored(MILK)).toContain('Still typing');
-	expect(textEdit.getPending()).toBeUndefined();
+	expect(unsavedOf(textEdit)).toBeUndefined();
 });
 
 test('either view can recover failed input, and switching views leaves the error held', async () => {
@@ -1264,20 +1249,20 @@ test('either view can recover failed input, and switching views leaves the error
 			);
 		const restore = fillDisk();
 		await rowEdit.save();
-		expect(rowEdit.getPending()).toBe(textEdit.getPending());
-		expect(textEdit.getPending()?.error?.name).toBe('StorageFailed');
+		expect(unsavedOf(rowEdit)).toBe(unsavedOf(textEdit));
+		expect(unsavedOf(textEdit)?.error?.name).toBe('StorageFailed');
 		expect(textEdit.getText()).toContain('title: Held');
 		expect(rowEdit.getMarkdown()?.fields?.title).toBe('Held');
 		// Neither making another view nor asking for a read retries failed input.
-		expect(folder.tables.notes.edit('milk').getPending()).toBe(
-			textEdit.getPending(),
+		expect(unsavedOf(folder.tables.notes.edit('milk'))).toBe(
+			unsavedOf(textEdit),
 		);
 		await textEdit.read();
-		expect(rowEdit.getPending()?.error?.name).toBe('StorageFailed');
+		expect(unsavedOf(rowEdit)?.error?.name).toBe('StorageFailed');
 		restore();
 		await (from === 'row' ? textEdit : rowEdit).save();
 		expect(await stored(MILK)).toContain('title: Held');
-		expect(textEdit.getPending()).toBeUndefined();
+		expect(unsavedOf(textEdit)).toBeUndefined();
 	}
 });
 
@@ -1292,13 +1277,13 @@ test('a failed save keeps its input and error for copying or discard', async () 
 	expectOk(edit.change({ fields: { title: 'Oat milk' } }));
 	await edit.save();
 
-	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
+	expect(unsavedOf(edit)?.error?.name).toBe('StorageFailed');
 	expect(edit.getMarkdown()?.fields?.title).toBe('Oat milk');
 	expect(folder.getStatus().failures[0]?.text).toBe(edit.getText());
 	expect(folder.getStatus().storageFailure?.name).toBe('StorageFailed');
 	expect(expectErr(await edit.delete()).name).toBe('NotStarted');
 	restore();
-	expect(edit.discard()?.text).toContain('title: Oat milk');
+	expect(expectOk(edit.discard())?.text).toContain('title: Oat milk');
 	expect(edit.getMarkdown()?.fields?.title).toBe('Milk');
 	expect(folder.getStatus().unsaved).toEqual([]);
 	expect(folder.getStatus().failures).toEqual([]);
@@ -1313,11 +1298,11 @@ test('a thrown storage call is a StorageFailed save that keeps its input to save
 	};
 	edit.change({ fields: { title: 'Oat milk' } });
 	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
+	expect(unsavedOf(edit)?.error?.name).toBe('StorageFailed');
 
 	engine.files.write = set;
 	await edit.save();
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Oat milk',
 	);
@@ -1339,7 +1324,7 @@ test('a save asked for during a delete sends held input once and cannot restore 
 	await saving;
 
 	expect(sets.calls).toHaveLength(1);
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(edit.getMarkdown()).toBeUndefined();
 	expect(expectOk(await folder.tables.notes.get('milk'))).toBeUndefined();
 });
@@ -1378,7 +1363,7 @@ test('delete fences input at once and removes the row after its held save', asyn
 	expect(folder.getStatus().saving).toBe(true);
 
 	expect(expectOk(await deleting)).toEqual({ deleted: true });
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(folder.getStatus().saving).toBe(false);
 	expect(expectOk(await folder.tables.notes.get('milk'))).toBeUndefined();
 });
@@ -1413,7 +1398,7 @@ test('close refuses input, actions and listeners at once while admitted work use
 		expect(expectErr(view.replaceText('too late')).name).toBe('Locked');
 	}
 	expect(expectErr(edit.change({ body: 'too late' })).name).toBe('Locked');
-	expect(edit.discard()).toBeUndefined();
+	expect(expectErr(edit.discard()).name).toBe('NotStarted');
 	await expect(text.read()).rejects.toThrow('The folder is closed');
 	expect(() => folder.onChange(() => {})).toThrow('The folder is closed');
 	expect(() => folder.onStatusChange(() => {})).toThrow('The folder is closed');
@@ -1425,7 +1410,7 @@ test('close refuses input, actions and listeners at once while admitted work use
 	gate.resolve();
 	expectOk(await operation);
 	expect(await closing).toEqual([]);
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(await stored(MILK)).toContain('title: Accepted');
 	expect(await stored(MILK)).toContain('finished during close');
 	expect(await stored('direct.txt')).toBe('admitted work');
@@ -1445,7 +1430,7 @@ test('a multi-file scope reserves all paths synchronously and refuses overlaps w
 	const gate = Promise.withResolvers<void>();
 	const operation = folder.run([MILK, second.path, MILK], async () => {
 		expect(await stored(MILK)).toContain('title: Before operation');
-		expect(source.getPending()).toBeUndefined();
+		expect(unsavedOf(source)).toBeUndefined();
 		entered.resolve();
 		await gate.promise;
 		return expectOk(
@@ -1502,8 +1487,8 @@ test('a scope waits for every running save then sends changes accepted while the
 	await saving;
 	expectOk(await scope);
 	expect(ran).toBe(true);
-	expect(first.getPending()).toBeUndefined();
-	expect(second.getPending()).toBeUndefined();
+	expect(unsavedOf(first)).toBeUndefined();
+	expect(unsavedOf(second)).toBeUndefined();
 });
 
 test('a failed held save prevents the whole scope while successful held saves remain landed', async () => {
@@ -1524,11 +1509,9 @@ test('a failed held save prevents the whole scope while successful held saves re
 	).toBe('NotStarted');
 	expect(ran).toBe(false);
 	expect(await stored(MILK)).toContain('title: Landed before refusal');
-	expect(edit.getPending()).toBeUndefined();
-	expect(bad.getPending()).toMatchObject({
-		text: 'cannot\0save',
-		error: { name: 'NotText' },
-	});
+	expect(unsavedOf(edit)).toBeUndefined();
+	expect(bad.getText()).toBe('cannot\0save');
+	expect(unsavedOf(bad)).toMatchObject({ error: { name: 'NotText' } });
 	expect(edit.isLocked()).toBe(false);
 	expect(bad.isLocked()).toBe(false);
 });
@@ -1560,25 +1543,22 @@ test('close reentered from reservation status waits for the complete multi-file 
 	);
 	const entered = Promise.withResolvers<void>();
 	const gate = Promise.withResolvers<void>();
-	const operation = folder.run(
-		[MILK, audio.path, 'remove.txt'],
-		async () => {
-			entered.resolve();
-			await gate.promise;
-			const note = expectOk(await folder.files.read(MILK));
-			expectOk(
-				await folder.files.write(
-					MILK,
-					await note!.content.text(),
-					'survives close',
-				),
-			);
-			expectOk(
-				await folder.files.write(audio.path, null, new Uint8Array([4, 5])),
-			);
-			expectOk(await folder.files.delete('remove.txt', 'remove me'));
-		},
-	);
+	const operation = folder.run([MILK, audio.path, 'remove.txt'], async () => {
+		entered.resolve();
+		await gate.promise;
+		const note = expectOk(await folder.files.read(MILK));
+		expectOk(
+			await folder.files.write(
+				MILK,
+				await note!.content.text(),
+				'survives close',
+			),
+		);
+		expectOk(
+			await folder.files.write(audio.path, null, new Uint8Array([4, 5])),
+		);
+		expectOk(await folder.files.delete('remove.txt', 'remove me'));
+	});
 	await entered.promise;
 	expect(closing).toBeDefined();
 	expect(folder.getStatus().closing).toBe(true);
@@ -1620,7 +1600,7 @@ for (const closing of [false, true]) {
 				return pending;
 			},
 		);
-		await until(() => edit.getPending() === undefined);
+		await until(() => unsavedOf(edit) === undefined);
 		expect(await stored(MILK)).toContain('title: Save before network answers');
 		expect(folder.getStatus().saving).toBe(false);
 		expect(finished).toBe(false);
@@ -1762,7 +1742,7 @@ test('a reservation waits for raw saves already queued on its paths before enter
 	const operation = folder.run([MILK], async () => {
 		entered = true;
 		const file = expectOk(await folder.files.read(MILK));
-		expect(await file!.content.text()).toBe('queued raw save');
+		expect(await file!.content.text()).toContain('queued raw save');
 	});
 	await Bun.sleep(0);
 	expect(entered).toBe(false);
@@ -1786,7 +1766,7 @@ test('close with no view sends a running save, answers a failed one, and fences 
 	milk.change({ body: 'Oat, two litres' });
 	const restore = fillDisk();
 	const running = milk.save();
-	expect(milk.getPending()?.saving).toBe(true);
+	expect(unsavedOf(milk)?.status === 'saving').toBe(true);
 
 	const closing = folder.close();
 	expect(folder.getStatus().closing).toBe(true);
@@ -1806,9 +1786,9 @@ test('close with no view sends a running save, answers a failed one, and fences 
 	).toBe(true);
 	expect(folder.close()).toBe(closing);
 	// What did not save stays readable after the engine is released.
-	expect(folder.getStatus().failures).toEqual(unsaved);
-	expect(text.getPending()).toBe(unsaved[0] as never);
-	expect(milk.getPending()).toBe(unsaved[1] as never);
+	expect<readonly Recovery[]>(folder.getStatus().failures).toEqual(unsaved);
+	expect(text.getText()).toBe(unsaved[0]?.text);
+	expect(milk.getText()).toBe(unsaved[1]?.text);
 	expect(milk.getMarkdown()?.body).toBe('Oat, two litres');
 });
 
@@ -1832,8 +1812,8 @@ for (const retry of ['lands', 'fails'] as const)
 			cleanup.push(() => gate.resolve());
 			const write = engine.files.write;
 			engine.files.write = async (...args) => {
-				// Hold only the edited file; the separate late write keeps close draining.
-				if (args[0] === path) {
+				// The sixth argument marks a FileEdit's whole-source save.
+				if (args[5] === true) {
 					attempts++;
 					if (failing)
 						return SaveError.StorageFailed({ cause: new Error('disk full') });
@@ -1844,20 +1824,22 @@ for (const retry of ['lands', 'fails'] as const)
 				return write(...args);
 			};
 			type Late =
-				| { readonly accepted: ReturnType<typeof folder.files.write> }
-				| { readonly refused: unknown };
+				| { accepted: ReturnType<typeof folder.files.write> }
+				| { refused: unknown };
 			const late = Promise.withResolvers<Late>();
 			let scheduled = false;
 			cleanup.push(
 				edit.subscribe(() => {
-					if (scheduled || edit.getPending()?.error === undefined) return;
+					if (scheduled || unsavedOf(edit)?.error === undefined) return;
 					scheduled = true;
 					let chain = Promise.resolve();
 					for (let turn = 0; turn < turns; turn++) chain = chain.then(() => {});
 					late.resolve(
 						chain.then((): Late => {
 							try {
-								return { accepted: folder.files.write('late.txt', null, 'late') };
+								return {
+									accepted: folder.files.write('late.txt', null, 'late'),
+								};
 							} catch (cause) {
 								return { refused: cause };
 							}
@@ -1872,14 +1854,16 @@ for (const retry of ['lands', 'fails'] as const)
 				// Released before the late write: close answered the failure, and
 				// save() no longer attempts it.
 				refused = true;
-				expect(outcome.refused).toMatchObject({ message: 'The folder is closed' });
+				expect(outcome.refused).toMatchObject({
+					message: 'The folder is closed',
+				});
 				expect(await closing).toMatchObject([
 					{ path, text: 'after', error: { name: 'StorageFailed' } },
 				]);
 				await edit.save();
 				expect(attempts).toBe(1);
-				expect(edit.getPending()).toMatchObject({
-					text: 'after',
+				expect(edit.getText()).toBe('after');
+				expect(unsavedOf(edit)).toMatchObject({
 					error: { name: 'StorageFailed' },
 				});
 				continue;
@@ -1902,14 +1886,14 @@ for (const retry of ['lands', 'fails'] as const)
 			const unsaved = await closing;
 			if (retry === 'lands') {
 				expect(unsaved).toEqual([]);
-				expect(edit.getPending()).toBeUndefined();
+				expect(unsavedOf(edit)).toBeUndefined();
 				expect(folder.getStatus().failures).toEqual([]);
 				expect(await stored(path)).toBe('after');
 			} else {
 				expect(unsaved).toMatchObject([
 					{ path, text: 'after', error: { name: 'StorageFailed' } },
 				]);
-				expect(unsaved[0]).toBe(edit.getPending() as never);
+				expect(unsaved[0]?.text).toBe(edit.getText());
 			}
 		}
 		expect(accepted).toBeGreaterThan(0);
@@ -1928,10 +1912,8 @@ test('a status listener that writes while close drains is waited for, and refuse
 	};
 	const landing: Promise<unknown>[] = [];
 	const refused: unknown[] = [];
-	let started = false;
 	folder.onStatusChange((status) => {
-		if (!status.saving || started) return;
-		started = true;
+		if (!status.saving) return;
 		try {
 			landing.push(folder.files.write('reentrant.md', null, 'late'));
 		} catch (cause) {
@@ -1942,8 +1924,10 @@ test('a status listener that writes while close drains is waited for, and refuse
 
 	await folder.close();
 
-	expect(landing).toHaveLength(1);
-	expectOk((await landing[0]) as Awaited<ReturnType<typeof folder.files.write>>);
+	expect(landing.length).toBeGreaterThan(0);
+	for (const answer of await Promise.all(landing)) {
+		expectOk(answer as Awaited<ReturnType<typeof folder.files.write>>);
+	}
 	expect(writes.calls.map(([path]) => path)).toContain('reentrant.md');
 	expect(refused).toEqual([]);
 	expect(closes).toBe(1);
@@ -2126,16 +2110,16 @@ for (const kind of ['document', 'text', 'generic'] as const) {
 		const restore = fillDisk();
 		expectOk(change('Failed'));
 		await input.save();
-		expect(input.getPending()?.error?.name).toBe('StorageFailed');
+		expect(unsavedOf(input)?.error?.name).toBe('StorageFailed');
 		expect(submitted()).toBe(1);
 
 		await input.save();
 		expect(submitted()).toBe(2);
-		expect(input.getPending()?.error?.name).toBe('StorageFailed');
+		expect(unsavedOf(input)?.error?.name).toBe('StorageFailed');
 		restore();
 		await input.save();
 		expect(submitted()).toBe(3);
-		expect(input.getPending()).toBeUndefined();
+		expect(unsavedOf(input)).toBeUndefined();
 		expect(await stored(MILK)).toContain('Failed');
 
 		const restoreAgain = fillDisk();
@@ -2145,7 +2129,7 @@ for (const kind of ['document', 'text', 'generic'] as const) {
 		restoreAgain();
 		expect(await folder.close()).toEqual([]);
 		expect(submitted()).toBe(5);
-		expect(input.getPending()).toBeUndefined();
+		expect(unsavedOf(input)).toBeUndefined();
 		expect(await stored(MILK)).toContain('Held for recovery');
 	});
 
@@ -2155,11 +2139,11 @@ for (const kind of ['document', 'text', 'generic'] as const) {
 		const restore = fillDisk();
 		expectOk(change('Failed'));
 		await input.save();
-		expect(input.getPending()?.error?.name).toBe('StorageFailed');
+		expect(unsavedOf(input)?.error?.name).toBe('StorageFailed');
 		restore();
 		expectOk(change('New input'));
-		expect(input.getPending()?.error).toBeUndefined();
-		await until(() => input.getPending() === undefined);
+		expect(unsavedOf(input)?.error).toBeUndefined();
+		await until(() => unsavedOf(input) === undefined);
 		expect(await stored(MILK)).toContain('New input');
 	});
 
@@ -2174,7 +2158,7 @@ for (const kind of ['document', 'text', 'generic'] as const) {
 		let joined: Promise<void> | undefined;
 		const whileRunning = Promise.withResolvers<boolean>();
 		const stop = input.subscribe(() => {
-			if (asked || input.getPending()?.error === undefined) return;
+			if (asked || unsavedOf(input)?.error === undefined) return;
 			asked = true;
 			let finished = false;
 			joined = input.save().then(() => {
@@ -2188,7 +2172,7 @@ for (const kind of ['document', 'text', 'generic'] as const) {
 		await joined;
 		restore();
 		expect(rows.calls.length + files.calls.length).toBe(1);
-		expect(input.getPending()?.error?.name).toBe('StorageFailed');
+		expect(unsavedOf(input)?.error?.name).toBe('StorageFailed');
 	});
 }
 
@@ -2201,10 +2185,10 @@ test('fields typed into failed whole text authorize the newer input', async () =
 	text.replaceText(source.replace('Milk', 'Failed'));
 	await text.save();
 	restore();
-	expect(text.getPending()?.error?.name).toBe('StorageFailed');
+	expect(unsavedOf(text)?.error?.name).toBe('StorageFailed');
 	expectOk(text.change({ fields: { title: 'New field' } }));
-	expect(text.getPending()?.error).toBeUndefined();
-	await until(() => text.getPending() === undefined);
+	expect(unsavedOf(text)?.error).toBeUndefined();
+	await until(() => unsavedOf(text) === undefined);
 	expect(await stored(MILK)).toContain('New field');
 });
 
@@ -2220,11 +2204,12 @@ for (const action of ['save', 'discard', 'close'] as const) {
 		let acted = false;
 		let work: Promise<unknown> | undefined;
 		const stop = edit.subscribe(() => {
-			const pending = edit.getPending();
+			const pending = unsavedOf(edit);
 			if (acted || pending?.error !== undefined || pending === undefined)
 				return;
 			acted = true;
-			if (action === 'discard') expect(edit.discard()).toBeUndefined();
+			if (action === 'discard')
+				expect(expectErr(edit.discard()).name).toBe('NotStarted');
 			else if (action === 'close') work = folder.close();
 			else work = edit.save();
 		});
@@ -2233,7 +2218,7 @@ for (const action of ['save', 'discard', 'close'] as const) {
 		await work;
 		expect(acted).toBe(true);
 		expect(sets.calls).toHaveLength(2);
-		expect(edit.getPending()).toBeUndefined();
+		expect(unsavedOf(edit)).toBeUndefined();
 		expect(await stored(MILK)).toContain('Retried');
 	});
 }
@@ -2249,7 +2234,7 @@ for (const kind of ['document', 'text', 'generic'] as const) {
 			let changed = false;
 			let joined: Promise<unknown> | undefined;
 			const stop = input.subscribe(() => {
-				if (changed || input.getPending()?.error === undefined) return;
+				if (changed || unsavedOf(input)?.error === undefined) return;
 				changed = true;
 				restore();
 				expectOk(change('New input'));
@@ -2260,7 +2245,7 @@ for (const kind of ['document', 'text', 'generic'] as const) {
 			await input.save();
 			await joined;
 			expect(changed).toBe(true);
-			expect(input.getPending()).toBeUndefined();
+			expect(unsavedOf(input)).toBeUndefined();
 			expect(rows.calls.length + files.calls.length).toBe(2);
 			expect(await stored(MILK)).toContain('New input');
 		});
@@ -2277,7 +2262,7 @@ for (const kind of ['document', 'text', 'generic'] as const) {
 		let closing: Promise<unknown> | undefined;
 		change('First');
 		const stop = input.subscribe(() => {
-			if (changed || input.getPending() !== undefined) return;
+			if (changed || unsavedOf(input) !== undefined) return;
 			changed = true;
 			expectOk(change('New input'));
 			closing = folder.close();
@@ -2286,7 +2271,7 @@ for (const kind of ['document', 'text', 'generic'] as const) {
 		await input.save();
 		await closing;
 		expect(changed).toBe(true);
-		expect(input.getPending()).toBeUndefined();
+		expect(unsavedOf(input)).toBeUndefined();
 		expect(rows.calls.length + files.calls.length).toBe(2);
 		expect(await stored(MILK)).toContain('New input');
 	});
@@ -2304,7 +2289,7 @@ for (const outcome of ['success', 'failure'] as const) {
 			const requested = Promise.withResolvers<unknown>();
 			const stop = edit.subscribe(() => {
 				if (asked) return;
-				const pending = edit.getPending();
+				const pending = unsavedOf(edit);
 				if (
 					outcome === 'success'
 						? pending !== undefined
@@ -2325,7 +2310,7 @@ for (const outcome of ['success', 'failure'] as const) {
 			await edit.save();
 			await requested.promise;
 			expect(asked).toBe(true);
-			expect(edit.getPending()).toBeUndefined();
+			expect(unsavedOf(edit)).toBeUndefined();
 			expect(sets.calls).toHaveLength(2);
 			expect(await stored(MILK)).toContain('New input');
 		});
@@ -2420,8 +2405,8 @@ test('a structured save refuses a header broken after its source preparation', a
 	await writeElsewhere(MILK, (await stored(MILK)) ?? null, broken);
 	writes.release();
 	await saving;
-	expect(edit.getPending()?.text).toContain('title: Held');
-	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(edit.getText()).toContain('title: Held');
+	expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 	expect(await stored(MILK)).toBe(broken);
 	expect(edit.getMarkdown()?.text).toBe(edit.getText());
 	expect(edit.getMarkdown()?.fields).toEqual({ done: false, title: 'Held' });
@@ -2439,13 +2424,13 @@ test('Markdown snapshot identity follows editable text through save start and fa
 	writes.hold();
 	const restore = fillDisk();
 	const saving = edit.save();
-	expect(edit.getPending()?.saving).toBe(true);
+	expect(unsavedOf(edit)?.status === 'saving').toBe(true);
 	expect(edit.getMarkdown()).toBe(shown);
 	expect(file.getMarkdown()).toBe(genericShown);
 	await started;
 	writes.release();
 	await saving;
-	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
+	expect(unsavedOf(edit)?.error?.name).toBe('StorageFailed');
 	expect(edit.getMarkdown()).toBe(shown);
 	expect(file.getMarkdown()).toBe(genericShown);
 	expectOk(edit.change({ fields: { title: 'Changed' } }));

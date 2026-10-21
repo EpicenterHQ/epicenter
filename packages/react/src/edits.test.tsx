@@ -19,11 +19,12 @@
  *   its timer stay with the folder
  * - The text binding shows held text over the stored file, BOM kept
  */
+import { unsavedOf } from './buffer.test-support.js';
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import type { FolderTable } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
-import type { FileEdit, Pending } from '@epicenter/folder/edits';
+import type { FileEdit } from '@epicenter/folder/edits';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Window } from 'happy-dom';
 import { act, type ReactNode } from 'react';
@@ -153,9 +154,14 @@ function recorded(table: Notes) {
 function Title({ table, id }: { table: Notes; id: string }) {
 	const note = useFileEdit(table.edit(id));
 	const row = note.getMarkdown();
-	const { known, error } = note.getReadStatus();
+	const buffer = note.getBuffer();
+	const { status, error } = buffer;
+	if (status === 'unavailable')
+		return (
+			<p>{error.name === 'SourceUnavailable' ? 'Missing' : error.message}</p>
+		);
 	if (error !== undefined) return <p>{error.message}</p>;
-	if (known === 'nothing') return <p>Loading</p>;
+	if (status === 'unread' || status === 'loading') return <p>Loading</p>;
 	if (row === undefined) return <p>Missing</p>;
 	return (
 		<input
@@ -185,6 +191,36 @@ test('a view reads its row when it mounts with nothing known, and tells loading 
 	expect(notesTable.reads.bread).toBeUndefined();
 });
 
+test('mounting a buffer after an early input refusal still requests its first read', async () => {
+	const { folder } = await setup();
+	const notesTable = recorded(folder.tables.notes);
+	const edit = notesTable.table.edit('milk');
+	expectErr(edit.replaceText('too early'));
+	expect(edit.getBuffer().status).toBe('unread');
+	const view = await mount(<Title table={notesTable.table} id="milk" />);
+	await until(() => view.container.querySelector('input') !== null);
+	expect(view.input().value).toBe('Milk');
+	expect(edit.getBuffer().error).toBeUndefined();
+	expect(notesTable.reads).toEqual({ milk: 1 });
+});
+
+test('mounting during an explicit first read starts no second read', async () => {
+	const { folder } = await setup();
+	const notesTable = recorded(folder.tables.notes);
+	const edit = notesTable.table.edit('milk');
+	let reading!: ReturnType<typeof edit.read>;
+	act(() => {
+		reading = edit.read();
+	});
+	const view = await mount(<Title table={notesTable.table} id="milk" />);
+	await act(async () => {
+		expectOk(await reading);
+	});
+	await until(() => view.container.querySelector('input') !== null);
+	expect(view.input().value).toBe('Milk');
+	expect(notesTable.reads).toEqual({ milk: 1 });
+});
+
 test('a failed first read waits for an explicit read: renders after it read nothing', async () => {
 	const { folder } = await setup();
 	const notesTable = recorded(folder.tables.notes);
@@ -209,14 +245,16 @@ test('a failed first read waits for an explicit read: renders after it read noth
 	expect(notesTable.reads).toEqual({ milk: 1 });
 });
 
-test('a view that shows only held input or the fence reads nothing', async () => {
+test('a view that shows only aggregate save status and the fence reads nothing', async () => {
 	const { folder } = await setup();
 	const notesTable = recorded(folder.tables.notes);
 	function Status() {
 		const note = useFileEdit(notesTable.table.edit('milk'));
 		return (
 			<p>
-				{note.getPending() === undefined && !note.isLocked() ? 'Saved' : 'Held'}
+				{!folder.getStatus().unsaved.includes(note.path) && !note.isLocked()
+					? 'Saved'
+					: 'Held'}
 			</p>
 		);
 	}
@@ -224,9 +262,7 @@ test('a view that shows only held input or the fence reads nothing', async () =>
 	await act(async () => Bun.sleep(5));
 	expect(view.container.textContent).toBe('Saved');
 	expect(notesTable.reads).toEqual({});
-	expect(folder.tables.notes.edit('milk').getReadStatus().known).toBe(
-		'nothing',
-	);
+	expect(folder.tables.notes.edit('milk').getBuffer().status).toBe('unread');
 });
 
 test('an own save shows without a reread and a clean view reads outside changes before typing', async () => {
@@ -236,7 +272,7 @@ test('an own save shows without a reread and a clean view reads outside changes 
 	await until(() => view.container.querySelector('input') !== null);
 	await act(async () => type(view.input(), 'Mine'));
 	await act(async () => folder.tables.notes.edit('milk').save());
-	expect(folder.tables.notes.edit('milk').getPending()).toBeUndefined();
+	expect(unsavedOf(folder.tables.notes.edit('milk'))).toBeUndefined();
 	expect(view.input().value).toBe('Mine');
 	expect(notesTable.reads.milk).toBe(1);
 
@@ -346,22 +382,22 @@ test('closing the folder re-renders a view whose held input keeps the same pendi
 	const edit = folder.tables.notes.edit('milk');
 	const view = await mount(<Title table={folder.tables.notes} id="milk" />);
 	await act(async () => type(view.input(), 'Oat milk'));
-	const pending: Pending | undefined = edit.getPending();
-	expect(pending).toBeDefined();
+	expect(unsavedOf(edit)).toBeDefined();
 	expect(view.input().disabled).toBe(false);
 
 	let closing!: Promise<unknown>;
 	act(() => {
 		closing = folder.close();
 	});
-	expect(edit.getPending()?.text).toBe(pending?.text);
-	expect(edit.getPending()?.saving).toBe(true);
+	expect(unsavedOf(edit)).toBeDefined();
+	expect(edit.getText()).toContain('title: Oat milk');
+	expect(unsavedOf(edit)?.status).toBe('saving');
 	expect(view.input().disabled).toBe(true);
 
 	await act(async () => {
 		await closing;
 	});
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect((await read('milk')).fields?.title).toBe('Oat milk');
 });
 
@@ -380,8 +416,10 @@ test('a reused view follows its path, and the row it left keeps its input', asyn
 
 	expect(notesTable.live.milk).toBe(0);
 	expect(notesTable.live.bread).toBeGreaterThan(0);
-	expect(folder.tables.notes.edit('milk').getPending()?.text).toContain('title: Oat milk');
-	expect(folder.tables.notes.edit('bread').getPending()?.text).toContain('title: Rye');
+	expect(folder.tables.notes.edit('milk').getText()).toContain(
+		'title: Oat milk',
+	);
+	expect(folder.tables.notes.edit('bread').getText()).toContain('title: Rye');
 });
 
 test('unmounting every view keeps the input and its timer with the folder', async () => {
@@ -392,9 +430,11 @@ test('unmounting every view keeps the input and its timer with the folder', asyn
 	await act(async () => type(view.input(), 'Oat milk'));
 	await act(async () => view.root.unmount());
 	expect(notesTable.live.milk).toBe(0);
-	expect(folder.tables.notes.edit('milk').getPending()?.text).toContain('title: Oat milk');
+	expect(folder.tables.notes.edit('milk').getText()).toContain(
+		'title: Oat milk',
+	);
 
-	while (folder.tables.notes.edit('milk').getPending() !== undefined)
+	while (unsavedOf(folder.tables.notes.edit('milk')) !== undefined)
 		await Bun.sleep(5);
 	expect((await read('milk')).fields?.title).toBe('Oat milk');
 });

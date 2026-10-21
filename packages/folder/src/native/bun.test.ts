@@ -21,6 +21,7 @@
  * - Status reports saving and the last storage failure until a later success
  * - Close lets started saves finish, then stops listening; new calls throw
  */
+
 import { Database } from 'bun:sqlite';
 import { afterEach, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -42,6 +43,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { unsavedOf } from '../edit-buffer.test-support.js';
 import type { FolderChange, FolderStatus } from '../folder.js';
 import { openBunFolder } from './bun.js';
 import { createNativeFolder } from './engine.js';
@@ -790,7 +792,7 @@ test('a stale native put keeps the source draft and reports a conflict', async (
 		await edit.save();
 		expect(stale).toBe(1);
 		expect(attempts).toBe(1);
-		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 		expect(await text(root, 'a.md')).toBe(
 			original.replace('before', 'outside').replace('two', 'TWO'),
 		);
@@ -824,8 +826,8 @@ test('a native generic body edit keeps input when the current header becomes unc
 		await edit.save();
 		expect(attempts).toBe(1);
 		expect(await text(root, 'a.md')).toBe(external);
-		expect(edit.getPending()?.text).toBe('---\ntitle: before\n---\nmine\n');
-		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(edit.getText()).toBe('---\ntitle: before\n---\nmine\n');
+		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 	} finally {
 		await folder.close();
 	}
@@ -859,9 +861,11 @@ test('a native guarded retry preserves a draft after a no-op field assignment', 
 		expectOk(edit.change({ fields: { title: 'A' } }));
 		await edit.save();
 		expect(attempts).toBe(1);
-		expect(await text(root, 'a.md')).toBe(original.replace('title: A', 'title: B'));
-		expect(edit.getPending()?.text).toBe(`${original}added\n`);
-		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(await text(root, 'a.md')).toBe(
+			original.replace('title: A', 'title: B'),
+		);
+		expect(edit.getText()).toBe(`${original}added\n`);
+		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 	} finally {
 		await folder.close();
 	}

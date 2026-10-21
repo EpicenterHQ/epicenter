@@ -6,7 +6,6 @@
 -->
 <script lang="ts">
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { textRead } from '$lib/file-reads.js';
 	import { getFolder } from '$lib/folder.js';
 
@@ -62,15 +61,20 @@
 		const shown = fileEdit.markdown;
 		return shown?.issues === null ? shown : undefined;
 	});
+	// Save metadata stays passive until this view actually demands text.
+	const buffer = $derived(
+		(!audio && !asText) || opened.data?.kind === 'text' || whispering.isSaving(path) || whispering.isUnsaved(path)
+			? fileEdit.buffer : undefined,
+	);
+	const unsaved = $derived(buffer?.status === 'ready' ? buffer.unsaved : undefined);
 	/** The file's text as typed while an edit is unsaved, else as stored. */
 	const text = $derived(
-		fileEdit.pending !== undefined || opened.data?.kind === 'text' ? fileEdit.text : undefined,
+		buffer?.status === 'ready' && (buffer.unsaved !== undefined || opened.data?.kind === 'text') ? buffer.text : undefined,
 	);
 	/** Why the current source does not read as a row, including unsaved input. */
 	const issues = $derived(
 		table === undefined || text === undefined ? undefined : (fileEdit.markdown?.issues ?? undefined),
 	);
-	const pending = $derived(fileEdit.pending);
 
 	function show(source: boolean) {
 		const problem = source ? whispering.editSource(path) : whispering.useForm(path);
@@ -117,17 +121,21 @@
 		</Button>
 	</div>
 
-	{#if pending !== undefined && (fileEdit.readStatus.known === 'missing' || fileEdit.readStatus.known === 'not-text') && (asText ? text !== undefined : transcript !== undefined)}
+	{#if buffer?.error && buffer?.error.name !== 'SourceUnavailable'}
+		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{buffer?.error.message}</p>
+	{/if}
+
+	{#if unsaved !== undefined && buffer?.error?.name === 'SourceUnavailable' && (asText ? text !== undefined : transcript !== undefined)}
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file changed. Your draft remains available.</p>
-			<Textarea readonly aria-label="Unsaved file changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
+			<Textarea readonly aria-label="Unsaved file changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
 		</div>
 	{/if}
-	{#if (asText ? text === undefined : transcript === undefined) && pending !== undefined}
+	{#if (asText ? text === undefined : transcript === undefined) && unsaved !== undefined}
 		<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
-			<Textarea readonly aria-label="Unsaved file changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
+			<Textarea readonly aria-label="Unsaved file changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
 		</div>
 	{:else if audio}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4" data-testid="audio-file-view">

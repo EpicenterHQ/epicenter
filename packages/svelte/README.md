@@ -337,7 +337,8 @@ path list admits the lifetime without reporting saving by itself. The callback
 uses `folder.files` and `folder.tables`; await what it needs to finish before
 it returns, since close waits for the callback and the writes it started, not
 for a continuation left running. Do not await `folder.close()` or
-`folder.settle()` inside the callback, since they wait for accepted work. Context `close()` answers copyable failures,
+`folder.settle()` inside the callback, since they wait for accepted work. `discard()` returns a `Recovery` containing path, exact text and its unsaved
+lifecycle on success. Context `close()` answers copyable failures,
 which `<FolderApp>` offers after unmount as the exact unsaved source
 (`unsavedText`).
 

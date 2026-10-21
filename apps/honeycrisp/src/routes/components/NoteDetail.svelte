@@ -41,7 +41,7 @@
 		...notes.queries.rows('folders'),
 		select: foldersOf,
 	}));
-	const status = $derived(fileEdit.readStatus);
+	const buffer = $derived(fileEdit.buffer);
 	/** The note as the rich-text view reads and edits it, when it reads as one. */
 	// svelte-ignore state_referenced_locally
 	const coreEdit = notes.folder.tables.notes.edit(noteIdOf(path) ?? '');
@@ -73,7 +73,7 @@
 		<div class="flex items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => row.fields.title, (typed) => refusal(fileEdit.change({ fields: { title: typed.toWellFormed() } }).error?.message)}
+				bind:value={() => row.fields.title, (typed) => fileEdit.change({ fields: { title: typed.toWellFormed() } })}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Title"
@@ -127,7 +127,7 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => noteBody(row) ?? '', (typed) => refusal(fileEdit.change({ body: typed.toWellFormed() }).error?.message)}
+						bind:value={() => noteBody(row) ?? '', (typed) => fileEdit.change({ body: typed.toWellFormed() })}
 						disabled={locked}
 						aria-label="Markdown source"
 						spellcheck={false}
@@ -153,15 +153,15 @@
 				<Button variant="outline" size="sm" onclick={() => notes.open(path, 'text')}>Repair as text</Button>
 			{/if}
 		</Empty.Root>
-	{:else if status.known === 'missing'}
+	{:else if buffer.error?.name === 'SourceUnavailable' && buffer.error.reason === 'missing'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>This note is no longer in the folder</Empty.Title>
 			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 		</Empty.Root>
-	{:else if status.error}
+	{:else if buffer.error}
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read the note</Empty.Title>
-			<Empty.Description>{status.error.message}</Empty.Description>
+			<Empty.Description>{buffer.error.message}</Empty.Description>
 			<Button variant="outline" size="sm" onclick={() => void fileEdit.read()}>Try again</Button>
 		</Empty.Root>
 	{:else}

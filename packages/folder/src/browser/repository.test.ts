@@ -4,6 +4,7 @@
  * reopen, structural replacement, invalid writes and unseen deletion exercise
  * the production local engine without a filesystem or network substitute.
  */
+import { unsavedOf } from '../edit-buffer.test-support.js';
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -506,9 +507,11 @@ test('a stale publication leaves an equal-value field command in a pinned source
 		};
 		await edit.save();
 		expect(attempts).toBeGreaterThanOrEqual(1);
-		expect(edit.getPending()?.text).toBe('---\ntitle: before\n---\nONE\ntwo\n');
-		expect(edit.getPending()?.error?.name).toBe('Conflict');
-		expect(await text(a, path)).toBe(original.replace('before', 'outside').replace('two', 'TWO'));
+		expect(edit.getText()).toBe('---\ntitle: before\n---\nONE\ntwo\n');
+		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
+		expect(await text(a, path)).toBe(
+			original.replace('before', 'outside').replace('two', 'TWO'),
+		);
 	} finally {
 		await folder.close();
 		b.close();
@@ -542,12 +545,12 @@ test('a generic body edit retains exact source when a concurrent header loses it
 		await edit.save();
 		expect(attempts).toBe(1);
 		expect(await text(a, path)).toBe(external);
-		expect(edit.getPending()?.text).toBe('---\ntitle: before\n---\nmine\n');
-		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(edit.getText()).toBe('---\ntitle: before\n---\nmine\n');
+		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 		expectOk(await b.files.write(path, external, original));
 		expectOk(await edit.read());
 		await edit.save();
-		expect(edit.getPending()).toBeUndefined();
+		expect(unsavedOf(edit)).toBeUndefined();
 		expect(await text(a, path)).toBe('---\ntitle: before\n---\nmine\n');
 	} finally {
 		await folder.close();
@@ -590,7 +593,7 @@ test('a body edit pins exact YAML presentation across a stale publication', asyn
 		);
 		expect(stored).toBe(original.replace('one', 'ONE'));
 		expect(edit.getText()).toBe(`${header}one\r\ntwo\r\nTHREE\r\n`);
-		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 	} finally {
 		await folder.close();
 		b.close();
@@ -630,8 +633,8 @@ test('a no-op field assignment after source input does not mask a guarded confli
 		await edit.save();
 		expect(attempts).toBeGreaterThanOrEqual(1);
 		expect(await text(a, path)).toBe(original.replace('title: A', 'title: B'));
-		expect(edit.getPending()?.text).toBe(`${original}added\n`);
-		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(edit.getText()).toBe(`${original}added\n`);
+		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 	} finally {
 		await folder.close();
 		b.close();

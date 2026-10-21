@@ -51,10 +51,7 @@ export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['
 		refusal = undefined;
 		if (body === over.body) return true;
 		const changed = fileEdit.change({ body });
-		if (changed.error !== null) {
-			refusal = changed.error.message;
-			return false;
-		}
+		if (changed.error !== null) return false;
 		if (!later) void fileEdit.save();
 		return true;
 	}

@@ -22,7 +22,9 @@
 	const fileEdit = createFileEdit(folder.tables.drafts.edit(draftId));
 	let message = $state('');
 	// This draft's own input, so another file's failure is never shown as this one's.
-	const failed = $derived(fileEdit.pending?.error !== undefined && !fileEdit.pending.saving);
+	const buffer = $derived(fileEdit.buffer);
+	const unsaved = $derived(buffer.status === 'ready' ? buffer.unsaved : undefined);
+	const failed = $derived(unsaved?.status === 'failed' || unsaved?.status === 'conflict');
 	const send = createMutation(() => ({
 		mutationFn: async () => {
 			const result = await sendDraft(folder, draftId, chatId, backend);
@@ -56,10 +58,13 @@
 			<label for="reply" class="sr-only">Message</label>
 			<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} disabled={send.isPending || fileEdit.locked} value={fileEdit.markdown.body} oninput={(event) => { fileEdit.change({ body: event.currentTarget.value, fields: { state: 'draft', pendingId: '' } }); message = ''; }} />
 			<div class="flex items-center justify-between gap-3">
-				<span class="text-xs text-muted-foreground">{failed ? 'Draft could not be saved' : fileEdit.pending !== undefined ? 'Saving draft…' : 'Draft saved on this device'}</span>
+				<span class="text-xs text-muted-foreground">{failed ? 'Draft could not be saved' : unsaved !== undefined ? 'Saving draft…' : 'Draft saved on this device'}</span>
 				<Button disabled={send.isPending || fileEdit.locked || !fileEdit.markdown.body.trim()} onclick={() => send.mutate()}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 			</div>
 		{/if}
+	{/if}
+	{#if buffer.error}
+		<p role="alert" class="text-sm text-destructive">{buffer.error.message}</p>
 	{/if}
 	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
 	{#if failed}

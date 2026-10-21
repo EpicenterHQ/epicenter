@@ -16,6 +16,7 @@
  * - A browser tab registers nothing; closing the context stops listening
  * - `<FolderApp>` guards the window it opened its folder in
  */
+import { unsavedOf } from './buffer.test-support.js';
 import 'fake-indexeddb/auto';
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -100,13 +101,13 @@ test('a saved folder closes without a prompt', async () => {
 test('an accepted edit prompts and Cancel keeps its input', async () => {
 	const { context, milk } = await guarded();
 	await typeTitle(context, 'Oat milk');
-	expect(milk.getPending()).toBeDefined();
+	expect(unsavedOf(milk)).toBeDefined();
 
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeDialog.count).toBe(1);
-	expect(milk.getPending()).toBeDefined();
+	expect(unsavedOf(milk)).toBeDefined();
 });
 
 test('Confirm destroys without waiting for the accepted edit to save', async () => {
@@ -118,7 +119,7 @@ test('Confirm destroys without waiting for the accepted edit to save', async () 
 
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(nativeDialog.count).toBe(1);
-	expect(milk.getPending()).toBeDefined();
+	expect(unsavedOf(milk)).toBeDefined();
 });
 
 test('an app action before its first Folder write does not prompt', async () => {
@@ -144,7 +145,8 @@ test('whole text waiting to save prompts and Cancel retains it', async () => {
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
 	expect(nativeDialog.count).toBe(1);
-	expect(text.getPending()).toMatchObject({ text: 'unsaved source' });
+	expect(unsavedOf(text)).toBeDefined();
+	expect(text.getText()).toBe('unsaved source');
 });
 
 test('two close requests at once destroy the window once', async () => {
@@ -221,7 +223,7 @@ test('input is inert while destruction is pending and restored if it fails', asy
 	expect(document.documentElement.inert).toBe(false);
 	expect(nativeWindow.listeners).toBe(1);
 	await typeTitle(context, 'Still editable');
-	expect(context.folder.tables.notes.edit('milk').getPending()).toBeDefined();
+	expect(unsavedOf(context.folder.tables.notes.edit('milk'))).toBeDefined();
 });
 
 test('a browser tab registers nothing, and closing the context stops listening', async () => {

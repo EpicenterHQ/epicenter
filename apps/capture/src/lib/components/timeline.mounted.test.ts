@@ -23,6 +23,7 @@
 // IndexedDB on it rather than on the global the folder reads.
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { unsavedOf, isMissing } from '../local-folder.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -41,7 +42,10 @@ const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 setWide(true);
 
 /** The textarea or input with this id, or `null`. */
-const fileField = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]');
+const fileField = () =>
+	document.querySelector<HTMLTextAreaElement>(
+		'textarea[aria-label^="Contents of"]',
+	);
 
 const field = (id: string) =>
 	document.getElementById(id) as HTMLTextAreaElement | null;
@@ -174,7 +178,9 @@ test('a failed Add keeps the text and says why; Add again writes it once', async
 	click(document, 'Add capture');
 	await until(() => {
 		flushSync();
-		return document.body.textContent?.includes('The capture was not added') ?? false;
+		return (
+			document.body.textContent?.includes('The capture was not added') ?? false
+		);
 	}, 'the Add failure');
 	expect(document.body.textContent).toContain('Your text is still here.');
 	expect(field('new-capture')?.value).toBe('Kept through a full disk');
@@ -244,7 +250,9 @@ test('a draft an earlier version saved is listed apart, autosaves, and Add captu
 	await t.quiet();
 	expect(t.captures.opened?.stem).toBe('draft');
 	expect(t.cached('draft')?.fields?.draft).toBeUndefined();
-	expect(await t.text(DRAFT)).toContain('\nWritten in the draft\n\n## Thoughts\n');
+	expect(await t.text(DRAFT)).toContain(
+		'\nWritten in the draft\n\n## Thoughts\n',
+	);
 	expect(document.activeElement).toBe(field('new-thought'));
 });
 
@@ -266,7 +274,11 @@ test('a failed promotion keeps the raw draft visible and retry adds it once', as
 	await t.quiet();
 	const restore = t.failSaves();
 	click(document, 'Add capture');
-	await until(() => document.body.textContent?.includes('The capture was not added') ?? false, 'the Add failure');
+	await until(
+		() =>
+			document.body.textContent?.includes('The capture was not added') ?? false,
+		'the Add failure',
+	);
 	expect(fileField()?.value).toBe(draftFile('My original writing'));
 	restore();
 	click(document, 'Add capture');
@@ -279,7 +291,11 @@ test('a failed draft autosave exposes retry and keeps its writing', async () => 
 	const { t, box } = await openDraft();
 	const restore = t.failSaves();
 	type(box, draftFile('```ts\nstill writing'));
-	await until(() => document.body.textContent?.includes('Your edit is not saved') ?? false, 'the autosave failure');
+	await until(
+		() =>
+			document.body.textContent?.includes('Your edit is not saved') ?? false,
+		'the autosave failure',
+	);
 	expect(fileField()?.value).toBe(draftFile('```ts\nstill writing'));
 	restore();
 	click(document, 'Save again');
@@ -305,26 +321,46 @@ test('stale draft events after Add cannot replace the completed capture', async 
 
 test('another tab finishing a draft keeps the full-file editor and shows the completed source', async () => {
 	const { t, box, edit } = await openDraft('Final writing');
-	const completed = '---\ncapturedAt: 2026-10-21T10:00:00Z\n---\n\nFinal writing\n\n## Thoughts\n';
+	const completed =
+		'---\ncapturedAt: 2026-10-21T10:00:00Z\n---\n\nFinal writing\n\n## Thoughts\n';
 	await t.writeElsewhere(DRAFT, completed);
 	expectOk(await edit.read());
-	await until(() => { flushSync(); return box.value === completed; }, 'the completed file');
+	await until(() => {
+		flushSync();
+		return box.value === completed;
+	}, 'the completed file');
 	expect(box.isConnected).toBe(true);
 	expect(document.body.textContent).not.toContain('Add capture');
 	type(box, completed.replace('Final writing', 'Edited after finishing'));
 	await t.quiet();
-	expect(await t.text(DRAFT)).toBe(completed.replace('Final writing', 'Edited after finishing'));
+	expect(await t.text(DRAFT)).toBe(
+		completed.replace('Final writing', 'Edited after finishing'),
+	);
 });
 
 test('repairing draft frontmatter opens its raw writing despite an ambiguous Thoughts body', async () => {
 	const raw = '## Thoughts\n\n- original\n\n```';
-	const t = await setup({ 'captures/broken.md': `---\ncapturedAt: nope\ndraft: true\n---\n${raw}` });
+	const t = await setup({
+		'captures/broken.md': `---\ncapturedAt: nope\ndraft: true\n---\n${raw}`,
+	});
 	click(document, 'Edit as text');
-	await until(() => document.querySelector('textarea[aria-label^="Contents of"]') !== null, 'the repair editor');
-	type(document.querySelector('textarea[aria-label^="Contents of"]'), `---\ncapturedAt: 2026-10-01T10:30:00Z\ndraft: true\n---\n${raw}`);
+	await until(
+		() =>
+			document.querySelector('textarea[aria-label^="Contents of"]') !== null,
+		'the repair editor',
+	);
+	type(
+		document.querySelector('textarea[aria-label^="Contents of"]'),
+		`---\ncapturedAt: 2026-10-01T10:30:00Z\ndraft: true\n---\n${raw}`,
+	);
 	flushSync();
-	await until(() => { flushSync(); return !button(document, 'Add capture').disabled; }, 'the repaired draft');
-	expect(fileField()?.value).toBe(`---\ncapturedAt: 2026-10-01T10:30:00Z\ndraft: true\n---\n${raw}`);
+	await until(() => {
+		flushSync();
+		return !button(document, 'Add capture').disabled;
+	}, 'the repaired draft');
+	expect(fileField()?.value).toBe(
+		`---\ncapturedAt: 2026-10-01T10:30:00Z\ndraft: true\n---\n${raw}`,
+	);
 	expect(document.body.textContent).not.toContain('Needs repair');
 	await t.quiet();
 });
@@ -333,7 +369,10 @@ test('a NUL paste is retained as full-file input with a visible save refusal', a
 	const { t, box, edit } = await openDraft('Before');
 	const pasted = draftFile('Pasted\u0000after');
 	type(box, pasted);
-	await until(() => { flushSync(); return Boolean(edit.getPending()?.error); }, 'the save refusal');
+	await until(() => {
+		flushSync();
+		return Boolean(unsavedOf(edit)?.error);
+	}, 'the save refusal');
 	expect(fileField()?.value).toBe(pasted);
 	expect(document.body.textContent).toContain('Your edit is not saved');
 	expect(await t.text(DRAFT)).toBe(draftFile('Before'));
@@ -347,14 +386,25 @@ test('copying held draft input after another tab deletes its file preserves lead
 	const raw = '\n\nRaw writing\n';
 	const restore = t.failSaves();
 	type(box, draftFile(raw));
-	await until(() => document.body.textContent?.includes('Your edit is not saved') ?? false, 'the autosave failure');
+	await until(
+		() =>
+			document.body.textContent?.includes('Your edit is not saved') ?? false,
+		'the autosave failure',
+	);
 	restore();
 	await t.deleteElsewhere('draft');
-	await until(() => edit.getReadStatus().known === 'missing', 'the deleted-file recovery');
+	await until(() => isMissing(edit), 'the deleted-file recovery');
 	flushSync();
 	let copied: string | undefined;
 	const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
-	Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied = text; } } });
+	Object.defineProperty(navigator, 'clipboard', {
+		configurable: true,
+		value: {
+			writeText: async (text: string) => {
+				copied = text;
+			},
+		},
+	});
 	try {
 		click(document, 'Copy your text');
 		await until(() => copied !== undefined, 'the copied text');
@@ -365,19 +415,28 @@ test('copying held draft input after another tab deletes its file preserves lead
 	}
 });
 
-
 test('Finish saves pending whole-file edits before composing, keeping unknown frontmatter and exact raw CRLF', async () => {
 	const original = draftFile('Before').replace(/\n/g, '\r\n');
 	const t = await setup({ [DRAFT]: original });
-	document.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')?.click();
-	await until(() => { flushSync(); return fileField() !== null; }, 'the full-file draft editor');
+	document
+		.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')
+		?.click();
+	await until(() => {
+		flushSync();
+		return fileField() !== null;
+	}, 'the full-file draft editor');
 	const box = fileField();
-	const typed = original.replace('draft: true', 'draft: true\r\nunknown: kept').replace('Before', 'New\r\nbody');
+	const typed = original
+		.replace('draft: true', 'draft: true\r\nunknown: kept')
+		.replace('Before', 'New\r\nbody');
 	type(box, typed);
 	const edit = t.folder.tables.captures.edit('draft');
 	expect(edit.getText()).toBe(typed);
 	click(document, 'Add capture');
-	await until(() => { flushSync(); return field('new-thought') !== null; }, 'the finished capture');
+	await until(() => {
+		flushSync();
+		return field('new-thought') !== null;
+	}, 'the finished capture');
 	await t.quiet();
 	const row = expectOk(await t.folder.tables.captures.get('draft'));
 	expect(row?.body).toBe('\nNew\r\nbody\n\n## Thoughts\n');
@@ -390,7 +449,9 @@ test('input stays blocked after Finish writes until its refresh completes', asyn
 	const { t, box } = await openDraft('Final writing');
 	const refresh = t.context.refresh;
 	let release!: () => void;
-	const waiting = new Promise<void>((resolve) => { release = resolve; });
+	const waiting = new Promise<void>((resolve) => {
+		release = resolve;
+	});
 	let refreshing = false;
 	t.context.refresh = async (paths) => {
 		await refresh(paths);
@@ -399,15 +460,21 @@ test('input stays blocked after Finish writes until its refresh completes', asyn
 	};
 	try {
 		click(document, 'Add capture');
-		await until(() => { flushSync(); return refreshing; }, 'Finish to write and refresh');
+		await until(() => {
+			flushSync();
+			return refreshing;
+		}, 'Finish to write and refresh');
 		expect(box.readOnly).toBe(true);
 		type(box, draftFile('Stale input during refresh'));
 		const finished = await t.text(DRAFT);
 		expect(finished).toContain('Final writing');
 		expect(finished).not.toContain('draft:');
-		expect(t.folder.tables.captures.edit('draft').getPending()).toBeUndefined();
+		expect(unsavedOf(t.folder.tables.captures.edit('draft'))).toBeUndefined();
 		release();
-		await until(() => { flushSync(); return field('new-thought') !== null; }, 'the finished view');
+		await until(() => {
+			flushSync();
+			return field('new-thought') !== null;
+		}, 'the finished view');
 		expect(await t.text(DRAFT)).toBe(finished);
 	} finally {
 		release();
@@ -424,7 +491,10 @@ test('a failed draft save reopens from the failure list in the full-file editor'
 	await edit.save();
 	flushSync();
 	click(document, 'Open');
-	await until(() => { flushSync(); return fileField() !== null; }, 'the failed draft');
+	await until(() => {
+		flushSync();
+		return fileField() !== null;
+	}, 'the failed draft');
 	expect(t.captures.opened).toEqual({ stem: 'draft', mode: 'text' });
 	expect(fileField()?.value).toBe(draftFile('Held here'));
 	expect(document.body.textContent).toContain('Add capture');
@@ -434,20 +504,37 @@ test('a failed draft save reopens from the failure list in the full-file editor'
 });
 
 test('a capture that becomes a draft offers an explicit text editor that stays mounted during frontmatter repair', async () => {
-	const t = await setup({ [DRAFT]: draftFile('Before').replace('draft: true\n', '') });
+	const t = await setup({
+		[DRAFT]: draftFile('Before').replace('draft: true\n', ''),
+	});
 	t.captures.open('draft', 'capture');
-	await until(() => { flushSync(); return field('new-thought') !== null; }, 'the capture');
+	await until(() => {
+		flushSync();
+		return field('new-thought') !== null;
+	}, 'the capture');
 	type(field('new-thought'), 'Not added yet');
 	const oldCaptureText = field('capture-text');
 	await t.writeElsewhere(DRAFT, draftFile('Before'));
 	expectOk(await t.folder.tables.captures.edit('draft').read());
 	type(oldCaptureText, 'Stale structured input');
-	expect(t.folder.tables.captures.edit('draft').getMarkdown()?.body).toBe('Before');
-	await until(() => { flushSync(); return document.body.textContent?.includes('This file is a draft') ?? false; }, 'the draft notice');
-	expect(document.querySelector<HTMLTextAreaElement>('[aria-label="Thought not added"]')?.value).toBe('Not added yet');
+	expect(t.folder.tables.captures.edit('draft').getMarkdown()?.body).toBe(
+		'Before',
+	);
+	await until(() => {
+		flushSync();
+		return document.body.textContent?.includes('This file is a draft') ?? false;
+	}, 'the draft notice');
+	expect(
+		document.querySelector<HTMLTextAreaElement>(
+			'[aria-label="Thought not added"]',
+		)?.value,
+	).toBe('Not added yet');
 	expect(fileField()).toBeNull();
 	click(document, 'Edit as text');
-	await until(() => { flushSync(); return fileField() !== null; }, 'the text editor');
+	await until(() => {
+		flushSync();
+		return fileField() !== null;
+	}, 'the text editor');
 	const box = fileField();
 	type(box, draftFile('Before').replace('draft: true', 'draft: tru'));
 	flushSync();

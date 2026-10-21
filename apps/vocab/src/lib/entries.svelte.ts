@@ -21,7 +21,7 @@
  */
 
 import type { ReadError, SaveError } from '@epicenter/folder';
-import { ActionError, type Pending } from '@epicenter/folder/edits';
+import { ActionError, type Recovery } from '@epicenter/folder/edits';
 import { createFileEdit } from '@epicenter/svelte/edits';
 import {
 	defineErrors,
@@ -235,7 +235,7 @@ export function createEntries(local: VocabContext) {
 		},
 
 		/** The words whose last save failed, with what was typed; read reactively. */
-		get failures(): Pending[] {
+		get failures(): Recovery[] {
 			return local.getStatus().failures.filter(
 				(pending) => /^entries\/[^/]+\.md$/.test(pending.path),
 			);

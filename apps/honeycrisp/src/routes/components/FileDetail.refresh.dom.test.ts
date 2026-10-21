@@ -6,6 +6,9 @@
  */
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+const { unsavedOf, isMissing } = await import(
+	'../../lib/local.test-support.js'
+);
 import { afterEach, expect, test } from 'bun:test';
 import { ReadError } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
@@ -99,7 +102,7 @@ test('saved words stay shown when the reread fails, and typing on keeps them', a
 	await notes.folder.files.edit('draft.txt').save();
 	await local.refresh(['draft.txt']);
 	flushSync();
-	expect(folder.files.edit('draft.txt').getPending()).toBeUndefined();
+	expect(unsavedOf(folder.files.edit('draft.txt'))).toBeUndefined();
 	expect(await text('draft.txt')).toBe('Committed words');
 	expect(input()?.value).toBe('Committed words');
 	expect(input()?.readOnly).toBe(false);
@@ -136,7 +139,9 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	await local.refresh(['draft.txt']);
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
-	expect(notes.folder.files.edit('draft.txt').getPending()?.text).toBe('Keep this unsaved text');
+	expect(notes.folder.files.edit('draft.txt').getText()).toBe(
+		'Keep this unsaved text',
+	);
 });
 
 test('failed row changes remain available after deletion until explicit replacement restores them', async () => {
@@ -161,16 +166,19 @@ test('failed row changes remain available after deletion until explicit replacem
 	await local.refresh([path]);
 	await until(() => {
 		flushSync();
-		return folder.files.edit(path).getReadStatus().known === 'missing';
+		return isMissing(folder.files.edit(path));
 	}, 'the missing note');
 	expect(inputForRecovery(target)).toContain('Keep my row changes');
 	expect(target.textContent).toContain('Save again');
 	expect(target.textContent).toContain('Discard changes');
 	click(target, 'Save again');
-	await until(() => folder.files.edit(path).getPending()?.error?.name === 'Conflict', 'the deletion conflict');
+	await until(
+		() => unsavedOf(folder.files.edit(path))?.error?.name === 'Conflict',
+		'the deletion conflict',
+	);
 	click(target, 'Replace saved file');
 	await until(
-		() => folder.files.edit(path).getPending() === undefined,
+		() => unsavedOf(folder.files.edit(path)) === undefined,
 		'the explicit retry',
 	);
 	expect(await text(path)).toContain('Keep my row changes');
@@ -203,12 +211,17 @@ test('a pinned field draft remains copyable beside broken stored source and can 
 		),
 	).toHaveLength(1);
 	click(target, 'Save again');
-	await until(() => folder.files.edit(path).getPending()?.error?.name === 'Conflict', 'the broken header conflict');
-	expect(target.querySelector('[aria-label="Saved source"]')?.textContent).toBe(broken);
+	await until(
+		() => unsavedOf(folder.files.edit(path))?.error?.name === 'Conflict',
+		'the broken header conflict',
+	);
+	expect(target.querySelector('[aria-label="Saved source"]')?.textContent).toBe(
+		broken,
+	);
 	expect(inputForRecovery(target)).toContain('Keep this title');
 	click(target, 'Replace saved file');
 	await until(
-		() => folder.files.edit(path).getPending() === undefined,
+		() => unsavedOf(folder.files.edit(path)) === undefined,
 		'the explicit source replacement',
 	);
 	expect(await text(path)).toContain('Keep this title');

@@ -6,6 +6,7 @@
  * older rows until a read after it arrives. Closing stops polling even while
  * a consumer remains subscribed.
  */
+import { unsavedOf } from './buffer.test-support.js';
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -80,12 +81,12 @@ test('visible polling discovers outside edits and preserves a pending row draft'
 		initial.replace('two', 'Outside edit'),
 	);
 	await until(() => cached().body?.includes('Outside edit') === true);
-	expect(edit.getPending()).toBeDefined();
+	expect(unsavedOf(edit)).toBeDefined();
 	// The poll updates storage knowledge without replacing the dirty draft.
 	expect(edit.getMarkdown()?.fields?.title).toBe('Typed here');
 	expect(edit.getMarkdown()?.body).toBe('one\n\ntwo\n');
 	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
 	expect(edit.getMarkdown()?.fields?.title).toBe('Typed here');
 	await edit.resolveConflict('draft');
 	await until(() => cached().fields?.title === 'Typed here');
@@ -201,7 +202,7 @@ test('a save lands without waiting for a slow scan, whose older rows never repla
 	const before = cached();
 	expectOk(edit.change({ fields: { title: 'Saved while reading' } }));
 	await edit.save();
-	expect(edit.getPending()).toBeUndefined();
+	expect(unsavedOf(edit)).toBeUndefined();
 	expect(folder.getStatus().saving).toBe(false);
 	expect(before.fields?.title).toBe('Milk');
 	expect(edit.getMarkdown()?.fields?.title).toBe('Saved while reading');
