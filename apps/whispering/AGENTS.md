@@ -61,8 +61,8 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   recordings. Do not add Yjs, the
   `@epicenter/app` store, or accounts to this workflow.
 - **Recording audio is a supported same-stem sibling of its Markdown file.**
-  New captures store no path. Refuse ambiguous matches; preserve existing
-  explicit audio links without moving files. Deleting a row keeps its audio.
+  Store no audio path in recording metadata. Refuse ambiguous matches. Do not
+  add alternate path readers or migrations. Deleting a row keeps its audio.
 - **A saved status follows publication.** The header says a save landed only
   after the folder confirms it. A failed save keeps the person's typing and
   shows the failure beside it.
