@@ -56,7 +56,7 @@
 	let refusal = $state<string>();
 
 	function finish() {
-		if (locked || !draft || !fileEdit.markdown?.body.trim()) return;
+		if (locked || !draft || !fileEdit.markdown?.body?.trim()) return;
 		finishDraft.mutate();
 	}
 	/** The thought's lines to select as the text appears, when opened to edit one. */
@@ -101,7 +101,7 @@
 		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{path}</h1>
 		{#if text !== undefined}
 			{#if draft}
-				<Button size="sm" disabled={locked || !fileEdit.markdown?.body.trim()} onclick={finish}>
+				<Button size="sm" disabled={locked || !fileEdit.markdown?.body?.trim()} onclick={finish}>
 					{finishDraft.isPending ? 'Adding…' : 'Add capture'}
 				</Button>
 			{:else}

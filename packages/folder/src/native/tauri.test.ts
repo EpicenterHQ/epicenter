@@ -151,7 +151,7 @@ test('the pause a window folder is opened with saves its held input, through eit
 		for (let turn = 0; turn < 100 && folder.getStatus().unsaved.length > 0; turn++)
 			await new Promise((resolve) => setTimeout(resolve, 5));
 		expect(folder.getStatus().unsaved).toEqual([]);
-		expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
+		expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.title).toBe(
 			'Oat',
 		);
 		expect(await folder.close()).toEqual([]);

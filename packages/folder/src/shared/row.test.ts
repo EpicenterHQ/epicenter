@@ -79,21 +79,31 @@ test('ambiguous TypeBox raw paths never point to an invented field location', ()
 	]);
 });
 
-test('unparseable frontmatter exposes its whole source as body', () => {
+test('closed malformed frontmatter keeps its exact source and known body', () => {
 	const text = '---\ntitle: [broken\n---\nBody';
 	const row = readRow('bad', text, schema);
-	expect(row.fields).toEqual({});
-	expect(row.body).toBe(text);
+	expect(row.fields).toBeUndefined();
+	expect(row.body).toBe('Body');
 	expect(row.text).toBe(text);
 	expect(row.issues?.[0]).toMatchObject({ kind: 'frontmatter', line: 3 });
 });
 
-test('invalid UTF-8, NUL, and lone surrogates never become replacement-character source', () => {
+test('unclosed frontmatter has no fields or body boundary', () => {
+	const text = '---\ntitle: [broken\nStill in header';
+	const row = readRow('bad', text, schema);
+	expect(row.text).toBe(text);
+	expect(row.fields).toBeUndefined();
+	expect(row.body).toBeUndefined();
+	expect(row.issues?.[0]?.kind).toBe('frontmatter');
+	expectErr(rowChange(row, { body: 'replacement' }));
+});
+
+test('invalid bytes are unavailable while NUL and surrogate text stays exact', () => {
 	for (const content of [new Uint8Array([0xff]), 'a\0b', '\ud800']) {
 		const row = readRow('bad', content, schema);
-		expect(row.text).toBe('');
-		expect(row.body).toBe('');
-		expect(row.fields).toEqual({});
+		expect(row.text).toBe(typeof content === 'string' ? content : '');
+		expect(row.body).toBeUndefined();
+		expect(row.fields).toBeUndefined();
 		expect(row.issues?.[0]?.kind).toBe('not-text');
 		expect(expectErr(rowChange(row, { body: 'replacement' })).reason).toContain(
 			'not text',
@@ -112,7 +122,8 @@ test('an unchanged fields patch keeps comments, BOM, quoting and line endings', 
 });
 
 test('editing a field retains unrelated comments, source fields, and body', () => {
-	const source = '---\ntitle: Seed # title note\ndone: false\nextra: keep\n# source note\n---\nBody';
+	const source =
+		'---\ntitle: Seed # title note\ndone: false\nextra: keep\n# source note\n---\nBody';
 	const row = readRow('note', source, schema);
 	const changed = expectOk(rowChange(row, { fields: { title: 'After' } })).text;
 	expect(changed).toContain('title: After # title note');
@@ -184,13 +195,13 @@ test('adding a body after a closing fence at EOF inserts its missing line break'
 	expect(readRow('note', text, schema).issues).toBeNull();
 });
 
-test('field writes on unparseable source refuse while body replaces unframed source', () => {
+test('strict rows refuse fields and body when no boundary is known', () => {
 	const row = readRow('note', 'No frontmatter', schema);
 	expect(
 		expectErr(rowChange(row, { fields: { title: 'Hello' } })).reason,
 	).toContain('does not start');
-	expect(expectOk(rowChange(row, { body: 'New source' })).text).toBe(
-		'New source',
+	expect(expectErr(rowChange(row, { body: 'New source' })).reason).toContain(
+		'does not start',
 	);
 });
 

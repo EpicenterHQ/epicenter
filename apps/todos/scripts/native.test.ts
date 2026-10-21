@@ -30,7 +30,7 @@ test('native Todos keeps existing source fields and survives process reopen with
 			await openFolder({ directory, tables: todosTables }),
 		);
 		try {
-			expect(expectOk(await opened.tables.todos.get('milk'))?.fields.done).toBe(
+			expect(expectOk(await opened.tables.todos.get('milk'))?.fields?.done).toBe(
 				true,
 			);
 		} finally {

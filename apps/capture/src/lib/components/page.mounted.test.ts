@@ -171,7 +171,7 @@ test('text not added yet never holds reload or writes; Add and later edits persi
 	cleanup.push(() => folder.close());
 	const listed = async () => expectOk(await folder.tables.captures.list());
 	for (let tries = 0; tries < 200; tries++) {
-		if ((await listed())[0]?.body.includes('edited')) break;
+		if ((await listed())[0]?.body?.includes('edited')) break;
 		await Bun.sleep(5);
 	}
 	const rows = await listed();

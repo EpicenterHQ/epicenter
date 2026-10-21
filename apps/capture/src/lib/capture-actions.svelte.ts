@@ -103,7 +103,7 @@ export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['
 				now === undefined
 					? undefined
 					: captureBody.locate(now.body).data?.thoughts[index];
-			if (span === undefined || row === undefined || !row.text.endsWith(row.body)) {
+			if (span === undefined || row?.body === undefined || !row.text.endsWith(row.body)) {
 				refusal = CHANGED;
 				return undefined;
 			}

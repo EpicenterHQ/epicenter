@@ -8,6 +8,7 @@ import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { readCommit } from '../git/raw-objects.js';
+import { folderHandle } from '../handle.js';
 import { type LocalRepository, openRepository } from './repository.js';
 import { snapshotContent } from './storage.js';
 import { prepareCommit } from './sync.js';
@@ -331,12 +332,12 @@ test('row sent bases preserve another draft, including schema-invalid fields and
 		const phone = expectOk(
 			await table.set('one', first, { fields: { done: true } }),
 		).sent;
-		expect(phone.fields.done).toBe(true);
+		expect(phone.fields?.done).toBe(true);
 		const laptop = expectOk(
 			await table.set('one', first, { fields: { title: 'Laptop' } }),
 		).sent;
 		// sent is the draft, not the merged row; the draft never showed done:true.
-		expect(laptop.fields.done).toBe(false);
+		expect(laptop.fields?.done).toBe(false);
 		expectOk(
 			await table.set('one', laptop, { fields: { title: 'Laptop again' } }),
 		);
@@ -349,7 +350,7 @@ test('row sent bases preserve another draft, including schema-invalid fields and
 		expectOk(await table.set('one', landed, { fields: { title: 12 } }));
 		const raw = expectOk(await table.get('one'))!;
 		expect(raw.issues?.[0]?.kind).toBe('schema');
-		expect(raw.fields.title).toBe(12);
+		expect(raw.fields?.title).toBe(12);
 		expectOk(
 			await repository.files.write(
 				'todos/one.md',
@@ -471,5 +472,122 @@ test('an ignore edit during preparation invalidates the candidate and retries wi
 		);
 	} finally {
 		repository.close();
+	}
+});
+
+test('an equal-base field assignment survives a stale publication attempt', async () => {
+	const id = crypto.randomUUID();
+	const a = await openRepository(id);
+	const b = await openRepository(id);
+	const folder = folderHandle(
+		{ files: a.files, tables: {}, subscribe: a.onChange, close: a.close },
+		{},
+		{ saveAfterMs: 60_000 },
+	);
+	const path = 'a.md';
+	const original = '---\ntitle: before\n---\none\ntwo\n';
+	try {
+		expectOk(await folder.files.write(path, null, original));
+		const edit = folder.files.edit(path);
+		expectOk(await edit.read());
+		expectOk(edit.change({ fields: { title: 'before' }, body: 'ONE\ntwo\n' }));
+		const publish = a.storage.publish;
+		let attempts = 0;
+		a.storage.publish = async (input) => {
+			if (++attempts === 1)
+				expectOk(
+					await b.files.write(
+						path,
+						original,
+						original.replace('before', 'outside').replace('two', 'TWO'),
+					),
+				);
+			return publish(input);
+		};
+		await edit.save();
+		expect(attempts).toBeGreaterThanOrEqual(2);
+		expect(edit.getPending()).toBeUndefined();
+		expect(await text(a, path)).toBe('---\ntitle: before\n---\nONE\nTWO\n');
+	} finally {
+		await folder.close();
+		b.close();
+	}
+});
+
+test('a generic body edit retains input when a concurrent header loses its boundary', async () => {
+	const id = crypto.randomUUID();
+	const a = await openRepository(id);
+	const b = await openRepository(id);
+	const folder = folderHandle(
+		{ files: a.files, tables: {}, subscribe: a.onChange, close: a.close },
+		{},
+		{ saveAfterMs: 60_000 },
+	);
+	const path = 'a.md';
+	const original = '---\ntitle: before\n---\nold\n';
+	const external = '---\ntitle: outside\nnew external text\n';
+	try {
+		expectOk(await folder.files.write(path, null, original));
+		const edit = folder.files.edit(path);
+		expectOk(await edit.read());
+		expectOk(edit.change({ body: 'mine\n' }));
+		const publish = a.storage.publish;
+		let attempts = 0;
+		a.storage.publish = async (input) => {
+			if (++attempts === 1)
+				expectOk(await b.files.write(path, original, external));
+			return publish(input);
+		};
+		await edit.save();
+		expect(attempts).toBe(1);
+		expect(await text(a, path)).toBe(external);
+		expect(edit.getPending()).toMatchObject({
+			kind: 'document',
+			body: 'mine\n',
+		});
+		expect(edit.getPending()?.error?.name).toBe('Unparseable');
+	} finally {
+		await folder.close();
+		b.close();
+	}
+});
+
+test('a field assignment after source input survives a guarded retry', async () => {
+	const id = crypto.randomUUID();
+	const a = await openRepository(id);
+	const b = await openRepository(id);
+	const folder = folderHandle(
+		{ files: a.files, tables: {}, subscribe: a.onChange, close: a.close },
+		{},
+		{ saveAfterMs: 60_000 },
+	);
+	const path = 'a.md';
+	const original = '---\ntitle: A\n---\none\n';
+	try {
+		expectOk(await folder.files.write(path, null, original));
+		const edit = folder.files.edit(path);
+		expectOk(await edit.read());
+		expectOk(edit.replaceText(`${original}added\n`));
+		expectOk(edit.change({ fields: { title: 'A' } }));
+		const publish = a.storage.publish;
+		let attempts = 0;
+		a.storage.publish = async (input) => {
+			if (++attempts === 1)
+				expectOk(
+					await b.files.write(
+						path,
+						original,
+						original.replace('title: A', 'title: B'),
+					),
+				);
+			return publish(input);
+		};
+		await edit.save();
+		expect(attempts).toBeGreaterThanOrEqual(2);
+		expect(await text(a, path)).toBe(`${original}added\n`);
+		expect(edit.getPending()).toBeUndefined();
+	} finally {
+		await folder.close();
+		b.close();
 	}
 });

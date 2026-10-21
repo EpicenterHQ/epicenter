@@ -55,13 +55,10 @@ only:
 ```ts
 type MarkdownContent<TFields = Record<string, unknown>> = {
   text: string;
-  body: string;
 } & (
-  | { fields: TFields; issues: null }
-  | {
-      fields: Readonly<Record<string, unknown>>;
-      issues: readonly Issue[];
-    }
+  | { body: string; fields: TFields; issues: null }
+  | { body: string; fields: Record<string, unknown>; issues: Issue[] }
+  | { body: string | undefined; fields: undefined; issues: Issue[] }
 );
 ```
 
@@ -77,8 +74,11 @@ Whenever `getMarkdown()` returns a snapshot, its `text` equals `getText()` for
 that version. Fields and body reflect that text; fields that cannot be applied
 remain recoverable through `getPending()`, rather than appearing as if they
 already occurred in the source. A syntax error preserves exact text and
-diagnostics; a schema error preserves actual parsed field values. Only
-`issues === null` narrows fields to the bound schema.
+diagnostics and exposes a body only when its closing fence is known; a schema
+error preserves actual parsed field values. Accepted text with NUL or a lone
+surrogate remains exact even though storage refuses it: the snapshot has a
+`not-text` issue and unavailable body and fields. Only `issues === null`
+narrows fields to the bound schema.
 
 Without usable text, both reads answer `undefined`; read status distinguishes
 unread, missing and non-text files. Held whole text remains readable and
@@ -130,6 +130,14 @@ Removing those public distinctions does not prove that submitted versions,
 body merge bases, structured/text handoffs or exclusive-operation guards can
 also be removed.
 
+The table accessor requires frontmatter; a generic file accessor permits
+missing frontmatter. Both require a known body boundary before a structured
+body save. A closed malformed header still has a known body, while an unclosed
+header refuses the save and retains the pending input. The engine checks this
+on every guarded storage attempt, including after a concurrent change.
+Named field assignments survive a handoff from whole-source input and are
+reapplied after merging, even when the assigned value matched the original.
+
 Source-only readers retain a method that overlaps `markdown.text`. That overlap
 avoids parsing and validating Markdown for every source-only read, including
 plain-text and configuration files. Structured readers retain one shared parser
@@ -138,8 +146,6 @@ and stable snapshots rather than rebuilding those in each UI.
 ## Migration questions outside the frozen surface
 
 - How structured operations on non-Markdown paths are refused or scoped.
-- Whether generic and schema-bound accessors retain different diagnostics for
-  missing frontmatter or converge on one parser contract.
 - How a view presents held fields that no longer apply. The document
   must remain truthful, and those values must remain visible and copyable in
   recovery; removing today's field overlay cannot simply hide them.
@@ -147,9 +153,6 @@ and stable snapshots rather than rebuilding those in each UI.
   patch, preserve current recovery guarantees until a replacement is verified.
 - Whole-text takeover must not silently discard structured intent that cannot
   be represented. Retain the existing refusal until its replacement is explicit.
-- Removing original field values requires a real patch operation inside the
-  guarded storage loop. A fresh read followed by ordinary whole-text writing
-  does not preserve explicit assignments across intervening writes.
 
 ## Considered alternatives
 

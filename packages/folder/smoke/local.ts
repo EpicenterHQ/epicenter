@@ -81,7 +81,7 @@ try {
 			}
 			const reopened = await a.evaluate(() => dataSmoke.state());
 			check(
-				reopened.row?.fields.a === 0 &&
+				reopened.row?.fields?.a === 0 &&
 					reopened.state.pendingCommit === null &&
 					reopened.unsent,
 				'Offline save missing after full browser reopen',
@@ -120,7 +120,7 @@ try {
 			check(
 				afterPendingCollection.state.pendingCommit === pending.head &&
 					afterPendingCollection.unsent &&
-					afterPendingCollection.row?.fields.b === 101 &&
+					afterPendingCollection.row?.fields?.b === 101 &&
 					(await a.evaluate(() => dataSmoke.sharedText())) ===
 						'shared snapshot',
 				'Collection lost a pending commit, unsent edit, or shared file',
@@ -131,7 +131,7 @@ try {
 			);
 			const afterAck = await a.evaluate(() => dataSmoke.state());
 			check(
-				afterAck.row?.fields.a === 101 && afterAck.row?.fields.b === 101,
+				afterAck.row?.fields?.a === 101 && afterAck.row?.fields?.b === 101,
 				'Independent final edit missing',
 			);
 			check(afterAck.unsent, 'Acknowledgement cleared newer work');
@@ -226,8 +226,8 @@ try {
 			await reopenedPage.evaluate((id) => dataSmoke.open(id), id);
 			const final = await reopenedPage.evaluate(() => dataSmoke.state());
 			check(
-				final.row?.fields.a === 101 &&
-					final.row?.fields.b === 101 &&
+				final.row?.fields?.a === 101 &&
+					final.row?.fields?.b === 101 &&
 					final.row?.body === 'From tab A\n\nFrom tab B\n' &&
 					!final.unsent &&
 					final.state.remoteBase !== undefined &&
@@ -264,7 +264,7 @@ try {
 			check(
 				afterCollection.state.remoteBase === final.state.remoteBase &&
 					afterCollection.state.pendingCommit === null &&
-					afterCollection.row?.fields.a === 102 &&
+					afterCollection.row?.fields?.a === 102 &&
 					afterCollection.unsent,
 				'Collection lost a concurrent saved edit or changed the committed head',
 			);
@@ -277,7 +277,7 @@ try {
 			);
 			await afterReopen.evaluate((id) => dataSmoke.open(id), id);
 			check(
-				(await afterReopen.evaluate(() => dataSmoke.state())).row?.fields.a ===
+				(await afterReopen.evaluate(() => dataSmoke.state())).row?.fields?.a ===
 					102,
 				'Concurrent saved edit disappeared after collection and browser reopen',
 			);

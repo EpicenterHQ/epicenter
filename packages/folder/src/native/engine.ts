@@ -39,10 +39,12 @@ import {
 	rowAddressProblem,
 	writableExistingPath,
 } from '../paths.js';
+import { frameRowText } from '../shared/content/markdown.js';
+import { readDocument } from '../shared/document.js';
 import { ReadError, SaveError } from '../shared/errors.js';
+import { changeMarkdown } from '../shared/markdown-codec.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
-import { readDocument } from '../shared/document.js';
 
 const encoder = new TextEncoder();
 
@@ -216,14 +218,15 @@ export function createNativeFolder<
 	 * Save `content` at `path`, or remove it for `null`, merged with whatever
 	 * landed since `from`. `deleted` says the path holds no file afterward,
 	 * and `stored` what it holds: the merged content, or what was already
-	 * there for a save that changed nothing. `rowFields` refuses to edit
-	 * fields in a file whose current frontmatter does not parse.
+	 * there for a save that changed nothing. Structured writes check their
+	 * frontmatter policy and body boundary on every storage attempt.
 	 */
 	async function saveFile(
 		path: string,
 		from: FileContent | null,
 		content: FileContent | null,
-		rowFields = false,
+		rowFields?: Record<string, unknown>,
+		frontmatter?: 'required' | 'optional',
 	): Promise<
 		Result<{ deleted: boolean; stored: FileContent | null }, SaveError>
 	> {
@@ -257,22 +260,69 @@ export function createNativeFolder<
 					return SaveError.CaseTwin({ path, existing: twin });
 			}
 			const stored = found?.bytes ?? null;
-			if (rowFields && stored !== null) {
+			if (
+				(rowFields !== undefined || frontmatter !== undefined) &&
+				stored !== null
+			) {
 				const row = readDocument(path, stored);
 				const problem = row.issues?.[0];
 				if (problem?.kind === 'not-text') return SaveError.NotText();
-				if (problem?.kind === 'frontmatter')
+				if (
+					frontmatter === 'required' &&
+					frameRowText(row.text).kind !== 'frontmatter'
+				)
+					return SaveError.Unparseable({
+						reason: 'The source has no closed frontmatter',
+					});
+				if (frontmatter !== undefined && row.body === undefined)
+					return SaveError.Unparseable({
+						reason: 'The source has no known body boundary',
+					});
+				if (rowFields !== undefined && problem?.kind === 'frontmatter')
 					return SaveError.Unparseable({ reason: problem.message });
 			}
 			const merged = await merge(path, { base, current: stored, change });
-			if (sameContent(merged.content, stored))
-				return Ok({ deleted: merged.content === null, stored });
+			let content = merged.content;
+			if (frontmatter !== undefined && content !== null) {
+				const result = readDocument(
+					path,
+					typeof content === 'string'
+						? new TextEncoder().encode(content)
+						: content,
+				);
+				if (result.issues?.[0]?.kind === 'not-text') return SaveError.NotText();
+				if (
+					(frontmatter === 'required' &&
+						frameRowText(result.text).kind !== 'frontmatter') ||
+					result.body === undefined
+				)
+					return SaveError.Unparseable({
+						reason: 'The merged source has no known body boundary',
+					});
+			}
+			if (rowFields !== undefined && content !== null) {
+				const applied = changeMarkdown(
+					readDocument(
+						path,
+						typeof content === 'string'
+							? new TextEncoder().encode(content)
+							: content,
+					),
+					{ fields: rowFields },
+					frontmatter ?? 'optional',
+				);
+				if (applied.error !== null)
+					return SaveError.Unparseable({ reason: applied.error.reason });
+				content = applied.data.text;
+			}
+			if (sameContent(content, stored))
+				return Ok({ deleted: content === null, stored });
 			const bytes =
-				merged.content === null
+				content === null
 					? null
-					: typeof merged.content === 'string'
-						? encoder.encode(merged.content)
-						: merged.content;
+					: typeof content === 'string'
+						? encoder.encode(content)
+						: content;
 			const { data: outcome, error: putError } = await put(
 				path,
 				bytes,
@@ -365,7 +415,8 @@ export function createNativeFolder<
 					rowPath(id),
 					from?.text ?? null,
 					sent.data.text,
-					change.fields !== undefined,
+					change.fields,
+					'required',
 				);
 				if (saved.error !== null) return Err(saved.error);
 				return Ok({
@@ -410,9 +461,9 @@ export function createNativeFolder<
 					return Ok({ path, content: new Blob([new Uint8Array(found.bytes)]) });
 				});
 			},
-			async write(path, from, content, fields) {
+			async write(path, from, content, fields, frontmatter) {
 				if (!structural(path)) return SaveError.InvalidPath({ path });
-				const saved = await saveFile(path, from, content, fields ?? false);
+				const saved = await saveFile(path, from, content, fields, frontmatter);
 				return saved.error !== null
 					? Err(saved.error)
 					: Ok({ stored: saved.data.stored });

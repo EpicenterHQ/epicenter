@@ -36,6 +36,8 @@ test('malformed frontmatter and schema problems retain exact source and reject u
 	const broken = readDocument('a.md', bytes('---\ntitle: [\n---\nbody\n'));
 	expect(broken.text).toBe('---\ntitle: [\n---\nbody\n');
 	expect(broken.issues?.[0]?.kind).toBe('frontmatter');
+	expect(broken.fields).toBeUndefined();
+	expect(broken.body).toBe('body\n');
 	expectErr(documentChange(broken, { fields: { title: 'new' } }));
 	const schema = Type.Object({ title: Type.String() });
 	expect(

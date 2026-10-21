@@ -36,8 +36,9 @@ export type EngineFiles = Omit<FolderFileOperations, 'write'> & {
 		path: string,
 		from: FileContent | null,
 		content: FileContent,
-		/** Refuse malformed current frontmatter inside each guarded write attempt. */
-		fields?: boolean,
+		/** Named assignments reapplied inside each guarded write attempt. */
+		fields?: Record<string, unknown>,
+		frontmatter?: 'required' | 'optional',
 	): Promise<Result<Stored, SaveError>>;
 };
 
@@ -300,12 +301,12 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				// queued behind another of its path keeps a copy taken then.
 				set(id, from, change) {
 					const path = rowPath(id);
-					if (!queued.has(path))
-						return submitted(
-							save(path, () => table.set(id, from, change), written),
-						);
 					const edit = ownChange(change);
 					if (edit.error !== null) return Promise.resolve(edit);
+					if (!queued.has(path))
+						return submitted(
+							save(path, () => table.set(id, from, edit.data), written),
+						);
 					const base = ownRow(from);
 					return submitted(
 						save(path, () => table.set(id, base, edit.data), written),
@@ -328,8 +329,14 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				async () => {
 					const submission = await prepare();
 					if (submission.error !== null) return submission;
-					const { from, text, fields } = submission.data;
-					const written = await engine.files.write(path, from, text, fields);
+					const { from, text, fields, frontmatter } = submission.data;
+					const written = await engine.files.write(
+						path,
+						from,
+						text,
+						fields,
+						frontmatter,
+					);
 					return written.error !== null
 						? written
 						: Ok({

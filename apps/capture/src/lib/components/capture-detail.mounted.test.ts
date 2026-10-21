@@ -159,7 +159,7 @@ test("another tab's change never replaces typing held here, and the save merges 
 	type(field('capture-text'), 'Mine');
 	await harness.writeElsewhere(PATH, `${FILE}- theirs\n`);
 	await until(
-		() => harness.cached('one')?.body.includes('theirs') ?? false,
+		() => harness.cached('one')?.body?.includes('theirs') ?? false,
 		'the other tab’s save',
 	);
 	flushSync();

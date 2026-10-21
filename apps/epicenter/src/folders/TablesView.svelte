@@ -56,7 +56,7 @@
 			...new Set(
 				members
 					.flatMap((doc) => [
-						...Object.keys(doc.fields),
+						...Object.keys(doc.fields ?? {}),
 						...Object.keys(tableFor(doc.path)?.properties ?? {}),
 					])
 					.concat(Object.keys(tableSchema()?.properties ?? {})),
@@ -127,8 +127,8 @@
 			? reading.data?.tables[parts[0]!]
 			: undefined;
 	}
-	const fieldValue = (fields: Record<string, unknown>, column: string) =>
-		Object.hasOwn(fields, column) ? fields[column] : undefined;
+	const fieldValue = (fields: Record<string, unknown> | undefined, column: string) =>
+		fields !== undefined && Object.hasOwn(fields, column) ? fields[column] : undefined;
 	const display = (value: unknown) =>
 		value === undefined
 			? ''
@@ -251,7 +251,7 @@
 								{@const row = byPath.get(doc.path)!}
 								<article class="rounded-md border p-3">
 									<Button variant="link" onclick={() => openSource(doc.path)}
-										>{typeof doc.fields.title === 'string' &&
+										>{typeof doc.fields?.title === 'string' &&
 										Object.hasOwn(doc.fields, 'title')
 											? doc.fields.title
 											: doc.stem}{row.held ? ' •' : ''}</Button

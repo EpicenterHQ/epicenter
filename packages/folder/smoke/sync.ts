@@ -110,8 +110,8 @@ for (const [name, browserType] of Object.entries({
 		await b.evaluate(() => dataSyncSmoke.syncLoop(2));
 		const afterTabs = await a.evaluate(() => dataSyncSmoke.state());
 		check(
-			afterTabs.row?.fields.a === writes &&
-				afterTabs.row.fields.b === writes &&
+			afterTabs.row?.fields?.a === writes &&
+				afterTabs.row.fields?.b === writes &&
 				afterTabs.row.body === 'From tab A\n\nFrom tab B\n' &&
 				!afterTabs.unsent &&
 				afterTabs.refs.base === afterTabs.refs.head,
@@ -184,9 +184,9 @@ for (const [name, browserType] of Object.entries({
 		await reopened.evaluate(() => dataSyncSmoke.syncLoop(4));
 		const final = await reopened.evaluate(() => dataSyncSmoke.state());
 		check(
-			final.row?.fields.a === 888 &&
-				final.row.fields.b === writes &&
-				final.row.fields.extra === 999 &&
+			final.row?.fields?.a === 888 &&
+				final.row.fields?.b === writes &&
+				final.row.fields?.extra === 999 &&
 				final.row.body === 'From tab A\n\nFrom tab B\n' &&
 				!final.unsent &&
 				final.refs.base === final.refs.head,

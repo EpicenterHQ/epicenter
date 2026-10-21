@@ -145,7 +145,7 @@ export function boardLanes(
 }
 
 function fieldOf(document: Document, field: string): unknown {
-	return Object.hasOwn(document.fields, field)
+	return document.fields !== undefined && Object.hasOwn(document.fields, field)
 		? document.fields[field]
 		: undefined;
 }

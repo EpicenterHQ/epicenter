@@ -18,12 +18,12 @@ expectTypeOf(fileEdit.getMarkdown()).toEqualTypeOf<
 expectTypeOf(fileEdit.getText()).toEqualTypeOf<string | undefined>();
 expectTypeOf(fileEdit.getReadStatus()).toEqualTypeOf<ReadStatus>();
 expectTypeOf(fileEdit.getPending()).toEqualTypeOf<
-	Pending<typeof notes> | undefined
+	Pending | undefined
 >();
 expectTypeOf(fileEdit.isLocked()).toEqualTypeOf<boolean>();
 const markdown = fileEdit.getMarkdown();
 if (markdown?.issues === null)
-	expectTypeOf(markdown.fields.title).toEqualTypeOf<string>();
+	expectTypeOf(markdown.fields?.title).toEqualTypeOf<string>();
 fileEdit.change({ fields: { title: 'Oat milk', done: true } });
 fileEdit.change({ body: 'Two litres' });
 fileEdit.change({ fields: { done: false }, body: 'Two litres' });

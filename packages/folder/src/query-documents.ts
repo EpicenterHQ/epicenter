@@ -24,8 +24,8 @@ export function queryDocuments(reading: DocumentReading, sql: string) {
 						doc.path,
 						doc.directory,
 						doc.stem,
-						JSON.stringify(doc.fields),
-						doc.body,
+						JSON.stringify(doc.fields ?? null),
+						doc.body ?? null,
 						JSON.stringify(doc.issues ?? []),
 					);
 				}

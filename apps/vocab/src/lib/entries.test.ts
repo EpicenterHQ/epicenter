@@ -200,14 +200,13 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 	).toBe(true);
 	// A reread of the list never replaces what is typed.
 	await vocab.queryClient.invalidateQueries();
-	expect(edit.getMarkdown()?.fields.note).toBe('clear and bright');
+	expect(edit.getMarkdown()?.fields?.note).toBe('clear and bright');
 	expect(await fileText(context.folder, context.path)).toBe(before);
 
 	await until(() => edit.getPending() === undefined, 'the note to save');
 	await quiet(vocab);
 	expect(
-		expectOk(await context.folder.tables.entries.get(context.word().id))?.fields
-			.note,
+		expectOk(await context.folder.tables.entries.get(context.word().id))?.fields?.note,
 	).toBe('clear and bright');
 	expect(context.word().note).toBe('clear and bright');
 	expect(
@@ -273,7 +272,7 @@ test('a save over a note changed elsewhere wins the note', async () => {
 	);
 	await slow.vocab.folder.tables.entries.edit(word.id).save();
 	expect(
-		expectOk(await context.folder.tables.entries.get(word.id))?.fields.note,
+		expectOk(await context.folder.tables.entries.get(word.id))?.fields?.note,
 	).toBe('mine');
 });
 
@@ -287,22 +286,22 @@ test('a saved stage stays shown when the reread fails, and pressing the old stag
 	};
 	try {
 		const card = vocab.entries.edit(word.id);
-		expect(card.markdown?.fields.stage).toBe('new');
+		expect(card.markdown?.fields?.stage).toBe('new');
 		expect(card.setStage('usable')).toBe(true);
 		await folder.tables.entries.edit(word.id).save();
 		await quiet(vocab);
 		// The list still holds the word as read before the save.
 		expect(context.word().stage).toBe('new');
 		expect(card.pending).toBeUndefined();
-		expect(card.markdown?.fields.stage).toBe('usable');
+		expect(card.markdown?.fields?.stage).toBe('usable');
 
 		expect(card.setStage('new')).toBe(true);
 		await folder.tables.entries.edit(word.id).save();
-		expect(card.markdown?.fields.stage).toBe('new');
+		expect(card.markdown?.fields?.stage).toBe('new');
 	} finally {
 		folder.tables.entries.list = list;
 	}
-	expect(expectOk(await folder.tables.entries.get(word.id))?.fields.stage).toBe(
+	expect(expectOk(await folder.tables.entries.get(word.id))?.fields?.stage).toBe(
 		'new',
 	);
 });
@@ -315,7 +314,7 @@ test('a save that fails keeps the typing and its error, and saving again writes 
 	vocab.entries.setNote(context.word(), 'clear');
 	await edit.save();
 	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
-	expect(edit.getMarkdown()?.fields.note).toBe('clear');
+	expect(edit.getMarkdown()?.fields?.note).toBe('clear');
 	expect(vocab.entries.failures.map((failure) => failure.kind === 'document' ? failure.fields : undefined)).toEqual([
 		{ note: 'clear' },
 	]);
@@ -325,7 +324,7 @@ test('a save that fails keeps the typing and its error, and saving again writes 
 	await edit.save();
 	expect(edit.getPending()).toBeUndefined();
 	expect(
-		expectOk(await folder.tables.entries.get(context.word().id))?.fields.note,
+		expectOk(await folder.tables.entries.get(context.word().id))?.fields?.note,
 	).toBe('clear');
 });
 
@@ -416,7 +415,7 @@ test('a valid unsaved repair returns to structured editing without saving or ref
 	expect(repair.close()).toBe(true);
 	expect(repair.open).toBeUndefined();
 	expect(await fileText(folder, path)).toBe(broken);
-	expect(opened.vocab.entries.edit('broken').markdown?.fields.stage).toBe('usable');
+	expect(opened.vocab.entries.edit('broken').markdown?.fields?.stage).toBe('usable');
 	expect(fileEdit.pending).toBeDefined();
 });
 

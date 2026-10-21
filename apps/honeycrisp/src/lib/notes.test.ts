@@ -90,14 +90,14 @@ test('opening a note writes nothing; a title and body save once sent, keeping ke
 	const { notes, saves, text } = fixture;
 	notes.open(A);
 	const note = notes.noteBody(A);
-	expect(note.getMarkdown()?.fields.title).toBe('A');
+	expect(note.getMarkdown()?.fields?.title).toBe('A');
 	await quiet(notes);
 	expect(saves(A)).toBe(0);
 
 	expect(note.change({ fields: { title: 'Renamed' } })).toBeUndefined();
 	expect(note.edit('Body, edited.\n')).toBe(true);
 	// Shown at once, before any save.
-	expect(note.getMarkdown()?.fields.title).toBe('Renamed');
+	expect(note.getMarkdown()?.fields?.title).toBe('Renamed');
 	expect(note.getMarkdown()?.body).toBe('Body, edited.\n');
 	expect(notes.isWriting(A)).toBe(true);
 	await saveA(fixture);
@@ -108,7 +108,7 @@ test('opening a note writes nothing; a title and body save once sent, keeping ke
 	expect(saved).toContain('title: "Renamed"');
 	expect(saved).toContain('Body, edited.');
 	expect(saved).toMatch(/^owner:\n {2}name: one\n {2}tags: \[ ?two ?\]$/m);
-	expect(cached(notes, 'a').fields.title).toBe('Renamed');
+	expect(cached(notes, 'a').fields?.title).toBe('Renamed');
 	expect(notes.isWriting(A)).toBe(false);
 });
 
@@ -237,7 +237,7 @@ test('a note whose text is not a note is listed for repair, opens as text, saves
 	expect(notes.folder.files.edit(A).getPending()).toBeUndefined();
 	expect(repairsOf(rows(notes))).toEqual([]);
 	notes.open(A, 'note');
-	expect(notes.noteBody(A).getMarkdown()?.fields.pinned).toBe(false);
+	expect(notes.noteBody(A).getMarkdown()?.fields?.pinned).toBe(false);
 });
 
 test('a note open as its file takes text edits merged by line with another tab, and permits row patches meanwhile', async () => {
@@ -249,7 +249,7 @@ test('a note open as its file takes text edits merged by line with another tab, 
 	await quiet(notes);
 	const note = notes.noteBody(A);
 	expect(note.change({ fields: { pinned: true } })).toBeUndefined();
-	expect(note.getMarkdown()?.fields.pinned).toBe(true);
+	expect(note.getMarkdown()?.fields?.pinned).toBe(true);
 
 	const tab = await otherTab();
 	const theirs = await noteIn(tab, 'a');
@@ -261,7 +261,7 @@ test('a note open as its file takes text edits merged by line with another tab, 
 	const saved = (await text(A)) ?? '';
 	expect(saved).toContain('title: "Mine"');
 	expect(saved).toContain('one!\n\ntwo?\n');
-	expect(cached(notes, 'a').fields.title).toBe('Mine');
+	expect(cached(notes, 'a').fields?.title).toBe('Mine');
 });
 
 test('a new note is created in the folder shown and opened', async () => {
@@ -410,7 +410,7 @@ test('a failed file edit stays visible across selection and accepts a field patc
 	failSaves(false);
 	expect(notes.patchNote(A, { pinned: true })).toBeUndefined();
 	await notes.folder.files.edit(A).save();
-	expect(notes.noteBody(A).getMarkdown()?.fields.pinned).toBe(true);
+	expect(notes.noteBody(A).getMarkdown()?.fields?.pinned).toBe(true);
 	expect(notes.noteBody(A).getMarkdown()?.body).toBe('Keep this unfinished file\n');
 });
 

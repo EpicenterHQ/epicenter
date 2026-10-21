@@ -25,8 +25,14 @@ expectTypeOf(edit.getMarkdown()).toEqualTypeOf<
 	MarkdownContent<typeof notes> | undefined
 >();
 expectTypeOf(edit.getPending()).toEqualTypeOf<
-	Pending<typeof notes> | undefined
+	Pending | undefined
 >();
+const pending = edit.getPending();
+if (pending?.kind === 'document')
+	expectTypeOf(pending.fields).toEqualTypeOf<Readonly<Record<string, unknown>>>();
+const markdown = edit.getMarkdown();
+if (markdown?.issues === null)
+	expectTypeOf(markdown.fields).toEqualTypeOf<{ title: string; body: string }>();
 expectTypeOf(edit.isLocked()).toEqualTypeOf<boolean>();
 expectTypeOf(edit.getReadStatus()).toEqualTypeOf<ReadStatus>();
 expectTypeOf<ReadStatus>().toEqualTypeOf<{

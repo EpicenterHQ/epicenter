@@ -32,7 +32,9 @@ function rowEditor<T extends RowTable>(
 	const view = library.edit(table, path);
 	const shown = (): Shown<T> | undefined => {
 		const row = view.markdown;
-		return row && { fields: row.fields as Shown<T>['fields'], body: row.body };
+		return row?.fields === undefined || row.body === undefined
+			? undefined
+			: { fields: row.fields as Shown<T>['fields'], body: row.body };
 	};
 	return {
 		path,

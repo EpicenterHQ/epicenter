@@ -155,7 +155,7 @@ test('a structured patch requires a known source; missing and binary sources ref
 	);
 	expectOk(await folder.files.read('a.md'));
 	expectOk(unread.change({ fields: { title: 'unread' } }));
-	expect(unread.getMarkdown()?.fields.title).toBe('unread');
+	expect(unread.getMarkdown()?.fields?.title).toBe('unread');
 	await unread.save();
 	expect(await disk.stored('a.md')).toBe('---\ntitle: unread\n---\nbody\n');
 
@@ -174,6 +174,18 @@ test('a structured patch requires a known source; missing and binary sources ref
 		'NotText',
 	);
 	expect(folder.getStatus().unsaved).toEqual([]);
+});
+
+test('an assignment equal to its original value survives a guarded merge', async () => {
+	const original = '---\ntitle: before\n---\nbody\n';
+	const disk = await setup({ 'a.md': original });
+	const edit = disk.folder.files.edit('a.md');
+	expectOk(await edit.read());
+	expectOk(edit.change({ fields: { title: 'before' } }));
+	await disk.elsewhere('a.md', original, '---\ntitle: outside\n---\nbody\n');
+	await edit.save();
+	expect(await disk.stored('a.md')).toBe(original);
+	expect(edit.getPending()).toBeUndefined();
 });
 
 for (const { revert, refuseFirst, aliases } of [
@@ -617,4 +629,85 @@ test('a failed exclusive change releases its path while another file saves indep
 	expectOk(source.replaceText('repair'));
 	expect(source.discard()).toMatchObject({ text: 'repair' });
 	expect(folder.getStatus()).toMatchObject({ saving: false, unsaved: [] });
+});
+
+for (const malformed of [false, true]) {
+	test(`accepted nested fields are owned copies over ${malformed ? 'malformed' : 'valid'} source`, async () => {
+		const initial = malformed ? '---\ntitle: [broken\n---\nbody\n' : before;
+		const disk = await setup({ 'a.md': initial });
+		const edit = disk.folder.files.edit('a.md');
+		expectOk(await edit.read());
+		const payload = new Proxy(
+			{ tags: new Proxy(['accepted'], {}), options: { level: 1 } },
+			{},
+		);
+		expectOk(edit.change({ fields: { payload } }));
+		payload.tags.push('mutated after acceptance');
+		payload.options.level = 9;
+		expect(edit.getPending()).toMatchObject({
+			fields: { payload: { tags: ['accepted'], options: { level: 1 } } },
+		});
+		if (malformed) {
+			expect(edit.getMarkdown()?.fields).toBeUndefined();
+			expect(edit.getMarkdown()?.body).toBe('body\n');
+			await edit.save();
+			expect(edit.getPending()?.error?.name).toBe('Unparseable');
+			await disk.elsewhere('a.md', initial, before);
+		}
+		await edit.save();
+		expect(edit.getPending()).toBeUndefined();
+		expect(edit.getMarkdown()?.fields?.payload).toEqual({
+			tags: ['accepted'],
+			options: { level: 1 },
+		});
+	});
+}
+
+test('nested values accepted while saving remain owned through the next save', async () => {
+	const disk = await setup({ 'a.md': before });
+	const edit = disk.folder.files.edit('a.md');
+	expectOk(await edit.read());
+	const first = { values: ['first'] };
+	expectOk(edit.change({ fields: { payload: first } }));
+	const started = disk.hold();
+	const saving = edit.save();
+	await started;
+	const next = { values: ['next'] };
+	expectOk(edit.change({ fields: { payload: next } }));
+	first.values.push('changed while saving');
+	next.values.push('changed after acceptance');
+	disk.release();
+	await saving;
+	await edit.save();
+	expect(edit.getPending()).toBeUndefined();
+	expect(edit.getMarkdown()?.fields?.payload).toEqual({ values: ['next'] });
+});
+
+test('failed fields remain recoverable after external malformed source and save after repair', async () => {
+	const disk = await setup({ 'a.md': before });
+	const edit = disk.folder.files.edit('a.md');
+	expectOk(await edit.read());
+	expectOk(edit.change({ fields: { title: 'Held' } }));
+	disk.refuse(true);
+	await edit.save();
+	disk.refuse(false);
+	const pending = edit.getPending();
+	expect(pending?.error?.name).toBe('StorageFailed');
+	const broken = '---\ntitle: [broken\n---\nOutside body\n';
+	await disk.elsewhere('a.md', before, broken);
+	expectOk(await edit.read());
+	expect(edit.getText()).toBe(broken);
+	expect(edit.getMarkdown()?.fields).toBeUndefined();
+	expect(edit.getMarkdown()?.body).toBe('Outside body\n');
+	expect(edit.getPending()).toBe(pending);
+	expect(
+		expectErr(edit.replaceText('repair that would lose held fields')).name,
+	).toBe('InvalidFields');
+	expect(edit.getPending()).toBe(pending);
+	const repaired = '---\ntitle: Repaired\nextra: kept\n---\nOutside body\n';
+	await disk.elsewhere('a.md', broken, repaired);
+	await edit.save();
+	expect(edit.getPending()).toBeUndefined();
+	expect(edit.getMarkdown()?.fields).toEqual({ title: 'Held', extra: 'kept' });
+	expect(await disk.stored('a.md')).toContain('Outside body\n');
 });

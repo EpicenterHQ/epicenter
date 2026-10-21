@@ -148,7 +148,7 @@ test('Add capture writes one finished capture, once, and opens Add a thought foc
 	await t.quiet();
 	const rows = expectOk(await t.folder.tables.captures.list());
 	expect(rows).toHaveLength(1);
-	expect(rows[0]?.fields.draft).toBeUndefined();
+	expect(rows[0]?.fields?.draft).toBeUndefined();
 	expect(rows[0]?.body).toBe('\nWritten here\nwith two lines\n\n## Thoughts\n');
 	expect(t.captures.opened?.stem).toBe(rows[0]?.id);
 	expect(document.activeElement).toBe(field('new-thought'));
@@ -243,7 +243,7 @@ test('a draft an earlier version saved is listed apart, autosaves, and Add captu
 	}, 'the finished capture');
 	await t.quiet();
 	expect(t.captures.opened?.stem).toBe('draft');
-	expect(t.cached('draft')?.fields.draft).toBeUndefined();
+	expect(t.cached('draft')?.fields?.draft).toBeUndefined();
 	expect(await t.text(DRAFT)).toContain('\nWritten in the draft\n\n## Thoughts\n');
 	expect(document.activeElement).toBe(field('new-thought'));
 });
@@ -382,7 +382,7 @@ test('Finish saves pending whole-file edits before composing, keeping unknown fr
 	const row = expectOk(await t.folder.tables.captures.get('draft'));
 	expect(row?.body).toBe('\nNew\r\nbody\n\n## Thoughts\n');
 	expect(row?.text).toContain('unknown: kept\r\n');
-	expect(row?.fields.draft).toBeUndefined();
+	expect(row?.fields?.draft).toBeUndefined();
 	expect(expectOk(await t.folder.tables.captures.list())).toHaveLength(1);
 });
 

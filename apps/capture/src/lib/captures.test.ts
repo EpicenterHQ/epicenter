@@ -280,7 +280,7 @@ test('adding a thought uses the current Folder edit after another tab changes it
 		HAND.replace('Text', 'Text changed elsewhere'),
 	);
 	await until(
-		() => fileEdit.getMarkdown()?.body.includes('elsewhere') === true,
+		() => fileEdit.getMarkdown()?.body?.includes('elsewhere') === true,
 		'the other tab',
 	);
 	// A thought adds over what the Folder edit shows now.

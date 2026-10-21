@@ -249,6 +249,22 @@ test('source with malformed frontmatter stays exact, readable as a file, and rep
 	await second.close();
 });
 
+test('a direct row assignment equal to its base survives another writer', async () => {
+	const first = await open();
+	const second = await open();
+	try {
+		const original = '---\ntitle: before\n---\nbody\n';
+		expectOk(await first.files.write('notes/a.md', null, original));
+		const base = expectOk(await first.tables.notes.get('a'))!;
+		expectOk(await second.files.write('notes/a.md', original, '---\ntitle: outside\n---\nbody\n'));
+		expectOk(await first.tables.notes.set('a', base, { fields: { title: 'before' } }));
+		expect(expectOk(await first.tables.notes.get('a'))?.fields?.title).toBe('before');
+	} finally {
+		await first.close();
+		await second.close();
+	}
+});
+
 test('another handle of the origin hears a committed save, and the saver hears its own', async () => {
 	const a = await open();
 	const b = await open();

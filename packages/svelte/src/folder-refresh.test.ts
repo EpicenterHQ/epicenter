@@ -8,15 +8,15 @@
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/bun';
 import type { DocumentReading } from '@epicenter/folder/documents';
 import { QueryObserver } from '@tanstack/query-core';
-import { defineFileRead } from './folder-queries.js';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
+import { defineFileRead } from './folder-queries.js';
 
 const { createFolderContext } = await import('./folder-context.js');
 const tables = { notes: Type.Object({ title: Type.String() }) };
@@ -79,15 +79,15 @@ test('visible polling discovers outside edits and preserves a pending row draft'
 		join(directory, 'notes/milk.md'),
 		initial.replace('two', 'Outside edit'),
 	);
-	await until(() => cached().body.includes('Outside edit'));
+	await until(() => cached().body?.includes('Outside edit') === true);
 	expect(edit.getPending()).toBeDefined();
 	// The poll's read reached the edit too: the outside body under the typing.
-	expect(edit.getMarkdown()?.fields.title).toBe('Typed here');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Typed here');
 	expect(edit.getMarkdown()?.body).toContain('Outside edit');
 	await edit.save();
 	expect(edit.getPending()).toBeUndefined();
-	expect(edit.getMarkdown()?.fields.title).toBe('Typed here');
-	await until(() => cached().fields.title === 'Typed here');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Typed here');
+	await until(() => cached().fields?.title === 'Typed here');
 	expect(cached().body).toContain('Outside edit');
 });
 
@@ -101,9 +101,9 @@ test('hidden pages do not poll and becoming visible refreshes without waiting fo
 	);
 	await Bun.sleep(2_200);
 	expect(reads()).toBe(before);
-	expect(cached().fields.title).toBe('Milk');
+	expect(cached().fields?.title).toBe('Milk');
 	visibility('visible');
-	await until(() => cached().fields.title === 'Outside', 700);
+	await until(() => cached().fields?.title === 'Outside', 700);
 	expect(reads()).toBe(before + 1);
 });
 
@@ -202,17 +202,17 @@ test('a save lands without waiting for a slow scan, whose older rows never repla
 	await edit.save();
 	expect(edit.getPending()).toBeUndefined();
 	expect(folder.getStatus().saving).toBe(false);
-	expect(before.fields.title).toBe('Milk');
-	expect(edit.getMarkdown()?.fields.title).toBe('Saved while reading');
+	expect(before.fields?.title).toBe('Milk');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Saved while reading');
 	// A second polling tick must join the slow scan, not replace it.
 	await Bun.sleep(2_200);
 	expect(maximum).toBe(1);
 	gate.resolve();
 	await Bun.sleep(0);
 	// The scan read before the save: the edit keeps what the save stored.
-	expect(edit.getMarkdown()?.fields.title).toBe('Saved while reading');
-	await until(() => cached().fields.title === 'Saved while reading');
-	expect(edit.getMarkdown()?.fields.title).toBe('Saved while reading');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Saved while reading');
+	await until(() => cached().fields?.title === 'Saved while reading');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Saved while reading');
 	expect(maximum).toBe(1);
 	expect(reads()).toBeLessThanOrEqual(3);
 }, 10_000);
@@ -285,7 +285,7 @@ test('a path refresh covers every representation and aggregate, leaving unrelate
 		initial.replace('Milk', 'Changed'),
 	);
 	await context.refresh(['notes']);
-	expect(cached().fields.title).toBe('Changed');
+	expect(cached().fields?.title).toBe('Changed');
 	const changed = context.queryClient.getQueryData(textOptions.queryKey);
 	expect(changed ?? '').toContain('Changed');
 	expect(reads).toEqual({
@@ -301,7 +301,7 @@ test('a path refresh covers every representation and aggregate, leaving unrelate
 	expect(
 		context.queryClient.getQueryData<DocumentReading>(
 			context.queries.documents().queryKey,
-		)?.documents[0]?.fields.title,
+		)?.documents[0]?.fields?.title,
 	).toBe('Changed');
 	// Actual committed writes use the context's listener, without app listeners.
 	const from = expectOk(await folder.files.read('notes/milk.md'))!;
@@ -314,7 +314,7 @@ test('a path refresh covers every representation and aggregate, leaving unrelate
 	);
 	await until(
 		() =>
-			cached().fields.title === 'Own save' &&
+			cached().fields?.title === 'Own save' &&
 			context.queryClient
 				.getQueryData(textOptions.queryKey)
 				?.includes('Own save') === true,

@@ -112,15 +112,17 @@ because changing it can turn a plain directory into Git state.
 
 ### Rows
 
-A row is `{ id, text, body, fields, issues }`. `text` is the file's exact
-source. When the frontmatter fits the table's schema, `issues` is `null` and
-`fields` has the schema's type; otherwise `fields` holds the raw values and
-`issues` says why, each `{ kind, message, path, line? }`:
+A row adds `id` to `{ text, body, fields, issues }`. `text` is the file's exact
+source. When frontmatter fits the table's schema, `issues` is `null` and
+`fields` has the schema's type. A schema mismatch retains the raw fields.
+Uninterpretable frontmatter exposes `fields: undefined`; `body` is available
+only after a closing fence establishes its boundary. Issues name the reason,
+each `{ kind, message, path, line? }`:
 
 | `kind` | The file |
 | --- | --- |
 | `schema` | parses, and a field does not fit the schema |
-| `frontmatter` | has frontmatter that does not parse; `body` is the whole text |
+| `frontmatter` | is missing required frontmatter or has frontmatter that cannot be parsed |
 | `not-text` | is not UTF-8 text without NUL |
 
 A schema only interprets. It never refuses a save, and unknown fields,
@@ -214,14 +216,28 @@ absent or binary source refuses new structured input. Unheld binary file reads
 retain no bytes in the owner.
 
 `getMarkdown()` contains exactly text, body, fields and issues. Fields narrow
-to the bound schema only when `issues === null`; invalid values retain raw
-fields and diagnostics. Its text always matches `getText()`. Applicable
-pending fields and body enter source before interpretation. Fields that cannot
+to the bound schema only when `issues === null`; schema failures retain raw
+fields, while frontmatter failures expose no fields. Its text always matches
+`getText()`, including accepted text containing NUL or a lone surrogate that
+storage will refuse. Such text has a `not-text` issue and no body or fields.
+A closed malformed header can still expose its body; an unclosed header cannot.
+Applicable pending fields and body enter source before interpretation. Fields that cannot
 apply to malformed source stay recoverable in `getPending()`, without appearing
 as phantom document fields. Retry after outside repair, or copy/discard that
 patch before replacing its source. Schema diagnostics alone do not refuse
 editing. Missing frontmatter is valid in a generic document and diagnosed by a
 strict table interpretation.
+
+`getPending().fields` is raw, non-generic input shared by every view of the
+path, including views bound to different schemas. `change()` types new input
+through its own schema, while pending input retains the names and values that
+were accepted. Each guarded storage attempt reapplies those named assignments
+over the merged text, including assignments whose value matched the original
+source. Assignments made after `replaceText()` retain their names through the
+text handoff and guarded retries. Accepted fields are owned copies, including nested arrays, objects and
+values read through proxies. Mutating the caller's original values after
+`change()` returns cannot alter pending input or a later save. Unsupported field
+values are refused before any of the change is accepted.
 
 `getText()` answers held whole text, applicable structured changes over stored
 source, or stored text, including a byte-order mark. With no held whole text,
@@ -237,6 +253,8 @@ landed save submitted. Whole text retains its source witness. This preserves
 explicit reverts and newer typing while saves run. Structured saves reserve the
 path before reading fresh presentation, apply their held units with these
 bases, and keep the latest-header check inside storage's guarded write loop.
+Generic body saves require a known current body boundary on every storage
+attempt; an outside unclosed header keeps the external source and pending body.
 Unchanged fields and independent outside body edits survive.
 
 `mergeFileText(path, base, current, change)` applies these same storage rules
@@ -362,7 +380,9 @@ supply new compile-time TypeScript types to application source.
 `@epicenter/folder/documents` reads saved Markdown through an existing handle's
 files, with optional declared schemas. Root-relative paths identify documents;
 root-level and nested Markdown are included. Missing frontmatter means empty
-fields and the full body. Malformed frontmatter retains source and diagnostics.
+fields and the full body. Malformed frontmatter retains source and diagnostics;
+its fields are unavailable, and its body is available only after a closing
+fence establishes the boundary.
 This reader leaves the stricter app table contract unchanged.
 
 Schema imports and generation patch selected declaration sections with

@@ -285,7 +285,7 @@ test('once the notes are closing, the controls take no input', async () => {
 	expect(rich.getAttribute('contenteditable')).toBe('false');
 	type(titleOf(target), 'Typed while closing');
 	flushSync();
-	expect(notes.noteBody(PATH).getMarkdown()?.fields.title).toBe('Alpha');
+	expect(notes.noteBody(PATH).getMarkdown()?.fields?.title).toBe('Alpha');
 	// The editor stays mounted while the last saves land.
 	expect(richOf(target)).toBe(rich);
 	await closed;

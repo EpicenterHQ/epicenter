@@ -58,7 +58,7 @@ async function storedTitle() {
 	try {
 		const folder = expectOk(await openFolder({ tables: todosTables }));
 		try {
-			return expectOk(await folder.tables.todos.get('milk'))?.fields.title;
+			return expectOk(await folder.tables.todos.get('milk'))?.fields?.title;
 		} finally {
 			await folder.close();
 		}

@@ -196,7 +196,7 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 	// Typed and closed before its pause: closing saves it.
 	type(first.get(TITLE), 'Buy oat milk, cold');
 	first.close();
-	await untilStored(id, (row) => row?.fields.title === 'Buy oat milk, cold');
+	await untilStored(id, (row) => row?.fields?.title === 'Buy oat milk, cold');
 
 	const second = await openPage();
 	await until(
@@ -326,7 +326,7 @@ test('a failed save keeps the typing and offers Try again', async () => {
 	expect(get(SUMMARY).getAttribute('aria-label')).toContain(
 		'Saved on this device',
 	);
-	expect((await stored('milk'))?.fields.title).toBe('Oat milk');
+	expect((await stored('milk'))?.fields?.title).toBe('Oat milk');
 });
 
 test('leaving with a failed draft asks before unloading and offers its text after unmount', async () => {
@@ -365,7 +365,7 @@ test('leaving with a failed draft asks before unloading and offers its text afte
 		notices.querySelector<HTMLTextAreaElement>('[aria-label="Your text"]')
 			?.value,
 	).toContain('Oat milk');
-	expect((await stored('milk'))?.fields.title).toBe('Milk');
+	expect((await stored('milk'))?.fields?.title).toBe('Milk');
 });
 
 test('a new title not added does not prompt before a browser reload', async () => {

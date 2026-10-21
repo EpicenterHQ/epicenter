@@ -158,7 +158,7 @@ function Title({ table, id }: { table: Notes; id: string }) {
 	if (row === undefined) return <p>Missing</p>;
 	return (
 		<input
-			value={row.issues === null ? row.fields.title : ''}
+			value={row.issues === null ? row.fields?.title : ''}
 			disabled={note.isLocked()}
 			onChange={(event) =>
 				note.change({ fields: { title: event.currentTarget.value } })
@@ -245,7 +245,7 @@ test('an own save shows without a reread, an outside change is read for the view
 		}),
 	);
 	await until(
-		() => folder.tables.notes.edit('milk').getMarkdown()?.fields.done === true,
+		() => folder.tables.notes.edit('milk').getMarkdown()?.fields?.done === true,
 	);
 	await act(async () => type(view.input(), 'Mine!'));
 	expect(view.input().value).toBe('Mine!');
@@ -301,7 +301,7 @@ test('closing the folder re-renders a view whose held input keeps the same pendi
 		await closing;
 	});
 	expect(edit.getPending()).toBeUndefined();
-	expect((await read('milk')).fields.title).toBe('Oat milk');
+	expect((await read('milk')).fields?.title).toBe('Oat milk');
 });
 
 test('a reused view follows its path, and the row it left keeps its input', async () => {
@@ -341,7 +341,7 @@ test('unmounting every view keeps the input and its timer with the folder', asyn
 
 	while (folder.tables.notes.edit('milk').getPending() !== undefined)
 		await Bun.sleep(5);
-	expect((await read('milk')).fields.title).toBe('Oat milk');
+	expect((await read('milk')).fields?.title).toBe('Oat milk');
 });
 
 test('the text binding shows held text over the stored file, BOM kept', async () => {
@@ -398,7 +398,7 @@ test('source typed in one handler keeps a field changed by another handler of th
 	expect(view.input().value).toContain('done: true');
 	expect(view.input().value).toContain('one\nTWO\n');
 	await act(async () => folder.tables.notes.edit('milk').save());
-	expect((await read('milk')).fields.done).toBe(true);
+	expect((await read('milk')).fields?.done).toBe(true);
 	expect((await read('milk')).body).toBe('one\nTWO\n');
 });
 

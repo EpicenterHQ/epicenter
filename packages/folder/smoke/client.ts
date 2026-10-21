@@ -88,7 +88,7 @@ export const client = {
 		if (draft === null) throw new Error('No draft to edit');
 		draft = unwrap(
 			await repository.tables.notes.set('one', draft, {
-				body: draft.body.replace(which, text),
+				body: draft.body!.replace(which, text),
 			}),
 		).sent;
 	},

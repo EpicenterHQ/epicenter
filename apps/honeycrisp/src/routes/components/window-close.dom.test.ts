@@ -60,7 +60,7 @@ async function storedTitles() {
 		const folder = expectOk(await openFolder({ tables: honeycrispTables }));
 		try {
 			return expectOk(await folder.tables.notes.list()).map(
-				(row) => row.fields.title,
+				(row) => row.fields?.title,
 			);
 		} finally {
 			await folder.close();

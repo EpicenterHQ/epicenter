@@ -89,7 +89,7 @@ test('drafts are listed apart and open with ambiguous Markdown, spaces and CRLF 
 	for (const [stem, text] of Object.entries(texts)) {
 		const row = expectOk(await t.folder.tables.captures.get(stem));
 		expect(row?.body).toBe(text);
-		expect(row?.fields.draft).toBe(true);
+		expect(row?.fields?.draft).toBe(true);
 		t.captures.open(stem, 'capture');
 		expect(t.captures.opened).toEqual({ stem, mode: 'text' });
 	}
@@ -107,7 +107,7 @@ test('finishing a draft keeps composeBody behavior for arbitrary pasted Markdown
 		expectOk(await t.captures.finishDraft(stem));
 		const row = expectOk(await t.folder.tables.captures.get(stem));
 		expect(row?.body).toBe(composeBody(text).body);
-		expect(row?.fields.draft).toBeUndefined();
+		expect(row?.fields?.draft).toBeUndefined();
 	}
 	expect(expectOk(await t.folder.tables.captures.list())).toHaveLength(4);
 	expect(timelineOf(t.rows()).drafts).toEqual([]);
@@ -118,7 +118,7 @@ test('finishing saves raw input first, then opens the same file at Add a thought
 	const { edit } = await typeInto(t, 'one', 'Hello\nworld');
 	expectOk(await t.captures.finishDraft('one'));
 	const row = expectOk(await t.folder.tables.captures.get('one'));
-	expect(row?.fields.draft).toBeUndefined();
+	expect(row?.fields?.draft).toBeUndefined();
 	expect(row?.body).toBe('\nHello\nworld\n\n## Thoughts\n');
 	expect(edit.getPending()).toBeUndefined();
 	expect(t.captures.opened).toEqual({
@@ -135,7 +135,7 @@ test('a blank draft is refused by Add and remains', async () => {
 	const refusal = expectErr(await t.captures.finishDraft('one'));
 	expect(refusal.message).toBe('Write something first.');
 	expect(edit.getMarkdown()?.body).toBe('   ');
-	expect(edit.getMarkdown()?.fields.draft).toBe(true);
+	expect(edit.getMarkdown()?.fields?.draft).toBe(true);
 });
 
 test('failed autosave and blocked discard keep raw input until another save attempt; successful discard survives restart', async () => {
@@ -172,7 +172,7 @@ test('a failed promotion leaves the stored and editable raw draft; retry appends
 	);
 	expect(edit.getPending()).toBeUndefined();
 	expect(edit.getMarkdown()?.body).toBe('Still composing\n');
-	expect(edit.getMarkdown()?.fields.draft).toBe(true);
+	expect(edit.getMarkdown()?.fields?.draft).toBe(true);
 	restore();
 	const resumed = await restart(t);
 	expect(expectOk(await resumed.folder.tables.captures.get('one'))?.body).toBe(
@@ -183,7 +183,7 @@ test('a failed promotion leaves the stored and editable raw draft; retry appends
 	expectOk(await resumed.captures.finishDraft('one'));
 	const row = expectOk(await resumed.folder.tables.captures.get('one'));
 	expect(row?.body).toBe(composeBody('Still composing\n').body);
-	expect(row?.body.match(/^## Thoughts$/gm)).toHaveLength(1);
+	expect(row?.body?.match(/^## Thoughts$/gm)).toHaveLength(1);
 });
 
 test('a failed discard leaves the draft discoverable and retry removes it', async () => {

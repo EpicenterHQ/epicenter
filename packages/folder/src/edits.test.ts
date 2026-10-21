@@ -46,6 +46,21 @@ const tables = { notes, letters };
 
 const MILK = 'notes/milk.md';
 
+for (const input of ['a\0b', `a\uD800b`]) {
+	test(`a held nontext source stays exact in both FileEdit projections: ${JSON.stringify(input)}`, async () => {
+		const { folder } = await openOverEngine();
+		expectOk(await folder.files.write('a.md', null, 'before\n'));
+		const edit = folder.files.edit('a.md');
+		expectOk(await edit.read());
+		expectOk(edit.replaceText(input));
+		expect(edit.getText()).toBe(input);
+		expect(edit.getMarkdown()?.text).toBe(input);
+		expect(edit.getMarkdown()?.body).toBeUndefined();
+		await edit.save();
+		expect(edit.getPending()).toMatchObject({ kind: 'text', text: input });
+	});
+}
+
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
@@ -302,7 +317,7 @@ test('row lists and gets answer the documents of their rows; a file read only on
 	const reads = intercept(engine.files, 'read');
 	expectOk(await folder.tables.notes.list());
 	const edit = folder.tables.notes.edit('milk');
-	expect(edit.getMarkdown()?.fields.title).toBe('Milk');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Milk');
 	expectOk(await folder.files.write('notes/a.txt', null, 'one\n'));
 	expectOk(await folder.files.read('notes/a.txt'));
 	// Text reads seed the shared owner before a control needs its source.
@@ -316,7 +331,7 @@ test('row lists and gets answer the documents of their rows; a file read only on
 		}),
 	);
 	expectOk(await folder.tables.notes.list());
-	expect(folder.tables.notes.edit('bread').getMarkdown()?.fields.title).toBe(
+	expect(folder.tables.notes.edit('bread').getMarkdown()?.fields?.title).toBe(
 		'Bread',
 	);
 	// A row the list no longer has is gone.
@@ -391,11 +406,11 @@ test('a read that started before an own save landed changes nothing; the caller 
 	await edit.save();
 	getting.release();
 	reading.release();
-	expect(expectOk(await old)?.fields.title).toBe('Milk');
+	expect(expectOk(await old)?.fields?.title).toBe('Milk');
 	// A read that a save overtook still answers what the edit shows.
 	expectOk(await oldRead);
-	expect(edit.getMarkdown()?.fields.title).toBe('Mine');
-	expect(edit.getMarkdown()?.fields.title).toBe('Mine');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Mine');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Mine');
 });
 
 test('a read that started after a save committed and before it answered is newer than the save', async () => {
@@ -412,21 +427,21 @@ test('a read that started after a save committed and before it answered is newer
 			fields: { title: 'Outside' },
 		}),
 	);
-	expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
+	expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Outside',
 	);
 	committing.release();
 	await saving;
 
 	expect(await stored(MILK)).toContain('title: Outside');
-	expect(edit.getMarkdown()?.fields.title).toBe('Outside');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Outside');
 });
 
 test('a save that committed before an outside change shows until the reread answers, never the older row', async () => {
 	const { engine, edit, load, elsewhere } = await setup();
 	const shown: unknown[] = [];
 	cleanup.push(
-		edit.subscribe(() => shown.push(edit.getMarkdown()?.fields.title)),
+		edit.subscribe(() => shown.push(edit.getMarkdown()?.fields?.title)),
 	);
 	await load();
 	const committing = holdAnswer(engine.files, 'write');
@@ -446,7 +461,7 @@ test('a save that committed before an outside change shows until the reread answ
 
 	reads.release();
 	await until(() => edit.getMarkdown()?.body === 'Outside\n');
-	expect(edit.getMarkdown()?.fields.title).toBe('Mine');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Mine');
 	expect(shown.slice(shown.indexOf('Mine'))).not.toContain('Milk');
 });
 
@@ -482,7 +497,7 @@ test("another handle's change is read again for a subscribed path; another path 
 	expectOk(await bread.read());
 
 	await elsewhere({ fields: { done: true } });
-	await until(() => edit.getMarkdown()?.fields.done === true);
+	await until(() => edit.getMarkdown()?.fields?.done === true);
 	expect(heard.length).toBeGreaterThan(0);
 
 	const notice = new Promise<void>((resolve) => {
@@ -558,7 +573,7 @@ test('the read status says what is known and how reading goes, the same value un
 		reading: false,
 		error: { name: 'StorageFailed' },
 	});
-	expect(edit.getMarkdown()?.fields.title).toBe('Oat milk');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Oat milk');
 	expectOk(await edit.read());
 	expect(edit.getReadStatus().error).toBeUndefined();
 
@@ -593,7 +608,7 @@ for (const known of [false, true])
 			known: known ? 'file' : 'nothing',
 			error: { name: 'StorageFailed' },
 		});
-		expect(edit.getMarkdown()?.fields.title).toBe(known ? 'Milk' : undefined);
+		expect(edit.getMarkdown()?.fields?.title).toBe(known ? 'Milk' : undefined);
 	});
 
 test('a read overtaken by another handle’s change answers what was read, then what the reread found', async () => {
@@ -606,7 +621,7 @@ test('a read overtaken by another handle’s change answers what was read, then 
 	await writeElsewhere(MILK, from, from.replace('Milk', 'Outside'));
 	reading.release();
 	expectOk(await first);
-	expect(edit.getMarkdown()?.fields.title).toBe('Outside');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Outside');
 	expect(edit.getReadStatus()).toMatchObject({ known: 'file', reading: false });
 });
 
@@ -632,7 +647,7 @@ test('an older read that fails after a newer read succeeded tells its own caller
 	const from = (await stored(MILK)) ?? '';
 	await writeElsewhere(MILK, from, from.replace('Milk', 'Outside'));
 	expectOk(await edit.read());
-	expect(edit.getMarkdown()?.fields.title).toBe('Outside');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Outside');
 	expect(edit.getReadStatus().error).toBeUndefined();
 
 	gate.resolve();
@@ -642,7 +657,7 @@ test('an older read that fails after a newer read succeeded tells its own caller
 		reading: false,
 		error: undefined,
 	});
-	expect(edit.getMarkdown()?.fields.title).toBe('Outside');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Outside');
 });
 
 test('row and text snapshots of one path keep their identity side by side', async () => {
@@ -656,7 +671,7 @@ test('row and text snapshots of one path keep their identity side by side', asyn
 	expect(text.getText()).toBe(source);
 	expect(edit.getMarkdown()).toBe(row);
 	// Both projections include the same unsaved input.
-	expect(row?.fields.title).toBe('Oat milk');
+	expect(row?.fields?.title).toBe('Oat milk');
 	expect(source).toContain('title: Oat milk');
 });
 
@@ -726,8 +741,8 @@ test('a row shows held input in its source, read again: fields, body, text and i
 	await until(() => edit.getMarkdown()?.issues?.[0]?.kind === 'frontmatter');
 	expect(edit.getMarkdown()).toMatchObject({
 		text: broken.replace('Two litres', 'Three'),
-		fields: {},
-		body: broken.replace('Two litres', 'Three'),
+		fields: undefined,
+		body: 'Three\n',
 	});
 	expect(edit.getPending()).toMatchObject({ fields: { title: 'Oat milk' } });
 	expect(folder.files.edit(MILK).getText()).toBe(
@@ -778,7 +793,7 @@ test('a field typed back to its original value after an outside change saves tha
 	edit.change({ fields: { title: 'Oat milk' } });
 	await elsewhere({ fields: { done: true } });
 	expectOk(await edit.read());
-	expect(edit.getMarkdown()?.fields.done).toBe(true);
+	expect(edit.getMarkdown()?.fields?.done).toBe(true);
 
 	edit.change({ fields: { done: false } });
 	await edit.save();
@@ -879,7 +894,7 @@ test('typing that continues a sent field starts from what the save sent', async 
 	sets.hold();
 	const first = edit.save();
 	await started;
-	expect(edit.getMarkdown()?.fields.title).toBe('Oat');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Oat');
 	edit.change({ fields: { title: 'Oat milk' } });
 	sets.release();
 	await first;
@@ -1228,8 +1243,8 @@ test('two own saves of one path started before either lands run one at a time', 
 	);
 	// The edit shows the outside title under the input still saving.
 	expectOk(await edit.read());
-	expect(edit.getMarkdown()?.fields.title).toBe('Mine');
-	expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
+	expect(edit.getMarkdown()?.fields?.title).toBe('Mine');
+	expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Outside',
 	);
 
@@ -1241,7 +1256,7 @@ test('two own saves of one path started before either lands run one at a time', 
 	await reached.second.promise;
 	gates.second.resolve();
 	// Read after the first save committed, the outside title is newer than it.
-	expect(edit.getMarkdown()?.fields.title).toBe('Outside');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Outside');
 	expectOk(await second);
 
 	expect(await stored(MILK)).toBe(
@@ -1401,7 +1416,7 @@ test('handles are passive and share one document and input whose identity holds 
 	});
 	expect(Object.keys(pending ?? {})).not.toContain('bases');
 	expect(second.getMarkdown()).not.toBe(shown);
-	expect(second.getMarkdown()?.fields.title).toBe('Oat milk');
+	expect(second.getMarkdown()?.fields?.title).toBe('Oat milk');
 	expect(heard).toBe(1);
 
 	stop();
@@ -1543,7 +1558,7 @@ test('row changes patch text during saving and preserve a deliberate revert', as
 	writes.release();
 	await saving;
 	expect(rowEdit.getPending()).toBe(textEdit.getPending());
-	expect(rowEdit.getMarkdown()?.fields.title).toBe('Milk');
+	expect(rowEdit.getMarkdown()?.fields?.title).toBe('Milk');
 	await rowEdit.save();
 	expect(await stored(MILK)).toContain('title: Milk');
 	expect(await stored(MILK)).toContain('Still typing');
@@ -1583,7 +1598,7 @@ test('either view can recover failed input, and switching views leaves the error
 		expect(rowEdit.getPending()).toBe(textEdit.getPending());
 		expect(textEdit.getPending()?.error?.name).toBe('StorageFailed');
 		expect(textEdit.getText()).toContain('title: Held');
-		expect(rowEdit.getMarkdown()?.fields.title).toBe('Held');
+		expect(rowEdit.getMarkdown()?.fields?.title).toBe('Held');
 		// Neither making another view nor asking for a read retries failed input.
 		expect(folder.tables.notes.edit('milk').getPending()).toBe(
 			textEdit.getPending(),
@@ -1609,7 +1624,7 @@ test('a failed save keeps its input and error for copying or discard', async () 
 	await edit.save();
 
 	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
-	expect(edit.getMarkdown()?.fields.title).toBe('Oat milk');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Oat milk');
 	expect(folder.getStatus().failures).toMatchObject([
 		{ path: MILK, fields: { title: 'Oat milk' } },
 	]);
@@ -1617,7 +1632,7 @@ test('a failed save keeps its input and error for copying or discard', async () 
 	expect(expectErr(await edit.delete()).name).toBe('NotStarted');
 	restore();
 	expect(edit.discard()).toMatchObject({ fields: { title: 'Oat milk' } });
-	expect(edit.getMarkdown()?.fields.title).toBe('Milk');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Milk');
 	expect(folder.getStatus().unsaved).toEqual([]);
 	expect(folder.getStatus().failures).toEqual([]);
 });
@@ -1636,7 +1651,7 @@ test('a thrown storage call is a StorageFailed save that keeps its input to save
 	engine.files.write = set;
 	await edit.save();
 	expect(edit.getPending()).toBeUndefined();
-	expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
+	expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Oat milk',
 	);
 });
@@ -1772,7 +1787,7 @@ test('a status listener cannot reach storage once close is called, while held in
 	expect(writes.calls.map(([path]) => path)).not.toContain('reentrant.md');
 	expect(closes).toBe(1);
 	const reopened = await open();
-	expect(expectOk(await reopened.tables.notes.get('milk'))?.fields.title).toBe(
+	expect(expectOk(await reopened.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Oat milk',
 	);
 	expect(expectOk(await reopened.files.read('reentrant.md'))).toBeUndefined();
@@ -1816,7 +1831,7 @@ test('an edit listener at the close fence is refused storage, closes to the same
 	);
 	expect(closes).toBe(1);
 	const reopened = await open();
-	expect(expectOk(await reopened.tables.notes.get('milk'))?.fields.title).toBe(
+	expect(expectOk(await reopened.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Oat milk',
 	);
 	expect(
@@ -1861,7 +1876,7 @@ test('close waits for saves, never for a read that does not answer', async () =>
 
 	expect(await folder.close()).toEqual([]);
 	const reopened = await open();
-	expect(expectOk(await reopened.tables.notes.get('milk'))?.fields.title).toBe(
+	expect(expectOk(await reopened.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Oat milk',
 	);
 });
@@ -1891,13 +1906,13 @@ test('plain code opens, reads, edits with no view or subscriber, sees status, se
 		expect(statuses.at(-1)?.unsaved).toEqual([MILK]);
 		// The pause the folder was opened with saves it.
 		await until(() => folder.getStatus().unsaved.length === 0);
-		expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
+		expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.title).toBe(
 			'Oat',
 		);
 
 		edit.change({ fields: { title: 'Oat milk' } });
 		expect(await folder.settle()).toEqual([]);
-		expect(edit.getMarkdown()?.fields.title).toBe('Oat milk');
+		expect(edit.getMarkdown()?.fields?.title).toBe('Oat milk');
 		expect(folder.getStatus()).toMatchObject({
 			saving: false,
 			unsaved: [],
@@ -2193,6 +2208,8 @@ test('file reads seed one source for generic, schema-bound and strict table inte
 		checked.getMarkdown()?.issues?.every((issue) => issue.kind === 'schema'),
 	).toBe(true);
 	expect(strict.getMarkdown()?.issues?.[0]?.kind).toBe('frontmatter');
+	expect(strict.getMarkdown()?.fields).toBeUndefined();
+	expect(strict.getMarkdown()?.body).toBeUndefined();
 	expect(generic.getMarkdown()).toBe(folder.files.edit(path).getMarkdown());
 	expect(checked.getMarkdown()).toBe(
 		folder.files.edit(path, notes).getMarkdown(),
@@ -2210,6 +2227,43 @@ test('file reads seed one source for generic, schema-bound and strict table inte
 		'text',
 	]);
 	expect(reads.calls).toHaveLength(1);
+});
+
+test('a throwing read schema leaves exact Markdown and raw fields available', async () => {
+	const { folder } = await setup();
+	const source = '---\ntitle: value\n---\nbody\n';
+	expectOk(await folder.files.write('notes/a.md', null, source));
+	const schema = Type.Object({
+		title: Type.Refine(Type.String(), () => {
+			throw new Error('validator failed');
+		}),
+	});
+	const edit = folder.files.edit('notes/a.md', schema);
+	expectOk(await edit.read());
+	expect(edit.getMarkdown()).toMatchObject({
+		text: source,
+		body: 'body\n',
+		fields: { title: 'value' },
+	});
+	expect(edit.getMarkdown()?.issues?.[0]?.message).toContain(
+		'validator failed',
+	);
+});
+
+test('table access requires a body boundary while file access accepts plain Markdown', async () => {
+	const { folder } = await setup();
+	const path = 'notes/plain.md';
+	expectOk(await folder.files.write(path, null, 'Plain body\n'));
+	const strict = folder.tables.notes.edit('plain');
+	const file = folder.files.edit(path);
+	expectOk(await strict.read());
+	expect(expectErr(strict.change({ body: 'Changed\n' })).name).toBe(
+		'InvalidFields',
+	);
+	expectOk(file.change({ body: 'Changed\n' }));
+	expect(file.getMarkdown()?.body).toBe('Changed\n');
+	expect(strict.getMarkdown()?.body).toBeUndefined();
+	expect(strict.getText()).toBe('Changed\n');
 });
 
 test('a structured save refuses a header broken after its source preparation', async () => {
@@ -2231,7 +2285,7 @@ test('a structured save refuses a header broken after its source preparation', a
 	});
 	expect(await stored(MILK)).toBe(broken);
 	expect(edit.getMarkdown()?.text).toBe(edit.getText());
-	expect(edit.getMarkdown()?.fields).toEqual({});
+	expect(edit.getMarkdown()?.fields).toBeUndefined();
 });
 
 test('Markdown snapshot identity follows editable text through save start and failure', async () => {
@@ -2257,7 +2311,7 @@ test('Markdown snapshot identity follows editable text through save start and fa
 	expect(file.getMarkdown()).toBe(genericShown);
 	expectOk(edit.change({ fields: { title: 'Changed' } }));
 	expect(edit.getMarkdown()).not.toBe(shown);
-	expect(edit.getMarkdown()?.fields.title).toBe('Changed');
+	expect(edit.getMarkdown()?.fields?.title).toBe('Changed');
 	expect(file.getMarkdown()).not.toBe(genericShown);
 	restore();
 });

@@ -67,7 +67,7 @@ export function useFileEdit<TDocumentSchema extends TSchema>(
 		/** Merge a body typed over this render with changes from other handlers. */
 		change(change: DocumentChange<TDocumentSchema>): ChangeResult {
 			const now = edit.getMarkdown();
-			if (change.body === undefined || value === undefined || now === undefined)
+			if (change.body === undefined || value?.body === undefined || now?.body === undefined)
 				return edit.change(change);
 			return edit.change({
 				...change,

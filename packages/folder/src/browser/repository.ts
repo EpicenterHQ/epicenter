@@ -6,10 +6,12 @@ import {
 	rowAddressProblem,
 	writableExistingPath,
 } from '../paths.js';
+import { frameRowText } from '../shared/content/markdown.js';
+import { readDocument } from '../shared/document.js';
 import { ReadError, SaveError } from '../shared/errors.js';
+import { changeMarkdown } from '../shared/markdown-codec.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
-import { readDocument } from '../shared/document.js';
 import { changeSnapshot } from './git/snapshot.js';
 import {
 	openStorage,
@@ -114,7 +116,8 @@ export async function openRepository<
 		path: string,
 		from: FileContent | null,
 		content: FileContent | null,
-		rowFields = false,
+		rowFields?: Record<string, unknown>,
+		frontmatter?: 'required' | 'optional',
 	) {
 		// A mutable caller buffer must not change the edit's witness during retries.
 		const base = from instanceof Uint8Array ? from.slice() : from;
@@ -158,25 +161,71 @@ export async function openRepository<
 					}
 				}
 				const current = snapshotContent(snapshot, path);
-				if (rowFields && current !== null) {
+				if (
+					(rowFields !== undefined || frontmatter !== undefined) &&
+					current !== null
+				) {
 					const row = readDocument(path, current);
 					const problem = row.issues?.[0];
 					if (problem?.kind === 'not-text') return SaveError.NotText();
-					if (problem?.kind === 'frontmatter')
+					if (
+						frontmatter === 'required' &&
+						frameRowText(row.text).kind !== 'frontmatter'
+					)
+						return SaveError.Unparseable({
+							reason: 'The source has no closed frontmatter',
+						});
+					if (frontmatter !== undefined && row.body === undefined)
+						return SaveError.Unparseable({
+							reason: 'The source has no known body boundary',
+						});
+					if (rowFields !== undefined && problem?.kind === 'frontmatter')
 						return SaveError.Unparseable({ reason: problem.message });
 				}
 				const merged = await merge(path, { base, current, change });
-				if (sameContent(merged.content, current))
+				let content = merged.content;
+				if (frontmatter !== undefined && content !== null) {
+					const result = readDocument(
+						path,
+						typeof content === 'string'
+							? new TextEncoder().encode(content)
+							: content,
+					);
+					if (result.issues?.[0]?.kind === 'not-text')
+						return SaveError.NotText();
+					if (
+						(frontmatter === 'required' &&
+							frameRowText(result.text).kind !== 'frontmatter') ||
+						result.body === undefined
+					)
+						return SaveError.Unparseable({
+							reason: 'The merged source has no known body boundary',
+						});
+				}
+				if (rowFields !== undefined && content !== null) {
+					const applied = changeMarkdown(
+						readDocument(
+							path,
+							typeof content === 'string'
+								? new TextEncoder().encode(content)
+								: content,
+						),
+						{ fields: rowFields },
+						frontmatter ?? 'optional',
+					);
+					if (applied.error !== null)
+						return SaveError.Unparseable({ reason: applied.error.reason });
+					content = applied.data.text;
+				}
+				if (sameContent(content, current))
 					return Ok({
 						deleted:
-							merged.content === null &&
+							content === null &&
 							!snapshot.files.has(path) &&
 							!snapshot.directories.has(path),
 						stored: current,
 					});
-				const changes = new Map<string, FileContent | null>([
-					[path, merged.content],
-				]);
+				const changes = new Map<string, FileContent | null>([[path, content]]);
 				const candidate = await changeSnapshot({
 					root: snapshot.state.workingTree,
 					edits: changes,
@@ -195,8 +244,8 @@ export async function openRepository<
 					})
 				) {
 					return Ok({
-						deleted: merged.content === null,
-						stored: merged.content,
+						deleted: content === null,
+						stored: content,
 					});
 				}
 			}
@@ -256,7 +305,8 @@ export async function openRepository<
 					rowPath(id),
 					from?.text ?? null,
 					sent.data.text,
-					change.fields !== undefined,
+					change.fields,
+					'required',
 				);
 				if (saved.error !== null) return Err(saved.error);
 				return Ok({
@@ -305,10 +355,11 @@ export async function openRepository<
 				path: string,
 				from: FileContent | null,
 				content: FileContent,
-				fields?: boolean,
+				fields?: Record<string, unknown>,
+				frontmatter?: 'required' | 'optional',
 			): Promise<Result<{ stored: FileContent | null }, SaveError>> {
 				assertOpen();
-				const result = await saveFile(path, from, content, fields ?? false);
+				const result = await saveFile(path, from, content, fields, frontmatter);
 				return result.error !== null
 					? Err(result.error)
 					: Ok({ stored: result.data.stored });

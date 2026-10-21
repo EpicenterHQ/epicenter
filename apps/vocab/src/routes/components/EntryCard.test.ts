@@ -244,7 +244,7 @@ test('a valid unsaved repair opens its structured controls even when saving fail
 		click(target, 'Show note and stage');
 		await until(() => target.querySelector('textarea[aria-label="Your note for lucid"]') !== null, 'the structured editor');
 		expect(opened.vocab.entries.repair.open).toBeUndefined();
-		expect((await folder.tables.entries.get('broken')).data?.fields.stage).toBe('invalid');
+		expect((await folder.tables.entries.get('broken')).data?.fields?.stage).toBe('invalid');
 		expect(folder.tables.entries.edit('broken').getPending()).toBeDefined();
 	} finally {
 		IDBObjectStore.prototype.put = put;

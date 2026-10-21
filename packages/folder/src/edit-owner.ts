@@ -25,16 +25,18 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderFileOperations } from './folder.js';
 import { callObserver } from './observer.js';
+import { ownFields } from './shared/content/canonical.js';
 import { mergeLinesWith } from './shared/content/merge-lines.js';
-import { documentChange, readDocument } from './shared/document.js';
+import { readDocument } from './shared/document.js';
 import { ReadError, SaveError } from './shared/errors.js';
+import { changeMarkdown, readMarkdown } from './shared/markdown-codec.js';
 import {
 	type FileContent,
 	merge,
 	mergeWith,
 	sameContent,
 } from './shared/merge.js';
-import { type Issue, type Row, readRow } from './shared/row.js';
+import { type MarkdownValue, type Row } from './shared/row.js';
 
 /** How long after its last change input saves, unless the folder was opened with another pause. */
 export const SAVE_AFTER_MS = 1000;
@@ -95,22 +97,14 @@ export type DocumentChange<TRowSchema extends TSchema = typeof anyFields> = {
 };
 
 /** The editable source interpreted by this handle's read schema. */
-export type MarkdownContent<TRowSchema extends TSchema = typeof anyFields> = {
-	readonly text: string;
-	readonly body: string;
-} & (
-	| { readonly fields: Static<TRowSchema>; readonly issues: null }
-	| {
-			readonly fields: Readonly<Record<string, unknown>>;
-			readonly issues: Issue[];
-	  }
-);
+export type MarkdownContent<TRowSchema extends TSchema = typeof anyFields> =
+	Readonly<MarkdownValue<TRowSchema>>;
 
 /** Structured input held over one path, whether it is currently applicable or not. */
-export type DocumentPending<TRowSchema extends TSchema = typeof anyFields> = {
+export type DocumentPending = {
 	readonly kind: 'document';
 	readonly path: string;
-	readonly fields: Readonly<Partial<Static<TRowSchema>>>;
+	readonly fields: Readonly<Record<string, unknown>>;
 	readonly body: string | undefined;
 	readonly saving: boolean;
 	readonly error: SaveError | undefined;
@@ -125,9 +119,7 @@ export type TextPending = {
 	readonly error: SaveError | undefined;
 };
 
-export type Pending<TRowSchema extends TSchema = typeof anyFields> =
-	| DocumentPending<TRowSchema>
-	| TextPending;
+export type Pending = DocumentPending | TextPending;
 
 /**
  * What an edit knows of its file, and how reading it goes. `known` is
@@ -154,7 +146,7 @@ export type FileEdit<TRowSchema extends TSchema = typeof anyFields> = {
 	readonly path: string;
 	getText(): string | undefined;
 	getMarkdown(): MarkdownContent<TRowSchema> | undefined;
-	getPending(): Pending<TRowSchema> | undefined;
+	getPending(): Pending | undefined;
 	getReadStatus(): ReadStatus;
 	isLocked(): boolean;
 	/** Refresh this path. Read the current snapshot through the getters afterwards. */
@@ -167,7 +159,7 @@ export type FileEdit<TRowSchema extends TSchema = typeof anyFields> = {
 	/** Attempt held input, including an earlier failure, or join its running attempt. */
 	save(): Promise<void>;
 	/** Release held input, returning it for recovery. Refused while a save or action runs. */
-	discard(): Pending<TRowSchema> | undefined;
+	discard(): Pending | undefined;
 	delete(): Promise<DeleteResult>;
 	/** Fence this path, save held input, then perform one protected action. */
 	exclusive<T>(
@@ -234,6 +226,7 @@ type Source = Pick<Row, 'text' | 'issues'>;
 
 type DocumentInput = {
 	readonly kind: 'document';
+	readonly frontmatter: 'required' | 'optional';
 	readonly pending: DocumentPending;
 	/** The latest document typed over, preferring one whose frontmatter parses. */
 	readonly source: Source;
@@ -251,13 +244,16 @@ type TextInput = {
 	readonly pending: TextPending;
 	/** The content the typing started from, or the text the last landed save sent. */
 	readonly from: FileContent;
+	/** Structured assignments made after source input still apply at storage. */
+	readonly fields?: Record<string, unknown>;
+	readonly frontmatter?: 'required' | 'optional';
 	readonly revision: number;
 };
 
 type Input = DocumentInput | TextInput;
 
 /** A structured save's merge base and submitted text, for input typed during saving. */
-type Prepared = { readonly base: string; readonly sent: string };
+type Prepared = { readonly base: FileContent; readonly sent: string };
 
 /** The exact stored content, `null` for no file, `undefined` while unknown. */
 type Known = FileContent | null | undefined;
@@ -391,24 +387,35 @@ const changeOf = ({ fields, body }: DocumentPending) => ({
 });
 
 /** The row a row input's save starts from: its source with every base put in. */
-function baseOf({ source, bases }: DocumentInput): Source {
+function baseOf(input: DocumentInput): Source {
+	const { source, bases } = input;
 	const fields =
 		Object.keys(bases.fields).length === 0 ? undefined : bases.fields;
 	if (fields === undefined && bases.body === undefined) return source;
-	const based = documentChange(source, { fields, body: bases.body });
+	const based = changeMarkdown(
+		source,
+		{ fields, body: bases.body },
+		input.frontmatter,
+	);
 	if (based.error === null)
 		return { text: based.data.text, issues: source.issues };
-	// The source is not applicable; storage refuses it and the input stays held.
+	// No source whose fields could take the bases was typed over. The engine
+	// refuses fields over it and says why; the input stays held.
 	return source;
 }
 
-/** Put a structured change into a file's source. */
+/** `change` put into the file `content`, as text. */
 function changed(
 	path: string,
 	content: FileContent,
 	change: { fields?: Record<string, unknown>; body?: string },
+	frontmatter: 'required' | 'optional' = 'optional',
 ) {
-	return documentChange(readDocument(path, bytesOf(content)), change);
+	return changeMarkdown(
+		readDocument(path, bytesOf(content)),
+		change,
+		frontmatter,
+	);
 }
 
 function withState(
@@ -444,7 +451,15 @@ export function createEditOwner({
 	readonly writeDocument: (
 		path: string,
 		prepare: () => Promise<
-			Result<{ from: string; text: string; fields: boolean }, SaveError>
+			Result<
+				{
+					from: FileContent;
+					text: string;
+					fields?: Record<string, unknown>;
+					frontmatter: 'required' | 'optional';
+				},
+				SaveError
+			>
 		>,
 	) => Promise<{ error: SaveError | null; prepared?: Prepared }>;
 	readonly saveAfterMs?: number;
@@ -783,8 +798,19 @@ export function createEditOwner({
 	): Promise<{ error: SaveError | null; prepared?: Prepared }> {
 		try {
 			switch (input.kind) {
-				case 'text':
-					return await files.write(path, input.from, input.pending.text);
+				case 'text': {
+					const frontmatter = input.frontmatter;
+					if (frontmatter === undefined)
+						return await files.write(path, input.from, input.pending.text);
+					return await writeDocument(path, async () =>
+						Ok({
+							from: input.from,
+							text: input.pending.text,
+							fields: input.fields,
+							frontmatter,
+						}),
+					);
+				}
 				case 'document':
 					return await writeDocument(path, async () => {
 						const found = await files.read(path);
@@ -811,13 +837,18 @@ export function createEditOwner({
 								? { ...input, source: latest }
 								: input,
 						);
-						const sent = documentChange(base, changeOf(input.pending));
+						const sent = changeMarkdown(
+							base,
+							changeOf(input.pending),
+							input.frontmatter,
+						);
 						if (sent.error !== null)
 							return SaveError.Unparseable({ reason: sent.error.reason });
 						return Ok({
 							from: base.text,
 							text: sent.data.text,
-							fields: Object.keys(input.pending.fields).length > 0,
+							fields: changeOf(input.pending).fields,
+							frontmatter: input.frontmatter,
 						});
 					});
 			}
@@ -875,7 +906,9 @@ export function createEditOwner({
 			setInput(
 				path,
 				state,
-				after.pending.text === before.pending.text
+				after.pending.text === before.pending.text &&
+					after.fields === before.fields &&
+					after.frontmatter === before.frontmatter
 					? undefined
 					: {
 							...after,
@@ -1125,10 +1158,20 @@ export function createEditOwner({
 		if (doc === undefined || doc === null) return undefined;
 		const stored = decodedOf(state, doc);
 		if (stored === undefined || input === undefined) return stored;
-		const put = changed(path, stored, changeOf(input.pending));
+		const put = changed(
+			path,
+			stored,
+			changeOf(input.pending),
+			input.frontmatter,
+		);
 		if (put.error === null) return put.data.text;
 		if (input.pending.body !== undefined) {
-			const body = changed(path, stored, { body: input.pending.body });
+			const body = changed(
+				path,
+				stored,
+				{ body: input.pending.body },
+				input.frontmatter,
+			);
 			if (body.error === null) return body.data.text;
 		}
 		return stored;
@@ -1154,16 +1197,11 @@ export function createEditOwner({
 			const previous = cache.get(readSchema);
 			if (previous?.text === text)
 				return previous as MarkdownContent<TRowSchema>;
-			const read =
-				strictRow || textOf(text) === undefined
-					? readRow('', text, readSchema)
-					: readDocument(path, bytesOf(text), readSchema);
-			const value = {
+			const value = readMarkdown(
 				text,
-				body: read.body,
-				fields: read.fields,
-				issues: read.issues,
-			} as MarkdownContent;
+				readSchema,
+				strictRow ? 'required' : 'optional',
+			);
 			cache.set(readSchema, value);
 			return value as MarkdownContent<TRowSchema>;
 		};
@@ -1176,7 +1214,10 @@ export function createEditOwner({
 			const stored = decodedOf(state, doc);
 			return stored === undefined ? ChangeError.NotText() : Ok(stored);
 		}
-		const replaceText = (typed: string): ChangeResult => {
+		const submitText = (
+			typed: string,
+			structured?: Pick<TextInput, 'fields' | 'frontmatter'>,
+		): ChangeResult => {
 			const state = states.get(path);
 			const reason = lockReason(state);
 			if (reason !== undefined) return ChangeError.Locked({ reason });
@@ -1187,7 +1228,12 @@ export function createEditOwner({
 				const stored = storedText(state);
 				if (stored.error !== null) return stored;
 				if (input !== undefined) {
-					const preview = changed(path, stored.data, changeOf(input.pending));
+					const preview = changed(
+						path,
+						stored.data,
+						changeOf(input.pending),
+						input.frontmatter,
+					);
 					if (preview.error !== null)
 						return ChangeError.InvalidFields({ reason: preview.error.reason });
 					from = baseOf({
@@ -1207,6 +1253,7 @@ export function createEditOwner({
 					error: undefined,
 				},
 				from,
+				...structured,
 				revision: ++revisions,
 			});
 			schedule(path, target);
@@ -1216,8 +1263,7 @@ export function createEditOwner({
 			path,
 			getText,
 			getMarkdown,
-			getPending: () =>
-				states.get(path)?.input?.pending as Pending<TRowSchema> | undefined,
+			getPending: () => states.get(path)?.input?.pending,
 			getReadStatus: () => {
 				const state = states.get(path);
 				return state === undefined ? NOTHING : statusOf(state);
@@ -1225,25 +1271,43 @@ export function createEditOwner({
 			isLocked: () => isLocked(states.get(path)),
 			read: () => read(path),
 			subscribe: (listener) => subscribeTo(path, listener),
-			replaceText,
+			replaceText: (typed) => submitText(typed),
 			change(change) {
 				const state = states.get(path);
 				const reason = lockReason(state);
 				if (reason !== undefined) return ChangeError.Locked({ reason });
 				const input = state?.input;
-				const typed = (change.fields ?? {}) as Record<string, unknown>;
+				const ownedFields = ownFields(change.fields ?? {});
+				if (ownedFields.error !== null)
+					return ChangeError.InvalidFields({
+						reason: ownedFields.error.reason,
+					});
+				const typed = ownedFields.data;
 				const keys = Object.keys(typed);
 				if (keys.length === 0 && change.body === undefined)
 					return Ok(undefined);
 				if (input?.kind === 'text') {
+					let fields = input.fields ?? {};
+					for (const key of keys) fields = withValue(fields, key, typed[key]);
+					const frontmatter =
+						input.frontmatter === 'required' || strictRow
+							? 'required'
+							: 'optional';
 					const put = changed(
 						path,
 						input.pending.text,
-						change as { fields?: Record<string, unknown>; body?: string },
+						{
+							fields: keys.length === 0 ? undefined : typed,
+							body: change.body,
+						},
+						frontmatter,
 					);
 					if (put.error !== null)
 						return ChangeError.InvalidFields({ reason: put.error.reason });
-					return replaceText(put.data.text);
+					return submitText(put.data.text, {
+						fields: Object.keys(fields).length === 0 ? undefined : fields,
+						frontmatter,
+					});
 				}
 				const stored = storedText(state);
 				if (stored.error !== null) return stored;
@@ -1255,7 +1319,7 @@ export function createEditOwner({
 						baseFields = withValue(
 							baseFields,
 							key,
-							fieldValue(source.fields, key),
+							fieldValue(source.fields ?? {}, key),
 						);
 					fields = withValue(fields, key, typed[key]);
 				}
@@ -1273,14 +1337,24 @@ export function createEditOwner({
 					saving: input?.pending.saving ?? false,
 					error: undefined,
 				};
+				const frontmatter = strictRow ? 'required' : 'optional';
 				if (parses(source)) {
-					const put = documentChange(source, changeOf(pending));
+					const put = changeMarkdown(source, changeOf(pending), frontmatter);
+					if (put.error !== null)
+						return ChangeError.InvalidFields({ reason: put.error.reason });
+				} else if (change.body !== undefined) {
+					const put = changeMarkdown(
+						source,
+						{ body: change.body },
+						frontmatter,
+					);
 					if (put.error !== null)
 						return ChangeError.InvalidFields({ reason: put.error.reason });
 				}
 				const next = stateOf(path);
 				setInput(path, next, {
 					kind: 'document',
+					frontmatter,
 					pending,
 					source:
 						input === undefined || parses(source) || !parses(input.source)
@@ -1293,7 +1367,7 @@ export function createEditOwner({
 				return Ok(undefined);
 			},
 			save: () => requested(path),
-			discard: () => discard(path) as Pending<TRowSchema> | undefined,
+			discard: () => discard(path),
 			delete: () =>
 				remove(path, async () => {
 					const stored = await files.read(path);
