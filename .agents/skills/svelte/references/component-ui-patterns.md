@@ -125,18 +125,18 @@ getter. This occurs with ordinary properties as well as JavaScript getters.
 In that case, read and narrow a reactive local:
 
 ```svelte
-{#each edits as edit (edit.path)}
-	{@const row = edit.row}
-	{#if row?.issues === null}
+{#each rowEdits as rowEdit (rowEdit.path)}
+	{#if rowEdit.row?.issues === null}
+		{@const row = rowEdit.row}
 		<Input
-			bind:value={() => row.fields.title, title => edit.change({ fields: { title } })}
+			bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })}
 		/>
 	{/if}
 {/each}
 ```
 
-`{@const}` stays reactive within its template block. Use `$derived(edit.row)`
-when script code also needs the row; a plain script `const row = edit.row`
+`{@const}` stays reactive within its template block. Use `$derived(rowEdit.row)`
+when script code also needs the row; a plain script `const row = rowEdit.row`
 captures only the initial value. Narrow absent or invalid rows outside the
 control instead of putting `?.` and an empty fallback into every binding.
 Use the source's actual sentinel (`undefined` or `null`); a Folder row is valid

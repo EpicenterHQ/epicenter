@@ -55,10 +55,10 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   as "not sent", and never send a provider request again without the person
   asking. A stopped Epicenter host does not stop saving: do not tell the
   person it does.
-- **Files are authoritative.** The local folder context's TanStack Query
-  cache (`@epicenter/svelte/folder`) holds only the folder as last read,
-  while Folder retains accepted edits until they save (ADR-0528). Do not add
-  another cache, mirror, or second store of recordings. Do not add Yjs, the
+- **Files are authoritative.** Keep editable documents and accepted input
+  in the Folder's edit owner. Queries list, derive, and schedule refreshes;
+  do not add another document owner, save queue, mirror, or second store of
+  recordings. Do not add Yjs, the
   `@epicenter/app` store, or accounts to this workflow.
 - **A recording's audio is the file its row names.** `audioPath` is the only
   link. Do not infer audio from a file that shares the row's stem, do not

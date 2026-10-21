@@ -47,7 +47,7 @@ Skip DeepWiki for stable basics and repo-local patterns already documented here 
 
 ## Core Decisions
 
-- Expose Svelte adapter reads as tracked getters (`getRow()` becomes `.row`); keep commands as methods. This is the exception to the [TypeScript read-method convention](../typescript/SKILL.md#core-rules). A getter alone is not reactive, and spreading its current value does not forward its tracking.
+- Expose Svelte adapter reads as tracked getters (`getRow()` becomes `.row`); keep commands as methods. Name adapters `rowEdit` and `textEdit`, reserving `row` and `text` for their values. This is the exception to the [TypeScript read-method convention](../typescript/SKILL.md#core-rules). A getter alone is not reactive, and spreading its current value does not forward its tracking.
 - When a deferred binding callback loses the narrowing of an optional property, name the value reactively and narrow that local: use `{@const}` for a template block or `$derived` when script code needs it. An already-narrowed local needs no extra alias. See [function bindings](references/component-ui-patterns.md#function-bindings-for-transformed-values) for the mechanism and examples.
 
 - Choose [immediate editing or explicit submission](references/input-ownership.md) before adding content state. Immediate controls bind to the current editor and submit complete replacements. Explicit forms own one draft per submission, preferably a `$state.raw` object updated by replacement; ordinary proxied `$state` uses `$state.snapshot` when its API boundary needs plain data. Keep request, selection and widget state separate from this choice.

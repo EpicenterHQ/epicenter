@@ -159,11 +159,11 @@ name. An already-narrowed local needs no extra alias. A reactive local is not
 a second draft or a mount-time snapshot.
 
 ```svelte
-{#each edits as edit (edit.path)}
-	{@const row = edit.row}
-	{#if row?.issues === null}
-		<Input bind:value={() => row.fields.title, title => edit.change({ fields: { title } })} />
-		<Textarea bind:value={() => row.body, body => edit.change({ body })} />
+{#each rowEdits as rowEdit (rowEdit.path)}
+	{#if rowEdit.row?.issues === null}
+		{@const row = rowEdit.row}
+		<Input bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })} />
+		<Textarea bind:value={() => row.body, body => rowEdit.change({ body })} />
 	{/if}
 {/each}
 ```
@@ -173,8 +173,8 @@ Folder rows are absent as `undefined`, and valid when `issues === null`.
 The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
 explains event-time composition through the current owner.
 
-Use `const row = $derived(edit.row)` if script code also needs it. Do not
-replace either reactive form with a component-level `const row = edit.row`:
+Use `const row = $derived(rowEdit.row)` if script code also needs it. Do not
+replace either reactive form with a component-level `const row = rowEdit.row`:
 that captures only the initial value. A simple display that needs no shared
 narrowing may read `session.current` directly; do not add an alias just to
 rename it, and do not remove a useful local merely because its initializer

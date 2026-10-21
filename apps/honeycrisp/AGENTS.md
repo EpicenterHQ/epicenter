@@ -18,22 +18,15 @@ verify it against the code. The constraints below apply to every edit here.
   the shared opener owns saying so. Do not wrap a method the local folder
   does not have (rename, move, mkdir, Git) to bring it back.
 - Opening or listing a note must not write its file. Only an edit writes.
-- The query cache holds what the files held when they were read. The note
-  and folder rows are the context's queries (`queries.rows` in
-  `getFolder()`); the file listing and each file opened as text are
-  `createNotes`' queries under the context's key, in
-  `src/lib/notes.svelte.ts`. Do not add a second store or a retained editor
-  per path. `$state` holds only input that is not saved yet: a row draft, a
-  file's text draft, the search, a folder name being typed.
-- A note's title, folder, pin, and body, a list action, and a folder's name
-  are the row's draft in the context's edit layer (`edits.row`,
-  `@epicenter/svelte/edits`). It takes the cached row at the first
-  change, shows over every reread (`shown`), and saves a second after the
-  last change, or at once when the view leaves it or a list action asks;
-  `table.set` merges it with whatever was saved meanwhile. A failed save keeps
-  the draft and its error. A read never replaces a draft.
-- Whole-file input belongs to the shared `edits` owner, alongside row
-  patches. Keep one pending representation and one save queue per path.
+- Keep editable documents and accepted input in the Folder's edit owner.
+  Queries list, derive, and schedule refreshes; do not add another document
+  owner or save queue in the app. Local state holds unfinished forms,
+  search, selection, and other UI state.
+- Send immediate note and folder changes through the shared Folder edit.
+  Preserve pending input across rereads and view changes. A failed save
+  keeps that input and its error; a read must never replace it.
+- Whole-file input and row patches share one pending representation and
+  one save queue per path.
   Switching representations must preserve failed input for retry, copying,
   or explicit discard. Selecting another file does not release that input.
   Reads must not initiate saves or wait for them.
@@ -58,8 +51,8 @@ verify it against the code. The constraints below apply to every edit here.
 
 ## Editor ownership
 
-- The note's draft, or the cache when there is none, owns the note's body.
-  ProseMirror's `EditorState` owns only what neither has a place for: the
+- The Folder's row edit owns the note's body.
+  ProseMirror's `EditorState` owns only what that edit has no place for: the
   cursor, pending formatting, undo history, and an empty paragraph Markdown
   cannot spell yet. Its document is never a third copy of the body.
 - Every ProseMirror transaction that changes the document goes through
