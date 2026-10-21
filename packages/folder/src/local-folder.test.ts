@@ -367,7 +367,7 @@ test('status is saving while a save is in progress and saved only after it commi
 	await folder.close();
 });
 
-test('close lets a started save finish, then rejects new work and releases listeners', async () => {
+test('close lets a started save finish, refuses listeners at once, then releases storage and listeners', async () => {
 	const folder = await open();
 	const other = await open();
 	let status = 0;
@@ -378,12 +378,13 @@ test('close lets a started save finish, then rejects new work and releases liste
 	const started = folder.files.write('late.md', null, 'kept');
 	const closing = folder.close();
 	expect(closing).toBe(folder.close());
-	expect(() => folder.files.list()).toThrow('closed');
-	expect(() => folder.tables.notes.get('a')).toThrow('closed');
 	expect(() => folder.onChange(() => {})).toThrow('closed');
 	expect(() => folder.onStatusChange(() => {})).toThrow('closed');
 	expectOk(await started);
 	await closing;
+	// Storage stays usable while close drains, and refuses once released.
+	expect(() => folder.files.list()).toThrow('closed');
+	expect(() => folder.tables.notes.get('a')).toThrow('closed');
 
 	const statusAfterClose = status;
 	expectOk(await other.files.write('after.md', null, 'x'));

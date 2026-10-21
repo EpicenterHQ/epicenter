@@ -101,3 +101,49 @@ than writes it. The page then holds that read, so the next attempt includes
 it. Messages reserves its durable draft path when a send is
 called, with its Web Lock inside that action. Capture, Whispering and Epicenter
 already used one level.
+
+## Amendment, 2026-10-21: one Folder, no FolderWork
+
+`FolderWork` is removed: its brand, the scoped copies of `files` and `tables`,
+the per-callback expiry and the per-action set of started calls. The callback
+of `folder.run(paths, action)` takes no argument and uses the same
+`folder.files` and `folder.tables` as everything else. `run` keeps its
+contract: one admission per action, the same `Result<T, ActionError>`, held
+input flushed and every path reserved before the callback, overlaps refused,
+`[]` for lifetime only, and new actions refused synchronously once close is
+called. `saving` stays truthful.
+
+This reverses two clauses above. Root storage no longer refuses when close
+starts; `files` and `tables` stay usable while close drains and throw only
+after close releases storage. New input, new actions, new listeners, `settle`
+and `FileEdit.read` still refuse from the moment close is called, and held
+input stays readable and recoverable after release. The alternative rejected
+above, leaving root storage open while actions drain, is the one now taken,
+with its cost stated: any write started during the drain, from an admitted
+action or an unrelated late caller, is waited for and prolongs close. Nothing
+is told apart by caller.
+
+Every save, from an action or not, registers in the one lifetime registry
+when it is called. Close finds that registry empty and releases storage in
+the same synchronous turn, before it publishes its final status, so a write
+called in an earlier turn is drained and one called later throws; the engine
+is never released under a write it accepted. A reservation ends only after
+the saves queued on its paths when the callback returned or threw have
+settled, so an unawaited write on a reserved path still lands before new
+input there is taken; a failed save does not replace the callback's outcome.
+A continuation the callback leaves running has no special capability: it is
+drained if it writes before release and refused after. Callers await the work
+whose outcome matters.
+
+Reservations remain local-input protection, not write permission. Code that
+must not write once the folder is closing asks for admission at that write.
+Whispering admits each received answer, and each retry, with
+`folder.run([], ...)` and treats `NotStarted` as closing, so an answer that
+arrives after disposal never starts saving even while other work, on its row
+or elsewhere, keeps the folder open. Provider requests stay outside Folder
+work and are neither drained nor replayed. A Stop admits its row-length write
+the same way once its initial row has saved.
+
+Departure policy is unchanged. `FolderApp` starts close when it unmounts and
+does not wait for it; a native window close or Quit, or a browser unload, does
+not wait for the drain, and `run` keeps no destroyed page alive.

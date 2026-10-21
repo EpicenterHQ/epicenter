@@ -16,8 +16,10 @@
  * Fields that no longer apply stay only in pending input.
  *
  * Fenced actions save input before running. Close refuses new input at once,
- * waits for saves and actions, and attempts remaining input once. Getters
- * keep answering held input after close, for recovery.
+ * waits for saves and actions, and attempts remaining input once; `save()`
+ * may attempt it again until the handle releases storage, which alone ends
+ * the owner's life. Getters keep answering held input after close, for
+ * recovery.
  */
 import { diffArrays } from 'diff';
 import { type Static, type TSchema, Type } from 'typebox';
@@ -417,9 +419,9 @@ const sameList = <T>(left: readonly T[], right: readonly T[]) =>
 	left.every((item, index) => item === right[index]);
 
 /**
- * Make the edit owner over a folder handle's own storage operations. They
- * are tracked like the handle's public calls but stay open while its close
- * sends held input; `folderHandle` makes one owner per handle and tells it
+ * Make the edit owner over a folder handle's own storage operations, tracked
+ * like the handle's public calls so its close waits for the held input they
+ * send; `folderHandle` makes one owner per handle and tells it
  * what its reads answered, what its saves stored, and which changes another
  * handle reported.
  */
@@ -450,7 +452,7 @@ export function createEditOwner({
 	readonly saveAfterMs?: number;
 	/** Called after anything `aggregate` reports may have changed. */
 	readonly onAggregate: () => void;
-	/** One handle registry owns saves and complete actions. */
+	/** One handle registry owns saves, each input's save loop, and complete actions. */
 	readonly track: <T>(action: () => Promise<T>) => Promise<T>;
 	readonly drainWork: () => Promise<void>;
 	readonly waitForPaths: (paths: readonly string[]) => Promise<unknown>;
@@ -768,7 +770,9 @@ export function createEditOwner({
 		const started = Promise.withResolvers<void>();
 		state.running = started.promise;
 		saves++;
-		drain(path, state).then(started.resolve, started.reject);
+		// Registered for its whole loop, not only each storage call, so close
+		// cannot release between one attempt and the next.
+		track(() => drain(path, state)).then(started.resolve, started.reject);
 		return started.promise;
 	}
 
@@ -996,6 +1000,11 @@ export function createEditOwner({
 		// Reservations may have released paths meanwhile. Don't retry a failed
 		// revision that this same settle already attempted.
 		await Promise.allSettled(sendReady());
+		return heldPending();
+	}
+
+	/** The input held now, by path. */
+	function heldPending(): Pending[] {
 		return [...held].sort().flatMap((path) => {
 			const pending = states.get(path)?.input?.pending;
 			return pending === undefined ? [] : [pending];
@@ -1005,8 +1014,10 @@ export function createEditOwner({
 	/**
 	 * Reserve every path before publishing or awaiting anything. Scopes do not
 	 * queue behind overlapping scopes: either every path is taken or none is.
-	 * Admitted work is tracked before listeners can close the folder, and its
-	 * file capabilities stay usable until the action ends, even during close.
+	 * Admitted work is tracked before listeners can close the folder. A path
+	 * stays reserved until the saves queued on it when the action ended have
+	 * finished, so a write the action started and did not await lands before
+	 * new input there is taken.
 	 */
 	function fence<T>(
 		paths: readonly string[],
@@ -1047,6 +1058,9 @@ export function createEditOwner({
 					return ActionError.NotStarted({ reason: UNSAVED });
 				return Ok(await action());
 			} finally {
+				// Settles whether those saves landed or failed; the action's own
+				// outcome is what this answers.
+				await waitForPaths(uniquePaths);
 				for (const { state } of reserved) state.action = undefined;
 				if (reserved.length > 0) reservations--;
 				for (const { path } of reserved) publish(path);
@@ -1371,15 +1385,25 @@ export function createEditOwner({
 		};
 	}
 
-	/** Called once by the handle, which owns the one close completion. */
-	function close(): Promise<Pending[]> {
+	/**
+	 * Called once by the handle when close begins: refuse new input and send
+	 * what is held once. `save()` keeps attempting its path until `release`.
+	 */
+	async function close(): Promise<void> {
 		phase = 'closing';
 		onAggregate();
 		publish(undefined);
-		return settle().then((unsaved) => {
-			phase = 'closed';
-			return unsaved;
-		});
+		await settle();
+	}
+
+	/**
+	 * Called once by the handle, in the turn it finds nothing left to wait for
+	 * and releases storage: from then on `save()` does nothing. Answers the
+	 * input still held then, for the handle's one close completion.
+	 */
+	function release(): Pending[] {
+		phase = 'closed';
+		return heldPending();
 	}
 
 	return {
@@ -1388,6 +1412,7 @@ export function createEditOwner({
 			fence(paths, BUSY, action),
 		settle,
 		close,
+		release,
 		getAggregate() {
 			return aggregate;
 		},

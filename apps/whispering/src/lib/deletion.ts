@@ -14,7 +14,7 @@
  * cannot say which recording it belongs to. A result on pasted text names no
  * recording and is never part of one.
  */
-import type { FolderWork, Row } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder';
 import { basename } from '@epicenter/folder/file-browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -26,7 +26,6 @@ import {
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
 	type TransformationFields,
-	type WhisperingTables,
 } from './definition.js';
 import { describeError, listingOf } from './files.js';
 import type { WhisperingFolder } from './folder.js';
@@ -101,7 +100,7 @@ function problemOf(row: Row): string {
  * recording's.
  */
 async function resultsOf(
-	folder: Pick<FolderWork<WhisperingTables>, 'tables'>,
+	folder: WhisperingFolder,
 	id: string,
 ): Promise<Result<string[], string>> {
 	const [transcripts, outputs] = await Promise.all([
@@ -222,17 +221,17 @@ export async function captureDeletion(
 const changedMeanwhile = (path: string) =>
 	`${path} changed while it was being deleted, so it was kept. Check it, then delete it again.`;
 
-/** Delete the current stored bytes through the already reserved file scope. */
+/** Delete the current stored bytes of a file the caller reserved. */
 async function deleteFile(
 	context: RunContext,
-	work: FolderWork<WhisperingTables>,
 	path: string,
 ): Promise<string | undefined> {
-	const { data: found, error: readError } = await work.files.read(path);
+	const { data: found, error: readError } =
+		await context.folder.files.read(path);
 	if (readError !== null) return describeError(readError);
 	if (found !== undefined) {
 		const bytes = new Uint8Array(await found.content.arrayBuffer());
-		const { data, error } = await work.files.delete(path, bytes);
+		const { data, error } = await context.folder.files.delete(path, bytes);
 		if (error !== null) return describeError(error);
 		if (!data.deleted) return changedMeanwhile(path);
 	}
@@ -241,36 +240,35 @@ async function deleteFile(
 }
 
 type RunContext = {
+	readonly folder: WhisperingFolder;
 	dropFailed(recordingId: string): void;
 	/** The caches let a deleted file go. */
 	deleted(path: string): void;
 };
 
 /**
- * Delete exactly what was confirmed through the files the caller reserved.
- * All held input has saved before this action starts.
+ * Delete exactly what was confirmed, inside the action that reserved every
+ * confirmed file. All held input has saved before this action starts.
  */
 export async function runDeletion(
 	context: RunContext,
 	deletion: Deletion,
-	work: FolderWork<WhisperingTables>,
 ): Promise<string | undefined> {
-	if (deletion.kind !== 'recording')
-		return deleteFile(context, work, deletion.path);
+	if (deletion.kind !== 'recording') return deleteFile(context, deletion.path);
 	const { id } = deletion;
 	// The caller reserved the recording and all confirmed files before this read.
-	const { data: now, error } = await resultsOf(work, id);
+	const { data: now, error } = await resultsOf(context.folder, id);
 	if (error !== null) return error;
 	const confirmed = new Set(deletion.results);
 	if (now.some((result) => !confirmed.has(result)))
 		return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
-	const refused = await deleteFile(context, work, deletion.path);
+	const refused = await deleteFile(context, deletion.path);
 	if (refused !== undefined) return refused;
 	context.dropFailed(id);
 	// One file at a time: an outside change keeps that file; earlier deletes stay deleted.
 	const leftovers: string[] = [];
 	for (const result of deletion.results) {
-		const problem = await deleteFile(context, work, result);
+		const problem = await deleteFile(context, result);
 		if (problem !== undefined) leftovers.push(result);
 	}
 	return leftovers.length > 0

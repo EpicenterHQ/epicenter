@@ -233,7 +233,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			const completion = Promise.withResolvers<WriteFailure[]>();
 			closing = completion.promise;
 			// Stop refreshes before Folder close reports its status or saves.
-			// Accepted work retains its own storage capability while close drains it.
+			// Accepted work keeps using the folder while close drains it.
 			stopChanges();
 			clearTimeout(refreshTimer);
 			queryClient.unmount();

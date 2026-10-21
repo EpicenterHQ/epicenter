@@ -23,7 +23,6 @@
  * history and has no rename or move, so Honeycrisp offers neither.
  */
 import { InstantString } from '@epicenter/definition';
-import type { FolderWork } from '@epicenter/folder';
 import { CLOSING, DELETING } from '@epicenter/folder/edits';
 import { ancestors, joinPath } from '@epicenter/folder/file-browser';
 import { createFileEdit } from '@epicenter/svelte/edits';
@@ -215,7 +214,7 @@ export function createNotes(local: NotesFolder) {
 	/** Give a refused action its app-level reason even after the context closes. */
 	async function runAction(
 		paths: readonly string[],
-		action: (work: FolderWork<HoneycrispTables>) => Promise<string | undefined>,
+		action: () => Promise<string | undefined>,
 	) {
 		const result = await folder.run(paths, action);
 		return result.error === null ? result.data : describeFailure(result.error);
@@ -301,8 +300,8 @@ export function createNotes(local: NotesFolder) {
 				.unsaved.filter((unsaved) => noteIdOf(unsaved) !== undefined),
 			path,
 		]);
-		return runAction([...reserved], async (work) => {
-			const listed = await work.tables.notes.list();
+		return runAction([...reserved], async () => {
+			const listed = await folder.tables.notes.list();
 			if (listed.error !== null) return describeFailure(listed.error);
 			if (!local.closing) queryClient.setQueryData(rowsKey(NOTES), listed.data);
 			const unknown = unknownRelations(listed.data);
@@ -324,20 +323,20 @@ export function createNotes(local: NotesFolder) {
 					)}), so it was kept and no note was moved. Delete it again to move them out.`;
 			const moveFailed = 'A note could not be moved out of the folder:';
 			for (const note of members) {
-				const current = await work.tables.notes.get(note.id);
+				const current = await folder.tables.notes.get(note.id);
 				if (current.error !== null)
 					return `${moveFailed} ${describeFailure(current.error)}`;
 				if (current.data === undefined) continue;
 				const unreadable = unknownRelations([current.data]);
 				if (unreadable !== undefined) return `${moveFailed} ${unreadable}`;
 				if (current.data.fields?.folderId !== entry.id) continue;
-				const saved = await work.tables.notes.set(note.id, current.data, {
+				const saved = await folder.tables.notes.set(note.id, current.data, {
 					fields: { folderId: null },
 				});
 				if (saved.error !== null)
 					return `${moveFailed} ${describeFailure(saved.error)}`;
 			}
-			const reread = await work.tables.notes.list();
+			const reread = await folder.tables.notes.list();
 			if (reread.error !== null) return describeFailure(reread.error);
 			const unreadable = unknownRelations(reread.data);
 			if (unreadable !== undefined) return unreadable;
@@ -349,7 +348,7 @@ export function createNotes(local: NotesFolder) {
 					.slice(0, 3)
 					.map((note) => `${note.id}.md`)
 					.join(', ')}), so it was kept. Delete it again to move them out.`;
-			const why = await deleteConfirmed({ path, title: undefined }, work);
+			const why = await deleteConfirmed({ path, title: undefined });
 			if (why !== undefined) return why;
 			if (!local.closing && view.folderId === entry.id)
 				view = { ...view, folderId: null };
@@ -372,21 +371,20 @@ export function createNotes(local: NotesFolder) {
 	 * delete refuses while it did not save. Read the stored bytes after that
 	 * flush and delete from that witness. One changed in that moment is kept.
 	 */
-	async function deleteConfirmed(
-		{ path }: Deletion,
-		work: FolderWork<HoneycrispTables>,
-	): Promise<string | undefined> {
-		const read = await work.files.read(path);
+	async function deleteConfirmed({
+		path,
+	}: Deletion): Promise<string | undefined> {
+		const read = await folder.files.read(path);
 		if (read.error !== null) return describeFailure(read.error);
 		if (read.data === undefined) {
 			deleted(path);
 			return undefined;
 		}
 		const from = new Uint8Array(await read.data.content.arrayBuffer());
-		const removed = await work.files.delete(path, from);
+		const removed = await folder.files.delete(path, from);
 		if (removed.error !== null) return describeFailure(removed.error);
 		if (!removed.data.deleted) {
-			const still = await work.files.read(path);
+			const still = await folder.files.read(path);
 			if (still.error !== null) return describeFailure(still.error);
 			if (still.data !== undefined) return KEPT;
 		}
@@ -495,8 +493,8 @@ export function createNotes(local: NotesFolder) {
 			const id = newId();
 			const path = rowFile(NOTES, id);
 			const folderId = view.deleted ? null : view.folderId;
-			const why = await runAction([path], async (work) => {
-				const created = await work.tables.notes.set(id, null, {
+			const why = await runAction([path], async () => {
+				const created = await folder.tables.notes.set(id, null, {
 					fields: {
 						folderId,
 						title: '',
@@ -515,8 +513,8 @@ export function createNotes(local: NotesFolder) {
 		},
 		createFolder(name: string) {
 			const id = newId();
-			return runAction([rowFile(FOLDERS, id)], async (work) => {
-				const created = await work.tables.folders.set(id, null, {
+			return runAction([rowFile(FOLDERS, id)], async () => {
+				const created = await folder.tables.folders.set(id, null, {
 					fields: { name, icon: null },
 					body: '',
 				});
@@ -530,8 +528,8 @@ export function createNotes(local: NotesFolder) {
 			const problem = placeProblem(directory, name);
 			if (problem !== undefined) return problem;
 			const path = joinPath(directory, name);
-			const why = await runAction([path], async (work) => {
-				const written = await work.files.write(path, null, '');
+			const why = await runAction([path], async () => {
+				const written = await folder.files.write(path, null, '');
 				return written.error === null
 					? undefined
 					: describeFailure(written.error);
@@ -561,6 +559,6 @@ export function createNotes(local: NotesFolder) {
 			});
 		},
 		delete: (deletion: Deletion) =>
-			runAction([deletion.path], (work) => deleteConfirmed(deletion, work)),
+			runAction([deletion.path], () => deleteConfirmed(deletion)),
 	};
 }

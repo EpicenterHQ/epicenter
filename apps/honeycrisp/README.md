@@ -142,10 +142,11 @@ step: notes already moved stay moved if a later save fails. Each delete uses
 the file just read as its witness, keeping a file another writer changed in
 the meantime.
 
-Async actions enter `folder.run` with every path they change and use its
-scoped `work.files` and `work.tables`. Closing fences new input immediately; admitted
-work can finish its later storage calls, while the departing view keeps its
-selection and does not open newly created files.
+Async actions enter `folder.run` with every path they change and use
+`folder.files` and `folder.tables` inside it. Closing fences new input and
+actions immediately; admitted work can finish its later storage calls before
+close releases the folder, while the departing view keeps its selection and
+does not open newly created files.
 
 ## When something changes underneath you
 

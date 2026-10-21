@@ -36,12 +36,12 @@ export async function openDraft(
 		ReadError | SaveError | ActionError
 	>
 > {
-	const opened = await folder.run([], async (work) => {
+	const opened = await folder.run([], async () => {
 		const id = await draftId(backend, chatId);
-		const read = await work.tables.drafts.get(id);
+		const read = await folder.tables.drafts.get(id);
 		if (read.error !== null) return read;
 		if (read.data !== undefined) return Ok({ id, row: read.data });
-		const saved = await work.tables.drafts.set(id, null, {
+		const saved = await folder.tables.drafts.set(id, null, {
 			fields: {
 				chatId,
 				profile: backend.profile,
@@ -71,9 +71,9 @@ export async function sendDraft(
 	>
 > {
 	const path = `drafts/${id}.md`;
-	const sent = await folder.run([path], async (work) => {
+	const sent = await folder.run([path], async () => {
 		const send = async () => {
-			const read = await work.tables.drafts.get(id);
+			const read = await folder.tables.drafts.get(id);
 			if (read.error !== null) return read;
 			const row = read.data;
 			if (!row || row.issues !== null)
@@ -106,7 +106,7 @@ export async function sendDraft(
 			if (prepared.error !== null)
 				return DraftError.Refused({ message: prepared.error.reason });
 			const text = prepared.data.text;
-			const fenced = await work.files.write(path, row.text, text);
+			const fenced = await folder.files.write(path, row.text, text);
 			if (fenced.error !== null) return fenced;
 			const answer = await backend.request({
 				action: 'send',
@@ -133,7 +133,7 @@ export async function sendDraft(
 					message:
 						'Beeper accepted the message, but its receipt could not be prepared. Check Beeper before sending again.',
 				});
-			const accepted = await work.files.write(path, text, receipt.data.text);
+			const accepted = await folder.files.write(path, text, receipt.data.text);
 			if (accepted.error !== null)
 				return DraftError.Refused({
 					message:

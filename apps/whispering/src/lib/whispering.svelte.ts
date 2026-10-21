@@ -727,23 +727,30 @@ export function createWhispering(context: WhisperingContext) {
 			const { error: rowError } = await rowSave;
 			if (rowError !== null)
 				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
-			const { data: stored, error } = await folder.tables.recordings.get(id);
-			if (error !== null)
-				return `The recording is saved, but its length could not be written: ${describeError(error)}`;
-			// A row deleted meanwhile stays deleted.
-			if (stored === undefined) return undefined;
-			const { error: saveError } = await folder.tables.recordings.set(
-				id,
-				stored,
-				{
-					fields: { durationMs: stopped.durationMs },
-				},
-			);
-			return saveError === null
-				? undefined
-				: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
+			// The length is written only if the folder admits it now: one that
+			// began closing while the row saved takes no length, whatever else
+			// its close still waits for.
+			const written = await folder.run([], async () => {
+				const { data: stored, error } = await folder.tables.recordings.get(id);
+				if (error !== null)
+					return `The recording is saved, but its length could not be written: ${describeError(error)}`;
+				// A row deleted meanwhile stays deleted.
+				if (stored === undefined) return undefined;
+				const { error: saveError } = await folder.tables.recordings.set(
+					id,
+					stored,
+					{
+						fields: { durationMs: stopped.durationMs },
+					},
+				);
+				return saveError === null
+					? undefined
+					: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
+			});
+			// Refused only because the folder is closing: the page is going.
+			return written.error === null ? written.data : undefined;
 		}, path).catch((cause: unknown) =>
-			// A folder closed under the write: the page is going.
+			// Whatever fails as the page goes is not shown.
 			fenced
 				? undefined
 				: `The recording is saved, but its length could not be written: ${describe(cause)}`,
@@ -848,17 +855,17 @@ export function createWhispering(context: WhisperingContext) {
 	/** Delete row `stem` of a result table as it is stored, after its typing saved. */
 	function deleteResult(table: typeof TRANSFORMATION_RUNS | typeof TEXT_RUNS) {
 		return async (entry: { readonly stem: string; readonly path: string }) => {
-			const outcome = await folder.run([entry.path], async (work) => {
-				const read = await work.tables[table].get(entry.stem);
+			const outcome = await folder.run([entry.path], async () => {
+				const read = await folder.tables[table].get(entry.stem);
 				if (read.error !== null) return describeError(read.error);
-				const { data, error } = await work.tables[table].delete(
+				const { data, error } = await folder.tables[table].delete(
 					entry.stem,
 					read.data ?? null,
 				);
 				if (error !== null) return describeError(error);
 				if (!data.deleted) {
 					// Kept because it changed, or already gone, here or elsewhere.
-					const still = await work.tables[table].get(entry.stem);
+					const still = await folder.tables[table].get(entry.stem);
 					if (still.error !== null) return describeError(still.error);
 					if (still.data !== undefined)
 						return `${entry.path} changed meanwhile, so it was kept.`;
@@ -1419,15 +1426,15 @@ export function createWhispering(context: WhisperingContext) {
 			if (taken(to)) return TAKEN;
 			const outcome = await folder.run(
 				[path, to],
-				async (work) => {
-					const { data: found, error: readError } = await work.files.read(path);
+				async () => {
+					const { data: found, error: readError } = await folder.files.read(path);
 					if (readError !== null) return describeError(readError);
 					if (found === undefined) return `No file exists at '${path}'.`;
 					const bytes = new Uint8Array(await found.content.arrayBuffer());
-					const { error: copyError } = await work.files.write(to, null, bytes);
+					const { error: copyError } = await folder.files.write(to, null, bytes);
 					if (copyError !== null) return describeError(copyError);
 					const { data: removed, error: removeError } =
-						await work.files.delete(path, bytes);
+						await folder.files.delete(path, bytes);
 					if (removeError !== null)
 						return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
 					if (!removed.deleted)
@@ -1491,18 +1498,18 @@ export function createWhispering(context: WhisperingContext) {
 					: [deletion.path];
 			if (recording !== undefined) deleting.add(recording);
 			try {
-				const outcome = await folder.run(paths, async (work) => {
-					return runDeletion(
+				const outcome = await folder.run(paths, () =>
+					runDeletion(
 						{
+							folder,
 							dropFailed: runs.dropFailed,
 							deleted: (path) => {
 								if (!fenced) deleted(path);
 							},
 						},
 						deletion,
-						work,
-					).catch((cause: unknown) => describe(cause));
-				});
+					).catch((cause: unknown) => describe(cause)),
+				);
 				return outcome.error === null
 					? outcome.data
 					: describeError(outcome.error);

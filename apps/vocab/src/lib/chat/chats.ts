@@ -71,8 +71,8 @@ export function createChats(local: VocabContext) {
 		async start(
 			focus: readonly FocusItem[],
 		): Promise<Result<Chat, ChatHistoryError>> {
-			const admitted = await folder.run([], async (work) => {
-				const started = await startChat(work.tables.chats, focus);
+			const admitted = await folder.run([], async () => {
+				const started = await startChat(folder.tables.chats, focus);
 				if (started.error === null)
 					await refresh([`chats/${started.data.id}.md`]);
 				return started;
@@ -90,9 +90,9 @@ export function createChats(local: VocabContext) {
 			return (_message, save) => {
 				const previous = turns.get(chatId) ?? Promise.resolve();
 				const saved = folder
-					.run([], async (work) => {
+					.run([], async () => {
 						await previous.catch(() => {});
-						return save(work.tables.messages);
+						return save();
 					})
 					.then((admitted) =>
 						admitted.error !== null

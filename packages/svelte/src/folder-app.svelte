@@ -64,9 +64,12 @@
 	}
 	let opening = $state(openContext());
 
-	// Teardown attempts accepted input and drains admitted work before
-	// releasing the folder. A folder still opening is closed once it opens.
-	// Input that did not save is offered for copying after its editor is gone.
+	// Teardown starts the folder's close and does not wait for it: what is
+	// typed is sent and admitted work drains, then the folder is released,
+	// for as long as this page's runtime lives. A destroyed window or an
+	// unloading page does not wait for it. A folder still opening is closed
+	// once it opens. Input that did not save is offered for copying after its
+	// editor has gone away.
 	onDestroy(() => {
 		void opening
 			.then(async ({ data: context }) => {

@@ -43,9 +43,11 @@ installs that exact context for descendants to read through `getFolder()`.
 Folder owns accepted edits, autosave, save status, admitted actions, and storage
 closure. The context connects it to one TanStack Query cache, change invalidation,
 and window behavior. Failed saves retain input in Folder. An action that reaches
-later Folder calls after an `await` enters through `folder.run(paths, action)` and
-uses its callback's storage access; normal close waits for that work. Empty paths
-admit lifetime only. Nonempty paths also reserve local editing and save held input
+later Folder calls after an `await` enters through `folder.run(paths, action)`; its
+callback takes no argument and uses the same `folder.files` and `folder.tables`,
+which stay usable until close releases storage. Normal close waits for that work
+and the writes it started; await what must finish before the callback returns.
+New actions refuse once close begins. Empty paths admit lifetime only. Nonempty paths also reserve local editing and save held input
 before the action starts. Unfinished forms remain with the app.
 
 The editing lifecycle is recorded in [ADR 0656](../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md).

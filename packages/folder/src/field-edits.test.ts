@@ -23,7 +23,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openRepository } from './browser/repository.js';
 import { openFolder } from './browser.js';
 import { BUSY, UNSAVED } from './edits.js';
-import type { FileContent, FolderWork } from './folder.js';
+import type { FileContent } from './folder.js';
 import type { FolderEngine } from './handle.js';
 import { folderHandle } from './handle.js';
 import { readDocument } from './shared/document.js';
@@ -481,29 +481,17 @@ test('close saves failed patches after storage and a missing file recover', asyn
 // Reserved work
 // ============================================================================
 
-test('work admitted before close finishes its write and expires when the callback ends', async () => {
+test('work admitted before close writes its reserved path through the folder while close waits', async () => {
 	const disk = await setup({ 'epicenter.json': '{}' });
 	const { folder, writes } = disk;
 	const source = folder.files.edit('epicenter.json');
-	const refused: unknown[] = [];
-	folder.onStatusChange((status) => {
-		// While the admitted work writes during close.
-		if (!status.saving || !status.closing) return;
-		try {
-			void folder.files.write('reentrant.md', null, 'late');
-		} catch (cause) {
-			refused.push(cause);
-		}
-	});
 	const entered = Promise.withResolvers<void>();
 	const gate = Promise.withResolvers<void>();
-	let held: FolderWork<{}> | undefined;
-	const operation = folder.run([source.path], async (work) => {
-		held = work;
+	const operation = folder.run([source.path], async () => {
 		entered.resolve();
 		await gate.promise;
-		const before = expectOk(await work.files.read(source.path));
-		return work.files.write(
+		const before = expectOk(await folder.files.read(source.path));
+		return folder.files.write(
 			source.path,
 			before === undefined
 				? null
@@ -519,17 +507,16 @@ test('work admitted before close finishes its write and expires when the callbac
 	});
 	await Bun.sleep(5);
 	expect(closed).toBe(false);
-	expect(() => folder.files.write('other.md', null, 'refused')).toThrow(
-		'The folder is closed',
-	);
+	expect(expectErr(source.replaceText('{"title":"late"}')).name).toBe('Locked');
 
 	gate.resolve();
 	expectOk(expectOk(await operation));
 	expect(await closing).toEqual([]);
 	expect(await disk.stored('epicenter.json')).toBe('{"views":{}}');
 	expect(writes.map(({ path }) => path)).toEqual(['epicenter.json']);
-	expect(refused.length).toBeGreaterThan(0);
-	expect(() => held?.files.read(source.path)).toThrow('has ended');
+	expect(() => folder.files.write('other.md', null, 'refused')).toThrow(
+		'The folder is closed',
+	);
 });
 
 test('a reservation locks input at once, sends held input first, and settle waits for it', async () => {

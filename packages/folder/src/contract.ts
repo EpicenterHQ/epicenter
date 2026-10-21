@@ -20,7 +20,6 @@ export type {
 	FolderStatus,
 	FolderTable,
 	FolderTables,
-	FolderWork,
 	Issue,
 	OpenFolder,
 	Row,

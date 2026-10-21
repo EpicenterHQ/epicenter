@@ -351,8 +351,8 @@ export function createCaptures(context: CaptureFolder) {
 			const path = capturePath(stem);
 			const added = await folder.run(
 				[path],
-				async (work): Promise<Result<void, Failure>> => {
-					const read = await work.files.read(path);
+				async (): Promise<Result<void, Failure>> => {
+					const read = await folder.files.read(path);
 					if (read.error !== null) return read;
 					if (read.data === undefined)
 						return ActionError.NotStarted({
@@ -374,7 +374,7 @@ export function createCaptures(context: CaptureFolder) {
 					});
 					if (changed.error !== null)
 						return SaveError.Unparseable({ reason: changed.error.reason });
-					return work.files.write(path, bytes, changed.data.text);
+					return folder.files.write(path, bytes, changed.data.text);
 				},
 			);
 			if (added.error !== null) return added;

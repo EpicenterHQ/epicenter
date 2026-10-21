@@ -12,6 +12,9 @@
  * What lives only in this window is what is happening: a request under way,
  * why one failed, and an answer whose write failed. Such an answer is written
  * again while the page lives; a reload drops it and its row stays unfinished.
+ * Waiting for an endpoint is never folder work, so closing does not wait for
+ * a request. Writing its answer is: once the folder is closing, an answer
+ * that arrives, or a retry that comes due, writes nothing.
  * A fill saves the answer as a change from the row with the empty body the
  * run started with (ADR-0632): the same answer filled elsewhere stands once,
  * and a field a person changed meanwhile is kept. A row that is gone was
@@ -289,7 +292,11 @@ export function createRuns({
 	}
 
 	/**
-	 * Write a received answer into its row. A failed write is tried again
+	 * Write a received answer into its row. Each attempt, the first and every
+	 * retry, is admitted by the folder before it reads or writes anything: an
+	 * attempt admitted before close finishes, and one asked for once the
+	 * folder is closing starts nothing and is not tried again, however long
+	 * that close still waits for other work. A failed write is tried again
 	 * later, in the background, until it lands or this window closes.
 	 */
 	async function write(
@@ -306,9 +313,19 @@ export function createRuns({
 			text,
 			message: before?.kind === 'writing' ? before.message : undefined,
 		});
-		const error = await writeOf(target, () =>
-			fill(target, from, resultBody(text)),
+		const admitted = await writeOf(target, () =>
+			folder.run([], () => fill(target, from, resultBody(text))),
 		);
+		if (admitted.error !== null) {
+			// Refused only because the folder is closing; the answer is not written.
+			setLive(target, {
+				kind: 'writing',
+				text,
+				message: admitted.error.message,
+			});
+			return;
+		}
+		const error = admitted.data;
 		if (error === undefined) {
 			live.delete(path);
 			return;

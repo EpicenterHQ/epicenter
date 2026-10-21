@@ -1305,7 +1305,7 @@ test('cascade deletion reserves every confirmed path and aborts all deletes if a
 	refusedPath = undefined;
 });
 
-test('an admitted rename finishes its scoped copy and deletion while Whispering closes', async () => {
+test('an admitted rename finishes its copy and deletion while Whispering closes', async () => {
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const { whispering, context, root } = await open({
@@ -1332,7 +1332,7 @@ test('an admitted rename finishes its scoped copy and deletion while Whispering 
 });
 
 
-test('a result changed during deletion remains readable through its admitted scope after close starts', async () => {
+test('a result changed during its admitted deletion is kept and reread after close starts', async () => {
 	const path = 'text_runs/result.md';
 	let armed = false;
 	let directory = '';

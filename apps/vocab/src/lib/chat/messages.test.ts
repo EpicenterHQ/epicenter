@@ -24,10 +24,9 @@ import {
 	type AgentMessage,
 	createConversation,
 } from '@epicenter/agent';
-import type { FolderWork } from '@epicenter/folder';
 import { QueryObserver } from '@tanstack/query-core';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { RowOf, VocabFolder, VocabTables } from '../data.js';
+import type { RowOf, VocabFolder } from '../data.js';
 import {
 	createBrowser,
 	fileText,
@@ -92,22 +91,13 @@ const contexts = new WeakMap<VocabFolder, VocabContext>();
 /** The chat list over `folder`, with `tables` in place of its own, in the folder's one context. */
 function chatsOver(
 	folder: VocabFolder,
-	tables: Partial<FolderWork<VocabTables>['tables']> = {},
+	tables: Partial<VocabFolder['tables']> = {},
 ) {
 	const context = contexts.get(folder) ?? createFolderContext(folder);
 	contexts.set(folder, context);
 	const chats = createChats({
 		...context,
-		folder: {
-			...folder,
-			run: (paths, action) =>
-				folder.run(paths, (work) =>
-					action({
-						...work,
-						tables: { ...work.tables, ...tables },
-					}),
-				),
-		},
+		folder: { ...folder, tables: { ...folder.tables, ...tables } },
 	});
 	const rows = context.queries.rows('chats');
 	// The history screen observes the list, so a change reads it again.

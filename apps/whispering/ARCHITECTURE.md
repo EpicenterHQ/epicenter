@@ -608,7 +608,9 @@ the Svelte edits expose tracked properties over its read methods. A read never r
   a transcript or a result) is tracked work scoped by the recording's path,
   which the audio's "settling" state reads. Waiting on an endpoint is not
   tracked, so a request that does not answer never keeps the app from
-  closing.
+  closing. An answer's write, each retry, and a Stop's length write are each
+  admitted with `folder.run([], ...)`: once the folder is closing, they write
+  nothing, even while other admitted work keeps its close waiting.
 
 Whispering retains view selection, connection forms, pasted text, capture
 state, and answers whose files are not written. Folder retains accepted
@@ -616,9 +618,9 @@ file edits. Renaming a file saves its typing, saves its exact
 bytes under the new name, then deletes the old name as read; the selection
 follows it. Recording and transformation files keep their names. When
 Whispering is disposed, it starts `context.close()` synchronously, so all core
-and Svelte handles refuse new input. Disposal returns immediately. The folder
-drains accepted saves and scoped file actions, including their later reads and
-writes, before it closes. This differs from the
+and Svelte handles refuse new input and actions. Disposal returns immediately.
+The folder drains accepted saves and admitted file actions, including their
+later reads and writes through the same folder, before it releases storage. This differs from the
 person confirming immediate departure.
 
 ## Closing

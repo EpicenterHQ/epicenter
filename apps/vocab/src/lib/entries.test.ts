@@ -155,25 +155,13 @@ test('a refused add lists nothing and the retry adds it; an add that landed with
 	expect(cached(context.vocab, 'opaque').stage).toBe('new');
 
 	// The save lands, and its answer is lost on the way back.
-	const run = context.folder.run;
-	context.folder.run = (paths, action) =>
-		run(paths, (work) =>
-			action({
-				...work,
-				tables: {
-					...work.tables,
-					entries: {
-						...work.tables.entries,
-						async set(...args) {
-							const saved = await work.tables.entries.set(...args);
-							context.folder.run = run;
-							if (saved.error !== null) return saved;
-							return SaveError.StorageFailed({ cause: new Error('lost') });
-						},
-					},
-				},
-			}),
-		);
+	const set = context.folder.tables.entries.set;
+	context.folder.tables.entries.set = async (...args) => {
+		const saved = await set(...args);
+		context.folder.tables.entries.set = set;
+		if (saved.error !== null) return saved;
+		return SaveError.StorageFailed({ cause: new Error('lost') });
+	};
 	expect(expectErr(await entries.add('subtle')).name).toBe('NotSaved');
 	expect(expectOk(await entries.add('subtle'))).toBe('present');
 	expect(
@@ -574,7 +562,7 @@ test('a word is one plain Markdown file named by its text under entries/', async
 	);
 });
 
-test('an add admitted before close finishes hashing and saves through its work handle', async () => {
+test('an add admitted before close finishes hashing and saves through the folder while close waits', async () => {
 	await using browser = createBrowser();
 	const folder = await browser.open();
 	await using opened = await openVocab(folder);

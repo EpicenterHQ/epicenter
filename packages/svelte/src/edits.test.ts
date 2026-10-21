@@ -343,10 +343,10 @@ test('close never waits for a reread that does not answer', async () => {
 test('an app action does not enter Folder save status until its write is accepted', async () => {
 	const { folder, context } = await setup();
 	const releaseRequest = Promise.withResolvers<void>();
-	const action = folder.run([], async (work) => {
+	const action = folder.run([], async () => {
 		// A request the app waits for: nothing of the folder's is saving.
 		await releaseRequest.promise;
-		return work.files.write('action.txt', null, 'done');
+		return folder.files.write('action.txt', null, 'done');
 	});
 	expect(context.getStatus()).toMatchObject(settled);
 
@@ -369,15 +369,15 @@ test('close lets a started action write after its await, and refuses a new one',
 	expectOk(fileEdit.change({ body: 'Accepted before closing' }));
 	const actionStarted = Promise.withResolvers<void>();
 	const releaseAction = Promise.withResolvers<void>();
-	const action = folder.run(['action.txt'], async (work) => {
+	const action = folder.run(['action.txt'], async () => {
 		actionStarted.resolve();
 		await releaseAction.promise;
-		return work.files.write('action.txt', null, 'done');
+		return folder.files.write('action.txt', null, 'done');
 	});
 	await actionStarted.promise;
 	const closing = context.close();
 	// Folder close fences every editor immediately. Work admitted earlier
-	// keeps its storage access after an await.
+	// still writes through the folder after an await.
 	expect(fileEdit.locked).toBe(true);
 	expect(folder.getStatus().closing).toBe(true);
 	expect(expectErr(fileEdit.replaceText('Late source')).name).toBe('Locked');
@@ -386,7 +386,7 @@ test('close lets a started action write after its await, and refuses a new one',
 			.name,
 	).toBe('Locked');
 	expect(fileEdit.markdown?.body).toBe('Accepted before closing');
-	// A visibility return during the drain must not reread the closed public handle.
+	// A visibility return during the drain must not reread the closing folder.
 	cleanup.push(() => focusManager.setFocused(undefined));
 	focusManager.setFocused(false);
 	focusManager.setFocused(true);

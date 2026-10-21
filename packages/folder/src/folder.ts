@@ -19,7 +19,7 @@
  * Opening authenticates nothing, selects no remote, creates no Git history,
  * and writes no schema file (ADR-0633).
  *
- * A storage call on a closed handle throws: it is a programming error, not a
+ * A storage call on a released handle throws: it is a programming error, not a
  * storage failure. Held input stays readable through `status` and `edit`. Failures that storage reports come back as `ReadError` and
  * `SaveError` results; a failed save leaves earlier storage unchanged.
  */
@@ -54,7 +54,7 @@ export type FolderStatus = {
 	readonly unsaved: readonly string[];
 	/** Held input whose last save failed and that no save is retrying. */
 	readonly failures: readonly Pending[];
-	/** Whether `close` was called: no input or call is taken from then on. */
+	/** Whether `close` was called: no input, action, or listener is taken from then on. */
 	readonly closing: boolean;
 };
 
@@ -126,16 +126,6 @@ export type FolderTable<TSchema extends Schema = Schema> =
 		edit(id: string): FileEdit<TSchema>;
 	};
 
-/** Internal identity: ordinary Folder references cannot stand in for admitted work. */
-export const folderWork = Symbol('FolderWork');
-
-/** Storage access for one admitted action. It expires when its callback ends. */
-export type FolderWork<TTables extends Record<string, Schema>> = {
-	readonly [folderWork]: true;
-	files: FolderFileOperations;
-	tables: { [TName in keyof TTables]: FolderTableOperations<TTables[TName]> };
-};
-
 /**
  * The handle `openFolder` returns.
  *
@@ -163,16 +153,21 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	 * up front and fixed for the action: those paths are reserved together, and
 	 * their held input is saved before the callback starts. Use [] when only
 	 * admission is needed. Overlapping reservations refuse without queuing, and
-	 * a refusal leaves held input recoverable.
-	 * Storage access survives close and expires with the callback;
-	 * already-started calls finish. Reservations protect local input and
-	 * competing reservations, not raw storage calls or outside programs. This
-	 * is not a storage transaction. Do not await this folder's settle/close
-	 * inside the action: they wait for it.
+	 * a refusal leaves held input recoverable; once close is called every new
+	 * action refuses.
+	 * The action uses this same Folder's `files` and `tables`, which stay
+	 * usable while close drains it. Await the work whose outcome matters
+	 * before the callback returns: close waits for the callback and for writes
+	 * already started, not for a continuation it left running. Writes already
+	 * queued on reserved paths finish before the reservation ends.
+	 * Reservations protect local input and competing reservations, not raw
+	 * storage calls or outside programs. This is not a storage transaction.
+	 * Do not await this folder's settle/close inside the action: they wait
+	 * for it.
 	 */
 	run<T>(
 		paths: readonly string[],
-		action: (work: FolderWork<TTables>) => Promise<T>,
+		action: () => Promise<T>,
 	): Promise<Result<T, ActionError>>;
 	/**
 	 * Attempt available held input now, including previous failures, drain
@@ -181,11 +176,13 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	 */
 	settle(): Promise<Pending[]>;
 	/**
-	 * Refuse new input and root actions immediately; root storage calls and
-	 * new listeners throw. Save available input and drain admitted actions
-	 * and started saves before releasing storage/listeners.
+	 * Refuse new input, new actions, `settle`, and new listeners immediately.
+	 * Save available input and drain admitted actions and started saves, then
+	 * release storage and listeners; `files` and `tables` throw from then on.
+	 * Until that release they stay usable, so a write any caller starts while
+	 * close drains is waited for too, and prolongs close.
 	 * Reserved paths save when released. Failed input stays held for recovery.
-	 * Unscoped reads already running are not waited for. Edits remain readable;
+	 * Reads already running are not waited for. Edits remain readable;
 	 * read() rejects, save() attempts its path during close and does nothing
 	 * after completion. Answers input that did not save. Repeated calls return
 	 * the same promise. Do not await close inside an action it waits for.

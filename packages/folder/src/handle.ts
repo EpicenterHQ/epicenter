@@ -1,7 +1,7 @@
 /**
  * The caller-facing `Folder` over an engine, the same on every host: its one
- * edit owner, local save status, the saves `close` waits for, and the error
- * a closed handle throws. The browser's default local folder
+ * edit owner, local save status, the saves and actions `close` waits for,
+ * and the error a released handle throws. The browser's default local folder
  * (`local-folder.ts`) and the native directory folder (`native/engine.ts`)
  * each supply the engine.
  */
@@ -21,11 +21,9 @@ import type {
 	FolderFileOperations,
 	FolderStatus,
 	FolderTableOperations,
-	FolderWork,
 	Row,
 	RowChange,
 } from './folder.js';
-import { folderWork } from './folder.js';
 import { callObserver } from './observer.js';
 import { ownFields } from './shared/content/canonical.js';
 import { SaveError } from './shared/errors.js';
@@ -117,6 +115,8 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	{ saveAfterMs }: EditOptions = {},
 ): Folder<TTables> {
 	let closing: Promise<Pending[]> | undefined;
+	/** Set by close once nothing it waits for remains, before the engine is released. */
+	let released = false;
 	/** Saves and complete admitted actions share one lifetime registry. */
 	const inflight = new Set<Promise<unknown>>();
 	let saves = 0;
@@ -138,8 +138,14 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	const queued = new Map<string, Promise<void>>();
 	const running = new Map<string, Submission>();
 
+	/** Listeners and settle refuse from the moment close is called. */
 	function assertOpen() {
 		if (closing !== undefined) throw new Error('The folder is closed');
+	}
+
+	/** Storage refuses once close released the engine. */
+	function assertUsable() {
+		if (released) throw new Error('The folder is closed');
 	}
 
 	/**
@@ -195,13 +201,10 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	}
 
 	/** Register work before it can notify listeners or begin other work. */
-	function track<T>(
-		run: () => Promise<T>,
-		work: Set<Promise<unknown>> = inflight,
-	): Promise<T> {
+	function track<T>(run: () => Promise<T>): Promise<T> {
 		const operation = Promise.withResolvers<T>();
-		work.add(operation.promise);
-		const done = () => work.delete(operation.promise);
+		inflight.add(operation.promise);
+		const done = () => inflight.delete(operation.promise);
 		operation.promise.then(done, done);
 		// `run` can notify a status observer synchronously. That observer may
 		// close the folder, so close must already see this save.
@@ -213,7 +216,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		return operation.promise;
 	}
 
-	/** A live action can start saves after an await, even while closing. */
+	/** An admitted action, or any caller while close drains, can start saves after an await. */
 	async function drainWork() {
 		while (inflight.size > 0) await Promise.allSettled([...inflight]);
 	}
@@ -272,9 +275,9 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		});
 	}
 
-	// Saves are tracked and counted in status. The edit owner gets these
-	// directly, so input accepted before close can still be sent while close
-	// waits; the public members below refuse once close is called.
+	// Saves are tracked and counted in status, so close waits for every save
+	// started before it releases the engine. The public members below refuse
+	// only after that release.
 	// A save queued behind another of its path keeps the bytes as they were
 	// at the call.
 	/** What a delete left: no file once it went, unknown here when it kept a file changed meanwhile. */
@@ -374,15 +377,15 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	});
 	const stopEngine = engine.subscribe(hear);
 
-	/** Every member of `operations`, refused once close is called. */
-	function opened<T extends Record<string, (...args: never[]) => unknown>>(
+	/** Every member of `operations`, refused once close released the engine. */
+	function usable<T extends Record<string, (...args: never[]) => unknown>>(
 		operations: T,
 	): T {
 		return Object.fromEntries(
 			Object.entries(operations).map(([name, operation]) => [
 				name,
 				(...args: never[]) => {
-					assertOpen();
+					assertUsable();
 					return operation(...args);
 				},
 			]),
@@ -454,14 +457,14 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 
 	const folder: Folder<Record<string, Schema>> = {
 		files: {
-			...opened(readFiles),
+			...usable(readFiles),
 			edit: (path, schema) => edits.edit(path, schema),
 		},
 		tables: Object.fromEntries(
 			Object.entries(readTables).map(([name, table]) => [
 				name,
 				{
-					...opened(table),
+					...usable(table),
 					edit: (id: string) =>
 						edits.edit(`${name}/${id}.md`, tables[name], true),
 				},
@@ -484,49 +487,10 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				statusListeners.delete(listener);
 			};
 		},
-		/** Only this callback's access stays open when the root Folder closes. */
 		run(paths, action) {
 			if (closing !== undefined)
 				return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
-			return edits.run(paths, async () => {
-				let live = true;
-				const started = new Set<Promise<unknown>>();
-				const scoped = <
-					TOperations extends Record<
-						string,
-						(...args: never[]) => Promise<unknown>
-					>,
-				>(
-					operations: TOperations,
-				): TOperations =>
-					Object.fromEntries(
-						Object.entries(operations).map(([name, operation]) => [
-							name,
-							(...args: never[]) => {
-								if (!live) throw new Error('This folder action has ended');
-								return track(() => operation(...args), started);
-							},
-						]),
-					) as TOperations;
-				const work: FolderWork<Record<string, Schema>> = {
-					[folderWork]: true,
-					files: scoped(readFiles),
-					tables: Object.fromEntries(
-						Object.entries(readTables).map(([name, table]) => [
-							name,
-							scoped(table),
-						]),
-					),
-				};
-				try {
-					return await action(work);
-				} finally {
-					// Revoke access now, then keep reservations until calls already
-					// started have finished, including when the callback threw.
-					live = false;
-					await Promise.allSettled([...started]);
-				}
-			});
+			return edits.run(paths, action);
 		},
 		async settle() {
 			assertOpen();
@@ -543,12 +507,20 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			const completion = Promise.withResolvers<Pending[]>();
 			closing = completion.promise;
 			(async () => {
-				// The owner sends held input through its own operations; every
-				// public call already throws.
-				const unsaving = edits.close();
+				// New input, actions and listeners already refuse; storage stays
+				// usable for what close waits for.
+				const sending = edits.close();
 				publishStatus();
-				const unsaved = await unsaving;
-				await drainWork();
+				await sending;
+				// Release in the same turn the registry is found empty: a write
+				// or an edit's save any earlier continuation started is waited
+				// for, and one called after this turn finds storage released and
+				// throws, or, for `save()`, does nothing. What is still held then
+				// is the answer. Status is told after, so a listener cannot start
+				// one in between.
+				while (inflight.size > 0) await Promise.allSettled([...inflight]);
+				released = true;
+				const unsaved = edits.release();
 				publishStatus();
 				statusListeners.clear();
 				changeListeners.clear();

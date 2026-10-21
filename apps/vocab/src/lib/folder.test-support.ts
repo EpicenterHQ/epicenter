@@ -13,7 +13,7 @@
  * loaded from `@epicenter/svelte`'s install, which tests the same folder.
  */
 import '../../../../packages/svelte/node_modules/fake-indexeddb/auto/index.mjs';
-import type { FolderWork, ReadError, SaveError } from '@epicenter/folder';
+import type { ReadError, SaveError } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { Err } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
@@ -150,7 +150,7 @@ async function listThrough<T>(gate: Gate, list: () => Promise<T>) {
 
 /** The real table behind a gate. */
 export function gated<TName extends keyof VocabTables>(
-	table: FolderWork<VocabTables>['tables'][TName],
+	table: VocabFolder['tables'][TName],
 	gate = createGate(),
 ) {
 	const wrapped = {
@@ -191,16 +191,6 @@ export function gatedMessages(folder: VocabFolder) {
 			messages: { ...folder.tables.messages, ...table },
 		},
 		files,
-		run: (paths, action) =>
-			folder.run(paths, (work) =>
-				action({
-					...work,
-					tables: {
-						...work.tables,
-						messages: gated<'messages'>(work.tables.messages, gate).table,
-					},
-				}),
-			),
 	};
 	return { gate, folder: target };
 }

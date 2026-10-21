@@ -141,7 +141,7 @@ without composing its body or updating its date. Use Add to finish it instead.
 Capture writes no new drafts. A nonboolean `draft` value needs repair as text.
 
 `captures.finishDraft(stem)` reserves the file through a Folder
-action (`folder.run([path], work)`), saves raw input first, then writes the
+action (`folder.run([path], action)`), saves raw input first, then writes the
 composed body, removes `draft`, and sets `capturedAt` together. A failed promotion keeps the raw draft.
 Retrying an already-finished file succeeds without composing it again.
 If another tab finishes the file while local source is held, that source stays

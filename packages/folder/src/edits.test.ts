@@ -24,8 +24,10 @@
  * - The folder owns input from construction: autosave, status, settle and
  *   close work with no view and no subscriber; close waits for saves, not
  *   reads, and answers what did not save
- * - Admitted work survives close, expires with its callback, and retains
- *   path reservations until its started storage calls finish
+ * - Admitted work keeps using the folder's own storage while close drains
+ *   it; new actions, input and listeners refuse at once, storage only once
+ *   close released it, and close never releases under a write it accepted
+ * - A reservation holds until writes already queued on its paths finish
  */
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
@@ -35,16 +37,11 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openRepository } from './browser/repository.js';
 import { openFolder } from './browser.js';
 import { CLOSING, DELETING, mergeText, type ReadStatus } from './edits.js';
-import type {
-	FileContent,
-	FolderChange,
-	FolderStatus,
-	FolderWork,
-} from './folder.js';
+import type { FileContent, FolderChange, FolderStatus } from './folder.js';
 import type { FolderEngine } from './handle.js';
 import { folderHandle } from './handle.js';
 import { openFolder as openAutomatic } from './index.js';
-import { ReadError } from './shared/errors.js';
+import { ReadError, SaveError } from './shared/errors.js';
 
 const notes = Type.Object({ title: Type.String(), done: Type.Boolean() });
 /** A table whose rows have a frontmatter field named `body`. */
@@ -763,8 +760,8 @@ test('an action, a direct save and a status subscription hold no document; an ex
 	const audio = folder.files.edit(path);
 	const stop = audio.subscribe(() => {});
 	expectOk(
-		await folder.run([path], async (work) =>
-			work.files.write(path, null, new Uint8Array([1, 2, 3])),
+		await folder.run([path], async () =>
+			folder.files.write(path, null, new Uint8Array([1, 2, 3])),
 		),
 	);
 	expectOk(
@@ -1723,7 +1720,7 @@ test('delete fences input at once and removes the row after its held save', asyn
 	expect(expectOk(await folder.tables.notes.get('milk'))).toBeUndefined();
 });
 
-test('close locks every view while admitted work retains storage access and saves accepted input', async () => {
+test('close refuses input, actions and listeners at once while admitted work uses the folder until close releases it', async () => {
 	const { folder, edit, load, stored } = await setup();
 	await load();
 	const text = folder.files.edit(MILK);
@@ -1732,14 +1729,14 @@ test('close locks every view while admitted work retains storage access and save
 	const entered = Promise.withResolvers<void>();
 	const gate = Promise.withResolvers<void>();
 	cleanup.push(() => gate.resolve());
-	const operation = folder.run([], async (work) => {
+	const operation = folder.run([], async () => {
 		entered.resolve();
 		await gate.promise;
-		expectOk(await work.files.write('direct.txt', null, 'admitted work'));
-		const row = expectOk(await work.tables.notes.get('milk'));
+		expectOk(await folder.files.write('direct.txt', null, 'admitted work'));
+		const row = expectOk(await folder.tables.notes.get('milk'));
 		expect(row).toBeDefined();
 		return expectOk(
-			await work.tables.notes.set('milk', row!, {
+			await folder.tables.notes.set('milk', row!, {
 				body: 'finished during close',
 			}),
 		);
@@ -1754,8 +1751,10 @@ test('close locks every view while admitted work retains storage access and save
 	}
 	expect(expectErr(edit.change({ body: 'too late' })).name).toBe('Locked');
 	expect(edit.discard()).toBeUndefined();
-	expect(() => folder.files.read(MILK)).toThrow('The folder is closed');
-	expect(() => folder.tables.notes.get('milk')).toThrow('The folder is closed');
+	await expect(text.read()).rejects.toThrow('The folder is closed');
+	expect(() => folder.onChange(() => {})).toThrow('The folder is closed');
+	expect(() => folder.onStatusChange(() => {})).toThrow('The folder is closed');
+	await expect(folder.settle()).rejects.toThrow('The folder is closed');
 	expect(expectErr(await folder.run([], async () => {}))).toMatchObject({
 		name: 'NotStarted',
 		reason: CLOSING,
@@ -1767,6 +1766,9 @@ test('close locks every view while admitted work retains storage access and save
 	expect(await stored(MILK)).toContain('title: Accepted');
 	expect(await stored(MILK)).toContain('finished during close');
 	expect(await stored('direct.txt')).toBe('admitted work');
+	// Released: ordinary storage refuses from here on.
+	expect(() => folder.files.read(MILK)).toThrow('The folder is closed');
+	expect(() => folder.tables.notes.get('milk')).toThrow('The folder is closed');
 });
 
 test('a multi-file scope reserves all paths synchronously and refuses overlaps without partial locks', async () => {
@@ -1778,13 +1780,13 @@ test('a multi-file scope reserves all paths synchronously and refuses overlaps w
 	const untouched = folder.files.edit('notes/untouched.md');
 	const entered = Promise.withResolvers<void>();
 	const gate = Promise.withResolvers<void>();
-	const operation = folder.run([MILK, second.path, MILK], async (work) => {
+	const operation = folder.run([MILK, second.path, MILK], async () => {
 		expect(await stored(MILK)).toContain('title: Before operation');
 		expect(source.getPending()).toBeUndefined();
 		entered.resolve();
 		await gate.promise;
 		return expectOk(
-			await work.files.write(second.path, null, new Uint8Array([1, 2])),
+			await folder.files.write(second.path, null, new Uint8Array([1, 2])),
 		);
 	});
 	expect(edit.isLocked()).toBe(true);
@@ -1868,21 +1870,16 @@ test('a failed held save prevents the whole scope while successful held saves re
 	expect(bad.isLocked()).toBe(false);
 });
 
-test('throwing from a multi-file scope releases every path and expires every retained capability', async () => {
+test('throwing from a multi-file scope releases every path', async () => {
 	const { folder, edit } = await setup();
-	let held: FolderWork<typeof tables> | undefined;
 	await expect(
-		folder.run([MILK, 'audio/a.bin'], async (work) => {
-			held = work;
+		folder.run([MILK, 'audio/a.bin'], async () => {
 			throw new Error('action failed');
 		}),
 	).rejects.toThrow('action failed');
 	expect(edit.isLocked()).toBe(false);
 	expect(folder.files.edit('audio/a.bin').isLocked()).toBe(false);
 	expect(folder.getStatus().saving).toBe(false);
-	expect(() => held!.files.read(MILK)).toThrow('has ended');
-	expect(() => held!.files.write(MILK, null, 'late')).toThrow('has ended');
-	expect(() => held!.files.delete(MILK, null)).toThrow('has ended');
 });
 
 test('close reentered from reservation status waits for the complete multi-file scope', async () => {
@@ -1900,25 +1897,23 @@ test('close reentered from reservation status waits for the complete multi-file 
 	);
 	const entered = Promise.withResolvers<void>();
 	const gate = Promise.withResolvers<void>();
-	let held: FolderWork<typeof tables> | undefined;
 	const operation = folder.run(
 		[MILK, audio.path, 'remove.txt'],
-		async (work) => {
-			held = work;
+		async () => {
 			entered.resolve();
 			await gate.promise;
-			const note = expectOk(await work.files.read(MILK));
+			const note = expectOk(await folder.files.read(MILK));
 			expectOk(
-				await work.files.write(
+				await folder.files.write(
 					MILK,
 					await note!.content.text(),
 					'survives close',
 				),
 			);
 			expectOk(
-				await work.files.write(audio.path, null, new Uint8Array([4, 5])),
+				await folder.files.write(audio.path, null, new Uint8Array([4, 5])),
 			);
-			expectOk(await work.files.delete('remove.txt', 'remove me'));
+			expectOk(await folder.files.delete('remove.txt', 'remove me'));
 		},
 	);
 	await entered.promise;
@@ -1935,7 +1930,6 @@ test('close reentered from reservation status waits for the complete multi-file 
 	expect(await closing).toEqual([]);
 	expect(await stored(MILK)).toBe('survives close');
 	expect(await stored('remove.txt')).toBeUndefined();
-	expect(() => held!.files.read(MILK)).toThrow('has ended');
 });
 
 for (const closing of [false, true]) {
@@ -1975,30 +1969,40 @@ for (const closing of [false, true]) {
 }
 
 for (const throws of [false, true]) {
-	test(`a callback that ${throws ? 'throws' : 'returns'} expires its work but keeps paths reserved until its started write finishes`, async () => {
-		const { folder, engine, edit, stored } = await setup();
-		const writes = intercept(engine.files, 'write');
-		const started = writes.next();
-		writes.hold();
-		let work: FolderWork<typeof tables> | undefined;
-		let write: FolderWork<typeof tables>['files']['write'] | undefined;
-		let saving: ReturnType<typeof folder.files.write> | undefined;
-		const operation = folder.run([MILK], async (scope) => {
-			work = scope;
-			write = scope.files.write;
-			saving = write(MILK, null, 'started before callback ended');
+	test(`a callback that ${throws ? 'throws' : 'returns'} keeps its paths reserved until a write it did not await finishes, and a failed write does not replace its outcome`, async () => {
+		const { folder, engine, edit } = await setup();
+		const started = Promise.withResolvers<void>();
+		const fail = Promise.withResolvers<void>();
+		cleanup.push(() => fail.resolve());
+		engine.files.write = async () => {
+			started.resolve();
+			await fail.promise;
+			throw new Error('storage broke');
+		};
+		let saving: Promise<unknown> | undefined;
+		const operation = folder.run([MILK], async () => {
+			// Not awaited: the reservation waits for it, not the callback.
+			saving = folder.files.write(MILK, null, 'never stored').then(
+				() => 'landed',
+				(cause: unknown) => cause,
+			);
 			if (throws) throw new Error('callback failed');
 			return 'callback returned';
 		});
-		// Observe rejection immediately while the already-started write is held.
+		let settled = false;
 		const outcome = operation.then(
-			(result) => ({ result }),
-			(cause: unknown) => ({ cause }),
+			(result) => {
+				settled = true;
+				return { result };
+			},
+			(cause: unknown) => {
+				settled = true;
+				return { cause };
+			},
 		);
-		await started;
+		await started.promise;
 		await Bun.sleep(0);
-		expect(() => work!.files.read(MILK)).toThrow('has ended');
-		expect(() => write!('late.txt', null, 'late')).toThrow('has ended');
+		expect(settled).toBe(false);
 		expect(edit.isLocked()).toBe(true);
 		expect(expectErr(await folder.run([MILK], async () => {})).name).toBe(
 			'NotStarted',
@@ -2009,8 +2013,8 @@ for (const throws of [false, true]) {
 		});
 		await Bun.sleep(0);
 		expect(closed).toBe(false);
-		writes.release();
-		expectOk(await saving!);
+		fail.resolve();
+		expect(await saving).toMatchObject({ message: 'storage broke' });
 		const finished = await outcome;
 		if ('cause' in finished) {
 			expect(throws).toBe(true);
@@ -2020,9 +2024,68 @@ for (const throws of [false, true]) {
 			expect(expectOk(finished.result)).toBe('callback returned');
 		}
 		await closing;
-		expect(await stored(MILK)).toBe('started before callback ended');
+		expect(closed).toBe(true);
 	});
 }
+
+test('close never releases the engine under a write it accepted, at any turn around its last drain', async () => {
+	let included = 0;
+	let refused = 0;
+	// Later and later writes, until one comes after the release.
+	for (let turns = 0; refused === 0 && turns < 200; turns++) {
+		const { folder, engine } = await setup();
+		let writing = 0;
+		let released = false;
+		const violations: string[] = [];
+		const write = engine.files.write;
+		engine.files.write = async (...args) => {
+			if (released) violations.push(`write called after release (${turns})`);
+			writing++;
+			try {
+				return await write(...args);
+			} finally {
+				writing--;
+			}
+		};
+		const close = engine.close;
+		engine.close = () => {
+			if (writing > 0) violations.push(`released under a write (${turns})`);
+			released = true;
+			close();
+		};
+		let late: Promise<unknown> | undefined;
+		let closing: Promise<unknown> | undefined;
+		expectOk(
+			await folder.run([], async () => {
+				// A continuation the action leaves running writes `turns` turns
+				// after it ends, while close drains what it waits for.
+				let chain = Promise.resolve();
+				for (let turn = 0; turn < turns; turn++) chain = chain.then(() => {});
+				late = chain.then(() => {
+					try {
+						return folder.files.write('late.txt', null, 'late');
+					} catch (cause) {
+						return cause;
+					}
+				});
+				closing = folder.close();
+			}),
+		);
+		await closing;
+		const answer = await late;
+		if (answer instanceof Error) {
+			expect(answer.message).toBe('The folder is closed');
+			refused++;
+		} else {
+			expectOk(answer as Awaited<ReturnType<typeof folder.files.write>>);
+			included++;
+		}
+		expect(violations).toEqual([]);
+	}
+	// The sweep crossed the boundary: early writes were drained, a late one refused.
+	expect(included).toBeGreaterThan(0);
+	expect(refused).toBe(1);
+});
 
 test('a reservation waits for raw saves already queued on its paths before entering', async () => {
 	const { folder, engine, stored } = await setup();
@@ -2033,9 +2096,9 @@ test('a reservation waits for raw saves already queued on its paths before enter
 	const second = folder.files.write(MILK, 'first raw save', 'queued raw save');
 	await started;
 	let entered = false;
-	const operation = folder.run([MILK], async (work) => {
+	const operation = folder.run([MILK], async () => {
 		entered = true;
-		const file = expectOk(await work.files.read(MILK));
+		const file = expectOk(await folder.files.read(MILK));
 		expect(await file!.content.text()).toBe('queued raw save');
 	});
 	await Bun.sleep(0);
@@ -2087,7 +2150,111 @@ test('close with no view sends a running save, answers a failed one, and fences 
 	expect(milk.getMarkdown()?.body).toBe('Oat, two litres');
 });
 
-test('a status listener cannot reach storage once close is called, while held input lands and the engine closes once', async () => {
+for (const retry of ['lands', 'fails'] as const)
+	test(`save() tries input that failed during close again while a late write keeps close waiting, and close answers what is held at release (retry ${retry})`, async () => {
+		let accepted = 0;
+		let refused = false;
+		// The late write starts later and later after the failed attempt,
+		// across the end of close's own sending, until it comes after release.
+		for (let turns = 0; !refused && turns < 200; turns++) {
+			const { folder, engine, stored } = await setup();
+			const path = 'held.txt';
+			expectOk(await folder.files.write(path, null, 'before'));
+			const edit = folder.files.edit(path);
+			expectOk(await edit.read());
+			expectOk(edit.replaceText('after'));
+			let attempts = 0;
+			let failing = true;
+			const entered = Promise.withResolvers<void>();
+			const gate = Promise.withResolvers<void>();
+			cleanup.push(() => gate.resolve());
+			const write = engine.files.write;
+			engine.files.write = async (...args) => {
+				// Hold only the edited file; the separate late write keeps close draining.
+				if (args[0] === path) {
+					attempts++;
+					if (failing)
+						return SaveError.StorageFailed({ cause: new Error('disk full') });
+				} else if (args[0] === 'late.txt') {
+					entered.resolve();
+					await gate.promise;
+				}
+				return write(...args);
+			};
+			type Late =
+				| { readonly accepted: ReturnType<typeof folder.files.write> }
+				| { readonly refused: unknown };
+			const late = Promise.withResolvers<Late>();
+			let scheduled = false;
+			cleanup.push(
+				edit.subscribe(() => {
+					if (scheduled || edit.getPending()?.error === undefined) return;
+					scheduled = true;
+					let chain = Promise.resolve();
+					for (let turn = 0; turn < turns; turn++) chain = chain.then(() => {});
+					late.resolve(
+						chain.then((): Late => {
+							try {
+								return { accepted: folder.files.write('late.txt', null, 'late') };
+							} catch (cause) {
+								return { refused: cause };
+							}
+						}),
+					);
+				}),
+			);
+
+			const closing = folder.close();
+			const outcome = await late.promise;
+			if ('refused' in outcome) {
+				// Released before the late write: close answered the failure, and
+				// save() no longer attempts it.
+				refused = true;
+				expect(outcome.refused).toMatchObject({ message: 'The folder is closed' });
+				expect(await closing).toMatchObject([
+					{ path, text: 'after', error: { name: 'StorageFailed' } },
+				]);
+				await edit.save();
+				expect(attempts).toBe(1);
+				expect(edit.getPending()).toMatchObject({
+					text: 'after',
+					error: { name: 'StorageFailed' },
+				});
+				continue;
+			}
+			accepted++;
+			await entered.promise;
+			expect(attempts).toBe(1);
+			// Close is waiting on the late write, so save() still attempts.
+			failing = retry === 'fails';
+			await edit.save();
+			expect(attempts).toBe(2);
+			let closed = false;
+			void closing.then(() => {
+				closed = true;
+			});
+			await Bun.sleep(0);
+			expect(closed).toBe(false);
+			gate.resolve();
+			expectOk(await outcome.accepted);
+			const unsaved = await closing;
+			if (retry === 'lands') {
+				expect(unsaved).toEqual([]);
+				expect(edit.getPending()).toBeUndefined();
+				expect(folder.getStatus().failures).toEqual([]);
+				expect(await stored(path)).toBe('after');
+			} else {
+				expect(unsaved).toMatchObject([
+					{ path, text: 'after', error: { name: 'StorageFailed' } },
+				]);
+				expect(unsaved[0]).toBe(edit.getPending() as never);
+			}
+		}
+		expect(accepted).toBeGreaterThan(0);
+		expect(refused).toBe(true);
+	});
+
+test('a status listener that writes while close drains is waited for, and refused once storage is released', async () => {
 	const { folder, engine, edit, load } = await setup();
 	await load();
 	const writes = intercept(engine.files, 'write');
@@ -2097,11 +2264,14 @@ test('a status listener cannot reach storage once close is called, while held in
 		closes++;
 		close();
 	};
+	const landing: Promise<unknown>[] = [];
 	const refused: unknown[] = [];
+	let started = false;
 	folder.onStatusChange((status) => {
-		if (!status.saving) return;
+		if (!status.saving || started) return;
+		started = true;
 		try {
-			void folder.files.write('reentrant.md', null, 'late');
+			landing.push(folder.files.write('reentrant.md', null, 'late'));
 		} catch (cause) {
 			refused.push(cause);
 		}
@@ -2110,43 +2280,39 @@ test('a status listener cannot reach storage once close is called, while held in
 
 	await folder.close();
 
-	expect(refused.length).toBeGreaterThan(0);
-	expect(refused).toEqual(
-		refused.map(() =>
-			expect.objectContaining({ message: 'The folder is closed' }),
-		),
-	);
-	expect(writes.calls.map(([path]) => path)).not.toContain('reentrant.md');
+	expect(landing).toHaveLength(1);
+	expectOk((await landing[0]) as Awaited<ReturnType<typeof folder.files.write>>);
+	expect(writes.calls.map(([path]) => path)).toContain('reentrant.md');
+	expect(refused).toEqual([]);
 	expect(closes).toBe(1);
+	expect(() => folder.files.write('after.md', null, 'late')).toThrow(
+		'The folder is closed',
+	);
 	const reopened = await open();
 	expect(expectOk(await reopened.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Oat milk',
 	);
-	expect(expectOk(await reopened.files.read('reentrant.md'))).toBeUndefined();
+	const kept = expectOk(await reopened.files.read('reentrant.md'));
+	expect(await kept?.content.text()).toBe('late');
 });
 
-test('an edit listener at the close fence is refused storage, closes to the same promise, and the engine closes once', async () => {
+test('an edit listener at the close fence is refused input, closes to the same promise, and its write is waited for', async () => {
 	const { folder, engine, edit, load } = await setup();
 	await load();
 	edit.change({ fields: { title: 'Oat milk' } });
-	const writes = intercept(engine.files, 'write');
 	let closes = 0;
 	const close = engine.close;
 	engine.close = () => {
 		closes++;
 		close();
 	};
-	const refused: unknown[] = [];
 	let taken: boolean | undefined;
 	let inner: Promise<unknown> | undefined;
+	let written: ReturnType<typeof folder.files.write> | undefined;
 	cleanup.push(
 		edit.subscribe(() => {
 			if (!edit.isLocked() || inner !== undefined) return;
-			try {
-				void folder.files.write('fence-reentrant.md', null, 'late');
-			} catch (cause) {
-				refused.push(cause);
-			}
+			written = folder.files.write('fence-reentrant.md', null, 'late');
 			taken = edit.change({ fields: { title: 'Too late' } }).error === null;
 			inner = folder.close();
 		}),
@@ -2154,24 +2320,20 @@ test('an edit listener at the close fence is refused storage, closes to the same
 
 	const outer = folder.close();
 	expect(inner).toBe(outer);
-	expect(refused).toMatchObject([{ message: 'The folder is closed' }]);
 	expect(taken).toBe(false);
 	await outer;
 
-	expect(writes.calls.map(([path]) => path)).not.toContain(
-		'fence-reentrant.md',
-	);
+	expectOk(await written!);
 	expect(closes).toBe(1);
 	const reopened = await open();
 	expect(expectOk(await reopened.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Oat milk',
 	);
-	expect(
-		expectOk(await reopened.files.read('fence-reentrant.md')),
-	).toBeUndefined();
+	const kept = expectOk(await reopened.files.read('fence-reentrant.md'));
+	expect(await kept?.content.text()).toBe('late');
 });
 
-test('closing the folder while a delete runs refuses new calls and lets the delete finish', async () => {
+test('closing the folder while a delete runs refuses new actions and lets the delete finish', async () => {
 	const { folder, engine, edit } = await setup();
 	const gets = intercept(engine.files, 'read');
 	const started = gets.next();
@@ -2180,7 +2342,9 @@ test('closing the folder while a delete runs refuses new calls and lets the dele
 	await started;
 
 	const closing = folder.close();
-	expect(() => folder.files.list()).toThrow('closed');
+	expect(expectErr(await folder.run([], async () => {})).name).toBe(
+		'NotStarted',
+	);
 	gets.release();
 	expect(expectOk(await deleting)).toEqual({ deleted: true });
 	expect(await closing).toEqual([]);

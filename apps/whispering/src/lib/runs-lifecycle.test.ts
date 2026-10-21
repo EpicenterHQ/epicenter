@@ -2,7 +2,9 @@
  * Run preparation and deletion races over the real Folder and whispering.
  * Requests use freshly saved recording facts, failed input never sends older
  * audio, and reserving a deletion blocks work throughout its asynchronous reads.
- * Closing during preparation sends no request. Running an unfinished result
+ * Closing during preparation sends no request, and an answer that arrives
+ * once closing began writes nothing, even while other admitted work, on its
+ * row or elsewhere, keeps the folder open. Running an unfinished result
  * again first saves its accepted edits, so an answer typed there is not resent.
  */
 import {
@@ -14,11 +16,14 @@ import { afterEach, expect, test } from 'bun:test';
 import { chmodSync } from 'node:fs';
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { RECORDINGS } from './definition.js';
+import type { WhisperingServices } from './platform/types.js';
 import { quiet } from './query.test-support.js';
 import {
 	deferred,
+	eventually,
 	openTestServices,
 	replaceTables,
 	type TestServicesOptions,
@@ -227,6 +232,44 @@ test('closing while the initial result is saving prevents a later provider reque
 	expect(rows).toHaveLength(1);
 	expect(await Bun.file(join(root, rows[0]!)).text()).toMatch(/\n---\n$/);
 });
+
+for (const held of ['unrelated', 'result'] as const)
+	test(`an answer that arrives after closing writes nothing while ${held === 'unrelated' ? 'unrelated admitted work' : 'an action reserving its row'} keeps the folder open`, async () => {
+		const answer =
+			deferred<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
+		const entered = deferred<void>();
+		const gate = deferred<void>();
+		cleanups.push(async () => gate.resolve());
+		const { context, whispering, folder, root, entry, transcribed } =
+			await open({ transcribe: () => answer.promise });
+		const transcribing = whispering.transcribe(entry);
+		await eventually(() => transcribed.length === 1);
+		const [row] = expectOk(await folder.tables.transcriptions.list());
+		const path = `transcriptions/${row!.id}.md`;
+		const other = folder.run(held === 'unrelated' ? [] : [path], async () => {
+			entered.resolve();
+			await gate.promise;
+		});
+		await entered.promise;
+		whispering.dispose();
+		let closed = false;
+		const closing = context.close().then(() => {
+			closed = true;
+		});
+		answer.resolve(Ok({ text: 'arrived while the folder drained' }));
+		await transcribing;
+		// Storage still answers while close waits for the other work, and the
+		// answer did not reach it.
+		expect(closed).toBe(false);
+		expect(expectOk(await folder.tables.transcriptions.get(row!.id))?.body).toBe(
+			'',
+		);
+		gate.resolve();
+		expectOk(await other);
+		await closing;
+		expect(transcribed).toHaveLength(1);
+		expect(await readFile(join(root, path), 'utf8')).toMatch(/\n---\n$/);
+	});
 
 test('running a failed result again first saves an answer typed into its file', async () => {
 	const { context, whispering, folder, entry, transcribed } = await open({

@@ -90,8 +90,8 @@ the saved files.
 | `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A save of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
 | `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or reserved action running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
 | `settle()` | Attempts unreserved held input now, drains admitted work and started saves, then attempts newly released paths. A failed revision is not retried within the same call. Unscoped reads are not waited for. Answers the input that did not save. |
-| `run(paths, action)` | Admits a complete action that close waits for. `paths` is its reservation, declared up front and fixed for the action: those paths are reserved together against local input and competing reservations, and their held input is flushed before the callback. `[]` admits lifetime only. Its storage access works during close, then expires. |
-| `close()` | At once, new input and actions are refused and every root storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; admitted actions and running deletes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` attempts its path during close and does nothing after completion. Answers the input that did not save. Calling it again returns the same promise. |
+| `run(paths, action)` | Admits a complete action that close waits for. `paths` is its reservation, declared up front and fixed for the action: those paths are reserved together against local input and competing reservations, and their held input is flushed before the callback. `[]` admits lifetime only. The callback takes no argument and uses this Folder's `files` and `tables`. |
+| `close()` | At once, new input and actions are refused, and `onChange`, `onStatusChange` and `settle` throw. `files` and `tables` stay usable while close drains: admitted actions and running deletes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started, including ones any caller starts during the drain, finish with their real outcome; reads still running are not waited for. Then listeners and storage are released, and `files` and `tables` throw from then on. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` attempts its path during close and does nothing after completion. Answers the input that did not save. Calling it again returns the same promise. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
 saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
@@ -102,8 +102,8 @@ The saves of one path through one handle run one at a time, in call order,
 direct saves and saves of typed input alike; saves of different paths run
 side by side.
 
-A storage call on a closed handle throws: it is a programming error, not a
-storage failure.
+A storage call on a handle whose close released storage throws: it is a
+programming error, not a storage failure.
 
 New file and row names follow the portable path rule. Earlier files with a
 nonportable but structurally safe name remain readable. A save or deletion
@@ -204,13 +204,13 @@ await edit.save(); // or wait saveAfterMs
 const file = folder.files.edit('notes/a.md');
 await file.read();
 file.change({ fields: { title: 'x' } });
-file.replaceText(editedText);
-// The callback receives storage access, without a second editor or lifecycle.
-// Its reservation is declared before it starts and cannot grow.
-await folder.run(['notes/a.md', 'audio/a.bin'], async (work) => {
-  const note = await work.files.read('notes/a.md');
-  // Both paths' held input saved first. Use work.files or work.tables here,
-  // even if close started during an await.
+file.replaceText(editedText); // replaces the displayed source
+// The callback uses this same folder. Its reservation is declared before it
+// starts and cannot grow.
+await folder.run(['notes/a.md', 'audio/a.bin'], async () => {
+  const note = await folder.files.read('notes/a.md');
+  // Both paths' held input saved first. Close waits for this callback, so
+  // storage stays usable here even if close started during an await.
 });
 ```
 
@@ -289,21 +289,28 @@ protects local input and competing reservations. Raw storage calls and outside
 programs still use their ordinary content witnesses; it is not a storage lock or
 an atomic transaction.
 
-The callback receives `FolderWork`: `files` and typed `tables` with storage
-operations. It has no editor, listeners, `settle`, `close`, or `run`: an
-action's reservation is declared before it starts and cannot grow. The
-reservation protects held input and competing reservations; it does not limit
-which paths the callback's storage calls may reach. Use `[]` when the action
+The callback takes no argument and uses the same `folder.files` and
+`folder.tables` as everything else. An action's reservation is declared before
+it starts and cannot grow. The reservation protects held input and competing
+reservations; it does not limit which paths the callback's storage calls may
+reach, and it says nothing about who is calling. Use `[]` when the action
 needs only admission across awaits. This does not set `saving`; its actual
-writes and reserved actions do. Use the callback's storage access for every
-continuation: root Folder calls refuse immediately once close starts. A
-workflow that depends on reserved input for a path it finds later, such as
-Honeycrisp's folder deletion, refuses when that path was not reserved, so the
-person can try again with the larger set.
+writes and reserved actions do. A workflow that depends on reserved input for
+a path it finds later, such as Honeycrisp's folder deletion, refuses when that
+path was not reserved, so the person can try again with the larger set.
 
-Access expires when the callback returns or throws, including saved method
-references. Calls already started finish before its reservations release. Await operations to inspect their outcomes. Do not await the captured
-root's `settle()` or `close()` inside an action, because they wait for that action.
+Close waits for the callback and for every write already started, then
+releases storage. Writes queued on a reserved path when the callback returns
+or throws finish before its reservation ends; a failed one does not replace
+the callback's own outcome. Nothing keeps a continuation the callback left
+running: await the work whose outcome matters before returning. Storage stays
+usable until close releases it, so any write started during the drain, from
+an action or not, is waited for and prolongs close; one started after the
+release throws. Admission is the policy point: code that must not write once
+the folder is closing, such as an answer arriving from a network request,
+admits that write with `folder.run([], ...)` and treats `NotStarted` as
+closing. Do not await the captured root's `settle()` or `close()` inside an
+action, because they wait for that action.
 Close refuses new input immediately, drains admitted actions and saves, then
 attempts newly released input once. `FileEdit.save()` attempts or joins only its path
 while closing, so it never waits on an action that might be calling it. After

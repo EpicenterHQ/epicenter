@@ -10,6 +10,8 @@
  * - Closing waits for no Stop and starts none: a recording under way is
  *   neither stopped nor deleted by the page, gets no length, and an ending
  *   heard afterward finishes nothing
+ * - A Stop asks the folder to admit its length write: once closing began it
+ *   is refused, even while other admitted work keeps the folder open
  * - A recording that answers after closing writes no row
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
@@ -314,6 +316,59 @@ test('closing during an interrupted capture’s Stop waits for neither the Stop 
 		await readFile(join(test.root, 'recordings', name!), 'utf8'),
 	).not.toContain('durationMs');
 	expect(whispering.recorderError).toContain('Recording stopped');
+});
+
+test('a Stop whose row was still saving when closing began writes no length, though other admitted work keeps the folder open', async () => {
+	const { whispering, context, test } = await open();
+	const reached = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const entered = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	cleanups.push(async () => {
+		release.resolve();
+		gate.resolve();
+	});
+	const recordings = test.folder.tables.recordings;
+	replaceTables(test.folder, {
+		recordings: {
+			...recordings,
+			async set(id, from, change) {
+				const saved = await recordings.set(id, from, change);
+				// The row is on disk; its answer is held, so Stop still waits on it.
+				if (from === null) {
+					reached.resolve();
+					await release.promise;
+				}
+				return saved;
+			},
+		},
+	});
+	const starting = whispering.startRecording();
+	await reached.promise;
+	const stopping = whispering.stopRecording();
+	await eventually(() => whispering.recorder.phase === 'idle');
+	const other = test.folder.run([], async () => {
+		entered.resolve();
+		await gate.promise;
+	});
+	await entered.promise;
+	let closed = false;
+	const closing = closeTestWhispering({ whispering, context }).then(() => {
+		closed = true;
+	});
+	release.resolve();
+	await Promise.all([starting, stopping]);
+	// The folder is still draining the other work, and storage still answers,
+	// yet the length was refused when Stop asked to write it.
+	expect(closed).toBe(false);
+	gate.resolve();
+	expectOk(await other);
+	await closing;
+	const [name] = await rows(test.root);
+	expect(
+		await readFile(join(test.root, 'recordings', name!), 'utf8'),
+	).not.toContain('durationMs');
+	expect(whispering.recorderError).toBeUndefined();
 });
 
 test('a recording that answers after closing writes no row', async () => {
