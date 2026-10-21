@@ -107,10 +107,6 @@
 		if (navigation.willUnload || navigation.to?.route.id !== page.route.id) navigation.cancel();
 	});
 
-	/** Read both lists again, after a read that failed. */
-	function readAgain() {
-		void context.refresh();
-	}
 </script>
 
 <div class="flex h-dvh min-w-0 flex-col">
@@ -147,7 +143,7 @@
 	{#if loadError}
 		<div role="alert" class="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs text-destructive">
 			<span>Vocab could not read its folder in this browser: {loadError}</span>
-			<Button variant="ghost" size="sm" onclick={readAgain}>Read again</Button>
+			<Button variant="ghost" size="sm" onclick={() => void context.refresh()}>Read again</Button>
 		</div>
 	{/if}
 	{#if unreadable.length > 0}
