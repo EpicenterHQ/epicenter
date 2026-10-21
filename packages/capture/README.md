@@ -28,12 +28,14 @@ A UTC time and a time with an offset are both valid, so order captures by
 the parsed instant, never by the string. The schema only interprets:
 unknown frontmatter keys are kept, and a save is never refused by it.
 
-The optional boolean `draft` field reserves `draft: true` for an unfinished
-composition. Its body is raw writing, not a capture text-and-thoughts layout.
-Capture lists these separately and applies `composeBody` only on Add, removing
-`draft` and updating `capturedAt` in the same file write. Existing files without
-`draft` remain completed captures. `captureBody` itself only interprets bodies;
-the application checks the row's lifecycle before decoding one.
+The optional boolean `draft` field marks `draft: true` files, unfinished
+compositions an earlier version of Capture saved before Add. Their body is raw
+writing, not a capture text-and-thoughts layout. Capture lists these
+separately and applies `composeBody` only when one is finished, removing
+`draft` and updating `capturedAt` in the same file write; it writes no new
+drafts. Files without `draft` are completed captures. `captureBody` itself
+only interprets bodies; the application checks the row's lifecycle before
+decoding one.
 
 ## Reading a capture
 
@@ -111,14 +113,19 @@ Encoding preserves surrounding body content and verifies the resulting text and
 thoughts.
 
 Positions go stale when the body changes under them, so an app checks that a
-delayed edit's starting list, or the thought an edit started from, is still
-current before it encodes. The codec needs no thought IDs.
+delayed command's starting list is still current before it encodes. The codec
+needs no thought IDs.
+
+`captureBody.locate(body)` answers where each thought sits in the body, as
+`Span`s of offsets from its bullet marker to the end of its last line with
+content. An app uses it to select a thought's lines when editing the file as
+text, where unfinished Markdown is kept as typed.
 
 `excerpt(text)` shortens capture text for a list.
 
-`composeBody(text, thoughts?)` builds a new capture's body: the text exactly
-as given, then the `## Thoughts` section. A capture is the same when reopened
-as when created:
+`composeBody(text, thoughts?)` builds a new capture's body, the one Add
+writes: the text exactly as given, then the `## Thoughts` section. A capture
+is the same when reopened as when created:
 
 | Text | Body | Reads as |
 | --- | --- | --- |

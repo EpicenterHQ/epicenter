@@ -4,10 +4,9 @@
  * of the folder's context (`getFolder()`).
  *
  * The timeline reads the one rows query of the captures table. The capture
- * view and Edit as text show the folder's edit of one capture, as a row
- * (`createRowEdit(folder.tables.captures, stem)`, which its form types into,
- * `formOf`) or as the file's exact text (`createTextEdit(folder.files,
- * path)`). The folder holds each capture as stored and what is typed over
+ * view uses `createRowEdit(folder.tables.captures, stem)`; Edit as text uses
+ * `createTextEdit(folder.files, path)`. Both show the Folder's one path edit.
+ * The folder holds each capture as stored and what is typed over
  * it, one kind of input per path, and saves it a second after the last
  * change or when the person leaves it, one save at a time from where it
  * started, merged with whatever was saved since. Changes made outside this
@@ -19,9 +18,10 @@
  * landed. Closing fences new input, then sends the edits held. There is no
  * history, sync, or remote on this path.
  *
- * A new composition is a capture file with `draft: true`, its raw writing
- * in the body. Add promotes that same file. Only unfinished thought forms
- * remain in page state (`formOf`).
+ * A new capture's text and a thought not added yet belong to the view that
+ * shows their text box until Add; nothing is written before it. A file with
+ * `draft: true` holds raw writing an earlier version saved; finishing it
+ * promotes that same file.
  */
 
 import {
@@ -37,10 +37,9 @@ import { documentChange, readDocument } from '@epicenter/folder/documents';
 import { ActionError, CLOSING, UNSAVED } from '@epicenter/folder/edits';
 import { createRowEdit } from '@epicenter/svelte/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
-import { SvelteMap } from 'svelte/reactivity';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { type CaptureForm, createCaptureForm } from './capture-form.svelte.js';
+import type { TextRange } from './capture-actions.svelte.js';
 
 export type Captures = ReturnType<typeof createCaptures>;
 
@@ -50,8 +49,18 @@ export type CaptureFolder = FolderContext<typeof captureTables>;
 /** How a capture is open: its text and thoughts, or its exact Markdown. */
 export type Mode = 'capture' | 'text';
 
+/**
+ * Where focus goes as a view opens: Add a thought, after a capture is added,
+ * or a range of the file's text, to edit one thought as text.
+ */
+export type Focus = 'new-thought' | TextRange;
+
 /** Which capture the detail shows, and how. */
-export type Opened = { readonly stem: string; readonly mode: Mode };
+export type Opened = {
+	readonly stem: string;
+	readonly mode: Mode;
+	readonly focus?: Focus;
+};
 
 /** A capture the timeline lists. */
 export type TimelineRow = {
@@ -128,7 +137,7 @@ const notText = (row: CaptureRow) =>
 	row.issues?.some((issue) => issue.kind === 'not-text') ?? false;
 
 /** Drafts hold raw writing; only added captures interpret a Thoughts section. */
-export function readCaptureBody(row: Extract<CaptureRow, { issues: null }>) {
+export function readCaptureBody(row: Pick<Extract<CaptureRow, { issues: null }>, 'fields' | 'body'>) {
 	if (row.fields.draft === true)
 		return Ok({
 			draft: true,
@@ -142,7 +151,7 @@ export function readCaptureBody(row: Extract<CaptureRow, { issues: null }>) {
 }
 
 /** Why a row does not read as a capture's frontmatter, one sentence per issue. */
-export function problemOf(row: CaptureRow): string {
+export function problemOf(row: Pick<CaptureRow, 'issues'>): string {
 	return (row.issues ?? [])
 		.map((issue) => {
 			const at = issue.line === undefined ? '' : `Line ${issue.line}: `;
@@ -221,8 +230,6 @@ export function createCaptures(context: CaptureFolder) {
 
 	/** What the detail shows. */
 	let opened = $state.raw<Opened | undefined>();
-	/** Each capture's input not committed yet, kept while the person moves between captures. */
-	const forms = new SvelteMap<string, CaptureForm>();
 
 	/** Whether `stem` takes no edit now: closing, or it is being deleted; read reactively, reading no file. */
 	const isLocked = (stem: string) =>
@@ -231,28 +238,23 @@ export function createCaptures(context: CaptureFolder) {
 	const rowsData = () => queryClient.getQueryData<CaptureRow[]>(rowsKey);
 	const rowOf = (stem: string) => rowsData()?.find((row) => row.id === stem);
 
-	/** The input not committed yet, and the folder's edit, for the capture at `stem`. */
-	function formOf(stem: string): CaptureForm {
-		const existing = forms.get(stem);
-		if (existing !== undefined) return existing;
-		const form = createCaptureForm(createRowEdit(folder.tables.captures, stem));
-		forms.set(stem, form);
-		return form;
-	}
-
-	/** Show either view of the path's current edit; invalid content stays as text. */
-	function open(stem: string, mode: Mode) {
-		let as = mode;
+	/**
+	 * Show either view of the path's current edit; invalid content stays as
+	 * text. A `focus` opens the view again, focused there.
+	 */
+	function open(stem: string, mode: Mode, focus?: Focus) {
 		if (mode === 'capture') {
 			const row = folder.tables.captures.edit(stem).getRow() ?? rowOf(stem);
 			if (
 				row !== undefined &&
-				(row.issues !== null || readCaptureBody(row).error !== null)
-			)
-				as = 'text';
+				(row.issues !== null || row.fields.draft === true || readCaptureBody(row).error !== null)
+			) {
+				mode = 'text';
+				focus = undefined;
+			}
 		}
-		if (opened?.stem !== stem || opened.mode !== as)
-			opened = { stem, mode: as };
+		if (focus !== undefined || opened?.stem !== stem || opened.mode !== mode)
+			opened = { stem, mode, focus };
 	}
 
 	return {
@@ -312,34 +314,38 @@ export function createCaptures(context: CaptureFolder) {
 		},
 
 		// ------------------------------------------------------------------
-		// Edits
-		// ------------------------------------------------------------------
-
-		formOf,
-
-		// ------------------------------------------------------------------
 		// Actions
 		// ------------------------------------------------------------------
 
-		/** Create a durable empty composition before accepting any typing. */
-		async create(): Promise<Result<{ stem: string }, SaveError | ActionError>> {
+		/**
+		 * Add a finished capture holding `text`, then open it at Add a
+		 * thought. This is its first write: a failure writes nothing.
+		 */
+		async create(
+			text: string,
+		): Promise<Result<{ stem: string }, SaveError | ActionError>> {
 			if (context.closing) return ActionError.NotStarted({ reason: CLOSING });
+			if (text.trim() === '')
+				return ActionError.NotStarted({ reason: 'Write something first.' });
 			const now = new Date();
 			const stem = newStem(now);
 			const saved = await folder.tables.captures.set(stem, null, {
-				fields: { capturedAt: now.toISOString(), draft: true },
-				body: '',
+				fields: { capturedAt: now.toISOString() },
+				body: composeBody(text.toWellFormed()).body,
 			});
 			if (saved.error !== null) return saved;
 			if (context.closing) return Ok({ stem });
 			// Listed before it opens, so the view never says it is gone. A read
 			// for this view, joining the one the save's change started.
 			await context.refresh([capturePath(stem)]);
-			open(stem, 'capture');
+			open(stem, 'capture', 'new-thought');
 			return Ok({ stem });
 		},
-		/** Save raw input, then promote this same file once. A failed write keeps the raw draft. */
-		async add(stem: string): Promise<Result<void, Failure>> {
+		/**
+		 * Finish a draft an earlier version saved: save its raw input, then
+		 * promote this same file once. A failed write keeps the raw draft.
+		 */
+		async finishDraft(stem: string): Promise<Result<void, Failure>> {
 			const path = capturePath(stem);
 			const added = await folder.files
 				.edit(path)
@@ -372,7 +378,7 @@ export function createCaptures(context: CaptureFolder) {
 			if (added.data.error !== null) return added.data;
 			if (!context.closing) {
 				await context.refresh([path]);
-				open(stem, 'capture');
+				open(stem, 'capture', 'new-thought');
 			}
 			return Ok(undefined);
 		},
@@ -401,10 +407,11 @@ export function createCaptures(context: CaptureFolder) {
 			const { stem } = deletion;
 			const deleted = await folder.tables.captures.edit(stem).delete();
 			if (deleted.error !== null) return deleted;
-			if (deleted.data.deleted || rowOf(stem) === undefined) {
-				forms.delete(stem);
-				if (opened?.stem === stem) opened = undefined;
-			}
+			if (
+				(deleted.data.deleted || rowOf(stem) === undefined) &&
+				opened?.stem === stem
+			)
+				opened = undefined;
 			return deleted;
 		},
 	};

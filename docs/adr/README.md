@@ -864,4 +864,5 @@ When you add an ADR, add its row here.
 | [0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) | Ignore rules select Git source without a declaration policy | Proposed |
 | [0655](0655-product-root-components-use-the-app-name-and-app-suffix.md) | Product root components use the app name and App suffix | Accepted |
 | [0656](0656-a-folder-owns-typed-input-from-open-to-close.md) | A folder owns typed input from open to close | Proposed (amends 0548 and 0554) |
+| [0658](0658-capture-compositions-are-durable-markdown-records.md) | Capture compositions are durable Markdown records from Add, not before | Accepted |
 | [0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) | Native apps default authored work to the Epicenter root | Accepted (amends 0636, 0644, and 0647; restores the native default of 0539; standalone fixed default built) |

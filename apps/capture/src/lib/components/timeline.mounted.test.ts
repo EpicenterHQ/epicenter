@@ -1,26 +1,32 @@
 /**
  * Mounted Timeline Tests
  *
- * The real `Timeline` and composition views, compiled for the
- * client and mounted in jsdom inside the folder's query client, over the
- * real Capture store and a real local folder on an in-memory IndexedDB.
+ * The real `Timeline`, New capture, and draft views, compiled for the client
+ * and mounted in jsdom inside the folder's query client, over the real
+ * Capture store and a real local folder on an in-memory IndexedDB.
  *
  * Key behaviors:
- * - Composition text lives in Folder, which outlives the view; detached
- *   text controls and forms accept no late input
+ * - New capture's text is the form's: typing writes nothing, and leaving
+ *   the timeline clears it
+ * - Add capture writes one finished capture, once, and opens Add a thought;
+ *   blank text is refused, and a failed Add keeps the text
+ * - A draft an earlier version saved is listed apart, autosaves through
+ *   Folder, and Add capture finishes that same file; detached controls take
+ *   no late input
  * - A file that is not a valid capture is named with why, and opens as text
- * - Add capture promotes the same file without a second draft buffer
  * - A capture whose save failed is named, with why, and opens from there
  *
- * jsdom has no layout, focus, selection, or IME; these tests say what a
- * delivered event does, not that a person can type there.
+ * jsdom has no layout, selection, or IME; these tests say what a delivered
+ * event does, not that a person can type there.
  */
 // Before the DOM: once a `window` exists, `fake-indexeddb/auto` installs
 // IndexedDB on it rather than on the global the folder reads.
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { expectOk } from 'wellcrafted/testing';
 import {
+	button,
 	click,
 	setWide,
 	type,
@@ -35,8 +41,16 @@ const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 setWide(true);
 
 /** The textarea or input with this id, or `null`. */
+const fileField = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]');
+
 const field = (id: string) =>
 	document.getElementById(id) as HTMLTextAreaElement | null;
+
+/** Dispatch the submit event a form delivers, on the form itself. */
+function submit(form: Element | null | undefined) {
+	if (!(form instanceof HTMLFormElement)) throw new Error('Expected a form');
+	form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+}
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -66,32 +80,117 @@ async function setup(files: Record<string, string> = {}) {
 	return { ...harness, close };
 }
 
-/** Create a draft and return the composition's text box. */
-async function openNewCapture() {
-	click(document, 'New capture');
-	flushSync();
-	await until(() => field('new-capture') !== null, 'the composition to open');
-	flushSync();
-	const box = field('new-capture');
-	if (box === null) throw new Error('the composition did not open');
-	return box;
+/** Nothing is typed into the folder, saving, or written. */
+async function nothingWritten(t: Awaited<ReturnType<typeof setup>>) {
+	const status = t.context.getStatus();
+	expect(status.saving).toBe(false);
+	expect(status.unsaved).toEqual([]);
+	return expectOk(await t.folder.tables.captures.list());
 }
 
-test('the composition text box writes nothing after its view is gone', async () => {
+const AT = '2026-10-04T20:49:23Z';
+const DRAFT = 'captures/draft.md';
+/** A draft file as an earlier version saved it: `raw` is its whole body. */
+const draftFile = (raw: string) =>
+	`---\ncapturedAt: ${AT}\ndraft: true\n---\n${raw}`;
+
+/** A timeline over one draft an earlier version saved; open it from Drafts. */
+async function openDraft(raw = '') {
+	const t = await setup({ [DRAFT]: draftFile(raw) });
+	document
+		.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')
+		?.click();
+	await until(() => {
+		flushSync();
+		return fileField() !== null;
+	}, 'the draft to open');
+	const box = fileField();
+	if (box === null) throw new Error('the draft did not open');
+	return { t, box, edit: t.folder.tables.captures.edit('draft') };
+}
+
+test('New capture text writes nothing, and leaving the timeline clears it', async () => {
+	const t = await setup({
+		'captures/one.md': `---\ncapturedAt: ${AT}\n---\n\nAn older capture\n`,
+	});
+	type(field('new-capture'), 'typed, not added');
+	flushSync();
+	expect(field('new-capture')?.value).toBe('typed, not added');
+	expect(document.body.textContent).toContain('Ctrl or ⌘ + Enter adds it.');
+	expect(await nothingWritten(t)).toHaveLength(1);
+
+	t.captures.open('one', 'capture');
+	flushSync();
+	expect(field('new-capture')).toBeNull();
+	t.captures.leave();
+	flushSync();
+	expect(field('new-capture')?.value).toBe('');
+	expect(await nothingWritten(t)).toHaveLength(1);
+});
+
+test('Add capture writes one finished capture, once, and opens Add a thought focused', async () => {
 	const t = await setup();
 	expect(document.body.textContent).toContain('No captures yet');
-	const box = await openNewCapture();
-	type(box, 'typed in the dialog');
-	const stem = t.captures.opened?.stem;
-	if (stem === undefined) throw new Error('Expected an open composition');
-	const edit = t.folder.tables.captures.edit(stem);
-	expect(edit.getRow()?.body).toBe('typed in the dialog');
-
-	t.close();
+	type(field('new-capture'), 'Written here\nwith two lines');
 	flushSync();
-	type(box, 'delivered after the timeline went');
-	expect(edit.getRow()?.body).toBe('typed in the dialog');
-	expect(t.captures.fenced).toBe(false);
+	const form = field('new-capture')?.form;
+	submit(form);
+	// A second Add while the first runs does nothing, and the text takes no typing.
+	submit(form);
+	flushSync();
+	expect(field('new-capture')?.readOnly).toBe(true);
+	expect(button(document, 'Adding…').disabled).toBe(true);
+
+	await until(() => {
+		flushSync();
+		return field('new-thought') !== null;
+	}, 'the new capture to open');
+	await t.quiet();
+	const rows = expectOk(await t.folder.tables.captures.list());
+	expect(rows).toHaveLength(1);
+	expect(rows[0]?.fields.draft).toBeUndefined();
+	expect(rows[0]?.body).toBe('\nWritten here\nwith two lines\n\n## Thoughts\n');
+	expect(t.captures.opened?.stem).toBe(rows[0]?.id);
+	expect(document.activeElement).toBe(field('new-thought'));
+});
+
+test('blank text cannot be added, and nothing is written', async () => {
+	const t = await setup();
+	type(field('new-capture'), '  \n ');
+	flushSync();
+	expect(button(document, 'Add capture').disabled).toBe(true);
+	submit(field('new-capture')?.form);
+	await tick();
+	flushSync();
+	expect(t.captures.opened).toBeUndefined();
+	expect(await nothingWritten(t)).toEqual([]);
+});
+
+test('a failed Add keeps the text and says why; Add again writes it once', async () => {
+	const t = await setup();
+	const restore = t.failSaves();
+	type(field('new-capture'), 'Kept through a full disk');
+	flushSync();
+	click(document, 'Add capture');
+	await until(() => {
+		flushSync();
+		return document.body.textContent?.includes('The capture was not added') ?? false;
+	}, 'the Add failure');
+	expect(document.body.textContent).toContain('Your text is still here.');
+	expect(field('new-capture')?.value).toBe('Kept through a full disk');
+	expect(field('new-capture')?.readOnly).toBe(false);
+	restore();
+	expect(await nothingWritten(t)).toEqual([]);
+
+	click(document, 'Add capture');
+	await until(() => {
+		flushSync();
+		return field('new-thought') !== null;
+	}, 'the new capture to open');
+	const rows = expectOk(await t.folder.tables.captures.list());
+	expect(rows.map((row) => row.body)).toEqual([
+		'\nKept through a full disk\n\n## Thoughts\n',
+	]);
 });
 
 test('a file that is not a valid capture is named with why, and Edit as text opens it', async () => {
@@ -107,31 +206,15 @@ test('a file that is not a valid capture is named with why, and Edit as text ope
 	expect(document.body.textContent).toContain('Needs repair');
 });
 
-test('Add capture promotes the same file and opens its thoughts', async () => {
-	const t = await setup();
-	const box = await openNewCapture();
-	type(box, 'Written in the dialog');
-	flushSync();
-	click(document, 'Add capture');
-	await until(() => field('new-thought') !== null, 'the capture thoughts to open');
-	await t.quiet();
-	flushSync();
-	const stem = t.captures.opened?.stem;
-	expect(t.cached(stem ?? '')?.fields.draft).toBeUndefined();
-	expect(await t.text(`captures/${stem}.md`)).toContain(
-		'\nWritten in the dialog\n\n## Thoughts\n',
-	);
-});
-
 test('a capture whose save failed is named, with why, and opens from there', async () => {
 	const t = await setup({
-		'captures/one.md': '---\ncapturedAt: 2026-10-04T20:49:23Z\n---\n\nText\n',
+		'captures/one.md': `---\ncapturedAt: ${AT}\n---\n\nText\n`,
 	});
 	const restore = t.failSaves();
-	// Typed in the capture's form, as its detail types.
-	const form = t.captures.formOf('one');
-	form.inputText('Edited');
-	await form.flush();
+	const edit = t.folder.tables.captures.edit('one');
+	expectOk(await edit.read());
+	expectOk(edit.change({ body: '\nEdited\n' }));
+	await edit.save();
 	restore();
 	flushSync();
 
@@ -144,136 +227,236 @@ test('a capture whose save failed is named, with why, and opens from there', asy
 	expect(t.captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 });
 
-test('a failed promotion keeps the raw composer visible and retry adds it once', async () => {
-	const t = await setup();
-	const box = await openNewCapture();
-	type(box, 'My original writing');
+test('a draft an earlier version saved is listed apart, autosaves, and Add capture finishes the same file', async () => {
+	const { t, box, edit } = await openDraft();
+	expect(t.captures.opened).toEqual({ stem: 'draft', mode: 'text' });
+	expect(box.value).toBe(draftFile(''));
+	type(box, draftFile('Written in the draft'));
+	expect(edit.getRow()?.body).toBe('Written in the draft');
 	await t.quiet();
-	const stem = t.captures.opened?.stem;
+	expect(await t.text(DRAFT)).toBe(draftFile('Written in the draft'));
+
+	click(document, 'Add capture');
+	await until(() => {
+		flushSync();
+		return field('new-thought') !== null;
+	}, 'the finished capture');
+	await t.quiet();
+	expect(t.captures.opened?.stem).toBe('draft');
+	expect(t.cached('draft')?.fields.draft).toBeUndefined();
+	expect(await t.text(DRAFT)).toContain('\nWritten in the draft\n\n## Thoughts\n');
+	expect(document.activeElement).toBe(field('new-thought'));
+});
+
+test('the draft text box writes nothing after its view is gone', async () => {
+	const { t, box, edit } = await openDraft();
+	type(box, draftFile('typed in the draft'));
+	expect(edit.getRow()?.body).toBe('typed in the draft');
+
+	t.close();
+	flushSync();
+	type(box, draftFile('delivered after the view went'));
+	expect(edit.getRow()?.body).toBe('typed in the draft');
+	expect(t.captures.fenced).toBe(false);
+});
+
+test('a failed promotion keeps the raw draft visible and retry adds it once', async () => {
+	const { t, box } = await openDraft();
+	type(box, draftFile('My original writing'));
+	await t.quiet();
 	const restore = t.failSaves();
 	click(document, 'Add capture');
 	await until(() => document.body.textContent?.includes('The capture was not added') ?? false, 'the Add failure');
-	expect(field('new-capture')?.value).toBe('My original writing');
-	expect(document.body.textContent).toContain('Your draft is still here');
+	expect(fileField()?.value).toBe(draftFile('My original writing'));
 	restore();
 	click(document, 'Add capture');
 	await until(() => field('new-thought') !== null, 'the completed capture');
 	await t.quiet();
-	expect((await t.text(`captures/${stem}.md`))?.match(/^## Thoughts$/gm)).toHaveLength(1);
+	expect((await t.text(DRAFT))?.match(/^## Thoughts$/gm)).toHaveLength(1);
 });
 
-test('a failed composition autosave exposes retry and keeps its writing', async () => {
-	const t = await setup();
-	const box = await openNewCapture();
+test('a failed draft autosave exposes retry and keeps its writing', async () => {
+	const { t, box } = await openDraft();
 	const restore = t.failSaves();
-	type(box, '```ts\nstill writing');
-	await until(() => document.body.textContent?.includes('Your draft is not saved') ?? false, 'the autosave failure');
-	expect(field('new-capture')?.value).toBe('```ts\nstill writing');
+	type(box, draftFile('```ts\nstill writing'));
+	await until(() => document.body.textContent?.includes('Your edit is not saved') ?? false, 'the autosave failure');
+	expect(fileField()?.value).toBe(draftFile('```ts\nstill writing'));
 	restore();
 	click(document, 'Save again');
 	await t.quiet();
-	expect(document.body.textContent).not.toContain('Your draft is not saved');
-	expect(await t.text(`captures/${t.captures.opened?.stem}.md`)).toContain('```ts\nstill writing');
+	expect(document.body.textContent).not.toContain('Your edit is not saved');
+	expect(await t.text(DRAFT)).toBe(draftFile('```ts\nstill writing'));
 });
 
-test('stale composer events after Add cannot replace the completed capture', async () => {
-	const t = await setup();
-	const box = await openNewCapture();
-	const form = box.form;
-	type(box, 'Final writing');
+test('stale draft events after Add cannot replace the completed capture', async () => {
+	const { t, box } = await openDraft();
+	const add = button(document, 'Add capture');
+	type(box, draftFile('Final writing'));
 	flushSync();
 	click(document, 'Add capture');
 	await until(() => field('new-thought') !== null, 'the completed capture');
-	const path = `captures/${t.captures.opened?.stem}.md`;
-	const before = await t.text(path);
+	const before = await t.text(DRAFT);
 	expect(before).toContain('\nFinal writing\n\n## Thoughts\n');
-	type(box, 'Late raw writing');
-	form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+	type(box, draftFile('Late raw writing'));
+	add.click();
 	await t.quiet();
-	expect(await t.text(path)).toBe(before);
+	expect(await t.text(DRAFT)).toBe(before);
 });
 
-test('an external promotion refuses raw input before the composer has unmounted', async () => {
-	const t = await setup();
-	const box = await openNewCapture();
-	const stem = t.captures.opened?.stem;
-	if (stem === undefined) throw new Error('Expected a draft');
-	type(box, 'Final writing');
+test('another tab finishing a draft keeps the full-file editor and shows the completed source', async () => {
+	const { t, box, edit } = await openDraft('Final writing');
+	const completed = '---\ncapturedAt: 2026-10-21T10:00:00Z\n---\n\nFinal writing\n\n## Thoughts\n';
+	await t.writeElsewhere(DRAFT, completed);
+	expectOk(await edit.read());
+	await until(() => { flushSync(); return box.value === completed; }, 'the completed file');
+	expect(box.isConnected).toBe(true);
+	expect(document.body.textContent).not.toContain('Add capture');
+	type(box, completed.replace('Final writing', 'Edited after finishing'));
 	await t.quiet();
-	const edit = t.folder.tables.captures.edit(stem);
-	let attemptedWhileMounted = false;
-	const stop = edit.subscribe(() => {
-		const row = edit.getRow();
-		if (attemptedWhileMounted || edit.isLocked() || row?.issues !== null || row.fields.draft === true) return;
-		attemptedWhileMounted = box.isConnected;
-		type(box, 'Late raw input');
-	});
-	try {
-		const path = `captures/${stem}.md`;
-		const completed = '---\ncapturedAt: 2026-10-21T10:00:00Z\n---\n\nFinal writing\n\n## Thoughts\n';
-		await t.writeElsewhere(path, completed);
-		await edit.read();
-		await until(() => field('new-thought') !== null, 'the external promotion');
-		expect(attemptedWhileMounted).toBe(true);
-		expect(edit.getPending()).toBeUndefined();
-		expect(await t.text(path)).toBe(completed);
-	} finally {
-		stop();
-	}
+	expect(await t.text(DRAFT)).toBe(completed.replace('Final writing', 'Edited after finishing'));
 });
 
-test('repairing draft frontmatter opens its raw composition despite an ambiguous Thoughts body', async () => {
+test('repairing draft frontmatter opens its raw writing despite an ambiguous Thoughts body', async () => {
 	const raw = '## Thoughts\n\n- original\n\n```';
 	const t = await setup({ 'captures/broken.md': `---\ncapturedAt: nope\ndraft: true\n---\n${raw}` });
 	click(document, 'Edit as text');
 	await until(() => document.querySelector('textarea[aria-label^="Contents of"]') !== null, 'the repair editor');
 	type(document.querySelector('textarea[aria-label^="Contents of"]'), `---\ncapturedAt: 2026-10-01T10:30:00Z\ndraft: true\n---\n${raw}`);
 	flushSync();
-	click(document, 'Open as capture');
-	await until(() => field('new-capture') !== null, 'the repaired composition');
-	expect(field('new-capture')?.value).toBe(raw);
+	await until(() => { flushSync(); return !button(document, 'Add capture').disabled; }, 'the repaired draft');
+	expect(fileField()?.value).toBe(`---\ncapturedAt: 2026-10-01T10:30:00Z\ndraft: true\n---\n${raw}`);
 	expect(document.body.textContent).not.toContain('Needs repair');
 	await t.quiet();
 });
 
-test('refused composition input explains why the previous text remains', async () => {
-	const t = await setup();
-	const box = await openNewCapture();
-	type(box, 'Before');
-	flushSync();
-	type(box, 'Pasted\u0000after');
-	flushSync();
-	await tick();
-	expect(field('new-capture')?.value).toBe('Before');
-	expect(document.body.textContent).toContain('Your previous text is kept.');
-	expect(field('new-capture')?.getAttribute('aria-invalid')).toBe('true');
-	type(box, 'Accepted again');
-	flushSync();
-	expect(document.body.textContent).not.toContain('Your previous text is kept.');
+test('a NUL paste is retained as full-file input with a visible save refusal', async () => {
+	const { t, box, edit } = await openDraft('Before');
+	const pasted = draftFile('Pasted\u0000after');
+	type(box, pasted);
+	await until(() => { flushSync(); return Boolean(edit.getPending()?.error); }, 'the save refusal');
+	expect(fileField()?.value).toBe(pasted);
+	expect(document.body.textContent).toContain('Your edit is not saved');
+	expect(await t.text(DRAFT)).toBe(draftFile('Before'));
+	type(box, draftFile('Accepted again'));
 	await t.quiet();
+	expect(await t.text(DRAFT)).toBe(draftFile('Accepted again'));
 });
 
-test('copying held composition input after another tab deletes its file preserves leading blank lines', async () => {
-	const t = await setup();
-	const box = await openNewCapture();
-	const stem = t.captures.opened?.stem;
-	if (stem === undefined) throw new Error('Expected a draft');
+test('copying held draft input after another tab deletes its file preserves leading blank lines', async () => {
+	const { t, box, edit } = await openDraft();
 	const raw = '\n\nRaw writing\n';
 	const restore = t.failSaves();
-	type(box, raw);
-	await until(() => document.body.textContent?.includes('Your draft is not saved') ?? false, 'the autosave failure');
+	type(box, draftFile(raw));
+	await until(() => document.body.textContent?.includes('Your edit is not saved') ?? false, 'the autosave failure');
 	restore();
-	await t.deleteElsewhere(stem);
-	await until(() => document.body.textContent?.includes('This capture was deleted') ?? false, 'the deleted-file recovery');
+	await t.deleteElsewhere('draft');
+	await until(() => edit.getReadStatus().known === 'missing', 'the deleted-file recovery');
+	flushSync();
 	let copied: string | undefined;
 	const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
 	Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied = text; } } });
 	try {
 		click(document, 'Copy your text');
 		await until(() => copied !== undefined, 'the copied text');
-		expect(copied).toBe(raw);
+		expect(copied).toBe(draftFile(raw));
 	} finally {
 		if (original) Object.defineProperty(navigator, 'clipboard', original);
 		else Reflect.deleteProperty(navigator, 'clipboard');
 	}
+});
+
+
+test('Finish saves pending whole-file edits before composing, keeping unknown frontmatter and exact raw CRLF', async () => {
+	const original = draftFile('Before').replace(/\n/g, '\r\n');
+	const t = await setup({ [DRAFT]: original });
+	document.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')?.click();
+	await until(() => { flushSync(); return fileField() !== null; }, 'the full-file draft editor');
+	const box = fileField();
+	const typed = original.replace('draft: true', 'draft: true\r\nunknown: kept').replace('Before', 'New\r\nbody');
+	type(box, typed);
+	const edit = t.folder.tables.captures.edit('draft');
+	expect(t.folder.files.edit(DRAFT).getText()).toBe(typed);
+	click(document, 'Add capture');
+	await until(() => { flushSync(); return field('new-thought') !== null; }, 'the finished capture');
+	await t.quiet();
+	const row = expectOk(await t.folder.tables.captures.get('draft'));
+	expect(row?.body).toBe('\nNew\r\nbody\n\n## Thoughts\n');
+	expect(row?.text).toContain('unknown: kept\r\n');
+	expect(row?.fields.draft).toBeUndefined();
+	expect(expectOk(await t.folder.tables.captures.list())).toHaveLength(1);
+});
+
+test('input stays blocked after Finish writes until its refresh completes', async () => {
+	const { t, box } = await openDraft('Final writing');
+	const refresh = t.context.refresh;
+	let release!: () => void;
+	const waiting = new Promise<void>((resolve) => { release = resolve; });
+	let refreshing = false;
+	t.context.refresh = async (paths) => {
+		await refresh(paths);
+		refreshing = true;
+		await waiting;
+	};
+	try {
+		click(document, 'Add capture');
+		await until(() => { flushSync(); return refreshing; }, 'Finish to write and refresh');
+		expect(box.readOnly).toBe(true);
+		type(box, draftFile('Stale input during refresh'));
+		const finished = await t.text(DRAFT);
+		expect(finished).toContain('Final writing');
+		expect(finished).not.toContain('draft:');
+		expect(t.folder.tables.captures.edit('draft').getPending()).toBeUndefined();
+		release();
+		await until(() => { flushSync(); return field('new-thought') !== null; }, 'the finished view');
+		expect(await t.text(DRAFT)).toBe(finished);
+	} finally {
+		release();
+		t.context.refresh = refresh;
+	}
+});
+
+test('a failed draft save reopens from the failure list in the full-file editor', async () => {
+	const t = await setup({ [DRAFT]: draftFile('Before') });
+	const edit = t.folder.tables.captures.edit('draft');
+	expectOk(await edit.read());
+	const restore = t.failSaves();
+	expectOk(t.folder.files.edit(DRAFT).change(draftFile('Held here')));
+	await edit.save();
+	flushSync();
+	click(document, 'Open');
+	await until(() => { flushSync(); return fileField() !== null; }, 'the failed draft');
+	expect(t.captures.opened).toEqual({ stem: 'draft', mode: 'text' });
+	expect(fileField()?.value).toBe(draftFile('Held here'));
+	expect(document.body.textContent).toContain('Add capture');
+	restore();
+	click(document, 'Save again');
+	await t.quiet();
+});
+
+test('a capture that becomes a draft offers an explicit text editor that stays mounted during frontmatter repair', async () => {
+	const t = await setup({ [DRAFT]: draftFile('Before').replace('draft: true\n', '') });
+	t.captures.open('draft', 'capture');
+	await until(() => { flushSync(); return field('new-thought') !== null; }, 'the capture');
+	type(field('new-thought'), 'Not added yet');
+	const oldCaptureText = field('capture-text');
+	await t.writeElsewhere(DRAFT, draftFile('Before'));
+	expectOk(await t.folder.tables.captures.edit('draft').read());
+	type(oldCaptureText, 'Stale structured input');
+	expect(t.folder.tables.captures.edit('draft').getRow()?.body).toBe('Before');
+	await until(() => { flushSync(); return document.body.textContent?.includes('This file is a draft') ?? false; }, 'the draft notice');
+	expect(document.querySelector<HTMLTextAreaElement>('[aria-label="Thought not added"]')?.value).toBe('Not added yet');
+	expect(fileField()).toBeNull();
+	click(document, 'Edit as text');
+	await until(() => { flushSync(); return fileField() !== null; }, 'the text editor');
+	const box = fileField();
+	type(box, draftFile('Before').replace('draft: true', 'draft: tru'));
+	flushSync();
+	expect(box?.isConnected).toBe(true);
+	expect(fileField()).toBe(box);
+	expect(document.body.textContent).toContain('Needs repair');
+	type(box, draftFile('Repaired'));
+	flushSync();
+	expect(fileField()).toBe(box);
+	expect(button(document, 'Add capture').disabled).toBe(false);
+	await t.quiet();
 });

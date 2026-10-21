@@ -6,7 +6,9 @@
 	repaired here. Each save merges with whatever was saved meanwhile.
 
 	What keeps the file from reading as a capture follows the current edit,
-	including unsaved text. Open as capture changes views without saving. The parent keys this view by the capture.
+	including unsaved text. Open as capture changes views without saving.
+	Opened to edit one thought, it selects that thought's lines. The parent
+	keys this view by the capture.
 -->
 <script lang="ts">
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
@@ -20,8 +22,9 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, untrack } from 'svelte';
+	import { resultMutationOptions } from 'wellcrafted/query';
 	import { type Captures, capturePath, describeFailure, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
@@ -46,7 +49,25 @@
 	const pending = $derived(textEdit.pending);
 	const unsaved = $derived(pending === undefined ? undefined : unsavedText(pending));
 	const text = $derived(textEdit.text);
-	const locked = $derived(textEdit.locked);
+	const finishDraft = createMutation(() => resultMutationOptions({
+		mutationKey: ['captures', 'finish-draft', stem],
+		mutationFn: () => captures.finishDraft(stem),
+	}));
+	const draft = $derived(row?.issues === null && row.fields.draft === true);
+	const locked = $derived(textEdit.locked || finishDraft.isPending);
+	let refusal = $state<string>();
+
+	function finish() {
+		if (locked || !draft || row === undefined || row.body.trim() === '') return;
+		finishDraft.mutate();
+	}
+	/** The thought's lines to select as the text appears, when opened to edit one. */
+	const selection = untrack(() => captures.opened?.focus);
+	function selectThought(node: HTMLTextAreaElement) {
+		if (typeof selection !== 'object') return;
+		node.focus();
+		node.setSelectionRange(selection.start, selection.end);
+	}
 	// The text saves after a pause, and outlives the view; send it now.
 	onDestroy(() => void textEdit.save());
 	/** Poll this edit's file while shown, including changes made outside this page. */
@@ -80,16 +101,27 @@
 		<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{path}</h1>
 		{#if text !== undefined}
-			<Button
-				size="sm"
-				variant="outline"
-				disabled={issues.length > 0}
-				onclick={() => captures.open(stem, 'capture')}>Open as capture</Button
-			>
+			{#if draft}
+				<Button size="sm" disabled={locked || row === undefined || row.body.trim() === ''} onclick={finish}>
+					{finishDraft.isPending ? 'Adding…' : 'Add capture'}
+				</Button>
+			{:else}
+				<Button size="sm" variant="outline" disabled={issues.length > 0} onclick={() => captures.open(stem, 'capture')}>Open as capture</Button>
+			{/if}
 			<Button size="sm" variant="ghost" onclick={() => copy(text, 'File text')}>Copy file text</Button>
-			<Button size="sm" variant="ghost" disabled={locked} onclick={() => confirmDelete(captures, stem)}>Delete…</Button>
+			<Button size="sm" variant="ghost" disabled={locked} onclick={() => confirmDelete(captures, stem)}>{draft ? 'Discard draft…' : 'Delete…'}</Button>
 		{/if}
 	</div>
+
+	{#if draft}
+		<p class="text-sm text-muted-foreground">This saved draft is its full Markdown file. Add capture finishes its writing and adds the Thoughts section. Ctrl or ⌘ + Enter adds it.</p>
+	{/if}
+	{#if finishDraft.error}
+		<Alert.Root variant="destructive" role="alert">
+			<Alert.Title>The capture was not added</Alert.Title>
+			<Alert.Description>{describeFailure(finishDraft.error)}</Alert.Description>
+		</Alert.Root>
+	{/if}
 
 	{#if pending?.error && !pending.saving}
 		<Alert.Root variant="destructive" aria-label="Not saved">
@@ -130,15 +162,26 @@
 			class="min-h-96 font-mono text-xs"
 			spellcheck={false}
 			readonly={locked}
+			aria-invalid={refusal !== undefined}
 			bind:value={
 				() => shown.replace(/\r\n?/g, '\n'),
 				(typing) => {
 					// The first change starts from the source shown; later ones keep theirs.
-					textEdit.change(withFileNewlines(typing.toWellFormed(), shown));
+					if (locked) return;
+					const { error } = textEdit.change(withFileNewlines(typing.toWellFormed(), shown));
+					refusal = error?.message;
+					if (error === null) finishDraft.reset();
 				}
 			}
+			onkeydown={(event) => {
+				if (!draft || !(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
+				event.preventDefault();
+				finish();
+			}}
 			onblur={() => void textEdit.save()}
+			{@attach selectThought}
 		/>
+		{#if refusal}<p role="alert" class="text-sm text-destructive">{refusal} Your previous text is kept.</p>{/if}
 	{:else if unreadable}
 		<Empty.Root role="alert">
 			<Empty.Header>

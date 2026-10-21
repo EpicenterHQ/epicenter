@@ -10,8 +10,10 @@
  * - An earlier OPFS folder does not block the current IndexedDB folder
  * - A fresh browser opens an empty timeline whose header offers no Save
  *   version, Sync, or Connect
- * - A capture added here, and its edit, are in the folder once the page
- *   closes; a reload is held back while composition input is unsaved
+ * - Text not added yet writes nothing and never holds a reload; a capture
+ *   added here, and its edit, are in the folder once the page closes
+ * - A draft an earlier version saved resumes, holds a reload while unsaved,
+ *   and is removed by an explicit discard
  * - Text typed with Edit as text is in the folder once the page closes
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
@@ -138,17 +140,19 @@ test('a fresh browser opens an empty timeline with no Save version, Sync, or Con
 	);
 });
 
-test('composition input holds reload until saved, then Add and later edits persist on close', async () => {
+test('text not added yet never holds reload or writes; Add and later edits persist on close', async () => {
 	freshProfile();
 	const page = mountPage();
 	await until(() => page.text().includes('No captures yet'), 'the timeline');
 
-	click(page.target, 'New capture');
-	flushSync();
-	await until(() => document.getElementById('new-capture') !== null, 'the composition');
-	const box = document.getElementById('new-capture');
-	type(box, 'Kept in this browser');
-	expect(reload()).toBe(false);
+	type(document.getElementById('new-capture'), 'Kept in this browser');
+	expect(reload()).toBe(true);
+	{
+		// Another handle of the profile: nothing was written for the typing.
+		const folder = expectOk(await openFolder({ tables: captureTables }));
+		expect(expectOk(await folder.tables.captures.list())).toEqual([]);
+		await folder.close();
+	}
 
 	flushSync();
 	click(document, 'Add capture');
@@ -158,8 +162,8 @@ test('composition input holds reload until saved, then Add and later edits persi
 	);
 	type(document.getElementById('new-thought'), 'not added yet');
 	expect(reload()).toBe(true);
-	type(document.getElementById('new-thought'), '');
 	type(document.getElementById('capture-text'), 'Kept in this browser, edited');
+	expect(reload()).toBe(false);
 	await page.close();
 
 	// Closing runs on after unmount: the edit lands while the folder closes.
@@ -254,24 +258,37 @@ test('a failed text save remains copyable after the page unmounts', async () => 
 	expect(page.text()).toContain('Copy your text');
 });
 
-test('a saved composition survives page restart, resumes from Drafts, and explicit discard removes it', async () => {
+test('a draft an earlier version saved resumes from Drafts, saves across a restart, and explicit discard removes it', async () => {
 	freshProfile();
-	const page = mountPage();
-	await until(() => page.text().includes('No captures yet'), 'the timeline');
-	click(page.target, 'New capture');
-	await until(() => document.getElementById('new-capture') !== null, 'the composition');
 	const raw = '## Thoughts\n\n- belongs to my paste\n\n```ts';
-	type(document.getElementById('new-capture'), raw);
-	document.getElementById('new-capture')?.dispatchEvent(new FocusEvent('blur'));
-	await until(() => page.target.querySelector('[aria-label="Saving"]')?.textContent === 'Saved', 'the saved composition');
+	{
+		const folder = expectOk(await openFolder({ tables: captureTables }));
+		expectOk(
+			await folder.files.write(
+				'captures/draft.md',
+				null,
+				`---\ncapturedAt: 2026-10-04T20:49:23Z\ndraft: true\n---\n`,
+			),
+		);
+		await folder.close();
+	}
+	const page = mountPage();
+	await until(() => page.target.querySelector('[aria-label="Draft captures"] button') !== null, 'the draft');
+	page.target.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')?.click();
+	await until(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]') !== null, 'the draft view');
+	const draft = `---\ncapturedAt: 2026-10-04T20:49:23Z\ndraft: true\n---\n${raw}`;
+	type(document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]'), draft);
+	expect(reload()).toBe(false);
+	document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]')?.dispatchEvent(new FocusEvent('blur'));
+	await until(() => page.target.querySelector('[aria-label="Saving"]')?.textContent === 'Saved', 'the saved draft');
 	expect(reload()).toBe(true);
 	await page.close();
 	// The same profile, a new mounted page and Folder handle.
 	const resumed = mountPage();
 	await until(() => resumed.target.querySelector('[aria-label="Draft captures"] button') !== null, 'the recovered draft');
 	resumed.target.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')?.click();
-	await until(() => document.getElementById('new-capture') !== null, 'the resumed composer');
-	expect((document.getElementById('new-capture') as HTMLTextAreaElement).value).toBe(raw);
+	await until(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]') !== null, 'the resumed draft');
+	expect((document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]') as HTMLTextAreaElement).value).toBe(draft);
 	click(document, 'Discard draft…');
 	await until(() => document.body.textContent?.includes('Discard this draft?') ?? false, 'discard confirmation');
 	click(document, 'Discard draft');

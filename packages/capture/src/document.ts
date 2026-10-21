@@ -25,7 +25,8 @@ type Edit =
 	| { readonly ok: true; readonly source: string }
 	| { readonly ok: false; readonly refusal: Refusal };
 
-type Span = { readonly start: number; readonly end: number };
+/** Offsets into a body: `start` inclusive, `end` exclusive. */
+export type Span = { readonly start: number; readonly end: number };
 
 /** Offsets into `source`. Meaningful only with the document that holds them. */
 type Layout = {
@@ -520,6 +521,15 @@ export const captureBody = {
 			hasSection: document.hasSection,
 			hasOtherContent: document.hasOtherContent,
 		});
+	},
+	/**
+	 * Where each thought sits in `body`, in order: from its bullet marker to
+	 * the end of its last line with content, without the line ending.
+	 */
+	locate(body: string): Result<{ thoughts: readonly Span[] }, Refusal> {
+		const document = parseBody(body);
+		if (document.refusal !== undefined) return Err(document.refusal);
+		return Ok({ thoughts: (document.layout as Layout).items });
 	},
 	encode(value: CaptureBody, body: string): Result<string, Refusal> {
 		const document = parseBody(body);

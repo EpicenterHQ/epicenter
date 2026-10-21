@@ -13,4 +13,5 @@ export {
 	normalizeThought,
 	type Refusal,
 	type RefusalCode,
+	type Span,
 } from './document.js';

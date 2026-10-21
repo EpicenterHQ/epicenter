@@ -1,11 +1,12 @@
 <!--
-	One capture, including its raw composition before Add: the folder's edit of its row, the
-	capture as stored with what is typed over it, which the timeline's reads
-	keep current too, so the two never disagree. A thought
+	One completed capture: the folder's edit of its
+	row, the capture as stored with what is typed over it, which the
+	timeline's reads keep current too, so the two never disagree. A thought
 	command saves at once; the capture text saves a second after the last
 	keystroke, when the person leaves it, and when this view goes away. "Edit
-	as text" opens the file's exact Markdown instead. The parent keys this
-	view by the capture.
+	as text" opens the file's exact Markdown instead, for the whole capture or
+	one thought. A thought not added yet is this view's input: leaving the
+	capture clears it. The parent keys this view by the capture.
 
 	When the body stops reading as text and thoughts (a version read again
 	with two Thoughts headings, say), the controls go away rather than show
@@ -21,13 +22,13 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { createRowEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick, untrack } from 'svelte';
+	import { createCaptureActions } from '$lib/capture-actions.svelte.js';
 	import { type Captures, capturePath, describeFailure, instantOf, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
-	import ThoughtEditForm from './ThoughtEditForm.svelte';
-	import Composition from './Composition.svelte';
 
 	let {
 		captures,
@@ -40,9 +41,11 @@
 
 	// The view is keyed by the capture, so neither changes for this view.
 	const path = untrack(() => capturePath(stem));
-	/** The capture's form, typing into the folder's edit of it, which every view shows. */
-	const form = untrack(() => captures.formOf(stem));
-	const rowEdit = form.rowEdit;
+	/** The capture's commands, typing into the folder's edit of it, which every view shows. */
+	const rowEdit = untrack(() => createRowEdit(captures.folder.tables.captures, stem));
+	const actions = untrack(() => createCaptureActions(rowEdit));
+	/** Opened right after Add: focus goes to Add a thought. */
+	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
 	// The folder watches no directory: this read, polled while the view
 	// shows, is how an edit made outside this page reaches it.
 	createQuery(() => captures.readQuery(rowEdit));
@@ -53,7 +56,7 @@
 	const pending = $derived(rowEdit.pending);
 	// The capture text typed saves after a pause, and when the person leaves
 	// it; the edit outlives the view, so send it now.
-	onDestroy(() => void form.flush());
+	onDestroy(() => void rowEdit.save());
 	/** The body as text and thoughts, or why it cannot be edited here. */
 	const reading = $derived(stored === undefined ? undefined : readCaptureBody(stored));
 	const text = $derived(reading?.data?.text ?? '');
@@ -63,13 +66,13 @@
 	const locked = $derived(captures.isLocked(stem));
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
+	/** A thought typed and not added yet. */
+	let newThought = $state('');
 	let newThoughtField = $state<HTMLTextAreaElement | null>(null);
 	let thoughtList = $state<HTMLOListElement>();
-	let added = $state(false);
 
-	// Promotion replaces the composer with the thought controls in this view.
 	$effect(() => {
-		if (added) newThoughtField?.focus();
+		if (focusNewThought) newThoughtField?.focus();
 	});
 
 	// Engines without content-sized fields fall back to this many rows.
@@ -89,7 +92,7 @@
 		(menu ?? newThoughtField)?.focus();
 	}
 
-	/** Where focus goes when the open menu closes, when its action moved things. */
+	/** What runs as the open menu closes, instead of its focus return: focus its action moved, or the view it opens. */
 	let afterMenu: (() => void) | undefined;
 	function onMenuClosed(event: Event) {
 		if (!afterMenu) return;
@@ -105,7 +108,7 @@
 
 	/** Download the file as saved, once the edit held here is saved. */
 	async function download() {
-		await form.flush();
+		await rowEdit.save();
 		if (rowEdit.pending !== undefined) {
 			toast.error('Could not download this capture', { description: 'Your edit is not saved yet. Save it again, then download.' });
 			return;
@@ -138,7 +141,7 @@
 			description: thought.length > 300 ? `${thought.slice(0, 300)}…` : thought,
 			confirm: { text: 'Delete thought', variant: 'destructive' },
 			onConfirm: () => {
-				if (form.deleteThought(index, shown)) void focusThought(index);
+				if (actions.deleteThought(index, shown)) void focusThought(index);
 			},
 		});
 	}
@@ -159,7 +162,15 @@
 {/snippet}
 
 {#if reading?.data?.draft}
-	<Composition {captures} {stem} {rowEdit} onAdded={() => (added = true)} />
+	<div class="flex flex-col gap-4">
+		<Button variant="outline" size="sm" class="self-start" onclick={() => captures.leave()}>Back to timeline</Button>
+		<Alert.Root>
+			<Alert.Title>This file is a draft</Alert.Title>
+			<Alert.Description>Edit its Markdown as text to continue writing or finish it.</Alert.Description>
+			<div class="mt-2"><Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button></div>
+		</Alert.Root>
+		{@render saveFailed()}
+	</div>
 {:else if reading === undefined}
 	<div class="flex flex-col gap-4">
 		<div>
@@ -254,10 +265,10 @@
 
 	{@render saveFailed()}
 
-	{#if form.refusal}
+	{#if actions.refusal}
 		<Alert.Root aria-label="Not applied">
 			<Alert.Title>Not applied</Alert.Title>
-			<Alert.Description>{form.refusal}</Alert.Description>
+			<Alert.Description>{actions.refusal}</Alert.Description>
 		</Alert.Root>
 	{/if}
 
@@ -272,22 +283,7 @@
 				<Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
 			</div>
 		</Alert.Root>
-		{#each [
-			{ label: 'Thought not added', text: form.newThought },
-			{ label: 'Thought edit not saved', text: form.editing?.text ?? '' },
-		].filter((pending) => pending.text !== '') as pending (pending.label)}
-			<!-- Typed here and not in the file: kept visible to copy, since the form cannot show it now. -->
-			<Field.Field>
-				<Field.Label>{pending.label}</Field.Label>
-				<Textarea aria-label={pending.label} readonly value={pending.text} rows={rowsFor(pending.text)} />
-				<div>
-					<Button variant="outline" size="sm" onclick={() => copy(pending.text, 'Text')}>Copy text</Button>
-				</div>
-			</Field.Field>
-		{/each}
-		{#if form.unsent}
-			<p class="text-sm text-muted-foreground">It stays here until you clear it.</p>
-		{/if}
+
 	{:else}
 		<div class="flex flex-col gap-8">
 			<Field.Field>
@@ -295,8 +291,8 @@
 				<Textarea
 					id="capture-text"
 					readonly={locked}
-					bind:value={() => text, (typed) => form.inputText(typed)}
-					onblur={() => void form.flush()}
+					bind:value={() => text, (typed) => actions.inputText(typed)}
+					onblur={() => void rowEdit.save()}
 					rows={rowsFor(text)}
 					class="max-h-96 resize-y leading-relaxed"
 					placeholder="Write here…"
@@ -310,63 +306,38 @@
 					{#if thoughts.length}<span class="font-normal text-muted-foreground">{thoughts.length}</span>{/if}
 				</h2>
 
-				{#if form.editing !== undefined && thoughts[form.editing.index] === undefined}
-					{@const edit = form.editing}
-					<Alert.Root aria-label="Kept thought edit">
-						<Alert.Title>Your edit to a thought was not applied</Alert.Title>
-						<Alert.Description>The capture changed after you started editing, and that thought is gone. Your text is kept here; copy it, then cancel.</Alert.Description>
-						{#key edit.id}
-							<ThoughtEditForm {form} {edit} {locked} onSaved={() => {}} onCancelled={() => void focusThought(0)} />
-						{/key}
-					</Alert.Root>
-				{/if}
-
 				{#if thoughts.length}
 					{@const shown = thoughts}
 					<ol bind:this={thoughtList} aria-label="Thoughts" class="list-decimal divide-y border-y pl-6 marker:text-muted-foreground">
 						{#each shown as thought, index (index)}
 							<li class="py-1 pl-1">
-								{#if form.editing?.index === index}
-									{@const edit = form.editing}
-									<!-- One form per edit: a new edit, even of this same thought, gets a new form. -->
-									{#key edit.id}
-										<ThoughtEditForm
-											{form}
-											{edit}
-											{locked}
-											onSaved={() => void focusThought(index)}
-											onCancelled={() => void focusThought(index)}
-										/>
-									{/key}
-								{:else}
-									<div class="flex items-start gap-2">
-										<p class="min-w-0 flex-1 whitespace-pre-wrap break-words py-1.5 leading-relaxed {thought ? '' : 'text-muted-foreground'}">{thought || 'Empty thought'}</p>
-										<DropdownMenu.Root>
-											<DropdownMenu.Trigger>
-												{#snippet child({ props })}
-													<Button {...props} variant="ghost" size="sm" class="text-muted-foreground" aria-label="Thought actions" data-thought-actions>Actions</Button>
-												{/snippet}
-											</DropdownMenu.Trigger>
-											<DropdownMenu.Content align="end" class="w-48" onCloseAutoFocus={onMenuClosed}>
-												<DropdownMenu.Item disabled={locked || form.editing !== undefined} onclick={() => {
-													form.startEditing(index, shown);
-													// The editor takes focus as it appears; the menu must not take it back.
-													afterMenu = () => {};
-												}}>Edit</DropdownMenu.Item>
-												<DropdownMenu.Item disabled={locked || index === 0} onclick={() => {
-													if (form.swapThoughts(index, index - 1, shown)) afterMenu = () => void focusThought(index - 1);
-												}}>Move up</DropdownMenu.Item>
-												<DropdownMenu.Item disabled={locked || index === shown.length - 1} onclick={() => {
-													if (form.swapThoughts(index, index + 1, shown)) afterMenu = () => void focusThought(index + 1);
-												}}>Move down</DropdownMenu.Item>
-												<DropdownMenu.Separator />
-												<DropdownMenu.Item onclick={() => copy(thought, 'Thought')}>Copy text</DropdownMenu.Item>
-												<DropdownMenu.Separator />
-												<DropdownMenu.Item variant="destructive" disabled={locked} onclick={() => confirmDeleteThought(thought, index, shown)}>Delete thought…</DropdownMenu.Item>
-											</DropdownMenu.Content>
-										</DropdownMenu.Root>
-									</div>
-								{/if}
+								<div class="flex items-start gap-2">
+									<p class="min-w-0 flex-1 whitespace-pre-wrap break-words py-1.5 leading-relaxed {thought ? '' : 'text-muted-foreground'}">{thought || 'Empty thought'}</p>
+									<DropdownMenu.Root>
+										<DropdownMenu.Trigger>
+											{#snippet child({ props })}
+												<Button {...props} variant="ghost" size="sm" class="text-muted-foreground" aria-label="Thought actions" data-thought-actions>Actions</Button>
+											{/snippet}
+										</DropdownMenu.Trigger>
+										<DropdownMenu.Content align="end" class="w-48" onCloseAutoFocus={onMenuClosed}>
+											<DropdownMenu.Item onclick={() => {
+												const range = actions.locateThought(index, shown);
+												// The text view opens once the menu has closed, and takes focus.
+												if (range !== undefined) afterMenu = () => captures.open(stem, 'text', range);
+											}}>Edit as text</DropdownMenu.Item>
+											<DropdownMenu.Item disabled={locked || index === 0} onclick={() => {
+												if (actions.swapThoughts(index, index - 1, shown)) afterMenu = () => void focusThought(index - 1);
+											}}>Move up</DropdownMenu.Item>
+											<DropdownMenu.Item disabled={locked || index === shown.length - 1} onclick={() => {
+												if (actions.swapThoughts(index, index + 1, shown)) afterMenu = () => void focusThought(index + 1);
+											}}>Move down</DropdownMenu.Item>
+											<DropdownMenu.Separator />
+											<DropdownMenu.Item onclick={() => copy(thought, 'Thought')}>Copy text</DropdownMenu.Item>
+											<DropdownMenu.Separator />
+											<DropdownMenu.Item variant="destructive" disabled={locked} onclick={() => confirmDeleteThought(thought, index, shown)}>Delete thought…</DropdownMenu.Item>
+										</DropdownMenu.Content>
+									</DropdownMenu.Root>
+								</div>
 							</li>
 						{/each}
 					</ol>
@@ -375,7 +346,7 @@
 				<form
 					onsubmit={(event) => {
 						event.preventDefault();
-						form.addThought();
+						if (actions.addThought(newThought)) newThought = '';
 						newThoughtField?.focus();
 					}}
 					class="flex flex-col gap-2"
@@ -386,7 +357,7 @@
 							id="new-thought"
 							bind:ref={newThoughtField}
 							readonly={locked}
-							bind:value={() => form.newThought, form.inputNewThought}
+							bind:value={newThought}
 							onkeydown={submitOnModEnter}
 							rows={2}
 							class="leading-relaxed"
@@ -395,8 +366,8 @@
 					</Field.Field>
 					<div class="flex items-center justify-between gap-3">
 						<p class="text-xs text-muted-foreground">
-							{#if form.newThought !== ''}
-								Not added yet. It stays here until you add it or clear it.
+							{#if newThought !== ''}
+								Not added yet. Leaving this capture clears it.
 							{:else if thoughts.length}
 								Ctrl or ⌘ + Enter adds it after the last thought.
 							{:else}
@@ -414,4 +385,15 @@
 		</div>
 	{/if}
 </div>
+{/if}
+
+{#if newThought !== '' && (!reading?.data || reading.data.draft)}
+	<!-- Typed here and not in the file: kept visible to copy, since Add a thought cannot show it now. -->
+	<Field.Field>
+		<Field.Label>Thought not added</Field.Label>
+		<Textarea aria-label="Thought not added" readonly value={newThought} rows={rowsFor(newThought)} />
+		<div>
+			<Button variant="outline" size="sm" onclick={() => copy(newThought, 'Text')}>Copy text</Button>
+		</div>
+	</Field.Field>
 {/if}

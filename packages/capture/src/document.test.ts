@@ -18,6 +18,7 @@
  * - List edits format positional thought strings as consistent bullet items
  */
 import { expect, test } from 'bun:test';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { fromTextarea } from './document.js';
 import {
 	type CaptureBody,
@@ -292,6 +293,25 @@ test('reading reports the text with its own whitespace and LF lines', () => {
 		text: '  Original text  \nsecond line',
 		thoughts: ['one', 'two\nmore'],
 	});
+});
+
+test('locating thoughts answers each item from its marker to its last line, in CRLF source', () => {
+	const body = PRESERVED.slice(bodyStart(PRESERVED));
+	const { thoughts } = expectOk(captureBody.locate(body));
+	expect(
+		thoughts.map(({ start, end }) => body.slice(start, end)),
+	).toEqual(['- one', '- two\r\n  more']);
+	// An item's blank lines and nested Markdown are its own; what follows the list is not.
+	const nested = '\nText\n\n## Thoughts\n\n- a\n\n  more\n  - nested\n- b\n\nAfter.\n';
+	expect(
+		expectOk(captureBody.locate(nested)).thoughts.map(({ start, end }) =>
+			nested.slice(start, end),
+		),
+	).toEqual(['- a\n\n  more\n  - nested', '- b']);
+	expect(expectOk(captureBody.locate('No section\n')).thoughts).toEqual([]);
+	expect(
+		expectErr(captureBody.locate('## Thoughts\n\n## Thoughts\n')).code,
+	).toBe('duplicate-heading');
 });
 
 test('adding a thought inserts one CRLF item and changes nothing else', () => {

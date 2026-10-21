@@ -14,8 +14,11 @@
  * - Another tab's change never replaces typing held here; the save merges
  *   with it, and the view then shows both
  * - A failed save says so, keeps the edit, and Save again lands it
- * - A thought typed and not added stays visible to copy when the capture
- *   stops reading as text and thoughts
+ * - A thought typed and not added is the view's: it writes nothing, a
+ *   refusal keeps it, leaving the capture clears it, and it stays visible to
+ *   copy when the capture stops reading as text and thoughts
+ * - A thought's Edit as text opens the file with its lines selected, and
+ *   unfinished Markdown typed there saves as typed
  * - A file that is not a valid capture shows its issues, is repaired as
  *   text, and opens as a capture once fixed
  * - Editing a CRLF file as text shows LF and writes CRLF back
@@ -39,6 +42,8 @@ import {
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { openCaptures, until } = await import('../local-folder.test-support.js');
+const { createCaptureActions } = await import('../capture-actions.svelte.ts');
+const { createRowEdit } = await import('@epicenter/svelte/edits');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 
 // A desktop-width window: `min-width` queries match, so the UI kit's modal
@@ -201,9 +206,13 @@ test('failed row input stays copyable in the text view after switching and forei
 		() => harness.folder.files.edit(PATH).getPending()?.error !== undefined,
 		'the failed row save',
 	);
-	restore();
 	await harness.captures.open('one', 'text');
 	flushSync();
+	await until(
+		() => harness.folder.files.edit(PATH).getPending()?.error !== undefined,
+		'the failed save when leaving the row view',
+	);
+	restore();
 	let copied: string | undefined;
 	const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
 	Object.defineProperty(navigator, 'clipboard', {
@@ -230,6 +239,75 @@ test('failed row input stays copyable in the text view after switching and forei
 		if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard);
 		else Reflect.deleteProperty(navigator, 'clipboard');
 	}
+});
+
+test('a thought typed and not added writes nothing, and leaving the capture clears it', async () => {
+	const harness = await setup({ [PATH]: FILE }, 'capture');
+	type(field('new-thought'), 'not added yet');
+	flushSync();
+	expect(harness.target.textContent).toContain(
+		'Not added yet. Leaving this capture clears it.',
+	);
+	expect(harness.context.getStatus().unsaved).toEqual([]);
+	expect(harness.context.getStatus().saving).toBe(false);
+	expect(await harness.text(PATH)).toBe(FILE);
+
+	harness.captures.leave();
+	flushSync();
+	await harness.captures.open('one', 'capture');
+	await settle(harness);
+	expect(field('new-thought')?.value).toBe('');
+	expect(await harness.text(PATH)).toBe(FILE);
+});
+
+test('a blank thought is refused and its text stays', async () => {
+	const harness = await setup({ [PATH]: FILE }, 'capture');
+	type(field('new-thought'), '  \n');
+	submit(field('new-thought')?.form);
+	flushSync();
+	expect(field('new-thought')?.value).toBe('  \n');
+	expect(
+		harness.target.querySelector('[aria-label="Not applied"]')?.textContent,
+	).toContain('Write something first.');
+	await settle(harness);
+	expect(await harness.text(PATH)).toBe(FILE);
+});
+
+// The thought's Actions menu is driven in Chromium by the browser smoke: a
+// bits-ui menu opened in jsdom leaves effects that later tests read.
+test("a thought's Edit as text opens the file with that thought's lines selected", async () => {
+	const crlf = `---\r\ncapturedAt: ${AT}\r\n---\r\n\r\nText\r\n\r\n## Thoughts\r\n\r\n- first\r\n- second\r\n  more\r\n`;
+	const harness = await setup({ [PATH]: crlf }, 'capture');
+	// What the menu item does, over the list the view shows.
+	const actions = createCaptureActions(
+		createRowEdit(harness.folder.tables.captures, 'one'),
+	);
+	const range = actions.locateThought(1, ['first', 'second\nmore']);
+	if (range === undefined) throw new Error('The thought was not found');
+	harness.captures.open('one', 'text', range);
+	await until(() => {
+		flushSync();
+		return harness.target.querySelector('textarea[aria-label^="Contents of"]') !== null;
+	}, 'the text view');
+	const contents = harness.target.querySelector<HTMLTextAreaElement>(
+		'textarea[aria-label^="Contents of"]',
+	);
+	if (contents === null) throw new Error('No text view');
+	expect(
+		contents.value.slice(contents.selectionStart, contents.selectionEnd),
+	).toBe('- second\n  more');
+	expect(document.activeElement).toBe(contents);
+
+	// Unfinished Markdown in the thought is held and saved as typed, CRLF kept.
+	type(contents, contents.value.replace('  more', '  more ```ts\n  half'));
+	flushSync();
+	// The selection is made once, as the text appears, not again as it changes.
+	expect(contents.selectionStart).toBe(contents.value.length);
+	blur(contents);
+	await settle(harness);
+	expect(await harness.text(PATH)).toBe(
+		crlf.replace('  more\r\n', '  more ```ts\r\n  half\r\n'),
+	);
 });
 
 test('a thought typed and not added stays visible to copy when the capture stops reading as text and thoughts', async () => {
@@ -302,8 +380,8 @@ test('while the folder closes, the text boxes take nothing', async () => {
 	expect(field('new-thought')?.readOnly).toBe(true);
 	type(field('capture-text'), 'Too late');
 	type(field('new-thought'), 'Too late');
+	submit(field('new-thought')?.form);
 	flushSync();
-	expect(harness.captures.formOf('one').body).toBeUndefined();
-	expect(harness.captures.formOf('one').newThought).toBe('');
+	expect(harness.folder.tables.captures.edit('one').getPending()).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(FILE);
 });

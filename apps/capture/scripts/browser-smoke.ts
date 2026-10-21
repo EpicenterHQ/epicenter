@@ -171,20 +171,22 @@ try {
 	await first.goto(app);
 	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
 
-	// 2. An unfinished composition survives a real reload before Add.
+	// 2. New capture text is the form's until Add: a reload neither asks nor
+	// keeps it, and nothing was written.
 	const text = 'Dinner with Sebastian\nFriday at seven\nBring the invitation.';
-	await first.getByRole('button', { name: 'New capture' }).click();
-	await first.getByLabel('Capture text').fill(text);
-	await saved(first);
+	let firstAsked = 0;
+	first.on('dialog', (dialog) => {
+		firstAsked++;
+		void dialog.dismiss();
+	});
+	await first.getByLabel('New capture').fill('Typed, never added');
 	await first.reload();
-	await first
-		.getByLabel('Draft captures')
-		.getByRole('button')
-		.filter({ hasText: 'Dinner with Sebastian' })
-		.click();
-	assert.equal(await first.getByLabel('Capture text').inputValue(), text);
+	assert.equal(firstAsked, 0, 'text not added yet does not prompt');
+	assert.equal(await first.getByLabel('New capture').inputValue(), '');
+	await first.getByText('No captures yet').waitFor();
 	// Ctrl+Enter adds it, and the new capture opens ready for a thought.
-	await first.getByLabel('Capture text').press('Control+Enter');
+	await first.getByLabel('New capture').fill(text);
+	await first.getByLabel('New capture').press('Control+Enter');
 	await first
 		.getByRole('button', { name: 'Edit as text', exact: true })
 		.waitFor();
@@ -200,7 +202,7 @@ try {
 	assert(line, `unexpected created source:\n${created}`);
 	const head = `---\n${line}\n---`;
 
-	// 3. Multiline thoughts: add, edit, reorder, delete. The file is the list.
+	// 3. Multiline thoughts: add, edit as text, reorder, delete. The file is the list.
 	for (const thought of [
 		'Owning the outcome',
 		'Moving to Singapore\nA longer thought',
@@ -215,9 +217,22 @@ try {
 				.evaluate((field) => field === document.activeElement),
 		);
 	}
-	await act(first, 0, 'Edit');
-	await first.getByLabel('Thought text').fill('Owning the outcome, edited');
-	await first.getByRole('button', { name: 'Save thought' }).click();
+	// Edit as text opens the file with the thought's lines selected; typing
+	// replaces them, unfinished or not, and saves as typed.
+	await act(first, 0, 'Edit as text');
+	assert.equal(
+		await fileText(first).evaluate((field) => {
+			const box = field as HTMLTextAreaElement;
+			return box.value.slice(box.selectionStart, box.selectionEnd);
+		}),
+		'- Owning the outcome',
+	);
+	await first.keyboard.type('- Owning the outcome, edited');
+	await saved(first);
+	await first
+		.getByRole('button', { name: 'Open as capture', exact: true })
+		.click();
+	await first.getByLabel('Capture text').waitFor();
 	await act(first, 2, 'Move up');
 	await act(first, 0, 'Delete thought…');
 	await first.getByRole('button', { name: 'Delete thought' }).click();
@@ -291,7 +306,7 @@ try {
 	await first.getByRole('button', { name: 'Back to timeline' }).click();
 	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
 
-	// 8. Unsubmitted thoughts remain page state; only pending Folder input prompts.
+	// 8. A thought not added yet is the view's; it neither prompts nor survives a reload.
 	let asked = 0;
 	second.on('dialog', (dialog) => {
 		asked++;
@@ -305,9 +320,8 @@ try {
 	await second.getByRole('button', { name: 'Back to timeline' }).click();
 
 	// 9. Ambiguous Thoughts markup opens as text, with why.
-	await second.getByRole('button', { name: 'New capture' }).click();
 	await second
-		.getByLabel('Capture text')
+		.getByLabel('New capture')
 		.fill('Pasted article\n\n## Thoughts\n\n- belongs to the article');
 	await second.getByRole('button', { name: 'Add capture' }).click();
 	await second.getByRole('status', { name: 'Needs repair' }).waitFor();
@@ -359,23 +373,7 @@ try {
 		}),
 	);
 
-	// 13. Discard removes the durable draft, including after another reload.
-	await earlier.getByRole('button', { name: 'New capture' }).click();
-	await earlier
-		.getByLabel('Capture text')
-		.fill('Discard this unfinished composition');
-	await saved(earlier);
-	await earlier.getByRole('button', { name: 'Discard draft…' }).click();
-	await earlier
-		.getByRole('button', { name: 'Discard draft', exact: true })
-		.click();
-	await earlier.getByText('No captures yet').waitFor();
-	await earlier.reload();
-	await earlier.getByText('No captures yet').waitFor();
-
-	// 14. Full-disk autosave and promotion failures keep the raw writing recoverable.
-	await earlier.getByRole('button', { name: 'New capture' }).click();
-	await earlier.getByLabel('Capture text').waitFor();
+	// 13. A full-disk Add writes nothing and keeps the text; Add again adds it once.
 	const fillDisk = async () =>
 		earlier.evaluate(() => {
 			const target = window as typeof window & {
@@ -395,35 +393,90 @@ try {
 				window as typeof window & { restoreCaptureWrites?: () => void }
 			).restoreCaptureWrites?.();
 		});
-	await fillDisk();
 	await earlier
-		.getByLabel('Capture text')
+		.getByLabel('New capture')
 		.fill('Writing retained through failures');
-	await earlier.getByText('Your draft is not saved', { exact: true }).waitFor();
-	assert.equal(
-		await earlier.getByLabel('Capture text').inputValue(),
-		'Writing retained through failures',
-	);
-	await restoreDisk();
-	await earlier.getByRole('button', { name: 'Save again' }).click();
-	await saved(earlier);
 	await fillDisk();
 	await earlier.getByRole('button', { name: 'Add capture' }).click();
 	await earlier
 		.getByText('The capture was not added', { exact: true })
 		.waitFor();
 	assert.equal(
-		await earlier.getByLabel('Capture text').inputValue(),
+		await earlier.getByLabel('New capture').inputValue(),
 		'Writing retained through failures',
 	);
 	await restoreDisk();
+	await earlier.getByText('No captures yet').waitFor();
 	await earlier.getByRole('button', { name: 'Add capture' }).click();
 	await earlier.getByLabel('Add a thought').waitFor();
 	assert.equal((await source(earlier)).match(/^## Thoughts$/gm)?.length, 1);
+	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
+	assert.equal(
+		await earlier.getByLabel('Timeline captures').getByRole('button').count(),
+		1,
+	);
+
+	// 14. A saved draft from an earlier version uses the same whole-file editor.
+	// Seed its on-disk shape through ordinary file editing, without a test API.
+	await openFromTimeline(earlier, 'Writing retained through failures');
+	await earlier.getByRole('button', { name: 'Edit as text', exact: true }).click();
+	const previous = await fileText(earlier).inputValue();
+	const draftHead = previous.slice(0, previous.indexOf('\n---\n') + 1) + 'draft: true\nunknownKey: kept\n---\n';
+	const raw = '\n  Saved draft writing  \nsecond line\n';
+	const legacyDraft = draftHead + raw;
+	await fileText(earlier).fill(legacyDraft);
+	await saved(earlier);
+	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
+	await earlier.reload();
+	await earlier.getByLabel('Draft captures').getByRole('button').click();
+	assert.equal(await fileText(earlier).inputValue(), legacyDraft);
+	assert.equal(await earlier.getByRole('button', { name: 'Open as capture', exact: true }).count(), 0);
+
+	// A frontmatter typo never replaces the text box with a different view.
+	await fileText(earlier).fill(legacyDraft.replace('draft: true', 'draft: tru'));
+	await earlier.getByRole('status', { name: 'Needs repair' }).waitFor();
+	assert.equal(await fileText(earlier).count(), 1);
+	await fileText(earlier).fill(legacyDraft);
+	await saved(earlier);
+
+	// Failed autosave and failed Finish keep the same whole-file input.
+	await fillDisk();
+	const revisedDraft = legacyDraft.replace('second line', 'second line, edited');
+	await fileText(earlier).fill(revisedDraft);
+	await earlier.getByText('Your edit is not saved', { exact: true }).waitFor();
+	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
+	await restoreDisk();
+	await earlier.getByRole('button', { name: 'Save again' }).click();
+	await saved(earlier);
+	await fillDisk();
+	await earlier.getByRole('button', { name: 'Add capture', exact: true }).click();
+	await earlier.getByText('The capture was not added', { exact: true }).waitFor();
+	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
+	await restoreDisk();
+	await earlier.getByRole('button', { name: 'Add capture', exact: true }).click();
+	await earlier.getByLabel('Add a thought').waitFor();
+	const finishedDraft = await source(earlier);
+	assert.equal(finishedDraft.match(/^## Thoughts$/gm)?.length, 1);
+	assert(!finishedDraft.includes('draft:'));
+	assert(finishedDraft.includes('unknownKey: kept'));
+	assert(finishedDraft.includes('second line, edited'));
+
+	// Confirmed discard removes an existing draft, including after reload.
+	await earlier.getByRole('button', { name: 'Edit as text', exact: true }).click();
+	await fileText(earlier).fill(legacyDraft);
+	await saved(earlier);
+	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
+	await earlier.reload();
+	await earlier.getByLabel('Draft captures').getByRole('button').click();
+	await earlier.getByRole('button', { name: 'Discard draft…', exact: true }).click();
+	await earlier.getByRole('button', { name: 'Discard draft', exact: true }).click();
+	await earlier.getByText('No captures yet').waitFor();
+	await earlier.reload();
+	await earlier.getByText('No captures yet').waitFor();
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a save merged with a change from another page, no Save version, durable composition restart and discard, full-disk autosave and promotion recovery, unsubmitted thought departure, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, a save merged with a change from another page, no Save version, full-disk Add recovery, saved drafts reopened as full files, repaired without replacing the editor, retried after failed autosave and Finish, finished once, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
 	);
 } catch (cause) {
 	console.error(cause);

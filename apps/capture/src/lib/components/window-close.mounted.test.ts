@@ -8,7 +8,7 @@
  * reads what was stored.
  *
  * Key behaviors:
- * - Composition input prompts until saved, then closes without prompting
+ * - Text not added yet closes without a prompt and is not written
  * - Text held by Folder prompts; Cancel retains it
  * - A failed save of that text keeps the window and the text; once saving
  *   works, explicit retry saves and the next close destroys
@@ -140,22 +140,20 @@ async function editAsText(page: Awaited<ReturnType<typeof openWindow>>) {
 	return () => page.target.querySelector<HTMLTextAreaElement>(CONTENTS);
 }
 
-test('composition input prompts while unsaved and closes without prompting once saved', async () => {
+test('text not added yet closes the window without a prompt and writes nothing', async () => {
 	const page = await openWindow();
-	click(page.target, 'New capture');
-	flushSync();
-	await until(() => document.getElementById('new-capture') !== null, 'the composition');
 	type(document.getElementById('new-capture'), 'Not added yet');
+	flushSync();
 
 	await requestClose();
 
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(nativeDialog.count).toBe(1);
-	document.getElementById('new-capture')?.dispatchEvent(new FocusEvent('blur'));
-	await until(() => page.target.querySelector('[aria-label="Saving"]')?.textContent === 'Saved', 'the composition to save');
-	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(nativeDialog.count).toBe(1);
+	expect(nativeDialog.count).toBe(0);
+	expect(page.target.querySelector('[aria-label="Saving"]')?.textContent).toBe('Saved');
+	const listed = await asTab(async (folder) =>
+		expectOk(await folder.tables.captures.list()).map((row) => row.id),
+	);
+	expect(listed).toEqual(['one']);
 });
 
 test('text held by Folder prompts; Cancel retains it', async () => {

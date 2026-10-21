@@ -3,10 +3,9 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
-	import { onDestroy } from 'svelte';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { type Captures, describeFailure, timelineOf } from '$lib/captures.svelte.js';
-	import { resultMutationOptions } from 'wellcrafted/query';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { type Captures, timelineOf } from '$lib/captures.svelte.js';
+	import NewCapture from './NewCapture.svelte';
 	import TechnicalDetails from './TechnicalDetails.svelte';
 
 	let { captures }: { captures: Captures } = $props();
@@ -16,36 +15,21 @@
 	const drafts = $derived(listing.data?.drafts ?? []);
 	const repairs = $derived(listing.data?.repairs ?? []);
 	const unreadable = $derived(listing.data?.unreadable ?? []);
-	const create = createMutation(() => resultMutationOptions({ mutationKey: ['captures', 'create'], mutationFn: () => captures.create() }));
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-	let mounted = true;
-	onDestroy(() => { mounted = false; });
 </script>
 
-{#snippet newCaptureButton()}
-	<Button disabled={create.isPending || captures.fenced} onclick={() => {
-		if (mounted && !create.isPending) create.mutate();
-	}}>{create.isPending ? 'Creating…' : 'New capture'}</Button>
-{/snippet}
+<h1 class="mb-4 text-lg font-semibold tracking-tight">Timeline</h1>
 
-<div class="mb-4 flex min-h-9 items-center justify-between gap-4">
-	<h1 class="text-lg font-semibold tracking-tight">Timeline</h1>
-	{#if timeline.length || drafts.length || !listing.isSuccess}{@render newCaptureButton()}{/if}
+<div class="mb-6">
+	<NewCapture {captures} />
 </div>
-
-{#if create.error}
-	<Alert.Root variant="destructive" class="mb-4" role="alert">
-		<Alert.Title>Could not create a draft</Alert.Title>
-		<Alert.Description>{describeFailure(create.error)} Try New capture again when storage is available.</Alert.Description>
-	</Alert.Root>
-{/if}
 
 {#if drafts.length}
 	<section class="mb-6" aria-label="Draft captures">
 		<h2 class="mb-2 font-medium">Drafts</h2>
 		<Item.Group class="gap-1">
 			{#each drafts as row (row.path)}
-				<Item.Button size="sm" class="w-full text-left hover:bg-muted" onclick={() => captures.open(row.stem, 'capture')}>
+				<Item.Button size="sm" class="w-full text-left hover:bg-muted" onclick={() => captures.open(row.stem, 'text')}>
 					<Item.Content>
 						<Item.Title class="line-clamp-2 whitespace-pre-line break-words">{row.preview || 'Empty draft'}</Item.Title>
 						<Item.Description>Continue writing</Item.Description>
@@ -103,9 +87,8 @@
 	<Empty.Root>
 		<Empty.Header>
 			<Empty.Title>No captures yet</Empty.Title>
-			<Empty.Description>Write or paste something to keep. Each capture is one Markdown file, and you can add thoughts to it later.</Empty.Description>
+			<Empty.Description>Write or paste something above to keep it. Each capture is one Markdown file, and you can add thoughts to it later.</Empty.Description>
 		</Empty.Header>
-		<Empty.Content>{@render newCaptureButton()}</Empty.Content>
 	</Empty.Root>
 {/if}
 
