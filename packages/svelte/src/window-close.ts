@@ -27,7 +27,8 @@ import type { Window } from '@tauri-apps/api/window';
 import { createLogger } from 'wellcrafted/logger';
 
 const log = createLogger('svelte/window-close');
-let holding = false;
+// One owner records both registration and whether an older listener is retired.
+let activeGuard: symbol | undefined;
 
 /** Select a background native tab without making focus a condition of closing. */
 async function focusWindow(current: Window) {
@@ -64,17 +65,17 @@ export async function holdWindowClose(
 	pendingSave: () => boolean,
 ): Promise<() => void> {
 	if (!isTauri()) return () => {};
-	if (holding) throw new Error('This window already has a Folder close guard');
-	holding = true;
+	if (activeGuard) throw new Error('This window already has a Folder close guard');
+	const guard = Symbol('window close');
+	activeGuard = guard;
 	let closing = false;
-	let stopped = false;
 
 	try {
 		const { getCurrentWindow } = await import('@tauri-apps/api/window');
 		const current = getCurrentWindow();
 		const unlisten = await current.onCloseRequested(async (event) => {
 			event.preventDefault();
-			if (closing || stopped) return;
+			if (closing || activeGuard !== guard) return;
 			closing = true;
 			const page = globalThis.document?.documentElement;
 			const wasInert = page?.inert ?? false;
@@ -82,7 +83,7 @@ export async function holdWindowClose(
 				if (pendingSave()) {
 					await focusWindow(current);
 					const { confirm } = await import('@tauri-apps/plugin-dialog');
-					if (stopped) return;
+					if (activeGuard !== guard) return;
 					const confirmed = await confirm(
 						'A change has not saved yet. Close anyway?',
 						{
@@ -97,10 +98,11 @@ export async function holdWindowClose(
 						return;
 					}
 				}
-				if (stopped) return;
+				if (activeGuard !== guard) return;
 				if (page) page.inert = true;
 				await current.destroy();
 			} catch (cause) {
+				if (activeGuard !== guard) return;
 				if (page) page.inert = wasInert;
 				log.error(new Error('The window could not close', { cause }));
 				await notifyCloseFailure(current);
@@ -108,13 +110,12 @@ export async function holdWindowClose(
 			}
 		});
 		return () => {
-			if (stopped) return;
-			stopped = true;
-			holding = false;
+			if (activeGuard !== guard) return;
+			activeGuard = undefined;
 			unlisten();
 		};
 	} catch (cause) {
-		holding = false;
+		activeGuard = undefined;
 		throw cause;
 	}
 }

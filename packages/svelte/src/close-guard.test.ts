@@ -33,12 +33,38 @@ test('a late confirmation from a stopped guard cannot destroy the replacement pa
 	expect(nativeDialog.count).toBe(1);
 	stop();
 	cleanup.push(await holdWindowClose(() => false));
+	// Repeating an old cleanup cannot release the replacement's ownership.
+	stop();
+	await expect(holdWindowClose(() => false)).rejects.toThrow(
+		'This window already has a Folder close guard',
+	);
 	answer.resolve(true);
 	await closing;
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
 	await requestClose();
+	expect(nativeWindow.destroyed).toBe(1);
+});
+
+test('a retired dialog failure cannot restore input while the replacement window is closing', async () => {
+	desktop(true);
+	const stop = await holdWindowClose(() => true);
+	cleanup.push(stop);
+	const answer = Promise.withResolvers<boolean>();
+	nativeDialog.answer = answer.promise;
+	const oldClose = requestClose();
+	for (let tries = 0; tries < 400 && nativeDialog.count === 0; tries++)
+		await Bun.sleep(1);
+	expect(nativeDialog.count).toBe(1);
+	stop();
+	cleanup.push(await holdWindowClose(() => false));
+	await requestClose();
+	expect(document.documentElement.inert).toBe(true);
+	answer.reject(new Error('The retired dialog failed'));
+	await oldClose;
+
+	expect(document.documentElement.inert).toBe(true);
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
