@@ -1,10 +1,5 @@
 /** App-owned file messages, and reading a file's bytes. */
-import {
-	type FolderFiles,
-	fileBytes,
-	type ReadError,
-	type SaveError,
-} from '@epicenter/folder';
+import type { FolderFiles, ReadError, SaveError } from '@epicenter/folder';
 import { joinPath, pathProblem } from '@epicenter/folder/file-browser';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -81,5 +76,5 @@ export async function readBytes(
 	const { data: file, error } = await folder.files.read(path);
 	if (error !== null) return Err(error.message);
 	if (file === undefined) return Err(`No file exists at '${path}'.`);
-	return Ok(await fileBytes(file.content));
+	return Ok(new Uint8Array(await file.content.arrayBuffer()));
 }

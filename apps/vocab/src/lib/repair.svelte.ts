@@ -3,41 +3,30 @@
  * text.
  *
  * A file whose frontmatter does not read needs its whole text replaced, so
- * the repair types through the file's text edit handle
- * (`folder.files.edit(path)`), over the stored row's exact bytes
- * (`rowBytes`). The folder holds what is typed, writes it a second after
+ * the repair types through the folder's edit of the file
+ * (`createTextEdit(folder.files, path)`), whose document is the file's exact
+ * text as stored. The folder holds what is typed, writes it a second after
  * the last keystroke and at once on `save()`, one write at a time, each from
  * the text it started from, merged by line with a change made elsewhere
  * meanwhile. A reread never replaces what is typed. A failed write keeps the
- * text and its error; the view's `retry()` tries again, and so does further typing. The
- * repair itself holds only which file is open.
+ * text and its error; the view's `retry()` tries again, and so does further
+ * typing. The repair itself holds only which file is open.
  */
-import { rowBytes } from '@epicenter/folder';
 import { createTextEdit } from '@epicenter/svelte/edits';
-import { type RowOf, rowPath, type VocabFolder } from './data.js';
+import { rowPath, type VocabFolder } from './data.js';
 
 export function createRepair(folder: Pick<VocabFolder, 'files'>) {
 	/** The word file open for repair, by its row ID. */
 	let open = $state<string | undefined>();
 
-	/** The open file's edit handle. */
-	const edit = () =>
+	/** The folder's edit of the open file, read reactively. */
+	const view = () =>
 		open === undefined
 			? undefined
-			: folder.files.edit(rowPath('entries', open));
-	/** The open file's text over `stored`, the row a view shows; read reactively. */
-	const view = (stored: RowOf<'entries'> | undefined) => {
-		const handle = edit();
-		return (
-			handle &&
-			createTextEdit(handle, () =>
-				stored === undefined ? undefined : rowBytes(stored),
-			)
-		);
-	};
-	/** The open file's held text, read reactively. */
+			: createTextEdit(folder.files, rowPath('entries', open));
+	/** The open file's held text, read reactively; reading it reads no file. */
 	const held = () => {
-		const pending = view(undefined)?.pending;
+		const pending = view()?.pending;
 		return pending?.kind === 'text' ? pending : undefined;
 	};
 
@@ -57,31 +46,29 @@ export function createRepair(folder: Pick<VocabFolder, 'files'>) {
 			return true;
 		},
 		/**
-		 * The open file's text as one view shows and types it, over `stored`,
-		 * the row that view read: `text` is what is typed over its bytes, which
-		 * a reread never replaces, and `change` types over what the view last
-		 * showed. A view keeps one for the row it shows.
+		 * The open file's text as views show and type it: what is typed over
+		 * the file as stored, which a reread never replaces.
 		 */
 		view,
 		/** Write what is typed now; resolves once no write of it runs. */
-		save: (): Promise<void> => edit()?.save() ?? Promise.resolve(),
+		save: (): Promise<void> => view()?.save() ?? Promise.resolve(),
 		/**
 		 * Close the repair once its text is written. Answers whether it closed:
 		 * text that could not be written keeps the repair open.
 		 */
 		async close(): Promise<boolean> {
-			const handle = edit();
-			await handle?.save();
-			if (handle?.pending !== undefined) return false;
+			const textEdit = view();
+			await textEdit?.save();
+			if (textEdit?.pending !== undefined) return false;
 			open = undefined;
 			return true;
 		},
 		/** Let go of the repair and what is typed into it, as the learner chose. */
 		discard(): string | undefined {
-			const handle = edit();
-			const discarded = handle?.discard();
+			const textEdit = view();
+			const discarded = textEdit?.discard();
 			// A write or delete of the text that runs keeps it, and the repair.
-			if (handle?.pending !== undefined) return undefined;
+			if (textEdit?.pending !== undefined) return undefined;
 			open = undefined;
 			return discarded?.kind === 'text' ? discarded.text : undefined;
 		},

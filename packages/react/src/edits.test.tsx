@@ -5,30 +5,27 @@
  * in-memory IndexedDB, and types through the DOM handlers React committed.
  *
  * Key behaviors:
- * - Typing names what the committed render showed, the folder's own save
- *   included, never what a suspended transition rendered but did not commit
+ * - A view reads the row the first time it mounts with nothing known, and
+ *   tells loading, a missing row and a failed read apart
+ * - An own save shows without a reread, another handle's change is read for
+ *   the view showing it, and typing keeps both
+ * - A body typed in the committed render's handler keeps a change the same
+ *   event made through another handler
  * - Closing the folder re-renders a view whose held input keeps the same
  *   pending value, because the input fence is its own snapshot
  * - A reused view follows its path, and the row it left keeps its input
  * - Unmounting every view lets go of its subscriptions while the input and
  *   its timer stay with the folder
- * - The text binding shows held text over this render's bytes, BOM kept
+ * - The text binding shows held text over the stored file, BOM kept
  */
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
-import { fileBytes, type Row } from '@epicenter/folder';
+import type { FolderTable } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
-import type { RowEdit, RowPending } from '@epicenter/folder/edits';
+import type { Pending, RowEdit } from '@epicenter/folder/edits';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Window } from 'happy-dom';
-import {
-	act,
-	type ReactNode,
-	Suspense,
-	startTransition,
-	use,
-	useState,
-} from 'react';
+import { act, type ReactNode } from 'react';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 import { useRowEdit, useTextEdit } from './edits.js';
@@ -47,7 +44,7 @@ Object.assign(globalThis, {
 const { createRoot } = await import('react-dom/client');
 
 const notes = Type.Object({ title: Type.String(), done: Type.Boolean() });
-type Note = Row<typeof notes>;
+type Notes = FolderTable<typeof notes>;
 type Folder = Awaited<ReturnType<typeof setup>>['folder'];
 
 const cleanup: (() => unknown)[] = [];
@@ -67,7 +64,7 @@ async function setup({ saveAfterMs = 60_000 } = {}) {
 		expectOk(
 			await folder.tables.notes.set(id, null, {
 				fields: { title, done: false },
-				body: '',
+				body: 'one\ntwo\n',
 			}),
 		);
 	const other = expectOk(await openFolder({ tables: { notes } }));
@@ -77,13 +74,7 @@ async function setup({ saveAfterMs = 60_000 } = {}) {
 		if (row === undefined) throw new Error(`${id} is not stored`);
 		return row;
 	};
-	/** The row as this folder's view reads it. */
-	const observe = async (id: string) => {
-		const row = expectOk(await folder.tables.notes.get(id));
-		if (row === undefined) throw new Error(`${id} is not stored`);
-		return row;
-	};
-	return { folder, other, read, observe };
+	return { folder, other, read };
 }
 
 /** A React root in the page, unmounted after the test. */
@@ -95,6 +86,7 @@ async function mount(element: ReactNode) {
 	cleanup.push(() => act(async () => root.unmount()));
 	return {
 		root,
+		container,
 		input: () => {
 			const input = container.querySelector<
 				HTMLInputElement | HTMLTextAreaElement
@@ -114,52 +106,60 @@ function type(input: HTMLInputElement | HTMLTextAreaElement, text: string) {
 	input.dispatchEvent(new window.Event('input', { bubbles: true }) as never);
 }
 
-/** `edit`, recording each source it was changed over and counting live subscriptions. */
-function recorded(edit: RowEdit<typeof notes>) {
-	const observed: Note[] = [];
-	let live = 0;
-	const wrapped: RowEdit<typeof notes> = {
-		path: edit.path,
-		get pending() {
-			return edit.pending;
-		},
-		get locked() {
-			return edit.locked;
-		},
-		subscribe(listener) {
-			live++;
-			const stop = edit.subscribe(listener);
-			return () => {
-				live--;
-				stop();
+/** Wait until `done`, letting React and the folder run between checks. */
+async function until(done: () => boolean) {
+	for (let turn = 0; turn < 200; turn++) {
+		if (done()) return;
+		await act(async () => Bun.sleep(5));
+	}
+	throw new Error('Never happened');
+}
+
+/** `table`, counting each edit's live subscriptions and reads. */
+function recorded(table: Notes) {
+	const live: Record<string, number> = {};
+	const reads: Record<string, number> = {};
+	const edits = new Map<string, RowEdit<typeof notes>>();
+	const wrapped: Notes = {
+		...table,
+		edit(id) {
+			let wrappedEdit = edits.get(id);
+			if (wrappedEdit !== undefined) return wrappedEdit;
+			const edit = table.edit(id);
+			wrappedEdit = {
+				...edit,
+				subscribe(listener) {
+					live[id] = (live[id] ?? 0) + 1;
+					const stop = edit.subscribe(listener);
+					return () => {
+						live[id] = (live[id] ?? 0) - 1;
+						stop();
+					};
+				},
+				read() {
+					reads[id] = (reads[id] ?? 0) + 1;
+					return edit.read();
+				},
 			};
-		},
-		shown: (row) => edit.shown(row),
-		change(row, change) {
-			observed.push(row);
-			return edit.change(row, change);
-		},
-		save: () => edit.save(),
-		retry: () => edit.retry(),
-		discard: () => edit.discard(),
-		delete: () => edit.delete(),
-	};
-	return {
-		edit: wrapped,
-		observed,
-		get live() {
-			return live;
+			edits.set(id, wrappedEdit);
+			return wrappedEdit;
 		},
 	};
+	return { table: wrapped, live, reads };
 }
 
 /** A title input over one row, as an app's detail view types it. */
-function Title({ edit, row }: { edit: RowEdit<typeof notes>; row: Note }) {
-	const note = useRowEdit(edit, row);
+function Title({ table, id }: { table: Notes; id: string }) {
+	const note = useRowEdit(table, id);
+	const row = note.getRow();
+	const { known, error } = note.getReadStatus();
+	if (error !== undefined) return <p>{error.message}</p>;
+	if (known === 'nothing') return <p>Loading</p>;
+	if (row === undefined) return <p>Missing</p>;
 	return (
 		<input
-			value={note.row.issues === null ? note.row.fields.title : ''}
-			disabled={note.locked}
+			value={row.issues === null ? row.fields.title : ''}
+			disabled={note.isLocked()}
 			onChange={(event) =>
 				note.change({ fields: { title: event.currentTarget.value } })
 			}
@@ -167,62 +167,126 @@ function Title({ edit, row }: { edit: RowEdit<typeof notes>; row: Note }) {
 	);
 }
 
-test('typing names what the committed render showed, an own save included, never what a suspended transition rendered', async () => {
-	const { folder, other, read, observe } = await setup();
-	const milk = recorded(folder.tables.notes.edit('milk'));
-	const first = await observe('milk');
-	const gate = Promise.withResolvers<void>();
-	let setRow!: (row: Note) => void;
-	function Gate({ row }: { row: Note }) {
-		if (row !== first) use(gate.promise);
-		return null;
-	}
-	function Detail() {
-		const [row, set] = useState(first);
-		setRow = set;
+test('a view reads its row when it mounts with nothing known, and tells loading from missing', async () => {
+	const { folder } = await setup();
+	const notesTable = recorded(folder.tables.notes);
+	const milk = await mount(<Title table={notesTable.table} id="milk" />);
+	const ghost = await mount(<Title table={notesTable.table} id="ghost" />);
+	await until(() => milk.container.textContent !== 'Loading');
+	await until(() => ghost.container.textContent !== 'Loading');
+	expect(milk.input().value).toBe('Milk');
+	expect(ghost.container.textContent).toBe('Missing');
+	expect(notesTable.reads).toEqual({ milk: 1, ghost: 1 });
+
+	// A view of a row a list already answered reads nothing.
+	expectOk(await folder.tables.notes.list());
+	await mount(<Title table={notesTable.table} id="bread" />);
+	expect(notesTable.reads.bread).toBeUndefined();
+});
+
+test('a failed first read waits for an explicit read: renders after it read nothing', async () => {
+	const { folder } = await setup();
+	const notesTable = recorded(folder.tables.notes);
+	const get = IDBObjectStore.prototype.get;
+	IDBObjectStore.prototype.get = () => {
+		throw new DOMException('The disk is gone', 'UnknownError');
+	};
+	cleanup.push(() => {
+		IDBObjectStore.prototype.get = get;
+	});
+	const view = await mount(<Title table={notesTable.table} id="milk" />);
+	await act(async () => Bun.sleep(30));
+	await act(async () => Bun.sleep(30));
+	expect(notesTable.reads).toEqual({ milk: 1 });
+	expect(view.container.textContent).toContain('Repository read failed');
+
+	IDBObjectStore.prototype.get = get;
+	await act(async () => {
+		expectOk(await folder.tables.notes.edit('milk').read());
+	});
+	expect(view.input().value).toBe('Milk');
+	expect(notesTable.reads).toEqual({ milk: 1 });
+});
+
+test('a view that shows only held input or the fence reads nothing', async () => {
+	const { folder } = await setup();
+	const notesTable = recorded(folder.tables.notes);
+	function Status() {
+		const note = useRowEdit(notesTable.table, 'milk');
 		return (
-			<>
-				<Title edit={milk.edit} row={row} />
-				<Gate row={row} />
-			</>
+			<p>
+				{note.getPending() === undefined && !note.isLocked() ? 'Saved' : 'Held'}
+			</p>
 		);
 	}
-	const view = await mount(
-		<Suspense fallback={<p>Loading</p>}>
-			<Detail />
-		</Suspense>,
+	const view = await mount(<Status />);
+	await act(async () => Bun.sleep(5));
+	expect(view.container.textContent).toBe('Saved');
+	expect(notesTable.reads).toEqual({});
+	expect(folder.tables.notes.edit('milk').getReadStatus().known).toBe(
+		'nothing',
 	);
-	// An own save lands; this view never reads again, and still shows it.
+});
+
+test('an own save shows without a reread, an outside change is read for the view, and typing keeps both', async () => {
+	const { folder, other, read } = await setup();
+	const notesTable = recorded(folder.tables.notes);
+	const view = await mount(<Title table={notesTable.table} id="milk" />);
+	await until(() => view.container.querySelector('input') !== null);
 	await act(async () => type(view.input(), 'Mine'));
 	await act(async () => folder.tables.notes.edit('milk').save());
-	expect(folder.tables.notes.edit('milk').pending).toBeUndefined();
+	expect(folder.tables.notes.edit('milk').getPending()).toBeUndefined();
 	expect(view.input().value).toBe('Mine');
+	expect(notesTable.reads.milk).toBe(1);
 
 	expectOk(
 		await other.tables.notes.set('milk', await read('milk'), {
 			fields: { done: true },
 		}),
 	);
-	const second = await observe('milk');
-	await act(async () => startTransition(() => setRow(second)));
+	await until(
+		() => folder.tables.notes.edit('milk').getRow()?.fields.done === true,
+	);
 	await act(async () => type(view.input(), 'Mine!'));
-	expect(milk.observed.at(-1)?.fields).toEqual({ title: 'Mine', done: false });
-
-	await act(async () => gate.resolve());
-	await act(async () => type(view.input(), 'Mine!!'));
-	// The committed render now shows the newer read, held input beside it.
-	expect(milk.observed.at(-1)?.fields).toEqual({ title: 'Mine', done: true });
-	expect(view.input().value).toBe('Mine!!');
+	expect(view.input().value).toBe('Mine!');
 	await act(async () => folder.tables.notes.edit('milk').save());
-	expect((await read('milk')).fields).toEqual({ title: 'Mine!!', done: true });
+	expect((await read('milk')).fields).toEqual({ title: 'Mine!', done: true });
+});
+
+test('a body typed in the committed render keeps a change the same event made through another handler', async () => {
+	const { folder, read } = await setup();
+	expectOk(await folder.tables.notes.list());
+	function Body() {
+		const note = useRowEdit(folder.tables.notes, 'milk');
+		return (
+			<section
+				onChangeCapture={() =>
+					// Another handler of the same event changes the first line.
+					folder.tables.notes.edit('milk').change({ body: 'ONE\ntwo\n' })
+				}
+			>
+				<textarea
+					value={note.getRow()?.body ?? ''}
+					onChange={(event) => note.change({ body: event.currentTarget.value })}
+				/>
+			</section>
+		);
+	}
+	const view = await mount(<Body />);
+	expect(view.input().value).toBe('one\ntwo\n');
+	await act(async () => type(view.input(), 'one\nTWO\n'));
+	expect(view.input().value).toBe('ONE\nTWO\n');
+	await act(async () => folder.tables.notes.edit('milk').save());
+	expect((await read('milk')).body).toBe('ONE\nTWO\n');
 });
 
 test('closing the folder re-renders a view whose held input keeps the same pending value', async () => {
-	const { folder, read, observe } = await setup();
+	const { folder, read } = await setup();
+	expectOk(await folder.tables.notes.list());
 	const edit = folder.tables.notes.edit('milk');
-	const view = await mount(<Title edit={edit} row={await observe('milk')} />);
+	const view = await mount(<Title table={folder.tables.notes} id="milk" />);
 	await act(async () => type(view.input(), 'Oat milk'));
-	const pending: RowPending | undefined = edit.pending;
+	const pending: Pending | undefined = edit.getPending();
 	expect(pending).toBeDefined();
 	expect(view.input().disabled).toBe(false);
 
@@ -230,89 +294,79 @@ test('closing the folder re-renders a view whose held input keeps the same pendi
 	act(() => {
 		closing = folder.close();
 	});
-	expect(edit.pending).toBe(pending);
+	expect(edit.getPending()).toBe(pending);
 	expect(view.input().disabled).toBe(true);
 
 	await act(async () => {
 		await closing;
 	});
-	expect(edit.pending).toBeUndefined();
+	expect(edit.getPending()).toBeUndefined();
 	expect((await read('milk')).fields.title).toBe('Oat milk');
 });
 
 test('a reused view follows its path, and the row it left keeps its input', async () => {
-	const { folder, observe } = await setup();
-	const rows = { milk: await observe('milk'), bread: await observe('bread') };
-	const views = {
-		milk: recorded(folder.tables.notes.edit('milk')),
-		bread: recorded(folder.tables.notes.edit('bread')),
-	};
-	const Shown = ({ id }: { id: 'milk' | 'bread' }) => (
-		<Title edit={views[id].edit} row={rows[id]} />
-	);
-	const view = await mount(<Shown id="milk" />);
+	const { folder } = await setup();
+	expectOk(await folder.tables.notes.list());
+	const notesTable = recorded(folder.tables.notes);
+	const view = await mount(<Title table={notesTable.table} id="milk" />);
 	await act(async () => type(view.input(), 'Oat milk'));
 
-	await act(async () => view.root.render(<Shown id="bread" />));
+	await act(async () =>
+		view.root.render(<Title table={notesTable.table} id="bread" />),
+	);
 	expect(view.input().value).toBe('Bread');
 	await act(async () => type(view.input(), 'Rye'));
 
-	expect(views.milk.live).toBe(0);
-	expect(views.bread.live).toBeGreaterThan(0);
-	expect(folder.tables.notes.edit('milk').pending?.fields).toEqual({
-		title: 'Oat milk',
+	expect(notesTable.live.milk).toBe(0);
+	expect(notesTable.live.bread).toBeGreaterThan(0);
+	expect(folder.tables.notes.edit('milk').getPending()).toMatchObject({
+		fields: { title: 'Oat milk' },
 	});
-	expect(folder.tables.notes.edit('bread').pending?.fields).toEqual({
-		title: 'Rye',
+	expect(folder.tables.notes.edit('bread').getPending()).toMatchObject({
+		fields: { title: 'Rye' },
 	});
 });
 
 test('unmounting every view keeps the input and its timer with the folder', async () => {
-	const { folder, read, observe } = await setup({ saveAfterMs: 50 });
-	const milk = recorded(folder.tables.notes.edit('milk'));
-	const view = await mount(
-		<Title edit={milk.edit} row={await observe('milk')} />,
-	);
+	const { folder, read } = await setup({ saveAfterMs: 50 });
+	expectOk(await folder.tables.notes.list());
+	const notesTable = recorded(folder.tables.notes);
+	const view = await mount(<Title table={notesTable.table} id="milk" />);
 	await act(async () => type(view.input(), 'Oat milk'));
 	await act(async () => view.root.unmount());
-	expect(milk.live).toBe(0);
-	expect(folder.tables.notes.edit('milk').pending?.fields).toEqual({
-		title: 'Oat milk',
+	expect(notesTable.live.milk).toBe(0);
+	expect(folder.tables.notes.edit('milk').getPending()).toMatchObject({
+		fields: { title: 'Oat milk' },
 	});
 
-	while (folder.tables.notes.edit('milk').pending !== undefined)
+	while (folder.tables.notes.edit('milk').getPending() !== undefined)
 		await Bun.sleep(5);
 	expect((await read('milk')).fields.title).toBe('Oat milk');
 });
 
-test('the text binding shows held text over this render’s bytes, BOM kept', async () => {
+test('the text binding shows held text over the stored file, BOM kept', async () => {
 	const { folder } = await setup();
 	const path = 'notes/a.txt';
 	expectOk(
-		await folder.files.write(
-			path,
-			null,
-			new TextEncoder().encode('﻿one\r\n'),
-		),
+		await folder.files.write(path, null, new TextEncoder().encode('﻿one\r\n')),
 	);
-	const file = expectOk(await folder.files.read(path));
-	const bytes = await fileBytes(file!.content);
 	function Source({ folder }: { folder: Folder }) {
-		const text = useTextEdit(folder.files.edit(path), bytes);
+		const text = useTextEdit(folder.files, path);
 		return (
 			<textarea
-				value={text.text}
+				value={text.getText() ?? ''}
 				onChange={(event) => text.change(event.currentTarget.value)}
 			/>
 		);
 	}
 	const view = await mount(<Source folder={folder} />);
+	await until(() => view.input().value !== '');
 	expect(view.input().value).toBe('﻿one\r\n');
 	await act(async () => type(view.input(), '﻿one!\r\n'));
 	await act(async () => folder.files.edit(path).save());
 
 	const saved = expectOk(await folder.files.read(path));
-	expect(await fileBytes(saved!.content)).toEqual(
+	expect(new Uint8Array(await saved!.content.arrayBuffer())).toEqual(
 		new TextEncoder().encode('﻿one!\r\n'),
 	);
 	// The view did not read again and shows its own save.

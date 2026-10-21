@@ -2,8 +2,8 @@
  * The rich-text view's editing: its commands and plugins, and the two rules
  * that keep its ProseMirror state the note's body.
  *
- * The note's body is the one `NoteBody.row` shows: the note's draft while an
- * edit is held, otherwise the row the query cache holds (ADR-0548). The
+ * The note's body is the one `NoteBody.getRow()` shows: the folder's edit
+ * of the note, what is typed over it included (ADR-0548). The
  * view's `EditorState` adds only what the note has no place for: the
  * cursor, pending formatting, undo history, and an empty paragraph Markdown
  * cannot spell yet. Its document is never a second draft. Nothing records
@@ -163,12 +163,13 @@ export function stateShowing(state: EditorState, doc: Node): EditorState {
 /** What the rich-text view needs of one note. */
 export type NoteBody = {
 	/**
-	 * The note as shown now: its draft while an edit is held, else as the
-	 * cache holds it; `undefined` once it is gone.
+	 * The note as shown now: as stored, with what is typed over it;
+	 * `undefined` while it is not known, once it is gone, or when it does not
+	 * read as a note.
 	 */
-	readonly row: NoteEntry | undefined;
+	getRow(): NoteEntry | undefined;
 	/** Whether the note takes no edit now. */
-	readonly locked: boolean;
+	isLocked(): boolean;
 	/** Type `body` as the note's body, which saves it. Answers whether it was taken. */
 	edit(body: string): boolean;
 };
@@ -198,8 +199,8 @@ export function stateAfter(
 	// A selection or pending formatting writes nothing: opening a note never
 	// changes its file.
 	if (!transaction.docChanged) return state.apply(transaction);
-	if (note.locked) return undefined;
-	const row = note.row;
+	if (note.isLocked()) return undefined;
+	const row = note.getRow();
 	if (row === undefined) return undefined;
 	const { body } = row;
 	const current = bodyCodec.decode(body);

@@ -65,22 +65,26 @@
 		].sort(),
 	);
 	const columns = $derived(view.columns ?? availableColumns);
+	const edits = $derived(documents.map((doc) => ({ doc, textEdit: createTextEdit(folder.files, doc.path) })));
 	const rows = $derived(
-		documents.map((doc) => {
-			// The document's bytes are the source each field edit names.
-			const edit = createTextEdit(
-				folder.files.edit(doc.path),
-				() => doc.content,
-			);
-			const text = edit.text;
-			const pending = edit.pending;
+		edits.map(({ doc, textEdit }) => {
+			// The folder's edit of the document, which a field edit types into as
+			// a patch of the file as stored. Only typing held there is read
+			// from it; otherwise the listing shows the document as read.
+			const pending = textEdit.pending;
+			const text = pending === undefined ? undefined : textEdit.text;
+			// Held fields typed before the file was read show over the listing.
 			const shown =
-				text === decoder.decode(doc.content)
-					? doc
-					: readDocument(doc.path, encoder.encode(text), tableFor(doc.path));
+				text === undefined
+					? pending?.kind === 'fields'
+						? { ...doc, fields: { ...doc.fields, ...pending.fields } }
+						: doc
+					: text === decoder.decode(doc.content)
+						? doc
+						: readDocument(doc.path, encoder.encode(text), tableFor(doc.path));
 			return {
 				doc,
-				edit,
+				textEdit,
 				shown,
 				held: pending !== undefined,
 				error: pending?.saving ? undefined : pending?.error,
@@ -88,7 +92,7 @@
 					fileText(doc.content).kind !== 'text' ||
 					!!shown.issues?.some((issue) => issue.kind !== 'schema') ||
 					(pending?.kind === 'fields' && pending.error !== undefined) ||
-					edit.locked,
+					textEdit.locked,
 			};
 		}),
 	);
@@ -119,7 +123,7 @@
 						: newValue;
 		if (newKind === 'number' && (newValue === '' || !Number.isFinite(value)))
 			return;
-		row.edit.changeFields({ [view.groupBy]: value });
+		row.textEdit.changeFields({ [view.groupBy]: value });
 	}
 	const encoder = new TextEncoder();
 	const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
@@ -290,7 +294,7 @@
 												view.type === 'board' &&
 												destination?.editable
 											)
-												row.edit.changeFields({
+												row.textEdit.changeFields({
 													[view.groupBy]: destination.value,
 												});
 										}}
@@ -310,11 +314,11 @@
 										<Button
 											size="xs"
 											variant="outline"
-											onclick={() => void row.edit.retry()}>Try again</Button
+											onclick={() => void row.textEdit.retry()}>Try again</Button
 										><Button
 											size="xs"
 											variant="ghost"
-											onclick={() => row.edit.discard()}>Discard edit</Button
+											onclick={() => row.textEdit.discard()}>Discard edit</Button
 										>{/if}
 									{#each doc.issues ?? [] as issue}<p
 											class="text-xs text-destructive"
@@ -391,7 +395,7 @@
 				>
 				<Table.Body>
 					{#each rows as row (row.doc.path)}
-						{@const { doc, edit, shown, locked, error } = row}
+						{@const { doc, textEdit, shown, locked, error } = row}
 						<Table.Row>
 							<Table.Cell
 								><Button variant="link" onclick={() => openSource(doc.path)}
@@ -415,7 +419,7 @@
 											disabled={locked}
 											bind:checked={
 												() => fieldValue(shown.fields, column) === true,
-												(value) => edit.changeFields({ [column]: value })
+												(value) => textEdit.changeFields({ [column]: value })
 											}
 										/>
 									{:else if kind === 'string' || kind === 'number' || kind === 'integer'}
@@ -435,7 +439,7 @@
 															!Number.isFinite(Number(value)))
 													)
 														return;
-													edit.changeFields({
+													textEdit.changeFields({
 														[column]:
 															kind === 'number' || kind === 'integer'
 																? Number(value)
@@ -443,7 +447,7 @@
 													});
 												}
 											}
-											onblur={() => void edit.save()}
+											onblur={() => void textEdit.save()}
 										/>
 									{:else}<span class="font-mono text-xs"
 											>{display(fieldValue(shown.fields, column))}</span
@@ -457,11 +461,11 @@
 									<Button
 										size="xs"
 										variant="outline"
-										onclick={() => void edit.retry()}>Try again</Button
+										onclick={() => void textEdit.retry()}>Try again</Button
 									><Button
 										size="xs"
 										variant="ghost"
-										onclick={() => edit.discard()}>Discard edit</Button
+										onclick={() => textEdit.discard()}>Discard edit</Button
 									>{/if}
 								{#each shown.issues ?? [] as issue}<p
 										class="text-xs text-destructive"

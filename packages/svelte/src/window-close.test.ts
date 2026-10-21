@@ -19,7 +19,6 @@
 import 'fake-indexeddb/auto';
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { fileBytes } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
@@ -76,9 +75,10 @@ type Notes = FolderContext<{ notes: typeof notes }>;
 
 /** Type `title` into `milk` over the row as stored. */
 async function typeTitle({ folder }: Notes, title: string) {
-	const row = expectOk(await folder.tables.notes.get('milk'));
-	if (row === undefined) throw new Error('milk is not stored');
-	expectOk(folder.tables.notes.edit('milk').change(row, { fields: { title } }));
+	const edit = folder.tables.notes.edit('milk');
+	if (expectOk(await edit.read()) === undefined)
+		throw new Error('milk is not stored');
+	expectOk(edit.change({ fields: { title } }));
 }
 
 async function until(check: () => boolean, what: string) {
@@ -100,13 +100,13 @@ test('a saved folder closes without a prompt', async () => {
 test('an accepted edit prompts and Cancel keeps its input', async () => {
 	const { context, milk } = await guarded();
 	await typeTitle(context, 'Oat milk');
-	expect(milk.pending).toBeDefined();
+	expect(milk.getPending()).toBeDefined();
 
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeDialog.count).toBe(1);
-	expect(milk.pending).toBeDefined();
+	expect(milk.getPending()).toBeDefined();
 });
 
 test('Confirm destroys without waiting for the accepted edit to save', async () => {
@@ -118,7 +118,7 @@ test('Confirm destroys without waiting for the accepted edit to save', async () 
 
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(nativeDialog.count).toBe(1);
-	expect(milk.pending).toBeDefined();
+	expect(milk.getPending()).toBeDefined();
 });
 
 test('an app action before its first Folder write does not prompt', async () => {
@@ -137,14 +137,14 @@ test('whole text waiting to save prompts and Cancel retains it', async () => {
 	const { context } = await guarded();
 	const path = 'notes/source.md';
 	expectOk(await context.folder.files.write(path, null, 'saved'));
-	const read = expectOk(await context.folder.files.read(path));
 	const text = context.folder.files.edit(path);
-	text.change(await fileBytes(read!.content), 'unsaved source');
+	expectOk(await text.read());
+	expectOk(text.change('unsaved source'));
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
 	expect(nativeDialog.count).toBe(1);
-	expect(text.pending).toMatchObject({ text: 'unsaved source' });
+	expect(text.getPending()).toMatchObject({ text: 'unsaved source' });
 });
 
 test('two close requests at once destroy the window once', async () => {
@@ -221,7 +221,7 @@ test('input is inert while destruction is pending and restored if it fails', asy
 	expect(document.documentElement.inert).toBe(false);
 	expect(nativeWindow.listeners).toBe(1);
 	await typeTitle(context, 'Still editable');
-	expect(context.folder.tables.notes.edit('milk').pending).toBeDefined();
+	expect(context.folder.tables.notes.edit('milk').getPending()).toBeDefined();
 });
 
 test('a browser tab registers nothing, and closing the context stops listening', async () => {

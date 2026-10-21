@@ -63,6 +63,12 @@ function caseTwin(
 	return undefined;
 }
 
+/** A delete answers whether the file went, not what a save stored. */
+const deleted = (
+	saved: Result<{ deleted: boolean; stored: FileContent | null }, SaveError>,
+): Result<{ deleted: boolean }, SaveError> =>
+	saved.error !== null ? saved : Ok({ deleted: saved.data.deleted });
+
 /**
  * Internal local engine, absent from the package exports. The public opener
  * owns this handle; sync separately owns credentials and network work.
@@ -165,6 +171,7 @@ export async function openRepository<
 							merged.content === null &&
 							!snapshot.files.has(path) &&
 							!snapshot.directories.has(path),
+						stored: current,
 					});
 				const changes = new Map<string, FileContent | null>([
 					[path, merged.content],
@@ -186,7 +193,10 @@ export async function openRepository<
 						paths: [path],
 					})
 				) {
-					return Ok({ deleted: merged.content === null });
+					return Ok({
+						deleted: merged.content === null,
+						stored: merged.content,
+					});
 				}
 			}
 		});
@@ -223,7 +233,9 @@ export async function openRepository<
 				id: string,
 				from: Pick<Row, 'text' | 'issues'> | null,
 				change: RowChange,
-			): Promise<Result<{ sent: Row<TSchema> }, SaveError>> {
+			): Promise<
+				Result<{ sent: Row<TSchema>; stored: FileContent | null }, SaveError>
+			> {
 				assertOpen();
 				if (!validId(name, id) && (from === null || !readableId(name, id)))
 					return SaveError.InvalidId({ id });
@@ -246,17 +258,20 @@ export async function openRepository<
 					change.fields !== undefined,
 				);
 				if (saved.error !== null) return Err(saved.error);
-				return Ok({ sent: readRow(id, sent.data.text, schema) });
+				return Ok({
+					sent: readRow(id, sent.data.text, schema),
+					stored: saved.data.stored,
+				});
 			},
-			delete(
+			async delete(
 				id: string,
 				from: Pick<Row, 'text' | 'issues'> | null,
 			): Promise<Result<{ deleted: boolean }, SaveError>> {
 				if (!validId(name, id) && (from === null || !readableId(name, id)))
-					return Promise.resolve(SaveError.InvalidId({ id }));
+					return SaveError.InvalidId({ id });
 				if (from?.issues?.some((issue) => issue.kind === 'not-text'))
-					return Promise.resolve(SaveError.NotText());
-				return saveFile(rowPath(id), from?.text ?? null, null);
+					return SaveError.NotText();
+				return deleted(await saveFile(rowPath(id), from?.text ?? null, null));
 			},
 		};
 	}
@@ -289,14 +304,16 @@ export async function openRepository<
 				path: string,
 				from: FileContent | null,
 				content: FileContent,
-			): Promise<Result<void, SaveError>> {
+			): Promise<Result<{ stored: FileContent | null }, SaveError>> {
 				assertOpen();
 				const result = await saveFile(path, from, content);
-				return result.error !== null ? Err(result.error) : Ok(undefined);
+				return result.error !== null
+					? Err(result.error)
+					: Ok({ stored: result.data.stored });
 			},
-			delete(path: string, from: FileContent | null) {
+			async delete(path: string, from: FileContent | null) {
 				assertOpen();
-				return saveFile(path, from, null);
+				return deleted(await saveFile(path, from, null));
 			},
 		};
 	}

@@ -4,11 +4,10 @@
  */
 
 import { basename } from '@epicenter/folder/file-browser';
-import { toastWriteFailure } from '@epicenter/svelte/write-failure-toast';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeDeletion } from '$lib/deletion.js';
-import type { Library, WriteNotice } from '$lib/library.svelte.js';
+import type { Library } from '$lib/library.svelte.js';
 
 export { recordingTitle } from '$lib/deletion.js';
 
@@ -86,13 +85,4 @@ export async function openItem(
 ): Promise<boolean> {
 	await library.open(path);
 	return !library.closing;
-}
-
-/**
- * Tell the person an edit's write failed, with the toast every folder app
- * shows: the text to copy, and Save again and Discard while the edit is
- * still on screen.
- */
-export function reportWriteNotice({ kind: _, ...failure }: WriteNotice) {
-	toastWriteFailure(failure);
 }

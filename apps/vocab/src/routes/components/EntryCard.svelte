@@ -31,18 +31,19 @@
 	const id = entry.id;
 	/** Edits wait while the word is deleted or open as text, and once Vocab closes. */
 	const locked = $derived(entries.isLocked(id));
-	/** The note and stage typed over the word as this card shows it. */
+	/** The folder's edit of the word, the note and stage typed over it. */
 	// svelte-ignore state_referenced_locally
-	const edit = entries.edit(id, () => entry.row);
-	/** The word with what is typed over it. */
-	const shown = $derived(edit.row.fields);
-	const pending = $derived(edit.pending);
+	const rowEdit = entries.edit(id);
+	const row = $derived(rowEdit.row);
+	/** The word with what is typed over it, or as the list read it while that is not known. */
+	const shown = $derived(row?.issues === null ? row.fields : entry.row.fields);
+	const pending = $derived(rowEdit.pending);
 	// The input outlives the card; send what is typed now.
-	onDestroy(() => void edit.save());
+	onDestroy(() => void rowEdit.save());
 
 	/** Delete once the note typed here is sent, so the delete removes what was saved last. */
 	function remove() {
-		void edit.save();
+		void rowEdit.save();
 		confirmDelete(entries, entry);
 	}
 </script>
@@ -57,16 +58,16 @@
 		aria-label="Your note for {entry.text}"
 		placeholder="Your note"
 		readonly={locked}
-		bind:value={() => shown.note, (typed) => edit.setNote(typed)}
-		onblur={() => void edit.save()}
+		bind:value={() => shown.note, (typed) => rowEdit.setNote(typed)}
+		onblur={() => void rowEdit.save()}
 	/>
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
-		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option} disabled={locked} onclick={() => edit.setStage(option)}>{STAGE_LABELS[option]}</Button>{/each}
+		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option} disabled={locked} onclick={() => rowEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">
 			{#if pending?.saving}
 				Saving…
 			{:else if pending?.error}
-				Not saved: {describeFailure(pending.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void edit.retry()}>Try again</Button>
+				Not saved: {describeFailure(pending.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void rowEdit.retry()}>Try again</Button>
 			{/if}
 		</span>
 	</div>

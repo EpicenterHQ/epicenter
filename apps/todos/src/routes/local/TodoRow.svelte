@@ -1,8 +1,8 @@
 <!--
-	One todo in the list. Its checkbox shows the todo with what is typed over
-	it and saves at once, together with any title or notes still waiting for
-	their pause. The title is the saved one: what is typed shows in the list
-	once it is saved.
+	One todo in the list. Its checkbox shows the folder's edit of the todo,
+	what is typed over it included, and saves at once, together with any
+	title or notes still waiting for their pause. The title is the one the
+	list read: what is typed shows in the list once it is saved.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -24,8 +24,11 @@
 		onOpen?: (id: string) => void;
 	} = $props();
 
-	const edit = $derived(createRowEdit(folder.tables.todos.edit(todo.id), () => todo));
-	const done = $derived(edit.row.fields.done);
+	const id = $derived(todo.id);
+	// The list's read answered this row's document, so showing it reads nothing.
+	const rowEdit = $derived(createRowEdit(folder.tables.todos, id));
+	const shown = $derived(rowEdit.row);
+	const done = $derived(shown?.issues === null ? shown.fields.done : todo.fields.done);
 	const label = $derived(labelOf(todo));
 </script>
 
@@ -38,10 +41,10 @@
 		bind:checked={
 			() => done,
 			(next) => {
-				if (edit.change({ fields: { done: next } }).error === null) void edit.save();
+				if (rowEdit.change({ fields: { done: next } }).error === null) void rowEdit.save();
 			}
 		}
-		disabled={edit.locked}
+		disabled={rowEdit.locked}
 		aria-label="{done ? 'Reopen' : 'Complete'} {label}"
 	/>
 	<Button

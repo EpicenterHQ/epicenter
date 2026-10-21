@@ -1,7 +1,7 @@
 <!--
-	One open note. The view reads the note rows narrowed to this note, so it
-	never disagrees with the list. Its title, folder, pin, and body are the
-	note's edit handle (`folder.tables.notes.edit(id)`): what is typed shows at once
+	One open note: the folder's edit of its row, the same document the list's
+	reads keep current, so it never disagrees with the list. Its title,
+	folder, pin, and body are typed into that edit: what is typed shows at once
 	and saves a second after the last change, at once when the person leaves
 	the title or Source, picks a folder or a pin, and when the view goes
 	away. Each save merges with whatever was saved meanwhile. The rich-text
@@ -21,10 +21,11 @@
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { InstantString } from '@epicenter/definition';
+	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { createRowEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { folderLabel, NOTES, type NoteFields, type NoteRow, noteIdOf } from '$lib/data.js';
+	import { folderLabel, type NoteFields, noteIdOf } from '$lib/data.js';
 	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
 	import { describeFailure } from '$lib/status.js';
 	import { confirmDelete } from './file-actions.js';
@@ -44,21 +45,23 @@
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
 	const id = noteIdOf(path) ?? '';
-	const note = createQuery(() => ({
-		...notes.queries.rows(NOTES),
-		select: (rows: NoteRow[]) => rows.find((row) => row.id === id),
-	}));
 	const folders = createQuery(() => ({
 		...notes.queries.rows('folders'),
 		select: foldersOf,
 	}));
-	/** What is typed into the note over the row this view shows, not yet saved. */
+	/**
+	 * The folder's edit of the note: as stored, with what is typed over it.
+	 * The note list beside this view reads the notes, which keeps it current.
+	 */
 	// svelte-ignore state_referenced_locally
-	const edit = createRowEdit(notes.folder.tables.notes.edit(id), () => note.data);
-	const pending = $derived(edit.pending);
-	/** The note as the rich-text view reads and edits it: the stored row with the typing over it. */
+	const rowEdit = createRowEdit(notes.folder.tables.notes, id);
+	const stored = $derived(rowEdit.row);
+	const status = $derived(rowEdit.readStatus);
+	const pending = $derived(rowEdit.pending);
+	/** The note as the rich-text view reads and edits it, when it reads as one. */
 	// svelte-ignore state_referenced_locally
 	const body = notes.noteBody(path);
+	const shownNote = $derived(body.getRow());
 	/** Edits wait once the notes are closing, and while this file is deleted. */
 	const locked = $derived(notes.isLocked(path));
 
@@ -66,7 +69,7 @@
 	let tab = $state<'rich' | 'source'>('rich');
 
 	// The input outlives the view; send what is typed now.
-	onDestroy(() => void edit.save());
+	onDestroy(() => void rowEdit.save());
 
 	/** Say so when a change was refused. */
 	function refusal(problem: string | undefined) {
@@ -79,18 +82,6 @@
 
 	/** Whether typing here did not save, with no save running. */
 	const unsaved = $derived(notes.isUnsaved(path));
-	const pendingText = $derived(notes.typedText(path));
-
-	async function editAsFile() {
-		const selected = notes.selected;
-		await edit.save();
-		if (notes.selected !== selected) return;
-		if (edit.pending !== undefined) {
-			toast.warning('The note changes have not saved', { description: 'Save them again or copy and discard them before editing the whole file.' });
-			return;
-		}
-		notes.open(path, 'text');
-	}
 
 	async function report(action: string, problem: string | undefined) {
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
@@ -102,7 +93,7 @@
 			description: `Copy any text you need from ${path} before discarding it. What is saved stays on this device.`,
 			confirm: { text: 'Discard changes', variant: 'destructive' },
 			onConfirm: () => {
-				edit.discard();
+				rowEdit.discard();
 			},
 		});
 	}
@@ -113,14 +104,8 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#if pendingText !== undefined}
-		<div class="space-y-3 p-4">
-			<p>This file has text changes that have not saved. Return to the file to save them again or discard them.</p>
-			<Textarea readonly aria-label="Unsaved file changes" value={pendingText} class="min-h-40 font-mono text-xs" />
-			<Button onclick={() => notes.open(path, 'text')}>Return to file</Button>
-		</div>
-	{:else if note.data?.issues === null && body.row !== undefined}
-		{@const row = body.row}
+	{#if shownNote !== undefined}
+		{@const row = shownNote}
 		{@const folderId = row.fields.folderId}
 		{@const pinned = row.fields.pinned}
 		{@const deleted = typeof row.fields.deletedAt === 'string'}
@@ -128,7 +113,7 @@
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={() => row.fields.title, (typed) => refusal(body.change({ fields: { title: typed } }))}
-				onblur={() => void edit.save()}
+				onblur={() => void rowEdit.save()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Title"
@@ -183,7 +168,7 @@
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
 						bind:value={() => row.body, (typed) => refusal(body.change({ body: typed }))}
-						onblur={() => void edit.save()}
+						onblur={() => void rowEdit.save()}
 						disabled={locked}
 						aria-label="Markdown source"
 						spellcheck={false}
@@ -202,7 +187,7 @@
 				{/if}
 			</span>
 			{#if unsaved}
-				<Button size="sm" variant="outline" disabled={locked} onclick={() => void edit.retry()}>
+				<Button size="sm" variant="outline" disabled={locked} onclick={() => void rowEdit.retry()}>
 					Save again
 				</Button>
 			{/if}
@@ -211,7 +196,7 @@
 				variant="ghost"
 				tooltip="Edit the whole file as text, including keys Honeycrisp does not show"
 				disabled={locked}
-				onclick={() => void editAsFile()}
+				onclick={() => notes.open(path, 'text')}
 			>
 				Edit as file
 			</Button>
@@ -240,8 +225,8 @@
 				{/if}
 			</div>
 		</div>
-	{:else if note.data !== undefined && note.data.issues !== null}
-		{@const issues = note.data.issues}
+	{:else if stored?.issues}
+		{@const issues = stored.issues}
 		<Empty.Root class="flex-1" data-testid="needs-repair">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 			{#if issues.some((issue) => issue.kind === 'not-text')}
@@ -257,7 +242,7 @@
 				<Button variant="outline" size="sm" onclick={() => notes.open(path, 'text')}>Repair as text</Button>
 			{/if}
 		</Empty.Root>
-	{:else if note.isSuccess}
+	{:else if status.known === 'missing'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>This note is no longer in the folder</Empty.Title>
 			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
@@ -265,22 +250,17 @@
 				<div class="w-full max-w-md text-left text-xs" role="status" data-testid="held-draft">
 					<p>What you typed into it is not saved. Copy it, or save it again to put the note back.</p>
 					{#if pending.error}<p>Not saved: {describeFailure(pending.error)}</p>{/if}
-					<pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved text">{[
-							pending.fields.title,
-							pending.body,
-						]
-							.filter((part) => typeof part === 'string' && part !== '')
-							.join('\n\n')}</pre>
-					<Button variant="outline" size="xs" disabled={locked} onclick={() => void edit.retry()}>Save it again</Button>
+					<pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved text">{unsavedText(pending)}</pre>
+					<Button variant="outline" size="xs" disabled={locked} onclick={() => void rowEdit.retry()}>Save it again</Button>
 					<Button variant="ghost-destructive" size="xs" onclick={confirmDiscard}>Discard it</Button>
 				</div>
 			{/if}
 		</Empty.Root>
-	{:else if note.isError}
+	{:else if status.error}
 		<Empty.Root class="flex-1">
-			<Empty.Title>Could not read the notes</Empty.Title>
-			<Empty.Description>{note.error.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void note.refetch()}>Try again</Button>
+			<Empty.Title>Could not read the note</Empty.Title>
+			<Empty.Description>{status.error.message}</Empty.Description>
+			<Button variant="outline" size="sm" onclick={() => void rowEdit.read()}>Try again</Button>
 		</Empty.Root>
 	{:else}
 		<Loading class="flex-1" label="Opening the note…" />

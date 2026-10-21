@@ -1,14 +1,12 @@
 <!--
-	One capture file as its exact Markdown, frontmatter included: the row's
-	source, from the one rows query. Typing is held over it and saved a second
+	One capture file as its exact Markdown, frontmatter included: the folder's
+	edit of the file. Typing is held over it and saved a second
 	after the last keystroke, when the person leaves the text, and when this
 	view goes away, valid or not, so a file that is not a valid capture is
 	repaired here. Each save merges with whatever was saved meanwhile.
 
-	What keeps the file from reading as a capture is read from the file as
-	saved, so it follows the text a moment after typing pauses. Open as
-	capture saves the text first, and opens the capture view only once the
-	saved file reads as one. The parent keys this view by the capture.
+	What keeps the file from reading as a capture follows the current edit,
+	including unsaved text. Open as capture changes views without saving. The parent keys this view by the capture.
 -->
 <script lang="ts">
 	import { captureBody } from '@epicenter/capture';
@@ -20,8 +18,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { rowBytes } from '@epicenter/folder';
-	import { createTextEdit } from '@epicenter/svelte/edits';
+	import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, untrack } from 'svelte';
 	import { type Captures, capturePath, describeFailure } from '$lib/captures.svelte.js';
@@ -39,22 +36,27 @@
 
 	// The view is keyed by the capture, so its path never changes for this view.
 	const path = untrack(() => capturePath(stem));
-	const entry = createQuery(() => captures.rowsQuery((rows) => rows.find((found) => found.id === stem)));
-	const unreadable = $derived(entry.data?.issues?.some((issue) => issue.kind === 'not-text') ?? false);
-	/** The file's exact bytes as saved, when it is text: the source typing names. */
-	const source = $derived(entry.data === undefined || unreadable ? undefined : rowBytes(entry.data));
-	/** What is typed over the file's source and not saved yet. */
-	const edit = untrack(() => createTextEdit(captures.folder.files.edit(path), () => source));
-	const pending = $derived(edit.pending);
+	/** The folder's edit of the file: its exact text as stored, and what is typed over it. */
+	const textEdit = untrack(() => createTextEdit(captures.folder.files, path));
+	const rowEdit = untrack(() => createRowEdit(captures.folder.tables.captures, stem));
+ const row = $derived(rowEdit.row);
+ const status = $derived(textEdit.readStatus);
+	const unreadable = $derived(status.known === 'not-text');
+	const pending = $derived(textEdit.pending);
 	const typed = $derived(pending?.kind === 'text' ? pending.text : undefined);
-	const text = $derived(edit.text);
-	const locked = $derived(edit.locked);
+	const text = $derived(textEdit.text);
+	const locked = $derived(textEdit.locked);
 	// The text saves after a pause, and outlives the view; send it now.
-	onDestroy(() => void edit.save());
+	onDestroy(() => void textEdit.save());
+	/**
+	 * The capture as the timeline lists it, as last saved, which the issues
+	 * follow. Its reads, polled while the view shows, also keep the edit's
+	 * file current, an edit made outside this page included.
+	 */
+	createQuery(() => captures.readQuery(textEdit));
 
-	/** Why the saved file is not a capture yet: each with its line when it has one. */
+	/** Why the current edit is not a capture yet: each with its line when it has one. */
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
-		const row = entry.data;
 		if (row === undefined || unreadable) return [];
 		if (row.issues !== null) return row.issues;
 		const { error: refusal } = captureBody.decode(row.body);
@@ -75,7 +77,7 @@
 			title: 'Discard your edit?',
 			description: `Copy anything you need first. ${path} keeps what was last saved.`,
 			confirm: { text: 'Discard edit', variant: 'destructive' },
-			onConfirm: () => void edit.discard(),
+			onConfirm: () => void textEdit.discard(),
 		});
 	}
 </script>
@@ -88,7 +90,7 @@
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={typed === undefined && issues.length > 0}
+				disabled={issues.length > 0}
 				onclick={() => captures.open(stem, 'capture')}>Open as capture</Button
 			>
 			<Button size="sm" variant="ghost" onclick={() => copy(text, 'File text')}>Copy file text</Button>
@@ -97,8 +99,9 @@
 	</div>
 
 	{#if text !== undefined}
+		{@const shown = text}
 		<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-			{typed === undefined ? `Saved to ${path}` : pending?.error && !pending.saving ? 'Not saved' : 'Saving…'}
+			{pending === undefined ? `Saved to ${path}` : pending?.error && !pending.saving ? 'Not saved' : 'Saving…'}
 		</p>
 
 		{#if pending?.error && !pending.saving}
@@ -106,7 +109,7 @@
 				<Alert.Title>Your edit is not saved</Alert.Title>
 				<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
 				<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-					<Button size="sm" variant="outline" onclick={() => void edit.retry()}>Save again</Button>
+					<Button size="sm" variant="outline" onclick={() => void textEdit.retry()}>Save again</Button>
 					<Button size="sm" variant="outline" onclick={() => copy(typed, 'Your text')}>Copy your text</Button>
 					<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 				</div>
@@ -119,7 +122,7 @@
 					<Badge variant="destructive">Needs repair</Badge>
 					{typed === undefined
 						? 'This text does not read as a capture yet. Fix it here; it saves when you pause.'
-						: 'As last saved, this text did not read as a capture. It is checked again when your typing is saved.'}
+						: 'This text does not read as a capture yet. It is checked as you type.'}
 				</p>
 				<ul class="space-y-0.5 text-muted-foreground">
 					{#each issues as issue, index (index)}
@@ -135,13 +138,13 @@
 			spellcheck={false}
 			readonly={locked}
 			bind:value={
-				() => (text ?? '').replace(/\r\n?/g, '\n'),
+				() => shown.replace(/\r\n?/g, '\n'),
 				(typing) => {
 					// The first change starts from the source shown; later ones keep theirs.
-					if (text !== undefined) edit.change(withFileNewlines(typing.toWellFormed(), text));
+					textEdit.change(withFileNewlines(typing.toWellFormed(), shown));
 				}
 			}
-			onblur={() => void edit.save()}
+			onblur={() => void textEdit.save()}
 		/>
 	{:else if unreadable}
 		<Empty.Root role="alert">
@@ -150,21 +153,21 @@
 				<Empty.Description>It is not text. Nothing in it was changed.</Empty.Description>
 			</Empty.Header>
 		</Empty.Root>
-	{:else if entry.isSuccess}
+	{:else if status.known === 'missing'}
 		<Empty.Root role="alert">
 			<Empty.Header>
 				<Empty.Title>This capture is no longer here</Empty.Title>
 				<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 			</Empty.Header>
 		</Empty.Root>
-	{:else if entry.isError}
+	{:else if status.error}
 		<Empty.Root role="alert">
 			<Empty.Header>
 				<Empty.Title>This capture could not be opened</Empty.Title>
-				<Empty.Description>{entry.error.message}</Empty.Description>
+				<Empty.Description>{status.error.message}</Empty.Description>
 			</Empty.Header>
 			<Empty.Content>
-				<Button variant="outline" size="sm" onclick={() => void entry.refetch()}>Try again</Button>
+				<Button variant="outline" size="sm" onclick={() => void textEdit.read()}>Try again</Button>
 			</Empty.Content>
 		</Empty.Root>
 	{:else}

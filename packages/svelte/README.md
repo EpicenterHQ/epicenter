@@ -82,7 +82,7 @@ notice held by the app layout's toaster.
 
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
 initialization. The context contains `folder`, `queryClient`,
-`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `getStatus()`, `closing`, `getSaveState()`, `run`,
+`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `queries.read(edit)`, `getStatus()`, `closing`, `run`,
 `guardWindowClose`, `refresh`, and `close`.
 Every save, own or not, reaches the context through the folder's one change
 channel (`onChange`), which also names a save of this handle that changed
@@ -113,10 +113,9 @@ await context.refresh([path]);
 The factory generates the key and query function together. Representation names
 must be unique within a context: one name always identifies the same cached data
 shape and read policy. A representation can own `gcTime` and `structuralSharing`;
-view options such as `enabled` and `select` stay at the observer. Rows,
-documents, and file representations keep structural sharing off unless the
-representation turns it on, so a newer read reaches a view as new values and an
-edit handle can tell how old the value a view shows is. The key carries
+view options such as `enabled` and `select` stay at the observer. Queries list
+and derive; the editable document of a row or file belongs to its edit (below),
+which a row list or a file read through these queries keeps current. The key carries
 the decoded data type into `queryClient.getQueryData(options.queryKey)`. There is
 no reader registry or options cache. Query functions never change an existing
 file's bytes.
@@ -132,89 +131,136 @@ listener, file watcher, or wake detector is needed. Closing stops the timer
 before draining saves. Failed local reads are shown without automatic retries
 inside that read; a later poll or visibility return can try again.
 
+The folder watches no directory, so an edit shown with no list over its file
+learns of an outside program's change through `queries.read(edit)`: while a
+view observes it, the visible polling reads the edit's file again, and so
+does `refresh()` or `refresh([path])`. A change the folder reports is the
+edit's own to read, so the refresh that change starts leaves this query
+alone.
+
 Every context has its own QueryClient and `['folder']` query prefix. Generated
 keys are `['folder', 'rows', table]`, `['folder', 'files']`,
-`['folder', 'documents']`, and `['folder', 'file', path, representation]`.
+`['folder', 'documents']`, `['folder', 'file', path, representation]`, and
+`['folder', 'read', path]`.
 Query prefixes match array elements. The context separately handles filesystem
 descendants when refreshing paths. Apps neither build these keys nor subscribe
 to folder changes.
 
-`getSaveState()` comes from `folder.getStatus()` alone: `saved` only when no input is
-held, no save runs, and no failure is held. Held input whose save failed is
-`failed`. A storage failure with nothing held is `recent-failure`. An app
-action that saves nothing yet does not affect the departure prompt. The app chooses the words shown
-to a person, such as "Saved on this device".
+`getStatus()` is `folder.getStatus()` read reactively, the one record of
+accepted local work: `saving`, the `unsaved` paths, held `failures`, the last
+`storageFailure` until a save lands, and `closing`. An app action that saves
+nothing yet is not in it and does not affect the departure prompt. A
+folder-wide header formats these facts in the app's own words, usually held
+failures first, then `saving` or `unsaved`, then a past `storageFailure`, then
+saved:
+
+```ts
+const { failures, saving, unsaved, storageFailure } = context.getStatus();
+if (failures.length > 0) return 'Not saved';
+if (saving || unsaved.length > 0) return 'Saving…';
+if (storageFailure !== null) return 'A save failed';
+return 'Saved on this device';
+```
+
+A label beside one editor reads that edit's own `pending` (`error` without
+`saving` means its save failed, otherwise it is saving or waiting), so another
+file's failure is never shown as its.
 
 ## Row and whole-file edits
 
-The folder owns typed input from open to close (`folder.tables.<t>.edit(id)`,
-`folder.files.edit(path)`; the Folder README's "Unsaved input" states the
-rules, [ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
+The folder owns each path's editable document and typed input from open to
+close (`folder.tables.<t>.edit(id)`, `folder.files.edit(path)`; the Folder
+README's "Unsaved input" states the rules,
+[ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
 `saveAfterMs` is an option of the app's `openFolder` call, not of this package.
-`@epicenter/svelte/edits` binds one handle to one view:
+`@epicenter/svelte/edits` reads one of those edits in a view:
 
 ```ts
 import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
 
-const edit = $derived(createRowEdit(folder.tables.notes.edit(id), () => row));
-edit.row; // the row shown: `row` with held input and own saves over it
-edit.change({ fields: { done: true }, body: 'Two litres\n' });
+// This component is keyed by its note, so its address is fixed.
+const rowEdit = createRowEdit(folder.tables.notes, id);
+const row = $derived(rowEdit.row);
+rowEdit.row; // the row as stored, with held input in it; undefined until known
+rowEdit.readStatus; // { known: 'nothing' | 'missing' | 'file' | 'not-text', reading, error }
+rowEdit.change({ fields: { done: true }, body: 'Two litres\n' });
 
-const text = $derived(createTextEdit(folder.files.edit(path), () => bytes));
-text.text; // the text shown
-text.change(edited);
-text.changeFields({ title: 'x' });
+// If path changes in this component, derive the adapter from that address.
+const textEdit = $derived(createTextEdit(folder.files, path));
+textEdit.text; // the held text, held fields over the file, or the file
+textEdit.change(edited);
+textEdit.changeFields({ title: 'x' });
 ```
 
-Both bindings use the same commands: `save()` sends new input or joins its
+The Svelte edit exposes tracked getters over the core's read methods:
+`getRow()` becomes `.row`, `getText()` becomes `.text`, `getPending()` becomes
+`.pending`, `getReadStatus()` becomes `.readStatus`, and `isLocked()` becomes
+`.locked`. Commands stay methods, shared directly with the core. Each getter
+re-runs a reader while an effect reads it (`createSubscriber`). The first time an
+effect asks for the document (`row`, `text` or `readStatus`) with
+nothing known, no read running and no read error, it reads the file; a row a list
+already read needs no read of its own. `row` is `undefined` while
+nothing is known, after a failed first read, and when no file is there;
+`readStatus` tells them apart, the same value for every view of the
+path. A failed reread keeps what is shown and says why in `error`; `read()`
+reads again. Asking only for `pending` or `locked` requests no new
+document; a subscription may refresh one already read. Commands retain
+their Folder behavior.
+
+Both adapters expose the same path's pending input, including input created by
+the other representation. Valid row changes patch held whole-file text; whole-file
+typing takes over applicable row or field input. A structured view reads the
+current text with its schema, so ordinary valid switching requires no save or
+refresh. Invalid content stays available as text; unapplied fields remain in
+pending for recovery. Switching views clears neither input nor its save error.
+
+Row and text edits use the same commands: `save()` sends new input or joins its
 running attempt; `retry()` explicitly attempts held failed input again.
 Blur, unmount, settlement and close leave failed input held for recovery.
 Accepted new input clears the older error and may autosave.
 
-A source that can be missing gives an optional `row`. Inside its rendered
-branch, use a template constant to narrow the row for binding callbacks:
+Read properties directly where convenient. When a local helps readability or preserves narrowing in a binding callback, name the value:
 
 ```svelte
-{#if edit.row}
-  {@const shown = edit.row}
-  <Input
-    bind:value={() => shown.fields.title, title => edit.change({ fields: { title } })}
-    onblur={() => void edit.save()}
-  />
-{/if}
+{#each rowEdits as rowEdit (rowEdit.path)}
+  {#if rowEdit.row?.issues === null}
+    {@const row = rowEdit.row}
+    <Input
+      bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })}
+      onblur={() => void rowEdit.save()}
+    />
+  {/if}
+{/each}
 ```
 
-`{@const}` is reactive: `shown` follows changes to `edit.row` while the branch
-stays open. The local value lets binding callbacks read its fields without a
-non-null assertion. If script code also needs the value, use
-`const shown = $derived(edit.row)` instead. A plain script
-`const shown = edit.row` captures the initial value.
+`{@const}` is reactive: `row` follows `rowEdit.row` within its template block.
+A Folder row is `undefined` when absent; `issues === null` means it is valid.
+If script code also needs the value, use `const row = $derived(rowEdit.row)` and
+narrow it in the template. A plain script `const row = rowEdit.row` captures the
+initial value. Do not replace a missing row with empty input values.
 
-`observed` is the value the view reads from its query: a row, or the file's
-bytes through `fileBytes` or `rowBytes`. Getters and commands use the current
-projection of that source with held input and own saves. Reading a getter
-changes no command policy; there is no separate last-read snapshot or `seen`.
-A command that composes new content reads `row` or `text` and changes it
-synchronously. Delayed work that intentionally edits an earlier snapshot uses
-the core handle explicitly: keep `const shown = handle.shown(observed)` and
-later call `handle.change(shown.source, patch)`. The core merges changes from
-older snapshots into current input.
+Commands type over what `row` or `text` shows now; there is no
+source to name and no last-read snapshot. A command that composes new
+content reads the row or text and changes it synchronously.
 
 `change` and `changeFields` return `Result<void, ChangeError>`: `Ok(undefined)`
 means accepted into memory, while `Err` explains the refusal. It does not mean
-saved. `save()` and `retry()` resolve after their attempt; `pending.error` and
-folder status report a storage failure. A missing observed row returns
-`ChangeError.NoSource`, leaving earlier input readable through `pending`.
+saved. `save()` and `retry()` resolve after their attempt; `pending?.error`
+and folder status report a storage failure. A row not read yet or gone returns
+`ChangeError.NoSource`, and a file that is not text `ChangeError.NotText`,
+leaving earlier input readable through `pending`.
 
-Each view makes its own binding; making one reads and holds nothing. Make a
-new one when its row or path changes. `pending` reads held input, `locked`
-reads the operation lock, and `save`, `discard`, `delete`, `retry` and
-`exclusive` call the handle. A getter re-runs when input at that path changes,
-through a subscription that lives while an effect reads it.
+Name adapters `rowEdit` and `textEdit`; reserve `row` and `text` for their
+values. Each view creates its own adapter, which reads and holds nothing by
+itself. Keep it constant for a fixed address, including a component keyed by
+that address. Derive a replacement only when its table/id or files/path changes;
+changes to `.row`, `.text` or `.pending` do not require another adapter. `save`, `discard`, `delete`, `retry`
+and `exclusive` call the folder's edit.
 
 Use `context.run(action)` for accepted app actions that may write after an
-await. The context waits for them during normal close;
-their file writes determine `getSaveState()`. `close()` refuses new actions and app input
+await. A write or exclusive change that enters Folder before the first await
+is already covered by `folder.close()`. The context waits for later writes during normal close;
+their file writes enter `getStatus()`. `close()` refuses new actions and app input
 (`closing`), lets started actions finish, stops the change channel and
 cancels reads, then calls `folder.close()`, which fences input, sends it, and
 waits for saves. It answers copyable failures, which `<FolderApp>` offers

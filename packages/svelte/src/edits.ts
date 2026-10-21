@@ -1,144 +1,119 @@
 /**
- * `@epicenter/svelte/edits`: a folder's edit handles in a Svelte view.
+ * `@epicenter/svelte/edits`: a folder's edit of one row or file in a Svelte
+ * view.
  *
- * `createRowEdit(folder.tables.notes.edit(id), () => row)` and
- * `createTextEdit(folder.files.edit(path), () => bytes)` show what is held
- * over the source a view observes, with the folder's own saves its read may
- * not show yet (`edit.shown`). A read re-runs when input at that path
- * changes, through a subscription that lives while some effect reads it.
+ * `createRowEdit(folder.tables.notes, id)` and
+ * `createTextEdit(folder.files, path)` answer the folder's edit of that row
+ * or file, with its reads tracked: `row` or `text` is its document
+ * with held input over it, `readStatus` what is known and how reading
+ * goes, `pending` and `locked` its input and fence. Commands are the
+ * folder edit's own. The folder owns all of it, reads included; this only
+ * tracks it.
  *
- * Getters read the current projection without remembering which one was
- * read last. Commands use that same projection. Code that intentionally
- * edits an older snapshot uses the core handle's explicit `shown().source`.
- * The folder keeps input, timers, saves and failures as views come and go.
- * Creating a binding reads and holds nothing; make a new binding when its
- * row or path changes, for example in `$derived`.
+ * The first time an effect asks for the document (`row`, `text` or
+ * `readStatus`) with nothing known, no read running and no read failed,
+ * the edit reads the file; a row a list already read needs no read of its
+ * own, and a failed read waits for `read()`. Asking only for `pending` or
+ * `locked` asks for no new document; a subscription may still refresh one
+ * already read. Getters re-run a reader while some effect reads them,
+ * through a subscription that ends with the last such effect; the folder
+ * keeps input, timers, saves and failures as views come and go. Creating an
+ * edit here reads and holds nothing; make a new one when its row or path
+ * changes, for example in `$derived`.
  */
-import type { Row } from '@epicenter/folder';
-import type {
-	ChangeResult,
-	ExclusiveFile,
-	RowEdit,
-	RowEditChange,
-	TextEdit,
-} from '@epicenter/folder/edits';
-import { ChangeError } from '@epicenter/folder/edits';
-import { untrack } from 'svelte';
+import type { FolderFiles, FolderTable } from '@epicenter/folder';
+import type { TextEdit as FolderTextEdit } from '@epicenter/folder/edits';
 import { createSubscriber } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 
-/** The byte-order mark stays in the text, as saving it back expects. */
-const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
-
-/** Text shown over `TObserved`: definite when the bytes always are. */
-type ShownText<TObserved extends Uint8Array | undefined> =
-	TObserved extends Uint8Array ? string : string | undefined;
-
-/** Re-run a reader when input or own saves at `edit.path` change, while any effect reads it. */
-function tracker(edit: Pick<TextEdit, 'path' | 'subscribe'>) {
-	return createSubscriber((update) =>
-		edit.subscribe((path) => {
-			if (path === undefined || path === edit.path) update();
-		}),
-	);
-}
+/** What tracking needs of a row or text edit. */
+type Tracked = Pick<FolderTextEdit, 'subscribe' | 'getReadStatus'> & {
+	read(): Promise<unknown>;
+};
 
 /**
- * Row `edit` over the row `observed` answers. `row` is as definite as that
- * source: a getter that can answer `undefined`, while a read loads or after
- * the row is gone, gives a `row` that can be `undefined`. Held input stays
- * readable through `pending` either way.
+ * Track `edit` for a view: `input` re-runs a reader when anything of the
+ * path changes; `document` does too, and reads the file when it starts with
+ * nothing known, no read running and no read failed.
  */
-export function createRowEdit<
-	TRowSchema extends TSchema,
-	TObserved extends Row<TRowSchema> | undefined,
->(edit: RowEdit<TRowSchema>, observed: () => TObserved) {
-	const track = tracker(edit);
-	function current() {
-		const row = observed();
-		return row === undefined
-			? undefined
-			: edit.shown(row as NonNullable<TObserved>);
-	}
+function tracking(edit: Tracked) {
 	return {
-		path: edit.path,
-		/** The observed row with own saves and held input over it. */
-		get row(): TObserved {
-			track();
-			return current()?.row as TObserved;
+		input: createSubscriber((update) => edit.subscribe(update)),
+		document: createSubscriber((update) => {
+			const stop = edit.subscribe(update);
+			const { known, reading, error } = edit.getReadStatus();
+			// A folder that closed meanwhile refuses reads; there is nothing to show.
+			if (known === 'nothing' && !reading && error === undefined)
+				edit.read().catch(() => {});
+			return stop;
+		}),
+	};
+}
+
+/** The folder's edit of row `id` of `table`, its reads tracked. */
+export function createRowEdit<TRowSchema extends TSchema>(
+	table: FolderTable<TRowSchema>,
+	id: string,
+) {
+	const rowEdit = table.edit(id);
+	const { getRow, getReadStatus, getPending, isLocked, ...commands } = rowEdit;
+	const track = tracking(rowEdit);
+	return {
+		...commands,
+		/** The row as last known stored, with held input in it. */
+		get row() {
+			track.document();
+			return getRow();
+		},
+		/** What is known of the file and how reading it goes. */
+		get readStatus() {
+			track.document();
+			return getReadStatus();
 		},
 		/** The held input, or `undefined`. */
 		get pending() {
-			track();
-			return edit.pending;
+			track.input();
+			return getPending();
 		},
 		/** Whether input is refused: another action holds the file, or the folder closes. */
 		get locked() {
-			track();
-			return edit.locked;
+			track.input();
+			return isLocked();
 		},
-		/**
-		 * Type fields and body over the current row, as one change. Answers
-		 * acceptance into memory or the refusal reason; saving happens later.
-		 */
-		change(change: RowEditChange<TRowSchema>): ChangeResult {
-			const shown = untrack(current);
-			return shown === undefined
-				? ChangeError.NoSource()
-				: edit.change(shown.source, change);
-		},
-		save: () => edit.save(),
-		retry: () => edit.retry(),
-		discard: () => edit.discard(),
-		delete: () => edit.delete(),
-	};
+	} as const;
 }
 
-/**
- * File `edit` over the bytes `observed` answers. `text` is as definite as
- * that source; held text stays readable through `pending` either way, and
- * with nothing observed `text` still shows held text or the folder's own
- * saved text, to read and copy.
- */
-export function createTextEdit<TObserved extends Uint8Array | undefined>(
-	edit: TextEdit,
-	observed: () => TObserved,
-) {
-	const track = tracker(edit);
-	const current = () => edit.shown(observed());
+export type RowEdit<TRowSchema extends TSchema = TSchema> = ReturnType<
+	typeof createRowEdit<TRowSchema>
+>;
+
+/** The folder's edit of the file at `path`, its reads tracked. */
+export function createTextEdit(files: FolderFiles, path: string) {
+	const textEdit = files.edit(path);
+	const { getText, getReadStatus, getPending, isLocked, ...commands } =
+		textEdit;
+	const track = tracking(textEdit);
 	return {
-		path: edit.path,
-		/** The held text or fields over the observed bytes, else those bytes as text. */
-		get text(): ShownText<TObserved> {
-			track();
-			const shown = current();
-			// Held fields that no longer apply leave the source to show.
-			return (shown.text ??
-				(shown.source === undefined
-					? undefined
-					: decoder.decode(shown.source))) as ShownText<TObserved>;
+		...commands,
+		/** The held text, the held fields over the stored file, or the stored file as text. */
+		get text() {
+			track.document();
+			return getText();
+		},
+		/** What is known of the file and how reading it goes. */
+		get readStatus() {
+			track.document();
+			return getReadStatus();
 		},
 		get pending() {
-			track();
-			return edit.pending;
+			track.input();
+			return getPending();
 		},
 		get locked() {
-			track();
-			return edit.locked;
+			track.input();
+			return isLocked();
 		},
-		/** Type the whole text over the current projection. Answers acceptance or the refusal reason. */
-		change(text: string): ChangeResult {
-			return edit.change(untrack(current).source, text);
-		},
-		/** Type frontmatter fields over the current projection. */
-		changeFields(fields: Readonly<Record<string, unknown>>): ChangeResult {
-			return edit.changeFields(untrack(current).source, fields);
-		},
-		save: () => edit.save(),
-		retry: () => edit.retry(),
-		discard: () => edit.discard(),
-		delete: () => edit.delete(),
-		exclusive: <T>(action: (file: ExclusiveFile) => Promise<T>) =>
-			edit.exclusive(action),
-	};
+	} as const;
 }
+
+export type TextEdit = ReturnType<typeof createTextEdit>;

@@ -1,11 +1,7 @@
 <!--
-	One recording: its audio, transcripts, notes, and source. The fields come
-	from the recordings listing in the cache, so this view never disagrees
-	with the table. The title is held here while typed and sent a second
-	after the last keystroke, when the person leaves it, and when the view
-	goes away, as a set of the file as it is now (ADR-0576). The notes
-	are the file's body: an edit that keeps the row it started from, saved
-	on the same pause and merged with whatever changed since. A recording
+	One recording: its audio, transcripts, notes, and source. The folder's
+	row edit holds title and notes together, saves after a pause, and merges
+	with changes saved elsewhere. Leaving sends the held input. A recording
 	deleted elsewhere is never written again: what was typed is reported as
 	not saved, and the view closes.
 -->
@@ -67,22 +63,25 @@
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	/**
-	 * This view's row and text: each shows the view's own read with own saves
-	 * and what is typed over it, and typing names what it last showed.
+	 * This view's row and text: the folder's edits of the file, each as
+	 * stored with what is typed over it.
 	 */
 	// svelte-ignore state_referenced_locally
-	const rowView = library.rowView(RECORDINGS, own);
+	const rowEdit = library.rowEdit(RECORDINGS, own);
 	const context = getFolder();
+	/** What the file is while it shows as text; its reads keep the text edit current. */
 	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
 	// svelte-ignore state_referenced_locally
-	const textView = library.textView(own, () =>
-		opened.data?.kind === 'text' ? opened.data.bytes : undefined,
-	);
-	/** The recording as shown, while its fields are what is edited: as typed, or as the cache holds it. */
-	const row = $derived(asText ? undefined : rowView.row);
-	/** The file's text as typed while an edit is unsaved, else as read with own saves. */
+	const textEdit = library.textEdit(own);
+	/** The recording as shown, while its fields are what is edited and it reads as one. */
+	const row = $derived.by(() => {
+		if (asText) return undefined;
+		const shown = rowEdit.row;
+		return shown?.issues === null ? shown : undefined;
+	});
+	/** The file's text as typed while an edit is unsaved, else as stored. */
 	const text = $derived(
-		asText && (textView.pending !== undefined || opened.data?.kind === 'text') ? textView.text : undefined,
+		asText && (textEdit.pending !== undefined || opened.data?.kind === 'text') ? textEdit.text : undefined,
 	);
 	/** Why the file, as last saved, is not a recording yet. Typing saves after a pause, and this follows. */
 	const issues = $derived(asText ? (library.rowSource(RECORDINGS, path)?.issues ?? undefined) : undefined);
@@ -92,15 +91,8 @@
 	const locked = $derived(library.locked(path));
 	const pending = $derived(library.heldAt(path));
 
-	/** The title typed and not yet saved, over what this view shows. */
-	// svelte-ignore state_referenced_locally
-	const typedTitle = library.fieldOf<typeof RECORDINGS, 'title'>(rowView, 'title');
-	// The drafts outlive the view; send what is typed now.
-	onDestroy(() => {
-		void typedTitle.save();
-		void library.saveBody(own);
-		void library.saveText(own);
-	});
+	// The edits outlive the view; send what is typed now.
+	onDestroy(() => void rowEdit.save());
 	const results = $derived(library.resultsFor(id));
 	const run = $derived(library.transcriptionRun(id));
 	/** The audio the row names. Nothing is guessed from another file's name. */
@@ -127,10 +119,11 @@
 			</Button>
 		{/if}
 		{#if row}
+			{@const shown = row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => typedTitle.shown(row?.fields.title ?? ''), (value) => typedTitle.change(value)}
-				onblur={() => void typedTitle.save()}
+				bind:value={() => shown.fields.title, (value) => rowEdit.change({ fields: { title: value } })}
+				onblur={() => void rowEdit.save()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Recording title"
@@ -161,7 +154,7 @@
 		</div>
 	{/if}
 
-	{#if row === undefined && pending !== undefined}
+	{#if (asText ? text === undefined : row === undefined) && pending !== undefined}
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
 			<Textarea readonly aria-label="Unsaved recording changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
@@ -181,6 +174,7 @@
 		</Tabs.List>
 		<Tabs.Content value="details" class="min-h-0 flex-1 overflow-y-auto">
 			{#if row}
+				{@const shown = row}
 			<div class="flex flex-col gap-4 py-1">
 				{#if absent}
 					<AudioAbsent />
@@ -230,8 +224,8 @@
 					<Textarea
 						class="min-h-28 resize-y font-sans"
 						bind:value={
-							() => row?.body ?? '',
-							(value) => library.editBody(rowView, value)
+							() => shown.body,
+							(value) => library.editBody(rowEdit, value)
 						}
 						onblur={() => void library.saveBody(own)}
 						disabled={locked}
@@ -289,12 +283,13 @@
 		</Tabs.Content>
 		<Tabs.Content value="source" class="flex min-h-0 flex-1 flex-col gap-2">
 			{#if text !== undefined}
+				{@const shown = text}
 				<p class="text-xs text-muted-foreground">
 					The file’s exact text. It saves when you pause, readable or not.
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(text ?? ''), (value) => library.editText(textView, withFileNewlines(value, text ?? ''))}
+					bind:value={() => lf(shown), (value) => library.editText(textEdit, withFileNewlines(value, shown))}
 					onblur={() => void library.saveText(path)}
 					disabled={locked}
 					aria-label="Markdown source"

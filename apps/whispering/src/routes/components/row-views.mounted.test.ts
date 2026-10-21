@@ -31,7 +31,8 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { ReadError } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
-import type { Library, WriteNotice } from '../../lib/library.svelte.js';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
+import type { Library } from '../../lib/library.svelte.js';
 import { quiet } from '../../lib/query.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
 
@@ -76,8 +77,8 @@ async function open(
 		await Bun.write(join(root, path), text);
 	const library = await createTestLibrary(stubs);
 	await library.start();
-	const notices: WriteNotice[] = [];
-	library.onWriteNotice((notice) => notices.push(notice));
+	const notices: WriteFailure[] = [];
+	library.onWriteFailure((notice) => notices.push(notice));
 	const page = pageState({ shown: true, tab });
 	const target = document.createElement('main');
 	document.body.append(target);
@@ -560,7 +561,7 @@ for (const item of [
 			);
 			await show(library, item.path);
 			disk.refusing = true;
-			const view = library.rowView(item.table, item.path);
+			const view = library.rowEdit(item.table, item.path);
 			expect(view.row).toBeDefined();
 			expectOk(
 				view.change({
@@ -575,6 +576,7 @@ for (const item of [
 			if (replacement === 'missing') await rm(join(root, item.path));
 			else await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
 			await reportChanged(library);
+			if (replacement === 'binary') await library.local.folder.files.edit(item.path).read();
 			flushSync();
 			const retained = target.querySelector<HTMLTextAreaElement>(
 				`textarea[aria-label="${item.label}"]`,
@@ -648,6 +650,8 @@ for (const replacement of ['missing', 'binary'] as const) {
 		if (replacement === 'missing') await rm(join(root, A));
 		else await writeFile(join(root, A), new Uint8Array([0, 1, 2]));
 		await reportChanged(library);
+		if (replacement === 'binary') await library.local.folder.files.edit(A).read();
+		flushSync();
 		expect(
 			field<HTMLTextAreaElement>(
 				target,

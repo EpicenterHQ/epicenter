@@ -9,14 +9,19 @@
  * text box would rewrite, is shown and left as it is.
  */
 
-import { fileBytes } from '@epicenter/folder';
 import { defineFileRead } from '@epicenter/svelte/folder-queries';
 
-/** A file's exact bytes, the source an edit of it names; `null` when it is gone. */
+/**
+ * A file's exact bytes, for what the editor makes of them (`fileText`);
+ * `null` when it is gone. Its text is the folder's edit of the file, which
+ * this read keeps current while the edit holds it.
+ */
 export const sourceRead = defineFileRead('source', async (files, path) => {
 	const read = await files.read(path);
 	if (read.error !== null) throw read.error;
-	return read.data === undefined ? null : await fileBytes(read.data.content);
+	return read.data === undefined
+		? null
+		: new Uint8Array(await read.data.content.arrayBuffer());
 });
 
 /** One line of the tree: a directory, or a file to open. */

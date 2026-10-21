@@ -257,6 +257,49 @@ test("another tab's change shows without replacing typing here", async () => {
 	expect(saved?.body).toBe('Three litres, unsweetened');
 });
 
+test('the list labels a todo by its saved title while its checkbox shows what is held', async () => {
+	const { get, target } = await onMilk();
+	const put = IDBObjectStore.prototype.put;
+	IDBObjectStore.prototype.put = () => {
+		throw new DOMException('Disk is full', 'QuotaExceededError');
+	};
+	cleanup.push(() => {
+		IDBObjectStore.prototype.put = put;
+	});
+	type(get(TITLE), 'Oat milk');
+	press(get(DONE));
+	await until(
+		() => target.querySelector('[aria-label="Reopen Milk"]') !== null,
+		'the list to show the held done',
+	);
+	expect(target.querySelector('[data-todo="todos/milk.md"]')?.textContent).toBe(
+		'Milk',
+	);
+	expect((await stored('milk'))?.fields).toMatchObject({
+		title: 'Milk',
+		done: false,
+	});
+});
+
+test('a todo that is not there, or that another tab deletes while it is open, says it is gone', async () => {
+	freshProfile();
+	resetUrl('http://localhost/?todo=ghost');
+	const ghost = await openPage();
+	await until(
+		() => ghost.text(DETAIL)?.includes('This todo is no longer here') ?? false,
+		'the missing todo',
+	);
+	ghost.close();
+
+	const { text, folder } = await onMilk();
+	const from = expectOk(await folder.tables.todos.get('milk'))!;
+	expectOk(await folder.tables.todos.delete('milk', from));
+	await until(
+		() => text(DETAIL)?.includes('This todo is no longer here') ?? false,
+		'the deleted todo',
+	);
+});
+
 test('a failed save keeps the typing and offers Try again', async () => {
 	const { get, text } = await onMilk();
 	const put = IDBObjectStore.prototype.put;

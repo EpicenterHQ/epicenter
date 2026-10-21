@@ -193,23 +193,27 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 	const before = await fileText(context.folder, context.path);
 
 	expect(vocab.entries.setNote(context.word(), 'clear and bright')).toBe(true);
-	expect(edit.pending).toBeDefined();
-	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(true);
+	expect(edit.getPending()).toBeDefined();
+	expect(
+		vocab.folder.getStatus().saving ||
+			vocab.folder.getStatus().unsaved.length > 0,
+	).toBe(true);
 	// A reread of the list never replaces what is typed.
 	await vocab.queryClient.invalidateQueries();
-	expect(edit.shown(context.word().row).row.fields.note).toBe(
-		'clear and bright',
-	);
+	expect(edit.getRow()?.fields.note).toBe('clear and bright');
 	expect(await fileText(context.folder, context.path)).toBe(before);
 
-	await until(() => edit.pending === undefined, 'the note to save');
+	await until(() => edit.getPending() === undefined, 'the note to save');
 	await quiet(vocab);
 	expect(
 		expectOk(await context.folder.tables.entries.get(context.word().id))?.fields
 			.note,
 	).toBe('clear and bright');
 	expect(context.word().note).toBe('clear and bright');
-	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(false);
+	expect(
+		vocab.folder.getStatus().saving ||
+			vocab.folder.getStatus().unsaved.length > 0,
+	).toBe(false);
 });
 
 test('a stage press saves at once and keeps a note typed just before it', async () => {
@@ -225,7 +229,7 @@ test('a stage press saves at once and keeps a note typed just before it', async 
 	await edit.save();
 	const saved = expectOk(await context.folder.tables.entries.get(word.id));
 	expect(saved?.fields).toMatchObject({ note: 'clear', stage: 'understood' });
-	expect(edit.pending).toBeUndefined();
+	expect(edit.getPending()).toBeUndefined();
 });
 
 test("another tab's save reaches this page's list, and a save here keeps the field only the other tab changed", async () => {
@@ -282,19 +286,19 @@ test('a saved stage stays shown when the reread fails, and pressing the old stag
 		throw new Error('Read failed');
 	};
 	try {
-		const card = vocab.entries.edit(word.id, () => word.row);
-		expect(card.row.fields.stage).toBe('new');
+		const card = vocab.entries.edit(word.id);
+		expect(card.row?.fields.stage).toBe('new');
 		expect(card.setStage('usable')).toBe(true);
 		await folder.tables.entries.edit(word.id).save();
 		await quiet(vocab);
 		// The list still holds the word as read before the save.
 		expect(context.word().stage).toBe('new');
 		expect(card.pending).toBeUndefined();
-		expect(card.row.fields.stage).toBe('usable');
+		expect(card.row?.fields.stage).toBe('usable');
 
 		expect(card.setStage('new')).toBe(true);
 		await folder.tables.entries.edit(word.id).save();
-		expect(card.row.fields.stage).toBe('new');
+		expect(card.row?.fields.stage).toBe('new');
 	} finally {
 		folder.tables.entries.list = list;
 	}
@@ -310,8 +314,8 @@ test('a save that fails keeps the typing and its error, and saving again writes 
 	const edit = folder.tables.entries.edit(context.word().id);
 	vocab.entries.setNote(context.word(), 'clear');
 	await edit.save();
-	expect(edit.pending?.error?.name).toBe('StorageFailed');
-	expect(edit.shown(context.word().row).row.fields.note).toBe('clear');
+	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
+	expect(edit.getRow()?.fields.note).toBe('clear');
 	expect(vocab.entries.failures.map((failure) => failure.fields)).toEqual([
 		{ note: 'clear' },
 	]);
@@ -319,7 +323,7 @@ test('a save that fails keeps the typing and its error, and saving again writes 
 
 	saves.failing = false;
 	await edit.retry();
-	expect(edit.pending).toBeUndefined();
+	expect(edit.getPending()).toBeUndefined();
 	expect(
 		expectOk(await folder.tables.entries.get(context.word().id))?.fields.note,
 	).toBe('clear');
@@ -367,13 +371,16 @@ test('a file that is not a valid word is named for repair, written as typed text
 
 	const { repair } = vocab.entries;
 	expect(repair.start('broken')).toBe(true);
-	const stored = rows(vocab).find((row) => row.id === 'broken')!;
-	const view = repair.view(stored)!;
+	// The list read the file; the repair shows its exact text.
+	const view = repair.view()!;
 	expect(view.text).toBe(broken);
 	// One repair at a time while text is held.
 	view.change(broken.replace('stage: mastered', 'stage: usab'));
 	expect(repair.start('unparsed')).toBe(false);
-	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(true);
+	expect(
+		vocab.folder.getStatus().saving ||
+			vocab.folder.getStatus().unsaved.length > 0,
+	).toBe(true);
 	expect(view.text).toBe(broken.replace('stage: mastered', 'stage: usab'));
 	view.change(broken.replace('stage: mastered', 'stage: usable'));
 	await until(() => !repair.busy, 'the repair to save');
@@ -406,7 +413,7 @@ test('a delete waits for the typing to save, then removes the word', async () =>
 	expect(expectOk(await deleting)).toEqual({ deleted: true });
 	expect(await tableFiles(folder, 'entries')).toEqual([]);
 	expect(
-		slow.vocab.folder.tables.entries.edit(word.id).pending,
+		slow.vocab.folder.tables.entries.edit(word.id).getPending(),
 	).toBeUndefined();
 	await until(
 		() => wordsOf(rows(vocab)).length === 0,
@@ -426,9 +433,9 @@ test('typing that failed to save keeps its word from being deleted', async () =>
 	);
 	saves.failing = false;
 	expect(await tableFiles(folder, 'entries')).toEqual([context.path]);
-	expect(edit.pending).toBeDefined();
+	expect(edit.getPending()).toBeDefined();
 	// Discarding is the learner's explicit choice, and lets the delete go ahead.
-	expect(edit.discard()?.fields).toEqual({ note: 'clear' });
+	expect(edit.discard()).toMatchObject({ fields: { note: 'clear' } });
 	expect(expectOk(await vocab.entries.delete(context.word()))).toEqual({
 		deleted: true,
 	});
@@ -481,8 +488,7 @@ test('close sends a whole-file repair draft before releasing the folder', async 
 	const opened = await openVocab(folder);
 	const repair = opened.vocab.entries.repair;
 	expect(repair.start('broken')).toBe(true);
-	const broken = rows(opened.vocab).find((row) => row.id === 'broken')!;
-	expectOk(repair.view(broken)!.change('---\ntext: repaired\n---\n'));
+	expectOk(repair.view()!.change('---\ntext: repaired\n---\n'));
 	await opened.context.close();
 	const reopened = await browser.open();
 	expect(await fileText(reopened, 'entries/broken.md')).toContain(

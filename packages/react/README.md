@@ -1,22 +1,26 @@
 # @epicenter/react
 
-React bindings for an opened `@epicenter/folder` handle. The Folder package
-owns files, rows, merging, storage, and the input typed into them, from the
-moment it opens until it closes; this package lets a React view read and type
-through a folder's edit handles.
+React views over an opened `@epicenter/folder`. The Folder package
+owns files, rows, merging, storage, each path's editable document, and the
+input typed into it, from the moment it opens until it closes; this package
+lets a React view read and type through a folder's edits.
 
 ## Editing a row or a file
 
 ```tsx
 import { useRowEdit } from '@epicenter/react/edits';
 
-function Title({ folder, id, row }: Props) {
-	const edit = useRowEdit(folder.tables.notes.edit(id), row);
-	if (edit.row === undefined) return null;
+function Title({ folder, id }: Props) {
+	const edit = useRowEdit(folder.tables.notes, id);
+	const row = edit.getRow();
+	const { known, error } = edit.getReadStatus();
+	if (error !== undefined) return <p>{error.message}</p>;
+	if (known === 'nothing') return <p>Loading</p>;
+	if (row?.issues !== null) return null;
 	return (
 		<input
-			value={edit.row.fields.title}
-			disabled={edit.locked}
+			value={row.fields.title}
+			disabled={edit.isLocked()}
 			onChange={(event) =>
 				edit.change({ fields: { title: event.currentTarget.value } })
 			}
@@ -26,45 +30,46 @@ function Title({ folder, id, row }: Props) {
 }
 ```
 
-`useRowEdit(rowEdit, observedRow)` takes the row this render shows, read by
-the app's own query. It answers:
+`useRowEdit(table, id)` answers the folder edit's methods, each with what
+this render read as a `useSyncExternalStore` snapshot:
 
 | Member | Meaning |
 | --- | --- |
-| `row` | The observed row with the folder's own saves and the held input over it. |
-| `pending` | The held input, or `undefined`; its identity holds until it changes. |
-| `locked` | Input is refused: another action holds the file, or the folder closes. |
+| `getRow()` | The row as last known stored, with held input in it; `undefined` while nothing is known or no file is there. |
+| `getReadStatus()` | `{ known, reading, error }`: nothing known yet, no file, a file, or bytes that are not text; whether a read runs; why the last read failed. |
+| `getPending()` | The held input, or `undefined`; its identity holds until it changes. |
+| `isLocked()` | Input is refused: another action holds the file, or the folder closes. |
 | `change({ fields?, body? })` | Type fields and the body over what this render showed, as one change. |
-| `save()`, `retry()`, `discard()`, `delete()` | The handle's own commands. |
+| `read()`, `save()`, `retry()`, `discard()`, `delete()` | The folder edit's own commands. |
+
+When a render asks for the document (`getRow` or `getReadStatus`) with
+nothing known, no read running and no read error, the hook reads the file once that render
+commits. A row a list already read needs no read of its own. A view that asks
+only for `getPending` or `isLocked` requests no new document; a subscription
+may refresh one already read. A failed first read waits for an explicit `read()`.
 
 `change` and `changeFields` return `Result<void, ChangeError>`: success means
-accepted into memory, and failure explains why no input was accepted. A missing
-observed row returns `ChangeError.NoSource`. Storage outcomes come later.
+accepted into memory, and failure explains why no input was accepted. A row
+not read yet or gone returns `ChangeError.NoSource`. Storage outcomes come
+later.
 
 `save()` sends new input or joins its running attempt. Failed input stays
 held until `retry()` explicitly attempts it again or accepted new input clears
 the old error. Autosave, blur, settlement and close do not retry a failure.
-Both commands resolve after the attempt; `pending` reports a failure.
+Both commands resolve after the attempt; `getPending()` reports a failure.
 
-`useTextEdit(textEdit, observedBytes)` does the same for a file's whole text:
-`text` is what this render shows (the held text or fields over its bytes,
-else those bytes decoded with their byte-order mark kept), `change(text)`
-types the whole text and `changeFields(fields)` frontmatter fields over what
-this render showed, and `exclusive(action)` calls the handle.
-Read the bytes through `fileBytes` or `rowBytes` from `@epicenter/folder`, so
-the handle knows how old they are.
+`useTextEdit(folder.files, path)` does the same for a file's whole text:
+`getText()` is what this render shows (the held text, the held fields over
+the stored file, or the stored file with its byte-order mark kept),
+`change(text)` types the whole text and `changeFields(fields)` frontmatter
+fields, and `exclusive(action)` calls the folder edit.
 
-What a render shows (`edit.shown`), the held input, and the input fence are
-`useSyncExternalStore` snapshots, so a view re-renders when one changes,
-including when close fences input while a save of the same input runs. Each
-command names the presentation of the render whose handler runs: React may
-render a newer row in a transition that suspends and never commits, and
-typing still sends what the person saw. `row` is already that render's
-snapshot, so a handler that composes a change from `row` composes over what
-the person saw. Svelte reads the current projection at command time; React
-keeps the projection of the committed render that owns the event handler.
+Each command types over what the render whose handler runs showed. A whole
+text or a body typed in the committed render's handler keeps a change the same
+event already made through another handler: the hook merges it by line, as a
+save would (`mergeText`). A field is the value typed.
 
-Making a handle reads and holds nothing, so a view makes one each render, and
+Making an edit reads and holds nothing, so a view makes one each render, and
 a view whose path changes follows it. Unmounting lets go of the view's
 subscription; the folder keeps the input, its pause, saves, and failures.
 There is nothing to attach: the pause is the `saveAfterMs` option of the

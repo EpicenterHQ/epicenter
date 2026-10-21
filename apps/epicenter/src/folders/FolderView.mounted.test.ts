@@ -309,7 +309,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await disk.put('a.md', 'alpha\nexternal\n');
 			await page.context.refresh(['a.md']);
 			type(page.box(), 'alpha\nmine\nlast\n');
-			expect(disk.folder.files.edit('a.md').pending).toMatchObject({
+			expect(disk.folder.files.edit('a.md').getPending()).toMatchObject({
 				kind: 'text',
 				text: 'alpha\r\nmine\r\nlast\r\n',
 			});
@@ -729,12 +729,14 @@ describe.skipIf(!browser)('folder editor', async () => {
 			press(button('Files'));
 			await until(() => page.file('tasks/a.md') !== null, 'files');
 			press(page.file('tasks/a.md'));
+			// The held move shows at once, over the outside body once it is read.
 			await until(
-				() => page.box()?.value.includes('status: done') === true,
+				() =>
+					page.box()?.value.includes('status: done') === true &&
+					page.box()?.value.includes('Outside body') === true,
 				'shared destination',
 			);
 			expect(page.box()?.readOnly).toBe(true);
-			expect(page.box()?.value).toContain('Outside body');
 			press(button('Try again'));
 			await until(
 				() => disk.held.length === 1,

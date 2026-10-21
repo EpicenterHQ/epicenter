@@ -114,7 +114,7 @@ async function setup(text: string, { saveAfterMs = 60 } = {}) {
 
 /** What the folder holds typed into `lucid` and not saved yet. */
 const held = ({ folder, vocab }: Awaited<ReturnType<typeof setup>>) =>
-	folder.tables.entries.edit(cached(vocab, 'lucid').id).pending;
+	folder.tables.entries.edit(cached(vocab, 'lucid').id).getPending();
 
 test('the note is editable at once, and saved after a pause in typing', async () => {
 	await using context = await setup('lucid');

@@ -9,13 +9,14 @@
  * changed paths and polls visible reads; it owns the only change listener.
  *
  * A note's title, folder, pin, and body, a list action on any note, and a
- * folder's name are typed through the row's edit handle
- * (`folder.tables.notes.edit(id)`): what is typed shows at once, saves a
- * second after the last change or at once when the view leaves it, keeps on
- * screen when a save fails, and merges with whatever was saved meanwhile. A
- * file open as its exact text (Edit as file, repair, any other file) uses
- * `folder.files.edit(path)`. The folder keeps one save queue and deletion
- * fence per path for both.
+ * folder's name are typed into the folder's edit of the row
+ * (`folder.tables.notes.edit(id)`), which holds the row as the lists last
+ * read it or a save stored it: what is typed shows at once, saves a second
+ * after the last change or at once when the view leaves it, keeps on screen
+ * when a save fails, and merges with whatever was saved meanwhile. A file
+ * open as its exact text (Edit as file, repair, any other file) uses the
+ * folder's edit of the file (`folder.files.edit(path)`). The folder keeps one
+ * document, input, save queue and deletion fence per path for both.
  *
  * Create, delete, and deleting a folder are actions. The folder keeps no
  * history and has no rename or move, so Honeycrisp offers neither.
@@ -25,7 +26,7 @@ import { CLOSING, DELETING, type RowEdit } from '@epicenter/folder/edits';
 import { ancestors, joinPath } from '@epicenter/folder/file-browser';
 import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
-import { createSubscriber, SvelteSet } from 'svelte/reactivity';
+import { SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	FOLDERS,
@@ -72,8 +73,6 @@ export type Deletion = {
 	readonly title: string | undefined;
 };
 
-const OPEN_AS_TEXT =
-	'This file is open as text. Change it there, or open it as a note.';
 const NOT_LISTED = 'This file is not in the list, so nothing was changed.';
 const NOT_A_NOTE =
 	'This file does not read as a note. Repair it as text first.';
@@ -133,21 +132,10 @@ function rowAt(path: string): { table: TableName; id: string } | undefined {
 
 export function createNotes(local: NotesFolder) {
 	const { folder, queryClient } = local;
-	const trackQueries = createSubscriber((update) =>
-		queryClient.getQueryCache().subscribe((event) => {
-			if (
-				event.type === 'added' ||
-				event.type === 'removed' ||
-				event.type === 'updated'
-			)
-				update();
-		}),
-	);
 
-	/** The exact text typed into `path`, read reactively. */
-	const textAt = (path: string) =>
-		createTextEdit(folder.files.edit(path), () => undefined);
-	/** The edit handle of the row file at `path`, if it is one. */
+	/** The folder's edit of `path` as exact text, read reactively; reading its input reads no file. */
+	const textAt = (path: string) => createTextEdit(folder.files, path);
+	/** The edit of the row file at `path`, if it is one. */
 	function rowEditOf(path: string): RowEdit | undefined {
 		const at = rowAt(path);
 		if (at === undefined) return undefined;
@@ -155,11 +143,6 @@ export function createNotes(local: NotesFolder) {
 			? folder.tables.notes.edit(at.id)
 			: folder.tables.folders.edit(at.id);
 	}
-	/** The typing held for the row file at `path`, read reactively. */
-	const rowHeldAt = (path: string) => {
-		const edit = rowEditOf(path);
-		return edit && createRowEdit(edit, () => undefined).pending;
-	};
 	const rowsKey = (table: TableName) => local.queries.rows(table).queryKey;
 
 	/** Which notes the list shows; input not yet committed, like a search. */
@@ -176,10 +159,6 @@ export function createNotes(local: NotesFolder) {
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
 
-	/** Whether `path` is open as its exact text, so its text is what saves. */
-	const asText = (path: string) =>
-		selected?.path === path && selected.as === 'text';
-
 	/** One table's rows, as the cache holds them now. */
 	function rowsOf(table: typeof NOTES): NoteRow[] | undefined;
 	function rowsOf(table: typeof FOLDERS): FolderRow[] | undefined;
@@ -189,7 +168,9 @@ export function createNotes(local: NotesFolder) {
 
 	/** The note the cache holds for `id`, if it reads as one. */
 	function storedNote(id: string): NoteEntry | undefined {
-		const row = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
+		const row =
+			folder.tables.notes.edit(id).getRow() ??
+			rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		return row?.issues === null ? row : undefined;
 	}
 
@@ -199,19 +180,20 @@ export function createNotes(local: NotesFolder) {
 		return row?.issues === null ? row : undefined;
 	}
 
-	/** Why a file refuses a structured change: closing, whole-file input, or deletion. */
+	/** Why a file refuses a structured change: closing or deletion. */
 	function mutationRefusal(path: string): string | undefined {
 		if (local.closing) return CLOSING;
-		const text = textAt(path);
-		if (asText(path) || text.pending !== undefined) return OPEN_AS_TEXT;
-		if (text.locked) return DELETING;
+		const textEdit = textAt(path);
+		if (textEdit.locked) return DELETING;
 		return undefined;
 	}
 
 	function noteRefusal(id: string): string | undefined {
 		const why = mutationRefusal(rowFile(NOTES, id));
 		if (why !== undefined) return why;
-		const row = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
+		const row =
+			folder.tables.notes.edit(id).getRow() ??
+			rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		if (row === undefined) return NOT_LISTED;
 		if (row.issues !== null) return NOT_A_NOTE;
 		return undefined;
@@ -219,27 +201,17 @@ export function createNotes(local: NotesFolder) {
 
 	/** A change of a note's fields and body. */
 	type NoteChange = { fields?: Partial<NoteFields>; body?: string };
-	/** What a change of a note is typed over: a view's binding, or the row a list shows. */
-	type NoteSource =
-		| NoteEntry
-		| { change(change: NoteChange): ReturnType<RowEdit['change']> };
 
 	/**
-	 * Type `change` into the note at `path` over `seen`: the binding of the
-	 * view it was typed in, or the row a list showed. A lone surrogate in the
-	 * title or body becomes U+FFFD, which the folder can store. Answers why
-	 * it was refused, changing nothing, if it was.
+	 * Type `change` into the note at `path`, over the note its edit shows. A
+	 * lone surrogate in the title or body becomes U+FFFD, which the folder
+	 * can store. Answers why it was refused, changing nothing, if it was.
 	 */
-	function changeNote(
-		path: string,
-		typed: NoteChange,
-		seen: NoteSource,
-	): string | undefined {
+	function changeNote(path: string, typed: NoteChange): string | undefined {
 		const id = noteIdOf(path);
 		if (id === undefined) return NOT_LISTED;
 		const why = noteRefusal(id);
 		if (why !== undefined) return why;
-		if (storedNote(id) === undefined) return NOT_LISTED;
 		const { fields, body } = typed;
 		const change: NoteChange = {
 			...(fields !== undefined && {
@@ -250,23 +222,15 @@ export function createNotes(local: NotesFolder) {
 			}),
 			...(body !== undefined && { body: body.toWellFormed() }),
 		};
-		const taken =
-			'text' in seen
-				? folder.tables.notes.edit(id).change(seen, change)
-				: seen.change(change);
-		return taken.error?.message;
+		return folder.tables.notes.edit(id).change(change).error?.message;
 	}
 
 	/**
-	 * Set fields of a note over `seen` and save at once: pin, move to a
-	 * folder, trash, restore. Each keeps every field another writer changed.
+	 * Set fields of a note and save at once: pin, move to a folder, trash,
+	 * restore. Each keeps every field another writer changed.
 	 */
-	function patchNote(
-		path: string,
-		fields: Partial<NoteFields>,
-		seen: NoteSource,
-	) {
-		const why = changeNote(path, { fields }, seen);
+	function patchNote(path: string, fields: Partial<NoteFields>) {
+		const why = changeNote(path, { fields });
 		if (why === undefined) void saveRow(path);
 		return why;
 	}
@@ -298,10 +262,11 @@ export function createNotes(local: NotesFolder) {
 
 	/** How a path opens when nothing says: a note as a note, unless its text is not one. */
 	function defaultAs(path: string): OpenAs {
-		if (textAt(path).pending !== undefined) return 'text';
 		const id = noteIdOf(path);
 		if (id === undefined) return 'text';
-		const row = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
+		const row =
+			folder.tables.notes.edit(id).getRow() ??
+			rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		return row === undefined || row.issues === null ? 'note' : 'text';
 	}
 
@@ -361,11 +326,12 @@ export function createNotes(local: NotesFolder) {
 			const why = mutationRefusal(path);
 			if (why !== undefined)
 				return `A note could not be moved out of the folder: ${why}`;
+			// The list just read answered the note's document.
 			const edit = folder.tables.notes.edit(note.id);
-			const changed = edit.change(note, { fields: { folderId: null } });
+			const changed = edit.change({ fields: { folderId: null } });
 			if (changed.error !== null) return changed.error.message;
 			await edit.save();
-			const failed = edit.pending?.error;
+			const failed = edit.getPending()?.error;
 			if (failed !== undefined)
 				return `A note could not be moved out of the folder: ${describeFailure(failed)}`;
 		}
@@ -476,21 +442,15 @@ export function createNotes(local: NotesFolder) {
 		},
 		/** Whether a save at `path` runs, or typing there waits to be sent. */
 		isWriting(path: string) {
-			const row = rowHeldAt(path);
-			const text = textAt(path).pending;
+			const pending = textAt(path).pending;
 			return (
-				(row !== undefined && (row.error === undefined || row.saving)) ||
-				(text !== undefined && (text.error === undefined || text.saving))
+				pending !== undefined && (pending.error === undefined || pending.saving)
 			);
 		},
 		/** Whether typing at `path` did not save, with no save running. */
 		isUnsaved(path: string) {
-			const row = rowHeldAt(path);
-			const text = textAt(path).pending;
-			return (
-				(row?.error !== undefined && !row.saving) ||
-				(text?.error !== undefined && !text.saving)
-			);
+			const pending = textAt(path).pending;
+			return pending?.error !== undefined && !pending.saving;
 		},
 		/** Whether edits of `path` are refused now: closing, or a delete runs. */
 		isLocked(path: string) {
@@ -511,11 +471,11 @@ export function createNotes(local: NotesFolder) {
 			return id === undefined ? NOT_LISTED : noteRefusal(id);
 		},
 		/**
-		 * The note at `path` as one view shows it: the row shown now, read
-		 * reactively, with own saves and what is typed over it; whether it
-		 * takes edits; `edit`, which types a body as the rich-text editor
-		 * does; and `change` and `patch`, which type fields and body over
-		 * the current projection (`patch` saves at once). Each answers why it
+		 * The note at `path` as a view shows it: the folder's edit of it, read
+		 * reactively, when it reads as a note, what is typed over it included;
+		 * whether it takes edits; `edit`, which types a body as the rich-text
+		 * editor does; and `change` and `patch`, which type fields and body
+		 * over the note shown now (`patch` saves at once). Each answers why it
 		 * was refused, if it was.
 		 */
 		noteBody(path: string): NoteBody & {
@@ -523,60 +483,54 @@ export function createNotes(local: NotesFolder) {
 			patch(fields: Partial<NoteFields>): string | undefined;
 		} {
 			const id = noteIdOf(path) ?? '';
-			const edit = createRowEdit(folder.tables.notes.edit(id), () => {
-				trackQueries();
-				return storedNote(id);
-			});
+			const rowEdit = createRowEdit(folder.tables.notes, id);
 			// The folder reads a body with its file's line endings. The editors
 			// read and write it with line feeds (ADR-0572), so a CRLF body gets
 			// line feeds with its first edit and opening it writes nothing.
-			const withLineFeeds = (shown: NoteEntry | undefined) =>
-				shown?.body.includes('\r')
-					? { ...shown, body: shown.body.replace(/\r\n?/g, '\n') }
-					: shown;
+			let last: { row: NoteRow; shown: NoteEntry } | undefined;
+			function getRow(): NoteEntry | undefined {
+				const row = rowEdit.row;
+				if (row?.issues !== null || row === undefined) return undefined;
+				if (!row.body.includes('\r')) return row;
+				if (last?.row !== row)
+					last = {
+						row,
+						shown: { ...row, body: row.body.replace(/\r\n?/g, '\n') },
+					};
+				return last.shown;
+			}
 			return {
-				get row() {
-					return withLineFeeds(edit.row);
-				},
-				get locked() {
-					// Closing refuses input before the folder itself closes.
-					return local.closing || edit.locked;
-				},
+				getRow,
+				// Closing refuses input before the folder itself closes.
+				isLocked: () => local.closing || rowEdit.locked,
 				edit(body) {
-					// The rich-text editor checked its document against `row`
+					// The rich-text editor checked its document against `getRow()`
 					// synchronously before this change.
-					const shown = withLineFeeds(edit.row);
+					const shown = getRow();
 					if (shown === undefined) return false;
 					if (body === shown.body) return true;
-					return changeNote(path, { body }, edit) === undefined;
+					return changeNote(path, { body }) === undefined;
 				},
-				change: (change) => changeNote(path, change, edit),
-				patch: (fields) => patchNote(path, fields, edit),
+				change: (change) => changeNote(path, change),
+				patch: (fields) => patchNote(path, fields),
 			};
 		},
 		patchNote,
-		/** Move a note to Recently Deleted, over the row `seen` showed. The file stays; `deletedAt` is set. */
-		trashNote: (path: string, seen: NoteSource) =>
-			patchNote(path, { deletedAt: InstantString.now() }, seen),
-		restoreNote: (path: string, seen: NoteSource) =>
-			patchNote(path, { deletedAt: null }, seen),
-		/**
-		 * Set a folder's fields over the folder `seen` showed, and save at
-		 * once; answers why not, if not.
-		 */
-		patchFolder(
-			path: string,
-			fields: Partial<FolderFields>,
-			seen: FolderEntry,
-		) {
+		/** Move a note to Recently Deleted. The file stays; `deletedAt` is set. */
+		trashNote: (path: string) =>
+			patchNote(path, { deletedAt: InstantString.now() }),
+		restoreNote: (path: string) => patchNote(path, { deletedAt: null }),
+		/** Set a folder's fields and save at once; answers why not, if not. */
+		patchFolder(path: string, fields: Partial<FolderFields>) {
 			const why = mutationRefusal(path);
 			if (why !== undefined) return why;
 			const id = folderIdOf(path);
-			if (id === undefined || storedFolder(id) === undefined) return NOT_LISTED;
-			const edit = folder.tables.folders.edit(id);
-			const changed = edit.change(seen, { fields });
+			if (id === undefined) return NOT_LISTED;
+			const rowEdit = folder.tables.folders.edit(id);
+			if (rowEdit.getRow()?.issues !== null) return NOT_LISTED;
+			const changed = rowEdit.change({ fields });
 			if (changed.error !== null) return changed.error.message;
-			void edit.save();
+			void rowEdit.save();
 			return undefined;
 		},
 
@@ -595,14 +549,11 @@ export function createNotes(local: NotesFolder) {
 			return error === undefined ? undefined : describeFailure(error);
 		},
 		/**
-		 * The whole text of `path` as one view shows and types it, over the
-		 * bytes `observed` answers, the view's own read of the file: held
-		 * text, else those bytes with this window's own saves its read may
-		 * not show yet. Typing names the current projection, and saves a
-		 * second after the last change, or at once with `saveText`.
+		 * The folder's edit of `path` as its whole text, as a view shows and
+		 * types it: held text, else the file as stored. Typing saves a second
+		 * after the last change, or at once with `saveText`.
 		 */
-		fileText: (path: string, observed: () => Uint8Array | undefined) =>
-			createTextEdit(folder.files.edit(path), observed),
+		fileText: textAt,
 		/** Send the whole-file text held at this path. */
 		saveText: (path: string) => folder.files.edit(path).save(),
 		/** Let go of the whole-file text held at this path, as the person chose. */
@@ -669,11 +620,17 @@ export function createNotes(local: NotesFolder) {
 			if (read.error !== null) return Err(describeFailure(read.error));
 			if (read.data === undefined) return Err('It is no longer in the folder.');
 			const id = noteIdOf(path);
-			const note = id === undefined ? undefined : storedNote(id);
-			const shown = note && folder.tables.notes.edit(note.id).shown(note).row;
+			// The note as its edit shows it, what is typed included.
+			const row =
+				id === undefined || storedNote(id) === undefined
+					? undefined
+					: folder.tables.notes.edit(id).getRow();
 			return Ok({
 				path,
-				title: shown && displayTitle(shown.fields.title, shown.body),
+				title:
+					row?.issues === null
+						? displayTitle(row.fields.title, row.body)
+						: undefined,
 			});
 		},
 		delete: (deletion: Deletion) => runAction(() => deleteConfirmed(deletion)),

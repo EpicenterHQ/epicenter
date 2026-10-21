@@ -346,10 +346,11 @@ test('discarded field input preserves removals, literal values and the body for 
 	const editor = await record(library);
 	const before = await text(root, editor.path);
 	const observed = library.rowSource('recordings', editor.path)!;
+	// The listing read answered the edit's document.
 	const edit = library.local.folder.tables.recordings.edit(observed.id);
 	failWrites(editor.path);
 	expectOk(
-		edit.change(observed, {
+		edit.change({
 			fields: { title: '[remove field]', durationMs: undefined },
 			body: 'Kept notes.\n',
 		}),
@@ -361,7 +362,7 @@ test('discarded field input preserves removals, literal values and the body for 
 		remove: ['durationMs'],
 		body: 'Kept notes.\n',
 	});
-	expect(edit.pending).toBeUndefined();
+	expect(edit.getPending()).toBeUndefined();
 	expect(await text(root, editor.path)).toBe(before);
 	failWrites();
 });
@@ -447,7 +448,7 @@ test('text typed over a file changed elsewhere merges with it, and the typing wi
 	expect(source.draft).toBe(merged);
 });
 
-test('Source edits a valid row as its exact text, after the fields it was typed in are saved', async () => {
+test('Source shows unsaved row input while its save is still running', async () => {
 	const { library, root, holdNextMarkdownWrite } = await open();
 	const editor = await record(library);
 	const { path } = editor;
@@ -456,9 +457,10 @@ test('Source edits a valid row as its exact text, after the fields it was typed 
 		row.body = 'Typed in the fields.\n';
 	});
 	await held;
-	const opening = library.editSource(path);
+	expect(await library.editSource(path)).toBeUndefined();
+	expect(library.textEdit(path).text).toEndWith('---\nTyped in the fields.\n');
+	expect(library.textEdit(path).pending?.saving).toBe(true);
 	release();
-	expect(await opening).toBeUndefined();
 	expect(library.showsText(path)).toBe(true);
 	const source = await openText(library, path);
 	expect(source.draft).toEndWith('---\nTyped in the fields.\n');
@@ -470,7 +472,7 @@ test('Source edits a valid row as its exact text, after the fields it was typed 
 	expect(recordingEditor(library).draft.body).toBe('Typed as text.\n');
 });
 
-test('switching between the fields and Source refuses while the edit being left did not save, either way', async () => {
+test('switching between fields and Source preserves failed input and recovery in either view', async () => {
 	const { library, root, failWrites } = await open();
 	const editor = await record(library);
 	const { path } = editor;
@@ -481,8 +483,10 @@ test('switching between the fields and Source refuses while the edit being left 
 	});
 	await settle(library);
 	expect(library.isUnsaved(path)).toBe(true);
-	expect(await library.editSource(path)).toContain('did not save');
-	expect(library.showsText(path)).toBe(false);
+	expect(await library.editSource(path)).toBeUndefined();
+	expect(library.showsText(path)).toBe(true);
+	expect(library.textEdit(path).text).toEndWith('Older body.\n');
+	expect(library.textEdit(path).pending?.error).toBeDefined();
 	expect(library.discard(path)).toBe('Older body.\n');
 	expect(library.isUnsaved(path)).toBe(false);
 
@@ -495,8 +499,10 @@ test('switching between the fields and Source refuses while the edit being left 
 	);
 	await settle(library);
 	expect(library.isUnsaved(path)).toBe(true);
-	expect(await library.useForm(path)).toContain('did not save');
-	expect(library.showsText(path)).toBe(true);
+	expect(await library.useForm(path)).toBeUndefined();
+	expect(library.showsText(path)).toBe(false);
+	expect(recordingEditor(library).draft.body).toBe('Newer source.\n');
+	expect(library.isUnsaved(path)).toBe(true);
 
 	// Once it can save, the source lands, and no older edit overwrites it.
 	failWrites();
@@ -509,8 +515,8 @@ test('switching between the fields and Source refuses while the edit being left 
 
 test('a text save that fails is told with the text, Save again, and Discard', async () => {
 	const { library, root, failNextWrite } = await open();
-	const notices: Parameters<Parameters<Library['onWriteNotice']>[0]>[0][] = [];
-	library.onWriteNotice((notice) => notices.push(notice));
+	const notices: Parameters<Parameters<Library['onWriteFailure']>[0]>[0][] = [];
+	library.onWriteFailure((notice) => notices.push(notice));
 	await writeFile(join(root, 'notes.md'), 'first\n');
 	await settle(library);
 
@@ -518,9 +524,7 @@ test('a text save that fails is told with the text, Save again, and Discard', as
 	(await openText(library, 'notes.md')).input('second\n');
 	await settle(library);
 
-	expect(notices).toMatchObject([
-		{ kind: 'failed', path: 'notes.md', unsaved: 'second\n' },
-	]);
+	expect(notices).toMatchObject([{ path: 'notes.md', unsaved: 'second\n' }]);
 	expect(notices[0]?.retry?.()).toBe(true);
 	await settle(library);
 	expect(await text(root, 'notes.md')).toBe('second\n');

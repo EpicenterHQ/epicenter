@@ -31,15 +31,16 @@
  */
 
 import { InstantString } from '@epicenter/definition';
-import type { Row } from '@epicenter/folder';
-import type {
-	RowEdit,
-	RowEditChange,
-	RowPending,
-} from '@epicenter/folder/edits';
+import type { FolderTable, Row } from '@epicenter/folder';
+import type { Pending } from '@epicenter/folder/edits';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import type { RecordingFolder } from '@epicenter/recorder';
-import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
+import {
+	createRowEdit,
+	createTextEdit,
+	type RowEdit,
+	type TextEdit,
+} from '@epicenter/svelte/edits';
 import {
 	unsavedText,
 	type WriteFailure,
@@ -67,13 +68,9 @@ import {
 	rowIdOf,
 	rowPath,
 	TEXT_RUNS,
-	type TextRunFields,
 	TRANSCRIPTIONS,
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
-	type TranscriptionFields,
-	type TransformationFields,
-	type TransformationRunFields,
 	type WhisperingTables,
 } from './definition.js';
 import {
@@ -87,6 +84,7 @@ import { textRead } from './file-reads.js';
 import { describeError, listingOf, nameProblem, readBytes } from './files.js';
 import type { WhisperingContext } from './folder.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
+import type { WhisperingServices } from './platform/types.js';
 import {
 	type RecipeRow,
 	type ResolvedRecipe,
@@ -94,7 +92,6 @@ import {
 } from './recipe.js';
 import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { createRuns } from './runs.svelte.js';
-import type { WhisperingServices } from './platform/types.js';
 
 export const STOPPED = 'Whispering stopped before it finished starting.';
 
@@ -106,15 +103,7 @@ type QueryOptions = {
 	queryFn: (context: QueryFunctionContext) => Promise<unknown>;
 };
 
-/** The fields of each table, by its name. */
-type FieldsOf = {
-	recordings: RecordingFields;
-	transcriptions: TranscriptionFields;
-	transformations: TransformationFields;
-	transformation_runs: TransformationRunFields;
-	text_runs: TextRunFields;
-};
-export type TableName = keyof FieldsOf;
+export type TableName = keyof WhisperingTables;
 /** The tables whose rows this window edits. */
 export type RowTable =
 	| typeof RECORDINGS
@@ -128,18 +117,6 @@ export type ReadRow<T extends TableName> = Extract<
 	ListedRow<T>,
 	{ issues: null }
 >;
-/** What a view's row binding (`library.rowView`) offers a field or body edit. */
-export type RowView = {
-	readonly path: string;
-	readonly pending: RowPending | undefined;
-	change(change: RowEditChange): ReturnType<RowEdit['change']>;
-	save(): Promise<void>;
-};
-/** A view's binding of a file's exact text (`library.textView`). */
-export type TextView = ReturnType<
-	typeof createTextEdit<Uint8Array | undefined>
->;
-
 /** A listed row that reads, with its file. `stem` is its ID. */
 export type Entry<T extends TableName> = {
 	readonly stem: string;
@@ -172,12 +149,6 @@ export type Selection = {
 	/** The listed recording, for a recording that reads. */
 	readonly entry: RecordingEntry | undefined;
 };
-
-/**
- * What the person is told about a save of a file's text that failed, as the
- * shared failure toast shows it: the text, Save again, and Discard.
- */
-export type WriteNotice = WriteFailure & { readonly kind: 'failed' };
 
 export type RecorderState =
 	| { readonly phase: 'idle' }
@@ -307,8 +278,8 @@ export function createLibrary(
 	const keys = whisperingKeys;
 	const { defineMutation } = createQueryFactories(queryClient);
 
-	const noticeListeners = new Set<(notice: WriteNotice) => void>();
-	function notify(notice: WriteNotice) {
+	const noticeListeners = new Set<(notice: WriteFailure) => void>();
+	function notify(notice: WriteFailure) {
 		for (const listener of noticeListeners) listener(notice);
 	}
 
@@ -383,8 +354,6 @@ export function createLibrary(
 		const paths = queryClient.getQueryData<string[]>(filesKey);
 		return paths === undefined ? undefined : listedFiles(paths);
 	}
-	const textData = (path: string) =>
-		queryClient.getQueryData(local.queries.file(path, textRead).queryKey);
 
 	const recordingsOf = perListing((rows: ListedRow<'recordings'>[]) => {
 		const read = split(RECORDINGS, rows);
@@ -441,81 +410,63 @@ export function createLibrary(
 			.getQueryData<ListedRow<T>[]>(rowsKey(table))
 			?.find((row) => row.id === stem);
 	}
-	/** The row the cache holds for `stem`, if it reads. */
-	function rowOf<T extends RowTable>(
-		table: T,
-		stem: string,
-	): ReadRow<T> | undefined {
-		const row = listedRow(table, stem);
-		return row?.issues === null ? (row as ReadRow<T>) : undefined;
-	}
-
 
 	// --- drafts ----------------------------------------------------------------
 
 	/**
-	 * The whole-text edit of `path` over the bytes the cache holds when it
-	 * opens as text, read reactively. The folder holds the text typed, saves
-	 * it, and sends it when it settles or closes.
+	 * The folder's edit of `path` as whole text, read reactively. The folder
+	 * holds the file and the text typed, saves it, and sends it when it
+	 * settles or closes. Reading its input reads no file.
 	 */
-	const textAt = (path: string) =>
-		createTextEdit(folder.files.edit(path), () => {
-			const opened = textData(path);
-			return opened?.kind === 'text' ? opened.bytes : undefined;
-		});
+	const textAt = (path: string) => createTextEdit(folder.files, path);
 	/** The text typed into `path` and not saved, read reactively. */
 	function heldText(path: string) {
 		const pending = textAt(path).pending;
 		return pending?.kind === 'text' ? pending : undefined;
 	}
-	/** Whether text typed into `path` is held and not failed: saving or about to. */
-	function writingText(path: string) {
-		const held = heldText(path);
-		return held !== undefined && (held.saving || held.error === undefined);
-	}
 
 	// Each save of a file's text that fails is told once, with the text to
-	// copy, a retry and a discard. Typing over failed text tells nothing new.
-	const savingText = new Set<string>();
-	const stopTelling = folder.files.edit('').subscribe((path) => {
-		if (path === undefined) return;
-		const pending = folder.files.edit(path).pending;
-		if (pending?.kind !== 'text') {
-			savingText.delete(path);
-			return;
+	// copy, a retry and a discard: a failure the folder reports that was not
+	// reported before. Typing over failed text clears it and tells nothing.
+	let told = new Set<Pending>();
+	const stopTelling = folder.onStatusChange(({ failures }) => {
+		const failed = new Set<Pending>();
+		for (const pending of failures) {
+			if (pending.kind !== 'text' || pending.error === undefined) continue;
+			failed.add(pending);
+			if (told.has(pending)) continue;
+			const { path } = pending;
+			notify({
+				path,
+				error: pending.error,
+				unsaved: pending.text,
+				retry: () => {
+					if (fenced) return false;
+					void folder.files.edit(path).retry();
+					return true;
+				},
+				discard: () => {
+					const discarded = folder.files.edit(path).discard();
+					return discarded?.kind === 'text' ? discarded.text : undefined;
+				},
+			});
 		}
-		if (pending.saving) {
-			savingText.add(path);
-			return;
-		}
-		if (!savingText.delete(path) || pending.error === undefined) return;
-		notify({
-			kind: 'failed',
-			path,
-			error: pending.error,
-			unsaved: pending.text,
-			retry: () => {
-				if (fenced) return false;
-				void folder.files.edit(path).retry();
-				return true;
-			},
-			discard: () => {
-				const discarded = folder.files.edit(path).discard();
-				return discarded?.kind === 'text' ? discarded.text : undefined;
-			},
-		});
+		told = failed;
 	});
 
-	/** The edit handle of row `stem` of `table`. */
-	const rowEdit = (table: RowTable, stem: string): RowEdit =>
-		folder.tables[table].edit(stem) as RowEdit;
-	/** The typing of `path`, read reactively, if it is a row this window edits. */
+	/** The folder's edit of row `stem` of `table`, read reactively. */
+	const rowEditOf = <T extends RowTable>(table: T, stem: string) =>
+		createRowEdit(
+			folder.tables[table] as unknown as FolderTable<WhisperingTables[T]>,
+			stem,
+		);
+	/** The typing of `path`, read reactively, if it is a row this window edits; reading it reads no file. */
 	function rowEditAt(path: string) {
 		const table = rowTableOf(path);
 		const stem = table === undefined ? undefined : rowIdOf(table, path);
 		return table === undefined || stem === undefined
 			? undefined
-			: createRowEdit(rowEdit(table, stem), () => undefined);
+			: rowEditOf(table, stem);
 	}
 
 	/** Row files the person chose to edit as their exact text. */
@@ -526,21 +477,20 @@ export function createLibrary(
 	 * Source, or one whose text does not read as a row.
 	 */
 	function showsText(path: string): boolean {
-		if (heldText(path) !== undefined) return true;
 		const table = rowTableOf(path);
 		if (table === undefined) return true;
 		if (asText.has(path)) return true;
 		const stem = rowIdOf(table, path) as string;
-		const row = listed(table)?.find((item) => item.id === stem);
+		const row =
+			rowEditOf(table, stem).row ??
+			listed(table)?.find((item) => item.id === stem);
 		return row !== undefined && row.issues !== null;
 	}
 
 	/** Send the typing held for `path`, row or text; answers whether some still did not save. */
 	async function settlePath(path: string): Promise<boolean> {
-		const edit = rowEditAt(path);
-		if (edit !== undefined) await edit.save();
 		await folder.files.edit(path).save();
-		return edit?.pending !== undefined || heldText(path) !== undefined;
+		return textAt(path).pending !== undefined;
 	}
 
 	/** After a rename: the caches and the selection follow the file. */
@@ -612,16 +562,15 @@ export function createLibrary(
 	let recorderError = $state<string | undefined>();
 	/** The recording being captured: its row's stem and the live capture. */
 	let active:
-		| { readonly id: string; readonly capture: ActiveCapture }
+		| {
+				readonly id: string;
+				readonly capture: ActiveCapture;
+				/** Its initial row save, awaited before Stop or Cancel changes that row. */
+				readonly rowSave: Promise<unknown>;
+		  }
 		| undefined;
 	/** The recording being captured, by stem. No request starts for it until it stops. */
 	const capturing = new SvelteSet<string>();
-	/**
-	 * The save of each recording's row at its start, by stem, settled or not.
-	 * Its length at stop and its deletion at cancel wait for it, so neither
-	 * reads the folder before the row is there.
-	 */
-	const startRows = new Map<string, Promise<unknown>>();
 	/**
 	 * A recording this window just finished, by stem, with the file listing
 	 * read when its capture ended. Until the folder is listed again, that
@@ -690,7 +639,7 @@ export function createLibrary(
 	 */
 	async function finishRecording() {
 		if (active === undefined) return;
-		const { id, capture } = active;
+		const { id, capture, rowSave } = active;
 		active = undefined;
 		recorder = { phase: 'stopping' };
 		const path = rowPath(RECORDINGS, id);
@@ -713,8 +662,7 @@ export function createLibrary(
 			return;
 		}
 		const lengthError = await track(async () => {
-			await startRows.get(id);
-			startRows.delete(id);
+			await rowSave;
 			const recordings = folder.tables.recordings;
 			const { data: stored, error } = await recordings.get(id);
 			if (error !== null) return describeError(error);
@@ -929,25 +877,20 @@ export function createLibrary(
 		},
 
 		// ------------------------------------------------------------------
-		// Drafts
+		// Edits
 		// ------------------------------------------------------------------
 
 		/**
-		 * The row of `table` at `path` as one view shows and types into it:
-		 * `row`, read reactively, is the cache's row with own saves its read
-		 * may not show yet and what is typed over it; `change` and the field
-		 * edits of `fieldOf` and `setFields` name what this view last showed.
-		 * A view makes one for its file and keeps it.
+		 * The row of `table` at `path` as views show and type into it: the
+		 * folder's edit of it, read reactively, its row as stored with what is
+		 * typed over it (`.row`), which the library's row reads keep
+		 * current. `change` types over the row it shows now.
 		 */
-		rowView<T extends RowTable>(table: T, path: string) {
-			const stem = rowIdOf(table, path) ?? '';
-			return createRowEdit(rowEdit(table, stem), () => {
-				trackQueries();
-				return rowOf(table, stem);
-			});
+		rowEdit<T extends RowTable>(table: T, path: string) {
+			return rowEditOf(table, rowIdOf(table, path) ?? '');
 		},
-		/** The fields and body typed into the row file at `path` and not saved, read reactively. */
-		heldAt: (path: string) => rowEditAt(path)?.pending,
+		/** The input held for this path, from either view, read reactively. */
+		heldAt: (path: string) => textAt(path).pending,
 		/**
 		 * The row of `table` at `path` as last read, whether or not it reads:
 		 * its exact source and, when it does not read, its issues.
@@ -966,47 +909,6 @@ export function createLibrary(
 		showsText(path: string) {
 			return showsText(path);
 		},
-		/**
-		 * One field of the row a view shows (`view`, from `rowView`), as that
-		 * view edits it: what is typed over the value shown, sent with the
-		 * row's input, over what the view last showed.
-		 */
-		fieldOf<T extends RowTable, K extends keyof FieldsOf[T] & string>(
-			view: RowView,
-			name: K,
-		) {
-			type Value = FieldsOf[T][K];
-			const typed = (): { value: Value } | undefined => {
-				const fields: Record<string, unknown> | undefined =
-					view.pending?.fields;
-				return fields !== undefined && Object.hasOwn(fields, name)
-					? { value: fields[name] as Value }
-					: undefined;
-			};
-			return {
-				/** `value` with what is typed over it. */
-				shown: (value: Value): Value => {
-					const held = typed();
-					return held === undefined ? value : held.value;
-				},
-				/** What is typed and not saved, or undefined when nothing is. */
-				get typed(): Value | undefined {
-					return typed()?.value;
-				},
-				/** Type `value`; it saves after a pause. */
-				change(value: Value) {
-					view.change({ fields: { [name]: value } });
-				},
-				/** Save what is typed now. */
-				save: () => view.save(),
-				get error() {
-					return view.pending?.error;
-				},
-				get saving() {
-					return view.pending?.saving ?? false;
-				},
-			};
-		},
 		/** Whether the row file at `path` takes an edit now: not closing, renamed, or deleted. */
 		canEdit: (path: string) =>
 			!fenced && !busyPaths.has(path) && !(rowEditAt(path)?.locked ?? false),
@@ -1017,70 +919,66 @@ export function createLibrary(
 		 * runs. Inputs commit only values the schema accepts.
 		 */
 		setFields<T extends RowTable>(
-			view: RowView,
-			set: Partial<FieldsOf[T]>,
+			rowEdit: RowEdit<WhisperingTables[T]>,
+			set: Partial<ReadRow<T>['fields']>,
 		): void {
-			if (fenced || busyPaths.has(view.path)) return;
-			if (view.change({ fields: set }).error === null) void view.save();
+			if (fenced || busyPaths.has(rowEdit.path)) return;
+			if (rowEdit.change({ fields: set }).error === null) void rowEdit.save();
 		},
 		/**
 		 * Type `body` as the body of the row a view shows, over what it last
 		 * showed; it saves a second after the last change, or at once with
 		 * `saveBody`, merged with whatever changed since.
 		 */
-		editBody(view: RowView, body: string): void {
-			if (fenced || busyPaths.has(view.path)) return;
-			view.change({ body });
+		editBody(rowEdit: RowEdit, body: string): void {
+			if (fenced || busyPaths.has(rowEdit.path)) return;
+			rowEdit.change({ body });
 		},
 		/** Send what is typed into the row at `path` now, as leaving it does. */
 		saveBody: (path: string) => rowEditAt(path)?.save() ?? Promise.resolve(),
 		/**
-		 * The exact text of `path` as one view shows and types it, over the
-		 * bytes `observed` answers, the view's own read of the file: held
-		 * text, else those bytes with own saves its read may not show yet.
-		 * Typing (`editText`) names what the view last showed and saves a
+		 * The exact text of `path` as views show and type it: the folder's edit
+		 * of the file, held text, else the file as stored (`.text`).
+		 * Typing (`editText`) types over the text it shows now and saves a
 		 * second after the last change, or at once with `saveText`.
 		 */
-		textView: (path: string, observed: () => Uint8Array | undefined) =>
-			createTextEdit(folder.files.edit(path), observed),
+		textEdit: textAt,
 		/** Type `text` as the whole text a view shows, over what it last showed. */
-		editText(view: TextView, text: string): void {
-			if (fenced || busyPaths.has(view.path)) return;
-			view.change(text);
+		editText(textEdit: TextEdit, text: string): void {
+			if (fenced || busyPaths.has(textEdit.path)) return;
+			if (textEdit.change(text).error === null) asText.add(textEdit.path);
 		},
 		/** Save the text typed into `path` now, as leaving it does; resolves once no save of it runs. */
 		saveText: (path: string) => folder.files.edit(path).save(),
 		/** Hear each save of a file's text that failed, which the person is told. */
-		onWriteNotice(listener: (notice: WriteNotice) => void): () => void {
+		onWriteFailure(listener: (notice: WriteFailure) => void): () => void {
 			noticeListeners.add(listener);
 			return () => noticeListeners.delete(listener);
 		},
 		/** Whether a save of `path` runs or waits, or typing there waits to be sent; read reactively. */
 		isSaving(path: string) {
-			if (busyPaths.has(path) || writingText(path)) return true;
-			const held = rowEditAt(path)?.pending;
-			return held !== undefined && (held.saving || held.error === undefined);
+			const pending = textAt(path).pending;
+			return (
+				busyPaths.has(path) ||
+				(pending !== undefined &&
+					(pending.saving || pending.error === undefined))
+			);
 		},
 		/** Whether typing at `path` did not save, with no save running; read reactively. */
 		isUnsaved(path: string) {
-			const text = heldText(path);
-			if (text?.error !== undefined && !text.saving) return true;
-			const held = rowEditAt(path)?.pending;
-			return held?.error !== undefined && !held.saving;
+			const pending = textAt(path).pending;
+			return pending?.error !== undefined && !pending.saving;
 		},
-		/** Save again what is typed into `path` and did not save: its fields, body, or text. */
-		retry: async (path: string) => {
-			await rowEditAt(path)?.retry();
-			await folder.files.edit(path).retry();
-		},
+		/** Retry the one path-owned input, whichever view created it. */
+		retry: (path: string) => folder.files.edit(path).retry(),
+
 		/**
 		 * Let go of what is typed into `path` and did not save, leaving the file
 		 * as it is. Answers what was let go, for the person to copy, or
 		 * undefined when nothing was held or a save of it is running.
 		 */
 		discard(path: string): string | undefined {
-			const discarded =
-				folder.files.edit(path).discard() ?? rowEditAt(path)?.discard();
+			const discarded = folder.files.edit(path).discard();
 			if (discarded === undefined) return undefined;
 			// A body alone stays plain text for copying back into its control.
 			if (
@@ -1092,11 +990,13 @@ export function createLibrary(
 		},
 		/** Whether a save runs, or typing waits to be sent; read reactively. */
 		get saving() {
-			return local.getSaveState() === 'saving';
+			const { saving, unsaved, failures } = local.getStatus();
+			// Held paths that have not failed wait to be sent or are saving.
+			return saving || unsaved.length > failures.length;
 		},
 		/** Whether typing did not save, here or in a file's text; read reactively. */
 		get unsaved() {
-			return local.getSaveState() === 'failed';
+			return local.getStatus().failures.length > 0;
 		},
 		/** Why the last save failed in storage, until a save lands; read reactively. */
 		get storageFailure(): string | undefined {
@@ -1108,45 +1008,20 @@ export function createLibrary(
 			path === undefined
 				? fenced
 				: fenced || busyPaths.has(path) || (rowEditAt(path)?.locked ?? false),
-		/**
-		 * Edit a row file's whole text instead of its fields. What is typed into
-		 * its fields saves first, and its text is read then. Typing that did not
-		 * save refuses the switch, so the file never has two edits at once.
-		 * Answers why not.
-		 */
+		/** Show the same path-owned edit as whole text; no save or reread is required. */
 		async editSource(path: string): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
-			const edit = rowEditAt(path);
-			if (edit !== undefined) {
-				await edit.save();
-				if (edit.pending !== undefined) return UNSAVED;
-			}
-			await queryClient
-				.fetchQuery({ ...local.queries.file(path, textRead), staleTime: 0 })
-				.catch(() => undefined);
 			asText.add(path);
 			return undefined;
 		},
-		/**
-		 * Edit a row file's fields again after editing its text. Its text saves,
-		 * and its row is read then. Text that does not read as a row stays as
-		 * text, and this says so; so does text whose save failed, until it
-		 * saves or is discarded.
-		 */
+		/** Show structured fields when the current edit fits the row's schema. */
 		async useForm(path: string): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
-			const table = rowTableOf(path);
-			if (table === undefined) return undefined;
-			await folder.files.edit(path).save();
-			if (heldText(path) !== undefined) return UNSAVED;
-			await queryClient
-				.fetchQuery({ ...local.queries.rows(table), staleTime: 0 })
-				.catch(() => undefined);
-			const stem = rowIdOf(table, path);
-			const row = listed(table)?.find((item) => item.id === stem);
-			if (row !== undefined && row.issues !== null) return STILL_TEXT;
+			const rowEdit = rowEditAt(path);
+			if (rowEdit !== undefined && rowEdit.row?.issues !== null)
+				return STILL_TEXT;
 			asText.delete(path);
 			return undefined;
 		},
@@ -1347,13 +1222,14 @@ export function createLibrary(
 			starting = attempt;
 			const at = new Date();
 			const id = recordingId(at);
-			const { data: capture, error: startError } =
-				await services.capture.start({
+			const { data: capture, error: startError } = await services.capture.start(
+				{
 					folder: recordingFolder(),
 					path: recordingAudioStem(id),
 					input: input.choice,
 					signal: attempt.signal,
-				});
+				},
+			);
 			// Cancelled or closed while the microphone was opening: it is not kept.
 			if (starting !== attempt) {
 				if (startError === null) void capture.cancel();
@@ -1366,9 +1242,6 @@ export function createLibrary(
 				input.noteRecordingError(startError);
 				return;
 			}
-			active = { id, capture };
-			capturing.add(id);
-			recorder = { phase: 'recording', startedAt: capture.startedAt };
 			// Facts only: when it started and where its audio is. Its length
 			// follows when it stops.
 			const fields: RecordingFields = {
@@ -1381,10 +1254,10 @@ export function createLibrary(
 				() => folder.tables.recordings.set(id, null, { fields, body: '' }),
 				rowPath(RECORDINGS, id),
 			);
-			startRows.set(
-				id,
-				creating.catch(() => undefined),
-			);
+			// Stop and Cancel await this capture's own initial row save.
+			active = { id, capture, rowSave: creating.catch(() => undefined) };
+			capturing.add(id);
+			recorder = { phase: 'recording', startedAt: capture.startedAt };
 			const created = await creating;
 			if (created.error !== null)
 				recorderError = `The recording is running, but its file could not be written, so it is not listed: ${describeError(created.error)}. Its audio is ${capture.audioPath}.`;
@@ -1402,11 +1275,10 @@ export function createLibrary(
 			active = undefined;
 			recorder = { phase: 'idle' };
 			if (cancelled === undefined) return;
-			const { id, capture } = cancelled;
+			const { id, capture, rowSave } = cancelled;
 			await capture.cancel();
 			capturing.delete(id);
-			await startRows.get(id);
-			startRows.delete(id);
+			await rowSave;
 			const path = rowPath(RECORDINGS, id);
 			const { error } = await track(
 				() => folder.tables.recordings.edit(id).delete(),

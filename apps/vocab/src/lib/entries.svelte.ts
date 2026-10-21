@@ -97,7 +97,7 @@ export function createEntries(local: VocabContext) {
 
 	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
 	function canEdit(id: string) {
-		return repair.open !== id && !table.edit(id).locked;
+		return repair.open !== id && !table.edit(id).isLocked();
 	}
 
 	async function addWord(
@@ -140,29 +140,26 @@ export function createEntries(local: VocabContext) {
 		return Ok('added');
 	}
 
-	/** The word at `id` over `observed`, with the learner's two edits. */
-	function edit<TObserved extends Entry['row'] | undefined>(
-		id: string,
-		observed: () => TObserved,
-	) {
-		const binding = createRowEdit(table.edit(id), observed);
-		return Object.assign(binding, {
+	/** The folder's edit of the word at `id`, read reactively, with the learner's two edits. */
+	function edit(id: string) {
+		const rowEdit = createRowEdit(table, id);
+		return Object.assign(rowEdit, {
 			/**
 			 * Type the note; it is saved a second after the last change. Half of
 			 * a surrogate pair is kept as U+FFFD, which the folder can save.
 			 */
 			setNote: (note: string): boolean =>
 				canEdit(id) &&
-				binding.change({ fields: { note: note.toWellFormed() } }).error ===
+				rowEdit.change({ fields: { note: note.toWellFormed() } }).error ===
 					null,
 			/** Press a stage; it is saved at once. */
 			setStage(stage: Stage): boolean {
 				if (
 					!canEdit(id) ||
-					binding.change({ fields: { stage } }).error !== null
+					rowEdit.change({ fields: { stage } }).error !== null
 				)
 					return false;
-				void binding.save();
+				void rowEdit.save();
 				return true;
 			},
 		});
@@ -174,9 +171,9 @@ export function createEntries(local: VocabContext) {
 			return { ...queries.rows('entries'), select };
 		},
 		/**
-		 * The word at `id` as a view shows and types into it, over the row
-		 * `observed` answers; read reactively. A row as definite as `observed`;
-		 * `setNote` and `setStage` type over what that view last showed.
+		 * The word at `id` as views show and type into it: the folder's edit of
+		 * its row, which the list's reads keep current, read reactively;
+		 * `setNote` and `setStage` type over the word it shows now.
 		 */
 		edit,
 		canEdit,
@@ -184,7 +181,7 @@ export function createEntries(local: VocabContext) {
 		isLocked: (id: string) =>
 			local.closing ||
 			repair.open === id ||
-			createRowEdit(table.edit(id), () => undefined).locked,
+			createRowEdit(table, id).locked,
 
 		/**
 		 * Save a word or a captured phrase, and answer once the list holds it.
@@ -212,10 +209,10 @@ export function createEntries(local: VocabContext) {
 		 * save. Answers whether it was taken.
 		 */
 		setNote: (entry: Entry, note: string): boolean =>
-			edit(entry.id, () => entry.row).setNote(note),
+			edit(entry.id).setNote(note),
 		/** Press a stage of `entry`; it is saved at once. Answers whether it was taken. */
 		setStage: (entry: Entry, stage: Stage): boolean =>
-			edit(entry.id, () => entry.row).setStage(stage),
+			edit(entry.id).setStage(stage),
 		/**
 		 * Delete `entry` once what is typed into it saved. `deleted` says
 		 * whether the word is gone, whoever removed it. A word changed in that

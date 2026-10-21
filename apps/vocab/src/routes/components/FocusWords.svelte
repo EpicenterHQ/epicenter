@@ -22,11 +22,12 @@
 	<div class="mb-4">
 		<p class="font-medium">{item.text}</p>
 		{#if entry}
-			{@const edit = entries.edit(entry.id, () => entry.row)}
-			{@const stage = edit.row.fields.stage}
+			{@const rowEdit = entries.edit(item.entryId)}
+			{@const row = rowEdit.row}
+			{@const stage = row?.issues === null ? row.fields.stage : entry.row.fields.stage}
 			<div class="mt-1 flex flex-wrap gap-1" aria-label="Your stage for {item.text}">
 				{#each STAGES as option}
-					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option} disabled={entries.isLocked(entry.id)} onclick={() => edit.setStage(option)}>{STAGE_LABELS[option]}</Button>
+					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option} disabled={entries.isLocked(entry.id)} onclick={() => rowEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>
 				{/each}
 			</div>
 		{/if}

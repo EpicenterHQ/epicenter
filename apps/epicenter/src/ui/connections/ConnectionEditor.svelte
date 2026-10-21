@@ -17,8 +17,8 @@
 
 	/**
 	 * One AI connection: its row in `so.epicenter`, whose title and model are
-	 * edited in place through the row's edit handle
-	 * (`folder.tables.connections.edit(id)`): what is typed shows at
+	 * edited in place through the folder's edit of the row
+	 * (`createRowEdit(folder.tables.connections, id)`): what is typed shows at
 	 * once and saves a second after the last keystroke, when the field loses
 	 * focus, and when the editor goes away, merged with whatever was saved
 	 * meanwhile (ADR-0576). For an `openai-compatible` connection, the
@@ -37,15 +37,19 @@
 
 	// svelte-ignore state_referenced_locally
 	const id = row.id;
-	// The list keys each editor by its id, in one opened folder.
+	// The list keys each editor by its id, in one opened folder. The list's
+	// read answered the edit's document.
 	// svelte-ignore state_referenced_locally
-	const edit = createRowEdit(local.folder.tables.connections.edit(id), () => row);
-	const fields = $derived(edit.row.fields);
-	const failure = $derived(edit.pending?.saving ? undefined : edit.pending?.error);
+	const rowEdit = createRowEdit(local.folder.tables.connections, id);
+	const shown = $derived(rowEdit.row);
+	/** The connection with what is typed over it, or as the list read it while that is not known. */
+	const fields = $derived(shown?.issues === null ? shown.fields : row.fields);
+	const pending = $derived(rowEdit.pending);
+	const failure = $derived(pending?.saving ? undefined : pending?.error);
 	const client = useQueryClient();
 
 	// The input outlives the editor; send what is typed now.
-	onDestroy(() => void edit.save());
+	onDestroy(() => void rowEdit.save());
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -67,7 +71,7 @@
 	let savingKey = $state(false);
 
 	function type(field: 'title' | 'model', text: string) {
-		edit.change({ fields: { [field]: text } });
+		rowEdit.change({ fields: { [field]: text } });
 	}
 
 	async function saveKey() {
@@ -103,7 +107,7 @@
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;
 			return;
 		}
-		const removed = await edit.delete();
+		const removed = await rowEdit.delete();
 		if (removed.error !== null) deleteProblem = saveFailureText(removed.error);
 		else if (!removed.data.deleted)
 			deleteProblem = 'The connection changed while it was being deleted, so it was kept.';
@@ -120,10 +124,10 @@
 			<span class="text-muted-foreground">Title</span>
 			<Input
 				value={fields.title}
-				disabled={edit.locked}
-				aria-invalid={edit.pending?.error !== undefined}
+				disabled={rowEdit.locked}
+				aria-invalid={pending?.error !== undefined}
 				oninput={(event) => type('title', event.currentTarget.value)}
-				onblur={() => void edit.save()}
+				onblur={() => void rowEdit.save()}
 			/>
 		</label>
 		<label class="grid gap-1">
@@ -131,17 +135,17 @@
 			<Input
 				value={fields.model}
 				placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
-				disabled={edit.locked}
-				aria-invalid={edit.pending?.error !== undefined}
+				disabled={rowEdit.locked}
+				aria-invalid={pending?.error !== undefined}
 				oninput={(event) => type('model', event.currentTarget.value)}
-				onblur={() => void edit.save()}
+				onblur={() => void rowEdit.save()}
 			/>
 		</label>
 	</div>
 	{#if failure !== undefined}
 		<p role="alert" class="text-destructive">
 			Not saved: {saveFailureText(failure)}
-			<button type="button" class="underline" onclick={() => void edit.save()}>Try again</button>
+			<button type="button" class="underline" onclick={() => void rowEdit.save()}>Try again</button>
 		</p>
 	{/if}
 
@@ -182,6 +186,6 @@
 	{#if keyProblem}<p role="alert" class="text-destructive">{keyProblem}</p>{/if}
 	{#if deleteProblem}<p role="alert" class="text-destructive">{deleteProblem}</p>{/if}
 	<div>
-		<Button variant="ghost" size="sm" disabled={edit.locked} onclick={() => void removeConnection()}>Delete connection</Button>
+		<Button variant="ghost" size="sm" disabled={rowEdit.locked} onclick={() => void removeConnection()}>Delete connection</Button>
 	</div>
 </li>

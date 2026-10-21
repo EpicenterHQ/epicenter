@@ -1,72 +1,75 @@
 /**
- * The one owner of unsaved input over an opened `Folder`. `folderHandle`
- * makes it with the handle, for the handle's whole life;
+ * The one owner of each path's editable document over an opened `Folder`.
+ * `folderHandle` makes it with the handle, for the handle's whole life;
  * `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` answer
  * passive handles over it, keyed by the file's path. It knows no UI
  * framework or cache.
  *
+ * - **Document.** Each path holds what the folder last knew is stored there:
+ *   its exact content, no file, or nothing known yet. `read()` reads it and
+ *   `getReadStatus()` says what is known and how the last read went. The
+ *   handle's own row lists and gets answer the documents of their rows, and
+ *   its file reads and saves keep a document already held current; a save
+ *   hands over the exact content storage kept, merged with what landed
+ *   meanwhile. A read that started before newer knowledge of the path
+ *   arrived is older than it and changes nothing. A change another handle
+ *   reported is read again for a path someone subscribes to, holds input
+ *   for, or reads; any other document stays, as older than the change, so
+ *   input typed over it still merges with storage, and is read again once
+ *   someone subscribes. A failed read keeps what is known. An action or a
+ *   status subscription alone holds no document, and a view that lets go
+ *   lets go of its document.
+ * - **Text.** A file is text only as strict UTF-8 without NUL; any other
+ *   bytes are `not-text`, which a text edit shows nothing of and never
+ *   types over. A byte-order mark stays in the text.
  * - **Input.** A row edit holds typed fields and a body; a text edit holds a
  *   file's whole exact text, or a field patch over any Markdown file. One
- *   path holds one input, one save queue and one fence. Field input may turn
- *   into text input, never the reverse, and a row's input excludes both.
- *   Making a handle reads and holds nothing.
- * - **Sources.** Each change names the source the person saw: a `source`
- *   that `shown` answered, or any row or bytes the caller names. A shown
- *   source also remembers what that view showed over it, held input
- *   included, so a change from a view that showed older input than is held
- *   now merges into the held input rather than replacing it, and a change
- *   from a view that showed the held input replaces it, a revert included.
- *   Each typed field, and the body, has a base: the value the person saw when
- *   first typing it, or what the last landed save sent for it. A row save
- *   starts from the latest source whose frontmatter parses, with every base
- *   put in. A field patch rereads the stored file when it saves. Units
- *   nobody typed merge from storage.
+ *   path holds one input, one save queue and one fence. Row and text views
+ *   show that input together. A whole-text change takes over applicable row
+ *   or field input; row changes patch held text without another save queue.
+ *   `getRow()` answers the stored row with held input put into its source
+ *   and read again, so its fields, body, text and issues agree; over a
+ *   source whose frontmatter does not parse it shows the held input over it
+ *   with the source's issues. Making a handle reads and holds nothing.
+ * - **Bases.** A change types over what the edit shows now. Each typed field,
+ *   and the body, keeps a base: its value in the document when first typed,
+ *   or what the last landed save sent for it, so a value typed back to what
+ *   is stored still saves, and a unit nobody typed merges from storage.
+ *   Whole text keeps the content it was first typed over, or the text the
+ *   last landed save sent. A row save starts from the latest document typed
+ *   over whose frontmatter parses, with every base put in; a field patch
+ *   rereads the stored file when it saves.
  * - **Saving.** Input saves `saveAfterMs` after its last change, or at once on
  *   `save()`. The saves of one path run one at a time, through the folder's
  *   own `set` and `write`, which merge each with what landed meanwhile. A
  *   landed save lets go of its input at once, unless typing changed it
- *   meanwhile, and nothing waits for a reread.
- * - **Own saves a read may not show yet.** Each landed save leaves the path's
- *   committed contribution: the whole text the person meant, composed from
- *   what the save changed over its source and the earlier contributions, and
- *   the last value of each field and of the body, each numbered by the
- *   commit that landed it. Each read of the handle notes, on the rows and
- *   file contents it answers, the commit count when it started
- *   (`shared/observation.ts`). `shown(observed)` puts back each contribution
- *   newer than the read that answered `observed`; a value no read of this
- *   handle answered is taken as older than every own save. Contributions
- *   stay until the file is deleted or the folder closes; a failed read never
- *   replays a save.
+ *   meanwhile; the document already holds what storage kept, so nothing
+ *   waits for a reread.
  * - **A failed save** keeps the input and its error until a save lands or the
  *   input is discarded. Any failed input saves again only on `retry()`
  *   or new input.
  * - **A fence** (`exclusive`, and `delete` on it) takes the path at once,
  *   waits for its running save, sends new input once and refuses if that
  *   fails, then runs alone.
- * - **Close** refuses input from the moment it is called, waits for fenced
- *   actions, sends new input once, and answers what did not save. Handles
- *   and the folder's status still read what is held afterwards.
+ * - **Close** refuses input and reads from the moment it is called, waits for
+ *   fenced actions, sends new input once, and answers what did not save.
+ *   Handles and the folder's status still answer what is held afterwards.
  *
- * Every pending value is immutable and replaced on each change, so a reader
- * can compare it by identity. Listeners hear the path that changed, or
- * `undefined` when every path may read differently.
+ * Every answer of `getRow`, `getText`, `getPending` and `getReadStatus` is
+ * immutable and kept until what it answers changes, so a reader can compare
+ * it by identity. Each handle's listeners hear their path change.
  */
 import { diffArrays } from 'diff';
 import type { Static, TSchema } from 'typebox';
-import {
-	defineErrors,
-	extractErrorMessage,
-	type InferErrors,
-} from 'wellcrafted/error';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderFileOperations, FolderTableOperations } from './folder.js';
 import { callObserver } from './observer.js';
 import { mergeLinesWith } from './shared/content/merge-lines.js';
 import { documentChange, readDocument } from './shared/document.js';
-import { type ReadError, SaveError } from './shared/errors.js';
-import { type FileContent, merge } from './shared/merge.js';
-import { noteRead, readOf } from './shared/observation.js';
-import { type Row, readRow, rowChange } from './shared/row.js';
+import { ReadError, SaveError } from './shared/errors.js';
+import { type FileContent, merge, sameContent } from './shared/merge.js';
+import { type Issue, type Row, readRow, rowChange } from './shared/row.js';
 
 /** How long after its last change input saves, unless the folder was opened with another pause. */
 export const SAVE_AFTER_MS = 1000;
@@ -87,6 +90,9 @@ export const UNSAVED =
 const GONE =
 	'The file no longer exists; discard the field edit before recreating it';
 
+/** How often one `read()` reads again while reported changes overtake it. */
+const READ_ATTEMPTS = 8;
+
 /**
  * An action refused before it changed anything, with the reason: the folder
  * is closing, another action holds the file, its input did not save.
@@ -100,16 +106,11 @@ export type ActionError = InferErrors<typeof ActionError>;
 export const ChangeError = defineErrors({
 	Locked: ({ reason }: { reason: string }) => ({ message: reason, reason }),
 	NoSource: () => ({
-		message: 'No source is available to edit. It may be loading or gone.',
+		message: 'There is no file to edit. It may be loading or gone.',
 	}),
-	OtherInput: ({ held }: { held: Pending['kind'] }) => ({
+	NotText: () => ({
 		message:
-			'This file has unsaved changes in another editor. Save or discard them first.',
-		held,
-	}),
-	FieldsUnsaved: ({ cause }: { cause: SaveError }) => ({
-		message: `Save again or discard the failed field changes before editing the whole text: ${extractErrorMessage(cause)}`,
-		cause,
+			'This file is not text, so it cannot be edited here. Its bytes stay as they are.',
 	}),
 	InvalidFields: ({ reason }: { reason: string }) => ({
 		message: `Fields cannot be applied: ${reason}`,
@@ -118,7 +119,7 @@ export const ChangeError = defineErrors({
 });
 export type ChangeError = InferErrors<typeof ChangeError>;
 
-/** Accepted into memory, or refused. A later save reports failures through `pending.error`. */
+/** Accepted into memory, or refused. A later save reports failures through `getPending().error`. */
 export type ChangeResult = Result<void, ChangeError>;
 
 /**
@@ -166,7 +167,24 @@ export type FieldsPending = {
 	readonly error: SaveError | undefined;
 };
 
-export type Pending = RowPending | TextPending | FieldsPending;
+export type Pending<TRowSchema extends TSchema = TSchema> =
+	| RowPending<TRowSchema>
+	| TextPending
+	| FieldsPending;
+
+/**
+ * What an edit knows of its file, and how reading it goes. `known` is
+ * `nothing` until a read or a row list says what is stored, and again
+ * after its cached document is released; then `missing`
+ * for no file, `file` for a file, or `not-text` for bytes that are not
+ * UTF-8 text without NUL. `reading` while a read of the edit runs; `error`
+ * is why the last read failed, until one succeeds, whatever is known.
+ */
+export type ReadStatus = {
+	readonly known: 'nothing' | 'missing' | 'file' | 'not-text';
+	readonly reading: boolean;
+	readonly error: ReadError | undefined;
+};
 
 /** A delete's outcome: whether the file went, or why nothing started. */
 export type DeleteResult = Result<
@@ -174,38 +192,33 @@ export type DeleteResult = Result<
 	SaveError | ReadError | ActionError
 >;
 
-/**
- * What a view shows of a row: `source` is the observed row with this
- * handle's own saves that its read may not show, the source the next change
- * from this view names; `row` is `source` with held input over it.
- */
-export type RowShown<TRow> = { readonly source: TRow; readonly row: TRow };
-
-/**
- * What a view shows of a file: `source` is the observed bytes with this
- * handle's own saves that its read may not show, the source the next change
- * from this view names, or `undefined` with no observed bytes; `text` is the
- * held text, the held fields over `source`, or `source` decoded with any
- * byte-order mark kept. With no observed bytes, `text` is held input or this
- * handle's own saved text, for reading and copying only.
- */
-export type TextShown = {
-	readonly source: Uint8Array | undefined;
-	readonly text: string | undefined;
-};
-
-type Edit<TPending> = {
+type Edit<TPending, TValue> = {
 	readonly path: string;
 	/** The held input, or `undefined`; the same value until it changes. */
-	readonly pending: TPending | undefined;
+	getPending(): TPending | undefined;
 	/** Whether input is refused: another action holds the file, or the folder closes. */
-	readonly locked: boolean;
+	isLocked(): boolean;
+	/** What is known of the file and how reading it goes; the same value until it changes. */
+	getReadStatus(): ReadStatus;
 	/**
-	 * Call `listener` after every change of held input or own saves, with the
-	 * path that changed, or `undefined` when every path may read differently.
-	 * Every handle of a folder shares one function. Answers the stop.
+	 * Read the file now, and answer what the edit shows afterwards:
+	 * `undefined` when no file is there, or for a text edit, when it is not
+	 * text (`getReadStatus().known` says which). A read that newer knowledge
+	 * overtook, such as a save that landed meanwhile, answers what the edit
+	 * shows then. A failed read keeps what was shown. A read already running
+	 * is joined, with its outcome. Rejects once the folder closes.
 	 */
-	subscribe(listener: (path: string | undefined) => void): () => void;
+	read(): Promise<Result<TValue | undefined, ReadError>>;
+	/**
+	 * Call `listener` after anything this edit answers may have changed: its
+	 * document, its read status, its input, its fence, or the folder's
+	 * close. A document already read, or answered by a row list, stays
+	 * current while someone subscribes: one a change another handle reported
+	 * overtook is read again, also when the subscription starts. Subscribing
+	 * to a path never read asks for no document and reads nothing. Answers
+	 * the stop.
+	 */
+	subscribe(listener: () => void): () => void;
 	/** Send new input now, or join its running save. Failed input waits for retry or a change. */
 	save(): Promise<void>;
 	/** Explicitly attempt held input again, including a failed save. Joins a running save. */
@@ -218,57 +231,53 @@ type Edit<TPending> = {
 
 /** Input typed into row `id` of a table, answered by `folder.tables.<name>.edit(id)`. */
 export type RowEdit<TRowSchema extends TSchema = TSchema> = Edit<
-	RowPending<TRowSchema>
+	Pending<TRowSchema>,
+	Row<TRowSchema>
 > & {
 	/**
-	 * What a view of `observed` shows. The same value until `observed`, held
-	 * input or own saves change; each new value has a `source` of its own.
+	 * The row as last known stored, with held input in it, or `undefined`
+	 * while nothing is known or no file is there. Its issues say whether it
+	 * fits the schema with what is typed. Reads nothing.
 	 */
-	shown<TRow extends Row<TRowSchema>>(observed: TRow): RowShown<TRow>;
+	getRow(): Row<TRowSchema> | undefined;
 	/**
-	 * Type `change` over `source`, the row the person saw: a `shown(...)`
-	 * source, or any row the caller names. Fields and body are taken together,
-	 * as one change. Answers `Ok` when accepted into memory, or the refusal
-	 * reason. Acceptance does not mean saved: a later save reports through
-	 * `pending.error` and folder status.
+	 * Type `change` over the row `getRow()` answers now. Fields and body are
+	 * taken together, as one change. Answers `Ok` when accepted into memory,
+	 * or the refusal reason. Acceptance does not mean saved: a later save
+	 * reports through `getPending().error` and folder status.
 	 */
-	change(
-		source: Row<TRowSchema>,
-		change: RowEditChange<TRowSchema>,
-	): ChangeResult;
+	change(change: RowEditChange<TRowSchema>): ChangeResult;
 };
 
 /** A file's whole text or a field patch over it, answered by `folder.files.edit(path)`. */
-export type TextEdit = Edit<TextPending | FieldsPending> & {
+export type TextEdit = Edit<Pending, string> & {
 	/**
-	 * What a view of `observed` shows. The same value until `observed`, held
-	 * input or own saves change; each new value has a `source` of its own.
+	 * The held text, the held fields over the stored file, or the stored
+	 * file as text with any byte-order mark kept; `undefined` while nothing
+	 * is known or held, no file is there, or it is not text. Reads nothing.
 	 */
-	shown(observed: Uint8Array | undefined): TextShown;
+	getText(): string | undefined;
 	/**
-	 * Type `text` as the whole file over `source`, the bytes the person saw.
-	 * The first change keeps a copy of what it was typed over; later typing
-	 * keeps that, and may pass `undefined` when it typed over held text.
-	 * Typed over held fields, it keeps them in its text and takes the place
-	 * of the field patch.
+	 * Type `text` as the whole file over what `getText()` answers now. Typed
+	 * over held fields, it keeps them in its text and takes the place of
+	 * the field patch. Refused over a file that is not text.
 	 */
-	change(source: Uint8Array | undefined, text: string): ChangeResult;
+	change(text: string): ChangeResult;
 	/**
-	 * Type `fields` into the file's frontmatter over `source`, adding a
-	 * frontmatter block if there is none: into held text, or as a patch the
-	 * save applies to the file as stored then. Refused when the fields do
-	 * not apply.
+	 * Type `fields` into the file's frontmatter, adding a frontmatter block
+	 * if there is none: into held text, or as a patch the save applies to
+	 * the file as stored then, which needs nothing read. Refused when the
+	 * fields do not apply to what is known, and over a file known to be
+	 * missing or not text.
 	 */
-	changeFields(
-		source: Uint8Array | undefined,
-		fields: Readonly<Record<string, unknown>>,
-	): ChangeResult;
+	changeFields(fields: Readonly<Record<string, unknown>>): ChangeResult;
 	/**
 	 * Take the file alone: input is refused from now on, held input is sent
 	 * once, and `action` runs only if it saved. Refused while another action
 	 * holds the file or the folder closes. `action` reads and saves the file
 	 * through `file`, which still works while the folder closes, so an action
-	 * already taken finishes; close waits for it.
+	 * already taken finishes; close waits for it. Nothing it reads or saves
+	 * is held for the edit.
 	 */
 	exclusive<T>(
 		action: (file: ExclusiveFile) => Promise<T>,
@@ -289,6 +298,16 @@ export type ExclusiveFile = {
 	): ReturnType<FolderFileOperations['write']>;
 	delete(from: FileContent | null): ReturnType<FolderFileOperations['delete']>;
 };
+
+/**
+ * The folder's line merge of whole texts, the rule a save applies to a body
+ * or to text (ADR-0622): what `change` did to `base`, merged into `current`;
+ * where both changed one region, `change` wins.
+ */
+export function mergeText(base: string, current: string, change: string) {
+	if (base === current) return change;
+	return mergeLinesWith(diffArrays, { base, current, change }).content;
+}
 
 /**
  * The pause before held input saves: `saveAfterMs`, a finite number of
@@ -313,14 +332,12 @@ type Source = Pick<Row, 'text' | 'issues'>;
 type RowInput = {
 	readonly kind: 'row';
 	readonly pending: RowPending;
-	/** The latest source typed over, preferring one whose frontmatter parses. */
+	/** The latest document typed over, preferring one whose frontmatter parses. */
 	readonly source: Source;
-	/** The base of each typed unit: as the person saw it first, or as last sent. */
+	/** The base of each typed unit: as the document held it when first typed, or as last sent. */
 	readonly bases: {
 		readonly fields: Record<string, unknown>;
 		readonly body: string | undefined;
-		/** Up to which commit the body base already holds or supersedes own saves. */
-		readonly bodyAsOf: number;
 	};
 	/** Changes with each change, so a landed save knows whether typing followed it. */
 	readonly revision: number;
@@ -331,8 +348,6 @@ type TextInput = {
 	readonly pending: TextPending;
 	/** The content the typing started from, or the text the last landed save sent. */
 	readonly from: FileContent;
-	/** Up to which commit `from` already holds or supersedes own saves. */
-	readonly fromAsOf: number;
 	readonly revision: number;
 };
 
@@ -347,42 +362,47 @@ type Input = RowInput | TextInput | FieldsInput;
 /** What a field patch's save read and sent, so text typed meanwhile can take in its fields. */
 type Prepared = { readonly read: Uint8Array; readonly sent: string };
 
-/** A path's committed contribution: each unit with the commit that landed it. */
-type Retained = {
-	text: { readonly content: FileContent; readonly commit: number } | undefined;
-	readonly fields: Map<
-		string,
-		{ readonly value: unknown; readonly commit: number }
-	>;
-	body: { readonly value: string; readonly commit: number } | undefined;
-};
+/** The exact stored content, `null` for no file, `undefined` while unknown. */
+type Known = FileContent | null | undefined;
 
-/**
- * What one view showed over the `source` that `shown` answered it, and up to
- * which commit that source holds or supersedes own saves: its read, or a
- * later own save it was shown with.
- */
-type Presentation =
+/** A read's outcome, which every read joining it shares. */
+type ReadOutcome =
+	| { readonly error: ReadError }
 	| {
-			readonly kind: 'row';
-			readonly path: string;
-			readonly asOf: number;
-			readonly fields: Record<string, unknown>;
-			readonly body: string;
-	  }
-	| {
-			readonly kind: 'text';
-			readonly path: string;
-			readonly asOf: number;
-			/** The text shown, held input included. */
-			readonly text: string | undefined;
-			/** The content that text was over: held text or fields, or the source. */
-			readonly from: FileContent | undefined;
+			readonly error: null;
+			/** Whether it was newer than everything known of the path. */
+			readonly newest: boolean;
 	  };
 
-type Memo = { path: string; version: number; read: number; value: unknown };
+/** An answer computed from what it depends on, kept while they hold. */
+type Kept<T> = {
+	readonly doc: Known;
+	readonly input: Input | undefined;
+	readonly value: T;
+};
 
 type PathState = {
+	/** What is stored at the path, as last known. */
+	doc: Known;
+	/**
+	 * The tick `doc` is known as of: the read that answered it, the save
+	 * that stored it, or the reported change that made it unknown. A read
+	 * started before it is older and changes nothing.
+	 */
+	docAt: number;
+	/**
+	 * The tick of the newest thing known of the path, `docAt` or a change
+	 * reported after it that a reread has not answered yet.
+	 */
+	asOf: number;
+	/** The read of the path running now, the tick it started at, and its outcome. */
+	reading:
+		| { readonly tick: number; readonly done: Promise<ReadOutcome> }
+		| undefined;
+	/** Why the last read of the path failed, until one succeeds. */
+	error: ReadError | undefined;
+	/** The tick of the read whose outcome `error` tells; an older read's outcome changes nothing. */
+	statusAt: number;
 	input: Input | undefined;
 	timer: ReturnType<typeof setTimeout> | undefined;
 	/** The save loop, while one runs. */
@@ -391,11 +411,16 @@ type PathState = {
 	again: boolean;
 	/** The action holding the path, while one runs. */
 	action: { readonly reason: string } | undefined;
-	retained: Retained | undefined;
-	/** Changes whenever what `shown` answers may change. */
-	version: number;
-	/** `shown(undefined)`, the one observation no object identifies. */
-	missing: Memo | undefined;
+	readonly listeners: Set<() => void>;
+	/** The document read as a row, and as text. */
+	parsed: { readonly content: FileContent; readonly row: Row } | undefined;
+	decoded:
+		| { readonly content: FileContent; readonly text: string | undefined }
+		| undefined;
+	/** What `getRow` and `getText` answered, while their inputs hold. */
+	row: Kept<Row | undefined> | undefined;
+	text: Kept<string | undefined> | undefined;
+	status: ReadStatus;
 };
 
 /** What the owner tells the handle: input held, failures, and whether work runs. */
@@ -408,18 +433,31 @@ export type EditAggregate = {
 const rowPath = (table: string, id: string) => `${table}/${id}.md`;
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
+const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const bytesOf = (content: FileContent) =>
 	typeof content === 'string' ? encoder.encode(content) : content;
-const textOf = (content: FileContent) =>
-	typeof content === 'string' ? content : decoder.decode(content);
 /** A copy the caller cannot change afterwards. */
 const owned = (content: FileContent) =>
 	typeof content === 'string' ? content : content.slice();
 
-/** The line merge of what `change` did to `base` into `current`, at once. */
-const mergeText = (base: string, current: string, change: string) =>
-	mergeLinesWith(diffArrays, { base, current, change }).content;
+/** `content` as text: strict UTF-8 without NUL or lone surrogates, or `undefined`. */
+function textOf(content: FileContent): string | undefined {
+	let text: string;
+	if (typeof content === 'string') text = content;
+	else
+		try {
+			text = strict.decode(content);
+		} catch {
+			return undefined;
+		}
+	return text.includes('\0') || !text.isWellFormed() ? undefined : text;
+}
+
+const NOTHING: ReadStatus = Object.freeze({
+	known: 'nothing',
+	reading: false,
+	error: undefined,
+});
 
 /** Set `key` as an own property, so a key such as `__proto__` stays data. */
 function withValue(
@@ -442,19 +480,22 @@ const fieldValue = (fields: Record<string, unknown>, key: string) =>
 const fieldsOf = (row: Pick<Row, 'fields'>): Record<string, unknown> =>
 	row.fields as Record<string, unknown>;
 
-function ownSource({ text, issues }: Source): Source {
-	return {
-		text,
-		issues:
-			issues === null
-				? null
-				: issues.map((issue) => ({ ...issue, path: [...issue.path] })),
-	};
-}
-
 /** Whether the source's frontmatter parses, so fields can be put into it. */
 const parses = ({ issues }: Source) =>
 	issues === null || issues.every((issue) => issue.kind === 'schema');
+
+/** Whether a row's source is not text, as a row list reads one without its bytes. */
+const notText = ({ issues }: Pick<Row, 'issues'>) =>
+	issues?.some((issue) => issue.kind === 'not-text') ?? false;
+
+/** The fields and body typed, as a change of the row's source. */
+const changeOf = ({ fields, body }: RowPending) => ({
+	fields:
+		Object.keys(fields).length === 0
+			? undefined
+			: (fields as Record<string, unknown>),
+	body,
+});
 
 /** The row a row input's save starts from: its source with every base put in. */
 function baseOf({ source, bases }: RowInput): Source {
@@ -496,12 +537,12 @@ const sameList = <T>(left: readonly T[], right: readonly T[]) =>
 	left.length === right.length &&
 	left.every((item, index) => item === right[index]);
 
-const NOTHING_SHOWN: TextShown = { source: undefined, text: undefined };
-
 /**
  * Make the edit owner over a folder handle's own storage operations. They
  * are tracked like the handle's public calls but stay open while its close
- * sends held input; `folderHandle` makes one owner per handle.
+ * sends held input; `folderHandle` makes one owner per handle and tells it
+ * what its reads answered, what its saves stored, and which changes another
+ * handle reported.
  */
 export function createEditOwner({
 	files,
@@ -509,63 +550,67 @@ export function createEditOwner({
 	schemas,
 	saveAfterMs,
 	onAggregate,
-	receipt,
 }: {
 	readonly files: FolderFileOperations;
 	readonly tables: Readonly<Record<string, FolderTableOperations>>;
-	/** Each table's schema, to read a row back from text this handle saved. */
+	/** Each table's schema, to read a row from its stored text. */
 	readonly schemas: Readonly<Record<string, TSchema>>;
 	readonly saveAfterMs?: number;
 	/** Called after anything `aggregate` reports may have changed. */
 	readonly onAggregate: () => void;
-	/** The commit a save of `files` or `tables` landed as, once it resolved. */
-	readonly receipt: (saving: Promise<unknown>) => number | undefined;
 }) {
 	const pause = saveDelay(saveAfterMs);
 	const states = new Map<string, PathState>();
 	/** Paths with input held, kept for the aggregate. */
 	const held = new Set<string>();
-	const listeners = new Set<(path: string | undefined) => void>();
 	/** Fenced actions running, which settle and close wait for. */
 	const actions = new Set<Promise<unknown>>();
-	const memos = new WeakMap<object, Memo>();
-	const presentations = new WeakMap<object, Presentation>();
-	/** What the handle's reads are noted under (`shared/observation.ts`). */
-	const self = {};
 	let revisions = 0;
-	let versions = 0;
-	/** How many saves of this handle have landed, its own no-op saves included. */
-	let commits = 0;
+	/** Orders reads against what overtakes them: saves stored and changes reported. */
+	let clock = 0;
+	/** Reads of the handle running now; a forgotten path's tick matters only to them. */
+	let reads = 0;
+	/** A change reported for every path: reads started before it are older. */
+	let floor = 0;
+	/** Paths whose readers want the change another handle reported read. */
+	let rereads: Set<string> | undefined;
 	let saves = 0;
 	let aggregate: EditAggregate = { unsaved: [], failures: [], working: false };
 	let closing: Promise<Pending[]> | undefined;
-
-	function subscribe(listener: (path: string | undefined) => void) {
-		listeners.add(listener);
-		return () => {
-			listeners.delete(listener);
-		};
-	}
 
 	function stateOf(path: string): PathState {
 		let state = states.get(path);
 		if (state === undefined) {
 			state = {
+				doc: undefined,
+				docAt: floor,
+				asOf: floor,
+				reading: undefined,
+				error: undefined,
+				statusAt: 0,
 				input: undefined,
 				timer: undefined,
 				running: undefined,
 				again: false,
 				action: undefined,
-				retained: undefined,
-				version: ++versions,
-				missing: undefined,
+				listeners: new Set(),
+				parsed: undefined,
+				decoded: undefined,
+				row: undefined,
+				text: undefined,
+				status: NOTHING,
 			};
 			states.set(path, state);
 		}
 		return state;
 	}
 
-	/** Forget a path that holds nothing. */
+	/**
+	 * Forget a path that holds nothing anyone asked for. A document stays
+	 * while someone subscribes, input is held, or a read or list answered it
+	 * and no view let it go since; the tick of a forgotten one stays while
+	 * reads that it overtook may still answer.
+	 */
 	function prune(path: string) {
 		const state = states.get(path);
 		if (
@@ -574,7 +619,11 @@ export function createEditOwner({
 			state.timer === undefined &&
 			state.running === undefined &&
 			state.action === undefined &&
-			state.retained === undefined
+			state.reading === undefined &&
+			state.listeners.size === 0 &&
+			state.doc === undefined &&
+			state.error === undefined &&
+			reads === 0
 		)
 			states.delete(path);
 	}
@@ -596,14 +645,39 @@ export function createEditOwner({
 		onAggregate();
 	}
 
+	/** What `state` says of reading, kept as the same value while it says the same. */
+	function statusOf(state: PathState): ReadStatus {
+		const doc = state.doc;
+		const known: ReadStatus['known'] =
+			doc === undefined
+				? 'nothing'
+				: doc === null
+					? 'missing'
+					: decodedOf(state, doc) === undefined
+						? 'not-text'
+						: 'file';
+		const reading = state.reading !== undefined;
+		const { status, error } = state;
+		if (
+			status.known === known &&
+			status.reading === reading &&
+			status.error === error
+		)
+			return status;
+		state.status = Object.freeze({ known, reading, error });
+		return state.status;
+	}
+
+	/** Tell the listeners of `path`, or of every path, that what they read may differ. */
 	function publish(path: string | undefined) {
-		if (path !== undefined) {
-			const state = states.get(path);
-			if (state !== undefined) state.version = ++versions;
-			prune(path);
-		}
-		for (const listener of [...listeners])
-			callObserver('edit listener', listener, path);
+		const touched =
+			path === undefined
+				? [...states.values()]
+				: [states.get(path)].filter((state) => state !== undefined);
+		for (const state of touched)
+			for (const listener of [...state.listeners])
+				callObserver('edit listener', listener, undefined);
+		if (path !== undefined) prune(path);
 		updateAggregate();
 	}
 
@@ -612,6 +686,156 @@ export function createEditOwner({
 		if (input === undefined) held.delete(path);
 		else held.add(path);
 		publish(path);
+	}
+
+	/** Hold `doc` as what is stored at `path`, known as of `tick`. */
+	function know(path: string, state: PathState, doc: Known, tick: number) {
+		state.docAt = tick;
+		state.asOf = Math.max(state.asOf, tick);
+		const same =
+			doc === state.doc ||
+			(doc !== undefined &&
+				state.doc !== undefined &&
+				sameContent(doc, state.doc));
+		if (same) return prune(path);
+		state.doc = doc;
+		publish(path);
+	}
+
+	/**
+	 * Something known of `path` as of `tick` answered `doc`: a read that
+	 * started then, or a save that committed then. It replaces only an older
+	 * document of a path whose document is held; `seed` lets it make one,
+	 * for a read or list that asked for it. Answers whether it was newer than
+	 * everything known of the path.
+	 */
+	function answered(path: string, tick: number, doc: Known, seed: boolean) {
+		const state = states.get(path);
+		if (state === undefined || (!seed && state.doc === undefined)) {
+			if (!seed || tick < floor) return false;
+			know(path, stateOf(path), doc, tick);
+			return true;
+		}
+		if (tick < state.docAt) return false;
+		const newest = tick > state.asOf;
+		know(path, state, doc, tick);
+		return newest;
+	}
+
+	/** A read of `path` started at `tick` succeeded: unless a newer read answered, the last read no longer failed. */
+	function readFine(path: string, tick: number) {
+		const state = states.get(path);
+		if (state === undefined || tick < state.statusAt) return;
+		state.statusAt = tick;
+		if (state.error === undefined) return;
+		state.error = undefined;
+		publish(path);
+	}
+
+	/** Read `path` again soon, once however often it is asked for in this turn. */
+	function rereadSoon(path: string) {
+		if (rereads === undefined) {
+			const paths = new Set<string>();
+			rereads = paths;
+			queueMicrotask(() => {
+				rereads = undefined;
+				if (closing !== undefined) return;
+				for (const reread of paths)
+					void readPath(reread, states.get(reread)?.asOf ?? -1);
+			});
+		}
+		rereads.add(path);
+	}
+
+	/**
+	 * Note that what is stored at `path` changed in a way no read here
+	 * showed. What is known stays, as older than the change: a save that
+	 * committed before it, or a read that started before it, may still
+	 * replace it. It is read again now for a reader, held input or a read
+	 * running, and for anyone else once they subscribe.
+	 */
+	function overtaken(path: string) {
+		const state = states.get(path);
+		if (state === undefined || state.doc === undefined) {
+			if (state?.reading !== undefined) {
+				state.asOf = ++clock;
+				rereadSoon(path);
+				return;
+			}
+			if (state === undefined && reads === 0) return;
+			know(path, state ?? stateOf(path), undefined, ++clock);
+			return;
+		}
+		state.asOf = ++clock;
+		if (
+			state.listeners.size > 0 ||
+			state.input !== undefined ||
+			state.reading !== undefined
+		)
+			rereadSoon(path);
+	}
+
+	/**
+	 * Read `path` into its document, joining a read started after `after`,
+	 * whose outcome it shares.
+	 */
+	function readPath(path: string, after: number): Promise<ReadOutcome> {
+		const state = stateOf(path);
+		const running = state.reading;
+		if (running !== undefined && running.tick > after) return running.done;
+		const tick = ++clock;
+		reads++;
+		const done = (async (): Promise<ReadOutcome> => {
+			try {
+				const read = await files.read(path);
+				if (read.error !== null) return { error: read.error };
+				const content =
+					read.data === undefined
+						? null
+						: new Uint8Array(await read.data.content.arrayBuffer());
+				return { error: null, newest: answered(path, tick, content, true) };
+			} catch (cause) {
+				return { error: ReadError.StorageFailed({ cause }).error };
+			}
+		})();
+		state.reading = { tick, done };
+		publish(path);
+		void done.then((outcome) => {
+			const now = stateOf(path);
+			if (now.reading?.tick === tick) now.reading = undefined;
+			// The status tells the newest read's outcome. An older failure tells
+			// nothing a newer read or a save since it started already answered;
+			// its own callers still get it.
+			if (outcome.error === null) readFine(path, tick);
+			else if (tick > now.statusAt && tick > now.docAt) {
+				now.statusAt = tick;
+				now.error = outcome.error;
+			}
+			publish(path);
+			finishRead();
+		});
+		return done;
+	}
+
+	function finishRead() {
+		if (--reads > 0) return;
+		for (const path of [...states.keys()]) prune(path);
+	}
+
+	/** One `read()`: read again, joining the reread, while a reported change overtakes it. */
+	async function read<T>(
+		path: string,
+		answer: () => T,
+	): Promise<Result<T, ReadError>> {
+		if (closing !== undefined) throw new Error('The folder is closed');
+		for (let attempt = 0; attempt < READ_ATTEMPTS; attempt++) {
+			const outcome = await readPath(path, states.get(path)?.asOf ?? floor);
+			if (outcome.error !== null) return { data: null, error: outcome.error };
+			if (outcome.newest) break;
+			// Overtaken: what it read is held as older than the reported change,
+			// which another read answers next.
+		}
+		return Ok(answer());
 	}
 
 	const isLocked = (state: PathState | undefined) =>
@@ -687,38 +911,22 @@ export function createEditOwner({
 		return flush(path);
 	}
 
-	/** A save's outcome, with the commit it landed as when it did. */
-	async function landedAs(saving: Promise<Result<unknown, SaveError>>) {
-		const { error } = await saving;
-		return { error, at: receipt(saving) };
-	}
-
 	async function send(
 		path: string,
 		input: Input,
-	): Promise<{
-		error: SaveError | null;
-		at?: number | undefined;
-		prepared?: Prepared;
-	}> {
+	): Promise<{ error: SaveError | null; prepared?: Prepared }> {
 		try {
 			switch (input.kind) {
 				case 'text':
-					return await landedAs(
-						files.write(path, input.from, input.pending.text),
-					);
+					return await files.write(path, input.from, input.pending.text);
 				case 'row': {
-					const { table, id, fields, body } = input.pending;
-					return await landedAs(
-						rowsOf(table).set(id, baseOf(input), {
-							// Typing only the body is no field edit, which a row whose
-							// frontmatter does not parse would refuse.
-							fields:
-								Object.keys(fields).length === 0
-									? undefined
-									: (fields as Record<string, unknown>),
-							body,
-						}),
+					const { table, id } = input.pending;
+					// Typing only the body is no field edit, which a row whose
+					// frontmatter does not parse would refuse.
+					return await rowsOf(table).set(
+						id,
+						baseOf(input),
+						changeOf(input.pending),
 					);
 				}
 				case 'fields': {
@@ -739,7 +947,7 @@ export function createEditOwner({
 								.error,
 						};
 					return {
-						...(await landedAs(files.write(path, read, patched.data.text))),
+						...(await files.write(path, read, patched.data.text)),
 						prepared: { read, sent: patched.data.text },
 					};
 				}
@@ -749,117 +957,21 @@ export function createEditOwner({
 		}
 	}
 
-	/**
-	 * The path's own contributions over `content`: the last whole text in place
-	 * of it, then later fields and body. `undefined` when there are none.
-	 */
-	function ownOver(
-		path: string,
-		retained: Retained | undefined,
-		content: FileContent | undefined,
-		after = -1,
-	): FileContent | undefined {
-		if (retained === undefined) return undefined;
-		const text =
-			retained.text !== undefined && retained.text.commit > after
-				? retained.text.content
-				: undefined;
-		let fields: Record<string, unknown> | undefined;
-		for (const [key, unit] of retained.fields)
-			if (unit.commit > after)
-				fields = withValue(fields ?? {}, key, unit.value);
-		const body =
-			retained.body !== undefined && retained.body.commit > after
-				? retained.body.value
-				: undefined;
-		const start = text ?? content;
-		if (start === undefined) return undefined;
-		if (fields === undefined && body === undefined)
-			return text === undefined ? undefined : start;
-		const put = changed(path, start, { fields, body });
-		return put.error === null ? put.data.text : text;
-	}
-
-	/**
-	 * Keep what a landed save meant as the path's committed contribution.
-	 * Whole text keeps only what the person changed over the source it was
-	 * typed over, composed onto the own saves that source did not yet hold, so
-	 * a text typed over an older view neither drops an own field save nor adds
-	 * what storage merged in that the person never saw, and one typed over a
-	 * newer view does not bring back an own save it superseded. A body is
-	 * composed the same way, from its own base's age.
-	 */
-	async function commit(
-		path: string,
-		state: PathState,
-		input: Input,
-		at: number,
-	) {
-		state.retained ??= {
-			text: undefined,
-			fields: new Map(),
-			body: undefined,
-		};
-		const retained = state.retained;
-		if (input.kind === 'text') {
-			const earlier = ownOver(path, retained, input.from, input.fromAsOf);
-			const composed =
-				earlier === undefined
-					? input.pending.text
-					: (
-							await merge(path, {
-								base: input.from,
-								current: earlier,
-								change: input.pending.text,
-							})
-						).content;
-			retained.text = { content: composed ?? input.pending.text, commit: at };
-			retained.fields.clear();
-			retained.body = undefined;
-			return;
-		}
-		const bases = input.kind === 'row' ? input.bases.fields : undefined;
-		for (const [key, value] of Object.entries(input.pending.fields)) {
-			// A field sent as the person saw it changed nothing of theirs.
-			if (bases !== undefined && Object.is(fieldValue(bases, key), value))
-				continue;
-			retained.fields.set(key, { value, commit: at });
-		}
-		if (input.kind !== 'row' || input.pending.body === undefined) return;
-		const { body: base, bodyAsOf } = input.bases;
-		// A body save is newer than any whole text, which clears it.
-		const earlier =
-			retained.body !== undefined && retained.body.commit > bodyAsOf
-				? retained.body.value
-				: retained.text !== undefined && retained.text.commit > bodyAsOf
-					? readDocument(
-							path,
-							bytesOf(ownOver(path, retained, undefined, bodyAsOf) ?? ''),
-						).body
-					: undefined;
-		const body =
-			earlier === undefined || base === undefined
-				? input.pending.body
-				: mergeText(base, earlier, input.pending.body);
-		if (base !== body) retained.body = { value: body, commit: at };
-	}
-
 	/** Keep what remains of the input once the save of `before` landed. */
 	async function landed(
 		path: string,
 		state: PathState,
 		before: Input,
 		prepared: Prepared | undefined,
-		at: number,
 	) {
 		const after = state.input;
 		if (after === undefined) return;
 		const cleared = { saving: false, error: undefined };
 		if (after.kind === 'row' && before.kind === 'row') {
-			// Typing after a view showed the sent input already merged into it, so
-			// a unit the save sent now starts from what it sent, and one that
-			// still holds exactly that is done. A unit first typed while the
-			// save ran keeps the base it was typed over.
+			// Typing during the save was over the input as sent, so a unit the
+			// save sent now starts from what it sent, and one that still holds
+			// exactly that is done. A unit first typed while the save ran keeps
+			// the base it was typed over.
 			const sent: Record<string, unknown> = before.pending.fields;
 			let fields: Record<string, unknown> = {};
 			let bases: Record<string, unknown> = {};
@@ -885,10 +997,6 @@ export function createEditOwner({
 				bases: {
 					fields: bases,
 					body: body === undefined ? undefined : (sentBody ?? after.bases.body),
-					bodyAsOf:
-						body !== undefined && sentBody !== undefined
-							? at
-							: after.bases.bodyAsOf,
 				},
 				pending: { ...after.pending, fields, body, ...cleared },
 			});
@@ -903,7 +1011,6 @@ export function createEditOwner({
 					: {
 							...after,
 							from: before.pending.text,
-							fromAsOf: at,
 							pending: { ...after.pending, ...cleared },
 						},
 			);
@@ -925,15 +1032,21 @@ export function createEditOwner({
 			return;
 		}
 		setInput(path, state, withState(after, cleared));
+		if (before.kind === 'row') {
+			const base = baseOf(before);
+			const sent = rowChange(base, changeOf(before.pending));
+			if (sent.error === null)
+				prepared = { read: bytesOf(base.text), sent: sent.data.text };
+		}
 		if (
 			after.kind !== 'text' ||
-			before.kind !== 'fields' ||
+			(before.kind !== 'fields' && before.kind !== 'row') ||
 			prepared === undefined
 		)
 			return;
-		// Text typed over the field patch while it saved keeps the source the
+		// Text typed over a row or field patch while it saved keeps the content the
 		// person saw, which may lack a change the save merged from storage.
-		// Rebase that source by what the patch sent, so the landed fields are
+		// Rebase that content by what the patch sent, so the landed fields are
 		// in it and a later revert of them in the text is a change.
 		const rebased = await merge(path, {
 			base: prepared.read,
@@ -946,7 +1059,7 @@ export function createEditOwner({
 			now.from === after.from &&
 			rebased.content !== null
 		)
-			setInput(path, state, { ...now, from: rebased.content, fromAsOf: at });
+			setInput(path, state, { ...now, from: rebased.content });
 	}
 
 	async function drain(path: string, state: PathState) {
@@ -960,11 +1073,7 @@ export function createEditOwner({
 					state,
 					withState(input, { saving: true, error: input.pending.error }),
 				);
-				const sent = await send(path, input);
-				const { error, prepared } = sent;
-				// The commit this save landed as: reads started from it on show it.
-				// Unknown only for a save no notice named; then every commit so far.
-				const at = sent.at ?? commits;
+				const { error, prepared } = await send(path, input);
 				const settled = state.input;
 				if (settled === undefined) return;
 				if (error !== null) {
@@ -984,11 +1093,10 @@ export function createEditOwner({
 					if (state.input?.revision === input.revision) return;
 					continue;
 				}
-				await commit(path, state, input, at);
-				const after = state.input;
-				if (after === undefined) return;
-				if (after.revision === input.revision) setInput(path, state, undefined);
-				else await landed(path, state, input, prepared, at);
+				// The document already holds what storage kept (`stored`).
+				if (settled.revision === input.revision)
+					setInput(path, state, undefined);
+				else await landed(path, state, input, prepared);
 				// Close drains eligible input accepted before its fence, including
 				// input a listener added as this attempt finished.
 			} while (state.again || closing !== undefined);
@@ -1069,7 +1177,7 @@ export function createEditOwner({
 		return work;
 	}
 
-	/** Delete the file as `action` finds it stored, forgetting own saves once it went. */
+	/** Delete the file as `action` finds it stored. */
 	async function remove(
 		path: string,
 		action: () => Promise<Result<{ deleted: boolean }, SaveError | ReadError>>,
@@ -1082,14 +1190,7 @@ export function createEditOwner({
 			}
 		});
 		if (outcome.error !== null) return outcome;
-		const removed = outcome.data;
-		const state = states.get(path);
-		// A file kept because it changed meanwhile keeps what this handle saved.
-		if (removed.error === null && removed.data.deleted && state !== undefined) {
-			state.retained = undefined;
-			publish(path);
-		}
-		return removed;
+		return outcome.data;
 	}
 
 	/** Let go of held input on request, unless a save or action of it runs. */
@@ -1105,110 +1206,170 @@ export function createEditOwner({
 	}
 
 	/**
-	 * Up to which commit a source shown over a read started at `read` holds or
-	 * supersedes own saves: the read, or the newest own save shown over it.
+	 * Listen to `path`; a document a reported change overtook is read again
+	 * for the new listener, and the last listener to stop lets go of a
+	 * document no input needs.
 	 */
-	function asOfShown(state: PathState | undefined, read: number) {
-		let asOf = read;
-		const retained = state?.retained;
-		if (retained === undefined) return asOf;
-		if (retained.text !== undefined)
-			asOf = Math.max(asOf, retained.text.commit);
-		if (retained.body !== undefined)
-			asOf = Math.max(asOf, retained.body.commit);
-		for (const unit of retained.fields.values())
-			asOf = Math.max(asOf, unit.commit);
-		return asOf;
+	function subscribeTo(path: string, listener: () => void) {
+		const state = stateOf(path);
+		const own = () => listener();
+		state.listeners.add(own);
+		if (
+			state.doc !== undefined &&
+			state.docAt < state.asOf &&
+			state.reading === undefined
+		)
+			rereadSoon(path);
+		return () => {
+			const current = states.get(path);
+			if (current === undefined || !current.listeners.delete(own)) return;
+			if (current.listeners.size > 0) return;
+			// A view that subscribes again in the same turn, as React and Svelte
+			// may when they re-run, keeps the document it showed.
+			queueMicrotask(() => {
+				const now = states.get(path);
+				if (now === undefined || now.listeners.size > 0) return;
+				if (now.input === undefined && now.running === undefined) {
+					// Let go of the bytes and everything read from them.
+					now.doc = undefined;
+					now.parsed = undefined;
+					now.decoded = undefined;
+					now.row = undefined;
+					now.text = undefined;
+				}
+				prune(path);
+			});
+		};
 	}
 
-	/** What `shown` answers for `observed`, computed once per read, input, and own save. */
-	function remembered<T>(
-		path: string,
-		observed: object | undefined,
-		compute: (state: PathState | undefined, read: number) => T,
-	): T {
-		const state = states.get(path);
-		const read = readOf(observed, self);
-		const version = state?.version ?? 0;
-		const memo = observed === undefined ? state?.missing : memos.get(observed);
+	/** `value` for what it depends on now, the same value while they hold. */
+	function kept<T>(
+		previous: Kept<T> | undefined,
+		state: PathState,
+		compute: () => T,
+	): Kept<T> {
 		if (
-			memo !== undefined &&
-			memo.path === path &&
-			memo.version === version &&
-			memo.read === read
+			previous !== undefined &&
+			previous.doc === state.doc &&
+			previous.input === state.input
 		)
-			return memo.value as T;
-		const value = compute(state, read);
-		const next = { path, version, read, value };
-		if (observed !== undefined) memos.set(observed, next);
-		else if (state !== undefined) state.missing = next;
-		return value;
+			return previous;
+		return { doc: state.doc, input: state.input, value: compute() };
+	}
+
+	/** The stored document of `path` read as row `id`. */
+	function storedRow(state: PathState, id: string, schema: TSchema) {
+		const content = state.doc;
+		if (content === undefined || content === null) return undefined;
+		if (state.parsed?.content !== content)
+			state.parsed = { content, row: readRow(id, content, schema) };
+		return state.parsed.row;
+	}
+
+	/** The stored document as text, or `undefined` when it is not text. */
+	function decodedOf(state: PathState, content: FileContent) {
+		if (state.decoded?.content !== content)
+			state.decoded = { content, text: textOf(content) };
+		return state.decoded.text;
+	}
+
+	function lockReason(state: PathState | undefined) {
+		return closing !== undefined ? CLOSING : state?.action?.reason;
+	}
+
+	/** Why typed fields do not apply over a row whose frontmatter does not parse. */
+	const UNAPPLIED: Issue = {
+		kind: 'frontmatter',
+		message: 'The typed fields do not apply to this file as it is stored.',
+		path: [],
+	};
+
+	/** The path's current text, with every applicable unsaved change over its document. */
+	function shownText(path: string, state: PathState): string | undefined {
+		const input = state.input;
+		if (input?.kind === 'text') return input.pending.text;
+		const doc = state.doc;
+		if (doc === undefined || doc === null) return undefined;
+		const stored = decodedOf(state, doc);
+		if (stored === undefined || input === undefined) return stored;
+		const put = changed(
+			path,
+			stored,
+			input.kind === 'row'
+				? changeOf(input.pending)
+				: { fields: input.pending.fields },
+		);
+		if (put.error === null) return put.data.text;
+		// A broken header may refuse fields while still accepting the held body.
+		// Unapplied fields remain in pending for copying, retry or explicit discard.
+		if (input.kind === 'row' && input.pending.body !== undefined) {
+			const body = changed(path, stored, { body: input.pending.body });
+			if (body.error === null) return body.data.text;
+		}
+		return stored;
 	}
 
 	function row(table: string, id: string): RowEdit {
 		const path = rowPath(table, id);
 		const schema: TSchema | undefined = schemas[table];
 		if (schema === undefined) throw new Error(`No table ${table}`);
-		const heldRow = () => {
-			const input = states.get(path)?.input;
-			return input?.kind === 'row' ? input : undefined;
+		/** Read the shared editable text as this table's row. */
+		function shown(state: PathState): Row | undefined {
+			const stored = storedRow(state, id, schema as TSchema);
+			const input = state.input;
+			if (stored === undefined || input === undefined) return stored;
+			const text = shownText(path, state);
+			const row =
+				text === undefined ? stored : readRow(id, text, schema as TSchema);
+			if (input.kind === 'text' || parses(row)) return row;
+			// Fields that cannot be put into the source stay visible as invalid input.
+			return {
+				...row,
+				fields: { ...fieldsOf(row), ...input.pending.fields },
+				body: input.kind === 'row' ? (input.pending.body ?? row.body) : row.body,
+				issues: row.issues ?? [UNAPPLIED],
+			} as Row;
+		}
+		const getRow = (): Row | undefined => {
+			const state = states.get(path);
+			if (state === undefined) return undefined;
+			state.row = kept(state.row, state, () => shown(state));
+			return state.row.value;
+		};
+		const getReadStatus = () => {
+			const state = states.get(path);
+			return state === undefined ? NOTHING : statusOf(state);
 		};
 		return {
 			path,
-			get pending() {
-				return heldRow()?.pending;
-			},
-			get locked() {
-				return isLocked(states.get(path));
-			},
-			subscribe,
-			shown<TRow extends Row>(observed: TRow) {
-				return remembered(path, observed, (state, read) => {
-					const own = ownOver(path, state?.retained, observed.text, read);
-					const source = (
-						own === undefined
-							? { ...observed }
-							: readRow(observed.id, own, schema)
-					) as TRow;
-					const input = state?.input;
-					const shownRow =
-						input?.kind === 'row'
-							? ({
-									...source,
-									fields: { ...fieldsOf(source), ...input.pending.fields },
-									body: input.pending.body ?? source.body,
-								} as TRow)
-							: source;
-					presentations.set(source, {
-						kind: 'row',
-						path,
-						asOf: asOfShown(state, read),
-						fields: fieldsOf(shownRow),
-						body: shownRow.body,
-					});
-					return { source, row: shownRow };
-				});
-			},
-			change(source, change) {
+			getRow,
+			getPending: () => states.get(path)?.input?.pending,
+			isLocked: () => isLocked(states.get(path)),
+			getReadStatus,
+			read: () => read(path, getRow),
+			subscribe: (listener) => subscribeTo(path, listener),
+			change(change) {
 				const state = states.get(path);
-				const reason = closing !== undefined ? CLOSING : state?.action?.reason;
+				const reason = lockReason(state);
 				if (reason !== undefined) return ChangeError.Locked({ reason });
 				const input = state?.input;
-				if (input !== undefined && input.kind !== 'row')
-					return ChangeError.OtherInput({ held: input.kind });
 				const typed = (change.fields ?? {}) as Record<string, unknown>;
 				const keys = Object.keys(typed);
 				if (keys.length === 0 && change.body === undefined)
 					return Ok(undefined);
-				const presented = presentations.get(source);
-				const seen =
-					presented?.kind === 'row' && presented.path === path
-						? presented
-						: {
-								fields: fieldsOf(source),
-								body: source.body,
-								asOf: readOf(source, self),
-							};
+				const stored =
+					state === undefined ? undefined : storedRow(state, id, schema);
+				if (stored === undefined) return ChangeError.NoSource();
+				if (notText(stored)) return ChangeError.NotText();
+				if (input !== undefined && input.kind !== 'row') {
+					const current = shown(state as PathState);
+					const put = rowChange(current as Row, change);
+					if (put.error !== null)
+						return ChangeError.InvalidFields({ reason: put.error.reason });
+					return text(path).change(put.data.text);
+				}
+				// A unit not held yet starts from the document it is typed over;
+				// one already held is replaced, a revert included.
 				let fields: Record<string, unknown> = input?.pending.fields ?? {};
 				let baseFields = input?.bases.fields ?? {};
 				for (const key of keys) {
@@ -1216,59 +1377,50 @@ export function createEditOwner({
 						baseFields = withValue(
 							baseFields,
 							key,
-							fieldValue(seen.fields, key),
+							fieldValue(fieldsOf(stored), key),
 						);
 					fields = withValue(fields, key, typed[key]);
 				}
 				let body = input?.pending.body;
 				let baseBody = input?.bases.body;
-				let bodyAsOf = input?.bases.bodyAsOf ?? -1;
 				if (change.body !== undefined) {
-					if (body === undefined) {
-						baseBody = seen.body;
-						bodyAsOf = seen.asOf;
-						body = change.body;
-					}
-					// A view that showed older input changed that, not what is held.
-					else
-						body =
-							seen.body === body
-								? change.body
-								: mergeText(seen.body, body, change.body);
+					if (body === undefined) baseBody = stored.body;
+					body = change.body;
 				}
-				const typedSource = ownSource(source);
+				const source: Source = { text: stored.text, issues: stored.issues };
+				const pending: RowPending = {
+					kind: 'row',
+					path,
+					table,
+					id,
+					fields,
+					body,
+					saving: input?.pending.saving ?? false,
+					error: undefined,
+				};
+				// Over a source that parses, what is typed must make a row.
+				if (parses(source)) {
+					const put = rowChange(source, changeOf(pending));
+					if (put.error !== null)
+						return ChangeError.InvalidFields({ reason: put.error.reason });
+				}
 				const next = stateOf(path);
 				setInput(path, next, {
 					kind: 'row',
-					pending: {
-						kind: 'row',
-						path,
-						table,
-						id,
-						fields,
-						body,
-						saving: input?.pending.saving ?? false,
-						error: undefined,
-					},
+					pending,
 					source:
-						input === undefined || parses(typedSource) || !parses(input.source)
-							? typedSource
+						input === undefined || parses(source) || !parses(input.source)
+							? source
 							: input.source,
-					bases: { fields: baseFields, body: baseBody, bodyAsOf },
+					bases: { fields: baseFields, body: baseBody },
 					revision: ++revisions,
 				});
 				schedule(path, next);
 				return Ok(undefined);
 			},
-			save: () =>
-				heldRow() === undefined ? Promise.resolve() : requested(path),
-			retry: () =>
-				heldRow() === undefined ? Promise.resolve() : requested(path, true),
-			discard() {
-				if (heldRow() === undefined) return undefined;
-				const pending = discard(path);
-				return pending?.kind === 'row' ? pending : undefined;
-			},
+			save: () => requested(path),
+			retry: () => requested(path, true),
+			discard: () => discard(path),
 			delete: () =>
 				remove(path, async () => {
 					const rows = rowsOf(table);
@@ -1281,110 +1433,62 @@ export function createEditOwner({
 	}
 
 	function text(path: string): TextEdit {
-		const heldText = () => {
-			const input = states.get(path)?.input;
-			return input?.kind === 'text' || input?.kind === 'fields'
-				? input
-				: undefined;
+		const getText = (): string | undefined => {
+			const state = states.get(path);
+			if (state === undefined) return undefined;
+			state.text = kept(state.text, state, () => shownText(path, state));
+			return state.text.value;
 		};
+		/** The stored text a new input starts from, or why there is none. */
+		function storedText(
+			state: PathState | undefined,
+		): Result<string, ChangeError> {
+			const doc = state?.doc;
+			if (state === undefined || doc === undefined || doc === null)
+				return ChangeError.NoSource();
+			const stored = decodedOf(state, doc);
+			return stored === undefined ? ChangeError.NotText() : Ok(stored);
+		}
 		return {
 			path,
-			get pending() {
-				return heldText()?.pending;
-			},
-			get locked() {
-				return isLocked(states.get(path));
-			},
-			subscribe,
-			shown(observed) {
-				if (observed === undefined && !states.has(path)) return NOTHING_SHOWN;
-				return remembered(path, observed, (state, read) => {
-					const input = state?.input;
-					if (observed === undefined) {
-						// Nothing observed is no source to type over; own saved text
-						// stays readable.
-						const own = ownOver(path, state?.retained, undefined);
-						return {
-							source: undefined,
-							text:
-								input?.kind === 'text'
-									? input.pending.text
-									: own === undefined
-										? undefined
-										: textOf(own),
-						};
-					}
-					const own = ownOver(path, state?.retained, observed, read);
-					const source =
-						own === undefined ? observed.subarray() : bytesOf(own).slice();
-					let shownText: string | undefined;
-					let from: FileContent | undefined;
-					if (input?.kind === 'text') shownText = from = input.pending.text;
-					else if (input?.kind === 'fields') {
-						const put = changed(path, source, { fields: input.pending.fields });
-						shownText = from = put.error === null ? put.data.text : undefined;
-					} else {
-						shownText = decoder.decode(source);
-						from = source;
-					}
-					presentations.set(source, {
-						kind: 'text',
-						path,
-						asOf: asOfShown(state, read),
-						text: shownText,
-						from,
-					});
-					return { source, text: shownText };
-				});
-			},
-			change(source, typed) {
+			getText,
+			getPending: () => states.get(path)?.input?.pending,
+			isLocked: () => isLocked(states.get(path)),
+			getReadStatus: () => {
 				const state = states.get(path);
-				const reason = closing !== undefined ? CLOSING : state?.action?.reason;
+				return state === undefined ? NOTHING : statusOf(state);
+			},
+			read: () => read(path, getText),
+			subscribe: (listener) => subscribeTo(path, listener),
+			change(typed) {
+				const state = states.get(path);
+				const reason = lockReason(state);
 				if (reason !== undefined) return ChangeError.Locked({ reason });
 				const input = state?.input;
-				if (input?.kind === 'row')
-					return ChangeError.OtherInput({ held: input.kind });
-				const presented =
-					source === undefined ? undefined : presentations.get(source);
-				const seen =
-					presented?.kind === 'text' && presented.path === path
-						? presented
-						: undefined;
-				// What the person saw: the text a shown source's view showed, or
-				// other bytes as they decode. A view that saw other text than is
-				// held changed that text; its change is merged into what is held.
-				const seenText =
-					seen?.text ??
-					(source === undefined ? undefined : decoder.decode(source));
-				const over = (held: string) =>
-					seenText === undefined || seenText === held
-						? typed
-						: mergeText(seenText, held, typed);
 				let from: FileContent;
-				let fromAsOf: number;
-				let next = typed;
-				if (input?.kind === 'text') {
-					({ from, fromAsOf } = input);
-					next = over(input.pending.text);
+				if (input?.kind === 'text') from = input.from;
+				else if (input?.kind === 'row') {
+					const stored = storedText(state);
+					if (stored.error !== null) return stored;
+					const preview = changed(path, stored.data, changeOf(input.pending));
+					if (preview.error !== null)
+						return ChangeError.InvalidFields({ reason: preview.error.reason });
+					// Untyped units start from the latest document the person saw;
+					// only the row's held units keep their earlier merge bases.
+					from = baseOf({ ...input, source: readDocument(path, bytesOf(stored.data)) }).text;
 				} else {
-					if (source === undefined) return ChangeError.NoSource();
-					fromAsOf = seen?.asOf ?? readOf(source, self);
+					const stored = storedText(state);
+					if (stored.error !== null) return stored;
 					if (input?.kind === 'fields') {
-						// Failed fields are recovered first: retried or discarded.
-						if (input.pending.error !== undefined)
-							return ChangeError.FieldsUnsaved({ cause: input.pending.error });
-						const preview = changed(path, source, {
+						const preview = changed(path, stored.data, {
 							fields: input.pending.fields,
 						});
 						if (preview.error !== null)
 							return ChangeError.InvalidFields({
 								reason: preview.error.reason,
 							});
-						// The held fields stay: a view that did not show them changed
-						// the text without them.
-						next = over(preview.data.text);
-						from = source.slice();
-					} else from = owned(seen?.from ?? source);
+					}
+					from = owned(state?.doc as FileContent);
 				}
 				const target = stateOf(path);
 				setInput(path, target, {
@@ -1392,24 +1496,23 @@ export function createEditOwner({
 					pending: {
 						kind: 'text',
 						path,
-						text: next,
+						text: typed,
 						saving: input?.pending.saving ?? false,
 						error: undefined,
 					},
 					from,
-					fromAsOf,
 					revision: ++revisions,
 				});
 				schedule(path, target);
 				return Ok(undefined);
 			},
-			changeFields(source, fields) {
+			changeFields(fields) {
 				const state = states.get(path);
-				const reason = closing !== undefined ? CLOSING : state?.action?.reason;
+				const reason = lockReason(state);
 				if (reason !== undefined) return ChangeError.Locked({ reason });
 				const input = state?.input;
 				if (input?.kind === 'row')
-					return ChangeError.OtherInput({ held: input.kind });
+					return row(input.pending.table, input.pending.id).change({ fields });
 				let next: TextInput | FieldsInput;
 				if (input?.kind === 'text') {
 					const put = changed(path, input.pending.text, { fields });
@@ -1425,13 +1528,18 @@ export function createEditOwner({
 						revision: ++revisions,
 					};
 				} else {
-					if (source === undefined) return ChangeError.NoSource();
 					let patch: Record<string, unknown> = input?.pending.fields ?? {};
 					for (const [key, value] of Object.entries(fields))
 						patch = withValue(patch, key, value);
-					const put = changed(path, source, { fields: patch });
-					if (put.error !== null)
-						return ChangeError.InvalidFields({ reason: put.error.reason });
+					// A patch applies to the file as stored when it saves, so it
+					// needs nothing read; what is known must take it.
+					if (state?.doc !== undefined) {
+						const stored = storedText(state);
+						if (stored.error !== null) return stored;
+						const put = changed(path, stored.data, { fields: patch });
+						if (put.error !== null)
+							return ChangeError.InvalidFields({ reason: put.error.reason });
+					}
 					next = {
 						kind: 'fields',
 						pending: {
@@ -1449,15 +1557,9 @@ export function createEditOwner({
 				schedule(path, target);
 				return Ok(undefined);
 			},
-			save: () =>
-				heldText() === undefined ? Promise.resolve() : requested(path),
-			retry: () =>
-				heldText() === undefined ? Promise.resolve() : requested(path, true),
-			discard() {
-				if (heldText() === undefined) return undefined;
-				const pending = discard(path);
-				return pending?.kind === 'row' ? undefined : pending;
-			},
+			save: () => requested(path),
+			retry: () => requested(path, true),
+			discard: () => discard(path),
 			delete: () =>
 				remove(path, async () => {
 					const stored = await files.read(path);
@@ -1494,17 +1596,88 @@ export function createEditOwner({
 		get aggregate() {
 			return aggregate;
 		},
-		/** The commit count a read starting now notes. */
-		get commits() {
-			return commits;
+		/** A read of the handle starts: answers its tick, for the answer it gives. */
+		startRead() {
+			reads++;
+			return ++clock;
 		},
-		/** A save of this handle landed: reads starting from now show it. Answers its commit. */
-		committed() {
-			return ++commits;
+		/** A read of the handle started at `tick` ended, answered or not. */
+		endRead() {
+			finishRead();
 		},
-		/** Note that a read of this handle started at commit count `read` answered `value`. */
-		noteRead(value: object, read: number) {
-			noteRead(value, self, read);
+		/** The tick of something that just happened, such as a save's commit. */
+		now() {
+			return ++clock;
+		},
+		/** Whether `path` holds a document a file read should keep current. */
+		holds(path: string) {
+			return states.get(path)?.doc !== undefined;
+		},
+		/** A list of `table` started at `tick` answered `rows`: every row of it. */
+		listed(table: string, tick: number, rows: readonly Row[]) {
+			const listedPaths = new Set<string>();
+			for (const listedRow of rows) {
+				const path = rowPath(table, listedRow.id);
+				listedPaths.add(path);
+				// A row that is not text comes without its bytes.
+				if (notText(listedRow)) overtaken(path);
+				else answered(path, tick, listedRow.text, true);
+				readFine(path, tick);
+			}
+			const prefix = `${table}/`;
+			for (const [path, state] of [...states])
+				if (
+					path.startsWith(prefix) &&
+					path.endsWith('.md') &&
+					!path.slice(prefix.length).includes('/') &&
+					state.doc !== undefined &&
+					!listedPaths.has(path)
+				) {
+					answered(path, tick, null, false);
+					readFine(path, tick);
+				}
+		},
+		/** A get of row `id` started at `tick` answered `found`. */
+		got(table: string, id: string, tick: number, found: Row | undefined) {
+			const path = rowPath(table, id);
+			if (found !== undefined && notText(found)) overtaken(path);
+			else answered(path, tick, found === undefined ? null : found.text, true);
+			readFine(path, tick);
+		},
+		/** A read of file `path` started at `tick` answered `content`; kept only for a path held. */
+		readFile(path: string, tick: number, content: Uint8Array | null) {
+			if (answered(path, tick, content, false)) readFine(path, tick);
+		},
+		/**
+		 * A save of the handle that committed at `tick` stored `content` at
+		 * `path`, or `null` for no file: newer than any read started before the
+		 * commit, older than one started after it. Kept only for a path whose
+		 * document is known or being read; an action's or a direct save's bytes
+		 * are not held for anyone. `undefined` when what it kept is unknown, as
+		 * for a delete that kept a file changed meanwhile.
+		 */
+		stored(path: string, content: Known, tick: number) {
+			if (content === undefined) return overtaken(path);
+			const state = states.get(path);
+			if (state === undefined) {
+				if (reads > 0) know(path, stateOf(path), undefined, tick);
+				return;
+			}
+			if (state.doc === undefined && state.reading === undefined) {
+				// Nothing older that a list may still answer replaces it either.
+				state.docAt = Math.max(state.docAt, tick);
+				return;
+			}
+			answered(path, tick, content === null ? null : owned(content), true);
+		},
+		/** Another handle, or a sync, changed `paths`, or any path for `null`. */
+		changed(paths: readonly string[] | null) {
+			if (paths === null) {
+				floor = ++clock;
+				for (const path of [...states.keys()]) overtaken(path);
+				return;
+			}
+			for (const path of paths) overtaken(path);
 		},
 	};
 }

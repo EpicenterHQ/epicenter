@@ -1,10 +1,8 @@
 <!--
 	One transformation: its instructions, model, results, and a place to try
-	it. The fields come from the transformations listing in the cache, and
-	Source from the file's own text query. The title and model are held here
-	while typed and sent after a pause, as sets of the file as it is now
-	(ADR-0576); the instructions are the file's body, saved as the change from
-	the row it started from. Run sends what is typed first.
+	it. The folder's row edit holds title, model and instructions together;
+	its text edit holds source input. They save after a pause and merge with
+	changes saved elsewhere. Run sends what is typed first.
 -->
 <script lang="ts">
 	import { unsavedText } from '@epicenter/svelte/write-failure';
@@ -69,22 +67,25 @@
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	/**
-	 * This view's row and text: each shows the view's own read with own saves
-	 * and what is typed over it, and typing names what it last showed.
+	 * This view's row and text: the folder's edits of the file, each as
+	 * stored with what is typed over it.
 	 */
 	// svelte-ignore state_referenced_locally
-	const rowView = library.rowView(TRANSFORMATIONS, own);
+	const rowEdit = library.rowEdit(TRANSFORMATIONS, own);
 	const context = getFolder();
+	/** What the file is while it shows as text; its reads keep the text edit current. */
 	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
 	// svelte-ignore state_referenced_locally
-	const textView = library.textView(own, () =>
-		opened.data?.kind === 'text' ? opened.data.bytes : undefined,
-	);
-	/** The transformation as shown, while its fields are what is edited: as typed, or as the cache holds it. */
-	const row = $derived(asText ? undefined : rowView.row);
-	/** The file's text as typed while an edit is unsaved, else as read with own saves. */
+	const textEdit = library.textEdit(own);
+	/** The transformation as shown, while its fields are what is edited and it reads as one. */
+	const row = $derived.by(() => {
+		if (asText) return undefined;
+		const shown = rowEdit.row;
+		return shown?.issues === null ? shown : undefined;
+	});
+	/** The file's text as typed while an edit is unsaved, else as stored. */
 	const source = $derived(
-		asText && (textView.pending !== undefined || opened.data?.kind === 'text') ? textView.text : undefined,
+		asText && (textEdit.pending !== undefined || opened.data?.kind === 'text') ? textEdit.text : undefined,
 	);
 	/**
 	 * The file as last saved, while its text is what is edited: a recipe when
@@ -93,43 +94,26 @@
 	 */
 	const saved = $derived(asText ? library.rowSource(TRANSFORMATIONS, path) : undefined);
 	const issues = $derived(saved?.issues ?? undefined);
-	/**
-	 * A field typed here and not yet saved, over what this view shows: each
-	 * sent a second after the last keystroke, when the person leaves it, and
-	 * when the view goes away, as a set of the file as it is now (ADR-0576).
-	 */
-	// svelte-ignore state_referenced_locally
-	const titleDraft = library.fieldOf<typeof TRANSFORMATIONS, 'title'>(rowView, 'title');
-	// svelte-ignore state_referenced_locally
-	const modelDraft = library.fieldOf<typeof TRANSFORMATIONS, 'model'>(rowView, 'model');
-	const typedTitle = $derived(titleDraft.typed);
-	const typedModel = $derived(modelDraft.typed);
-	/** Send everything typed here now: the fields, the instructions, and the text. */
+	/** Send the row or source input held by the folder. */
 	function flush() {
-		void titleDraft.save();
-		void modelDraft.save();
-		void library.saveBody(own);
-		void library.saveText(own);
+		void rowEdit.save();
 	}
-	// The drafts outlive the view; send now.
+	// The edits outlive the view; send now.
 	onDestroy(flush);
 
-	/** The recipe as typed: its fields with what is typed here, or its saved text when it reads. */
-	const recipe = $derived.by(() => {
-		if (row === undefined)
-			return saved !== undefined && saved.issues === null ? { fields: saved.fields, body: saved.body } : undefined;
-		const fields: TransformationFields = { ...row.fields };
-		if (typedTitle !== undefined) fields.title = typedTitle;
-		if (typedModel !== undefined) fields.model = typedModel;
-		return { fields, body: row.body };
-	});
+	/** The row already includes typed fields and body; source mode uses the last valid saved recipe. */
+	const recipe = $derived(
+		row ? { fields: row.fields, body: row.body }
+			: saved?.issues === null ? { fields: saved.fields, body: saved.body }
+				: undefined,
+	);
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
 	const pending = $derived(library.heldAt(path));
 	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
 
 	/** Set fields of the transformation as its file is now, at once. */
-	const set = (fields: Partial<TransformationFields>) => library.setFields(rowView, fields);
+	const set = (fields: Partial<TransformationFields>) => library.setFields(rowEdit, fields);
 	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
 	const id = $derived(rowIdOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
@@ -270,10 +254,11 @@
 			</Button>
 		{/if}
 		{#if row}
+			{@const shown = row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => titleDraft.shown(row?.fields.title ?? ''), (value) => titleDraft.change(value)}
-				onblur={() => void titleDraft.save()}
+				bind:value={() => shown.fields.title, (value) => rowEdit.change({ fields: { title: value } })}
+				onblur={() => void rowEdit.save()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Transformation title"
@@ -300,7 +285,7 @@
 		</div>
 	{/if}
 
-	{#if row === undefined && pending !== undefined}
+	{#if (asText ? source === undefined : row === undefined) && pending !== undefined}
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
 			<Textarea readonly aria-label="Unsaved transformation changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
@@ -340,12 +325,13 @@
 				<Field.Field>
 					<Field.Label for="transformation-prompt">Instructions</Field.Label>
 					{#if row}
+						{@const shown = row}
 						<Textarea
 							id="transformation-prompt"
 							class="min-h-36 resize-y font-sans"
 							bind:value={
-								() => row?.body ?? '',
-								(value) => library.editBody(rowView, value)
+								() => shown.body,
+								(value) => library.editBody(rowEdit, value)
 							}
 							onblur={() => void library.saveBody(own)}
 							disabled={locked}
@@ -373,16 +359,17 @@
 						<Field.Field>
 							<Field.Label for="transformation-model">Model (optional)</Field.Label>
 							{#if row}
+								{@const shown = row}
 								<Input
 									id="transformation-model"
 									bind:value={
-										() => modelDraft.shown(row?.fields.model ?? null) ?? '',
+										() => shown.fields.model ?? '',
 										(value) => {
 											// An empty model uses the text connection's model.
-											modelDraft.change(value.trim() === '' ? null : value);
+											rowEdit.change({ fields: { model: value.trim() === '' ? null : value } });
 										}
 									}
-									onblur={() => void modelDraft.save()}
+									onblur={() => void rowEdit.save()}
 									disabled={locked}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
@@ -545,12 +532,13 @@
 		</Tabs.Content>
 		<Tabs.Content value="source" class="flex min-h-0 flex-1 flex-col gap-2">
 			{#if source !== undefined}
+				{@const shown = source}
 				<p class="text-xs text-muted-foreground">
 					The file’s exact text. It saves when you pause, readable or not.
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(source ?? ''), (value) => library.editText(textView, withFileNewlines(value, source ?? ''))}
+					bind:value={() => lf(shown), (value) => library.editText(textEdit, withFileNewlines(value, shown))}
 					onblur={() => void library.saveText(path)}
 					disabled={locked}
 					aria-label="Markdown source"

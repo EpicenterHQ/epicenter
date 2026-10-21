@@ -31,6 +31,7 @@
  *   a reload its row is unfinished
  * - Renaming a file saves its typing first and moves its exact bytes;
  *   recording and transformation files keep their names
+ * - Stop and Cancel wait for their own initial row save across overlapping captures
  * - Closing waits for accepted work
  */
 import { closeTestLibrary, openTestLibrary } from './library.test-support.js';
@@ -385,14 +386,11 @@ test('a title typed while recording is kept when the recording stops and gets it
 	await library.startRecording();
 	await quiet(library);
 	const entry = library.entries[0]!;
-	const title = library.fieldOf<'recordings', 'title'>(
-		library.rowView('recordings', entry.path),
-		'title',
-	);
+	const edit = library.rowEdit('recordings', entry.path);
 
-	title.change('Standup notes');
+	edit.change({ fields: { title: 'Standup notes' } });
 	await library.stopRecording();
-	await title.save();
+	await edit.save();
 	await settle(library);
 
 	expect(library.entries[0]!.row.fields).toMatchObject({
@@ -452,6 +450,61 @@ test('Cancel pressed while the row’s first save runs deletes the row once it i
 	expect(library.entries).toEqual([]);
 	expect(await recordingFiles(root)).toEqual([]);
 });
+
+for (const action of ['stop', 'cancel'] as const) {
+	test(`a first capture's ${action} waits for its own row while a second capture starts`, async () => {
+		const first = Promise.withResolvers<void>();
+		const second = Promise.withResolvers<void>();
+		const firstReached = Promise.withResolvers<void>();
+		const secondReached = Promise.withResolvers<void>();
+		let creates = 0;
+		const { library, root } = await open({
+			beforeRowCreate: async () => {
+				if (++creates === 1) {
+					firstReached.resolve();
+					await first.promise;
+				} else {
+					secondReached.resolve();
+					await second.promise;
+				}
+			},
+		});
+		const firstStart = library.startRecording();
+		await firstReached.promise;
+		const finishing =
+			action === 'stop'
+				? library.stopRecording()
+				: library.cancelRecording();
+		let finished = false;
+		void finishing.then(() => {
+			finished = true;
+		});
+		let secondStart: Promise<void> | undefined;
+		try {
+			await eventually(() => library.recorder.phase === 'idle');
+			secondStart = library.startRecording();
+			await secondReached.promise;
+			first.resolve();
+			await eventually(() => finished);
+			expect(library.recorder.phase).toBe('recording');
+			const saved = await readdir(join(root, 'recordings'));
+			expect(saved).toHaveLength(action === 'stop' ? 1 : 0);
+			if (action === 'stop')
+				expect(
+					await readFile(join(root, 'recordings', saved[0]!), 'utf8'),
+				).toContain('durationMs: 1000');
+		} finally {
+			first.resolve();
+			second.resolve();
+			await Promise.all([firstStart, secondStart, finishing]);
+		}
+		await library.stopRecording();
+		await settle(library);
+		expect(library.entries).toHaveLength(action === 'stop' ? 2 : 1);
+		for (const entry of library.entries)
+			expect(entry.row.fields.durationMs).toBe(1000);
+	});
+}
 
 test('cancel deletes the recording’s row', async () => {
 	const { library, root } = await open();
@@ -536,7 +589,7 @@ test('files an earlier version left in an ordinary directory read as they are, e
 	).toEqual(toneWav());
 
 	// Editing the notes keeps the field this version does not know.
-	const view = library.rowView('recordings', entry.path);
+	const view = library.rowEdit('recordings', entry.path);
 	expect(view.row?.body).toBeDefined();
 	library.editBody(view, 'My notes, edited\n');
 	await library.saveBody(entry.path);
@@ -1098,7 +1151,7 @@ test('recording and transformation files keep their names, and a transcript keep
 	expect(await library.rename(result.path, 'renamed.md')).toBeUndefined();
 	await settle(library);
 	expect(
-		library.rowView('transcriptions', 'transcriptions/renamed.md').row,
+		library.rowEdit('transcriptions', 'transcriptions/renamed.md').row,
 	).toBeDefined();
 	expect(library.resultsFor(entry.stem).map((item) => item.path)).toEqual([
 		'transcriptions/renamed.md',

@@ -1,7 +1,7 @@
 <!--
-	One capture as its text and thoughts. The view reads the capture listing
-	narrowed to this capture, so it never disagrees with the timeline, and
-	shows the capture's edit over it until the edit's saves land. A thought
+	One capture as its text and thoughts: the folder's edit of its row, the
+	capture as stored with what is typed over it, which the timeline's reads
+	keep current too, so the two never disagree. A thought
 	command saves at once; the capture text saves a second after the last
 	keystroke, when the person leaves it, and when this view goes away. "Edit
 	as text" opens the file's exact Markdown instead. The parent keys this
@@ -22,7 +22,6 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { createRowEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { type Captures, capturePath, describeFailure, instantOf } from '$lib/captures.svelte.js';
@@ -44,23 +43,25 @@
 
 	// The view is keyed by the capture, so neither changes for this view.
 	const path = untrack(() => capturePath(stem));
-	const entry = createQuery(() => captures.rowsQuery((rows) => rows.find((found) => found.id === stem)));
-	const stored = $derived(entry.data?.issues === null ? entry.data : undefined);
-	/** The capture's edit over the row this view shows. */
-	const edit = untrack(() => createRowEdit(captures.folder.tables.captures.edit(stem), () => stored));
-	/** The capture's form, its commands typing over what this view shows. */
-	const form = untrack(() => captures.formOf(stem).in(edit));
-	/** The row shown: its body the edit not saved yet, or the file's. */
-	const row = $derived(edit.row);
-	const pending = $derived(edit.pending);
+	/** The capture's form, typing into the folder's edit of it, which every view shows. */
+	const form = untrack(() => captures.formOf(stem));
+	const rowEdit = form.rowEdit;
+	// The folder watches no directory: this read, polled while the view
+	// shows, is how an edit made outside this page reaches it.
+	createQuery(() => captures.readQuery(rowEdit));
+	/** The capture as stored, its body the edit not saved yet, or the file's. */
+	const row = $derived(rowEdit.row);
+	const status = $derived(rowEdit.readStatus);
+	const stored = $derived(row?.issues === null ? row : undefined);
+	const pending = $derived(rowEdit.pending);
 	// The capture text typed saves after a pause, and when the person leaves
 	// it; the edit outlives the view, so send it now.
 	onDestroy(() => void form.flush());
 	/** The body as text and thoughts, or why it cannot be edited here. */
-	const reading = $derived(row === undefined ? undefined : captureBody.decode(row.body));
+	const reading = $derived(stored === undefined ? undefined : captureBody.decode(stored.body));
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
-	const capturedAt = $derived(instantOf(row?.fields.capturedAt));
+	const capturedAt = $derived(instantOf(stored?.fields.capturedAt));
 	/** Edits wait while closing and while this capture is deleted. */
 	const locked = $derived(captures.isLocked(stem));
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -107,7 +108,7 @@
 	/** Download the file as saved, once the edit held here is saved. */
 	async function download() {
 		await form.flush();
-		if (edit.pending !== undefined) {
+		if (rowEdit.pending !== undefined) {
 			toast.error('Could not download this capture', { description: 'Your edit is not saved yet. Save it again, then download.' });
 			return;
 		}
@@ -122,7 +123,7 @@
 			title: 'Discard your edit?',
 			description: `Copy anything you need first. ${path} keeps what was last saved.`,
 			confirm: { text: 'Discard edit', variant: 'destructive' },
-			onConfirm: () => void edit.discard(),
+			onConfirm: () => void rowEdit.discard(),
 		});
 	}
 
@@ -147,7 +148,7 @@
 			<Alert.Title>Your edit is not saved</Alert.Title>
 			<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-				<Button size="sm" variant="outline" onclick={() => void edit.retry()}>Save again</Button>
+				<Button size="sm" variant="outline" onclick={() => void rowEdit.retry()}>Save again</Button>
 				<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
 				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 			</div>
@@ -160,12 +161,12 @@
 		<div>
 			<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		</div>
-		{#if entry.data?.issues}
-			{@const unreadable = entry.data.issues.some((issue) => issue.kind === 'not-text')}
+		{#if row?.issues}
+			{@const unreadable = status.known === 'not-text'}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>{unreadable ? 'This capture could not be read' : 'This file does not read as a capture'}</Empty.Title>
-					<Empty.Description>{entry.data.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
+					<Empty.Description>{row.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
 				{#if !unreadable}
 					<Empty.Content>
@@ -173,7 +174,7 @@
 					</Empty.Content>
 				{/if}
 			</Empty.Root>
-		{:else if entry.isSuccess}
+		{:else if status.known === 'missing'}
 			{#if pending}
 				<!-- Deleted in another tab while an edit was held: saving it brings the capture back. -->
 				<Alert.Root aria-label="Edit kept">
@@ -183,7 +184,7 @@
 						<p>Saving your edit brings the capture back with it. Copy it, or discard it to let the capture go.</p>
 					</Alert.Description>
 					<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-						<Button size="sm" variant="outline" onclick={() => void edit.retry()}>Save again</Button>
+						<Button size="sm" variant="outline" onclick={() => void rowEdit.retry()}>Save again</Button>
 						<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
 						<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 					</div>
@@ -196,14 +197,14 @@
 					</Empty.Header>
 				</Empty.Root>
 			{/if}
-		{:else if entry.isError}
+		{:else if status.error}
 			<Empty.Root role="alert">
 				<Empty.Header>
-					<Empty.Title>Your captures could not be read</Empty.Title>
-					<Empty.Description>{entry.error.message}</Empty.Description>
+					<Empty.Title>This capture could not be read</Empty.Title>
+					<Empty.Description>{status.error.message}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content>
-					<Button variant="outline" size="sm" onclick={() => void entry.refetch()}>Try again</Button>
+					<Button variant="outline" size="sm" onclick={() => void rowEdit.read()}>Try again</Button>
 				</Empty.Content>
 			</Empty.Root>
 		{:else}

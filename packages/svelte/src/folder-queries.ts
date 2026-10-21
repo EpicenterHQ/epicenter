@@ -2,17 +2,16 @@
  * Query identity and readers for one opened folder. No query options are
  * retained here.
  *
- * Rows, documents and file reads carry the read that answered them, the
- * source an edit names (`@epicenter/folder`'s read notes). A newer read must
- * reach a view as its own values, so these queries turn structural sharing
- * off, which also applies to an observer's `select`: a cache that kept an
- * older equal value would show the view an older read than it was given.
+ * Queries list and derive; they own no editable document. The folder's edit
+ * of a row or file owns that (`@epicenter/svelte/edits`), and a row list or
+ * file read through these queries keeps it current.
  */
-import type { Folder, FolderFiles, Row } from '@epicenter/folder';
+import type { Folder, FolderFiles, ReadError, Row } from '@epicenter/folder';
 import { readDocuments } from '@epicenter/folder/documents';
 import type { DataTag, QueryFunctionContext } from '@tanstack/query-core';
 import type { TSchema } from 'typebox';
 import { defineKeys } from 'wellcrafted/query';
+import type { Result } from 'wellcrafted/result';
 
 export const folderKeys = defineKeys({
 	all: ['folder'],
@@ -21,6 +20,7 @@ export const folderKeys = defineKeys({
 	rows: (table: string) => ['folder', 'rows', table] as const,
 	file: (path: string, representation: string) =>
 		['folder', 'file', path, representation] as const,
+	read: (path: string) => ['folder', 'read', path] as const,
 });
 
 /** One decoded file value and the policy every observer of it shares. */
@@ -32,7 +32,7 @@ export type FileReader<TData> = {
 		query: QueryFunctionContext,
 	) => Promise<TData>;
 	gcTime?: number;
-	/** Off unless the value carries no source an edit names. */
+	/** TanStack Query's own default unless the representation says otherwise. */
 	structuralSharing?: boolean;
 };
 
@@ -59,7 +59,6 @@ export function createFolderQueries<TTables extends Record<string, TSchema>>(
 		rows<TName extends keyof TTables & string>(table: TName) {
 			return {
 				queryKey: folderKeys.rows(table),
-				structuralSharing: false,
 				queryFn: async (): Promise<Row<TTables[TName]>[]> => {
 					const listed = await folder.tables[table].list();
 					if (listed.error !== null) throw listed.error;
@@ -82,11 +81,30 @@ export function createFolderQueries<TTables extends Record<string, TSchema>>(
 		documents() {
 			return {
 				queryKey: folderKeys.documents,
-				structuralSharing: false,
 				queryFn: async () => {
 					const read = await readDocuments(folder.files);
 					if (read.error !== null) throw read.error;
 					return read.data;
+				},
+			};
+		},
+		/**
+		 * The file of `edit` read again while a view observes this query, on
+		 * the context's visible polling: the way an edit shown with no list
+		 * over its file learns of outside edits nothing reports. The edit owns
+		 * the document and its read status; a change the folder reports is
+		 * read by the edit itself, not through this query.
+		 */
+		read(edit: {
+			readonly path: string;
+			read(): Promise<Result<unknown, ReadError>>;
+		}) {
+			return {
+				queryKey: folderKeys.read(edit.path),
+				queryFn: async () => {
+					const { error } = await edit.read();
+					if (error !== null) throw error;
+					return null;
 				},
 			};
 		},
@@ -100,7 +118,7 @@ export function createFolderQueries<TTables extends Record<string, TSchema>>(
 				queryFn: (query: QueryFunctionContext) =>
 					reader.read(folder.files, path, query),
 				gcTime: reader.gcTime,
-				structuralSharing: reader.structuralSharing ?? false,
+				structuralSharing: reader.structuralSharing,
 			};
 		},
 	};

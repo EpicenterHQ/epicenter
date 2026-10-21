@@ -1,31 +1,32 @@
 /**
  * Folder Context Edit Tests
  *
- * Drives a folder's edit handles (`folder.tables.notes.edit(id)`) through
- * `createFolderContext` and the Svelte binding `createRowEdit`, over a real
- * local folder on an in-memory IndexedDB, with the rows query observed as a
- * view observes it. Replacing the folder's `list` holds or fails the
- * context's reread.
+ * Drives a folder's row edits through `createFolderContext` and the Svelte
+ * binding `createRowEdit(folder.tables.notes, id)`, over a real local folder
+ * on an in-memory IndexedDB, with the rows query observed as a list view
+ * observes it. Replacing the folder's `list` holds or fails the context's
+ * reread.
  *
  * Key behaviors:
- * - A save lands without waiting for the context's reread; until a read after
- *   it arrives, the binding shows the save over the older row, and typing on
- *   keeps it, also when the reread fails
- * - Every read reaches the view as new values, even when equal to the last
+ * - A save lands without waiting for the context's reread, and the binding
+ *   shows what storage kept, also when the reread fails; typing on keeps it
  * - A failed save shows in `saveState` and `failures` until saved
  * - Close refuses input and new actions, lets a started action write after an
  *   await, never waits for a reread, and answers copyable failures
- * - The binding re-runs a reader for its own path and its observed row,
- *   reads the current projection, lets go of its subscription when no
- *   view reads it, and a reused view follows its path while input stays held
+ * - The binding reads the row the first time a view shows it, and tells
+ *   loading, a missing row and a failed read apart; status-only reads and
+ *   commands read nothing
+ * - The binding re-runs for its own path only, types over what it shows, lets
+ *   go of its subscription when no view reads it, and a reused view follows
+ *   its path while input stays held
  *
  * See also:
- * - `packages/folder/src/edits.test.ts` for the edit owner's source rules
+ * - `packages/folder/src/edits.test.ts` for the edit owner's rules
  */
 import './svelte-modules.test-support.js';
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
-import type { Row } from '@epicenter/folder';
+import type { FolderTable } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import type { RowEdit } from '@epicenter/folder/edits';
 import { QueryObserver } from '@tanstack/query-core';
@@ -38,7 +39,6 @@ const { cell, follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync } = await import('svelte');
 
 const notes = Type.Object({ title: Type.String(), done: Type.Boolean() });
-type Note = Row<typeof notes>;
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
@@ -48,7 +48,7 @@ afterEach(async () => {
 const open = async (saveAfterMs?: number) =>
 	expectOk(await openFolder({ tables: { notes }, saveAfterMs }));
 
-/** A fresh profile holding `milk`, its context, and the rows a view observes. */
+/** A fresh profile holding `milk`, its context, and the rows a list observes. */
 async function setup({ saveAfterMs = 10, body = 'Two litres' } = {}) {
 	// The classes `fake-indexeddb/auto` installed, so `fillDisk` patches the
 	// store this profile writes through.
@@ -125,74 +125,81 @@ function fillDisk() {
 	return restore;
 }
 
-/** `edit` with its live subscriptions counted. */
-function counted(edit: RowEdit<typeof notes>) {
-	let live = 0;
-	const wrapped: RowEdit<typeof notes> = {
-		path: edit.path,
-		get pending() {
-			return edit.pending;
-		},
-		get locked() {
-			return edit.locked;
-		},
-		subscribe(listener) {
-			live++;
-			const stop = edit.subscribe(listener);
-			return () => {
-				live--;
-				stop();
-			};
-		},
-		shown: (observed) => edit.shown(observed),
-		change: (source, change) => edit.change(source, change),
-		save: () => edit.save(),
-		retry: () => edit.retry(),
-		discard: () => edit.discard(),
-		delete: () => edit.delete(),
+/** Make every IndexedDB read fail, until restored. */
+function failReads() {
+	const get = IDBObjectStore.prototype.get;
+	IDBObjectStore.prototype.get = () => {
+		throw new DOMException('The disk is gone', 'UnknownError');
 	};
-	return {
-		edit: wrapped,
-		get live() {
-			return live;
+	const restore = () => {
+		IDBObjectStore.prototype.get = get;
+	};
+	cleanup.push(restore);
+	return restore;
+}
+
+/** `table` with each edit's live subscriptions and reads counted. */
+function counted(table: FolderTable<typeof notes>) {
+	const live: Record<string, number> = {};
+	const reads: Record<string, number> = {};
+	const wrapped: FolderTable<typeof notes> = {
+		...table,
+		edit(id) {
+			const edit = table.edit(id);
+			return {
+				...edit,
+				subscribe(listener) {
+					live[id] = (live[id] ?? 0) + 1;
+					const stop = edit.subscribe(listener);
+					return () => {
+						live[id] = (live[id] ?? 0) - 1;
+						stop();
+					};
+				},
+				read() {
+					reads[id] = (reads[id] ?? 0) + 1;
+					return edit.read();
+				},
+			} satisfies RowEdit<typeof notes>;
 		},
 	};
+	return { table: wrapped, live, reads };
 }
 
 // ============================================================================
 // Saving through the context
 // ============================================================================
 
-test('a save lands without waiting for the reread, and the view shows it over the older row until the reread arrives', async () => {
+test('a save lands without waiting for the reread, and the view shows what storage kept', async () => {
 	const { folder, context, milk, cached } = await setup({
 		saveAfterMs: 60_000,
 	});
-	const view = createRowEdit(milk, () => cached());
+	const view = createRowEdit(folder.tables.notes, 'milk');
 	const reread = holdReread(folder);
 	view.change({ fields: { title: 'Oat milk' } });
 	await milk.save();
 	await until(() => reread.held > 0);
-	expect(milk.pending).toBeUndefined();
+	expect(milk.getPending()).toBeUndefined();
 	expect(context.getSaveState()).toBe('saved');
 	expect(cached().fields.title).toBe('Milk');
-	expect(view.row.fields.title).toBe('Oat milk');
+	expect(view.row?.fields.title).toBe('Oat milk');
 
 	// Typing on, over what the view shows, keeps the save.
-	view.change({ fields: { title: `${view.row.fields.title}!` } });
+	view.change({ fields: { title: `${view.row?.fields.title}!` } });
 	await milk.save();
 	expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
 		'Oat milk!',
 	);
 	reread.release();
 	await until(() => cached().fields.title === 'Oat milk!');
-	expect(view.row.fields.title).toBe('Oat milk!');
+	expect(view.row?.fields.title).toBe('Oat milk!');
 });
 
 test('a failed reread keeps the save shown, and typing over it does not lose it', async () => {
 	const { folder, context, observer, milk, cached } = await setup({
 		saveAfterMs: 60_000,
 	});
-	const view = createRowEdit(milk, () => cached());
+	const view = createRowEdit(folder.tables.notes, 'milk');
 	const list = folder.tables.notes.list;
 	folder.tables.notes.list = async () => {
 		throw new Error('Read failed');
@@ -201,10 +208,10 @@ test('a failed reread keeps the save shown, and typing over it does not lose it'
 	await milk.save();
 	await until(() => observer.getCurrentResult().isError);
 	expect(cached().fields.title).toBe('Milk');
-	expect(milk.pending).toBeUndefined();
-	expect(view.row.fields.title).toBe('Buy oat milk');
+	expect(milk.getPending()).toBeUndefined();
+	expect(view.row?.fields.title).toBe('Buy oat milk');
 
-	view.change({ fields: { title: `${view.row.fields.title}!` } });
+	view.change({ fields: { title: `${view.row?.fields.title}!` } });
 	await milk.save();
 	expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
 		'Buy oat milk!',
@@ -215,27 +222,19 @@ test('a failed reread keeps the save shown, and typing over it does not lose it'
 	expect(context.getSaveState()).toBe('saved');
 });
 
-test('every read reaches the view as new rows, even when equal to the last', async () => {
-	const { observer, cached } = await setup();
-	const before = cached();
-	await observer.refetch();
-	expect(cached()).toEqual(before);
-	expect(cached()).not.toBe(before);
-});
-
 test('a failed save shows in the save state and failures until retry() after recovery saves it', async () => {
 	const { context, milk, cached } = await setup();
 	const restore = fillDisk();
-	milk.change(cached(), { fields: { title: 'Oat milk' } });
+	milk.change({ fields: { title: 'Oat milk' } });
 	await milk.save();
-	expect(milk.pending?.error?.name).toBe('StorageFailed');
-	expect(milk.shown(cached()).row.fields.title).toBe('Oat milk');
+	expect(milk.getPending()?.error?.name).toBe('StorageFailed');
+	expect(milk.getRow()?.fields.title).toBe('Oat milk');
 	expect(context.getSaveState()).toBe('failed');
 	expect(context.getStatus().failures.map(({ path }) => path)).toEqual(['notes/milk.md']);
 
 	restore();
 	await milk.retry();
-	expect(milk.pending).toBeUndefined();
+	expect(milk.getPending()).toBeUndefined();
 	await until(() => cached().fields.title === 'Oat milk');
 	expect(context.getSaveState()).toBe('saved');
 });
@@ -243,7 +242,7 @@ test('a failed save shows in the save state and failures until retry() after rec
 test('a later malformed source cannot hide a failed save', async () => {
 	const { context, milk, cached } = await setup();
 	const restore = fillDisk();
-	milk.change(cached(), { fields: { title: 'Oat milk' } });
+	milk.change({ fields: { title: 'Oat milk' } });
 	await milk.save();
 	restore();
 	const other = await open();
@@ -257,13 +256,13 @@ test('a later malformed source cannot hide a failed save', async () => {
 		),
 	);
 	await until(() => cached().issues !== null);
-	expect(milk.pending).toMatchObject({
+	expect(milk.getPending()).toMatchObject({
 		fields: { title: 'Oat milk' },
 		error: { name: 'StorageFailed' },
 	});
 	expect(context.getStatus().failures.map(({ path }) => path)).toEqual(['notes/milk.md']);
 	expect(milk.discard()).toMatchObject({ fields: { title: 'Oat milk' } });
-	expect(milk.pending).toBeUndefined();
+	expect(milk.getPending()).toBeUndefined();
 });
 
 test('a storage failure without held input is reported as a past failure', async () => {
@@ -291,13 +290,12 @@ test('a storage failure without held input is reported as a past failure', async
 // ============================================================================
 
 test('close sends typing that waits for its pause and refuses input after it', async () => {
-	const { context, milk, cached } = await setup({ saveAfterMs: 60_000 });
-	const row = cached();
-	milk.change(row, { fields: { title: 'Oat milk' } });
+	const { context, milk } = await setup({ saveAfterMs: 60_000 });
+	milk.change({ fields: { title: 'Oat milk' } });
 	const closing = context.close();
 	expect(context.closing).toBe(true);
 	expect(await closing).toEqual([]);
-	expectErr(milk.change(row, { fields: { title: 'Too late' } }));
+	expectErr(milk.change({ fields: { title: 'Too late' } }));
 
 	const reopened = await open();
 	cleanup.push(() => reopened.close());
@@ -307,13 +305,11 @@ test('close sends typing that waits for its pause and refuses input after it', a
 });
 
 test('close never waits for a reread that does not answer', async () => {
-	const { folder, context, milk, cached } = await setup({
-		saveAfterMs: 60_000,
-	});
+	const { folder, context, milk } = await setup({ saveAfterMs: 60_000 });
 	holdReread(folder);
-	milk.change(cached(), { fields: { title: 'Oat milk' } });
+	milk.change({ fields: { title: 'Oat milk' } });
 	await milk.save();
-	milk.change(cached(), { fields: { done: true } });
+	milk.change({ fields: { done: true } });
 	expect(await context.close()).toEqual([]);
 	const reopened = await open();
 	cleanup.push(() => reopened.close());
@@ -376,9 +372,9 @@ test('close lets a started action write after its await, and refuses a new one',
 });
 
 test('close answers the typing whose save failed, as copyable text', async () => {
-	const { context, milk, cached } = await setup({ saveAfterMs: 60_000 });
+	const { context, milk } = await setup({ saveAfterMs: 60_000 });
 	fillDisk();
-	milk.change(cached(), { body: 'Oat, two litres' });
+	milk.change({ body: 'Oat, two litres' });
 	const unsaved = await context.close();
 	expect(unsaved).toMatchObject([{ path: 'notes/milk.md' }]);
 	expect(JSON.parse(unsaved[0]!.unsaved)).toMatchObject({
@@ -387,11 +383,15 @@ test('close answers the typing whose save failed, as copyable text', async () =>
 	expect(unsaved[0]?.error?.name).toBe('StorageFailed');
 	// The folder still answers it after it closed.
 	expect(context.getStatus().failures).toMatchObject([{ body: 'Oat, two litres' }]);
-	expect(milk.pending?.body).toBe('Oat, two litres');
+	expect(milk.getPending()).toMatchObject({ body: 'Oat, two litres' });
 });
 
-test("another handle's committed change is read again", async () => {
-	const { cached } = await setup();
+test("another handle's committed change is read again, by the list and the view showing it", async () => {
+	const { folder, cached } = await setup();
+	const view = createRowEdit(folder.tables.notes, 'milk');
+	const done = follow(() => view.row?.fields.done);
+	cleanup.push(done.stop);
+	flushSync();
 	const other = await open();
 	cleanup.push(() => other.close());
 	const from = expectOk(await other.tables.notes.get('milk'))!;
@@ -399,24 +399,114 @@ test("another handle's committed change is read again", async () => {
 		await other.tables.notes.set('milk', from, { fields: { done: true } }),
 	);
 	await until(() => cached().fields.done === true);
+	await until(() => view.row?.fields.done === true);
+	flushSync();
+	expect(done.values.at(-1)).toBe(true);
 });
 
 // ============================================================================
 // The Svelte binding
 // ============================================================================
 
-test("a binding re-runs for its own path's typing, its observed row, and close; not another row's typing", async () => {
-	const { context, folder, cached } = await setup({ saveAfterMs: 60_000 });
-	const shownRow = cell<Note>(cached());
-	const milk = createRowEdit(
-		folder.tables.notes.edit('milk'),
-		() => shownRow.value,
+test('a binding reads the row the first time a view shows it, and tells loading, missing and a failed read apart', async () => {
+	globalThis.indexedDB = new IDBFactory();
+	const folder = await open(60_000);
+	cleanup.push(() => folder.close());
+	expectOk(
+		await folder.tables.notes.set('milk', null, {
+			fields: { title: 'Milk', done: false },
+		}),
 	);
-	const bread = createRowEdit(
-		folder.tables.notes.edit('bread'),
-		() => undefined,
+	// A set answers the row it sent; no edit holds the document yet.
+	const notesTable = counted(folder.tables.notes);
+	const milk = createRowEdit(notesTable.table, 'milk');
+	const ghost = createRowEdit(notesTable.table, 'ghost');
+	// Creating bindings and reading their status reads nothing.
+	expect(milk.pending).toBeUndefined();
+	expect(milk.locked).toBe(false);
+	expect(notesTable.reads).toEqual({});
+
+	const shown = follow(
+		() => [milk.readStatus.known, milk.row?.fields.title] as const,
 	);
-	const title = follow(() => milk.row.fields.title);
+	const missing = follow(() => ghost.readStatus);
+	cleanup.push(shown.stop, missing.stop);
+	flushSync();
+	expect(shown.values[0]).toEqual(['nothing', undefined]);
+	expect(milk.readStatus.reading).toBe(true);
+	await until(
+		() => milk.row !== undefined && !ghost.readStatus.reading,
+	);
+	flushSync();
+	expect(shown.values.at(-1)).toEqual(['file', 'Milk']);
+	expect(missing.values.at(-1)).toEqual({
+		known: 'missing',
+		reading: false,
+		error: undefined,
+	});
+	expect(notesTable.reads).toEqual({ milk: 1, ghost: 1 });
+
+	// A failed read is not a missing row; a failed reread keeps the row. Every
+	// view of the row sees the same status.
+	const restore = failReads();
+	const other = createRowEdit(folder.tables.notes, 'milk');
+	expect(expectErr(await ghost.read()).name).toBe('StorageFailed');
+	expect(expectErr(await milk.read()).name).toBe('StorageFailed');
+	flushSync();
+	expect(missing.values.at(-1)).toMatchObject({
+		known: 'missing',
+		error: { name: 'StorageFailed' },
+	});
+	expect(milk.readStatus.error?.name).toBe('StorageFailed');
+	expect(other.readStatus).toBe(milk.readStatus);
+	expect(milk.row?.fields.title).toBe('Milk');
+	restore();
+	expectOk(await milk.read());
+	expect(milk.readStatus.error).toBeUndefined();
+});
+
+test('a failed first read waits for an explicit read: showing the edit again reads nothing', async () => {
+	globalThis.indexedDB = new IDBFactory();
+	const folder = await open(60_000);
+	cleanup.push(() => folder.close());
+	expectOk(
+		await folder.tables.notes.set('milk', null, {
+			fields: { title: 'Milk', done: false },
+		}),
+	);
+	const notesTable = counted(folder.tables.notes);
+	const restore = failReads();
+	const first = follow(() => createRowEdit(notesTable.table, 'milk').readStatus);
+	flushSync();
+	await until(() => !folder.tables.notes.edit('milk').getReadStatus().reading);
+	flushSync();
+	expect(first.values.at(-1)).toMatchObject({
+		known: 'nothing',
+		error: { name: 'StorageFailed' },
+	});
+	first.stop();
+	// Shown again, by a new edit in a new view: the failure stays until a read is asked for.
+	const again = follow(() => createRowEdit(notesTable.table, 'milk').readStatus);
+	cleanup.push(again.stop);
+	flushSync();
+	await Bun.sleep(30);
+	flushSync();
+	expect(notesTable.reads).toEqual({ milk: 1 });
+	expect(again.values.at(-1)?.error?.name).toBe('StorageFailed');
+
+	restore();
+	const view = createRowEdit(notesTable.table, 'milk');
+	expect(expectOk(await view.read())?.fields.title).toBe('Milk');
+	flushSync();
+	expect(again.values.at(-1)).toMatchObject({ known: 'file', error: undefined });
+});
+
+test("a binding re-runs for its own path's typing, its document, and close; not another row's typing", async () => {
+	const { context, folder } = await setup({ saveAfterMs: 60_000 });
+	const notesTable = counted(folder.tables.notes);
+	const milk = createRowEdit(notesTable.table, 'milk');
+	const bread = createRowEdit(notesTable.table, 'bread');
+	const title = follow(() => milk.row?.fields.title);
 	const breadPending = follow(() => bread.pending);
 	const saveState = follow(() => context.getSaveState());
 	const breadLocked = follow(() => bread.locked);
@@ -428,12 +518,12 @@ test("a binding re-runs for its own path's typing, its observed row, and close; 
 
 	expectOk(milk.change({ fields: { title: 'Oat milk' } }));
 	flushSync();
-	shownRow.value = { ...cached(), body: 'Read again' };
-	flushSync();
-	expect(title.values).toEqual(['Milk', 'Oat milk', 'Oat milk']);
+	expect(title.values).toEqual(['Milk', 'Oat milk']);
 	expect(breadPending.values).toEqual([undefined]);
 	expect(saveState.values).toEqual(['saved', 'saving']);
 	expectErr(bread.change({ fields: { title: 'Bread' } }));
+	// The list answered milk, and bread is read only for its status.
+	expect(notesTable.reads).toEqual({});
 
 	await context.close();
 	flushSync();
@@ -441,15 +531,11 @@ test("a binding re-runs for its own path's typing, its observed row, and close; 
 	expect(saveState.values.at(-1)).toBe('saved');
 });
 
-test('a binding types over the row its getter answers when the person types', async () => {
-	const { folder, cached } = await setup({ saveAfterMs: 60_000 });
+test('a binding types over the row it shows, an outside change included', async () => {
+	const { folder } = await setup({ saveAfterMs: 60_000 });
 	const other = await open();
 	cleanup.push(() => other.close());
-	const shownRow = cell<Note>(cached());
-	const milk = createRowEdit(
-		folder.tables.notes.edit('milk'),
-		() => shownRow.value,
-	);
+	const milk = createRowEdit(folder.tables.notes, 'milk');
 	milk.change({ fields: { title: 'Oat milk' } });
 
 	// The view now shows an outside change of `done`, and the person types the original back.
@@ -457,8 +543,8 @@ test('a binding types over the row its getter answers when the person types', as
 	expectOk(
 		await other.tables.notes.set('milk', from, { fields: { done: true } }),
 	);
-	shownRow.value = expectOk(await folder.tables.notes.get('milk'))!;
-	expect(milk.row.fields).toEqual({ title: 'Oat milk', done: true });
+	await until(() => milk.row?.fields.done === true);
+	expect(milk.row?.fields).toEqual({ title: 'Oat milk', done: true });
 	milk.change({ fields: { done: false } });
 	await milk.save();
 
@@ -468,100 +554,89 @@ test('a binding types over the row its getter answers when the person types', as
 	});
 });
 
-test('a command composes over current held input without a separate last-read policy', async () => {
-	const { folder, cached } = await setup({
-		saveAfterMs: 60_000,
-		body: 'one\ntwo\n',
-	});
-	const edit = folder.tables.notes.edit('milk');
-	const row = cached();
-	const view = createRowEdit(edit, () => row);
-	const elsewhere = createRowEdit(edit, () => row);
-	expect(view.row.body).toBe('one\ntwo\n');
+test('two bindings of one row compose over current held input', async () => {
+	const { folder } = await setup({ saveAfterMs: 60_000, body: 'one\ntwo\n' });
+	const view = createRowEdit(folder.tables.notes, 'milk');
+	const elsewhere = createRowEdit(folder.tables.notes, 'milk');
+	expect(view.row?.body).toBe('one\ntwo\n');
 	expectOk(elsewhere.change({ body: 'ONE\ntwo\n' }));
-	// A getter reads current input; reading it does not change future commands.
-	expect(view.row.body).toBe('ONE\ntwo\n');
-	expectOk(view.change({ body: view.row.body.replace('two', 'TWO') }));
-	expect(view.row.body).toBe('ONE\nTWO\n');
+	expect(view.row?.body).toBe('ONE\ntwo\n');
+	expectOk(view.change({ body: (view.row?.body ?? '').replace('two', 'TWO') }));
+	expect(view.row?.body).toBe('ONE\nTWO\n');
 	await view.save();
 	expect(expectOk(await folder.tables.notes.get('milk'))?.body).toBe(
 		'ONE\nTWO\n',
 	);
 });
 
-test('a binding used without a view reads current input on every command', async () => {
-	const { folder, cached } = await setup({ saveAfterMs: 60_000 });
-	const edit = folder.tables.notes.edit('milk');
-	const row = cached();
-	const commands = createRowEdit(edit, () => row);
+test('a binding used without a view types over current input on every command', async () => {
+	const { folder } = await setup({ saveAfterMs: 60_000 });
+	const commands = createRowEdit(folder.tables.notes, 'milk');
 	commands.change({ fields: { title: 'Oat milk' } });
-	expect(commands.row.fields.title).toBe('Oat milk');
+	expect(commands.row?.fields.title).toBe('Oat milk');
 	// The person sees the typed title and turns it back: a revert, not a merge.
 	commands.change({ fields: { title: 'Milk' } });
 	commands.change({ body: 'Two litres, typed\n' });
-	await edit.save();
+	await commands.save();
 	expect(expectOk(await folder.tables.notes.get('milk'))).toMatchObject({
 		fields: { title: 'Milk', done: false },
 		body: 'Two litres, typed\n',
 	});
 });
 
-test('a missing observed row refuses input with a reason and keeps earlier input copyable', async () => {
-	const { folder, cached } = await setup({ saveAfterMs: 60_000 });
-	let observed: Note | undefined = cached();
-	const view = createRowEdit(folder.tables.notes.edit('milk'), () => observed);
+test('a row deleted elsewhere refuses input with a reason and keeps earlier input copyable', async () => {
+	const { folder } = await setup({ saveAfterMs: 60_000 });
+	const view = createRowEdit(folder.tables.notes, 'milk');
 	expectOk(view.change({ body: 'Keep this input' }));
 	const pending = view.pending;
-	observed = undefined;
-	expect(view.row).toBeUndefined();
+	const other = await open();
+	cleanup.push(() => other.close());
+	const from = expectOk(await other.tables.notes.get('milk'))!;
+	expectOk(await other.tables.notes.delete('milk', from));
+	await until(() => view.row === undefined);
 	expect(expectErr(view.change({ body: 'No source' })).name).toBe('NoSource');
 	expect(view.pending).toBe(pending);
-	expect(view.pending?.body).toBe('Keep this input');
+	expect(view.pending).toMatchObject({ body: 'Keep this input' });
 });
 
 test('a view that goes away lets go of its subscription while its input and timer stay with the folder', async () => {
-	const { folder, cached } = await setup({ saveAfterMs: 50 });
-	const milk = counted(folder.tables.notes.edit('milk'));
-	const view = createRowEdit(milk.edit, () => cached());
-	const shown = follow(() => view.row.fields.title);
+	const { folder } = await setup({ saveAfterMs: 50 });
+	const notesTable = counted(folder.tables.notes);
+	const view = createRowEdit(notesTable.table, 'milk');
+	const shown = follow(() => view.row?.fields.title);
 	flushSync();
-	expect(milk.live).toBe(1);
+	expect(notesTable.live.milk).toBe(1);
 
 	view.change({ fields: { title: 'Oat milk' } });
 	flushSync();
 	shown.stop();
 	flushSync();
-	expect(milk.live).toBe(0);
-	expect(folder.tables.notes.edit('milk').pending?.fields).toEqual({
-		title: 'Oat milk',
-	});
+	await Promise.resolve();
+	expect(notesTable.live.milk).toBe(0);
+	expect(folder.tables.notes.edit('milk').getPending()).toMatchObject({ fields: { title: 'Oat milk' } });
 
-	await until(() => folder.tables.notes.edit('milk').pending === undefined);
+	await until(
+		() => folder.tables.notes.edit('milk').getPending() === undefined,
+	);
 	expect(expectOk(await folder.tables.notes.get('milk'))?.fields.title).toBe(
 		'Oat milk',
 	);
 });
 
 test('a reused view follows its path, and the row it left keeps its input', async () => {
-	const { folder, cached } = await setup({ saveAfterMs: 60_000 });
+	const { folder } = await setup({ saveAfterMs: 60_000 });
 	expectOk(
 		await folder.tables.notes.set('bread', null, {
 			fields: { title: 'Bread', done: false },
 			body: '',
 		}),
 	);
-	const rows: Record<string, Note> = {
-		milk: cached(),
-		bread: expectOk(await folder.tables.notes.get('bread'))!,
-	};
+	expectOk(await folder.tables.notes.list());
+	const notesTable = counted(folder.tables.notes);
 	const id = cell('milk');
-	const live: Record<string, ReturnType<typeof counted>> = {
-		milk: counted(folder.tables.notes.edit('milk')),
-		bread: counted(folder.tables.notes.edit('bread')),
-	};
-	let view = createRowEdit(live.milk!.edit, () => rows.milk);
+	let view = createRowEdit(notesTable.table, 'milk');
 	const shown = follow(() => {
-		view = createRowEdit(live[id.value]!.edit, () => rows[id.value]);
+		view = createRowEdit(notesTable.table, id.value);
 		return view.row?.fields.title;
 	});
 	cleanup.push(shown.stop);
@@ -573,11 +648,10 @@ test('a reused view follows its path, and the row it left keeps its input', asyn
 	flushSync();
 	view.change({ fields: { title: 'Rye' } });
 	flushSync();
+	await Promise.resolve();
 
 	expect(shown.values).toEqual(['Milk', 'Oat milk', 'Bread', 'Rye']);
-	expect(live.milk!.live).toBe(0);
-	expect(live.bread!.live).toBe(1);
-	expect(folder.tables.notes.edit('milk').pending?.fields).toEqual({
-		title: 'Oat milk',
-	});
+	expect(notesTable.live.milk).toBe(0);
+	expect(notesTable.live.bread).toBe(1);
+	expect(folder.tables.notes.edit('milk').getPending()).toMatchObject({ fields: { title: 'Oat milk' } });
 });

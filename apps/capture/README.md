@@ -64,8 +64,8 @@ are not text are listed apart and not opened.
 ## Editing
 
 - A capture's text and thoughts are its document, so an edit is the body
-  you typed, held by the folder through the row's edit handle
-  (`folder.tables.captures.edit(stem)`) over the row the view showed. What
+  you typed, held by the folder's edit of the row
+  (`folder.tables.captures.edit(stem)`) over the capture as stored. What
   the page reads from the folder never replaces it, and a failed reread never
   shows the capture older than your last save; another writer's lines merge
   in when your edit saves. A thought you add, edit, delete, or move is saved at
@@ -100,9 +100,11 @@ are not text are listed apart and not opened.
   thought it started from. If that changed before you save (another tab's
   change, say), nothing is applied and the edit's text stays in the form to
   copy.
-- Every view reads the one rows query of the captures table. Another tab of
-  Capture that saves reaches this page on the folder's change channel, which
-  marks those rows stale; returning to the window reads nothing.
+- The timeline reads the one rows query of the captures table; the open
+  capture is the folder's edit of its file, which those reads keep current.
+  Another tab of Capture that saves reaches this page on the folder's change
+  channel: the open capture reads its file again, and the rows are marked
+  stale; returning to the window reads nothing.
 - Opening and listing captures write nothing.
 
 ## Text not added yet
@@ -139,12 +141,15 @@ the folder when the page goes away: the context refuses app input, lets
 started actions finish, then the folder closes, which sends what is held
 once and waits for the saves.
 
-The folder holds everything typed, from open to close: a capture's fields
-and body through the row's edit handle (`folder.tables.captures.edit(stem)`),
-and Edit as text's whole file through the file's
-(`folder.files.edit(path)`). Each view binds its own handle
-(`createRowEdit`, `createTextEdit` from `@epicenter/svelte/edits`), so a
-command types over what that view showed.
+The folder holds each capture as stored and everything typed over it, from
+open to close: its fields and body through the folder's edit of the row
+(`createRowEdit(folder.tables.captures, stem)`), and Edit as text's whole
+file through the edit of the file (`createTextEdit(folder.files, path)`),
+both from `@epicenter/svelte/edits`. Every view of a capture shows the same
+edit, so a command types over what is shown now. Switching between a valid
+capture and its text saves and refreshes nothing: both show the same unsaved
+input and any save failure. The current editable text determines whether it
+can be shown as a capture.
 
 `hostAppViteConfig` (from `@epicenter/vite-config`) points the bare
 `@epicenter/folder` specifier at one entry per build, so each build emits
@@ -163,9 +168,9 @@ actions remain absent.
 | --- | --- |
 | `src/routes/+page.svelte` | `<FolderApp>` over `captureTables`, with `CaptureApp` inside it. The Folder opener uses IndexedDB. |
 | `src/lib/captures.svelte.ts` | The store over the context `getFolder()` answers: the timeline from the rows query, each capture's form (`formOf`), create, delete, which capture is open, and what the header says about saving. |
-| `src/lib/capture-form.svelte.ts` | One capture's form over its row's edit handle, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body; `form.in(view)` gives one view's commands over its own binding. |
+| `src/lib/capture-form.svelte.ts` | One capture's form over the folder's edit of its row, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
-| `src/lib/components/` | `CaptureApp.svelte` builds the store and shows the timeline or the open capture under the save status; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
+| `src/lib/components/` | `CaptureApp.svelte` builds the store and shows the timeline or the open capture under the save status; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the folder's edit of it, what is typed over the file as stored. Each is keyed by the open capture. |
 
 The package exports nothing. No host imports a part of this app.
 

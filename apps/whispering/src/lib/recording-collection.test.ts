@@ -46,7 +46,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import type { RecordingFields, TranscriptionFields } from './definition.js';
 import { settle, transcriptEditor } from './edits.test-support.js';
-import type { WriteNotice } from './library.svelte.js';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import {
 	captureDeletions,
 	DEFAULT_SORT,
@@ -686,7 +686,7 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 	// Opening the file from Files edits the same row.
 	expect(await library.open(TRANSCRIPT)).toBeUndefined();
 	expect(library.selection).toMatchObject({ kind: 'file', path: TRANSCRIPT });
-	expect(library.rowView('transcriptions', TRANSCRIPT).row?.body).toBe(
+	expect(library.rowEdit('transcriptions', TRANSCRIPT).row?.body).toBe(
 		'Yesterday I finished the importer. Today: the exporter.\n',
 	);
 });
@@ -694,8 +694,8 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 test('typing over a transcript changed outside, before the window read it again, merges with the change', async () => {
 	const { library, root } = await history();
 	await library.open(path('standup'));
-	const notices: WriteNotice[] = [];
-	library.onWriteNotice((notice) => notices.push(notice));
+	const notices: WriteFailure[] = [];
+	library.onWriteFailure((notice) => notices.push(notice));
 	const editor = transcriptEditor(library, TRANSCRIPT);
 	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8')).replace(
 		'importer',

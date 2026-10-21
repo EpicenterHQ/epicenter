@@ -100,20 +100,27 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		});
 	}
 
-	// One batch covers every cached representation and aggregate affected by a path.
-	function refresh(
-		paths?: readonly string[],
-		options?: { throwOnError?: boolean },
+	/**
+	 * One batch covers every cached representation and aggregate affected by
+	 * a path. A change the folder `reported` is already read by the edits it
+	 * touches, so their read queries are left alone then; an asked-for
+	 * refresh reads them too.
+	 */
+	function refreshPaths(
+		paths: readonly string[] | undefined,
+		options: { throwOnError?: boolean } | undefined,
+		reported: boolean,
 	) {
 		return refreshQueries(
 			{
 				queryKey: KEY,
 				predicate: (query) => {
-					if (paths === undefined) return true;
 					const [, kind, target] = query.queryKey;
+					if (kind === 'read' && reported) return false;
+					if (paths === undefined) return true;
 					return paths.some((path) => {
 						if (path === '') return true;
-						if (kind === 'file')
+						if (kind === 'file' || kind === 'read')
 							return (
 								typeof target === 'string' &&
 								(target === path || target.startsWith(`${path}/`))
@@ -134,10 +141,15 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		);
 	}
 
+	const refresh = (
+		paths?: readonly string[],
+		options?: { throwOnError?: boolean },
+	) => refreshPaths(paths, options, false);
+
 	// The one reread path after a save. Subscribe before any reader mounts;
 	// applications own no change listeners.
 	const stopChanges = folder.onChange((change) => {
-		void refresh(change.paths ?? undefined);
+		void refreshPaths(change.paths ?? undefined, undefined, true);
 	});
 
 	// Svelte shares this subscription across every reactive reader. Context

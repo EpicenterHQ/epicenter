@@ -22,8 +22,7 @@
 	/** Files, recipes and held input share one window and one open folder. */
 	let { updateView }: { updateView: ViewUpdater } = $props();
 
-	const context = getFolder();
-	const { folder, queries, getStatus, refresh } = context;
+	const { folder, queries, getStatus, refresh } = getFolder();
 	const status = $derived(getStatus());
 
 	const listing = createQuery(() => queries.files());
@@ -58,15 +57,13 @@
 		}
 	});
 	// The declaration's source, fenced while a view setting is written to it.
-	const source = createTextEdit(
-		folder.files.edit('epicenter.json'),
-		() => declaration.data ?? undefined,
-	);
+	// Only its fence and exclusive change are used, so it reads nothing.
+	const textEdit = createTextEdit(folder.files, 'epicenter.json');
 	const views = createViews({
 		saved: () => saved.data?.views ?? {},
 		update: (change) => updateView(change),
 		async exclusive(action) {
-			const done = await source.exclusive(action);
+			const done = await textEdit.exclusive(action);
 			if (done.error !== null) throw new Error(done.error.reason);
 			return done.data;
 		},
@@ -188,11 +185,11 @@
 				>{/if}
 			<Button
 				size="sm"
-				disabled={source.locked || views.busy(view) ||
+				disabled={textEdit.locked || views.busy(view) ||
 					declaration.isPending ||
 					needsDirectory}
 				onclick={() => void save()}
-				>{source.locked || views.busy(view)
+				>{textEdit.locked || views.busy(view)
 					? 'Saving…'
 					: viewError
 						? 'Retry save'
@@ -201,7 +198,7 @@
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={source.locked || views.busy(view) ||
+				disabled={textEdit.locked || views.busy(view) ||
 					declaration.isPending ||
 					needsDirectory}
 				onclick={() => void save(true)}>Save as new</Button
@@ -210,7 +207,7 @@
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={source.locked || views.busy(view)}
+					disabled={textEdit.locked || views.busy(view)}
 					onclick={() => {
 						views.reload(view);
 						void declaration.refetch();
@@ -219,7 +216,7 @@
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={source.locked || views.busy(view) || views.dirty(view)}
+					disabled={textEdit.locked || views.busy(view) || views.dirty(view)}
 					onclick={async () => {
 						const key = view;
 						if ((await views.remove(key)) && view === key && !views.dirty(key))

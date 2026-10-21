@@ -31,35 +31,43 @@
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
 
+	/** What the file is, as its bytes say; polled while shown, which keeps the edit current. */
 	const stored = createQuery(() => queries.file(path, sourceRead));
-	const edit = createTextEdit(
-		folder.files.edit(path),
-		() => stored.data ?? undefined,
-	);
+	/** The folder's edit of the file: its exact text as stored, and what is typed over it. */
+	const textEdit = createTextEdit(folder.files, path);
 	const shown = $derived(
 		stored.data === undefined || stored.data === null ? undefined : fileText(stored.data),
 	);
-	const pending = $derived(edit.pending);
+	const pending = $derived(textEdit.pending);
 	/** Whether the file is shown as it is stored, with no typing over it. */
 	const untyped = $derived(pending === undefined);
 	/** Failed fields typed in Tables, held until retried or discarded. */
 	const fieldsLocked = $derived(pending?.kind === 'fields' && pending.error !== undefined);
-	/** Retained saved text without source bytes is available for copying. */
+	/** Text held for a file that no longer reads as text is available for copying. */
 	const sourceLocked = $derived(pending?.kind !== 'text' && shown?.kind !== 'text');
-	/** Exact presented text, including held input and saves a read may not show yet. */
-	const text = $derived(edit.text);
+	/** The last text this editor showed, kept to copy once the file is deleted elsewhere. */
+	let lastShown: string | undefined;
+	/**
+	 * Exact presented text, held input included, or the last text shown once
+	 * the file is gone; a file that is not text is never read into the textEdit.
+	 */
+	const text = $derived.by(() => {
+		const now = pending !== undefined || shown?.kind === 'text' ? textEdit.text : undefined;
+		if (now !== undefined) lastShown = now;
+		return now ?? (stored.data === null ? lastShown : undefined);
+	});
 	/** The text box's text: one line feed per line, as a text box holds it. */
 	const boxText = $derived(text?.replaceAll('\r\n', '\n') ?? '');
 
 	// The input outlives the editor; send what is typed now.
-	onDestroy(() => void edit.save());
+	onDestroy(() => void textEdit.save());
 </script>
 
 <section class="flex min-h-0 flex-1 flex-col" aria-label={path}>
 	<header class="flex items-center gap-3 border-b px-4 py-2">
 		<h3 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h3>
 		<span class="text-xs text-muted-foreground" role="status">
-			{#if edit.locked}
+			{#if textEdit.locked}
 				Another operation is using this file.
 			{:else if pending !== undefined && pending.error === undefined}
 				Saving…
@@ -76,8 +84,8 @@
 				<p>Your edit was not saved: {pending.error.message}</p>
 				{#if pending.kind === 'fields'}<p>Copy the field changes or discard them before repairing the source.</p><pre class="whitespace-pre-wrap font-mono text-xs">{unsavedText(pending)}</pre>{/if}
 				<div class="mt-1 flex gap-2">
-					<Button size="xs" variant="outline" onclick={() => void edit.retry()}>Try again</Button>
-					<Button size="xs" variant="ghost" onclick={() => edit.discard()}>
+					<Button size="xs" variant="outline" onclick={() => void textEdit.retry()}>Try again</Button>
+					<Button size="xs" variant="ghost" onclick={() => textEdit.discard()}>
 						Discard edit
 					</Button>
 				</div>
@@ -118,9 +126,9 @@
 			class="min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm outline-none"
 			aria-label="Text of {path}"
 			spellcheck="false"
-			readonly={fieldsLocked || sourceLocked || edit.locked}
-			bind:value={() => boxText, (value) => edit.change(withFileNewlines(value, text ?? ''))}
-			onblur={() => void edit.save()}
+			readonly={fieldsLocked || sourceLocked || textEdit.locked}
+			bind:value={() => boxText, (value) => textEdit.change(withFileNewlines(value, text ?? ''))}
+			onblur={() => void textEdit.save()}
 		/>
 	{/if}
 </section>

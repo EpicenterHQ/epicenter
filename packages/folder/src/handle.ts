@@ -23,10 +23,38 @@ import { callObserver } from './observer.js';
 import { ownFields } from './shared/content/canonical.js';
 import { SaveError } from './shared/errors.js';
 
+/**
+ * What a save left at its path: the exact content storage kept, merged
+ * with what landed meanwhile, or `null` for no file. A save that changed
+ * nothing answers what was already there.
+ */
+export type Stored = { readonly stored: FileContent | null };
+
+/** An engine's files: the public operations, with what each write stored. */
+export type EngineFiles = Omit<FolderFileOperations, 'write'> & {
+	write(
+		path: string,
+		from: FileContent | null,
+		content: FileContent,
+	): Promise<Result<Stored, SaveError>>;
+};
+
+/** An engine's table: the public operations, with what each set stored. */
+export type EngineTable<TSchema extends Schema = Schema> = Omit<
+	FolderTableOperations<TSchema>,
+	'set'
+> & {
+	set(
+		id: string,
+		from: Pick<Row, 'text' | 'issues'> | null,
+		change: RowChange,
+	): Promise<Result<{ sent: Row<TSchema> } & Stored, SaveError>>;
+};
+
 /** What an engine gives the handle: its files, tables, changes, and release. */
 export type FolderEngine = {
-	readonly files: FolderFileOperations;
-	readonly tables: Record<string, FolderTableOperations>;
+	readonly files: EngineFiles;
+	readonly tables: Record<string, EngineTable>;
 	/** Hear every committed change, calling the listener before the save resolves. */
 	subscribe(listener: (change: FolderChange) => void): () => void;
 	/** Release listeners and storage; the handle calls it once, after started saves settled. */
@@ -62,8 +90,11 @@ function ownChange(change: RowChange): Result<RowChange, SaveError> {
 	return Ok({ fields: fields.data, body: change.body });
 }
 
-/** One save, and the commit its change notice was, once heard. */
-type Submission = { commit: number | undefined };
+/**
+ * One save running: whether the engine reported its change, and the edit
+ * owner's tick for what it stored, its commit's once reported.
+ */
+type Submission = { heard: boolean; tick: number };
 
 const sameList = <T>(left: readonly T[], right: readonly T[]) =>
 	left.length === right.length &&
@@ -92,12 +123,10 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	/**
 	 * The saves of one path run one at a time: the last save queued for each
 	 * path, which the next one waits for, and the one running now, which an
-	 * own change notice of that path is the commit of.
+	 * own change notice of that path reports.
 	 */
 	const queued = new Map<string, Promise<void>>();
 	const running = new Map<string, Submission>();
-	/** The submission of each save promise, so the edit owner can ask what it landed as. */
-	const receipts = new WeakMap<Promise<unknown>, Submission>();
 
 	function assertOpen() {
 		if (closing !== undefined) throw new Error('The folder is closed');
@@ -131,20 +160,25 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	}
 
 	/**
-	 * Tell this handle's listeners. An own change is a commit: reads starting
-	 * from now show it. An engine reports a save's commit, naming its path,
-	 * while that save runs, and only one save of a path runs at a time, so the
-	 * notice is the commit of exactly that save. A change naming no path, such
-	 * as a sync, is no save's.
+	 * Tell the edit owner what changed that no save of this handle stored,
+	 * then this handle's listeners. An engine reports a save's change, naming
+	 * its path, while that save runs, and only one save of a path runs at a
+	 * time, so an own notice of a path saving is exactly that save's, whose
+	 * stored content the owner gets from the save itself. Any other change,
+	 * such as another handle's save or a sync, which names no path, is not.
 	 */
 	function hear(change: FolderChange) {
-		if (change.origin === 'this-handle') {
-			const commit = edits.committed();
-			for (const path of change.paths ?? []) {
+		if (change.paths === null) edits.changed(null);
+		else if (change.origin === 'other-handle') edits.changed(change.paths);
+		else {
+			const elsewhere = change.paths.filter((path) => {
 				const submission = running.get(path);
-				if (submission !== undefined && submission.commit === undefined)
-					submission.commit = commit;
-			}
+				if (submission === undefined) return true;
+				submission.heard = true;
+				submission.tick = edits.now();
+				return false;
+			});
+			if (elsewhere.length > 0) edits.changed(elsewhere);
 		}
 		for (const listener of [...changeListeners])
 			callObserver('change listener', listener, change);
@@ -168,12 +202,18 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 
 	/**
 	 * Run a save of `path`, counted in status from the call, after the saves
-	 * of `path` called before it. A save that landed without the engine
-	 * reporting a change, because its content was already stored, is
-	 * reported here, so readers reread and own saves count as seen.
+	 * of `path` called before it. Once it landed, the edit owner holds what
+	 * `kept` says it left stored, `undefined` when that is unknown, as of its
+	 * commit, before the save resolves. A save that landed without the engine reporting a
+	 * change, because its content was already stored, is reported here, so
+	 * readers reread.
 	 */
-	function save<T>(path: string, work: () => Promise<Result<T, SaveError>>) {
-		const submission: Submission = { commit: undefined };
+	function save<T>(
+		path: string,
+		work: () => Promise<Result<T, SaveError>>,
+		kept: (saved: T) => FileContent | null | undefined,
+	) {
+		const submission: Submission = { heard: false, tick: 0 };
 		const before = queued.get(path);
 		const turn = Promise.withResolvers<void>();
 		queued.set(path, turn.promise);
@@ -184,7 +224,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			turn.resolve();
 			saves--;
 		};
-		const saving = track(async () => {
+		return track(async () => {
 			saves++;
 			publishStatus();
 			let result: Result<T, SaveError>;
@@ -192,9 +232,14 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				// With none queued, the engine takes its input at the call.
 				if (before !== undefined) await before;
 				running.set(path, submission);
+				// A save the engine reports as no change stored nothing newer
+				// than what was there when it started.
+				submission.tick = edits.now();
 				result = await work();
-				if (result.error === null && submission.commit === undefined)
-					hear({ paths: [path], origin: 'this-handle' });
+				if (result.error === null) {
+					edits.stored(path, kept(result.data), submission.tick);
+					if (!submission.heard) hear({ paths: [path], origin: 'this-handle' });
+				}
 			} catch (cause) {
 				release();
 				publishStatus();
@@ -207,8 +252,6 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			publishStatus();
 			return result;
 		});
-		receipts.set(saving, submission);
-		return saving;
 	}
 
 	// Saves are tracked and counted in status. The edit owner gets these
@@ -216,22 +259,38 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	// waits; the public members below refuse once close is called.
 	// A save queued behind another of its path keeps the bytes as they were
 	// at the call.
+	/** What a delete left: no file once it went, unknown here when it kept a file changed meanwhile. */
+	const deletedKept = ({ deleted }: { deleted: boolean }) =>
+		deleted ? null : undefined;
+	const written = ({ stored }: Stored) => stored;
 	const files: FolderFileOperations = {
 		list: (prefix) => engine.files.list(prefix),
 		read: (path) => engine.files.read(path),
-		write(path, from, content) {
+		async write(path, from, content) {
 			const [base, change] = [owned(from), owned(content)];
-			return save(path, () => engine.files.write(path, base, change));
+			const saved = await save(
+				path,
+				() => engine.files.write(path, base, change),
+				written,
+			);
+			return saved.error === null ? Ok(undefined) : saved;
 		},
 		delete(path, from) {
 			const base = owned(from);
-			return save(path, () => engine.files.delete(path, base));
+			return save(path, () => engine.files.delete(path, base), deletedKept);
 		},
 	};
 	const tableOperations = Object.fromEntries(
 		Object.keys(tables).map((name) => {
-			const table = engine.tables[name] as FolderTableOperations;
+			const table = engine.tables[name] as EngineTable;
 			const rowPath = (id: string) => `${name}/${id}.md`;
+			/** A set answers the row it submitted, not what storage kept. */
+			const submitted = async (
+				saving: Promise<Result<{ sent: Row } & Stored, SaveError>>,
+			) => {
+				const saved = await saving;
+				return saved.error === null ? Ok({ sent: saved.data.sent }) : saved;
+			};
 			const operations: FolderTableOperations = {
 				list: () => table.list(),
 				get: (id) => table.get(id),
@@ -240,16 +299,20 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				set(id, from, change) {
 					const path = rowPath(id);
 					if (!queued.has(path))
-						return save(path, () => table.set(id, from, change));
+						return submitted(
+							save(path, () => table.set(id, from, change), written),
+						);
 					const edit = ownChange(change);
 					if (edit.error !== null) return Promise.resolve(edit);
 					const base = ownRow(from);
-					return save(path, () => table.set(id, base, edit.data));
+					return submitted(
+						save(path, () => table.set(id, base, edit.data), written),
+					);
 				},
 				delete(id, from) {
 					const path = rowPath(id);
 					const base = queued.has(path) ? ownRow(from) : from;
-					return save(path, () => table.delete(id, base));
+					return save(path, () => table.delete(id, base), deletedKept);
 				},
 			};
 			return [name, operations];
@@ -261,7 +324,6 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		schemas: tables,
 		saveAfterMs,
 		onAggregate: publishStatus,
-		receipt: (saving) => receipts.get(saving)?.commit,
 	});
 	const stopEngine = engine.subscribe(hear);
 
@@ -281,36 +343,57 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	}
 
 	/**
-	 * Reads note, on each row and file content they answer, the commit count
-	 * when they started, so a view can tell which of this handle's saves the
-	 * content it shows may lack (`shared/observation.ts`).
+	 * Reads keep the edit owner's documents current: a row list or get
+	 * answers the documents of its rows, and a file read the document of a
+	 * path the owner holds. Each carries the tick it started at, so a read
+	 * that a save or a reported change overtook changes nothing there.
 	 */
 	const readFiles: FolderFileOperations = {
 		...files,
 		async read(path) {
-			const read = edits.commits;
-			const result = await files.read(path);
-			if (result.error === null && result.data !== undefined)
-				edits.noteRead(result.data.content, read);
-			return result;
+			const tick = edits.startRead();
+			try {
+				const result = await files.read(path);
+				if (result.error === null && edits.holds(path))
+					try {
+						edits.readFile(
+							path,
+							tick,
+							result.data === undefined
+								? null
+								: new Uint8Array(await result.data.content.arrayBuffer()),
+						);
+					} catch {
+						// The caller reads the same content and meets the failure itself.
+					}
+				return result;
+			} finally {
+				edits.endRead();
+			}
 		},
 	};
-	function readRows(table: FolderTableOperations) {
+	function readRows(name: string, table: FolderTableOperations) {
 		return {
 			...table,
 			async list() {
-				const read = edits.commits;
-				const result = await table.list();
-				if (result.error === null)
-					for (const row of result.data) edits.noteRead(row, read);
-				return result;
+				const tick = edits.startRead();
+				try {
+					const result = await table.list();
+					if (result.error === null) edits.listed(name, tick, result.data);
+					return result;
+				} finally {
+					edits.endRead();
+				}
 			},
 			async get(id) {
-				const read = edits.commits;
-				const result = await table.get(id);
-				if (result.error === null && result.data !== undefined)
-					edits.noteRead(result.data, read);
-				return result;
+				const tick = edits.startRead();
+				try {
+					const result = await table.get(id);
+					if (result.error === null) edits.got(name, id, tick, result.data);
+					return result;
+				} finally {
+					edits.endRead();
+				}
 			},
 		} satisfies FolderTableOperations;
 	}
@@ -324,7 +407,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			Object.entries(tableOperations).map(([name, table]) => [
 				name,
 				{
-					...opened(readRows(table)),
+					...opened(readRows(name, table)),
 					edit: (id: string) => edits.row(name, id),
 				},
 			]),

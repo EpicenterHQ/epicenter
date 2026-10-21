@@ -26,4 +26,3 @@ export type {
 	RowChange,
 } from './folder.js';
 export { ReadError, SaveError } from './shared/errors.js';
-export { fileBytes, rowBytes } from './shared/observation.js';

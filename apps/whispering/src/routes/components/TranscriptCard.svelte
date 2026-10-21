@@ -38,12 +38,17 @@
 
 	/** Edited here unless the person opened its file as text in Files. */
 	const asText = $derived(library.showsText(result.path));
-	/** This card's transcript row: its own read with own saves and typing over it; typing names what it last showed. */
+	/** This card's transcript row: the folder's edit of it, as stored with what is typed over it. */
 	// svelte-ignore state_referenced_locally
-	const rowView = library.rowView(TRANSCRIPTIONS, own);
-	const row = $derived(asText ? undefined : rowView.row);
+	const rowEdit = library.rowEdit(TRANSCRIPTIONS, own);
+	const row = $derived.by(() => {
+		if (asText) return undefined;
+		const shown = rowEdit.row;
+		return shown?.issues === null ? shown : undefined;
+	});
 	/** The text now: as typed while an edit is unsaved, else as the file holds it. */
-	const text = $derived(row?.body ?? result.row.body);
+	const pending = $derived(rowEdit.pending);
+	const text = $derived(row?.body ?? (pending?.kind === 'row' ? pending.body : undefined) ?? result.row.body);
 	const locked = $derived(library.locked(result.path));
 	const progress = $derived(library.resultState(result.path, text));
 
@@ -76,11 +81,12 @@
 	{#if progress.kind === 'running' || progress.kind === 'writing'}
 		<!-- The answer is on its way into this file. A file with text is not filled, so typing now would keep it out. -->
 	{:else if row}
+		{@const shown = row}
 		<Textarea
 			class="min-h-32 resize-y font-sans"
 			bind:value={
-				() => row?.body ?? '',
-				(value) => library.editBody(rowView, value)
+				() => shown.body,
+				(value) => library.editBody(rowEdit, value)
 			}
 			onblur={() => void library.saveBody(result.path)}
 			disabled={locked}

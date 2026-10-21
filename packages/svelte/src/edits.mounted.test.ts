@@ -6,13 +6,12 @@
 import 'fake-indexeddb/auto';
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { fileBytes } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 import { type } from './svelte-dom.test-support.js';
 
-const { flushSync, mount, unmount } = await import('svelte');
+const { flushSync, mount, unmount, tick } = await import('svelte');
 const { default: EditViewsHost } = await import(
 	'./fixtures/EditViewsHost.svelte'
 );
@@ -39,18 +38,12 @@ test('mounted row and text views follow each other and can revert held input', a
 		}),
 	);
 	expectOk(await folder.files.write('b.md', null, initial));
-	const observed = expectOk(await folder.tables.notes.get('a'))!;
-	const bytes = await fileBytes(
-		expectOk(await folder.files.read('b.md'))!.content,
-	);
+	expectOk(await folder.tables.notes.set('c', null, { fields: { title: 'C' }, body: 'Other address\n' }));
 	const edit = folder.tables.notes.edit('a');
 	const textEdit = folder.files.edit('b.md');
 	const target = document.createElement('div');
 	document.body.append(target);
-	const component = mount(EditViewsHost, {
-		target,
-		props: { edit, observed, textEdit, bytes },
-	});
+	const component = mount(EditViewsHost, { target, props: { folder } });
 	cleanup.push(async () => {
 		await unmount(component);
 		target.remove();
@@ -58,6 +51,18 @@ test('mounted row and text views follow each other and can revert held input', a
 	flushSync();
 	const field = (label: string) =>
 		target.querySelector<HTMLTextAreaElement>(`[aria-label="${label}"]`)!;
+	// The views read the row and the file the first time they show them.
+	for (
+		let turn = 0;
+		turn < 100 &&
+		(field('Row 1')?.value !== initial || field('Text 1')?.value !== initial);
+		turn++
+	) {
+		await Bun.sleep(5);
+		flushSync();
+	}
+	expect(field('Row 1').value).toBe(initial);
+	expect(field('Text 1').value).toBe(initial);
 	for (const kind of ['Row', 'Text']) {
 		type(field(`${kind} 0`), 'ONE\ntwo\nthree\n');
 		flushSync();
@@ -72,6 +77,23 @@ test('mounted row and text views follow each other and can revert held input', a
 		flushSync();
 		expect(field(`${kind} 1`).value).toBe('one\ntwo\nTHREE\n');
 	}
+	expect(field('Whole row text').value).toContain('one\ntwo\nTHREE\n');
+	expect(
+		target.querySelector('[aria-label="Shared pending"]')?.textContent,
+	).toBe('row');
+	type(
+		field('Whole row text'),
+		field('Whole row text').value.replace('THREE', 'Three from text'),
+	);
+	flushSync();
+	expect(field('Row 0').value).toBe('one\ntwo\nThree from text\n');
+	expect(field('Row 1').value).toBe('one\ntwo\nThree from text\n');
+	expect(
+		target.querySelector('[aria-label="Shared pending"]')?.textContent,
+	).toBe('text');
+	type(field('Row 1'), 'one\ntwo\nTHREE\n');
+	flushSync();
+	expect(field('Whole row text').value).toContain('one\ntwo\nTHREE\n');
 	await Promise.all([edit.save(), textEdit.save()]);
 	flushSync();
 	expect(expectOk(await folder.tables.notes.get('a'))?.body).toBe(
@@ -80,4 +102,22 @@ test('mounted row and text views follow each other and can revert held input', a
 	expect(await expectOk(await folder.files.read('b.md'))?.content.text()).toBe(
 		'one\ntwo\nTHREE\n',
 	);
+	type(field('Row 0'), 'Unsent A\n');
+	flushSync();
+	await tick();
+	const switchAddress = target.querySelector('button')!;
+	switchAddress.click();
+	flushSync();
+	for (let turn = 0; turn < 100 && field('Row 0')?.value !== 'Other address\n'; turn++) {
+		await Bun.sleep(5);
+		flushSync();
+	}
+	expect(field('Row 0').value).toBe('Other address\n');
+	expect(field('Whole row text').value).toContain('title: C');
+	expect(target.querySelector('[aria-label="Shared pending"]')?.textContent).toBe('saved');
+	switchAddress.click();
+	flushSync();
+	expect(field('Row 1').value).toBe('Unsent A\n');
+	expect(field('Whole row text').value).toContain('Unsent A\n');
+	expect(expectOk(await folder.tables.notes.get('a'))?.body).toBe('one\ntwo\nTHREE\n');
 });

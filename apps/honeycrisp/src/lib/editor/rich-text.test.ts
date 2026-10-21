@@ -87,7 +87,7 @@ async function noteOver(text: string) {
 		failures: () => local.getStatus().failures,
 		/** The note as shown now: with what is typed over it. */
 		draft: () => {
-			const row = note.row;
+			const row = note.getRow();
 			if (row === undefined) throw new Error('The note is not in the cache');
 			return row;
 		},

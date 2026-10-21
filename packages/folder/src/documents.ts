@@ -9,7 +9,6 @@ import { readDeclaredTables } from './declaration.js';
 import type { Declaration } from './declaration-schema.js';
 import type { FolderFiles, ReadError } from './folder.js';
 import { type Document, readDocument } from './shared/document.js';
-import { fileBytes } from './shared/observation.js';
 
 export {
 	type Document,
@@ -69,7 +68,7 @@ export async function readDocuments(
 			});
 			continue;
 		}
-		const content = await fileBytes(read.data.content);
+		const content = new Uint8Array(await read.data.content.arrayBuffer());
 		const first = path.indexOf('/');
 		const schema =
 			first < 0 || path.indexOf('/', first + 1) !== -1

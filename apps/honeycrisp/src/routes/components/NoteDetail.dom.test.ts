@@ -58,10 +58,13 @@ test('Edit as file keeps a note whose body changes failed to save', async () => 
 	const body = 'Keep this body\n';
 	notes.noteBody(PATH).change({ body });
 	failSaves();
-	click(target, 'Edit as file');
-	await until(() => notes.isUnsaved(PATH), 'the refused body save');
-	expect(notes.selected?.as).toBe('note');
-	expect(notes.noteBody(PATH).row?.body).toBe(body);
+	await notes.saveText(PATH);
+ expect(notes.isUnsaved(PATH)).toBe(true);
+ click(target, 'Edit as file');
+ expect(notes.selected?.as).toBe('text');
+ expect(notes.fileText(PATH).text).toContain(body);
+ expect(notes.fileText(PATH).pending?.error).toBeDefined();
+	expect(notes.noteBody(PATH).getRow()?.body).toBe(body);
 	failSaves(false);
 	click(target, 'Save again');
 	await until(() => !notes.isUnsaved(PATH), 'the explicit retry');
@@ -171,7 +174,7 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 	const { notes, target, text, settle } = await view();
 	const rich = richOf(target);
 	await typeRich(rich, ' Typed');
-	expect(notes.noteBody(PATH).row?.body).toBe('Body. Typed\n');
+	expect(notes.noteBody(PATH).getRow()?.body).toBe('Body. Typed\n');
 	await settle();
 	expect(await text(PATH)).toContain('Body. Typed\n');
 	// A save never changes what is on screen: the same view and its history stay.
@@ -183,7 +186,7 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 		);
 		flushSync();
 	}
-	expect(notes.noteBody(PATH).row?.body).toBe('Body.\n');
+	expect(notes.noteBody(PATH).getRow()?.body).toBe('Body.\n');
 	expect(rich.textContent).toBe('Body.');
 	await settle();
 	expect(await text(PATH)).toContain('---\nBody.\n');
@@ -200,13 +203,13 @@ test('different Source text replaces the rich-text document, and typing goes on 
 		'Different\n',
 	);
 	await tick();
-	expect(notes.noteBody(PATH).row?.body).toBe('Different\n');
+	expect(notes.noteBody(PATH).getRow()?.body).toBe('Different\n');
 	click(target, 'Rich text');
 	flushSync();
 	expect(rich.textContent).toBe('Different');
 	expect(undoButton(target).disabled).toBe(true);
 	await typeRich(rich, ' again');
-	expect(notes.noteBody(PATH).row?.body).toBe('Different again\n');
+	expect(notes.noteBody(PATH).getRow()?.body).toBe('Different again\n');
 });
 
 test('a title typed before another tab saved keeps their body and wins the title', async () => {
@@ -282,7 +285,7 @@ test('once the notes are closing, the controls take no input', async () => {
 	expect(rich.getAttribute('contenteditable')).toBe('false');
 	type(titleOf(target), 'Typed while closing');
 	flushSync();
-	expect(notes.noteBody(PATH).row?.fields.title).toBe('Alpha');
+	expect(notes.noteBody(PATH).getRow()?.fields.title).toBe('Alpha');
 	// The editor stays mounted while the last saves land.
 	expect(richOf(target)).toBe(rich);
 	await closed;

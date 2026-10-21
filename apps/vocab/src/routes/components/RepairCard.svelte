@@ -37,22 +37,27 @@
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
 	{#if row.data && !notText}
 		{@const stored = row.data}
-		{@const text = repair.view(stored)}
+		{@const textEdit = repair.view()}
 		<p>
 			<code>{path}</code>
 			{stored.issues === null ? 'now reads as a word.' : 'is not a valid word, so its note and stage cannot be shown.'}
 			Edit its text here; it is saved when you pause.
 		</p>
-		<Textarea
-			class="min-h-32 font-mono text-xs"
-			aria-label="File text for {path}"
-			bind:value={() => text?.text ?? stored.text, (next) => text?.change(next)}
-			onblur={() => void repair.save()}
-		/>
+		{#if textEdit}
+			{@const text = textEdit.text}
+			{#if text !== undefined}
+				<Textarea
+					class="min-h-32 font-mono text-xs"
+					aria-label="File text for {path}"
+					bind:value={() => text, (next) => textEdit.change(next)}
+					onblur={() => void repair.save()}
+				/>
+			{/if}
+		{/if}
 		{#if repair.error && !repair.saving}
 			<p role="alert" class="text-destructive">
 				Not saved: {describeFailure(repair.error)}
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void text?.retry()}>Try again</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void textEdit?.retry()}>Try again</Button>
 			</p>
 		{:else if repair.busy}
 			<p role="status" class="text-muted-foreground">Saving…</p>

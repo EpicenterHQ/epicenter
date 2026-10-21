@@ -8,6 +8,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
 import { type FolderFiles, ReadError, SaveError } from '@epicenter/folder';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { readSnapshot } from '../../../../packages/folder/src/browser/git/snapshot.js';
 import { openRepository } from '../../../../packages/folder/src/browser/repository.js';
@@ -31,6 +32,18 @@ async function open(source?: string | Uint8Array) {
 	if (source !== undefined)
 		expectOk(await files.write('.gitignore', null, source));
 	return { files, root: services.root };
+}
+
+/** A repository's files as a folder answers them: a write answers no stored content. */
+function filesOf(repository: Awaited<ReturnType<typeof openRepository>>) {
+	const { files } = repository;
+	return {
+		...files,
+		async write(...args: Parameters<typeof files.write>) {
+			const written = await files.write(...args);
+			return written.error === null ? Ok(undefined) : written;
+		},
+	} satisfies Pick<FolderFiles, 'read' | 'write'>;
 }
 
 async function text(files: Pick<FolderFiles, 'read'>) {
@@ -188,18 +201,18 @@ test('two browser connections starting from the same bytes retain both the rule 
 	const begun = deferred<void>();
 	const release = deferred<void>();
 	const updating = maintainExclusions({
-		...a.files,
+		...filesOf(a),
 		write: async (...args) => {
 			begun.resolve();
 			await release.promise;
-			return a.files.write(...args);
+			return filesOf(a).write(...args);
 		},
 	});
 	await begun.promise;
 	expectOk(
 		await b.files.write('.gitignore', '# keep\n', '# keep\n/private/\n'),
 	);
-	expectOk(await maintainExclusions(b.files));
+	expectOk(await maintainExclusions(filesOf(b)));
 	release.resolve();
 	expectOk(await updating);
 	a.close();
@@ -212,7 +225,8 @@ test('two browser connections starting from the same bytes retain both the rule 
 test('startup rules exclude new audio from commit preparation while preserving offline bytes and an exact pending send', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	cleanups.push(() => repository.close());
-	const { files, storage } = repository;
+	const { storage } = repository;
+	const files = filesOf(repository);
 	const audio = new Uint8Array([0, 255, 1]);
 	expectOk(await files.write('audio/take.wav', null, audio));
 	expectOk(await files.write('notes/one.md', null, 'Offline note\n'));

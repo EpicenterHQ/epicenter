@@ -11,13 +11,15 @@ export type LoadedAudio = {
 };
 
 /**
- * A file as Source and Files open it, with its exact bytes: the source a
- * whole-text edit names, carrying the read that answered them.
+ * What a file is as Source and Files open it: text, binary, or too large,
+ * with its size. Its text is the folder's edit of the file, which this read
+ * keeps current while the edit holds it.
  */
 export const textRead = defineFileRead('text', async (files, path) => {
 	const { data: bytes, error } = await readBytes({ files }, path);
 	if (error !== null) throw new Error(error);
-	return { ...openedFile(bytes), bytes };
+	const opened = openedFile(bytes);
+	return opened.kind === 'text' ? ({ kind: 'text' } as const) : opened;
 });
 
 /** Hash exact bytes so a refresh preserves playback unless the audio changed. */

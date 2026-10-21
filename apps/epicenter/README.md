@@ -351,15 +351,18 @@ Boards group one field into distinct string, number, boolean, and null lanes.
 Enum and boolean schema hints retain empty destinations. **No value** represents
 an absent field. Object and array values appear in **Other**, which cannot be
 chosen as a move destination. Moving a card changes its grouping field through
-the same file edit handle (`folder.files.edit(path)`) as
-grid and Files edits. Failed moves retain their draft for retry or discard.
+the same `TextEdit` (`folder.files.edit(path)`) as
+grid and Files edits. Failed moves retain their input for retry or discard.
 Cards have no separate rank or drag-order record.
 
 The opened Folder owns unfinished text and field intent per path, from open to
 close, through `folder.files.edit(path)`
 ([ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
-Files, grid, and board use its Svelte binding and keep no separate save queue,
-so input survives view switches. Field intent overlays fresh reads, so another
+Files, grid, and board use `createTextEdit(folder.files, path)` and keep no
+separate save queue. The reactive `.text` getter reads the editable text,
+`.pending` reads unsaved input, and `change(text)` or `changeFields(fields)`
+accepts new input without a source argument. Input
+survives view switches. Field intent overlays fresh reads, so another
 writer's body changes remain visible. A failed reread leaves the text already
 shown in place and editable; text this window saved, with no readable source
 left, stays readable to copy but takes no typing. Starting to type source text deliberately turns that draft into

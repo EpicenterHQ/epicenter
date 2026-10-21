@@ -33,10 +33,8 @@ import type {
 	EditOptions,
 	Folder,
 	FolderChange,
-	FolderFileOperations,
-	FolderTableOperations,
 } from '../folder.js';
-import { folderHandle } from '../handle.js';
+import { type EngineFiles, type EngineTable, folderHandle } from '../handle.js';
 import { hashBytes } from '../hash.js';
 import { callObserver } from '../observer.js';
 import {
@@ -87,6 +85,12 @@ const validId = (table: string, id: string) =>
 	id !== '' &&
 	id.isWellFormed() &&
 	rowAddressProblem(table, id) === undefined;
+
+/** A delete answers whether the file went, not what a save stored. */
+const deleted = (
+	saved: Result<{ deleted: boolean; stored: FileContent | null }, SaveError>,
+): Result<{ deleted: boolean }, SaveError> =>
+	saved.error !== null ? saved : Ok({ deleted: saved.data.deleted });
 
 /**
  * A process-wide registry of open handles by directory, so a save on one
@@ -213,16 +217,19 @@ export function createNativeFolder<
 
 	/**
 	 * Save `content` at `path`, or remove it for `null`, merged with whatever
-	 * landed since `from`. `deleted` says the path holds no file afterward.
-	 * `rowFields` refuses to edit fields in a file whose current frontmatter
-	 * does not parse.
+	 * landed since `from`. `deleted` says the path holds no file afterward,
+	 * and `stored` what it holds: the merged content, or what was already
+	 * there for a save that changed nothing. `rowFields` refuses to edit
+	 * fields in a file whose current frontmatter does not parse.
 	 */
 	async function saveFile(
 		path: string,
 		from: FileContent | null,
 		content: FileContent | null,
 		rowFields = false,
-	): Promise<Result<{ deleted: boolean }, SaveError>> {
+	): Promise<
+		Result<{ deleted: boolean; stored: FileContent | null }, SaveError>
+	> {
 		// A mutable caller buffer must not change the edit's witness during retries.
 		const base = from instanceof Uint8Array ? from.slice() : from;
 		const change = content instanceof Uint8Array ? content.slice() : content;
@@ -242,7 +249,7 @@ export function createNativeFolder<
 			if (error !== null) {
 				// Nothing to remove where a directory stands.
 				if (change === null && error.name === 'NotAFile')
-					return Ok({ deleted: false });
+					return Ok({ deleted: false, stored: null });
 				return Err(await refusal(path, error));
 			}
 			if (pathProblem(path) !== undefined && found === null)
@@ -262,7 +269,7 @@ export function createNativeFolder<
 			}
 			const merged = await merge(path, { base, current: stored, change });
 			if (sameContent(merged.content, stored))
-				return Ok({ deleted: merged.content === null });
+				return Ok({ deleted: merged.content === null, stored });
 			const bytes =
 				merged.content === null
 					? null
@@ -277,7 +284,8 @@ export function createNativeFolder<
 			if (putError !== null) return Err(putError);
 			if (outcome === 'stale') continue;
 			landed([path]);
-			return Ok({ deleted: bytes === null });
+			// A lost reply confirmed by the stored hash holds exactly `bytes` too.
+			return Ok({ deleted: bytes === null, stored: bytes });
 		}
 		return SaveError.StorageFailed({
 			cause: new Error(
@@ -298,7 +306,7 @@ export function createNativeFolder<
 	function table<const TSchema extends Schema>(
 		name: string,
 		schema: TSchema,
-	): FolderTableOperations<TSchema> {
+	): EngineTable<TSchema> {
 		const rowPath = (id: string) => `${name}/${id}.md`;
 		return {
 			list() {
@@ -363,19 +371,22 @@ export function createNativeFolder<
 					change.fields !== undefined,
 				);
 				if (saved.error !== null) return Err(saved.error);
-				return Ok({ sent: readRow(id, sent.data.text, schema) });
+				return Ok({
+					sent: readRow(id, sent.data.text, schema),
+					stored: saved.data.stored,
+				});
 			},
 			async delete(id, from) {
 				if (!validId(name, id) && (from === null || !readableId(name, id)))
 					return SaveError.InvalidId({ id });
 				if (from?.issues?.some((issue) => issue.kind === 'not-text'))
 					return SaveError.NotText();
-				return saveFile(rowPath(id), from?.text ?? null, null);
+				return deleted(await saveFile(rowPath(id), from?.text ?? null, null));
 			},
 		};
 	}
 
-	function files(): FolderFileOperations {
+	function files(): EngineFiles {
 		return {
 			list(prefix = '') {
 				return read(async () => {
@@ -405,11 +416,13 @@ export function createNativeFolder<
 			async write(path, from, content) {
 				if (!structural(path)) return SaveError.InvalidPath({ path });
 				const saved = await saveFile(path, from, content);
-				return saved.error !== null ? Err(saved.error) : Ok(undefined);
+				return saved.error !== null
+					? Err(saved.error)
+					: Ok({ stored: saved.data.stored });
 			},
 			async delete(path, from) {
 				if (!structural(path)) return SaveError.InvalidPath({ path });
-				return saveFile(path, from, null);
+				return deleted(await saveFile(path, from, null));
 			},
 		};
 	}
@@ -421,7 +434,7 @@ export function createNativeFolder<
 				name,
 				table(name, schema),
 			]),
-		) as Record<string, FolderTableOperations>,
+		) as Record<string, EngineTable>,
 		subscribe(listener: (change: FolderChange) => void) {
 			listeners.add(listener);
 			return () => {

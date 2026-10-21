@@ -133,7 +133,7 @@
 			<!-- Typing that did not save for a word no longer listed as one: kept to copy until the learner lets it go. -->
 			<section class="space-y-3 rounded-lg border border-destructive/50 p-3 text-xs" aria-label="Unsaved changes">
 				{#each orphaned as draft (draft.id)}
-					{@const held = entries.edit(draft.id, () => undefined)}
+					{@const held = entries.edit(draft.id)}
 					{@const saving = held.pending?.saving ?? false}
 					<div class="space-y-1" role="alert">
 						<p>A change to <code>{rowPath('entries', draft.id)}</code> was not saved, and the file is no longer a word here.{draft.error ? ` ${describeFailure(draft.error)}` : ''}</p>

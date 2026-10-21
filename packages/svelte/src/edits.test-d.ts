@@ -1,53 +1,56 @@
 /**
  * Type tests for the Svelte edit bindings, checked by `svelte-check`; never
- * run. A definite observed source gives a definite `row` or `text` with the
- * schema's precision; a source that can be `undefined` gives an optional one.
- * A change is nested fields and body; the flat patch and `changeBody` are gone.
+ * run. A binding is made from a table and an id, or the folder's files and a
+ * path, and tracks the folder edit through getters; `row` keeps the
+ * schema's precision and is optional until read. A change is nested fields
+ * and body; no source is named.
  */
 import { expectTypeOf } from 'bun:test';
-import type { Row } from '@epicenter/folder';
-import type { RowEdit, RowPending, TextEdit } from '@epicenter/folder/edits';
+import type { Folder, Row } from '@epicenter/folder';
+import type { Pending, ReadStatus } from '@epicenter/folder/edits';
 import { Type } from 'typebox';
 import { createRowEdit, createTextEdit } from './edits.js';
 
 const notes = Type.Object({ title: Type.String(), done: Type.Boolean() });
 type Note = Row<typeof notes>;
-type ValidNote = Extract<Note, { issues: null }>;
 
-declare const rowEdit: RowEdit<typeof notes>;
-declare const valid: ValidNote;
-declare const listed: Note;
-declare const loading: ValidNote | undefined;
+declare const folder: Folder<{ notes: typeof notes }>;
 
-const definite = createRowEdit(rowEdit, () => valid);
-expectTypeOf(definite.row).toEqualTypeOf<ValidNote>();
-expectTypeOf(definite.row.fields.title).toEqualTypeOf<string>();
-expectTypeOf(createRowEdit(rowEdit, () => listed).row).toEqualTypeOf<Note>();
-expectTypeOf(createRowEdit(rowEdit, () => loading).row).toEqualTypeOf<
-	ValidNote | undefined
+const rowEdit = createRowEdit(folder.tables.notes, 'milk');
+expectTypeOf(rowEdit.path).toEqualTypeOf<string>();
+expectTypeOf(rowEdit.row).toEqualTypeOf<Note | undefined>();
+expectTypeOf(rowEdit.readStatus).toEqualTypeOf<ReadStatus>();
+expectTypeOf(rowEdit.pending).toEqualTypeOf<
+	Pending<typeof notes> | undefined
 >();
-// Held input is readable whether or not a row is observed.
-expectTypeOf(createRowEdit(rowEdit, () => undefined).pending).toEqualTypeOf<
-	RowPending<typeof notes> | undefined
->();
-definite.change({ fields: { title: 'Oat milk', done: true } });
-definite.change({ body: 'Two litres' });
-definite.change({ fields: { done: false }, body: 'Two litres' });
+expectTypeOf(rowEdit.locked).toEqualTypeOf<boolean>();
+const row = rowEdit.row;
+if (row?.issues === null)
+	expectTypeOf(row.fields.title).toEqualTypeOf<string>();
+rowEdit.change({ fields: { title: 'Oat milk', done: true } });
+rowEdit.change({ body: 'Two litres' });
+rowEdit.change({ fields: { done: false }, body: 'Two litres' });
 // @ts-expect-error A flat field is not a change.
-definite.change({ title: 'Oat milk' });
+rowEdit.change({ title: 'Oat milk' });
 // @ts-expect-error A change names fields of the row's schema.
-definite.change({ fields: { titel: 'Oat milk' } });
+rowEdit.change({ fields: { titel: 'Oat milk' } });
 // @ts-expect-error A field takes its schema's type.
-definite.change({ fields: { done: 'yes' } });
-// @ts-expect-error There is no separate body command.
-definite.changeBody('Two litres');
+rowEdit.change({ fields: { done: 'yes' } });
+// @ts-expect-error Svelte reads the tracked property, without a duplicate method.
+rowEdit.getRow();
+// @ts-expect-error Reactive properties are readonly; changes go through commands.
+rowEdit.row = undefined;
+// @ts-expect-error A binding is made from a table, not a core rowEdit.
+createRowEdit(folder.tables.notes.edit('milk'), () => undefined);
 
-declare const textEdit: TextEdit;
-declare const bytes: Uint8Array;
-declare const reading: Uint8Array | undefined;
-expectTypeOf(createTextEdit(textEdit, () => bytes).text).toEqualTypeOf<string>();
-expectTypeOf(createTextEdit(textEdit, () => reading).text).toEqualTypeOf<
-	string | undefined
->();
-// @ts-expect-error The observed source is bytes, not text.
-createTextEdit(textEdit, () => 'source');
+const textEdit = createTextEdit(folder.files, 'notes/a.md');
+expectTypeOf(textEdit.text).toEqualTypeOf<string | undefined>();
+expectTypeOf(textEdit.readStatus).toEqualTypeOf<ReadStatus>();
+textEdit.change('whole text');
+textEdit.changeFields({ title: 'x' });
+// @ts-expect-error Svelte reads the tracked text property.
+textEdit.getText();
+// @ts-expect-error Reactive text is readonly.
+textEdit.text = 'replacement';
+// @ts-expect-error The whole text is a string.
+textEdit.change(new Uint8Array());

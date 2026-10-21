@@ -47,33 +47,30 @@
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	// The library's timers outlive the view; send what is typed now instead.
-	onDestroy(() => {
-		void library.saveBody(own);
-		void library.saveText(own);
-	});
+	onDestroy(() => void library.saveText(own));
 	const table = $derived(rowTableOf(path));
 	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
 	const asText = $derived(!audio && library.showsText(path));
 	/**
-	 * This view's transcript row and its text: each shows the view's own read
-	 * with own saves and what is typed over it, and typing names what it last
-	 * showed.
+	 * This view's transcript row and its text: the folder's edits of the
+	 * file, each as stored with what is typed over it.
 	 */
 	// svelte-ignore state_referenced_locally
-	const transcriptView = library.rowView(TRANSCRIPTIONS, own);
+	const rowEdit = library.rowEdit(TRANSCRIPTIONS, own);
 	const context = getFolder();
+	/** What the file is while it shows as text; its reads keep the text edit current. */
 	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
 	// svelte-ignore state_referenced_locally
-	const textView = library.textView(own, () =>
-		opened.data?.kind === 'text' ? opened.data.bytes : undefined,
-	);
+	const textEdit = library.textEdit(own);
 	/** A transcript that reads: its body is edited here, its fields kept. */
-	const transcript = $derived(
-		table === TRANSCRIPTIONS && !asText ? transcriptView.row : undefined,
-	);
-	/** The file's text as typed while an edit is unsaved, else as read with own saves. */
+	const transcript = $derived.by(() => {
+		if (table !== TRANSCRIPTIONS || asText) return undefined;
+		const shown = rowEdit.row;
+		return shown?.issues === null ? shown : undefined;
+	});
+	/** The file's text as typed while an edit is unsaved, else as stored. */
 	const text = $derived(
-		textView.pending !== undefined || opened.data?.kind === 'text' ? textView.text : undefined,
+		textEdit.pending !== undefined || opened.data?.kind === 'text' ? textEdit.text : undefined,
 	);
 	/** Why a row file, as last saved, is not a row yet. Typing saves after a pause, and this follows. */
 	const issues = $derived(
@@ -127,7 +124,7 @@
 		</Button>
 	</div>
 
-	{#if transcript === undefined && pending !== undefined}
+	{#if (asText ? text === undefined : transcript === undefined) && pending !== undefined}
 		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
@@ -152,6 +149,7 @@
 			</dl>
 		</div>
 	{:else if transcript}
+		{@const row = transcript}
 		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<p class="text-xs text-muted-foreground">
@@ -161,8 +159,8 @@
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-sans"
 				bind:value={
-					() => transcript?.body ?? '',
-					(value) => library.editBody(transcriptView, value)
+					() => row.body,
+					(value) => library.editBody(rowEdit, value)
 				}
 				onblur={() => void library.saveBody(path)}
 				disabled={locked}
@@ -175,6 +173,7 @@
 			<Empty.Description>It was renamed or deleted, here or by another program.</Empty.Description>
 		</Empty.Root>
 	{:else if text !== undefined}
+		{@const shown = text}
 		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
@@ -197,7 +196,7 @@
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(text ?? ''), (value) => library.editText(textView, withFileNewlines(value, text ?? ''))}
+				bind:value={() => lf(shown), (value) => library.editText(textEdit, withFileNewlines(value, shown))}
 				onblur={() => void library.saveText(path)}
 				disabled={locked}
 				aria-label="Contents of {name}"

@@ -18,7 +18,7 @@
 	import BottomNav from './BottomNav.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import VerticalNav from './VerticalNav.svelte';
-	import { reportWriteNotice } from './file-actions.js';
+	import { toastWriteFailure } from '@epicenter/svelte/write-failure-toast';
 
 	/** Product state over FolderApp's context; stops workflows before the folder closes. */
 	let {
@@ -44,7 +44,7 @@
 	});
 
 	// A save of a file's text that failed is told, with the text to copy.
-	$effect(() => library.onWriteNotice(reportWriteNotice));
+	$effect(() => library.onWriteFailure(toastWriteFailure));
 
 	// Edits not yet saved live only in this window until they land.
 	// Moving between this app's pages keeps them, so that is never held back.

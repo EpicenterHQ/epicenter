@@ -519,34 +519,40 @@ nothing new starts for it while it is deleted.
 Folder owns accepted file edits and their persistence ([ADR 0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)). `FolderApp` opens it
 and creates the UI context; `WhisperingApp` installs that same context for
 `getFolder()`. Its TanStack Query cache holds saved rows and file reads
-(ADR-0528). Framework bindings combine each view's observed source with
-Folder's retained input. A read never replaces unfinished input.
+(ADR-0528). Folder also owns each editable document and its retained input;
+the Svelte edits expose tracked properties over its read methods. A read never replaces unfinished input.
 
 - **Reads** use the context's generated queries. One Folder change listener
   invalidates affected representations, and visible queries poll for outside
   edits. Save completion and closing do not wait for display refresh.
-- **Row typing** uses `folder.tables[table].edit(id)`. The core accepts the
-  observed row and a `{ fields?, body? }` patch. A Svelte binding supplies
-  that observation and owns its reactive subscription. Views use the binding
-  for both display and changes, so a failed reread cannot expose stale words
-  as the next edit's base. Autosave policy is configured when opening Folder.
-- **Whole-file text** uses `folder.files.edit(path)`, with observed bytes
-  and the complete replacement text. Row and text handles share one owner
+- **Row typing** uses `folder.tables[table].edit(id)`. `getRow()` answers the
+  document with pending fields and body; `change({ fields?, body? })` types
+  over it. `createRowEdit(table, id)` exposes that row as a reactive `.row`
+  property for Svelte and shares the core commands. Callers supply no source or observation. Autosave policy
+  is configured when opening Folder.
+- **Whole-file text** uses `folder.files.edit(path)`: `getText()` reads the
+  editable text, and `change(text)` supplies its replacement. Row and text edits share one owner
   per physical path, including input, save ordering, and failures. Whispering
-  has no separate text queue. Switching between fields and Source saves the
-  side being left first, and refuses while it did not save.
+  has no separate text queue. Fields and Source read and change the same path's
+  input, so switching requires no save or refresh. A structured view uses the
+  current editable text, while failed input and its recovery remain shared.
 - **A failed save** keeps the typing. The file's status line says **Not
-  saved** with **Try again** and **Discard** (`SaveStatus.svelte`); further
-  typing saves it too, and so does anything that reads the file first: a run,
-  a rename, a deletion, closing. Discard leaves the file as it is and offers
+  saved** with **Try again** and **Discard** (`SaveStatus.svelte`). Try again retries
+  it; accepted new typing clears the error and may autosave. A run, rename,
+  deletion or close sends new input but leaves failed input held for recovery.
+  Discard leaves the file as it is and offers
   what was typed to copy. A failed save of a file's whole text is also told
-  with the shared failure toast.
+  with the shared failure toast. The library emits the shared `WriteFailure`
+  directly; the app root passes it to `toastWriteFailure`.
 - **A row deleted elsewhere** with typing held for it comes back with that
   typing: an unseen deletion never erases an edit (ADR-0632). With nothing
   typed it stays deleted.
 - **A value the schema does not accept** is saved as written, and the row is
   listed for repair. A field change leaves the rest of the file's bytes as
   they were; text typed into a body saves with LF line endings (ADR-0572).
+- **A recording's initial row save** stays on its active capture. Stop and
+  Cancel await that attempt before changing or deleting its row, even if
+  another capture has since started.
 - **A recording's lifecycle** (its row at start, its length at stop, saving
   a transcript or a result) is tracked work scoped by the recording's path,
   which the audio's "settling" state reads. Waiting on an endpoint is not

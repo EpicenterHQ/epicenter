@@ -83,8 +83,9 @@ test('the pause a directory is opened with saves its held input', async () => {
 	const folder = expectOk(
 		await openBunFolder({ directory: root, tables: { notes }, saveAfterMs: 5 }),
 	);
-	const row = expectOk(await folder.tables.notes.get('milk'))!;
-	folder.tables.notes.edit('milk').change(row, { fields: { title: 'Oat' } });
+	// A get answers the edit's document.
+	expectOk(await folder.tables.notes.get('milk'));
+	expectOk(folder.tables.notes.edit('milk').change({ fields: { title: 'Oat' } }));
 	expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
 	for (let turn = 0; turn < 100 && folder.getStatus().unsaved.length > 0; turn++)
 		await new Promise((resolve) => setTimeout(resolve, 5));

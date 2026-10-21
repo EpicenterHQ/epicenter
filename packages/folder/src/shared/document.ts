@@ -6,7 +6,6 @@
  */
 import { type TSchema, Type } from 'typebox';
 import { frameRowText } from './content/markdown.js';
-import { carryRead } from './observation.js';
 import { type Row, type RowChange, readRow, rowChange } from './row.js';
 
 const anyFields = Type.Record(Type.String(), Type.Unknown());
@@ -44,16 +43,13 @@ export function readDocument(
 		// readRow already reports the exact decoding failure.
 	}
 	const slash = path.lastIndexOf('/');
-	const copy = new Uint8Array(content);
-	// The copy is the same read's content.
-	carryRead(content, copy);
 	return {
 		...row,
 		fields: row.fields as Record<string, unknown>,
 		path,
 		directory: slash < 0 ? '' : path.slice(0, slash),
 		stem: path.slice(slash + 1, -3),
-		content: copy,
+		content: new Uint8Array(content),
 	};
 }
 

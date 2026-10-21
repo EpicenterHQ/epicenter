@@ -72,18 +72,21 @@ async function setup() {
 
 test('visible polling discovers outside edits and preserves a pending row draft', async () => {
 	const { directory, folder, cached } = await setup();
+	// The list's read answered the edit's document.
 	const edit = folder.tables.notes.edit('milk');
-	edit.change(cached(), { fields: { title: 'Typed here' } });
+	expectOk(edit.change({ fields: { title: 'Typed here' } }));
 	await writeFile(
 		join(directory, 'notes/milk.md'),
 		initial.replace('two', 'Outside edit'),
 	);
 	await until(() => cached().body.includes('Outside edit'));
-	expect(edit.pending).toBeDefined();
-	expect(edit.shown(cached()).row.fields.title).toBe('Typed here');
+	expect(edit.getPending()).toBeDefined();
+	// The poll's read reached the edit too: the outside body under the typing.
+	expect(edit.getRow()?.fields.title).toBe('Typed here');
+	expect(edit.getRow()?.body).toContain('Outside edit');
 	await edit.save();
-	expect(edit.pending).toBeUndefined();
-	expect(edit.shown(cached()).row.fields.title).toBe('Typed here');
+	expect(edit.getPending()).toBeUndefined();
+	expect(edit.getRow()?.fields.title).toBe('Typed here');
 	await until(() => cached().fields.title === 'Typed here');
 	expect(cached().body).toContain('Outside edit');
 });
@@ -144,7 +147,33 @@ test('a known path refresh leaves unrelated file queries alone', async () => {
 	expect(reads).toEqual({ a: 2, b: 1 });
 });
 
-test('a save lands without waiting for a slow scan, which shows it over the older rows until a read after it', async () => {
+test('a reported change leaves an edit read query alone; an asked-for refresh reads it', async () => {
+	const { folder, context } = await setup();
+	const edit = folder.tables.notes.edit('milk');
+	let reads = 0;
+	const observer = new QueryObserver(
+		context.queryClient,
+		context.queries.read({
+			path: edit.path,
+			read: () => {
+				reads++;
+				return edit.read();
+			},
+		}),
+	);
+	cleanup.push(observer.subscribe(() => {}));
+	await until(() => reads === 1);
+	expectOk(edit.change({ fields: { title: 'Typed here' } }));
+	await edit.save();
+	await Bun.sleep(50);
+	expect(reads).toBe(1);
+	await context.refresh([edit.path]);
+	expect(reads).toBe(2);
+	await context.refresh();
+	expect(reads).toBe(3);
+});
+
+test('a save lands without waiting for a slow scan, whose older rows never replace it in the edit', async () => {
 	const { folder, cached, reads } = await setup();
 	const gate = Promise.withResolvers<void>();
 	const list = folder.tables.notes.list;
@@ -169,18 +198,21 @@ test('a save lands without waiting for a slow scan, which shows it over the olde
 	await until(() => held);
 	const edit = folder.tables.notes.edit('milk');
 	const before = cached();
-	edit.change(before, { fields: { title: 'Saved while reading' } });
+	expectOk(edit.change({ fields: { title: 'Saved while reading' } }));
 	await edit.save();
-	expect(edit.pending).toBeUndefined();
+	expect(edit.getPending()).toBeUndefined();
 	expect(folder.getStatus().saving).toBe(false);
 	expect(before.fields.title).toBe('Milk');
-	expect(edit.shown(before).row.fields.title).toBe('Saved while reading');
+	expect(edit.getRow()?.fields.title).toBe('Saved while reading');
 	// A second polling tick must join the slow scan, not replace it.
 	await Bun.sleep(2_200);
 	expect(maximum).toBe(1);
 	gate.resolve();
+	await Bun.sleep(0);
+	// The scan read before the save: the edit keeps what the save stored.
+	expect(edit.getRow()?.fields.title).toBe('Saved while reading');
 	await until(() => cached().fields.title === 'Saved while reading');
-	expect(edit.shown(cached()).row.fields.title).toBe('Saved while reading');
+	expect(edit.getRow()?.fields.title).toBe('Saved while reading');
 	expect(maximum).toBe(1);
 	expect(reads()).toBeLessThanOrEqual(3);
 }, 10_000);

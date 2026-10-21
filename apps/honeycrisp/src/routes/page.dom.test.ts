@@ -197,6 +197,7 @@ test('a note that does not read as one is repaired as its file and opens as a no
 		() => page.target.querySelector('[data-testid="row-issues"]') === null,
 		'the repair',
 	);
+	await until(() => page.text('[data-testid="write-status"]').trim() === 'Saved', 'the repaired file to save');
 	expect(await stored('notes/broken.md')).toBe(
 		broken.replace('maybe', 'false'),
 	);
@@ -239,10 +240,10 @@ test('failed whole-file input survives Open as note and another tab deleting the
 	button(page.target, 'Open as note').click();
 	await until(
 		() => page.text('[data-testid="write-status"]').includes('Not saved'),
-		'the refused mode switch',
+		'the shared failure after switching',
 	);
-	expect(page.target.querySelector(TITLE)).toBeNull();
-	expect(page.get<HTMLTextAreaElement>(selector).value).toBe(changed);
+	expect(page.target.querySelector(TITLE)).not.toBeNull();
+ expect(page.target.querySelector('[aria-label="Note text"]')?.textContent).toContain('Keep this text');
 	IDBObjectStore.prototype.put = put;
 	expect(expectOk(await tab.files.delete('notes/a.md', source)).deleted).toBe(
 		true,
@@ -251,10 +252,13 @@ test('failed whole-file input survives Open as note and another tab deleting the
 		() => !page.text(LIST).includes('Alpha'),
 		'the external deletion',
 	);
-	expect(page.get<HTMLTextAreaElement>(selector).value).toBe(changed);
-	button(page.target, 'Discard changes').click();
+	await until(() => page.target.querySelector('[aria-label="Unsaved text"]') !== null, 'copyable failed input after deletion');
+ expect(page.target.querySelector('[aria-label="Unsaved text"]')?.textContent).toBe(changed);
+ button(page.target, 'Discard it').click();
+ await until(() => document.querySelector('[role="alertdialog"]') !== null, 'the discard confirmation');
+ button(document.body, 'Discard changes').click();
 	await until(
-		() => page.target.querySelector(selector) === null,
+		() => page.target.querySelector('[aria-label="Unsaved text"]') === null,
 		'discarding the failed text',
 	);
 });

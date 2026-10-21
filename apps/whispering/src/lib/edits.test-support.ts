@@ -10,23 +10,15 @@
  */
 import { textRead } from './file-reads.js';
 
-import {
-	type RecordingFields,
-	rowIdOf,
-	type TranscriptionFields,
-	type TransformationFields,
-} from './definition.js';
-import type { Library, RowTable } from './library.svelte.js';
+import { rowIdOf } from './definition.js';
+import type { Library, ReadRow, RowTable } from './library.svelte.js';
 import { QueryObserver, quiet } from './query.test-support.js';
 
-type FieldsOf<T extends RowTable> = T extends 'recordings'
-	? RecordingFields
-	: T extends 'transcriptions'
-		? TranscriptionFields
-		: TransformationFields;
-
-/** A row as a view shows it: its fields and its body. */
-type Shown<T extends RowTable> = { fields: FieldsOf<T>; body: string };
+/** A mutable copy for simulating input; field names and values come from the row schema. */
+type Shown<T extends RowTable> = {
+	fields: { -readonly [K in keyof ReadRow<T>['fields']]: ReadRow<T>['fields'][K] };
+	body: string;
+};
 
 function rowEditor<T extends RowTable>(
 	library: Library,
@@ -37,10 +29,10 @@ function rowEditor<T extends RowTable>(
 	if (rowIdOf(table, path) === undefined)
 		throw new Error(`${path} is not a ${table} row`);
 	// One view of the row, kept as a mounted view keeps it.
-	const view = library.rowView(table, path);
+	const view = library.rowEdit(table, path);
 	const shown = (): Shown<T> | undefined => {
 		const row = view.row;
-		return row && { fields: row.fields as FieldsOf<T>, body: row.body };
+		return row && { fields: row.fields as Shown<T>['fields'], body: row.body };
 	};
 	return {
 		path,
@@ -86,15 +78,8 @@ export const transcriptEditor = (library: Library, path: string) =>
 
 /** The text of `path`, as a text view edits it; the file must be open as text. */
 export function textEditor(library: Library, path: string) {
-	const opened = () =>
-		library.local.queryClient.getQueryData(
-			library.local.queries.file(path, textRead).queryKey,
-		);
-	// One view of the text, over the read it observes, as a mounted view keeps it.
-	const view = library.textView(path, () => {
-		const read = opened();
-		return read?.kind === 'text' ? read.bytes : undefined;
-	});
+	// One view of the text, as a mounted view keeps it.
+	const view = library.textEdit(path);
 	return {
 		view,
 		get draft(): string {
@@ -110,14 +95,18 @@ export function textEditor(library: Library, path: string) {
 }
 
 /**
- * Read the text of `path` into the cache and keep observing it, as a text
- * view does while it is mounted, so it is read again when it goes stale.
+ * Open the text of `path` as a mounted text view does: read what the file
+ * is into the cache and the folder's edit of it, and keep observing both,
+ * so each is read again when the file changes.
  */
 export async function openText(library: Library, path: string) {
 	await library.local.queryClient.fetchQuery(library.local.queries.file(path, textRead));
 	new QueryObserver(library.local.queryClient, library.local.queries.file(path, textRead)).subscribe(
 		() => {},
 	);
+	const edit = library.local.folder.files.edit(path);
+	edit.subscribe(() => {});
+	await edit.read();
 	return textEditor(library, path);
 }
 

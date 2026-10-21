@@ -67,7 +67,7 @@
 	 * or a save landing, gives the same string, so nothing below runs
 	 * again.
 	 */
-	const body = $derived(note.row?.body);
+	const body = $derived(note.getRow()?.body);
 	/** The body as a document, or why it cannot be one. */
 	const rich = $derived(body === undefined ? undefined : bodyCodec.decode(body));
 	/**
@@ -176,7 +176,7 @@
 				plugins: [...editingPlugins(), placeholder, taskCheckbox],
 			}),
 			attributes: { class: 'focus:outline-none', 'aria-label': 'Note text' },
-			editable: () => !note.locked,
+			editable: () => !note.isLocked(),
 			dispatchTransaction(this: EditorView, transaction) {
 				// Something that kept this view, a command or a timer, can still
 				// dispatch after it was destroyed. Its document is not the note's.
@@ -213,7 +213,7 @@
 	// The view asks `editable` only when it updates: ask it again when the note
 	// starts or stops taking edits, so the text is not editable while locked.
 	$effect(() => {
-		note.locked;
+		note.isLocked();
 		untrack(() => view)?.setProps({});
 	});
 
@@ -317,7 +317,7 @@
 					>
 						<Input class="h-8" placeholder="https://example.com" aria-label="Link address" bind:value={linkHref} />
 						<!-- The popover is outside the app's inert root. -->
-						<Button type="submit" size="sm" disabled={note.locked}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
+						<Button type="submit" size="sm" disabled={note.isLocked()}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
 					</form>
 				</Popover.Content>
 			</Popover.Root>

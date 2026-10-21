@@ -144,8 +144,9 @@ test('the pause a window folder is opened with saves its held input, through eit
 		await writeFile(join(root, 'notes/milk.md'), '---\ntitle: Milk\n---\n');
 		shell = createGrantedShell(root);
 		const folder = expectOk(await open({ tables: { notes }, saveAfterMs: 5 }));
-		const row = expectOk(await folder.tables.notes.get('milk'))!;
-		folder.tables.notes.edit('milk').change(row, { fields: { title: 'Oat' } });
+		const edit = folder.tables.notes.edit('milk');
+		expectOk(await edit.read());
+		expectOk(edit.change({ fields: { title: 'Oat' } }));
 		expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
 		for (let turn = 0; turn < 100 && folder.getStatus().unsaved.length > 0; turn++)
 			await new Promise((resolve) => setTimeout(resolve, 5));

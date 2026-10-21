@@ -20,12 +20,12 @@
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
+	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { createRowEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { FOLDERS, type FolderRow, folderIdOf, NOTES, type NoteRow, noteIdOf } from '$lib/data.js';
+	import { folderIdOf, noteIdOf } from '$lib/data.js';
 	import type { Notes } from '$lib/notes.svelte.js';
-	import { describeFailure } from '$lib/status.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
 	let {
@@ -43,52 +43,34 @@
 	const path = shownPath;
 	onDestroy(() => void notes.saveText(path));
 
-	const file = createQuery(() => notes.queries.file(path, textRead));
 	/**
-	 * This view's text: held text, else the bytes its read answered with this
-	 * window's own saves that read may not show yet. Typing names what it
-	 * last showed. Keyed by its opening, as the notes are for the page.
+	 * What the file is: text, binary, or too large to open, with its size.
+	 * Its reads, polled while the view shows, also keep the edit's file
+	 * current, an edit made outside this page included.
 	 */
+	const file = createQuery(() => notes.queries.file(path, textRead));
+	/** The folder's edit of the file: held text, else the file as stored. Keyed by its opening. */
 	// svelte-ignore state_referenced_locally
-	const edit = notes.fileText(path, () =>
-		file.data?.kind === 'text' ? file.data.bytes : undefined,
-	);
+	const textEdit = notes.fileText(path);
 	const name = basename(path);
 	const noteId = noteIdOf(path);
 	const folderId = folderIdOf(path);
-	// This view is keyed by its opening, as is the row edit it reads.
+	// This view is keyed by its opening; only its address determines the adapter.
 	// svelte-ignore state_referenced_locally
 	const rowEdit = noteId !== undefined
-		? createRowEdit(notes.folder.tables.notes.edit(noteId), () => note.data)
-		: folderId !== undefined
-			? createRowEdit(notes.folder.tables.folders.edit(folderId), () => folder.data)
-			: undefined;
-	/** Typing held for the row this file is, from its note or folder view. */
-	const pendingRow = $derived(rowEdit?.pending);
-	/** The row this file is, as its table last read it, when it is a note or folder file. */
-	const note = createQuery(() => ({
-		...notes.queries.rows(NOTES),
-		enabled: noteId !== undefined,
-		select: (rows: NoteRow[]) => rows.find((row) => row.id === noteId),
-	}));
-	const folder = createQuery(() => ({
-		...notes.queries.rows(FOLDERS),
-		enabled: folderId !== undefined,
-		select: (rows: FolderRow[]) => rows.find((row) => row.id === folderId),
-	}));
+		? createRowEdit(notes.folder.tables.notes, noteId)
+		: folderId !== undefined ? createRowEdit(notes.folder.tables.folders, folderId) : undefined;
 	/**
-	 * The text shown: what was typed and not yet saved, else the file's with
-	 * own saves, while the file reads as text. A file gone or no longer text
-	 * shows as that.
+	 * The text shown: what was typed and not yet saved, else the file as
+	 * stored, while the file reads as text. A file gone, no longer text, or
+	 * too large shows as that, and is never read into the textEdit.
 	 */
-	const text = $derived(
-		edit.pending !== undefined || file.data?.kind === 'text' ? edit.text : undefined,
-	);
+	const typing = $derived(textEdit.pending !== undefined);
+	const text = $derived(typing || file.data?.kind === 'text' ? textEdit.text : undefined);
 	/** Why the saved text is not a row, as the folder read it after its last save. */
-	const issues = $derived((note.data ?? folder.data)?.issues ?? undefined);
-	const typing = $derived(edit.pending !== undefined);
+	const issues = $derived(rowEdit?.row?.issues ?? undefined);
 	/** Edits wait once the notes are closing, and while this file is deleted. */
-	const locked = $derived(notes.isLocked(path) || pendingRow !== undefined);
+	const locked = $derived(notes.isLocked(path));
 	/** A failed read with nothing of this file to show but what it held before. */
 	const reading = $derived(!typing && file.isError && file.data?.kind !== 'text');
 	const failed = $derived(notes.textError(path));
@@ -102,17 +84,6 @@
 		return `${kind} · ${(size / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
-	/** Save the text typed, then show the note it now is. */
-	async function openAsNote() {
-		const selected = notes.selected;
-		await notes.saveText(path);
-		if (notes.selected !== selected) return;
-		if (notes.typedText(path) !== undefined) {
-			toast.warning('The text is not saved yet', { description: notes.textError(path) });
-			return;
-		}
-		notes.open(path, 'note');
-	}
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="File">
@@ -126,9 +97,9 @@
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={issues !== undefined && !typing}
-				tooltip={issues !== undefined && !typing ? 'Fix the text first' : undefined}
-				onclick={() => void openAsNote()}
+				disabled={issues !== undefined}
+				tooltip={issues !== undefined ? 'Fix the text first' : undefined}
+				onclick={() => notes.open(path, 'note')}
 			>
 				Open as note
 			</Button>
@@ -138,20 +109,17 @@
 		</Button>
 	</div>
 
-	{#if pendingRow !== undefined}
-		{#if pendingRow.error !== undefined && !pendingRow.saving}
-		<div class="space-y-3 overflow-auto p-4" role="status">
-			<p>Changes to this file have not saved. Save them or copy and discard them before editing the whole file.</p>
-			<Textarea readonly aria-label="Unsaved note changes" value={JSON.stringify({ fields: pendingRow.fields, body: pendingRow.body }, null, 2)} class="min-h-40 font-mono text-xs" />
-			<p>{describeFailure(pendingRow.error)}</p>
-			<Button disabled={notes.isLocked(path)} onclick={() => void rowEdit?.retry()}>Save again</Button>
-			<Button variant="outline" disabled={notes.isLocked(path)} onclick={() => rowEdit?.discard()}>Discard changes</Button>
-		</div>
-		{:else}
-			<Loading class="flex-1" label="Saving file changes…" />
-		{/if}
-	{:else if text !== undefined}
+	{#if text !== undefined}
 		{@const shown = text}
+		{#if textEdit.pending?.error !== undefined && textEdit.pending.kind !== 'text'}
+			{@const pending = textEdit.pending}
+			<div class="space-y-2 p-4" role="status">
+				<p>These changes have not saved. If they cannot be applied to this file, copy them before discarding.</p>
+				<pre class="max-h-40 overflow-auto whitespace-pre-wrap" aria-label="Unsaved note changes">{unsavedText(pending)}</pre>
+				<Button disabled={locked} onclick={() => void textEdit.retry()}>Save again</Button>
+				<Button variant="outline" disabled={locked} onclick={() => textEdit.discard()}>Discard changes</Button>
+			</div>
+		{/if}
 		{#if file.isError}
 			<p class="px-4 py-2 text-sm" role="alert">Could not read the saved file: {file.error.message} <Button variant="link" size="xs" onclick={() => void file.refetch()}>Try again</Button></p>
 		{/if}
@@ -178,7 +146,8 @@
 				bind:value={
 					() => shown.replace(/\r\n?/g, '\n'),
 					(typed) => {
-						edit.change(withFileNewlines(typed.toWellFormed(), shown));
+						const changed = textEdit.change(withFileNewlines(typed.toWellFormed(), shown));
+						if (changed.error !== null) toast.warning('That change was not made', { description: changed.error.message });
 					}
 				}
 				onblur={() => void notes.saveText(path)}
@@ -187,7 +156,7 @@
 		<p class="flex shrink-0 items-center gap-2 border-t px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
 			{#if failed !== undefined && !notes.isWriting(path)}
 				Not saved: {failed}
-				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => void edit.retry()}>Save again</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => void textEdit.retry()}>Save again</Button>
 				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => notes.discardText(path)}>Discard changes</Button>
 			{:else}
 				{notes.isWriting(path) ? 'Saving…' : 'Saved'}

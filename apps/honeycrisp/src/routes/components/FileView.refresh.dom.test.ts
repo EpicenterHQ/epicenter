@@ -94,7 +94,7 @@ test('saved words stay shown when the reread fails, and typing on keeps them', a
 	await notes.saveText('draft.txt');
 	await local.refresh(['draft.txt']);
 	flushSync();
-	expect(folder.files.edit('draft.txt').pending).toBeUndefined();
+	expect(folder.files.edit('draft.txt').getPending()).toBeUndefined();
 	expect(await text('draft.txt')).toBe('Committed words');
 	expect(input()?.value).toBe('Committed words');
 	expect(input()?.readOnly).toBe(false);

@@ -1,9 +1,10 @@
 /**
- * `@epicenter/folder/edits`: the vocabulary of unsaved input over an opened
- * folder, whose handles are `folder.tables.<name>.edit(id)` and
- * `folder.files.edit(path)` (`edit-owner.ts` states the rules). The folder
- * owns that input for its whole life: `folder.getStatus()`, `folder.settle()` and
- * `folder.close()` report and send it. Importing it opens nothing.
+ * `@epicenter/folder/edits`: the vocabulary of editable documents over an
+ * opened folder, whose handles are `folder.tables.<name>.edit(id)` and
+ * `folder.files.edit(path)` (`edit-owner.ts` states the rules), and the
+ * folder's line merge of whole texts. The folder owns each path's document
+ * and input for its whole life: `folder.getStatus()`, `folder.settle()` and
+ * `folder.close()` report and send the input. Importing it opens nothing.
  */
 export {
 	ActionError,
@@ -15,14 +16,14 @@ export {
 	type DeleteResult,
 	type ExclusiveFile,
 	type FieldsPending,
+	mergeText,
 	type Pending,
+	type ReadStatus,
 	type RowEdit,
 	type RowEditChange,
 	type RowPending,
-	type RowShown,
 	SAVE_AFTER_MS,
 	type TextEdit,
 	type TextPending,
-	type TextShown,
 	UNSAVED,
 } from './edit-owner.js';

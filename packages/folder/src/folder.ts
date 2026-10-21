@@ -84,9 +84,9 @@ export type FolderFileOperations = {
 
 export type FolderFiles = FolderFileOperations & {
 	/**
-	 * The whole exact text, or the fields, typed into `path` and not saved
-	 * yet, shared by every caller of this handle. Answering it reads and
-	 * holds nothing.
+	 * The file at `path` as last known stored, with the whole exact text or
+	 * the fields typed into it and not saved yet, shared by every caller of
+	 * this handle. Answering it reads and holds nothing.
 	 */
 	edit(path: string): TextEdit;
 };
@@ -116,8 +116,9 @@ export type FolderTableOperations<TSchema extends Schema = Schema> = {
 export type FolderTable<TSchema extends Schema = Schema> =
 	FolderTableOperations<TSchema> & {
 		/**
-		 * The fields and body typed into row `id` and not saved yet, shared by
-		 * every caller of this handle. Answering it reads and holds nothing.
+		 * Row `id` as last known stored, with the fields and body typed into it
+		 * and not saved yet, shared by every caller of this handle. Answering
+		 * it reads and holds nothing.
 		 */
 		edit(id: string): RowEdit<TSchema>;
 	};
@@ -156,10 +157,11 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	 * held for recovery; saves
 	 * already started finish and report their real outcome; then listeners
 	 * and storage are released. Reads that are still running are not waited
-	 * for. What stays is reading what is held: `status`, and `edit(...)`
-	 * handles, whose `pending`, `shown` and `discard` still answer and whose
-	 * `save()` and `retry()` join the close. Answers the input that did not
-	 * save. Closing again returns the same promise.
+	 * for. What stays is reading what is held: `getStatus()`, and `edit(...)`
+	 * handles, whose `getRow()`, `getText()`, `getPending()` and `discard()`
+	 * still answer, whose `read()` rejects, and whose `save()` and `retry()`
+	 * join the close. Answers the input that did not save. Closing again
+	 * returns the same promise.
 	 */
 	close(): Promise<Pending[]>;
 };

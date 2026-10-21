@@ -15,12 +15,8 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { isTableName, openRepository } from './browser/repository.js';
 import { saveDelay } from './edit-owner.js';
 import { OpenFolderError } from './errors.js';
-import type {
-	DefaultFolderOptions,
-	Folder,
-	FolderTableOperations,
-} from './folder.js';
-import { folderHandle } from './handle.js';
+import type { DefaultFolderOptions, Folder } from './folder.js';
+import { type EngineTable, folderHandle } from './handle.js';
 
 /**
  * The fixed key of this origin's default local data. A web origin holds one
@@ -53,7 +49,7 @@ export async function openLocalFolder<
 		folderHandle(
 			{
 				files: repository.files,
-				tables: repository.tables as Record<string, FolderTableOperations>,
+				tables: repository.tables as Record<string, EngineTable>,
 				subscribe: repository.onChange,
 				close: repository.close,
 			},
