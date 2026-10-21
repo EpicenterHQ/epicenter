@@ -8,9 +8,10 @@
  * - A view reads the row the first time it mounts with nothing known, and
  *   tells loading, a missing row and a failed read apart
  * - An own save shows without a reread, another handle's change is read for
- *   the view showing it, and typing keeps both
- * - A body typed in the committed render's handler keeps a change the same
- *   event made through another handler
+ *   a clean view showing it before the next draft begins
+ * - A dirty source stays pinned across outside field changes; save conflicts
+ *   until the person explicitly accepts the saved source
+ * - The last body or source replacement in one event determines the draft
  * - Closing the folder re-renders a view whose held input keeps the same
  *   pending value, because the input fence is its own snapshot
  * - A reused view follows its path, and the row it left keeps its input
@@ -27,7 +28,7 @@ import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Window } from 'happy-dom';
 import { act, type ReactNode } from 'react';
 import { Type } from 'typebox';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { useFileEdit } from './edits.js';
 
 const window = new Window({ url: 'http://localhost/' });
@@ -228,7 +229,7 @@ test('a view that shows only held input or the fence reads nothing', async () =>
 	);
 });
 
-test('an own save shows without a reread, an outside change is read for the view, and typing keeps both', async () => {
+test('an own save shows without a reread and a clean view reads outside changes before typing', async () => {
 	const { folder, other, read } = await setup();
 	const notesTable = recorded(folder.tables.notes);
 	const view = await mount(<Title table={notesTable.table} id="milk" />);
@@ -253,7 +254,66 @@ test('an own save shows without a reread, an outside change is read for the view
 	expect((await read('milk')).fields).toEqual({ title: 'Mine!', done: true });
 });
 
-test('a body typed in the committed render keeps a change the same event made through another handler', async () => {
+test('a React view pins the whole draft across outside field changes until explicit recovery', async () => {
+	const { folder, other, read } = await setup();
+	const edit = folder.tables.notes.edit('milk');
+	function Editor() {
+		const note = useFileEdit(edit);
+		const buffer = note.getBuffer();
+		return (
+			<>
+				<Title table={folder.tables.notes} id="milk" />
+				<pre>{note.getText()}</pre>
+				<p>
+					{buffer.status === 'ready'
+						? (buffer.unsaved?.status ?? 'saved')
+						: buffer.status}
+				</p>
+			</>
+		);
+	}
+	const view = await mount(<Editor />);
+	await until(() => view.container.querySelector('input') !== null);
+	await act(async () => type(view.input(), 'Local title'));
+	const draft = edit.getText();
+
+	expectOk(
+		await other.tables.notes.set('milk', await read('milk'), {
+			fields: { done: true },
+		}),
+	);
+	const saved = (await read('milk')).text;
+	await act(async () => {
+		expectOk(await edit.read());
+	});
+	expect(view.input().value).toBe('Local title');
+	expect(view.container.querySelector('pre')?.textContent).toBe(draft);
+	expect(edit.getMarkdown()?.fields).toEqual({
+		title: 'Local title',
+		done: false,
+	});
+
+	await act(async () => {
+		expect(expectErr(await edit.save()).name).toBe('Conflict');
+	});
+	expect(view.container.querySelector('p')?.textContent).toBe('conflict');
+	expect(edit.getText()).toBe(draft);
+	expect((await read('milk')).text).toBe(saved);
+
+	await act(async () => {
+		expectOk(await edit.resolveConflict('current'));
+	});
+	expect(view.input().value).toBe('Milk');
+	expect(view.container.querySelector('pre')?.textContent).toBe(saved);
+	expect(view.container.querySelector('p')?.textContent).toBe('saved');
+	expect(edit.getBuffer()).toMatchObject({
+		status: 'ready',
+		unsaved: undefined,
+	});
+	expect(edit.getMarkdown()?.fields).toEqual({ title: 'Milk', done: true });
+});
+
+test('the last body replacement in one event determines the source draft', async () => {
 	const { folder, read } = await setup();
 	expectOk(await folder.tables.notes.list());
 	function Body() {
@@ -275,9 +335,9 @@ test('a body typed in the committed render keeps a change the same event made th
 	const view = await mount(<Body />);
 	expect(view.input().value).toBe('one\ntwo\n');
 	await act(async () => type(view.input(), 'one\nTWO\n'));
-	expect(view.input().value).toBe('ONE\nTWO\n');
+	expect(view.input().value).toBe('one\nTWO\n');
 	await act(async () => folder.tables.notes.edit('milk').save());
-	expect((await read('milk')).body).toBe('ONE\nTWO\n');
+	expect((await read('milk')).body).toBe('one\nTWO\n');
 });
 
 test('closing the folder re-renders a view whose held input keeps the same pending value', async () => {
@@ -373,7 +433,7 @@ test('the text binding shows held text over the stored file, BOM kept', async ()
 	expect(view.input().value).toBe('﻿one!\r\n');
 });
 
-test('source typed in one handler keeps a field changed by another handler of the same event', async () => {
+test('source typed after a field change replaces the whole displayed source', async () => {
 	const { folder, read } = await setup();
 	expectOk(await folder.tables.notes.list());
 	function Source() {
@@ -395,14 +455,14 @@ test('source typed in one handler keeps a field changed by another handler of th
 	await act(async () =>
 		type(view.input(), view.input().value.replace('two', 'TWO')),
 	);
-	expect(view.input().value).toContain('done: true');
+	expect(view.input().value).toContain('done: false');
 	expect(view.input().value).toContain('one\nTWO\n');
 	await act(async () => folder.tables.notes.edit('milk').save());
-	expect((await read('milk')).fields?.done).toBe(true);
+	expect((await read('milk')).fields?.done).toBe(false);
 	expect((await read('milk')).body).toBe('one\nTWO\n');
 });
 
-test('independent frontmatter additions in one event preserve both fields in one header', async () => {
+test('a whole-source replacement wins over an earlier field addition in one event', async () => {
 	const { folder } = await setup();
 	const path = 'plain.md';
 	expectOk(await folder.files.write(path, null, 'body\n'));
@@ -425,9 +485,9 @@ test('independent frontmatter additions in one event preserve both fields in one
 	const view = await mount(<Source />);
 	await act(async () => type(view.input(), '---\nb: 2\n---\nbody\n'));
 	const markdown = folder.files.edit(path).getMarkdown();
-	expect(markdown?.fields).toEqual({ a: 1, b: 2 });
+	expect(markdown?.fields).toEqual({ b: 2 });
 	expect(markdown?.body).toBe('body\n');
 	expect(markdown?.issues).toBeNull();
 	await act(async () => folder.files.edit(path).save());
-	expect(folder.files.edit(path).getMarkdown()?.fields).toEqual({ a: 1, b: 2 });
+	expect(folder.files.edit(path).getMarkdown()?.fields).toEqual({ b: 2 });
 });

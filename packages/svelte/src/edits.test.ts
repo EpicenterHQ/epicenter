@@ -579,27 +579,29 @@ test("a binding re-runs for its own path's typing, its document, and close; not 
 	expect(unsaved.values.at(-1)).toEqual([]);
 });
 
-test('a binding types over the row it shows, an outside change included', async () => {
+test('a binding pins what it shows and reports an outside change as conflict', async () => {
 	const { folder } = await setup({ saveAfterMs: 60_000 });
 	const other = await open();
 	cleanup.push(() => other.close());
 	const milk = createFileEdit(folder.tables.notes.edit('milk'));
-	milk.change({ fields: { title: 'Oat milk' } });
+	expectOk(milk.change({ fields: { title: 'Oat milk' } }));
 
-	// The view now shows an outside change of `done`, and the person types the original back.
+	// The outside change updates storage while the local source remains pinned.
 	const from = expectOk(await other.tables.notes.get('milk'))!;
 	expectOk(
 		await other.tables.notes.set('milk', from, { fields: { done: true } }),
 	);
-	await until(() => milk.markdown?.fields?.done === true);
-	expect(milk.markdown?.fields).toEqual({ title: 'Oat milk', done: true });
-	milk.change({ fields: { done: false } });
-	await milk.save();
-
-	expect(expectOk(await folder.tables.notes.get('milk'))?.fields).toEqual({
-		title: 'Oat milk',
-		done: false,
+	expectOk(await milk.read());
+	expect(milk.markdown?.fields).toEqual({ title: 'Oat milk', done: false });
+	expectOk(milk.change({ fields: { done: false } }));
+	expect(expectErr(await milk.save()).name).toBe('Conflict');
+	expect(milk.buffer).toMatchObject({
+		status: 'ready',
+		unsaved: { status: 'conflict' },
 	});
+	expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.done).toBe(
+		true,
+	);
 });
 
 test('two bindings of one row compose over current held input', async () => {
@@ -619,6 +621,58 @@ test('two bindings of one row compose over current held input', async () => {
 	);
 });
 
+test('Svelte text, markdown and buffer track one pinned source through conflict recovery', async () => {
+	const { folder } = await setup({ saveAfterMs: 60_000 });
+	const other = await open();
+	cleanup.push(() => other.close());
+	const row = createFileEdit(folder.tables.notes.edit('milk'));
+	const source = createFileEdit(folder.files.edit('notes/milk.md'));
+	const buffer = follow(() => row.buffer);
+	const text = follow(() => source.text);
+	const title = follow(() => row.markdown?.fields?.title);
+	cleanup.push(() => {
+		buffer.stop();
+		text.stop();
+		title.stop();
+	});
+	flushSync();
+	expectOk(row.change({ fields: { title: 'Local' } }));
+	flushSync();
+	expect(buffer.values.at(-1)).toMatchObject({
+		status: 'ready',
+		text: text.values.at(-1),
+		unsaved: { status: 'dirty' },
+	});
+	expect(title.values.at(-1)).toBe('Local');
+	const draft = source.text;
+	const current = expectOk(await other.tables.notes.get('milk'))!;
+	expectOk(await other.tables.notes.set('milk', current, { body: 'Outside' }));
+	const saved = expectOk(await other.tables.notes.get('milk'))!.text;
+	expectOk(await row.read());
+	flushSync();
+	expect(source.text).toBe(draft);
+	expect(row.text).toBe(draft);
+	expect(expectErr(await row.save()).name).toBe('Conflict');
+	flushSync();
+	expect(buffer.values.at(-1)).toMatchObject({
+		status: 'ready',
+		text: draft,
+		unsaved: { status: 'conflict', error: { name: 'Conflict' } },
+	});
+	expect(source.text).toBe(draft);
+	expect(expectOk(await other.tables.notes.get('milk'))!.text).toBe(saved);
+	expectOk(await row.resolveConflict('current'));
+	flushSync();
+	expect(buffer.values.at(-1)).toMatchObject({
+		status: 'ready',
+		text: saved,
+		unsaved: undefined,
+	});
+	expect(title.values.at(-1)).toBe('Milk');
+	expect(text.values.at(-1)).toBe(saved);
+	expect(row.markdown?.body).toBe('Outside');
+});
+
 test('a binding used without a view types over current input on every command', async () => {
 	const { folder } = await setup({ saveAfterMs: 60_000 });
 	const commands = createFileEdit(folder.tables.notes.edit('milk'));
@@ -634,19 +688,29 @@ test('a binding used without a view types over current input on every command', 
 	});
 });
 
-test('a row deleted elsewhere refuses input with a reason and keeps earlier input copyable', async () => {
+test('a row deleted elsewhere leaves its dirty source editable and reports conflict', async () => {
 	const { folder } = await setup({ saveAfterMs: 60_000 });
 	const view = createFileEdit(folder.tables.notes.edit('milk'));
 	expectOk(view.change({ body: 'Keep this input' }));
-	const pending = view.pending;
+	const draft = view.text;
 	const other = await open();
 	cleanup.push(() => other.close());
 	const from = expectOk(await other.tables.notes.get('milk'))!;
 	expectOk(await other.tables.notes.delete('milk', from));
-	await until(() => view.markdown === undefined);
-	expect(expectErr(view.change({ body: 'No source' })).name).toBe('NoSource');
-	expect(view.pending).toBe(pending);
-	expect(view.pending).toMatchObject({ body: 'Keep this input' });
+	expectOk(await view.read());
+	expect(view.markdown?.body).toBe('Keep this input');
+	expect(view.text).toBe(draft);
+	expectOk(view.change({ body: 'Still typing' }));
+	expect(expectErr(await view.save()).name).toBe('Conflict');
+	expect(view.buffer).toMatchObject({
+		status: 'ready',
+		unsaved: { status: 'conflict' },
+	});
+	expect(view.text).toContain('Still typing');
+	expect(expectOk(await other.tables.notes.get('milk'))).toBeUndefined();
+	expectOk(await view.resolveConflict('draft'));
+	expect(expectOk(await other.tables.notes.get('milk'))?.text).toBe(view.text);
+	expect(view.buffer).toMatchObject({ status: 'ready', unsaved: undefined });
 });
 
 test('a view that goes away lets go of its subscription while its input and timer stay with the folder', async () => {

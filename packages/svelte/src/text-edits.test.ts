@@ -84,9 +84,8 @@ function fillDisk() {
 	};
 }
 
-test('typing while a save runs starts from the exact submitted text and keeps another writer’s change', async () => {
+test('typing while a save runs preserves the exact newer source through the next save', async () => {
 	const { context, other, text, query } = await setup();
-	// A view shows the file, so another writer's change is read for it.
 	cleanup.push(text.subscribe(() => {}));
 	text.replaceText(initial.replace('title: A', 'title: Mine'));
 	const first = text.save();
@@ -95,16 +94,15 @@ test('typing while a save runs starts from the exact submitted text and keeps an
 		.replace('one\n', 'one!\n');
 	text.replaceText(next);
 	const second = text.save();
-	expectOk(
-		await other.files.write(path, initial, initial.replace('two\n', 'two?\n')),
-	);
-	await Promise.all([first, second]);
-	expect(await sourceOf(other)).toBe(next.replace('two\n', 'two?\n'));
-	await until(
-		() => query.getCurrentResult().data === next.replace('two\n', 'two?\n'),
-	);
-	expect(text.getPending()).toBeUndefined();
-	expect(text.getText()).toBe(next.replace('two\n', 'two?\n'));
+	for (const result of await Promise.all([first, second])) expectOk(result);
+	expect(await sourceOf(other)).toBe(next);
+	await until(() => query.getCurrentResult().data === next);
+	expect(text.getBuffer()).toMatchObject({
+		status: 'ready',
+		text: next,
+		unsaved: undefined,
+	});
+	expect(text.getText()).toBe(next);
 	expect(context.getStatus()).toMatchObject({
 		saving: false,
 		unsaved: [],

@@ -1,7 +1,7 @@
 # @epicenter/svelte
 
 Svelte state around an opened `@epicenter/folder` handle. The Folder package
-owns files, row parsing, merging, storage, change reports, local save
+owns files, row parsing, whole-source drafts, storage, change reports, local save
 status, and unsaved input (`@epicenter/folder/edits`). This package owns the
 page's query cache, Svelte tracking of that input, recovery,
 and close sequence. It also has separate agent conversation and
@@ -85,7 +85,7 @@ and `core:window:allow-destroy`. No page asks for native recording status or
 reports save status to Quit. Epicenter application Quit always confirms in
 Rust and adds its native recording warning when capture is active.
 If a save still fails as the route unmounts, the
-root shows its fields and body for copying in a
+root shows its exact unsaved source for copying in a
 notice held by the app layout's toaster.
 
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
@@ -179,8 +179,9 @@ if (storageFailure !== null) return 'A save failed';
 return 'Saved on this device';
 ```
 
-A label beside one editor reads that edit's own `pending` (`error` without
-`saving` means its save failed, otherwise it is saving or waiting), so another
+A save indicator that needs no file contents reads `getStatus().unsaved` and
+`getStatus().failures`, filtering by path. These reads request no initial file
+read. An open editor reads its ready buffer's nested `unsaved.status`, so another
 file's failure is never shown as its.
 
 ## File edits
@@ -202,25 +203,79 @@ fileEdit.replaceText(editedSource);
 const sourceEdit = $derived(createFileEdit(folder.files.edit(path)));
 ```
 
-The adapter tracks the core reads: `getMarkdown()` becomes `.markdown`,
-`getText()` becomes `.text`, `getPending()` becomes `.pending`,
-`getReadStatus()` becomes `.readStatus`, and `isLocked()` becomes `.locked`.
-Commands stay methods. `.markdown` contains exactly `text`, `body`, `fields`
-and `issues`; it interprets the same source `.text` returns. `issues === null`
-narrows fields to the bound schema. No usable text means `undefined`;
-`.readStatus` distinguishes loading, missing, non-text and failed reads.
-A malformed header has `fields: undefined`; its body is available only when a
-closing fence identifies it. Keep exact source through `.text` for repair.
-`.pending` contains raw, non-generic input shared across every schema-bound view
-of the path. New field values are copied when accepted, including nested values;
-changing the original object afterwards does not change the edit.
+The adapter tracks the core reads: `getBuffer()` becomes `.buffer`,
+`getMarkdown()` becomes `.markdown`, `getText()` becomes `.text`, and
+`isLocked()` becomes `.locked`. Commands stay methods. The buffer is one
+immutable, path-shared snapshot:
 
-The first tracked markdown, text or read-status read starts the initial file
-read when nothing is known and no read has failed. Reading only `.pending`
-or `.locked` requests no initial read. A failed read waits for `read()`;
-a failed reread retains the last known source. `read()` completes the refresh;
-use the getters afterwards for current values. Creating an adapter is passive.
-The folder retains input, timers and failures when every view unmounts.
+```ts
+type BufferSnapshot = { error?: BufferIssue } & (
+  | { status: 'unread' | 'loading' }
+  | { status: 'unavailable'; error: BufferIssue }
+  | { status: 'ready'; text: string; unsaved?: Unsaved }
+);
+
+type Unsaved =
+  | { status: 'dirty' | 'saving' }
+  | { status: 'failed'; error: SaveFailure }
+  | { status: 'conflict'; error: SaveConflict };
+```
+
+`ready` means there is text to show, including input not yet saved. Its optional
+`unsaved` value describes that text's save lifecycle. It carries no second copy
+of the text or path: use `buffer.text` and `fileEdit.path`. `buffer.error` holds
+read or command feedback; save failures and conflicts belong to `unsaved.error`.
+A failed reread retains readable text. Missing or non-text storage can likewise
+coexist with a ready buffer while unsaved input is held.
+
+`.markdown` contains exactly `text`, `body`, `fields` and `issues`; it interprets
+the same source `.text` returns. `issues === null` narrows fields to the bound
+schema. A malformed header has `fields: undefined`; its body is available only
+when a closing fence identifies it. Keep exact source through `.text` for repair.
+New field values are copied into the source when accepted; changing the original
+object afterwards does not change the edit.
+
+The first tracked buffer, markdown or text read starts an unread file's initial
+read. Construction, imperative property reads outside tracking, and locked-only
+observers request no initial read. No `onMount(() => fileEdit.read())` is needed
+when the template observes content. An already running query read is joined
+without starting another initial read. A failed read waits for explicit `read()`;
+remounting does not retry it. The folder retains input, timers and failures when
+every view unmounts. `read()` completes a refresh; use the getters afterwards for
+current values.
+
+```svelte
+{#each fileEdits as fileEdit (fileEdit.path)}
+  {@const buffer = fileEdit.buffer}
+  {#if buffer.status === 'ready'}
+    <textarea bind:value={() => buffer.text, text => fileEdit.replaceText(text)}></textarea>
+    {#if buffer.error}
+      <p role="alert">{buffer.error.message}</p>
+    {/if}
+    {#if buffer.unsaved}
+      {#if buffer.unsaved.status === 'conflict'}
+        <p role="alert">{buffer.unsaved.error.message}</p>
+        <button onclick={() => fileEdit.resolveConflict('current')}>Use saved file</button>
+        <button onclick={() => fileEdit.resolveConflict('draft')}>Keep my text</button>
+      {:else if buffer.unsaved.status === 'failed'}
+        <p role="alert">{buffer.unsaved.error.message}</p>
+        <button onclick={() => fileEdit.save()}>Retry saving</button>
+      {:else if buffer.unsaved.status === 'saving'}
+        <p>Saving…</p>
+      {:else}
+        <p>Unsaved changes</p>
+      {/if}
+    {:else}
+      <p>No unsaved changes</p>
+    {/if}
+  {:else if buffer.status === 'unavailable'}
+    <p role="alert">{buffer.error.message}</p>
+    <button onclick={() => fileEdit.read()}>Read again</button>
+  {:else}
+    <p>Loading…</p>
+  {/if}
+{/each}
+```
 
 Read `fileEdit.markdown` directly for immediate template reads. When a binding
 callback needs a narrowed value, capture it with `{@const}` in the nearest
@@ -243,19 +298,34 @@ Avoid a script alias that merely repeats `fileEdit.markdown`. Keep a local snaps
 when a condition or callback needs its narrowing. A plain script `const` captures
 a value instead of following it. Name the editing capability `fileEdit`.
 
-`change({ fields?, body? })` patches named fields and replaces the supplied body,
-preserving other units. `replaceText(text)` replaces the complete source.
+`change({ fields?, body? })` updates the displayed source immediately.
+`replaceText(text)` replaces that source. An unchanged result is a no-op.
 Both return `Result<void, ChangeError>`: success means accepted into memory,
-not saved. Multiple views share the path's applicable input and truthful pending
-state, so valid view switching requires no save-and-refresh handshake. Invalid
-source remains readable; structured input that cannot apply remains in pending
-for copying, saving again or discarding.
+not saved. Multiple views share one path draft, so switching views shows the
+same source immediately. Invalid source remains readable; a structured change
+whose body boundary or fields cannot be interpreted is refused without
+replacing the draft.
 
-`save()` attempts held input, including a previous failure, or joins its running
-attempt. Failure keeps input and error without looping. Another attempt or
-accepted input clears the older error. `discard()` and `delete()` use the same
-owner and fence. For path membership, use the folder context's
-`getStatus().unsaved`; for the actual input, use `.pending` on an existing edit.
+`save()` attempts held input, including a previous failure, or joins its
+running attempt. Failure keeps input and error without looping. Another
+attempt or accepted input can retry it. `discard()` and `delete()` use the
+same owner and fence. Save, conflict resolution and discard return Results;
+command refusals are also recorded in the buffer for views to present. For
+path membership, use the folder context's `getStatus().unsaved`; for the
+actual input, narrow `.buffer` to `ready` and read its `text`.
+
+A draft pins the entire source as soon as typing changes it. A reread can
+update storage knowledge, but it does not fold outside fields or body edits
+into that draft. Saving compares against the source the draft began from,
+even when the outside edit touched a different field. Outside deletion also
+conflicts; recreating the file requires an explicit draft resolution.
+
+`resolveConflict('current')` accepts the saved source and releases the draft.
+`resolveConflict('draft')` explicitly replaces it with the held source;
+`resolveConflict({ text })` submits a source composed by the caller. These
+replacements are guarded against another storage change. Direct
+`folder.tables.*.set` and `folder.files.write` retain their own merge behavior;
+the adapters' edit commands do not perform field-level merging on save.
 
 Use `folder.run(paths, async () => ...)` for work that must finish through
 close. `paths` is the action's reservation, declared up front and fixed for the
@@ -268,10 +338,8 @@ uses `folder.files` and `folder.tables`; await what it needs to finish before
 it returns, since close waits for the callback and the writes it started, not
 for a continuation left running. Do not await `folder.close()` or
 `folder.settle()` inside the callback, since they wait for accepted work. Context `close()` answers copyable failures,
-which `<FolderApp>` offers
-after unmount: whole-file text exactly as typed, and field input as JSON with
-the values set (`set`), the names of the fields removed (`remove`), and a
-typed `body` (`unsavedText`), so a removal never reads as a value.
+which `<FolderApp>` offers after unmount as the exact unsaved source
+(`unsavedText`).
 
 The status UI helpers (`status-line`, `status-popover`, `status-row`) render
 app-owned status text. `write-failure` and `write-failure-toast` offer the
