@@ -56,30 +56,61 @@ function fromNative(error: NativeRecorderError, label = '') {
 	}
 }
 
+/** One native channel owns its listeners and first ending until retired. */
+function createRecordingSignals() {
+	const levels = new Set<(level: number) => void>();
+	const endings = new Set<(reason: RecordingEndedReason) => void>();
+	let ended: RecordingEndedReason | undefined;
+	let retired = false;
+	const channel = new Channel<RecordingSignal>();
+	channel.onmessage = (message) => {
+		if (retired) return;
+		if (message.kind === 'level') {
+			for (const listener of levels) listener(message.level ?? 0);
+		} else if (ended === undefined) {
+			const reason = message.reason;
+			ended = reason;
+			for (const listener of [...endings]) listener(reason);
+		}
+	};
+	return {
+		channel,
+		onLevel(listener: (level: number) => void) {
+			if (retired) return () => {};
+			levels.add(listener);
+			return () => levels.delete(listener);
+		},
+		onEnded(listener: (reason: RecordingEndedReason) => void) {
+			if (retired) return () => {};
+			if (ended !== undefined) {
+				listener(ended);
+				return () => {};
+			}
+			endings.add(listener);
+			return () => endings.delete(listener);
+		},
+		retire() {
+			retired = true;
+			levels.clear();
+			endings.clear();
+		},
+	};
+}
+
 export const startRecording: StartRecording = async ({
 	path,
 	input,
 	signal,
 }) => {
 	if (signal?.aborted) return RecorderError.Cancelled();
-	const levels = new Set<(level: number) => void>();
-	const endings = new Set<(reason: RecordingEndedReason) => void>();
-	let ended: RecordingEndedReason | undefined;
-	let resolved = false;
-	const signals = new Channel<RecordingSignal>();
-	signals.onmessage = (message) => {
-		if (resolved) return;
-		if (message.kind === 'level')
-			for (const listener of levels) listener(message.level ?? 0);
-		else if (ended === undefined) {
-			const reason = message.reason;
-			ended = reason;
-			for (const listener of [...endings]) listener(reason);
-		}
-	};
+	const signals = createRecordingSignals();
 	let answer: Awaited<ReturnType<typeof commands.start>>;
 	try {
-		answer = await commands.start(path, input?.deviceId ?? null, signals);
+		answer = await commands.start(
+			path,
+			input?.deviceId ?? null,
+			signals.channel,
+		);
 	} catch (cause) {
 		return RecorderError.Failed({ cause });
 	}
@@ -91,31 +122,15 @@ export const startRecording: StartRecording = async ({
 		return RecorderError.Cancelled();
 	}
 	const startedAt = Date.now();
-	const silence = () => {
-		resolved = true;
-		ended = undefined;
-		levels.clear();
-		endings.clear();
-	};
+
 	return Ok({
 		path: file,
 		startedAt,
 		device,
-		onLevel(listener) {
-			levels.add(listener);
-			return () => levels.delete(listener);
-		},
-		onEnded(listener) {
-			if (resolved) return () => {};
-			if (ended !== undefined) {
-				listener(ended);
-				return () => {};
-			}
-			endings.add(listener);
-			return () => endings.delete(listener);
-		},
+		onLevel: signals.onLevel,
+		onEnded: signals.onEnded,
 		async stop() {
-			silence();
+			signals.retire();
 			try {
 				const { data, error } = await commands.stop(id);
 				if (error !== null) return fromNative(error);
@@ -125,7 +140,7 @@ export const startRecording: StartRecording = async ({
 			}
 		},
 		async cancel() {
-			silence();
+			signals.retire();
 			try {
 				const { error } = await commands.cancel(id);
 				if (error !== null) return fromNative(error);
@@ -164,7 +179,7 @@ export type Meter = {
 	readonly device: string;
 	/** Hear how loud the input is, from 0 to 1, at most twenty times a second. Returns the unsubscribe. */
 	onLevel(listener: (level: number) => void): () => void;
-	/** Hear that the microphone stopped on its own. Returns the unsubscribe. */
+	/** Hear the first unexpected ending, including one before subscription. Retired by close. */
 	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
 	/** Release the microphone. */
 	close(): Promise<void>;
@@ -184,25 +199,17 @@ export async function openMeter({
 	signal?: AbortSignal;
 } = {}): Promise<Result<Meter, RecorderError>> {
 	if (signal?.aborted) return RecorderError.Cancelled();
-	const levels = new Set<(level: number) => void>();
-	const endings = new Set<(reason: RecordingEndedReason) => void>();
-	const channel = new Channel<RecordingSignal>();
-	channel.onmessage = (message) => {
-		if (message.kind === 'level')
-			for (const listener of levels) listener(message.level ?? 0);
-		else for (const listener of endings) listener(message.reason);
-	};
+	const signals = createRecordingSignals();
 	let answer: Awaited<ReturnType<typeof commands.openMeter>>;
 	try {
-		answer = await commands.openMeter(input?.deviceId ?? null, channel);
+		answer = await commands.openMeter(input?.deviceId ?? null, signals.channel);
 	} catch (cause) {
 		return RecorderError.Failed({ cause });
 	}
 	if (answer.error !== null) return fromNative(answer.error, input?.label);
 	const { id, device } = answer.data;
 	const close = async () => {
-		levels.clear();
-		endings.clear();
+		signals.retire();
 		await commands.closeMeter(id).catch(() => {});
 	};
 	if (signal?.aborted) {
@@ -211,14 +218,8 @@ export async function openMeter({
 	}
 	return Ok({
 		device,
-		onLevel(listener) {
-			levels.add(listener);
-			return () => levels.delete(listener);
-		},
-		onEnded(listener) {
-			endings.add(listener);
-			return () => endings.delete(listener);
-		},
+		onLevel: signals.onLevel,
+		onEnded: signals.onEnded,
 		close,
 	});
 }

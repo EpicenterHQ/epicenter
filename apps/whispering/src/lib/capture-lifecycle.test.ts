@@ -396,3 +396,53 @@ test.each(['refused', 'thrown'] as const)(
 		expect(library.recorderError).not.toContain('audio was saved');
 	},
 );
+
+test('closing during explicit Stop waits for its subsequent duration write', async () => {
+	const { library, test } = await open({ cancel: async () => Ok(undefined) });
+	await library.startRecording();
+	const reached = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const recordings = test.folder.tables.recordings;
+	replaceTables(test.folder, {
+		recordings: {
+			...recordings,
+			async get(id) {
+				reached.resolve();
+				await release.promise;
+				return recordings.get(id);
+			},
+		},
+	});
+	let closing: ReturnType<typeof closeTestLibrary> | undefined;
+	const off = library.local.queryClient
+		.getMutationCache()
+		.subscribe((event) => {
+			if (
+				closing === undefined &&
+				event.type === 'updated' &&
+				event.mutation.state.status === 'success' &&
+				library.recorder.phase === 'stopping'
+			)
+				closing = closeTestLibrary(library);
+		});
+	const stopping = library.stopRecording().catch((error: unknown) => error);
+	try {
+		await reached.promise;
+		expect(closing).toBeDefined();
+		await new Promise((r) => setTimeout(r, 20));
+		expect(test.closes).toBe(0);
+	} finally {
+		release.resolve();
+		off();
+		await stopping;
+		await closing;
+	}
+	expect(await stopping).toBeUndefined();
+	expect(test.closes).toBe(1);
+	const rows = (await readdir(join(test.root, 'recordings'))).filter((name) =>
+		name.endsWith('.md'),
+	);
+	expect(
+		await readFile(join(test.root, 'recordings', rows[0]!), 'utf8'),
+	).toContain('durationMs: 1000');
+});

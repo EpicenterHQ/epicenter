@@ -31,10 +31,11 @@
 import { closeTestLibrary, createTestLibrary } from './library.test-support.js';
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
 import {
 	type ActiveCapture,
 	type CaptureDevice,
@@ -906,4 +907,46 @@ test('in Epicenter there is no enabling, listing never clears a denial, and sett
 	microphone.state.denied = false;
 	await input.startTest();
 	expect(input.denied).toBe(false);
+});
+
+test('a meter that has ended before subscription leaves no polling timer alive', async () => {
+	const microphone = scriptedMicrophone();
+	const inputs = microphone.device.inputs!;
+	const meter = inputs.meter;
+	microphone.device = {
+		...microphone.device,
+		inputs: {
+			...inputs,
+			async meter(input, signal) {
+				const opened = expectOk(await meter(input, signal));
+				return Ok({
+					...opened,
+					onEnded(listener) {
+						listener(
+							CaptureError.InputUnavailable({ label: 'USB Microphone' }).error,
+						);
+						return () => {};
+					},
+				});
+			},
+		},
+	};
+	const { input } = await open({ microphone });
+	const created = spyOn(globalThis, 'setInterval');
+	const cleared = spyOn(globalThis, 'clearInterval');
+	try {
+		await input.startTest();
+		expect(input.test.phase).toBe('idle');
+		expect(input.problem).toContain('USB Microphone');
+		expect(microphone.open.meters).toBe(0);
+		const alive = created.mock.results
+			.filter((r) => r.type === 'return')
+			.map((r) => r.value)
+			.filter((timer) => !cleared.mock.calls.some((args) => args[0] === timer));
+		expect(alive).toEqual([]);
+	} finally {
+		input.close();
+		created.mockRestore();
+		cleared.mockRestore();
+	}
 });

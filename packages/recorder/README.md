@@ -74,6 +74,10 @@ meter.onLevel((rms) => bar.set(rms)); // at most twenty times a second
 await meter.close(); // the shell also closes it when the page reloads or its window closes
 ```
 
+A meter's `onEnded` reports its first unexpected ending, including one received
+before the open reply or subscription. `close` retires its listeners. Each
+recording and meter owns a channel with the same notification lifetime.
+
 The ID is cpal's device ID (`coreaudio:<device UID>` on macOS), which stays
 the same across launches and reconnections. Listing needs no microphone
 permission; the shell's recorder asks macOS for it before it opens a meter

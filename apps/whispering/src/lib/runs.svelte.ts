@@ -127,7 +127,7 @@ export function createRuns({
 	resolve,
 	settle,
 	deleting,
-	capturing,
+	isCapturing,
 	track,
 }: {
 	transcribe: WhisperingServices['transcribe'];
@@ -149,7 +149,7 @@ export function createRuns({
 	/** Recordings whose deletion is under way. No request starts for one. */
 	deleting: ReadonlySet<string>;
 	/** The recording still being captured. Its audio is not finished, so it is not transcribed. */
-	capturing: ReadonlySet<string>;
+	isCapturing: (id: string) => boolean;
 	/**
 	 * Run folder work as a mutation, so closing waits for it; what it saves
 	 * reaches the views on the folder's change channel. `scope` names the
@@ -255,7 +255,7 @@ export function createRuns({
 		const late = refused();
 		if (late !== undefined) return Err(late);
 		if (deleting.has(recording)) return Err(BEING_DELETED);
-		if (capturing.has(recording)) return Err(STILL_RECORDING);
+		if (isCapturing(recording)) return Err(STILL_RECORDING);
 		const listed = await folder.files.list(RECORDINGS);
 		if (listed.error !== null) return Err(describeError(listed.error));
 		const audio = recordingAudio(recording, {
@@ -512,7 +512,7 @@ export function createRuns({
 			const moved = connectionMoved('transcription', fields.endpoint);
 			if (moved !== undefined) return Err(moved);
 			if (deleting.has(recording)) return Err(BEING_DELETED);
-			if (capturing.has(recording)) return Err(STILL_RECORDING);
+			if (isCapturing(recording)) return Err(STILL_RECORDING);
 			const { data: audioPath, error: audioError } = await audioAt(recording);
 			if (audioError !== null) return Err(audioError);
 			return Ok({
@@ -613,7 +613,7 @@ export function createRuns({
 			const fail = (message: string) => {
 				transcriptions.set(id, { kind: 'failed', message });
 			};
-			if (capturing.has(id)) return fail(STILL_RECORDING);
+			if (isCapturing(id)) return fail(STILL_RECORDING);
 			const { info, error: connectionsError } = connections();
 			const connection = info?.transcription;
 			if (connection === undefined)

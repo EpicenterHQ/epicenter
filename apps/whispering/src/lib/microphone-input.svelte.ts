@@ -72,8 +72,6 @@ export function createMicrophoneInput({
 	let choice = $state.raw<MicrophonePreference | undefined>();
 	let list = $state.raw<InputList>({ kind: 'unread' });
 	let listing = $state(false);
-	let allowing = $state(false);
-	let test = $state.raw<InputTest>({ phase: 'idle' });
 	let level = $state(0);
 	/** Why the last action here did not work, in the words shown. */
 	let problem = $state<string | undefined>();
@@ -87,9 +85,15 @@ export function createMicrophoneInput({
 	 * The one request that may open a microphone here: enabling, or a test
 	 * that is opening or running. Aborting it releases whatever it opens.
 	 */
-	let acquiring: AbortController | undefined;
-	let meter: MicrophoneMeter | undefined;
-	let levelTimer: ReturnType<typeof setInterval> | undefined;
+	type Acquisition =
+		| { kind: 'allow' | 'opening'; controller: AbortController }
+		| {
+				kind: 'running';
+				controller: AbortController;
+				meter: MicrophoneMeter;
+				timer: ReturnType<typeof setInterval>;
+		  };
+	let acquisition = $state.raw<Acquisition>();
 
 	function report(error: CaptureError | null) {
 		// A withdrawn request is not a failure to show.
@@ -158,15 +162,14 @@ export function createMicrophoneInput({
 	 * or a test that is opening or running. Safe to call when nothing is.
 	 */
 	function release() {
-		acquiring?.abort();
-		acquiring = undefined;
-		clearInterval(levelTimer);
-		levelTimer = undefined;
-		meter?.stop();
-		meter = undefined;
+		const held = acquisition;
+		acquisition = undefined;
+		held?.controller.abort();
+		if (held?.kind === 'running') {
+			clearInterval(held.timer);
+			held.meter.stop();
+		}
 		level = 0;
-		allowing = false;
-		test = { phase: 'idle' };
 	}
 
 	/**
@@ -178,7 +181,7 @@ export function createMicrophoneInput({
 			problem = RECORDING;
 			return false;
 		}
-		return acquiring === undefined;
+		return acquisition === undefined;
 	}
 
 	return {
@@ -196,7 +199,7 @@ export function createMicrophoneInput({
 			return listing;
 		},
 		get allowing() {
-			return allowing;
+			return acquisition?.kind === 'allow';
 		},
 		/** Whether access can be asked for here: a WebView's, never Epicenter's, which asks itself. */
 		canAllow: inputs?.allow !== undefined,
@@ -214,8 +217,10 @@ export function createMicrophoneInput({
 			if (list.devices.length === 0) return undefined;
 			return list.devices.some((device) => device.deviceId === chosen.deviceId);
 		},
-		get test() {
-			return test;
+		get test(): InputTest {
+			if (acquisition?.kind === 'running')
+				return { phase: 'running', label: acquisition.meter.label };
+			return { phase: acquisition?.kind === 'opening' ? 'opening' : 'idle' };
 		},
 		/** The level of the running test, from 0 to 1. */
 		get level() {
@@ -255,12 +260,17 @@ export function createMicrophoneInput({
 			const allow = inputs?.allow;
 			if (allow === undefined || closed || !mayOpen()) return;
 			problem = undefined;
-			const attempt = new AbortController();
-			acquiring = attempt;
-			allowing = true;
-			const { error: allowError } = await allow.call(inputs, attempt.signal);
+			const attempt: Acquisition = {
+				kind: 'allow',
+				controller: new AbortController(),
+			};
+			acquisition = attempt;
+			const { error: allowError } = await allow.call(
+				inputs,
+				attempt.controller.signal,
+			);
 			// Released while the platform was answering. Whatever it opened is not kept.
-			if (acquiring !== attempt) return;
+			if (acquisition !== attempt) return;
 			release();
 			report(allowError);
 			await refresh();
@@ -284,15 +294,17 @@ export function createMicrophoneInput({
 		async startTest() {
 			if (inputs === undefined || closed || !mayOpen()) return;
 			problem = undefined;
-			const attempt = new AbortController();
-			acquiring = attempt;
-			test = { phase: 'opening' };
+			const attempt: Acquisition = {
+				kind: 'opening',
+				controller: new AbortController(),
+			};
+			acquisition = attempt;
 			const { data: opened, error: meterError } = await inputs.meter(
 				choice,
-				attempt.signal,
+				attempt.controller.signal,
 			);
 			// Released, or released and started again, while the platform was answering.
-			if (acquiring !== attempt) {
+			if (acquisition !== attempt) {
 				if (meterError === null) opened.stop();
 				return;
 			}
@@ -302,18 +314,22 @@ export function createMicrophoneInput({
 				return;
 			}
 			denied = false;
-			meter = opened;
-			test = { phase: 'running', label: opened.label };
+			const running: Acquisition = {
+				kind: 'running',
+				controller: attempt.controller,
+				meter: opened,
+				timer: setInterval(() => {
+					level = opened.level();
+				}, LEVEL_MS),
+			};
+			acquisition = running;
 			// A microphone that stops on its own ends the test, said as a
 			// recording's ending is.
 			opened.onEnded((error) => {
-				if (meter !== opened) return;
+				if (acquisition !== running) return;
 				release();
 				report(error);
 			});
-			levelTimer = setInterval(() => {
-				level = meter?.level() ?? 0;
-			}, LEVEL_MS);
 			// Access was just used, so names that were withheld can be listed now.
 			void refresh();
 		},

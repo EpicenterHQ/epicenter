@@ -328,6 +328,12 @@ So `/recordings` and `/transformations` open directly and survive a refresh.
 
 ## Recording
 
+The library holds one capture state: idle, starting with its abort controller,
+or recording/stopping with its handle and initial row save. The recorder UI
+and transcription guard derive from that state. Stop stays tracked through
+both audio finalization and the duration write, including when closing begins
+after the microphone has been released.
+
 A recording is in the folder from the moment it starts (ADR-0543). The
 library names it and writes its row first: `startRecording` makes the ID from
 the start time, asks the capture device to record into
@@ -411,7 +417,9 @@ asks for, or opens a microphone.
 of the library (`library.input`): the choice, the listing, and the one request
 that may open a microphone outside a recording. Enabling and a test share that
 one owner: at most one is under way, and `release` aborts it and stops its
-meter. The popover's close, leaving Home, a new choice, `startRecording`, and
+meter and polling timer. The enabling/opening/running state owns those
+resources together. An ending received before the meter's open reply is replayed to
+its subscriber; releasing that test also retires its timer. The popover's close, leaving Home, a new choice, `startRecording`, and
 closing the library all call it, so nothing they leave behind holds a stream.
 The recorder and that request never hold a microphone together.
 `startRecording` releases before it asks for its own microphone and passes the

@@ -32,7 +32,6 @@ import { InstantString } from '@epicenter/definition';
 import type { Row } from '@epicenter/folder';
 import type { Pending } from '@epicenter/folder/edits';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
-import type { RecordingFolder } from '@epicenter/recorder';
 import {
 	createFileEdit,
 	type FileEdit,
@@ -539,27 +538,32 @@ export function createLibrary(
 	let selectedPath = $state<string | undefined>();
 	let selectedTransformationPath = $state<string | undefined>();
 
-	let recorder = $state.raw<RecorderState>({ phase: 'idle' });
-	let recorderError = $state<string | undefined>();
-	/** The recording being captured: its row's stem and the live capture. */
-	let active:
+	type CaptureState =
+		| { phase: 'idle' }
+		| { phase: 'starting'; attempt: AbortController }
 		| {
-				readonly id: string;
-				readonly capture: ActiveCapture;
-				/** Its initial row save, awaited before Stop or Cancel changes that row. */
-				readonly rowSave: ReturnType<typeof folder.tables.recordings.set>;
-		  }
-		| undefined;
-	/** The recording being captured, by stem. No request starts for it until it stops. */
-	const capturing = new SvelteSet<string>();
+				phase: 'recording' | 'stopping';
+				id: string;
+				capture: ActiveCapture;
+				/** Its initial row save, awaited before Stop or Cancel changes the row. */
+				rowSave: ReturnType<typeof folder.tables.recordings.set>;
+		  };
+	let captureState = $state.raw<CaptureState>({ phase: 'idle' });
+	let recorderError = $state<string | undefined>();
+	/** A recording owns its microphone until Stop or Cancel answers. */
+	function isCapturing(id: string) {
+		return (
+			(captureState.phase === 'recording' ||
+				captureState.phase === 'stopping') &&
+			captureState.id === id
+		);
+	}
 	/**
 	 * A recording this window just finished, by stem, with the file listing
 	 * read when its capture ended. Until the folder is listed again, that
 	 * listing may predate its audio, so the audio is not reported absent.
 	 */
 	const finishedOver = new Map<string, { count: number; path: string }>();
-	/** The start that has not answered yet. Aborting it releases a microphone that opens late. */
-	let starting: AbortController | undefined;
 	/** Folders open in the file browser; kept while the browser is hidden. */
 	const expanded = new SvelteSet<string>([RECORDINGS]);
 	/** Recordings whose deletion is under way. No request starts for one. */
@@ -585,14 +589,14 @@ export function createLibrary(
 		resolve,
 		settle: settlePath,
 		deleting,
-		capturing,
+		isCapturing,
 		track,
 	});
 
 	const input = createMicrophoneInput({
 		capture: services.capture,
 		preferences: services.preferences,
-		recording: () => recorder.phase !== 'idle',
+		recording: () => captureState.phase !== 'idle',
 	});
 
 	/** Show `path`: a transformation on its page, anything else beside the recordings. Opening never waits or asks. */
@@ -606,62 +610,57 @@ export function createLibrary(
 	// --- recording ----------------------------------------------------------
 
 	/**
-	 * The write a browser capture places its audio through. On the desktop
-	 * the shell records into the folder it bound to this window.
-	 */
-	const recordingFolder = (): RecordingFolder => ({
-		write: folder.files.write,
-	});
-
-	/**
 	 * Finish the recording being captured: its audio file is finalized and its
 	 * length written to its row, which was written when it started. A row
 	 * that cannot take its length keeps everything else, and says why.
 	 */
-	async function finishRecording() {
-		if (active === undefined || recorder.phase !== 'recording') return;
-		const { id, capture, rowSave } = active;
-		recorder = { phase: 'stopping' };
-		const path = rowPath(RECORDINGS, id);
-		const selectionBefore = selectedPath;
-		// In a browser, and for fixture audio, the audio file is written now; on
-		// the desktop it was written as it was captured, and stop finishes it.
-		// Started here, not when the mutation runs, so the microphone is let go
-		// at once.
-		const stopping = capture
-			.stop()
-			.catch((cause) => CaptureError.Failed({ cause }));
-		const { data: stopped, error: stopError } = await track(() => stopping);
-		if (stopError === null)
-			finishedOver.set(id, {
-				count: queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0,
-				path: capture.audioPath,
-			});
-		active = undefined;
-		capturing.delete(id);
-		recorder = { phase: 'idle' };
-		if (stopError !== null) {
-			recorderError = stopError.message;
-			return;
-		}
-		const saveWarning = await track(async () => {
-			const { error: rowError } = await rowSave;
-			if (rowError !== null)
-				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
-			const { data: stored, error } = await folder.tables.recordings.get(id);
-			if (error !== null)
-				return `The recording is saved, but its length could not be written: ${describeError(error)}`;
-			// A row deleted meanwhile stays deleted.
-			if (stored === undefined) return undefined;
-			const { error: saveError } = await folder.tables.recordings.set(id, stored, {
-				fields: { durationMs: stopped.durationMs },
-			});
-			return saveError === null
-				? undefined
-				: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
-		}, path);
-		if (saveWarning !== undefined) recorderError = saveWarning;
-		if (selectedPath === selectionBefore) open(path);
+	function finishRecording(): Promise<void> {
+		return hold(
+			(async () => {
+				const current = captureState;
+				if (current.phase !== 'recording') return;
+				const { id, capture, rowSave } = current;
+				captureState = { ...current, phase: 'stopping' };
+				const path = rowPath(RECORDINGS, id);
+				const selectionBefore = selectedPath;
+				// In a browser, and for fixture audio, the audio file is written now; on
+				// the desktop it was written as it was captured, and stop finishes it.
+				// Started here, not when the mutation runs, so the microphone is let go
+				// at once.
+				const stopping = capture
+					.stop()
+					.catch((cause) => CaptureError.Failed({ cause }));
+				const { data: stopped, error: stopError } = await track(() => stopping);
+				if (stopError === null)
+					finishedOver.set(id, {
+						count: queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0,
+						path: capture.audioPath,
+					});
+				captureState = { phase: 'idle' };
+				if (stopError !== null) {
+					recorderError = stopError.message;
+					return;
+				}
+				const saveWarning = await track(async () => {
+					const { error: rowError } = await rowSave;
+					if (rowError !== null)
+						return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
+					const { data: stored, error } = await folder.tables.recordings.get(id);
+					if (error !== null)
+						return `The recording is saved, but its length could not be written: ${describeError(error)}`;
+					// A row deleted meanwhile stays deleted.
+					if (stored === undefined) return undefined;
+					const { error: saveError } = await folder.tables.recordings.set(id, stored, {
+						fields: { durationMs: stopped.durationMs },
+					});
+					return saveError === null
+						? undefined
+						: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
+				}, path);
+				if (saveWarning !== undefined) recorderError = saveWarning;
+				if (selectedPath === selectionBefore) open(path);
+			})(),
+		);
 	}
 
 	function audioOf(entry: RecordingEntry): RecordingAudio {
@@ -675,13 +674,13 @@ export function createLibrary(
 		if (!unlisted) finishedOver.delete(entry.stem);
 		return recordingAudio(entry.stem, {
 			capturePath:
-				active?.id === entry.stem
-					? active.capture.audioPath
+				captureState.phase === 'recording' && captureState.id === entry.stem
+					? captureState.capture.audioPath
 					: finishedOver.get(entry.stem)?.path,
 			listing: files,
 			settling:
 				unlisted ||
-				capturing.has(entry.stem) ||
+				isCapturing(entry.stem) ||
 				queryClient.isMutating({ mutationKey: keys.recording(entry.path) }) > 0,
 		});
 	}
@@ -1120,14 +1119,18 @@ export function createLibrary(
 
 		/** The live capture writing `path`, until its audio has finished stopping. */
 		capturePhase(path: string): 'recording' | 'stopping' | undefined {
-			return (recorder.phase === 'recording' || recorder.phase === 'stopping') &&
-				active?.capture.audioPath === path
-				? recorder.phase
+			return (captureState.phase === 'recording' ||
+				captureState.phase === 'stopping') &&
+				captureState.capture.audioPath === path
+				? captureState.phase
 				: undefined;
 		},
 
-		get recorder() {
-			return recorder;
+
+		get recorder(): RecorderState {
+			return captureState.phase === 'recording'
+				? { phase: 'recording', startedAt: captureState.capture.startedAt }
+				: { phase: captureState.phase };
 		},
 		get recorderError() {
 			return recorderError;
@@ -1137,25 +1140,26 @@ export function createLibrary(
 		 * so a quit, a crash, or a closed window leaves both in the folder.
 		 */
 		async startRecording() {
-			if (recorder.phase !== 'idle' || refused() !== undefined) return;
+			if (captureState.phase !== 'idle' || refused() !== undefined) return;
 			recorderError = undefined;
-			recorder = { phase: 'starting' };
-			// A test or a pending enable holds the microphone: release it before the recording opens one.
-			input.release();
 			const attempt = new AbortController();
-			starting = attempt;
+			captureState = { phase: 'starting', attempt };
+			input.release();
 			const at = new Date();
 			const id = recordingId(at);
 			const { data: capture, error: startError } = await services.capture.start(
 				{
-					folder: recordingFolder(),
+					folder: folder.files,
 					path: recordingAudioStem(id),
 					input: input.choice,
 					signal: attempt.signal,
 				},
 			);
 			// Cancelled or closed while the microphone was opening: it is not kept.
-			if (starting !== attempt) {
+			if (
+				captureState.phase !== 'starting' ||
+				captureState.attempt !== attempt
+			) {
 				if (startError === null) {
 					const { error } = await capture
 						.cancel()
@@ -1165,9 +1169,8 @@ export function createLibrary(
 				}
 				return;
 			}
-			starting = undefined;
 			if (startError !== null) {
-				recorder = { phase: 'idle' };
+				captureState = { phase: 'idle' };
 				recorderError = startError.message;
 				input.noteRecordingError(startError);
 				return;
@@ -1184,11 +1187,13 @@ export function createLibrary(
 				rowPath(RECORDINGS, id),
 			);
 			// Stop and Cancel await this capture's own initial row save.
-			active = { id, capture, rowSave: creating };
-			capturing.add(id);
-			recorder = { phase: 'recording', startedAt: capture.startedAt };
+			captureState = { phase: 'recording', id, capture, rowSave: creating };
 			capture.onEnded((reason) => {
-				if (active?.capture !== capture) return;
+				if (
+					captureState.phase !== 'recording' ||
+					captureState.capture !== capture
+				)
+					return;
 				recorderError = {
 					deviceDisconnected:
 						'The microphone was disconnected. Recording stopped.',
@@ -1198,34 +1203,29 @@ export function createLibrary(
 					storageFailed: 'Audio storage failed. Recording stopped.',
 				}[reason];
 				// Stop owns finalization; it keeps the captured audio and this row.
-				void hold(finishRecording());
+				void finishRecording();
 			});
 			const created = await creating;
 			if (
 				created.error !== null &&
-				active?.capture === capture &&
+				captureState.phase === 'recording' &&
+				captureState.capture === capture &&
 				recorderError === undefined
 			)
 				recorderError = `The recording is running, but its file could not be written, so it is not listed: ${describeError(created.error)}. Its audio is ${capture.audioPath}.`;
 		},
 		/** Stop: the audio file is finished and the row gets its length. */
-		async stopRecording() {
-			if (recorder.phase !== 'recording' || active === undefined) return;
-			await finishRecording();
-		},
+		stopRecording: finishRecording,
 		/** Stop and delete: the audio file and the row written at start both go. */
 		async cancelRecording() {
-			if (recorder.phase === 'stopping') return;
-			starting?.abort();
-			starting = undefined;
-			const cancelled = active;
-			active = undefined;
-			if (cancelled === undefined) {
-				// Another Stop or Cancel may still own the microphone.
-				if (recorder.phase === 'starting') recorder = { phase: 'idle' };
+			const cancelled = captureState;
+			if (cancelled.phase === 'starting') {
+				captureState = { phase: 'idle' };
+				cancelled.attempt.abort();
 				return;
 			}
-			recorder = { phase: 'stopping' };
+			if (cancelled.phase !== 'recording') return;
+			captureState = { ...cancelled, phase: 'stopping' };
 			await hold(
 				(async () => {
 					const { id, capture, rowSave } = cancelled;
@@ -1233,18 +1233,14 @@ export function createLibrary(
 						.cancel()
 						.catch((cause) => CaptureError.Failed({ cause }));
 					if (cancelError !== null) {
-						// The native reply may be lost after cancellation. Keep the row
-						// and handle so an explicit Stop or Cancel can resolve it.
-						active = cancelled;
-						recorder = { phase: 'recording', startedAt: capture.startedAt };
+						// An unknown outcome keeps the handle for an explicit Stop or Cancel.
+						captureState = cancelled;
 						recorderError = `The recording's cancellation could not be confirmed. Its row was kept: ${cancelError.message}`;
-						// Closing preserves the recording by finishing it, as ordinary
-						// teardown does, rather than leaving its microphone held.
+						// Closing keeps the recording and releases its microphone through Stop.
 						if (fenced) await finishRecording();
 						return;
 					}
-					capturing.delete(id);
-					recorder = { phase: 'idle' };
+					captureState = { phase: 'idle' };
 					await rowSave;
 					const path = rowPath(RECORDINGS, id);
 					const { error } = await track(
@@ -1436,8 +1432,10 @@ export function createLibrary(
 				runs.stop();
 				// The microphone first: nothing still being written may keep it open.
 				input.close();
-				starting?.abort();
-				starting = undefined;
+				if (captureState.phase === 'starting') {
+					captureState.attempt.abort();
+					captureState = { phase: 'idle' };
+				}
 				// Kept, never deleted: a recording is in the folder from its start.
 				await finishRecording();
 				await Promise.allSettled([...pending]);

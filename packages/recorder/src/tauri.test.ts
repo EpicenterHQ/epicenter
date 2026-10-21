@@ -302,3 +302,27 @@ test('an ending reaches every listener when the first listener stops the native 
 	expect(stopping).toBeDefined();
 	expectOk(await stopping!);
 });
+
+test('a meter ending before its open reply is delivered once and retired on close', async () => {
+	answer = ({ cmd, args }) => {
+		if (cmd === 'plugin:epicenter-recorder|open_meter') {
+			(args.levels as FakeChannel<unknown>).onmessage({
+				kind: 'ended',
+				reason: 'permissionRevoked',
+			});
+			return { id: '9', device: 'Desk Microphone' };
+		}
+		return null;
+	};
+	const meter = expectOk(await openMeter());
+	const heard: string[] = [];
+	meter.onEnded((reason) => heard.push(reason));
+	const channel = calls[0]?.args.levels as FakeChannel<unknown>;
+	channel.onmessage({ kind: 'ended', reason: 'streamFailed' });
+	expect(heard).toEqual(['permissionRevoked']);
+	await meter.close();
+	const late: string[] = [];
+	meter.onEnded((reason) => late.push(reason));
+	channel.onmessage({ kind: 'ended', reason: 'deviceDisconnected' });
+	expect(late).toEqual([]);
+});

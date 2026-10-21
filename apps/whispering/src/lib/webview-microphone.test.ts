@@ -96,6 +96,7 @@ function webView({
 } = {}) {
 	const requests: MediaStreamConstraints[] = [];
 	const streams: FakeStream[] = [];
+	const tracks: EventTarget[] = [];
 	const graphs: { closed: boolean; disconnected: boolean }[] = [];
 	const changeListeners = new Set<() => void>();
 	let listings = 0;
@@ -116,6 +117,7 @@ function webView({
 				},
 				getSettings: () => ({ deviceId: stream.deviceId }),
 			});
+			tracks.push(track);
 			return {
 				getTracks: () => [track],
 				getAudioTracks: () => [track],
@@ -170,6 +172,7 @@ function webView({
 		environment,
 		requests,
 		streams,
+		tracks,
 		graphs,
 		changeListeners,
 		get listings() {
@@ -382,4 +385,43 @@ test('connected and removed inputs are heard until the listener is removed', asy
 
 	expect(heard).toBe(1);
 	expect(view.changeListeners.size).toBe(0);
+});
+
+test('a browser meter ending before subscription remains available until it is released', async () => {
+	const view = webView();
+	const meter = expectOk(
+		await inputsOf(createWebViewMicrophone(view.environment)).meter(USB),
+	);
+	try {
+		view.tracks[0]!.dispatchEvent(new Event('ended'));
+		const heard: string[] = [];
+		meter.onEnded((error) => {
+			heard.push(error.name);
+			meter.stop();
+		});
+		expect(heard).toEqual(['InputUnavailable']);
+		expect(view.streams[0]?.stopped).toBe(true);
+		expect(view.graphs[0]?.closed).toBe(true);
+		const late: string[] = [];
+		meter.onEnded((error) => late.push(error.name));
+		expect(late).toEqual([]);
+	} finally {
+		meter.stop();
+	}
+});
+
+test('a browser meter ending reaches every listener when the first releases it', async () => {
+	const view = webView();
+	const meter = expectOk(
+		await inputsOf(createWebViewMicrophone(view.environment)).meter(USB),
+	);
+	try {
+		const heard: string[] = [];
+		meter.onEnded(() => meter.stop());
+		meter.onEnded((error) => heard.push(error.name));
+		view.tracks[0]!.dispatchEvent(new Event('ended'));
+		expect(heard).toEqual(['InputUnavailable']);
+	} finally {
+		meter.stop();
+	}
 });

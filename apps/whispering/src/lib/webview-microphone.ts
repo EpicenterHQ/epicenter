@@ -211,11 +211,13 @@ function createInputs(environment: MicrophoneEnvironment): MicrophoneInputs {
 			const track = stream.getAudioTracks()[0];
 			const label = track?.label || input?.label || 'System default';
 			const endings = new Set<(error: CaptureError) => void>();
+			let ending: CaptureError | undefined;
 			// The track ends when its microphone is unplugged or access is withdrawn.
 			const ended = () => {
-				if (stopped) return;
+				if (stopped || ending !== undefined) return;
 				const error = CaptureError.InputUnavailable({ label }).error;
-				for (const listener of endings) listener(error);
+				ending = error;
+				for (const listener of [...endings]) listener(error);
 			};
 			track?.addEventListener?.('ended', ended);
 			return Ok({
@@ -232,6 +234,11 @@ function createInputs(environment: MicrophoneEnvironment): MicrophoneInputs {
 					);
 				},
 				onEnded(listener) {
+					if (stopped) return () => {};
+					if (ending !== undefined) {
+						listener(ending);
+						return () => {};
+					}
 					endings.add(listener);
 					return () => endings.delete(listener);
 				},
