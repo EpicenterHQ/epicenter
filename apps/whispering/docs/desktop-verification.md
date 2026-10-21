@@ -10,6 +10,15 @@
 
 ### Current policy: always-confirm Quit and unsaved-only Close
 
+**Standalone Quit alert update:** Application Quit now uses an unparented native
+alert. The user inspected its appearance in the isolated macOS app and accepted
+it. Computer use cannot capture or control its
+`com.apple.UserNotificationCenter` surface. The isolated build succeeded and its
+native suite passed 143 tests, with one ignored. Final manual Cancel and Quit
+Anyway verification remains pending. Window Close and the native recording
+warning remain unchanged. The attached-sheet parent and stale-attempt checks
+below describe the superseded design.
+
 Epicenter application Quit always confirms and mentions an active recording.
 Window Close confirms only for unsaved edits. Closing a saved recording window
 ends capture silently and keeps its audio. No page reports save status or reads

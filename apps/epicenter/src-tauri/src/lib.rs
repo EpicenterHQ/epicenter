@@ -370,7 +370,6 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                shell::quit_parent_ended(window.app_handle(), window.label());
                 window
                     .state::<cli::CliChildren>()
                     .page_ended(window.label());

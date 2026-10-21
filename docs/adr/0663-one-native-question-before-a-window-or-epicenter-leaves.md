@@ -4,6 +4,24 @@
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) to warn about a native recording as well as unfinished saves.
 
+## Amendment: application Quit uses a standalone native alert
+
+Application Quit has no window parent. The unparented native alert belongs to
+the application and remains pending when any individual window closes. Its
+appearance was tried in the isolated macOS app and accepted by the user.
+
+Delete Quit's parent selection and tracking, window-destruction hook, attempt
+IDs, and global counter. Only ready, prompting, and approved state remains:
+repeated requests share one alert; Cancel permits another request; confirmation
+allows Tauri's next exit request. The native recording warning and each page's
+conditional Close confirmation remain unchanged.
+
+On macOS, the installed dialog backend uses `CFUserNotificationDisplayAlert`
+for the unparented dialog. Computer use cannot inspect that system-owned alert;
+the user verified its appearance directly. Final manual Cancel and Quit Anyway
+verification remains pending. The attached-sheet and stale-parent checks below
+describe the superseded design. Startup does not change.
+
 ## Amendment: always confirm Quit; Close warns only for unsaved edits
 
 Application Quit always asks one native question. The native recorder adds a
