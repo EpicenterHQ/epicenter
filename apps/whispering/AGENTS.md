@@ -25,10 +25,14 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   opens it. The page names no folder. Do not add a second path by which the
   page reads or writes folder files, and do not copy the plugins' bindings
   into this app.
-- **Closing settles drafts.** The page sends pending text and waits for local
-  saves before its desktop window closes. A failed save keeps the window and
-  its draft open. A recording streams into the folder from its start
-  (ADR-0543), and a run writes its result row before the request goes out.
+- **Confirm before abandoning unsaved input.** A desktop window warns only
+  while its Folder is saving or holds unsaved input. A recording alone closes
+  without a warning. Epicenter always confirms application Quit and mentions
+  active capture. Cancel keeps the windows, edits, and recording; confirmation
+  leaves without draining page workflows. Rust finalizes and keeps captured
+  audio on departure (ADR-0663). A browser recording adds no unload warning;
+  FolderApp still protects accepted edits. A run writes its result row before
+  the request goes out.
 - **A folder that cannot be opened is reported, not replaced.** Opening
   returns a `Result`. Inside a desktop app, a shell that refuses the folder is
   shown as that refusal; browser storage is never opened there. The build
@@ -37,10 +41,12 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 - **One mounted app lifetime.** Route changes preserve the opened folder,
   query cache, recording, inference work, selections, and forms. Pages consume
   existing resources; they never open a folder or create product state. Keep
-  that state out of module-level variables. Product teardown finishes accepted
-  workflow writes before storage closes. Guard document unload; allow internal
-  navigation. `src/lib/page-boundary.test.ts` enforces this ownership; the
-  composition is documented in `ARCHITECTURE.md`.
+  that state out of module-level variables. Product teardown synchronously
+  refuses new work and late replies and releases listeners; it never drains
+  workflows or calls Stop. Folder owns its admitted saves and unsaved input;
+  FolderApp owns document-unload protection. Internal navigation keeps the
+  app. `src/lib/page-boundary.test.ts` enforces this ownership; the composition
+  is documented in `ARCHITECTURE.md`.
 - **Native services are Epicenter's.** Whispering has no desktop shell or
   host process of its own (ADR-0493). A native service it needs is an
   Epicenter command, granted to Whispering's windows in
@@ -67,12 +73,13 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   after the folder confirms it. A failed save keeps the person's typing and
   shows the failure beside it.
 - **A recording is in the folder from its start, and its row holds facts
-  only** (ADR-0543). The row is created when the recording starts; its length
-  is written when it stops. Never add a status, pending, or
-  interrupted field, and never hold a recording's audio in the page to save
-  later on the desktop: the shell writes it as it captures. Only `cancel`
-  deletes a recording. Save a row through its table (`set`) as a change from
-  the row as read, never as text the app serialized by hand.
+  only** (ADR-0543). The row is created when recording starts; explicit Stop
+  writes its length while the page lives. Native departure preserves the WAV
+  without promising length metadata. Never add a status, pending, or interrupted
+  field, and never hold desktop audio in the page to save later: Rust writes it
+  as it captures. Recorder commands never delete captured audio. Save a row
+  through its table (`set`) as a change from the row as read, never as text the
+  app serialized by hand.
 - **Fixture audio is debug-only, and failure injection is test-only.** Fixture
   audio is a development browser build's, and the UI says so while it is
   active. No build offers failure injection; a test that fails a recording
