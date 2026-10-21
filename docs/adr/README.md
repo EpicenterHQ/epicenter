@@ -870,4 +870,4 @@ When you add an ADR, add its row here.
 | [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Accepted (always-confirm Quit; unsaved-only Close) |
 | [0664](0664-folder-close-drains-admitted-work-through-one-owner.md) | Folder close drains admitted work through one owner | Accepted (amends 0574, 0656, and 0657) |
 | [0665](0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) | A Markdown file without frontmatter has empty fields and a body | Proposed |
-| [0666](0666-a-source-replacement-decides-local-content-and-still-merges-on-save.md) | A source replacement decides local content and still merges on save | Proposed |
+| [0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) | One source draft per path saves against its observed source | Proposed |

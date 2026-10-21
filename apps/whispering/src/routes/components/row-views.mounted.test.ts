@@ -9,9 +9,8 @@
  * Key behaviors:
  * - typing in a view edits the path it shows, and autosaves after a pause
  * - a change made elsewhere shows once the folder reports it
- * - typing over a change made elsewhere merges with it, and the typing wins
- *   where both changed; typing into a recording deleted elsewhere brings it
- *   back, so nothing typed is lost
+ * - typing over an outside change stays pinned until an explicit whole-source
+ *   resolution; a deletion cannot erase the held source
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
  * - a body from a CRLF file shows in LF; a field save leaves its bytes as
@@ -320,8 +319,8 @@ test('a change made elsewhere shows once the folder reports it', async () => {
 	expect(body()?.value).toBe('Theirs.\n');
 });
 
-test('typing over a change made elsewhere merges with it, and the typing wins where both changed, with no notice', async () => {
-	const { context, whispering, target, notices, root } = await open({
+test('typing over an outside change stays pinned until explicit replacement', async () => {
+	const { context, whispering, target, root } = await open({
 		[A]: transcript('Alpha.\n'),
 	});
 	await show(whispering, context, A);
@@ -335,13 +334,16 @@ test('typing over a change made elsewhere merges with it, and the typing wins wh
 	type(body(), 'Mine.\n');
 	leave(body());
 	await settle(context);
-	expect(notices).toEqual([]);
+	expect(context.folder.files.edit(A).getPending()?.error?.name).toBe('Conflict');
+	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nTheirs.\n');
+	await context.folder.files.edit(A).resolveConflict('draft');
+	await settle(context);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
 	expect(body()?.value).toBe('Mine.\n');
 });
 
-test('typing into a recording deleted elsewhere brings it back with the typing: nothing typed is lost', async () => {
-	const { context, whispering, target, notices, root } = await open({
+test('typing into a deleted recording stays held until explicit replacement', async () => {
+	const { context, whispering, target, root } = await open({
 		[RECORDING]: recording('Take', 'Notes.\n'),
 	});
 	await show(whispering, context, RECORDING);
@@ -350,8 +352,9 @@ test('typing into a recording deleted elsewhere brings it back with the typing: 
 	type(notes, 'Mine.\n');
 	leave(notes);
 	await settle(context);
-
-	expect(notices).toEqual([]);
+	expect(context.folder.files.edit(RECORDING).getPending()?.error?.name).toBe('Conflict');
+	await context.folder.files.edit(RECORDING).resolveConflict('draft');
+	await settle(context);
 	expect(await readFile(join(root, RECORDING), 'utf8')).toEndWith(
 		'---\nMine.\n',
 	);
@@ -682,11 +685,10 @@ for (const item of [
 			const retained = target.querySelector<HTMLTextAreaElement>(
 				`textarea[aria-label="${item.label}"]`,
 			);
-			expect(JSON.parse(retained!.value)).toEqual({
-				set: { title: 'Keep my title' },
-				remove: [item.remove],
-				body: 'Keep my notes',
-			});
+			expect(retained?.value).toBe(view.pending?.text);
+			expect(retained?.value).toContain('title: Keep my title');
+			expect(retained?.value).not.toContain(`${item.remove}:`);
+			expect(retained?.value).toContain('Keep my notes');
 			expect(writeStatus(target)).toContain('Not saved');
 		});
 	}

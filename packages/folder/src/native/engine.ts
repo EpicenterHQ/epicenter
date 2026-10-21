@@ -39,7 +39,6 @@ import {
 	rowAddressProblem,
 	writableExistingPath,
 } from '../paths.js';
-import { frameRowText } from '../shared/content/markdown.js';
 import { readDocument } from '../shared/document.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import { changeMarkdown } from '../shared/markdown-codec.js';
@@ -226,7 +225,8 @@ export function createNativeFolder<
 		from: FileContent | null,
 		content: FileContent | null,
 		rowFields?: Record<string, unknown>,
-		frontmatter?: 'required' | 'optional',
+		checkBody = false,
+		replaceExact = false,
 	): Promise<
 		Result<{ deleted: boolean; stored: FileContent | null }, SaveError>
 	> {
@@ -260,30 +260,29 @@ export function createNativeFolder<
 					return SaveError.CaseTwin({ path, existing: twin });
 			}
 			const stored = found?.bytes ?? null;
+			if (replaceExact && sameContent(stored, change))
+				return Ok({ deleted: false, stored });
+			if (replaceExact && !sameContent(stored, base))
+				return SaveError.Conflict({ path, base, current: stored });
 			if (
-				(rowFields !== undefined || frontmatter !== undefined) &&
+				(rowFields !== undefined || checkBody) &&
 				stored !== null
 			) {
 				const row = readDocument(path, stored);
 				const problem = row.issues?.[0];
 				if (problem?.kind === 'not-text') return SaveError.NotText();
-				if (
-					frontmatter === 'required' &&
-					frameRowText(row.text).kind !== 'frontmatter'
-				)
-					return SaveError.Unparseable({
-						reason: 'The source has no closed frontmatter',
-					});
-				if (frontmatter !== undefined && row.body === undefined)
+				if (checkBody && row.body === undefined)
 					return SaveError.Unparseable({
 						reason: 'The source has no known body boundary',
 					});
 				if (rowFields !== undefined && problem?.kind === 'frontmatter')
 					return SaveError.Unparseable({ reason: problem.message });
 			}
-			const merged = await merge(path, { base, current: stored, change });
+			const merged = replaceExact
+				? { content: change }
+				: await merge(path, { base, current: stored, change });
 			let content = merged.content;
-			if (frontmatter !== undefined && content !== null) {
+			if (checkBody && content !== null) {
 				const result = readDocument(
 					path,
 					typeof content === 'string'
@@ -291,11 +290,7 @@ export function createNativeFolder<
 						: content,
 				);
 				if (result.issues?.[0]?.kind === 'not-text') return SaveError.NotText();
-				if (
-					(frontmatter === 'required' &&
-						frameRowText(result.text).kind !== 'frontmatter') ||
-					result.body === undefined
-				)
+				if (result.body === undefined)
 					return SaveError.Unparseable({
 						reason: 'The merged source has no known body boundary',
 					});
@@ -309,7 +304,6 @@ export function createNativeFolder<
 							: content,
 					),
 					{ fields: rowFields },
-					frontmatter ?? 'optional',
 				);
 				if (applied.error !== null)
 					return SaveError.Unparseable({ reason: applied.error.reason });
@@ -416,7 +410,7 @@ export function createNativeFolder<
 					from?.text ?? null,
 					sent.data.text,
 					change.fields,
-					'required',
+					change.body !== undefined,
 				);
 				if (saved.error !== null) return Err(saved.error);
 				return Ok({
@@ -461,9 +455,9 @@ export function createNativeFolder<
 					return Ok({ path, content: new Blob([new Uint8Array(found.bytes)]) });
 				});
 			},
-			async write(path, from, content, fields, frontmatter) {
+			async write(path, from, content, fields, checkBody, replaceExact = false) {
 				if (!structural(path)) return SaveError.InvalidPath({ path });
-				const saved = await saveFile(path, from, content, fields, frontmatter);
+				const saved = await saveFile(path, from, content, fields, checkBody, replaceExact);
 				return saved.error !== null
 					? Err(saved.error)
 					: Ok({ stored: saved.data.stored });

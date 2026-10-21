@@ -125,9 +125,19 @@
 
 	/** Copy pending input exactly, even when a deleted file no longer has a readable row. */
 	const unsavedText = $derived.by(() => {
-		if (pending?.kind === 'text') return pending.text;
-		if (pending?.kind === 'document' && pending.body !== undefined) return pending.body;
+		if (pending !== undefined) return pending.text;
 		return fileEdit.markdown?.body ?? '';
+	});
+	const conflict = $derived(pending?.error?.name === 'Conflict' ? pending.error : undefined);
+	const savedConflictSource = $derived.by(() => {
+		if (conflict === undefined) return undefined;
+		if (conflict.current === null) return '(deleted)';
+		if (typeof conflict.current === 'string') return conflict.current;
+		try {
+			return new TextDecoder('utf-8', { fatal: true }).decode(conflict.current);
+		} catch {
+			return '(binary file)';
+		}
 	});
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
@@ -147,8 +157,16 @@
 		<Alert.Root variant="destructive" aria-label="Not saved">
 			<Alert.Title>Your edit is not saved</Alert.Title>
 			<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
+			{#if conflict !== undefined}
+				<details class="mt-2"><summary>Compare sources</summary><p>Saved source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{savedConflictSource}</pre><p>Your source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{unsavedText}</pre></details>
+			{/if}
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-				<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+				{#if conflict !== undefined}
+					<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
+					<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
+				{:else}
+					<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+				{/if}
 				<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
 				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 			</div>
@@ -191,10 +209,15 @@
 					<Alert.Title>This capture was deleted, and your edit is still here</Alert.Title>
 					<Alert.Description>
 						{#if pending.error}<p>Not saved: {describeFailure(pending.error)}</p>{/if}
-						<p>Saving your edit brings the capture back with it. Copy it, or discard it to let the capture go.</p>
+						<p>Your source remains available. Choose to replace the saved file after a conflict, copy it, or discard it.</p>
 					</Alert.Description>
 					<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-						<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+						{#if conflict !== undefined}
+							<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
+							<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
+						{:else}
+							<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+						{/if}
 						<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
 						<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 					</div>

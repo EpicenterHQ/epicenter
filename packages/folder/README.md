@@ -54,7 +54,7 @@ const unsaved = await folder.close(); // sends held input once; answers what did
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
 | `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, and saved-view types. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
 | `@epicenter/folder/documents` | Saved Markdown documents with optional schema diagnostics, including root and nested paths. | Generic file, grid, board, or SQL interpretation. |
-| `@epicenter/folder/edits` | The vocabulary of a path's editable document and typed input (`FileEdit`, `MarkdownContent`, `DocumentChange`, `Pending`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)), `ReadStatus`, and `mergeText`/`mergeFileText`, the shared body/source merge helpers. Opens nothing. | Code that names those types. |
+| `@epicenter/folder/edits` | The vocabulary of a path's source draft and Markdown interpretation (`FileEdit`, `MarkdownContent`, `DocumentChange`, `Pending`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)), `ReadStatus`, and explicit `mergeText`/`mergeFileText` helpers. Opens nothing. | Code that names those types. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
 type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
@@ -85,8 +85,8 @@ the saved files.
 
 | Member | Contract |
 | --- | --- |
-| `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, from, content)`; `delete(path, from)`; `edit(path)`, the file's editable document and typed input. |
-| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, from, change)`, `delete(id, from)`, and `edit(id)`, the row's editable document and typed input. Adjacent files are available through `folder.files`. |
+| `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, from, content)`; `delete(path, from)`; `edit(path)`, the file's source draft. |
+| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, from, change)`, `delete(id, from)`, and `edit(id)`, the same source draft interpreted through the table schema. Adjacent files are available through `folder.files`. |
 | `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A save of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
 | `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or reserved action running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
 | `settle()` | Attempts unreserved held input now, drains admitted work and started saves, then attempts newly released paths. A failed revision is not retried within the same call. Unscoped reads are not waited for. Answers the input that did not save. |
@@ -123,7 +123,7 @@ each `{ kind, message, path, line? }`:
 | `kind` | The file |
 | --- | --- |
 | `schema` | parses, and a field does not fit the schema |
-| `frontmatter` | is missing required frontmatter or has frontmatter that cannot be parsed |
+| `frontmatter` | has an opening fence but no closing fence, or has YAML that cannot be parsed |
 | `not-text` | is not UTF-8 text without NUL |
 
 A schema only interprets. It never refuses a save, and unknown fields,
@@ -131,6 +131,7 @@ comments, and repairable frontmatter survive every save. A row that does not
 fit is read, shown, and repaired, not dropped. `list()` reads every `.md`
 file directly in the table's directory; a missing directory is an empty
 table, and reading creates nothing.
+With no opening fence, the whole file is body and fields are empty.
 
 ### Saving
 
@@ -158,6 +159,7 @@ The merge is content-only and the same on every host (`shared/merge.ts`,
 | File | Unit |
 | --- | --- |
 | `.md` with frontmatter that parses | one frontmatter field; one region of body lines |
+| `.md` without an opening fence | one region of body lines |
 | `.md` whose frontmatter does not parse, and other UTF-8 text | one region of lines |
 | binary | the whole file |
 
@@ -174,6 +176,7 @@ meanwhile writes the edit.
 | `CaseTwin` | A path that differs from a stored one only by case. |
 | `NotText` | Text with NUL or unpaired surrogates, or a row edit of a file that is not text. |
 | `Unparseable` | A field edit of a row whose frontmatter does not parse. |
+| `Conflict` | A `FileEdit` draft's observed source differs from storage during a guarded save. The error carries the base and current content. |
 | `StorageFailed` | Storage failed, with its reason; earlier storage is unchanged. |
 
 A failed save returns its error and leaves the file as it was; the caller
@@ -184,22 +187,22 @@ commit or refusal. Structural refusals are the caller's to show, not status.
 
 ### Unsaved input
 
-The opened folder owns one source, pending input, save queue and fence per path
-([ADR-0662](../../docs/adr/0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md)). Both `folder.files.edit(path, schema?)` and
-`folder.tables.notes.edit(id)` return `FileEdit`. Table accessors bind their
-schema and strict row framing; a file accessor accepts Markdown without
-frontmatter and can bind an optional read schema. Making a handle reads nothing.
+The opened folder owns one source draft, save queue and fence per path
+([ADR-0666](../../docs/adr/0666-one-source-draft-per-path-saves-against-its-observed-source.md)).
+`folder.files.edit(path, schema?)` and `folder.tables.notes.edit(id)` return the
+same `FileEdit`; a table accessor binds its schema. Making a handle reads
+nothing. All handles for the same path share the draft, including handles with
+different read schemas.
 
 ```ts
 const edit = folder.tables.notes.edit(id);
 const read = await edit.read();
 if (read.error !== null) return show(read.error.message);
 edit.getMarkdown(); // { text, body, fields, issues }, or undefined
-edit.getText();     // exact editable source, without Markdown interpretation
+edit.getText(); // exact displayed source
 edit.change({ fields: { done: true }, body: 'Two litres\n' });
-edit.getPending();  // document patch or whole text, or undefined
+edit.getPending(); // { path, text, saving, error }, or undefined
 edit.getReadStatus(); // { known, reading, error }
-edit.isLocked();
 await edit.save(); // or wait saveAfterMs
 
 const file = folder.files.edit('notes/a.md');
@@ -215,69 +218,52 @@ await folder.run(['notes/a.md', 'audio/a.bin'], async () => {
 });
 ```
 
-`change(patch)` and `replaceText(text)` synchronously return
-`Result<void, ChangeError>`: acceptance into memory, not persistence.
-Structured input needs known source. Table lists, gets and ordinary text file
-reads seed that source through the folder's ordered read integration, so a grid
-can type over the source it already read without another load. An unread,
-absent or binary source refuses new structured input. Unheld binary file reads
-retain no bytes in the owner.
+`change({ fields?, body? })` applies to the displayed source immediately.
+`replaceText(text)` replaces that source. Both synchronously return
+`Result<void, ChangeError>` for acceptance into memory, not persistence. An
+operation that leaves the displayed source unchanged is a no-op. Structured
+changes require a known text source; unread, missing and binary files refuse
+them. Text or row reads seed the source through the folder's ordered reads.
 
-`getMarkdown()` contains exactly text, body, fields and issues. Fields narrow
-to the bound schema only when `issues === null`; schema failures retain raw
-fields, while frontmatter failures expose no fields. Its text always matches
-`getText()`, including accepted text containing NUL or a lone surrogate that
-storage will refuse. Such text has a `not-text` issue and no body or fields.
-A closed malformed header can still expose its body; an unclosed header cannot.
-Applicable pending fields and body enter source before interpretation. Fields that cannot
-apply to malformed source stay recoverable in `getPending()`, without appearing
-as phantom document fields. Retry after outside repair, or copy/discard that
-patch before replacing its source. Schema diagnostics alone do not refuse
-editing. Missing frontmatter is valid in a generic document and diagnosed by a
-strict table interpretation.
+`getMarkdown()` interprets exactly `getText()` through the handle's schema.
+Its `text` is always the complete displayed source, even if the draft contains
+NUL or a lone surrogate that storage will refuse. A schema mismatch retains
+raw fields. Broken YAML exposes unavailable fields; a closed malformed header
+can still expose its body, while an unclosed header cannot. With no opening
+fence, the entire source is body with empty fields in file and table views
+([ADR-0665](../../docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md)).
+Adding a field creates a fence; a body change keeps a headerless file
+headerless unless its new body would itself begin with an opening fence.
 
-`getPending().fields` is raw, non-generic input shared by every view of the
-path, including views bound to different schemas. `change()` types new input
-through its own schema, while pending input retains the names and values that
-were accepted. Each guarded storage attempt reapplies those named assignments
-over the merged text, including assignments whose value matched the original
-source. Assignments made after `replaceText()` retain their names through the
-text handoff and guarded retries. Accepted fields are owned copies, including nested arrays, objects and
-values read through proxies. Mutating the caller's original values after
-`change()` returns cannot alter pending input or a later save. Unsupported field
-values are refused before any of the change is accepted.
+`getPending()` answers `undefined` when clean, otherwise the exact unsaved
+source, path, saving state, and last save error. Pending has no text/document
+variants, field patches, or schema policy. The draft stays visible and pinned
+when another handle or program changes storage. `getReadStatus()` describes
+what is known of storage, so it may change while `getText()` stays pinned.
+A failed read keeps the last displayed source. `read()` performs I/O and
+returns a result; getters perform none. The last subscriber leaving releases
+clean cached source, while pending source remains available after unmount or
+close.
 
-`getText()` answers held whole text, applicable structured changes over stored
-source, or stored text, including a byte-order mark. With no held whole text,
-source and document getters answer `undefined` for unread, missing or binary
-files; `getReadStatus().known` distinguishes them. Held whole text stays readable
-after external deletion or replacement with binary bytes. A failed read keeps
-what was already shown. `read()` returns completion or a `ReadError`; getters
-answer the resulting snapshots and perform no I/O. Snapshots keep their identity
-across handles with the same schema and framing until their inputs change.
+A save compares the draft with the exact source observed when editing began,
+inside each guarded storage attempt. It succeeds if storage still has that
+source or already has the same draft. Any other stored source, including a
+delete or binary replacement, yields `SaveError.Conflict` with the observed
+base and current content. The draft stays pending, with its source and error.
+`save()` resolves after the attempt; inspect `getPending()` for the outcome.
+Typing during a save stays pending after the older revision lands. A storage
+failure also retains the draft for retry or recovery.
 
-Each typed field and body retains its first observed value, or what its last
-landed save submitted. Whole text retains its source witness. This preserves
-explicit reverts and newer typing while saves run. Structured saves reserve the
-path before reading fresh presentation, apply their held units with these
-bases, and keep the latest-header check inside storage's guarded write loop.
-Generic body saves require a known current body boundary on every storage
-attempt; an outside unclosed header keeps the external source and pending body.
-Unchanged fields and independent outside body edits survive.
+On conflict, `resolveConflict('current')` accepts the saved file after a
+refresh, `resolveConflict('draft')` explicitly submits the held source, and
+`resolveConflict({ text })` submits an edited whole-file resolution. The latter
+two compare against the conflicted current source at storage again, so a later
+outside change produces a new conflict. The application should present both
+sources and a choice; `discard()` returns the held source without saving it.
 
-`mergeFileText(path, base, current, change)` applies these same storage rules
-synchronously to whole source, including Markdown fields.
-`mergeText(base, current, change)` merges body controls by line. A deletion cannot
-silently erase accepted input: saving held text or a structured patch with its
-retained source can recreate the file.
-
-`save()` attempts held input now, including a previous failure, or joins its
-running attempt. A failed attempt keeps its input and error without looping;
-new input or another attempt clears the older error. Blur, unmount, `settle()`,
-delete, reserved actions and close use this same policy. `save()` resolves
-when the attempt finishes, including failure; pending input and folder status
-report the outcome. `discard()` explicitly releases input and returns it for
-recovery; it refuses while a save or action runs.
+`mergeFileText(path, base, current, change)` and `mergeText(base, current,
+change)` remain explicit helpers for callers that choose automatic content
+merge. They do not run during `FileEdit.save()`.
 
 `delete()` fences its path immediately. `folder.run(paths, action)` deduplicates
 and reserves every named path synchronously, before notifying any view or
@@ -348,7 +334,9 @@ every save is one guarded change of one file (`native/engine.ts`). Opening
 reads a file a person left there as it is and changes nothing; only a guarded
 save of that path replaces it. Git is optional: a
 directory with no `.git`, or with a `.git` file or link, opens and saves the
-same, and saving creates no repository.
+same, and saving creates no repository. `FileEdit` saves compare their
+observed source at the guarded write; direct storage writes keep the content
+merge described above.
 
 ### Bun
 

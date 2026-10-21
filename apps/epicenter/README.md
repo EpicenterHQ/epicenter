@@ -357,7 +357,7 @@ the same `FileEdit` (`folder.files.edit(path)`) as
 grid and Files edits. Failed moves retain their input for retry or discard.
 Cards have no separate rank or drag-order record.
 
-The opened Folder owns unfinished text and field intent per path, from open to
+The opened Folder owns one unfinished source draft per path, from open to
 close, through `folder.files.edit(path)`
 ([ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
 Files, grid, and board use `createFileEdit(folder.files.edit(path, schema))` and keep no
@@ -365,15 +365,13 @@ separate save queue. The reactive `.markdown` getter reads the current structure
 `.pending` reads unsaved input, and `replaceText(text)` or `change({ fields })`
 accepts new input without a source argument. Input
 and its autosave timer survive view switches; blur and editor teardown need
-no save hooks. Field intent overlays fresh reads, so another
-writer's body changes remain visible. A failed reread leaves the text already
-shown in place and editable; text this window saved, with no readable source
-left, stays readable to copy but takes no typing. Starting to type source text deliberately turns that draft into
-a whole-file edit. A failed structured edit stays held for another save attempt or discard. Applicable
-changes can continue in Files; source repair requires copying or discarding intent
-that cannot currently be represented. Recovery shows
-the field patch separately from the current source, without keeping a stale
-whole-file preview. Hiding sends pending work. Closing checks the Folder's save
+no save hooks. A dirty draft stays pinned when another writer changes storage.
+A failed reread leaves the text already shown in place and editable. Source
+and field commands act on the same displayed source in call order. A conflict
+keeps the exact draft and shows the saved source for comparison in Files;
+the person can keep the saved file, submit the draft, or edit the draft before
+submitting it. The submission is guarded against another outside change.
+Hiding sends pending work. Closing checks the Folder's save
 status and asks whether to close anyway if accepted work is pending. Unsaved
 files stay reachable when their disk entry disappears or the listing fails.
 
@@ -484,8 +482,9 @@ Whispering's recorder writes into the same folder, and no call names it. Two
 apps opened on one folder are two windows with separate bindings to one root, sharing its save lock. A folder removed after its window opened is refused `Missing` when
 the page opens it again; a later Open recreates only an app's fixed default.
 
-The native Folder reads ordinary files as they stand, merges row edits with
-current bytes, and lands one guarded file change per save. Opening writes
+The native Folder reads ordinary files as they stand. Direct row storage
+writes merge content; `FileEdit` saves compare whole source and report a
+conflict if storage changed. Each save lands one guarded file change. Opening writes
 nothing and does not start Git. The separate `epicenter` CLI retains Git
 commands; no current product page exposes them as a Folder action. See Todos'
 [README](../todos/README.md) and Capture's [README](../capture/README.md) for

@@ -117,6 +117,12 @@
 		</Button>
 	</div>
 
+	{#if pending !== undefined && (fileEdit.readStatus.known === 'missing' || fileEdit.readStatus.known === 'not-text') && (asText ? text !== undefined : transcript !== undefined)}
+		<div class="space-y-2 p-4" role="status">
+			<p>The saved file changed. Your draft remains available.</p>
+			<Textarea readonly aria-label="Unsaved file changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
+		</div>
+	{/if}
 	{#if (asText ? text === undefined : transcript === undefined) && pending !== undefined}
 		<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
 		<div class="space-y-2 p-4" role="status">

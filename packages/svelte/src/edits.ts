@@ -1,6 +1,6 @@
 /**
- * A Svelte view of one path-owned file edit. Text and document getters
- * observe the same unsaved input; commands go directly to its folder owner.
+ * A Svelte view of one path-owned file edit. Text and Markdown getters
+ * observe the same source draft; commands go directly to its folder owner.
  *
  * A tracked document read starts the first file read when nothing is known.
  * Pending and lock observers request no initial read. The folder keeps input,
@@ -37,7 +37,7 @@ export function createFileEdit<TDocumentSchema extends TSchema>(
 	});
 	return {
 		...commands,
-		/** Current source, including applicable unsaved input. */
+		/** Current source, including the unsaved draft. */
 		get text() {
 			trackRead();
 			return getText();

@@ -2,10 +2,10 @@
  * Markdown row framing: where a row file's frontmatter and body are
  * (ADR-0518, ADR-0519).
  *
- * Row text is the whole file: an opening `---` line, a YAML mapping with
- * string keys, a closing `---` line, and a body. Framing only locates those
- * parts; `parseRowSource` reads them, and Git merge splits text with the same
- * frame.
+ * Without an opening fence the whole source is body with empty fields. An
+ * opening `---` line starts YAML; its next exact `---` line establishes the
+ * body boundary. `parseRowSource` reads these parts, and Git merge uses the
+ * same frame.
  */
 const BOM = '﻿';
 

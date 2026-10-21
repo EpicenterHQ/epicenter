@@ -29,9 +29,8 @@ import { ownFields } from './shared/content/canonical.js';
 import { SaveError } from './shared/errors.js';
 
 /**
- * What a save left at its path: the exact content storage kept, merged
- * with what landed meanwhile, or `null` for no file. A save that changed
- * nothing answers what was already there.
+ * What a save left at its path: the exact content storage kept, or `null`
+ * for no file. A save that changed nothing answers what was already there.
  */
 export type Stored = { readonly stored: FileContent | null };
 
@@ -41,9 +40,10 @@ export type EngineFiles = Omit<FolderFileOperations, 'write'> & {
 		path: string,
 		from: FileContent | null,
 		content: FileContent,
-		/** Named assignments reapplied inside each guarded write attempt. */
+		/** Named assignments for callers using the public merging write. */
 		fields?: Record<string, unknown>,
-		frontmatter?: 'required' | 'optional',
+		checkBody?: boolean,
+		replaceExact?: boolean,
 	): Promise<Result<Stored, SaveError>>;
 };
 
@@ -341,32 +341,13 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	);
 	const edits = createEditOwner({
 		files,
-		async writeDocument(path, prepare) {
+		async replaceSource(path, from, text) {
 			const saved = await save(
 				path,
-				async () => {
-					const submission = await prepare();
-					if (submission.error !== null) return submission;
-					const { from, text, fields, frontmatter } = submission.data;
-					const written = await engine.files.write(
-						path,
-						from,
-						text,
-						fields,
-						frontmatter,
-					);
-					return written.error !== null
-						? written
-						: Ok({
-								...written.data,
-								prepared: { base: from, sent: text },
-							});
-				},
+				() => engine.files.write(path, from, text, undefined, undefined, true),
 				written,
 			);
-			return saved.error !== null
-				? { error: saved.error }
-				: { error: null, prepared: saved.data.prepared };
+			return saved.error !== null ? saved : Ok(undefined);
 		},
 		saveAfterMs,
 		onAggregate: publishStatus,
@@ -466,7 +447,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				{
 					...usable(table),
 					edit: (id: string) =>
-						edits.edit(`${name}/${id}.md`, tables[name], true),
+						edits.edit(`${name}/${id}.md`, tables[name]),
 				},
 			]),
 		),

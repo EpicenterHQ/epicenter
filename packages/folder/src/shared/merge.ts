@@ -103,12 +103,7 @@ export function mergeWith(
 		n === null
 	)
 		return { content: change, overridden: [{ kind: 'file' }] };
-	if (
-		path.endsWith('.md') &&
-		[b, c, n].some(
-			(text) => text !== null && frameRowText(text).kind === 'frontmatter',
-		)
-	) {
+	if (path.endsWith('.md')) {
 		const markdown = mergeMarkdown(diffArrays, b, c, n);
 		if (markdown !== undefined)
 			return preserveRepresentation(markdown, current, change);
@@ -163,6 +158,15 @@ function framed(text: string): Framed | undefined {
 		text,
 		keyOrder: data.keyOrder,
 	};
+}
+
+function joinMarkdown(head: string, body: string): string {
+	if (frameRowText(head).kind === 'frontmatter') return joinRowText(head, body);
+	const text = head + body;
+	if (frameRowText(text).kind === 'missing') return text;
+	const bom = head.startsWith('﻿') ? '﻿' : '';
+	const newline = body.includes('\r\n') ? '\r\n' : '\n';
+	return `${bom}---${newline}---${newline}${body}`;
 }
 
 /** Keep a side's presentation, including independent comment edits, when its values stand. */
@@ -274,9 +278,9 @@ function mergeMarkdown(
 		if (head.head === kept.head && body.content === kept.body)
 			return { content: kept.text, overridden: units };
 		return {
-			content: joinRowText(
+			content: joinMarkdown(
 				head.head,
-				head.head.includes('\r\n')
+				kept.text.includes('\r\n')
 					? body.content.replaceAll('\n', '\r\n')
 					: body.content,
 			),
@@ -296,7 +300,7 @@ function mergeMarkdown(
 			enumerable: true,
 		});
 	}
-	const bodyContent = c.head.includes('\r\n')
+	const bodyContent = c.text.includes('\r\n')
 		? body.content.replaceAll('\n', '\r\n')
 		: body.content;
 	const edited = rowChange(

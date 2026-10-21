@@ -136,13 +136,10 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	await local.refresh(['draft.txt']);
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
-	expect(notes.folder.files.edit('draft.txt').getPending()).toMatchObject({
-		kind: 'text',
-		text: 'Keep this unsaved text',
-	});
+	expect(notes.folder.files.edit('draft.txt').getPending()?.text).toBe('Keep this unsaved text');
 });
 
-test('failed row changes remain available in Files after another tab deletes the note, and retry restores them', async () => {
+test('failed row changes remain available after deletion until explicit replacement restores them', async () => {
 	const path = 'notes/a.md';
 	const { notes, folder, otherTab, failSaves, local, target, text } =
 		await open(path, noteText());
@@ -166,12 +163,12 @@ test('failed row changes remain available in Files after another tab deletes the
 		flushSync();
 		return folder.files.edit(path).getReadStatus().known === 'missing';
 	}, 'the missing note');
-	expect(
-		target.querySelector('[aria-label="Unsaved note changes"]')?.textContent,
-	).toContain('Keep my row changes');
+	expect(inputForRecovery(target)).toContain('Keep my row changes');
 	expect(target.textContent).toContain('Save again');
 	expect(target.textContent).toContain('Discard changes');
 	click(target, 'Save again');
+	await until(() => folder.files.edit(path).getPending()?.error?.name === 'Conflict', 'the deletion conflict');
+	click(target, 'Replace saved file');
 	await until(
 		() => folder.files.edit(path).getPending() === undefined,
 		'the explicit retry',
@@ -179,7 +176,7 @@ test('failed row changes remain available in Files after another tab deletes the
 	expect(await text(path)).toContain('Keep my row changes');
 });
 
-test('unapplied fields remain copyable beside broken source, and save after the header is repaired', async () => {
+test('a pinned field draft remains copyable beside broken stored source and can replace it', async () => {
 	const path = 'notes/a.md';
 	const { notes, folder, otherTab, failSaves, local, target, input, text } =
 		await open(path, noteText());
@@ -196,10 +193,7 @@ test('unapplied fields remain copyable beside broken source, and save after the 
 	expectOk(await other.files.write(path, before, broken));
 	await local.refresh([path]);
 	flushSync();
-	expect(input()?.value).toBe(broken);
-	expect(
-		target.querySelector('[aria-label="Unsaved note changes"]')?.textContent,
-	).toContain('Keep this title');
+	expect(input()?.value).toContain('Keep this title');
 	expect(target.querySelectorAll('[data-testid="write-status"]')).toHaveLength(
 		1,
 	);
@@ -208,17 +202,18 @@ test('unapplied fields remain copyable beside broken source, and save after the 
 			(button) => button.textContent?.trim() === 'Save again',
 		),
 	).toHaveLength(1);
-	expectOk(await other.files.write(path, broken, before));
-	await local.refresh([path]);
-	flushSync();
-	expect(input()?.value).toContain('Keep this title');
-	expect(
-		target.querySelector('[aria-label="Unsaved note changes"]'),
-	).toBeNull();
 	click(target, 'Save again');
+	await until(() => folder.files.edit(path).getPending()?.error?.name === 'Conflict', 'the broken header conflict');
+	expect(target.querySelector('[aria-label="Saved source"]')?.textContent).toBe(broken);
+	expect(inputForRecovery(target)).toContain('Keep this title');
+	click(target, 'Replace saved file');
 	await until(
 		() => folder.files.edit(path).getPending() === undefined,
-		'the repaired field save',
+		'the explicit source replacement',
 	);
 	expect(await text(path)).toContain('Keep this title');
 });
+
+function inputForRecovery(target: ParentNode) {
+	return target.querySelector('[aria-label="Unsaved source"]')?.textContent;
+}

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at the `.md` merge unit: a headerless Markdown side also has empty fields and a body, rather than falling back solely because its fence is absent.
-- **Unbuilt:** One Markdown interpretation across file and table reads, edits, listings, CLI validation and merges; removal of the required/optional frontmatter policy.
+- **Implementation:** File and table reads, edits, listings and Markdown merges use one framing rule. The required/optional policy is removed from the codec and edit input. The decision remains Proposed.
 
 ## Context
 

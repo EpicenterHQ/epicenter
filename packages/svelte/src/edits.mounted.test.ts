@@ -85,7 +85,7 @@ test('mounted row and text views follow each other and can revert held input', a
 	expect(field('Whole row text').value).toContain('one\ntwo\nTHREE\n');
 	expect(
 		target.querySelector('[aria-label="Shared pending"]')?.textContent,
-	).toBe('document');
+	).toBe(edit.getPending()?.text);
 	type(
 		field('Whole row text'),
 		field('Whole row text').value.replace('THREE', 'Three from text'),
@@ -95,7 +95,7 @@ test('mounted row and text views follow each other and can revert held input', a
 	expect(field('Row 1').value).toBe('one\ntwo\nThree from text\n');
 	expect(
 		target.querySelector('[aria-label="Shared pending"]')?.textContent,
-	).toBe('text');
+	).toBe(edit.getPending()?.text);
 	type(field('Row 1'), 'one\ntwo\nTHREE\n');
 	flushSync();
 	expect(field('Whole row text').value).toContain('one\ntwo\nTHREE\n');

@@ -373,7 +373,7 @@ test('changing the whole-file body replaces rich text without retaining stale Un
 	);
 });
 
-test('a title typed before another tab saved keeps their body and wins the title', async () => {
+test('a title typed before another tab saves stays pinned until explicit replacement', async () => {
 	const { target, otherTab, text, local, folder, settle } = await view({
 		saveAfterMs: 60_000,
 	});
@@ -388,11 +388,14 @@ test('a title typed before another tab saved keeps their body and wins the title
 		}),
 	);
 	await folder.tables.notes.edit('a').save();
+	expect(folder.tables.notes.edit('a').getPending()?.error?.name).toBe('Conflict');
+	expect((await text(PATH)) ?? '').toContain('Their body.\n');
+	click(target, 'Replace saved file');
 	await settle();
 	expect(local.getStatus().failures).toEqual([]);
 	const saved = (await text(PATH)) ?? '';
 	expect(saved).toContain('title: "Mine"');
-	expect(saved).toContain('Their body.\n');
+	expect(saved).toContain('Body.\n');
 	expect(titleOf(target).value).toBe('Mine');
 });
 

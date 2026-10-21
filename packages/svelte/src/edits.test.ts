@@ -270,14 +270,13 @@ test('a later malformed source cannot hide a failed save', async () => {
 		),
 	);
 	await until(() => cached().issues !== null);
-	expect(milk.getPending()).toMatchObject({
-		fields: { title: 'Oat milk' },
-		error: { name: 'StorageFailed' },
-	});
+	expect(milk.getPending()?.text).toContain('title: Oat milk');
+	expect(milk.getPending()?.error?.name).toBe('StorageFailed');
 	expect(context.getStatus().failures.map(({ path }) => path)).toEqual([
 		'notes/milk.md',
 	]);
-	expect(milk.discard()).toMatchObject({ fields: { title: 'Oat milk' } });
+	await milk.save();
+	expect(milk.discard()?.text).toContain('title: Oat milk');
 	expect(milk.getPending()).toBeUndefined();
 });
 
@@ -418,15 +417,11 @@ test('close answers the typing whose save failed, as copyable text', async () =>
 	milk.change({ body: 'Oat, two litres' });
 	const unsaved = await context.close();
 	expect(unsaved).toMatchObject([{ path: 'notes/milk.md' }]);
-	expect(JSON.parse(unsaved[0]!.unsaved)).toMatchObject({
-		body: 'Oat, two litres',
-	});
+	expect(unsaved[0]!.unsaved).toContain('Oat, two litres');
 	expect(unsaved[0]?.error?.name).toBe('StorageFailed');
 	// The folder still answers it after it closed.
-	expect(context.getStatus().failures).toMatchObject([
-		{ body: 'Oat, two litres' },
-	]);
-	expect(milk.getPending()).toMatchObject({ body: 'Oat, two litres' });
+	expect(context.getStatus().failures[0]?.text).toBe(unsaved[0]!.unsaved);
+	expect(milk.getPending()?.text).toBe(unsaved[0]!.unsaved);
 });
 
 test("another handle's committed change is read again, by the list and the view showing it", async () => {
@@ -727,13 +722,13 @@ test('a view that goes away lets go of its subscription while its input and time
 	flushSync();
 	await Promise.resolve();
 	expect(notesTable.live.milk).toBe(0);
-	expect(folder.tables.notes.edit('milk').getPending()).toMatchObject({
-		fields: { title: 'Oat milk' },
-	});
+	expect(folder.tables.notes.edit('milk').getPending()?.text).toContain('title: Oat milk');
 
-	await until(
-		() => folder.tables.notes.edit('milk').getPending() === undefined,
-	);
+	await until(() => {
+		const pending = folder.tables.notes.edit('milk').getPending();
+		return pending === undefined || pending.error !== undefined;
+	});
+	expect(folder.tables.notes.edit('milk').getPending()?.error).toBeUndefined();
 	expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.title).toBe(
 		'Oat milk',
 	);
@@ -769,7 +764,5 @@ test('a reused view follows its path, and the row it left keeps its input', asyn
 	expect(shown.values).toEqual(['Milk', 'Oat milk', 'Bread', 'Rye']);
 	expect(notesTable.live.milk).toBe(0);
 	expect(notesTable.live.bread).toBe(1);
-	expect(folder.tables.notes.edit('milk').getPending()).toMatchObject({
-		fields: { title: 'Oat milk' },
-	});
+	expect(folder.tables.notes.edit('milk').getPending()?.text).toContain('title: Oat milk');
 });

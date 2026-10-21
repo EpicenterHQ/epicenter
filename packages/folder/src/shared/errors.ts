@@ -3,6 +3,10 @@ import {
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
+import type { FileContent } from './merge.js';
+
+const ownContent = (content: FileContent | null): FileContent | null =>
+	content instanceof Uint8Array ? content.slice() : content;
 
 export const ReadError = defineErrors({
 	StorageFailed: ({ cause }: { cause: unknown }) => ({
@@ -46,6 +50,16 @@ export const SaveError = defineErrors({
 	Unparseable: ({ reason }: { reason: string }) => ({
 		message: `Row fields cannot be saved: ${reason}`,
 		reason,
+	}),
+	Conflict: ({ path, base, current }: {
+		path: string;
+		base: FileContent | null;
+		current: FileContent | null;
+	}) => ({
+		message: `The file changed while ${path} was edited`,
+		path,
+		base: ownContent(base),
+		current: ownContent(current),
 	}),
 	StorageFailed: ({ cause }: { cause: unknown }) => ({
 		message: `Repository save failed: ${extractErrorMessage(cause)}`,

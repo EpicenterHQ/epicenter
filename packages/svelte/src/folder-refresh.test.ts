@@ -81,14 +81,15 @@ test('visible polling discovers outside edits and preserves a pending row draft'
 	);
 	await until(() => cached().body?.includes('Outside edit') === true);
 	expect(edit.getPending()).toBeDefined();
-	// The poll's read reached the edit too: the outside body under the typing.
+	// The poll updates storage knowledge without replacing the dirty draft.
 	expect(edit.getMarkdown()?.fields?.title).toBe('Typed here');
-	expect(edit.getMarkdown()?.body).toContain('Outside edit');
+	expect(edit.getMarkdown()?.body).toBe('one\n\ntwo\n');
 	await edit.save();
-	expect(edit.getPending()).toBeUndefined();
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
 	expect(edit.getMarkdown()?.fields?.title).toBe('Typed here');
+	await edit.resolveConflict('draft');
 	await until(() => cached().fields?.title === 'Typed here');
-	expect(cached().body).toContain('Outside edit');
+	expect(cached().body).toBe('one\n\ntwo\n');
 });
 
 test('hidden pages do not poll and becoming visible refreshes without waiting for a tick', async () => {

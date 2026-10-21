@@ -142,6 +142,12 @@
 		</div>
 	{/if}
 
+	{#if pending !== undefined && (fileEdit.readStatus.known === 'missing' || fileEdit.readStatus.known === 'not-text') && (asText ? text !== undefined : row !== undefined)}
+		<div class="space-y-2 p-4" role="status">
+			<p>The saved file changed. Your draft remains available.</p>
+			<Textarea readonly aria-label="Unsaved recording changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
+		</div>
+	{/if}
 	{#if (asText ? text === undefined : row === undefined) && pending !== undefined}
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>

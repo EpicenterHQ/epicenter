@@ -1,16 +1,10 @@
 /**
  * A React snapshot of one path-owned file edit. The folder owns input,
  * reading and saving. Document reads request an initial read after commit;
- * pending-only observers do not. Commands merge body and source changes
- * against the committed render so another handler's changes survive.
+ * pending-only observers do not. Commands apply to the owner's current
+ * source draft in call order, including multiple handlers in one event.
  */
-import {
-	type ChangeResult,
-	type DocumentChange,
-	type FileEdit,
-	mergeFileText,
-	mergeText,
-} from '@epicenter/folder/edits';
+import type { FileEdit } from '@epicenter/folder/edits';
 import { useEffect, useSyncExternalStore } from 'react';
 import type { TSchema } from 'typebox';
 
@@ -64,24 +58,7 @@ export function useFileEdit<TDocumentSchema extends TSchema>(
 		},
 		getPending: () => pending,
 		isLocked: () => locked,
-		/** Merge a body typed over this render with changes from other handlers. */
-		change(change: DocumentChange<TDocumentSchema>): ChangeResult {
-			const now = edit.getMarkdown();
-			if (change.body === undefined || value?.body === undefined || now?.body === undefined)
-				return edit.change(change);
-			return edit.change({
-				...change,
-				body: mergeText(value.body, now.body, change.body),
-			});
-		},
-		/** Merge source typed over this render with changes from other handlers. */
-		replaceText(next: string): ChangeResult {
-			const now = edit.getText();
-			return edit.replaceText(
-				text === undefined || now === undefined
-					? next
-					: mergeFileText(edit.path, text, now, next),
-			);
-		},
+		change: edit.change,
+		replaceText: edit.replaceText,
 	};
 }

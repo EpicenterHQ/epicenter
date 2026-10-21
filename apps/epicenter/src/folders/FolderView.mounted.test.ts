@@ -431,22 +431,15 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await page.context.refresh(['a.md']);
 			await until(
 				() => page.box()?.value === '---\ntitle: Typed\n---\nbody\n',
-				'the safe effective text',
+				'the pinned draft text',
 			);
 			expect(page.box()!.readOnly).toBe(false);
 
 			await disk.put('a.md', '---\r\ntitle: A\r\n---\r\nbody\nnext\r\n');
 			await page.context.refresh(['a.md']);
-			await until(
-				() =>
-					page.target.querySelector('pre')?.textContent === textEdit.getText(),
-				'the exact unsafe effective text',
-			);
-			expect(page.box()).toBeNull();
-			expect(textEdit.getPending()).toMatchObject({
-				kind: 'document',
-				fields: { title: 'Typed' },
-			});
+			expect(page.box()?.value).toBe('---\ntitle: Typed\n---\nbody\n');
+			expect(page.box()?.readOnly).toBe(false);
+			expect(textEdit.getPending()?.text).toBe(textEdit.getText());
 		} finally {
 			await closeRefusing(page, disk);
 		}
@@ -488,10 +481,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await disk.put('a.md', 'alpha\nexternal\n');
 			await page.context.refresh(['a.md']);
 			type(page.box(), 'alpha\nmine\nlast\n');
-			expect(disk.folder.files.edit('a.md').getPending()).toMatchObject({
-				kind: 'text',
-				text: 'alpha\r\nmine\r\nlast\r\n',
-			});
+			expect(disk.folder.files.edit('a.md').getPending()?.text).toBe(
+				'alpha\r\nmine\r\nlast\r\n',
+			);
 		} finally {
 			await page.close();
 			let closed = false;
@@ -767,7 +759,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			);
 			await until(
 				() =>
-					disk.folder.files.edit('todos/a.md').getPending()?.kind === 'text',
+					disk.folder.files.edit('todos/a.md').getPending() !== undefined,
 				'source takeover',
 			);
 			expect(disk.folder.files.edit('todos/a.md').getText()).toContain(
@@ -955,19 +947,22 @@ describe.skipIf(!browser)('folder editor', async () => {
 			press(button('Files'));
 			await until(() => page.file('tasks/a.md') !== null, 'files');
 			press(page.file('tasks/a.md'));
-			// The held move shows at once, over the outside body once it is read.
+			// The held move stays pinned while the outside source is read.
 			await until(
 				() =>
 					page.box()?.value.includes('status: done') === true &&
-					page.box()?.value.includes('Outside body') === true,
+					page.box()?.value.includes('Body') === true,
 				'shared destination',
 			);
 			expect(page.box()?.readOnly).toBe(false);
 			press(button('Try again'));
 			await until(
-				() => disk.held.length === 1,
-				'the explicit retry from Files',
+				() => disk.folder.files.edit('tasks/a.md').getPending()?.error?.name === 'Conflict',
+				'the whole-file conflict',
 			);
+			type(page.box(), '---\nstatus: done\nextra: kept\n---\nOutside body\n');
+			press(button('Replace saved file'));
+			await until(() => disk.held.length === 1, 'the guarded resolution');
 			expect(disk.held[0]?.content).toContain('status: done');
 			expect(disk.held[0]?.content).toContain('extra: kept');
 			disk.held.shift()!.answer(Ok(undefined));
@@ -1174,7 +1169,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(page.box()?.readOnly).toBe(false);
 			type(page.box(), '---\ntitle: Repaired\n---\nbody\n');
 			await until(
-				() => fileEdit.getPending()?.kind === 'text',
+				() => fileEdit.getPending() !== undefined,
 				'the source repair',
 			);
 			expect(fileEdit.getMarkdown()?.fields).toEqual({ title: 'Repaired' });

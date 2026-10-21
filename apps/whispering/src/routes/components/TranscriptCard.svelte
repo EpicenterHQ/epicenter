@@ -43,8 +43,7 @@
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** The text now: as typed while an edit is unsaved, else as the file holds it. */
-	const pending = $derived(fileEdit.pending);
-	const text = $derived(row?.body ?? (pending?.kind === 'document' ? pending.body : undefined) ?? result.row.body);
+	const text = $derived(row?.body ?? result.row.body);
 	const progress = $derived(whispering.resultState(result.path, text));
 
 	const outputs = $derived(whispering.outputsFor(result.stem));

@@ -1,19 +1,17 @@
 /**
  * One owner per opened Folder, holding each path's source, input, save queue
  * and fence. File and table accessors expose the same FileEdit contract;
- * schemas and strict table framing interpret source without owning input.
+ * schemas interpret source without owning input.
  *
- * Text and structured input share one path. Structured input keeps each
- * typed unit's base; whole text keeps the source it started from. A save
- * reserves its path before preparation, and newer typing survives the
- * submitted input landing or failing. Failed input stays recoverable until
- * another save, accepted change or explicit discard.
+ * Text and structured commands change one source draft immediately. The
+ * draft retains its exact observed source across reads and outside writes.
+ * A save compares that source at the guarded storage attempt, and newer
+ * typing survives the submitted revision landing or failing.
  *
  * Ordered reads cannot replace knowledge of a later save. Public text reads
  * seed source without another read, while unheld binary reads retain no
  * bytes. Readers share immutable snapshots by path and interpretation;
  * document fields always describe the source getText() actually answers.
- * Fields that no longer apply stay only in pending input.
  *
  * Fenced actions save input before running. Close refuses new input at once,
  * waits for saves and actions, and attempts remaining input once; `save()`
@@ -28,17 +26,11 @@ import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderFileOperations } from './folder.js';
 import { callObserver } from './observer.js';
 import { readablePath } from './paths.js';
-import { ownFields } from './shared/content/canonical.js';
+import { ownFields, sameValue as sharedValue } from './shared/content/canonical.js';
 import { mergeLinesWith } from './shared/content/merge-lines.js';
-import { readDocument } from './shared/document.js';
 import { ReadError, SaveError } from './shared/errors.js';
 import { changeMarkdown, readMarkdown } from './shared/markdown-codec.js';
-import {
-	type FileContent,
-	merge,
-	mergeWith,
-	sameContent,
-} from './shared/merge.js';
+import { type FileContent, mergeWith, sameContent } from './shared/merge.js';
 import type { MarkdownValue, Row } from './shared/row.js';
 
 /** How long after its last change input saves, unless the folder was opened with another pause. */
@@ -103,26 +95,13 @@ export type DocumentChange<TRowSchema extends TSchema = typeof anyFields> = {
 export type MarkdownContent<TRowSchema extends TSchema = typeof anyFields> =
 	Readonly<MarkdownValue<TRowSchema>>;
 
-/** Structured input held over one path, whether it is currently applicable or not. */
-export type DocumentPending = {
-	readonly kind: 'document';
-	readonly path: string;
-	readonly fields: Readonly<Record<string, unknown>>;
-	readonly body: string | undefined;
-	readonly saving: boolean;
-	readonly error: SaveError | undefined;
-};
-
-/** Whole source held over one path. */
-export type TextPending = {
-	readonly kind: 'text';
+/** Exact unsaved source, independent of the schema used to view it. */
+export type Pending = {
 	readonly path: string;
 	readonly text: string;
 	readonly saving: boolean;
 	readonly error: SaveError | undefined;
 };
-
-export type Pending = DocumentPending | TextPending;
 
 /**
  * What an edit knows of its file, and how reading it goes. `known` is
@@ -157,35 +136,26 @@ export type FileEdit<TRowSchema extends TSchema = typeof anyFields> = {
 	subscribe(listener: () => void): () => void;
 	/** Accept fields and body together, over the currently known source. */
 	change(change: DocumentChange<TRowSchema>): ChangeResult;
-	/** Replace the editable source, preserving its merge witness and any applicable patch. */
+	/** Replace the editable source, over the currently displayed draft. */
 	replaceText(text: string): ChangeResult;
 	/** Attempt held input, including an earlier failure, or join its running attempt. */
 	save(): Promise<void>;
+	/** Resolve the last whole-file conflict against the exact source it reported. */
+	resolveConflict(choice: 'current' | 'draft' | { text: string }): Promise<void>;
 	/** Release held input, returning it for recovery. Refused while a save or action runs. */
 	discard(): Pending | undefined;
 	delete(): Promise<DeleteResult>;
 };
 
-/**
- * The line merge for a body control (ADR-0622): what `change` did to
- * `base`, merged into `current`. Whole source uses mergeFileText;
- * where both changed one region, `change` wins.
- */
+/** Explicit line merge for callers composing edits from an older render. */
 export function mergeText(base: string, current: string, change: string) {
 	if (base === current) return change;
 	return mergeLinesWith(diffArrays, { base, current, change }).content;
 }
 
-/** Merge whole source with the same Markdown field and text rules storage uses. */
-export function mergeFileText(
-	path: string,
-	base: string,
-	current: string,
-	change: string,
-): string {
-	// Non-null string versions always produce non-null string content.
-	return mergeWith(diffArrays, path, { base, current, change })
-		.content as string;
+/** Explicit file merge for callers that choose content merging themselves. */
+export function mergeFileText(path: string, base: string, current: string, change: string): string {
+	return mergeWith(diffArrays, path, { base, current, change }).content as string;
 }
 
 /**
@@ -205,39 +175,14 @@ export function saveDelay(saveAfterMs: number = SAVE_AFTER_MS): number {
 	return saveAfterMs;
 }
 
-/** A row's source text, owned by the input rather than borrowed from a read. */
-type Source = Pick<Row, 'text' | 'issues'>;
-
-type DocumentInput = {
-	readonly kind: 'document';
-	readonly frontmatter: 'required' | 'optional';
-	readonly pending: DocumentPending;
-	/** The latest document typed over, preferring one whose frontmatter parses. */
-	readonly source: Source;
-	/** The base of each typed unit: as the document held it when first typed, or as last sent. */
-	readonly bases: {
-		readonly fields: Record<string, unknown>;
-		readonly body: string | undefined;
-	};
-	/** Changes with each change, so a landed save knows whether typing followed it. */
+type Input = {
+	readonly pending: Pending;
+	/** The exact source first edited, or the last submitted source that landed. */
+	readonly from: FileContent | null;
+	/** Private guard for an explicit resolution; callers can inspect or copy error bytes. */
+	readonly conflictCurrent?: FileContent | null;
 	readonly revision: number;
 };
-
-type TextInput = {
-	readonly kind: 'text';
-	readonly pending: TextPending;
-	/** The content the typing started from, or the text the last landed save sent. */
-	readonly from: FileContent;
-	/** Structured assignments made after source input still apply at storage. */
-	readonly fields?: Record<string, unknown>;
-	readonly frontmatter?: 'required' | 'optional';
-	readonly revision: number;
-};
-
-type Input = DocumentInput | TextInput;
-
-/** A structured save's merge base and submitted text, for input typed during saving. */
-type Prepared = { readonly base: FileContent; readonly sent: string };
 
 /** The exact stored content, `null` for no file, `undefined` while unknown. */
 type Known = FileContent | null | undefined;
@@ -296,7 +241,6 @@ type PathState = {
 	/** What the source and document getters answered, while their inputs hold. */
 	text: Kept<string | undefined> | undefined;
 	documents: WeakMap<TSchema, MarkdownContent>;
-	rows: WeakMap<TSchema, MarkdownContent>;
 	status: ReadStatus;
 };
 
@@ -309,10 +253,7 @@ export type EditAggregate = {
 
 const rowPath = (table: string, id: string) => `${table}/${id}.md`;
 
-const encoder = new TextEncoder();
 const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-const bytesOf = (content: FileContent) =>
-	typeof content === 'string' ? encoder.encode(content) : content;
 /** A copy the caller cannot change afterwards. */
 const owned = (content: FileContent) =>
 	typeof content === 'string' ? content : content.slice();
@@ -336,82 +277,15 @@ const NOTHING: ReadStatus = Object.freeze({
 	error: undefined,
 });
 
-/** Set `key` as an own property, so a key such as `__proto__` stays data. */
-function withValue(
-	record: Record<string, unknown>,
-	key: string,
-	value: unknown,
-): Record<string, unknown> {
-	return Object.defineProperty({ ...record }, key, {
-		value,
-		enumerable: true,
-		writable: true,
-		configurable: true,
-	});
-}
-
-const fieldValue = (fields: Record<string, unknown>, key: string) =>
-	Object.hasOwn(fields, key) ? fields[key] : undefined;
-
-/** Whether the source's frontmatter parses, so fields can be put into it. */
-const parses = ({ issues }: Source) =>
-	issues === null || issues.every((issue) => issue.kind === 'schema');
-
 /** Whether a row's source is not text, as a row list reads one without its bytes. */
 const notText = ({ issues }: Pick<Row, 'issues'>) =>
 	issues?.some((issue) => issue.kind === 'not-text') ?? false;
-
-/** The fields and body typed, as a change of the row's source. */
-const changeOf = ({ fields, body }: DocumentPending) => ({
-	fields:
-		Object.keys(fields).length === 0
-			? undefined
-			: (fields as Record<string, unknown>),
-	body,
-});
-
-/** The row a row input's save starts from: its source with every base put in. */
-function baseOf(input: DocumentInput): Source {
-	const { source, bases } = input;
-	const fields =
-		Object.keys(bases.fields).length === 0 ? undefined : bases.fields;
-	if (fields === undefined && bases.body === undefined) return source;
-	const based = changeMarkdown(
-		source,
-		{ fields, body: bases.body },
-		input.frontmatter,
-	);
-	if (based.error === null)
-		return { text: based.data.text, issues: source.issues };
-	// No source whose fields could take the bases was typed over. The engine
-	// refuses fields over it and says why; the input stays held.
-	return source;
-}
-
-/** `change` put into the file `content`, as text. */
-function changed(
-	path: string,
-	content: FileContent,
-	change: { fields?: Record<string, unknown>; body?: string },
-	frontmatter: 'required' | 'optional' = 'optional',
-) {
-	return changeMarkdown(
-		readDocument(path, bytesOf(content)),
-		change,
-		frontmatter,
-	);
-}
 
 function withState(
 	input: Input,
 	state: { saving: boolean; error: SaveError | undefined },
 ): Input {
-	switch (input.kind) {
-		case 'document':
-			return { ...input, pending: { ...input.pending, ...state } };
-		case 'text':
-			return { ...input, pending: { ...input.pending, ...state } };
-	}
+	return { ...input, pending: { ...input.pending, ...state } };
 }
 
 const sameList = <T>(left: readonly T[], right: readonly T[]) =>
@@ -427,7 +301,7 @@ const sameList = <T>(left: readonly T[], right: readonly T[]) =>
  */
 export function createEditOwner({
 	files,
-	writeDocument,
+	replaceSource,
 	saveAfterMs,
 	onAggregate,
 	track,
@@ -435,20 +309,11 @@ export function createEditOwner({
 	waitForPaths,
 }: {
 	readonly files: FolderFileOperations;
-	readonly writeDocument: (
+	readonly replaceSource: (
 		path: string,
-		prepare: () => Promise<
-			Result<
-				{
-					from: FileContent;
-					text: string;
-					fields?: Record<string, unknown>;
-					frontmatter: 'required' | 'optional';
-				},
-				SaveError
-			>
-		>,
-	) => Promise<{ error: SaveError | null; prepared?: Prepared }>;
+		from: FileContent | null,
+		text: string,
+	) => Promise<Result<void, SaveError>>;
 	readonly saveAfterMs?: number;
 	/** Called after anything `aggregate` reports may have changed. */
 	readonly onAggregate: () => void;
@@ -495,7 +360,6 @@ export function createEditOwner({
 				decoded: undefined,
 				text: undefined,
 				documents: new WeakMap(),
-				rows: new WeakMap(),
 				status: NOTHING,
 			};
 			states.set(path, state);
@@ -776,156 +640,12 @@ export function createEditOwner({
 		return started.promise;
 	}
 
-	async function send(
-		path: string,
-		input: Input,
-	): Promise<{ error: SaveError | null; prepared?: Prepared }> {
+	async function send(path: string, input: Input): Promise<Result<void, SaveError>> {
 		try {
-			switch (input.kind) {
-				case 'text': {
-					const frontmatter = input.frontmatter;
-					if (frontmatter === undefined)
-						return await files.write(path, input.from, input.pending.text);
-					return await writeDocument(path, async () =>
-						Ok({
-							from: input.from,
-							text: input.pending.text,
-							fields: input.fields,
-							frontmatter,
-						}),
-					);
-				}
-				case 'document':
-					return await writeDocument(path, async () => {
-						const found = await files.read(path);
-						if (found.error !== null)
-							return SaveError.StorageFailed({ cause: found.error });
-						const latest =
-							found.data === undefined
-								? undefined
-								: readDocument(
-										path,
-										new Uint8Array(await found.data.content.arrayBuffer()),
-									);
-						if (
-							latest !== undefined &&
-							Object.keys(input.pending.fields).length > 0 &&
-							!parses(latest)
-						)
-							return SaveError.Unparseable({
-								reason:
-									latest.issues?.[0]?.message ?? 'The fields cannot be applied',
-							});
-						const base = baseOf(
-							latest !== undefined && parses(latest)
-								? { ...input, source: latest }
-								: input,
-						);
-						const sent = changeMarkdown(
-							base,
-							changeOf(input.pending),
-							input.frontmatter,
-						);
-						if (sent.error !== null)
-							return SaveError.Unparseable({ reason: sent.error.reason });
-						return Ok({
-							from: base.text,
-							text: sent.data.text,
-							fields: changeOf(input.pending).fields,
-							frontmatter: input.frontmatter,
-						});
-					});
-			}
+			return await replaceSource(path, input.from, input.pending.text);
 		} catch (cause) {
-			return { error: SaveError.StorageFailed({ cause }).error };
+			return SaveError.StorageFailed({ cause });
 		}
-	}
-
-	/** Keep what remains of the input once the save of `before` landed. */
-	async function landed(
-		path: string,
-		state: PathState,
-		before: Input,
-		prepared: Prepared | undefined,
-	) {
-		const after = state.input;
-		if (after === undefined) return;
-		const cleared = { saving: false, error: undefined };
-		if (after.kind === 'document' && before.kind === 'document') {
-			// Typing during the save was over the input as sent, so a unit the
-			// save sent now starts from what it sent, and one that still holds
-			// exactly that is done. A unit first typed while the save ran keeps
-			// the base it was typed over.
-			const sent: Record<string, unknown> = before.pending.fields;
-			let fields: Record<string, unknown> = {};
-			let bases: Record<string, unknown> = {};
-			for (const [key, value] of Object.entries(after.pending.fields)) {
-				const wasSent = Object.hasOwn(sent, key);
-				if (wasSent && Object.is(sent[key], value)) continue;
-				fields = withValue(fields, key, value);
-				bases = withValue(
-					bases,
-					key,
-					wasSent ? sent[key] : fieldValue(after.bases.fields, key),
-				);
-			}
-			const sentBody = before.pending.body;
-			const body =
-				after.pending.body === sentBody ? undefined : after.pending.body;
-			if (Object.keys(fields).length === 0 && body === undefined) {
-				setInput(path, state, undefined);
-				return;
-			}
-			setInput(path, state, {
-				...after,
-				bases: {
-					fields: bases,
-					body: body === undefined ? undefined : (sentBody ?? after.bases.body),
-				},
-				pending: { ...after.pending, fields, body, ...cleared },
-			});
-			return;
-		}
-		if (after.kind === 'text' && before.kind === 'text') {
-			setInput(
-				path,
-				state,
-				after.pending.text === before.pending.text &&
-					after.fields === before.fields &&
-					after.frontmatter === before.frontmatter
-					? undefined
-					: {
-							...after,
-							from: before.pending.text,
-							pending: { ...after.pending, ...cleared },
-						},
-			);
-			return;
-		}
-
-		setInput(path, state, withState(after, cleared));
-		if (
-			after.kind !== 'text' ||
-			before.kind !== 'document' ||
-			prepared === undefined
-		)
-			return;
-		// Text typed over a structured patch while it saved keeps the content the
-		// person saw, which may lack a change the save merged from storage.
-		// Rebase that content by what the patch sent, so the landed fields are
-		// in it and a later revert of them in the text is a change.
-		const rebased = await merge(path, {
-			base: prepared.base,
-			current: after.from,
-			change: prepared.sent,
-		});
-		const now = state.input;
-		if (
-			now?.kind === 'text' &&
-			now.from === after.from &&
-			rebased.content !== null
-		)
-			setInput(path, state, { ...now, from: rebased.content });
 	}
 
 	async function drain(path: string, state: PathState) {
@@ -940,7 +660,7 @@ export function createEditOwner({
 					state,
 					withState(input, { saving: true, error: undefined }),
 				);
-				const { error, prepared } = await send(path, input);
+				const { error } = await send(path, input);
 				const settled = state.input;
 				if (settled === undefined) return;
 				if (error !== null) {
@@ -950,10 +670,15 @@ export function createEditOwner({
 					setInput(
 						path,
 						state,
-						withState(settled, {
-							saving: false,
-							error: same ? error : undefined,
-						}),
+						{
+							...withState(settled, {
+								saving: false,
+								error: same || error.name === 'Conflict' ? error : undefined,
+							}),
+							conflictCurrent: error.name === 'Conflict'
+								? error.current === null ? null : owned(error.current)
+								: settled.conflictCurrent,
+						},
 					);
 					// A listener may have typed and requested another save during
 					// publication. The same failed revision stops this attempt.
@@ -961,9 +686,14 @@ export function createEditOwner({
 					continue;
 				}
 				// The document already holds what storage kept (`stored`).
-				if (settled.revision === input.revision)
+				if (settled.revision === input.revision || settled.pending.text === input.pending.text)
 					setInput(path, state, undefined);
-				else await landed(path, state, input, prepared);
+				else
+					setInput(path, state, {
+						...settled,
+						from: input.pending.text,
+						pending: { ...settled.pending, saving: false, error: undefined },
+					});
 				// Close drains eligible input accepted before its fence, including
 				// input a listener added as this attempt finished.
 			} while (state.again || phase !== 'open');
@@ -1129,7 +859,6 @@ export function createEditOwner({
 					now.decoded = undefined;
 					now.text = undefined;
 					now.documents = new WeakMap();
-					now.rows = new WeakMap();
 				}
 				prune(path);
 			});
@@ -1163,110 +892,66 @@ export function createEditOwner({
 		return state?.action?.reason;
 	}
 
-	/** Current source, with applicable held input. Unapplied fields stay only in pending. */
-	function shownText(path: string, state: PathState): string | undefined {
-		const input = state.input;
-		if (input?.kind === 'text') return input.pending.text;
+	/** The dirty source stays pinned while reads update known storage. */
+	function shownText(state: PathState): string | undefined {
+		if (state.input !== undefined) return state.input.pending.text;
 		const doc = state.doc;
-		if (doc === undefined || doc === null) return undefined;
-		const stored = decodedOf(state, doc);
-		if (stored === undefined || input === undefined) return stored;
-		const put = changed(
-			path,
-			stored,
-			changeOf(input.pending),
-			input.frontmatter,
-		);
-		if (put.error === null) return put.data.text;
-		if (input.pending.body !== undefined) {
-			const body = changed(
-				path,
-				stored,
-				{ body: input.pending.body },
-				input.frontmatter,
-			);
-			if (body.error === null) return body.data.text;
-		}
-		return stored;
+		return doc === undefined || doc === null ? undefined : decodedOf(state, doc);
 	}
 
 	function edit<TRowSchema extends TSchema = typeof anyFields>(
 		path: string,
 		schema?: TRowSchema,
-		strictRow = false,
 	): FileEdit<TRowSchema> {
 		const readSchema = schema ?? anyFields;
 		const getText = (): string | undefined => {
 			const state = states.get(path);
 			if (state === undefined) return undefined;
-			state.text = kept(state.text, state, () => shownText(path, state));
+			state.text = kept(state.text, state, () => shownText(state));
 			return state.text.value;
 		};
 		const getMarkdown = (): MarkdownContent<TRowSchema> | undefined => {
 			const state = states.get(path);
 			const text = getText();
 			if (state === undefined || text === undefined) return undefined;
-			const cache = strictRow ? state.rows : state.documents;
-			const previous = cache.get(readSchema);
+			const previous = state.documents.get(readSchema);
 			if (previous?.text === text)
 				return previous as MarkdownContent<TRowSchema>;
-			const value = readMarkdown(
-				text,
-				readSchema,
-				strictRow ? 'required' : 'optional',
-			);
-			cache.set(readSchema, value);
+			const value = readMarkdown(text, readSchema);
+			state.documents.set(readSchema, value);
 			return value as MarkdownContent<TRowSchema>;
 		};
-		function storedText(
-			state: PathState | undefined,
-		): Result<string, ChangeError> {
-			const doc = state?.doc;
-			if (state === undefined || doc === undefined || doc === null)
-				return ChangeError.NoSource();
-			const stored = decodedOf(state, doc);
-			return stored === undefined ? ChangeError.NotText() : Ok(stored);
-		}
-		const submitText = (
-			typed: string,
-			structured?: Pick<TextInput, 'fields' | 'frontmatter'>,
-		): ChangeResult => {
+		const submitText = (typed: string): ChangeResult => {
 			const state = states.get(path);
 			const reason = lockReason(state);
 			if (reason !== undefined) return ChangeError.Locked({ reason });
-			const input = state?.input;
-			let from: FileContent;
-			if (input?.kind === 'text') from = input.from;
-			else {
-				const stored = storedText(state);
-				if (stored.error !== null) return stored;
-				if (input !== undefined) {
-					const preview = changed(
-						path,
-						stored.data,
-						changeOf(input.pending),
-						input.frontmatter,
-					);
-					if (preview.error !== null)
-						return ChangeError.InvalidFields({ reason: preview.error.reason });
-					from = baseOf({
-						...input,
-						source: readDocument(path, bytesOf(stored.data)),
-					}).text;
-				} else from = owned(state?.doc as FileContent);
+			const current = getText();
+			if (current === undefined) {
+				const doc = state?.doc;
+				return doc !== undefined && doc !== null
+					? ChangeError.NotText()
+					: ChangeError.NoSource();
 			}
+			if (typed === current) return Ok(undefined);
+			const input = state?.input;
+			const from = input === undefined ? owned(state!.doc as FileContent) : input.from;
 			const target = stateOf(path);
+			if (from !== null && textOf(from) === typed && target.running === undefined) {
+				clearTimer(target);
+				setInput(path, target, undefined);
+				return Ok(undefined);
+			}
 			setInput(path, target, {
-				kind: 'text',
 				pending: {
-					kind: 'text',
 					path,
 					text: typed,
 					saving: input?.pending.saving ?? false,
-					error: undefined,
+					error: input?.pending.error?.name === 'Conflict'
+						? input.pending.error
+						: undefined,
 				},
 				from,
-				...structured,
+				conflictCurrent: input?.conflictCurrent,
 				revision: ++revisions,
 			});
 			schedule(path, target);
@@ -1284,102 +969,73 @@ export function createEditOwner({
 			isLocked: () => isLocked(states.get(path)),
 			read: () => read(path),
 			subscribe: (listener) => subscribeTo(path, listener),
-			replaceText: (typed) => submitText(typed),
+			replaceText: submitText,
 			change(change) {
 				const state = states.get(path);
 				const reason = lockReason(state);
 				if (reason !== undefined) return ChangeError.Locked({ reason });
-				const input = state?.input;
 				const ownedFields = ownFields(change.fields ?? {});
 				if (ownedFields.error !== null)
-					return ChangeError.InvalidFields({
-						reason: ownedFields.error.reason,
-					});
-				const typed = ownedFields.data;
-				const keys = Object.keys(typed);
-				if (keys.length === 0 && change.body === undefined)
+					return ChangeError.InvalidFields({ reason: ownedFields.error.reason });
+				const source = getText();
+				if (source === undefined) {
+					const doc = state?.doc;
+					return doc !== undefined && doc !== null
+						? ChangeError.NotText()
+						: ChangeError.NoSource();
+				}
+				const parsed = readMarkdown(source, anyFields);
+				const fields: Record<string, unknown> = {};
+				for (const [key, value] of Object.entries(ownedFields.data)) {
+					if (parsed.fields !== undefined &&
+						sharedValue(parsed.fields[key], value)) continue;
+					Object.defineProperty(fields, key, { value, enumerable: true });
+				}
+				const body = change.body === parsed.body ? undefined : change.body;
+				if (Object.keys(fields).length === 0 && body === undefined)
 					return Ok(undefined);
-				if (input?.kind === 'text') {
-					let fields = input.fields ?? {};
-					for (const key of keys) fields = withValue(fields, key, typed[key]);
-					const frontmatter =
-						input.frontmatter === 'required' || strictRow
-							? 'required'
-							: 'optional';
-					const put = changed(
-						path,
-						input.pending.text,
-						{
-							fields: keys.length === 0 ? undefined : typed,
-							body: change.body,
-						},
-						frontmatter,
-					);
-					if (put.error !== null)
-						return ChangeError.InvalidFields({ reason: put.error.reason });
-					return submitText(put.data.text, {
-						fields: Object.keys(fields).length === 0 ? undefined : fields,
-						frontmatter,
-					});
-				}
-				const stored = storedText(state);
-				if (stored.error !== null) return stored;
-				const source = readDocument(path, bytesOf(stored.data));
-				let fields: Record<string, unknown> = input?.pending.fields ?? {};
-				let baseFields = input?.bases.fields ?? {};
-				for (const key of keys) {
-					if (!Object.hasOwn(fields, key))
-						baseFields = withValue(
-							baseFields,
-							key,
-							fieldValue(source.fields ?? {}, key),
-						);
-					fields = withValue(fields, key, typed[key]);
-				}
-				let body = input?.pending.body;
-				let baseBody = input?.bases.body;
-				if (change.body !== undefined) {
-					if (body === undefined) baseBody = source.body;
-					body = change.body;
-				}
-				const pending: DocumentPending = {
-					kind: 'document',
-					path,
-					fields,
+				const put = changeMarkdown(parsed, {
+					fields: Object.keys(fields).length === 0 ? undefined : fields,
 					body,
-					saving: input?.pending.saving ?? false,
-					error: undefined,
-				};
-				const frontmatter = strictRow ? 'required' : 'optional';
-				if (parses(source)) {
-					const put = changeMarkdown(source, changeOf(pending), frontmatter);
-					if (put.error !== null)
-						return ChangeError.InvalidFields({ reason: put.error.reason });
-				} else if (change.body !== undefined) {
-					const put = changeMarkdown(
-						source,
-						{ body: change.body },
-						frontmatter,
-					);
-					if (put.error !== null)
-						return ChangeError.InvalidFields({ reason: put.error.reason });
-				}
-				const next = stateOf(path);
-				setInput(path, next, {
-					kind: 'document',
-					frontmatter,
-					pending,
-					source:
-						input === undefined || parses(source) || !parses(input.source)
-							? { text: source.text, issues: source.issues }
-							: input.source,
-					bases: { fields: baseFields, body: baseBody },
-					revision: ++revisions,
 				});
-				schedule(path, next);
-				return Ok(undefined);
+				if (put.error !== null)
+					return ChangeError.InvalidFields({ reason: put.error.reason });
+				return submitText(put.data.text);
 			},
 			save: () => (phase === 'closed' ? Promise.resolve() : flush(path)),
+			async resolveConflict(choice) {
+				const state = states.get(path);
+				const input = state?.input;
+				const error = input?.pending.error;
+				if (state === undefined || input === undefined || error?.name !== 'Conflict' || state.running !== undefined || phase !== 'open')
+					return;
+				if (choice === 'current') {
+					const refreshed = await read(path);
+					if (refreshed.error !== null || state.input !== input || state.doc === undefined)
+						return;
+					const current = input.conflictCurrent === undefined ? error.current : input.conflictCurrent;
+					if (sameContent(state.doc, current)) {
+						setInput(path, state, undefined);
+						return;
+					}
+					setInput(path, state, {
+						...input,
+						conflictCurrent: state.doc === null ? null : owned(state.doc),
+						pending: {
+							...input.pending,
+							error: SaveError.Conflict({ path, base: input.from, current: state.doc }).error,
+						},
+					});
+					return;
+				}
+				const text = choice === 'draft' ? input.pending.text : choice.text;
+				setInput(path, state, {
+					from: input.conflictCurrent === undefined ? error.current : input.conflictCurrent,
+					pending: { path, text, saving: false, error: undefined },
+					revision: ++revisions,
+				});
+				await flush(path);
+			},
 			discard: () => discard(path),
 			delete: () => remove(path),
 		};

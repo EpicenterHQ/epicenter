@@ -483,7 +483,7 @@ export function createWhispering(context: WhisperingContext) {
 	const stopTelling = folder.onStatusChange(({ failures }) => {
 		const failed = new Set<Pending>();
 		for (const pending of failures) {
-			if (pending.kind !== 'text' || pending.error === undefined) continue;
+			if (pending.error === undefined) continue;
 			failed.add(pending);
 			if (told.has(pending)) continue;
 			const { path } = pending;
@@ -498,7 +498,7 @@ export function createWhispering(context: WhisperingContext) {
 				},
 				discard: () => {
 					const discarded = folder.files.edit(path).discard();
-					return discarded?.kind === 'text' ? discarded.text : undefined;
+					return discarded?.text;
 				},
 			});
 		}
@@ -1056,12 +1056,6 @@ export function createWhispering(context: WhisperingContext) {
 		discard(path: string): string | undefined {
 			const discarded = folder.files.edit(path).discard();
 			if (discarded === undefined) return undefined;
-			// A body alone stays plain text for copying back into its control.
-			if (
-				discarded.kind === 'document' &&
-				Object.keys(discarded.fields).length === 0
-			)
-				return discarded.body;
 			return unsavedText(discarded);
 		},
 		/** Whether a save runs, or typing waits to be sent; read reactively. */

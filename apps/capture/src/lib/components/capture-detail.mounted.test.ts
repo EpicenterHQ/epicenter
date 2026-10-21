@@ -32,6 +32,7 @@
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { expectOk } from 'wellcrafted/testing';
 import {
 	blur,
 	button,
@@ -151,8 +152,8 @@ test('two mounted capture views update each other and an intentional revert is s
 	}
 });
 
-test("another tab's change never replaces typing held here, and the save merges with it", async () => {
-	// Hold typing until the foreign change has arrived, then save the merge.
+test("another tab's change leaves typing pinned until a whole-source resolution", async () => {
+	// Hold typing until the foreign change has arrived, then resolve explicitly.
 	const harness = await setup({ [PATH]: FILE }, 'capture', {
 		saveAfterMs: 60_000,
 	});
@@ -167,7 +168,12 @@ test("another tab's change never replaces typing held here, and the save merges 
 	expect(field('capture-text')?.value).toBe('Mine');
 	expect(harness.target.textContent).not.toContain('theirs');
 
-	await harness.folder.files.edit(PATH).save();
+	const edit = harness.folder.files.edit(PATH);
+	await edit.save();
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(await harness.text(PATH)).toBe(`${FILE}- theirs\n`);
+	expectOk(edit.replaceText(saved('Mine', '- first\n- theirs\n')));
+	await edit.resolveConflict('draft');
 	await settle(harness);
 	expect(field('capture-text')?.value).toBe('Mine');
 	expect(harness.target.textContent).toContain('theirs');
@@ -222,7 +228,7 @@ test('failed row input stays copyable in the text view after switching and forei
 	try {
 		click(harness.target, 'Copy your text');
 		await until(() => copied !== undefined, 'the copied row input');
-		expect(JSON.parse(copied!).body).toContain('Kept row input');
+		expect(copied ?? '').toContain('Kept row input');
 		await harness.deleteElsewhere('one');
 		await until(
 			() => harness.folder.files.edit(PATH).getReadStatus().known === 'missing',
@@ -232,7 +238,7 @@ test('failed row input stays copyable in the text view after switching and forei
 		copied = undefined;
 		click(harness.target, 'Copy your text');
 		await until(() => copied !== undefined, 'the copied input after deletion');
-		expect(JSON.parse(copied!).body).toContain('Kept row input');
+		expect(copied ?? '').toContain('Kept row input');
 	} finally {
 		if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard);
 		else Reflect.deleteProperty(navigator, 'clipboard');

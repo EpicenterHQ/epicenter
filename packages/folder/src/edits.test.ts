@@ -62,7 +62,7 @@ for (const input of ['a\0b', `a\uD800b`]) {
 		expect(edit.getMarkdown()?.text).toBe(input);
 		expect(edit.getMarkdown()?.body).toBeUndefined();
 		await edit.save();
-		expect(edit.getPending()).toMatchObject({ kind: 'text', text: input });
+		expect(edit.getPending()).toMatchObject({ text: input });
 	});
 }
 
@@ -374,29 +374,6 @@ test('a file read of a path an edit holds keeps its document current', async () 
 	engine.files.read = read;
 });
 
-test('a landed save shows what storage kept, merged with an outside change, without a reread', async () => {
-	const { engine, edit, load, elsewhere, stored } = await setup('one\ntwo\n');
-	await load();
-	expectOk(edit.change({ fields: { title: 'Oat milk' } }));
-	const sets = intercept(engine.files, 'write');
-	const started = sets.next();
-	sets.hold();
-	const saving = edit.save();
-	await started;
-	// The reread an outside change asks for never answers.
-	const reads = intercept(engine.files, 'read');
-	reads.hold();
-	await elsewhere({ body: 'one\nTWO\n' });
-	sets.release();
-	await saving;
-
-	expect(edit.getPending()).toBeUndefined();
-	const merged = '---\ndone: false\ntitle: Oat milk\n---\none\nTWO\n';
-	expect(await stored(MILK)).toBe(merged);
-	expect(edit.getMarkdown()?.text).toBe(merged);
-	expect(edit.getMarkdown()?.body).toBe('one\nTWO\n');
-});
-
 test('a read that started before an own save landed changes nothing; the caller still gets what it read', async () => {
 	const { folder, engine, edit, load } = await setup();
 	await load();
@@ -485,7 +462,7 @@ test('a failed read keeps what the edit shows, held input included, and says why
 		fields: { title: 'Milk' },
 		body: 'Typed\n',
 	});
-	expect(edit.getPending()).toMatchObject({ body: 'Typed\n' });
+	expect(edit.getPending()?.text).toBe(edit.getText());
 });
 
 test("another handle's change is read again for a subscribed path; another path keeps what it read until someone subscribes", async () => {
@@ -739,20 +716,18 @@ test('a row shows held input in its source, read again: fields, body, text and i
 		).name,
 	).toBe('InvalidFields');
 
-	// Over a header another writer broke, the held input shows as not fitting.
+	// The outside header is known, while the local draft remains pinned.
 	cleanup.push(edit.subscribe(() => {}));
 	const broken = '---\ntitle: [broken\n---\nTwo litres\n';
 	await writeElsewhere(MILK, (await stored(MILK)) ?? null, broken);
-	await until(() => edit.getMarkdown()?.issues?.[0]?.kind === 'frontmatter');
+	expectOk(await edit.read());
 	expect(edit.getMarkdown()).toMatchObject({
-		text: broken.replace('Two litres', 'Three'),
-		fields: undefined,
+		text: '---\ndone: false\ntitle: Oat milk\n---\nThree\n',
+		fields: { title: 'Oat milk', done: false },
 		body: 'Three\n',
 	});
-	expect(edit.getPending()).toMatchObject({ fields: { title: 'Oat milk' } });
-	expect(folder.files.edit(MILK).getText()).toBe(
-		broken.replace('Two litres', 'Three'),
-	);
+	expect(edit.getPending()?.text).toBe(edit.getText());
+	expect(folder.files.edit(MILK).getText()).toBe(edit.getText());
 });
 
 test('an action, a direct save and a status subscription hold no document; an explicit read does', async () => {
@@ -792,153 +767,6 @@ test('an action, a direct save and a status subscription hold no document; an ex
 // Bases
 // ============================================================================
 
-test('a field typed back to its original value after an outside change saves that value', async () => {
-	const { edit, load, elsewhere, stored } = await setup();
-	await load();
-	edit.change({ fields: { title: 'Oat milk' } });
-	await elsewhere({ fields: { done: true } });
-	expectOk(await edit.read());
-	expect(edit.getMarkdown()?.fields?.done).toBe(true);
-
-	edit.change({ fields: { done: false } });
-	await edit.save();
-
-	expect(edit.getPending()).toBeUndefined();
-	expect(await stored(MILK)).toBe(
-		'---\ndone: false\ntitle: Oat milk\n---\nTwo litres\n',
-	);
-});
-
-test('a body first typed after an outside change starts from it, so a later outside edit of another line survives', async () => {
-	const { edit, load, elsewhere, stored } = await setup('one\ntwo\nthree\n');
-	await load();
-	edit.change({ fields: { title: 'Oat milk' } });
-	await elsewhere({ body: 'ONE\ntwo\nthree\n' });
-	expectOk(await edit.read());
-
-	edit.change({ body: 'ONE\ntwo\nthree, typed\n' });
-	await elsewhere({ body: 'Uno\ntwo\nthree\n' });
-	await edit.save();
-
-	expect(await stored(MILK)).toBe(
-		'---\ndone: false\ntitle: Oat milk\n---\nUno\ntwo\nthree, typed\n',
-	);
-});
-
-test('units first typed while a save runs keep the row they were typed over after it lands', async () => {
-	const { engine, edit, load, elsewhere, stored } =
-		await setup('one\ntwo\nthree\n');
-	await load();
-	const sets = intercept(engine.files, 'write');
-	edit.change({ fields: { title: 'Oat milk' } });
-	const started = sets.next();
-	sets.hold();
-	const first = edit.save();
-	await started;
-
-	await elsewhere({ fields: { done: true }, body: 'ONE\ntwo\nthree\n' });
-	expectOk(await edit.read());
-	edit.change({ fields: { done: false }, body: 'ONE\ntwo\nthree, typed\n' });
-	sets.release();
-	await first;
-	expect(edit.getPending()).toMatchObject({ fields: { done: false } });
-
-	await elsewhere({ body: 'Uno\ntwo\nthree\n' });
-	await edit.save();
-	expect(await stored(MILK)).toBe(
-		'---\ndone: false\ntitle: Oat milk\n---\nUno\ntwo\nthree, typed\n',
-	);
-	expect(edit.getPending()).toBeUndefined();
-});
-
-test('a revert typed while a save runs, over an outside change read meanwhile, saves', async () => {
-	for (const revert of ['done', 'title'] as const) {
-		const { engine, edit, load, elsewhere, stored } = await setup();
-		cleanup.push(edit.subscribe(() => {}));
-		await load();
-		edit.change({ fields: { title: 'Oat' } });
-		const sets = intercept(engine.files, 'write');
-		const started = sets.next();
-		sets.hold();
-		const first = edit.save();
-		await started;
-		// Another writer ticks done while the save waits; this folder reads it.
-		await elsewhere({ fields: { done: true } });
-		expectOk(await edit.read());
-		expect(edit.getMarkdown()?.fields).toEqual({ title: 'Oat', done: true });
-
-		// The person unticks it, or puts the title they sent back.
-		if (revert === 'done') edit.change({ fields: { done: false } });
-		else edit.change({ fields: { title: 'Milk' } });
-		sets.release();
-		await first;
-		expect(await stored(MILK)).toBe(
-			'---\ndone: true\ntitle: Oat\n---\nTwo litres\n',
-		);
-		expect(edit.getMarkdown()?.fields).toEqual(
-			revert === 'done'
-				? { title: 'Oat', done: false }
-				: { title: 'Milk', done: true },
-		);
-		await edit.save();
-		expect(await stored(MILK)).toBe(
-			revert === 'done'
-				? '---\ndone: false\ntitle: Oat\n---\nTwo litres\n'
-				: '---\ndone: true\ntitle: Milk\n---\nTwo litres\n',
-		);
-		expect(edit.getPending()).toBeUndefined();
-	}
-});
-
-test('typing that continues a sent field starts from what the save sent', async () => {
-	const { engine, edit, load, elsewhere, stored } = await setup();
-	await load();
-	const sets = intercept(engine.files, 'write');
-	edit.change({ fields: { title: 'Oat' } });
-	const started = sets.next();
-	sets.hold();
-	const first = edit.save();
-	await started;
-	expect(edit.getMarkdown()?.fields?.title).toBe('Oat');
-	edit.change({ fields: { title: 'Oat milk' } });
-	sets.release();
-	await first;
-
-	await elsewhere({ fields: { done: true } });
-	await edit.save();
-	expect(await stored(MILK)).toBe(
-		'---\ndone: true\ntitle: Oat milk\n---\nTwo litres\n',
-	);
-});
-
-test('a body typed over broken frontmatter saves with a field typed after the frontmatter was repaired', async () => {
-	const { folder, edit, stored } = await setup();
-	const repaired = '---\ntitle: Milk\ndone: false\n---\nTwo litres\n';
-	expectOk(
-		await folder.files.write(
-			MILK,
-			(await stored(MILK)) ?? null,
-			'---\ntitle: [broken\n---\nTwo litres\n',
-		),
-	);
-	expectOk(await edit.read());
-	expect(edit.getMarkdown()?.issues?.[0]?.kind).toBe('frontmatter');
-	edit.change({ body: 'Three litres\n' });
-
-	expectOk(
-		await folder.files.write(MILK, (await stored(MILK)) ?? null, repaired),
-	);
-	expectOk(await edit.read());
-	expect(edit.getMarkdown()?.issues).toBeNull();
-	edit.change({ fields: { title: 'Oat milk' } });
-	await edit.save();
-
-	expect(edit.getPending()).toBeUndefined();
-	expect(await stored(MILK)).toBe(
-		'---\ntitle: Oat milk\ndone: false\n---\nThree litres\n',
-	);
-});
-
 test('a body typed over broken frontmatter lands without touching the header', async () => {
 	const { folder, edit, stored } = await setup();
 	expectOk(
@@ -955,91 +783,6 @@ test('a body typed over broken frontmatter lands without touching the header', a
 	expect(edit.getPending()).toBeUndefined();
 	expect(await stored(MILK)).toBe('---\ntitle: [broken\n---\nRepaired by hand');
 });
-
-test('a field typed over a header another writer broke is refused, and the raw text stays repairable', async () => {
-	const { folder, edit, load, writeElsewhere, stored } = await setup();
-	await load();
-	edit.change({ fields: { title: 'Held' } });
-	const broken = '---\ntitle: [broken\n---\nTwo litres\n';
-	await writeElsewhere(MILK, (await stored(MILK)) ?? null, broken);
-	expectOk(await edit.read());
-	expect(edit.getMarkdown()?.issues?.[0]?.kind).toBe('frontmatter');
-
-	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('Unparseable');
-	expect(await stored(MILK)).toBe(broken);
-
-	// The raw text is the repair: it waits for the refused fields to go.
-	const text = folder.files.edit(MILK);
-	expect(expectErr(text.replaceText('x')).name).toBe('InvalidFields');
-	expect(edit.discard()).toMatchObject({ fields: { title: 'Held' } });
-	expect(text.getText()).toBe(broken);
-	expectOk(text.replaceText(broken.replace('[broken', 'Repaired')));
-	await text.save();
-	expect(await stored(MILK)).toBe('---\ntitle: Repaired\n---\nTwo litres\n');
-});
-
-// ============================================================================
-// Nested changes
-// ============================================================================
-
-test('fields and body are typed apart or together, each change one update', async () => {
-	const { folder, engine } = await setup();
-	expectOk(
-		await folder.tables.letters.set('a', null, {
-			fields: { title: 'Dear', body: 'a field' },
-			body: 'The letter\n',
-		}),
-	);
-	const edit = folder.tables.letters.edit('a');
-	await edit.read();
-	let heard = 0;
-	cleanup.push(edit.subscribe(() => heard++));
-
-	expectOk(edit.change({ fields: { title: 'Dearest' } }));
-	expect(edit.getPending()).toMatchObject({
-		fields: { title: 'Dearest' },
-		body: undefined,
-	});
-	expectOk(edit.change({ body: 'The whole letter\n' }));
-	expect(edit.getPending()).toMatchObject({
-		fields: { title: 'Dearest' },
-		body: 'The whole letter\n',
-	});
-	// A frontmatter field named `body` is a field; the row's body is untouched.
-	const before = edit.getPending();
-	expectOk(edit.change({ fields: { body: 'another field' } }));
-	expect(edit.getPending()).toMatchObject({
-		fields: { title: 'Dearest', body: 'another field' },
-		body: 'The whole letter\n',
-	});
-	expect(edit.getPending()).not.toBe(before);
-	expect(heard).toBe(3);
-
-	// Fields and body together: one notification, one save.
-	heard = 0;
-	edit.change({ fields: { title: 'Dear friend' }, body: 'Hello\n' });
-	expect(heard).toBe(1);
-	const sets = intercept(engine.files, 'write');
-	await edit.save();
-	expect(sets.calls).toHaveLength(1);
-	const saved = expectOk(await folder.tables.letters.get('a'));
-	expect(saved?.fields).toEqual({
-		title: 'Dear friend',
-		body: 'another field',
-	});
-	expect(saved?.body).toBe('Hello\n');
-
-	// An empty change takes nothing.
-	heard = 0;
-	expectOk(edit.change({}));
-	expect(edit.getPending()).toBeUndefined();
-	expect(heard).toBe(0);
-});
-
-// ============================================================================
-// Typing over what is held
-// ============================================================================
 
 test('a row change while a save runs replaces what is held, so a revert saves', async () => {
 	const { engine, edit, load, stored } = await setup('one\ntwo\nthree\n');
@@ -1134,31 +877,6 @@ test('a save asked for while a save starts joins it, and typing goes on in order
 	await text.save();
 	expect(writes.calls.map(([, , content]) => content)).toEqual(['b\n', 'c\n']);
 	expect(await stored(path)).toBe('c\n');
-});
-
-test('a queued save consumes the newer input timer even when both attempts fail', async () => {
-	const { engine, edit, load } = await setup('Two litres\n', 20);
-	await load();
-	const sets = intercept(engine.files, 'write');
-	const restore = fillDisk();
-	sets.hold();
-	edit.change({ fields: { title: 'First' } });
-	const started = sets.next();
-	const saving = edit.save();
-	await started;
-	const joined = edit.save();
-	edit.change({ fields: { title: 'Second' } });
-	sets.release();
-	await saving;
-	await joined;
-	expect(sets.calls).toHaveLength(2);
-	restore();
-	await new Promise((resolve) => setTimeout(resolve, 50));
-	expect(sets.calls).toHaveLength(2);
-	expect(edit.getPending()).toMatchObject({
-		fields: { title: 'Second' },
-		error: { name: 'StorageFailed' },
-	});
 });
 
 test('from close on, save sends nothing new and the held input stays', async () => {
@@ -1377,18 +1095,18 @@ test('a pause that is not a finite number of milliseconds from zero up is refuse
 	await folder.close();
 });
 
-test('a save whose content was already stored is reported as a change of its path', async () => {
+test('an unchanged local command sends no save or path change', async () => {
 	const { folder, edit, load } = await setup();
 	const heard: FolderChange[] = [];
 	cleanup.push(folder.onChange((change) => heard.push(change)));
 	await load();
 	edit.change({ fields: { title: 'Milk' } });
 	await edit.save();
-	expect(heard).toEqual([{ paths: [MILK], origin: 'this-handle' }]);
+	expect(heard).toEqual([]);
 
 	edit.change({ fields: { title: 'Oat milk' } });
 	await edit.save();
-	expect(heard).toHaveLength(2);
+	expect(heard).toHaveLength(1);
 });
 
 // ============================================================================
@@ -1415,8 +1133,7 @@ test('handles are passive and share one document and input whose identity holds 
 	expect(pending).toBe(first.getPending());
 	expect(pending).toMatchObject({
 		path: MILK,
-		fields: { title: 'Oat milk' },
-		body: undefined,
+		text: first.getText(),
 		saving: false,
 	});
 	expect(Object.keys(pending ?? {})).not.toContain('bases');
@@ -1510,41 +1227,6 @@ test('row and text views expose and change one path input without saving first',
 	);
 });
 
-test('text takes over row input during saving without losing reverts or outside changes', async () => {
-	const {
-		folder,
-		engine,
-		edit: rowEdit,
-		load,
-		elsewhere,
-		stored,
-	} = await setup();
-	const textEdit = folder.files.edit(MILK);
-	await load();
-	expectOk(rowEdit.change({ fields: { title: 'Oat milk' } }));
-	const sets = intercept(engine.files, 'write');
-	const started = sets.next();
-	sets.hold();
-	const saving = rowEdit.save();
-	await started;
-	expect(textEdit.getPending()?.saving).toBe(true);
-	expectOk(
-		textEdit.replaceText(textEdit.getText()!.replace('Oat milk', 'Milk')),
-	);
-	expect(rowEdit.getPending()).toBe(textEdit.getPending());
-	expect(rowEdit.getPending()?.saving).toBe(true);
-	await elsewhere({ fields: { done: true } });
-	sets.release();
-	await saving;
-	expect(rowEdit.getPending()).toMatchObject({ kind: 'text', saving: false });
-	expectOk(rowEdit.change({ body: 'After the save\n' }));
-	await textEdit.save();
-	expect(await stored(MILK)).toBe(
-		'---\ndone: true\ntitle: Milk\n---\nAfter the save\n',
-	);
-	expect(rowEdit.getPending()).toBeUndefined();
-});
-
 test('row changes patch text during saving and preserve a deliberate revert', async () => {
 	const { folder, engine, edit: rowEdit, load, stored } = await setup();
 	const textEdit = folder.files.edit(MILK);
@@ -1568,24 +1250,6 @@ test('row changes patch text during saving and preserve a deliberate revert', as
 	expect(await stored(MILK)).toContain('title: Milk');
 	expect(await stored(MILK)).toContain('Still typing');
 	expect(textEdit.getPending()).toBeUndefined();
-});
-
-test('text taking over row input bases untouched units on the latest read', async () => {
-	const { folder, edit: rowEdit, load, elsewhere, stored } = await setup();
-	const textEdit = folder.files.edit(MILK);
-	await load();
-	expectOk(rowEdit.change({ fields: { title: 'Oat milk' } }));
-	await elsewhere({ body: 'A newer body\n' });
-	expectOk(await rowEdit.read());
-	expectOk(
-		textEdit.replaceText(
-			textEdit.getText()!.replace('Oat milk', 'Whole-file title'),
-		),
-	);
-	await elsewhere({ body: 'The latest body\n' });
-	await textEdit.save();
-	expect(await stored(MILK)).toContain('title: Whole-file title');
-	expect(await stored(MILK)).toContain('The latest body\n');
 });
 
 test('either view can recover failed input, and switching views leaves the error held', async () => {
@@ -1630,13 +1294,11 @@ test('a failed save keeps its input and error for copying or discard', async () 
 
 	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
 	expect(edit.getMarkdown()?.fields?.title).toBe('Oat milk');
-	expect(folder.getStatus().failures).toMatchObject([
-		{ path: MILK, fields: { title: 'Oat milk' } },
-	]);
+	expect(folder.getStatus().failures[0]?.text).toBe(edit.getText());
 	expect(folder.getStatus().storageFailure?.name).toBe('StorageFailed');
 	expect(expectErr(await edit.delete()).name).toBe('NotStarted');
 	restore();
-	expect(edit.discard()).toMatchObject({ fields: { title: 'Oat milk' } });
+	expect(edit.discard()?.text).toContain('title: Oat milk');
 	expect(edit.getMarkdown()?.fields?.title).toBe('Milk');
 	expect(folder.getStatus().unsaved).toEqual([]);
 	expect(folder.getStatus().failures).toEqual([]);
@@ -2109,7 +1771,7 @@ test('a reservation waits for raw saves already queued on its paths before enter
 	expectOk(await first);
 	expectOk(await second);
 	expectOk(await operation);
-	expect(await stored(MILK)).toBe('queued raw save');
+	expect(await stored(MILK)).toContain('queued raw save');
 });
 
 test('close with no view sends a running save, answers a failed one, and fences input', async () => {
@@ -2136,10 +1798,9 @@ test('close with no view sends a running save, answers a failed one, and fences 
 	const unsaved = await closing;
 	restore();
 
-	expect(unsaved).toMatchObject([
-		{ path: bread, text: 'Sourdough' },
-		{ path: MILK, body: 'Oat, two litres' },
-	]);
+	expect(unsaved.map(({ path }) => path)).toEqual([bread, MILK]);
+	expect(unsaved[0]?.text).toBe('Sourdough');
+	expect(unsaved[1]?.text).toContain('Oat, two litres');
 	expect(
 		unsaved.every((pending) => pending.error?.name === 'StorageFailed'),
 	).toBe(true);
@@ -2547,21 +2208,6 @@ test('fields typed into failed whole text authorize the newer input', async () =
 	expect(await stored(MILK)).toContain('New field');
 });
 
-test('save applies held row changes after another writer repairs its source', async () => {
-	const { other, edit, load, stored } = await setup();
-	await load();
-	edit.change({ fields: { title: 'Held' } });
-	const broken = '---\ntitle: [broken\n---\nbody\n';
-	expectOk(await other.files.write(MILK, (await stored(MILK)) ?? null, broken));
-	await edit.save();
-	expect(edit.getPending()?.error?.name).toBe('Unparseable');
-	const fixed = '---\ntitle: Repaired\ndone: false\n---\nbody\n';
-	expectOk(await other.files.write(MILK, broken, fixed));
-	await edit.save();
-	expect(edit.getPending()).toBeUndefined();
-	expect(await stored(MILK)).toContain('Held');
-});
-
 for (const action of ['save', 'discard', 'close'] as const) {
 	test(`a new save owns the input before a listener calls ${action}`, async () => {
 		const { folder, engine, edit, load, stored } = await setup();
@@ -2686,7 +2332,7 @@ for (const outcome of ['success', 'failure'] as const) {
 	}
 }
 
-test('file reads seed one source for generic, schema-bound and strict table interpretations', async () => {
+test('file reads seed one source for generic and schema-bound table interpretations', async () => {
 	const { folder, engine } = await setup();
 	const path = 'notes/plain.md';
 	expectOk(await folder.files.write(path, null, 'Plain body\n'));
@@ -2694,7 +2340,7 @@ test('file reads seed one source for generic, schema-bound and strict table inte
 	expectOk(await folder.files.read(path));
 	const generic = folder.files.edit(path);
 	const checked = folder.files.edit(path, notes);
-	const strict = folder.tables.notes.edit('plain');
+	const table = folder.tables.notes.edit('plain');
 	expect(generic.getMarkdown()).toEqual({
 		text: 'Plain body\n',
 		body: 'Plain body\n',
@@ -2704,20 +2350,20 @@ test('file reads seed one source for generic, schema-bound and strict table inte
 	expect(
 		checked.getMarkdown()?.issues?.every((issue) => issue.kind === 'schema'),
 	).toBe(true);
-	expect(strict.getMarkdown()?.issues?.[0]?.kind).toBe('frontmatter');
-	expect(strict.getMarkdown()?.fields).toBeUndefined();
-	expect(strict.getMarkdown()?.body).toBeUndefined();
+	expect(table.getMarkdown()?.issues?.[0]?.kind).toBe('schema');
+	expect(table.getMarkdown()?.fields).toEqual({});
+	expect(table.getMarkdown()?.body).toBe('Plain body\n');
 	expect(generic.getMarkdown()).toBe(folder.files.edit(path).getMarkdown());
 	expect(checked.getMarkdown()).toBe(
 		folder.files.edit(path, notes).getMarkdown(),
 	);
-	expect(strict.getMarkdown()).toBe(
+	expect(table.getMarkdown()).toBe(
 		folder.tables.notes.edit('plain').getMarkdown(),
 	);
 	expectOk(generic.change({ fields: { title: 'Now framed', done: true } }));
-	expect(strict.getMarkdown()?.issues).toBeNull();
-	expect(strict.getMarkdown()?.text).toBe(generic.getText());
-	expect(Object.keys(strict.getMarkdown()!).sort()).toEqual([
+	expect(table.getMarkdown()?.issues).toBeNull();
+	expect(table.getMarkdown()?.text).toBe(generic.getText());
+	expect(Object.keys(table.getMarkdown()!).sort()).toEqual([
 		'body',
 		'fields',
 		'issues',
@@ -2747,20 +2393,18 @@ test('a throwing read schema leaves exact Markdown and raw fields available', as
 	);
 });
 
-test('table access requires a body boundary while file access accepts plain Markdown', async () => {
+test('table and file edits use the same body boundary for plain Markdown', async () => {
 	const { folder } = await setup();
 	const path = 'notes/plain.md';
 	expectOk(await folder.files.write(path, null, 'Plain body\n'));
-	const strict = folder.tables.notes.edit('plain');
+	const table = folder.tables.notes.edit('plain');
 	const file = folder.files.edit(path);
-	expectOk(await strict.read());
-	expect(expectErr(strict.change({ body: 'Changed\n' })).name).toBe(
-		'InvalidFields',
-	);
+	expectOk(await table.read());
+	expectOk(table.change({ body: 'Changed\n' }));
 	expectOk(file.change({ body: 'Changed\n' }));
 	expect(file.getMarkdown()?.body).toBe('Changed\n');
-	expect(strict.getMarkdown()?.body).toBeUndefined();
-	expect(strict.getText()).toBe('Changed\n');
+	expect(table.getMarkdown()?.body).toBe('Changed\n');
+	expect(table.getText()).toBe('Changed\n');
 });
 
 test('a structured save refuses a header broken after its source preparation', async () => {
@@ -2776,13 +2420,11 @@ test('a structured save refuses a header broken after its source preparation', a
 	await writeElsewhere(MILK, (await stored(MILK)) ?? null, broken);
 	writes.release();
 	await saving;
-	expect(edit.getPending()).toMatchObject({
-		fields: { title: 'Held' },
-		error: { name: 'Unparseable' },
-	});
+	expect(edit.getPending()?.text).toContain('title: Held');
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
 	expect(await stored(MILK)).toBe(broken);
 	expect(edit.getMarkdown()?.text).toBe(edit.getText());
-	expect(edit.getMarkdown()?.fields).toBeUndefined();
+	expect(edit.getMarkdown()?.fields).toEqual({ done: false, title: 'Held' });
 });
 
 test('Markdown snapshot identity follows editable text through save start and failure', async () => {

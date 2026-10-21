@@ -1,4 +1,4 @@
-/** A table row adds its id and required frontmatter policy to Markdown values. */
+/** A table row adds its id and schema to the shared Markdown value. */
 import type { TSchema as Schema } from 'typebox';
 import {
 	changeMarkdown,
@@ -20,12 +20,12 @@ export function readRow<const TSchema extends Schema>(
 	content: string | Uint8Array,
 	schema: TSchema,
 ): Row<TSchema> {
-	return { id, ...readMarkdown(content, schema, 'required') };
+	return { id, ...readMarkdown(content, schema) };
 }
 
 export function rowChange(
 	from: Pick<Row, 'text' | 'issues'> | null,
 	change: RowChange,
 ) {
-	return changeMarkdown(from, change, 'required');
+	return changeMarkdown(from, change);
 }

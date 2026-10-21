@@ -6,22 +6,19 @@
  * device and stubbed endpoints. A gate on the disk below the folder can hold
  * or fail the writes of a Markdown file, as a slow or refusing disk would. Views
  * are stood in for as they behave: a changed field or body is the row's
- * draft, and a changed text is a text draft, each saved as a change from
- * what it started from (ADR-0632).
+ * source draft. A save compares that source with the exact file it observed.
  *
  * Key behaviors:
  * - A field typed is saved; the listing takes the saved row, and the audio
  *   link is untouched
  * - Notes typed while a save runs are saved next, from the row that save sent
- * - A read never touches typing: a change made elsewhere is read while the
- *   typing waits, and the typing's save merges with it
+ * - A read never touches typing: a changed outside source creates a conflict
  * - A save that fails keeps the typing, says so, and saves on Try again;
  *   Discard lets it go and hands back what was typed
  * - A value the schema does not accept is saved as typed, and the row is
  *   named for repair: nothing typed is refused or lost
  * - A field another program added survives every edit
- * - Typing into a row deleted elsewhere brings the row back: an unseen
- *   deletion never erases an edit
+ * - Typing into a row deleted elsewhere stays held until explicit resolution
  * - A row that is not valid is named for repair, edited as its text, and
  *   edited as fields once it reads; switching keeps unsaved input and its
  *   recovery state in either view
@@ -240,7 +237,7 @@ test('notes typed while a save runs are saved next, from the row that save sent'
 	expect(await text(root, editor.path)).toEndWith('---\nMorning notes, two\n');
 });
 
-test('a read never touches notes typed, and their save merges with the change it read', async () => {
+test('a read never touches notes typed, and their save reports an outside conflict', async () => {
 	const { context, whispering, root, failNextWrite } = await open();
 	const editor = await record(whispering, context);
 	// A save that fails keeps the notes unsaved, and says so.
@@ -257,18 +254,21 @@ test('a read never touches notes typed, and their save merges with the change it
 	await settle(whispering, context);
 	// The listing reads the file; the notes typed are untouched.
 	expect(editor.draft.body).toBe('Mine.\n');
-	expect(editor.draft.fields.title).toBe('Theirs');
+	expect(editor.draft.fields.title).not.toBe('Theirs');
 
-	// Try again saves the notes over the version they started from.
+	// A retry reports the whole-file conflict and leaves both sources intact.
 	await context.folder.files.edit(editor.path).save();
+	const edit = context.folder.files.edit(editor.path);
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(await text(root, editor.path)).toBe(recordingText('Theirs'));
+	expectOk(edit.replaceText(`${recordingText('Theirs')}Mine.\n`));
+	await edit.resolveConflict('draft');
 	await settle(whispering, context);
-	const written = await text(root, editor.path);
-	expect(written).toContain('title: Theirs');
-	expect(written).toEndWith('---\nMine.\n');
+	expect(await text(root, editor.path)).toEndWith('---\nMine.\n');
 	expect(whispering.unsaved).toBe(false);
 });
 
-test('a field typed over a change made elsewhere sets its field and keeps theirs', async () => {
+test('a field typed after reading an outside change keeps its body', async () => {
 	const { context, whispering, root } = await open();
 	const editor = await record(whispering, context);
 	await writeElsewhere(
@@ -276,6 +276,7 @@ test('a field typed over a change made elsewhere sets its field and keeps theirs
 		editor.path,
 		`${recordingText('Theirs')}Their notes.\n`,
 	);
+	expectOk(await context.folder.files.edit(editor.path).read());
 
 	editor.edit((row) => {
 		row.fields.title = 'Mine';
@@ -337,7 +338,7 @@ test('Discard lets go of typing that did not save, hands it back, and leaves the
 	expect(whispering.isUnsaved(editor.path)).toBe(true);
 	expect(context.getStatus().failures).toHaveLength(1);
 
-	expect(whispering.discard(editor.path)).toBe('Mine.\n');
+	expect(whispering.discard(editor.path)).toContain('Mine.\n');
 
 	expect(whispering.isUnsaved(editor.path)).toBe(false);
 	expect(whispering.unsaved).toBe(false);
@@ -362,17 +363,16 @@ test('discarded field input preserves removals, literal values and the body for 
 	);
 	await edit.save();
 
-	expect(JSON.parse(whispering.discard(editor.path)!)).toEqual({
-		set: { title: '[remove field]' },
-		remove: ['durationMs'],
-		body: 'Kept notes.\n',
-	});
+	const discarded = whispering.discard(editor.path)!;
+	expect(discarded).toContain('title: "[remove field]"');
+	expect(discarded).not.toContain('durationMs:');
+	expect(discarded).toEndWith('Kept notes.\n');
 	expect(edit.pending).toBeUndefined();
 	expect(await text(root, editor.path)).toBe(before);
 	failWrites();
 });
 
-test('typing into a recording deleted elsewhere brings its row back: an unseen deletion never erases an edit', async () => {
+test('typing into a recording deleted elsewhere stays held until explicit replacement', async () => {
 	const { context, whispering, root } = await open();
 	const editor = await record(whispering, context);
 	const { path } = editor;
@@ -382,6 +382,11 @@ test('typing into a recording deleted elsewhere brings its row back: an unseen d
 	editor.edit((row) => {
 		row.body = 'Typed after it was deleted.\n';
 	});
+	await settle(whispering, context);
+	const edit = context.folder.files.edit(path);
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(await text(root, path)).toBeUndefined();
+	await edit.resolveConflict('draft');
 	await settle(whispering, context);
 
 	const written = await text(root, path);
@@ -438,7 +443,7 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	expect(recordingEditor(whispering).draft.fields.title).toBe('Repaired');
 });
 
-test('text typed over a file changed elsewhere merges with it, and the typing wins where both changed', async () => {
+test('text typed over a changed file stays held until explicit replacement', async () => {
 	const { context, whispering, root } = await open();
 	const editor = await record(whispering, context);
 	const { path } = editor;
@@ -447,6 +452,10 @@ test('text typed over a file changed elsewhere merges with it, and the typing wi
 	await writeElsewhere(root, path, recordingText('Theirs'));
 
 	source.input(recordingText('Mine'));
+	await settle(whispering, context);
+	expect(context.folder.files.edit(path).getPending()?.error?.name).toBe('Conflict');
+	expect(await text(root, path)).toBe(recordingText('Theirs'));
+	await context.folder.files.edit(path).resolveConflict('draft');
 	await settle(whispering, context);
 	const merged = (await text(root, path)) ?? '';
 	expect(merged).toContain('title: Mine\n');
@@ -492,7 +501,7 @@ test('switching between fields and Source preserves failed input and recovery in
 	expect(whispering.showsText(path)).toBe(true);
 	expect(whispering.edit(path).text).toEndWith('Older body.\n');
 	expect(whispering.edit(path).pending?.error).toBeDefined();
-	expect(whispering.discard(path)).toBe('Older body.\n');
+	expect(whispering.discard(path)).toContain('Older body.\n');
 	expect(whispering.isUnsaved(path)).toBe(false);
 
 	failWrites();

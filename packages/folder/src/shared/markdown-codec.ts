@@ -1,4 +1,4 @@
-/** Pure Markdown reading and changing, with explicit frontmatter policy. */
+/** Pure Markdown reading and changing under one framing rule. */
 import type { TSchema as Schema, Static } from 'typebox';
 import { Check, Errors } from 'typebox/value';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -33,7 +33,6 @@ const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 export function readMarkdown<const TSchema extends Schema>(
 	content: string | Uint8Array,
 	schema: TSchema,
-	frontmatter: 'required' | 'optional',
 ): MarkdownValue<TSchema> {
 	let text: string;
 	try {
@@ -43,10 +42,6 @@ export function readMarkdown<const TSchema extends Schema>(
 	}
 	const problem = textProblem(text);
 	if (problem !== undefined) return unreadableMarkdown<TSchema>(text, problem);
-	if (frontmatter === 'optional' && frameRowText(text).kind === 'missing') {
-		const parsed = readMarkdown(`---\n---\n${text}`, schema, 'required');
-		return { ...parsed, text, body: text };
-	}
 	const parsed = parseRowSource(text);
 	if (parsed.error !== null) {
 		const frame = frameRowText(text);
@@ -129,7 +124,6 @@ export type MarkdownChange = {
 export function changeMarkdown(
 	from: Pick<MarkdownValue, 'text' | 'issues'> | null,
 	change: MarkdownChange,
-	frontmatter: 'required' | 'optional',
 ): Result<{ text: string }, CanonicalRefusal> {
 	if (from?.issues?.some((issue) => issue.kind === 'not-text'))
 		return Err({
@@ -137,11 +131,9 @@ export function changeMarkdown(
 			path: [],
 		});
 	const source = from?.text ?? '---\n---\n';
-	if (
-		frontmatter === 'optional' &&
-		frameRowText(source).kind === 'missing' &&
-		change.fields !== undefined
-	) {
+	if (frameRowText(source).kind === 'missing' && change.fields !== undefined) {
+		if (Object.values(change.fields).every((value) => value === undefined))
+			return changeMarkdown(from, { body: change.body });
 		const bom = source.startsWith('﻿') ? '﻿' : '';
 		const newline =
 			source.includes('\r\n') && !source.replaceAll('\r\n', '').includes('\n')
@@ -153,7 +145,6 @@ export function changeMarkdown(
 				issues: from?.issues ?? null,
 			},
 			change,
-			'required',
 		);
 	}
 	const parsed = parseRowSource(source);
@@ -163,8 +154,6 @@ export function changeMarkdown(
 		const frame = frameRowText(source);
 		if (frame.kind === 'frontmatter')
 			return checkedText(appendBody(source, frame, change.body));
-		if (frame.kind === 'missing' && frontmatter === 'optional')
-			return checkedText(change.body);
 		return Err(parsed.error);
 	}
 	const { document } = parsed.data;
@@ -225,6 +214,14 @@ export function changeMarkdown(
 
 function replaceBody(source: string, body: string) {
 	const frame = frameRowText(source);
+	if (frame.kind === 'missing') {
+		const text = frame.bom + body;
+		if (frameRowText(text).kind !== 'missing') {
+			const newline = body.includes('\r\n') ? '\r\n' : '\n';
+			return checkedText(`${frame.bom}---${newline}---${newline}${body}`);
+		}
+		return checkedText(text);
+	}
 	// Called only after the source has parsed successfully.
 	if (frame.kind !== 'frontmatter')
 		throw new Error('A parsed row has no frontmatter frame');

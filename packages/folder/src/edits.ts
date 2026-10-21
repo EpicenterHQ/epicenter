@@ -16,7 +16,6 @@ export {
 	DELETING,
 	type DeleteResult,
 	type DocumentChange,
-	type DocumentPending,
 	type FileEdit,
 	type MarkdownContent,
 	mergeFileText,
@@ -24,6 +23,5 @@ export {
 	type Pending,
 	type ReadStatus,
 	SAVE_AFTER_MS,
-	type TextPending,
 	UNSAVED,
 } from './edit-owner.js';

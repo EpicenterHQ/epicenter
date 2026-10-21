@@ -28,10 +28,8 @@ expectTypeOf(edit.getMarkdown()).toEqualTypeOf<
 >();
 expectTypeOf(edit.getPending()).toEqualTypeOf<Pending | undefined>();
 const pending = edit.getPending();
-if (pending?.kind === 'document')
-	expectTypeOf(pending.fields).toEqualTypeOf<
-		Readonly<Record<string, unknown>>
-	>();
+if (pending !== undefined)
+	expectTypeOf(pending.text).toEqualTypeOf<string>();
 const markdown = edit.getMarkdown();
 if (markdown?.issues === null)
 	expectTypeOf(markdown.fields).toEqualTypeOf<{

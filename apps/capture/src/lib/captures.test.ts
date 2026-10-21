@@ -13,13 +13,13 @@
  *   not captures for repair as text
  * - An edit is typed through the row's edit handle over the cache, saved
  *   after a pause, keeping frontmatter Capture does not declare
- * - Another tab's change is shown without replacing an edit not saved yet,
- *   and the save merges with it
+ * - Another tab's change leaves the local draft pinned; the save reports a
+ *   conflict until a whole-source resolution is submitted
  * - A failed save keeps the edit and its reason; saving again lands it
  * - A thought command saves at once; one on a list that changed is refused
  * - A thought opens as text at its own lines, unless its list changed
- * - Edit as text saves the exact text, unfinished Markdown included, merges
- *   with another tab's change, and repairs a file that then opens as a capture
+ * - Edit as text saves exact text, including unfinished Markdown, and can
+ *   resolve a conflict before reopening as a capture
  * - Deleting runs after the edit's saves and removes the file
  * - Close sends the edits held and refuses new input
  */
@@ -186,7 +186,7 @@ test('an edit saves after a pause and keeps undeclared frontmatter', async () =>
 	).toBe(false);
 });
 
-test("another tab's change shows without replacing typing, and the save merges with it", async () => {
+test("another tab's change pins typing until a whole-source resolution", async () => {
 	const harness = await openCaptures({ [PATH]: HAND }, { saveAfterMs: 60_000 });
 	harnesses.push(harness);
 	const actions = actionsOf(harness);
@@ -206,6 +206,10 @@ test("another tab's change shows without replacing typing, and the save merges w
 	expect(fileEdit.getMarkdown()?.body).toContain('Typed here');
 
 	await fileEdit.save();
+	expect(fileEdit.getPending()?.error?.name).toBe('Conflict');
+	expect(await harness.text(PATH)).toContain('mood: calm');
+	expectOk(fileEdit.replaceText(fileEdit.getText()!.replace('custom: kept', 'custom: kept\nmood: calm')));
+	await fileEdit.resolveConflict('draft');
 	await harness.quiet();
 	const saved = await harness.text(PATH);
 	expect(saved).toContain('mood: calm');
@@ -361,7 +365,7 @@ test('a thought opens as text at its own lines, counted as a text box shows CRLF
 	expect(await harness.text(PATH)).toBe(file);
 });
 
-test('Edit as text saves the exact text and merges with another tab', async () => {
+test('Edit as text saves exact text and resolves an outside change explicitly', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'text');
@@ -379,6 +383,10 @@ test('Edit as text saves the exact text and merges with another tab', async () =
 		typed.replace('custom: kept', 'custom: changed'),
 	);
 	await edit.save();
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(await harness.text(PATH)).toBe(typed.replace('custom: kept', 'custom: changed'));
+	expectOk(edit.replaceText(again.replace('custom: kept', 'custom: changed')));
+	await edit.resolveConflict('draft');
 	await harness.quiet();
 	expect(await harness.text(PATH)).toBe(
 		again.replace('custom: kept', 'custom: changed'),

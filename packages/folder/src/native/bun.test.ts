@@ -759,7 +759,7 @@ test('close lets a started save finish, then stops listening; new calls throw', 
 	expect(() => folder.onChange(() => {})).toThrow('The folder is closed');
 });
 
-test('an equal-base field assignment survives a stale native put', async () => {
+test('a stale native put keeps the source draft and reports a conflict', async () => {
 	const original = '---\ntitle: before\n---\none\ntwo\n';
 	const root = await directory({ 'a.md': original });
 	const storage = nativeStorage(root);
@@ -789,10 +789,10 @@ test('an equal-base field assignment survives a stale native put', async () => {
 		expectOk(edit.change({ fields: { title: 'before' }, body: 'ONE\ntwo\n' }));
 		await edit.save();
 		expect(stale).toBe(1);
-		expect(attempts).toBe(2);
-		expect(edit.getPending()).toBeUndefined();
+		expect(attempts).toBe(1);
+		expect(edit.getPending()?.error?.name).toBe('Conflict');
 		expect(await text(root, 'a.md')).toBe(
-			'---\ntitle: before\n---\nONE\nTWO\n',
+			original.replace('before', 'outside').replace('two', 'TWO'),
 		);
 	} finally {
 		await folder.close();
@@ -824,17 +824,14 @@ test('a native generic body edit keeps input when the current header becomes unc
 		await edit.save();
 		expect(attempts).toBe(1);
 		expect(await text(root, 'a.md')).toBe(external);
-		expect(edit.getPending()).toMatchObject({
-			kind: 'document',
-			body: 'mine\n',
-		});
-		expect(edit.getPending()?.error?.name).toBe('Unparseable');
+		expect(edit.getPending()?.text).toBe('---\ntitle: before\n---\nmine\n');
+		expect(edit.getPending()?.error?.name).toBe('Conflict');
 	} finally {
 		await folder.close();
 	}
 });
 
-test('a native guarded retry retains a field assigned after source input', async () => {
+test('a native guarded retry preserves a draft after a no-op field assignment', async () => {
 	const original = '---\ntitle: A\n---\none\n';
 	const root = await directory({ 'a.md': original });
 	const storage = nativeStorage(root);
@@ -861,9 +858,10 @@ test('a native guarded retry retains a field assigned after source input', async
 		expectOk(edit.replaceText(`${original}added\n`));
 		expectOk(edit.change({ fields: { title: 'A' } }));
 		await edit.save();
-		expect(attempts).toBe(2);
-		expect(await text(root, 'a.md')).toBe(`${original}added\n`);
-		expect(edit.getPending()).toBeUndefined();
+		expect(attempts).toBe(1);
+		expect(await text(root, 'a.md')).toBe(original.replace('title: A', 'title: B'));
+		expect(edit.getPending()?.text).toBe(`${original}added\n`);
+		expect(edit.getPending()?.error?.name).toBe('Conflict');
 	} finally {
 		await folder.close();
 	}

@@ -66,10 +66,9 @@ saves exactly what you type.
 
 A note's title and text autosave a second after you stop typing. Folder
 changes, pinning, and list actions save at once (move to a folder, move to Recently
-Deleted, restore, rename a folder). Each save merges with whatever another tab
-saved meanwhile: a field you did not change keeps their value, text merges by
-line, and where you both changed the same field or lines, yours win, with no
-message. What you type always stays on screen; a read never replaces it.
+Deleted, restore, rename a folder). What you type stays in one source draft;
+a read never replaces it. If another tab changes that file while the draft is
+held, saving reports a whole-file conflict and keeps the draft for comparison.
 
 A note has two views of its body, **Rich text** and **Source**. **Edit as file**
 shows its whole text, including frontmatter. These presentations share one
@@ -84,8 +83,9 @@ page lifecycle flushes pending changes when the page is hidden or closes.
 
 The detail view has one save status and one set of retry and discard controls
 across all presentations. Unsaved changes stay in the editor. If some held
-changes cannot be applied to the current source, or the file was deleted, a
-copyable recovery payload appears in that same area.
+source cannot be saved, or the file was deleted, the exact unsaved source is
+copyable in that same area. A conflict shows both saved and unsaved source and
+offers explicit choices to use the saved file or replace it with the draft.
 
 Structured and whole-file editing use one `FileEdit` per file path. Its
 `change({ fields?, body? })` combines structured changes; `replaceText(text)`

@@ -40,7 +40,7 @@ function interpretedRow(
 	content: string | Uint8Array,
 	schema: TSchema,
 ): Row<typeof anyFields> {
-	return { id: path, ...readMarkdown(content, schema, 'optional') } as Row<
+	return { id: path, ...readMarkdown(content, schema) } as Row<
 		typeof anyFields
 	>;
 }
@@ -50,5 +50,5 @@ export function documentChange(
 	from: Pick<Row, 'text' | 'issues'>,
 	change: RowChange,
 ) {
-	return changeMarkdown(from, change, 'optional');
+	return changeMarkdown(from, change);
 }

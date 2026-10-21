@@ -173,12 +173,12 @@ test('one-sided changes keep their blob, and competing ones go to this device', 
 		expect(merged.overrides).toEqual([
 			{
 				path: 'notes.md',
-				unit: { kind: 'lines', part: 'text', line: 3, count: 1 },
+				unit: { kind: 'lines', part: 'body', line: 3, count: 1 },
 				losing: theirs,
 			},
 		]);
 		expect(mergeMessage('Merge', merged.overrides)).toBe(
-			`Merge\n\nOverrode: ${theirs} lines=text:3+1 "notes.md"`,
+			`Merge\n\nOverrode: ${theirs} lines=body:3+1 "notes.md"`,
 		);
 		expect(mergeMessage('Merge', [])).toBe('Merge');
 	});

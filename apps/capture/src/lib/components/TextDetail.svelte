@@ -47,6 +47,17 @@
 	const unreadable = $derived(status.known === 'not-text');
 	const pending = $derived(fileEdit.pending);
 	const unsaved = $derived(pending === undefined ? undefined : unsavedText(pending));
+	const conflict = $derived(pending?.error?.name === 'Conflict' ? pending.error : undefined);
+	const savedConflictSource = $derived.by(() => {
+		if (conflict === undefined) return undefined;
+		if (conflict.current === null) return '(deleted)';
+		if (typeof conflict.current === 'string') return conflict.current;
+		try {
+			return new TextDecoder('utf-8', { fatal: true }).decode(conflict.current);
+		} catch {
+			return '(binary file)';
+		}
+	});
 	const text = $derived(fileEdit.text);
 	const finishDraft = createMutation(() => resultMutationOptions({
 		mutationKey: ['captures', 'finish-draft', stem],
@@ -125,8 +136,16 @@
 		<Alert.Root variant="destructive" aria-label="Not saved">
 			<Alert.Title>Your edit is not saved</Alert.Title>
 			<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
+			{#if conflict !== undefined}
+				<details class="mt-2"><summary>Compare sources</summary><p>Saved source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{savedConflictSource}</pre><p>Your source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{unsaved}</pre></details>
+			{/if}
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-				<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+				{#if conflict !== undefined}
+					<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
+					<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
+				{:else}
+					<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+				{/if}
 				<Button size="sm" variant="outline" onclick={() => copy(unsaved, 'Your text')}>Copy your text</Button>
 				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 			</div>

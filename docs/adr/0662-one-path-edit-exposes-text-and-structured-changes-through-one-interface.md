@@ -71,9 +71,7 @@ the handle's path, a row ID, directory, filename stem or raw bytes. Those remain
 with the address, collection or file-reading operation that needs them.
 
 Whenever `getMarkdown()` returns a snapshot, its `text` equals `getText()` for
-that version. Fields and body reflect that text; fields that cannot be applied
-remain recoverable through `getPending()`, rather than appearing as if they
-already occurred in the source. A syntax error preserves exact text and
+that version. Fields and body reflect that text. A syntax error preserves exact text and
 diagnostics and exposes a body only when its closing fence is known; a schema
 error preserves actual parsed field values. Accepted text with NUL or a lone
 surrogate remains exact even though storage refuses it: the snapshot has a
@@ -82,8 +80,8 @@ narrows fields to the bound schema.
 
 Without usable text, both reads answer `undefined`; read status distinguishes
 unread, missing and non-text files. Held whole text remains readable and
-interpretable when the stored file disappears. A structured patch without a
-usable document remains recoverable as pending input. Failed reads keep the
+interpretable when the stored file disappears. A structured change that cannot
+be represented in source is refused before acceptance. Failed reads keep the
 last usable view. Neither getter initiates I/O. Document parsing is lazy and
 cached; snapshot identity holds until its text, schema or diagnostics change.
 
@@ -94,17 +92,17 @@ cached; snapshot identity holds until its text, schema or diagnostics change.
 | `path` | The fixed root-relative address. |
 | `getText()` | Current exact editable text, without parsing. |
 | `getMarkdown()` | Current fields, body, exact source and diagnostics. |
-| `getPending()` | Input not yet saved, including values the document cannot currently display, save progress and failure. |
+| `getPending()` | The exact unsaved source, save progress and failure, or `undefined`. |
 | `getReadStatus()` | What is known of storage, whether reading runs, and the last read failure. |
 | `isLocked()` | Whether an exclusive action or closing refuses new input. Saving alone does not lock typing. |
 | `change({ fields?, body? })` | Apply the named field assignments and/or replace the body, preserving changes to unnamed units. Returns acceptance or refusal as `ChangeResult`. |
-| `replaceText(text)` | Submit the whole editable file as text, taking over applicable structured input. Returns acceptance or refusal as `ChangeResult`. |
+| `replaceText(text)` | Replace the current local source; later structured changes apply to it. Returns acceptance or refusal as `ChangeResult`. |
 | `read()` | Read storage explicitly; answer `Result<void, ReadError>` after updating the editor. Call a getter for the desired projection. |
 | `subscribe(listener)` | Notify imperative readers and framework adapters of changes; return the stop function. |
 | `save()` | Attempt held input, previous failures included, or join its running save. The same failed input does not loop on its own. |
+| `resolveConflict(choice)` | Accept the current source or guard an explicit whole-source resolution against the last reported conflict. |
 | `discard()` | Explicitly release held input, returning it for copying; refuse during a save or exclusive action. |
 | `delete()` | Fence the path, save held input, then conditionally delete the file. |
-| `exclusive(action)` | Fence the path and save held input before running a protected file operation. |
 
 There is no `changeFields()`, `changeBody()`, editor `retry()`, last-read source
 token, or separate row/text editor lifecycle.
@@ -125,20 +123,11 @@ and Board use the same structured-change command as app forms. Document list
 reads must populate the path owner through its ordered-read mechanism; controls
 do not call a separate `seed()` or coordinate a save-and-refresh handshake.
 
-The implementation uses one `DocumentPending` structured representation and a
-separate `TextPending` whole-source representation.
-Removing those public distinctions does not prove that submitted versions,
-body merge bases, structured/text handoffs or exclusive-operation guards can
-also be removed.
-
-The current table accessor requires frontmatter while generic file access
-permits its absence. That framing policy is a Markdown interpretation choice,
-not a second editor lifecycle. Both require a known body boundary before a
-structured body save. A closed malformed header still has a known body, while
-an unclosed header refuses the save and retains the pending input. The engine
-checks this on every guarded storage attempt, including after a concurrent
-change. Named field assignments survive a handoff from whole-source input and
-are reapplied after merging, even when the assigned value matched the original.
+The source draft has no document/text pending distinction. It retains submitted
+versions, saving status and exclusive-operation guards. A closed malformed
+header still has a known body, while an unclosed header refuses a structured
+body change. A file without an opening fence has empty fields and its prose
+as body under the common Markdown framing rule.
 
 Source-only readers retain a method that overlaps `markdown.text`. That overlap
 avoids parsing and validating Markdown for every source-only read, including
@@ -148,13 +137,8 @@ and stable snapshots rather than rebuilding those in each UI.
 ## Migration questions outside the frozen surface
 
 - How structured operations on non-Markdown paths are refused or scoped.
-- How a view presents held fields that no longer apply. The document
-  must remain truthful, and those values must remain visible and copyable in
-  recovery; removing today's field overlay cannot simply hide them.
-- When a foreign deletion is followed by saving held text or a structured
-  patch, preserve current recovery guarantees until a replacement is verified.
-- Whole-text takeover must not silently discard structured intent that cannot
-  be represented. Retain the existing refusal until its replacement is explicit.
+- How the source conflict resolver presents a held draft against a changed or
+  deleted stored file, including recovery during folder close.
 
 ## Considered alternatives
 

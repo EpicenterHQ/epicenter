@@ -13,10 +13,9 @@
 	 * What is typed is held by the folder (`folder.files.edit(path)`), not by
 	 * this editor: it saves a second after the last keystroke, even after
 	 * the editor goes away, and choosing the file again
-	 * shows it. The folder merges each save, by line, with whatever else was
-	 * saved meanwhile, so lines another window or agent changed stay. A
-	 * reread never replaces what is typed. A failed save keeps the typing and
-	 * offers Try again, or Discard. A file that is not text, or whose line
+	 * shows it. A reread never replaces what is typed; a changed stored file
+	 * causes a conflict, and both sources remain available for resolution.
+	 * A failed save keeps the typing and offers recovery. A file that is not text, or whose line
 	 * endings a text box would rewrite, is shown and not changed. The view
 	 * keys this editor by the file.
 	 */
@@ -36,14 +35,23 @@
 	const pending = $derived(fileEdit.pending);
 	/** Whether the file is shown as it is stored, with no typing over it. */
 	const untyped = $derived(pending === undefined);
-	/** Unapplied structured input stays copyable until source repair is safe. */
-	const fieldsLocked = $derived(
-		pending?.kind === 'document' &&
-		Object.keys(pending.fields).length > 0 &&
-		fileEdit.markdown?.issues?.some((issue) => issue.kind !== 'schema') === true,
-	);
-	/** Text held for a file that no longer reads as text is available for copying. */
-	const sourceLocked = $derived(pending?.kind !== 'text' && status.known !== 'file');
+	/** A held source remains editable after an outside deletion or replacement. */
+	const sourceLocked = $derived(pending === undefined && status.known !== 'file');
+	const conflict = $derived(pending?.error?.name === 'Conflict' ? pending.error : undefined);
+	function conflictText(bytes: Uint8Array): string | undefined {
+		try {
+			return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+		} catch {
+			return undefined;
+		}
+	}
+	const conflictCurrent = $derived(conflict?.current === null
+		? '(deleted)'
+		: typeof conflict?.current === 'string'
+			? conflict.current
+			: conflict?.current === undefined
+				? undefined
+				: conflictText(conflict.current));
 	/** The last text this editor showed, kept to copy once the file is deleted elsewhere. */
 	let lastShown: string | undefined;
 	/**
@@ -85,9 +93,17 @@
 		<Alert.Root variant="destructive" class="rounded-none border-x-0 border-t-0">
 			<Alert.Description>
 				<p>Your edit was not saved: {pending.error.message}</p>
-				{#if pending.kind === 'document'}<p>{fieldsLocked ? 'Copy the structured changes or discard them before repairing the source.' : 'Your structured changes remain available to copy.'}</p><pre class="whitespace-pre-wrap font-mono text-xs">{unsavedText(pending)}</pre>{/if}
+				{#if conflict !== undefined}
+					<p>The saved file changed. Your source remains in the editor below. You can keep the saved file, replace it with your source, or edit your source before replacing it.</p>
+					<details><summary>Compare sources</summary><p>Saved source</p><pre class="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs">{conflictCurrent ?? '(binary file)'}</pre><p>Your source</p><pre class="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs">{unsavedText(pending)}</pre></details>
+				{/if}
 				<div class="mt-1 flex gap-2">
-					<Button size="xs" variant="outline" onclick={() => void fileEdit.save()}>Try again</Button>
+					{#if conflict !== undefined}
+						<Button size="xs" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
+						<Button size="xs" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
+					{:else}
+						<Button size="xs" variant="outline" onclick={() => void fileEdit.save()}>Try again</Button>
+					{/if}
 					<Button size="xs" variant="ghost" onclick={() => fileEdit.discard()}>
 						Discard edit
 					</Button>
@@ -125,15 +141,14 @@
 	{:else if text !== undefined}
 		{#if status.known === 'missing'}
 			<p class="border-b px-4 py-2 text-sm text-muted-foreground">
-				{#if pending?.kind === 'text'}This file was deleted elsewhere. Saving puts your text back in it.
-				{:else}This file was deleted elsewhere. The last text is available to copy.{/if}
+				This file was deleted elsewhere. Your unsaved source is still available; saving will report a conflict.
 			</p>
 		{/if}
 		<Textarea
 			class="min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm outline-none"
 			aria-label="Text of {path}"
 			spellcheck="false"
-			readonly={fieldsLocked || sourceLocked || fileEdit.locked}
+			readonly={sourceLocked || fileEdit.locked}
 			bind:value={() => boxText, (value) => {
 				const { error } = fileEdit.replaceText(withFileNewlines(value, text ?? ''));
 				refusal = error?.message;

@@ -91,11 +91,11 @@ are not text are listed apart and not opened.
   (text that opens a code fence and would absorb the Thoughts section, say)
   is not applied, the reason is shown, and the text returns to what it was.
   Edit as text to write unfinished Markdown.
-- Each save sends the change from where the edit started, and the folder
-  merges it with whatever was saved since: what only the other tab changed
-  stays, and where you both changed the same field or line, your edit wins,
-  with no notice. An edit to a capture another tab deleted brings the file
-  back with your edit: an unseen delete never erases an edit.
+- Each edit changes one displayed source draft. If another tab changes or
+  deletes that file before the save, the draft stays visible and the save
+  reports a whole-file conflict. The capture and text views offer both
+  sources for comparison, plus explicit choices to keep the saved file or
+  replace it with the draft.
 - A save that fails keeps your edit on screen. The capture says **Your edit
   is not saved** with the reason, and offers Save again, Copy your text, and
   Discard edit. The header says Not saved, and the timeline names every
@@ -103,8 +103,8 @@ are not text are listed apart and not opened.
 - A save writes the row with only its body replaced: frontmatter keys
   Capture does not declare, and their spelling, stay.
 - Edit as text saves the whole text over the file it started from, a second
-  after you stop typing, even after you open something else, valid or not, and keeps the file's line endings. It merges
-  with a change another tab saved since, the same way. What keeps the file
+  after you stop typing, even after you open something else, valid or not, and keeps the file's line endings. A changed outside source
+  requires an explicit resolution. What keeps the file
   from reading as a capture is checked against the current edit as you type.
   Open as capture switches views when that edit reads as a capture, without
   waiting for a save. Both views show the same Folder-owned input.
@@ -224,14 +224,14 @@ profile stands in for another tab.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store over a real local folder: Add writing one finished capture, blank and failed Add writing nothing, timeline order and repairs, an edit saved keeping undeclared frontmatter, another tab's change merged with a held save, a failed save kept and saved again, thought commands and stale ones, a thought located in CRLF text, unfinished Markdown saved exactly as text and retried, Edit as text merged with another tab, repair as text, delete after the edits land, and close. |
+| `src/lib/captures.test.ts` | The store over a real local folder: Add writing one finished capture, blank and failed Add writing nothing, timeline order and repairs, undeclared frontmatter, outside writes, failed saves and retries, thought commands, CRLF text, unfinished Markdown, repair as text, deletion, and close. |
 | `src/lib/compositions.test.ts` | Drafts an earlier version saved: listed apart and read back exactly, finished as the same file with `composeBody`, blank finish refused, failed autosave/finish/discard kept, retry without duplicate Thoughts, close during finish, and another tab finishing while input is held. |
 | `src/lib/bundle.test.ts` | Which folder adapter each build bundles: the installed bundle has the desktop adapter and no browser adapter, local folder engine, OPFS store, or Node module; the browser bundle has the browser adapter and the local folder engine; neither has the older `FolderApp`. |
-| `src/lib/components/*.mounted.test.ts` | The real views and page mounted in jsdom: New capture writing nothing before Add, one Add per submission, blank and failed Add, Add a thought focused after Add, text and thoughts saved, a thought not added cleared on leaving and kept to copy, a thought opened as text with its lines selected, another tab's change merged with typing held here, a failed save with Save again, drafts finished and discarded, repair as text and Open as capture, CRLF kept, input refused while closing, reload and window close not held by text not added, the failed-save list, an earlier OPFS folder that does not block opening, and edits sent when the page closes. jsdom has no layout, selection, or IME. |
+| `src/lib/components/*.mounted.test.ts` | The real views and page mounted in jsdom: New capture writing nothing before Add, thought input and source editing, an outside change pinning a draft until explicit resolution, failed saves and retries, draft repair, CRLF, close, and the failure list. jsdom has no layout, selection, or IME. |
 
 | Script | What it checks |
 | --- | --- |
-| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one profile's local folder: text not added yet neither prompting nor surviving reload, exact saved Markdown, a thought's Edit as text from the Actions menu, keyboard submit, Edit as text, a save merged with another page's change, no Save version, a full-disk Add kept and retried, saved drafts reopened as full files through repair, failed saves, finishing and discard, deletion, and a profile with an earlier OPFS folder that still opens. Needs a free local port and `bun x playwright install chromium`. |
+| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one profile's local folder: unfinished text, exact saved Markdown, Edit as text, another page's write, failed saves, draft repair, deletion, and an earlier OPFS folder. Needs a free local port and `bun x playwright install chromium`. |
 
 ## Changed promises
 
@@ -244,11 +244,9 @@ and drops these promises of the version before it:
 - The desktop build uses the native Folder over its granted directory.
 - Captures an earlier browser build kept in OPFS are not shown; the current
   IndexedDB timeline opens independently.
-- An edit beats a delete it has not seen: an edit to a capture another tab
-  deleted brings it back (the folder's merge rule), where before the edit
-  wrote nothing and offered its text.
-- Edit as text merges with a change saved since, where before it wrote
-  nothing and offered the text to copy.
+- A deleted capture with a dirty draft remains recoverable. Recreating the
+  file requires an explicit whole-source resolution.
+- Edit as text keeps a conflicting draft available for comparison and copy.
 - What keeps a file edited as text from reading as a capture is read from
   the file as saved, a moment after typing pauses, not live from the text.
 - A failed save is shown in the capture and listed on the timeline, not as a

@@ -44,28 +44,9 @@ export type WriteFailure = {
 	readonly discard?: () => string | undefined;
 };
 
-/**
- * Held input as text a person can copy: whole text as typed; otherwise JSON
- * with the fields set and their values (`set`), the names of the fields
- * removed (`remove`), and a typed body (`body`), each only when there is one.
- * A removal is a name, never a value, so no value reads as a removal.
- */
+/** The exact held source a person can copy. */
 export function unsavedText(pending: Pending): string {
-	if (pending.kind === 'text') return pending.text;
-	const entries = Object.entries(pending.fields);
-	const set = entries.filter(([, value]) => value !== undefined);
-	const remove = entries
-		.filter(([, value]) => value === undefined)
-		.map(([name]) => name);
-	return JSON.stringify(
-		{
-			...(set.length > 0 && { set: Object.fromEntries(set) }),
-			...(remove.length > 0 && { remove }),
-			...(pending.body !== undefined && { body: pending.body }),
-		},
-		null,
-		2,
-	);
+	return pending.text;
 }
 
 /** The failure a person is shown for held input that did not save. */

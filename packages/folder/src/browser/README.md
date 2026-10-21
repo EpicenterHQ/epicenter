@@ -48,8 +48,11 @@ Git history needed for ancestry proofs can be fetched into temporary memory.
 ## Saving
 
 A file save captures W's required trees and the current file bytes in one
-read transaction. It merges the caller's exact starting bytes with the current
-contents and submitted change outside IndexedDB, hashes the new file, and
+read transaction. Public `files.write` and `tables.set` merge the caller's
+starting bytes with the current contents and submitted change outside
+IndexedDB. A `FileEdit` save instead compares the current bytes with its
+exact observed source and reports `Conflict` if they differ; an already
+identical submitted source succeeds. The engine hashes the resulting file and
 rewrites its ancestor directories. A write transaction compares captured W,
 then publishes the new objects and root together. A changed root retries the
 operation. Other tabs' B/P changes do not invalidate a local file save, and the
@@ -62,12 +65,12 @@ captures all current files; `capture('sync')` includes W and both checkpoint
 closures. Captured objects stay in an operation-local map so a later save or
 collection cannot change the inputs of an in-progress computation.
 
-Markdown merges by frontmatter field and body region. Other UTF-8 files,
-including JSON, merge by text region. Independent changes survive. Competing
-changes follow the existing automatic merge policy. Row saves return `sent`,
-the submitted source, so another writer's unseen changes do not enter the
-draft's next merge base. A field edit refuses concurrently malformed source;
-the raw file remains available for repair.
+Public Markdown writes merge by frontmatter field and body region; a
+headerless Markdown file is one body region. Other UTF-8 files, including
+JSON, merge by text region. Independent changes survive and competing changes
+follow the automatic merge policy. Row saves return `sent`, the submitted
+source. A `FileEdit` draft stays pinned through outside reads and writes and
+requires an explicit whole-source resolution after a conflict.
 
 Native names, untouched modes, symlinks, gitlinks, and directory occupancy
 survive tree rewriting. File/directory replacements require a witnessed

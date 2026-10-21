@@ -195,14 +195,13 @@ test('adding a body after a closing fence at EOF inserts its missing line break'
 	expect(readRow('note', text, schema).issues).toBeNull();
 });
 
-test('strict rows refuse fields and body when no boundary is known', () => {
+test('headerless rows have empty fields and a known body across table and file views', () => {
 	const row = readRow('note', 'No frontmatter', schema);
-	expect(
-		expectErr(rowChange(row, { fields: { title: 'Hello' } })).reason,
-	).toContain('does not start');
-	expect(expectErr(rowChange(row, { body: 'New source' })).reason).toContain(
-		'does not start',
-	);
+	expect(row.fields).toEqual({});
+	expect(row.body).toBe('No frontmatter');
+	expect(expectOk(rowChange(row, { body: 'New source' })).text).toBe('New source');
+	expect(expectOk(rowChange(row, { fields: { title: 'Hello' } })).text).toBe('---\ntitle: Hello\n---\nNo frontmatter');
+	expect(expectOk(rowChange(row, { body: '---\nbody' })).text).toBe('---\n---\n---\nbody');
 });
 
 test('new rows have empty frontmatter and accept schema-invalid source', () => {

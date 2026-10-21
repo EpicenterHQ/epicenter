@@ -354,7 +354,8 @@ test('closing the folder re-renders a view whose held input keeps the same pendi
 	act(() => {
 		closing = folder.close();
 	});
-	expect(edit.getPending()).toBe(pending);
+	expect(edit.getPending()?.text).toBe(pending?.text);
+	expect(edit.getPending()?.saving).toBe(true);
 	expect(view.input().disabled).toBe(true);
 
 	await act(async () => {
@@ -379,12 +380,8 @@ test('a reused view follows its path, and the row it left keeps its input', asyn
 
 	expect(notesTable.live.milk).toBe(0);
 	expect(notesTable.live.bread).toBeGreaterThan(0);
-	expect(folder.tables.notes.edit('milk').getPending()).toMatchObject({
-		fields: { title: 'Oat milk' },
-	});
-	expect(folder.tables.notes.edit('bread').getPending()).toMatchObject({
-		fields: { title: 'Rye' },
-	});
+	expect(folder.tables.notes.edit('milk').getPending()?.text).toContain('title: Oat milk');
+	expect(folder.tables.notes.edit('bread').getPending()?.text).toContain('title: Rye');
 });
 
 test('unmounting every view keeps the input and its timer with the folder', async () => {
@@ -395,9 +392,7 @@ test('unmounting every view keeps the input and its timer with the folder', asyn
 	await act(async () => type(view.input(), 'Oat milk'));
 	await act(async () => view.root.unmount());
 	expect(notesTable.live.milk).toBe(0);
-	expect(folder.tables.notes.edit('milk').getPending()).toMatchObject({
-		fields: { title: 'Oat milk' },
-	});
+	expect(folder.tables.notes.edit('milk').getPending()?.text).toContain('title: Oat milk');
 
 	while (folder.tables.notes.edit('milk').getPending() !== undefined)
 		await Bun.sleep(5);

@@ -85,17 +85,21 @@
 	const reading = $derived(pending === undefined && file.isError && file.data?.kind !== 'text');
 	const failed = $derived(pending?.error === undefined ? undefined : describeFailure(pending.error));
 	const missing = $derived(fileEdit.readStatus.known === 'missing');
-	/** Show a copyable payload only when the source cannot represent all held input, or is gone. */
+	/** Keep the exact held source copyable after a whole-file conflict or deletion. */
 	const recovery = $derived(
-		pending !== undefined && (
-			missing || fileEdit.text === undefined || (
-				pending.kind === 'document' && (
-					(Object.keys(pending.fields).length > 0 && fileEdit.markdown?.fields === undefined) ||
-					(pending.body !== undefined && fileEdit.markdown?.body === undefined)
-				)
-			)
-		),
+		pending !== undefined && (missing || pending.error?.name === 'Conflict'),
 	);
+	const conflict = $derived(pending?.error?.name === 'Conflict' ? pending.error : undefined);
+	const savedConflictSource = $derived.by(() => {
+		if (conflict === undefined) return undefined;
+		if (conflict.current === null) return '(deleted)';
+		if (typeof conflict.current === 'string') return conflict.current;
+		try {
+			return new TextDecoder('utf-8', { fatal: true }).decode(conflict.current);
+		} catch {
+			return '(binary file)';
+		}
+	});
 
 	function confirmDiscard() {
 		confirmationDialog.open({
@@ -220,10 +224,15 @@
 	{#if pending !== undefined || note !== undefined || text !== undefined || (as === 'text' && file.data !== undefined && file.data.kind !== 'missing')}
 		<div class="shrink-0 space-y-2 border-t px-4 py-2 text-xs text-muted-foreground">
 			{#if recovery && pending !== undefined}
-				<p>{missing
-					? 'This file was deleted. What you typed is still here. Save again to put it back, or copy it before discarding.'
-					: 'Some changes cannot be applied to this source. Copy them before discarding. You can then repair the file and reapply them.'}</p>
-				<pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label={pending.kind === 'text' ? 'Unsaved text' : 'Unsaved note changes'}>{unsavedText(pending)}</pre>
+				<p>{pending.error?.name === 'Conflict'
+					? 'The file changed elsewhere. Compare this held source with the saved file before choosing which to keep.'
+					: 'This file was deleted elsewhere. Your unsaved source remains available.'}</p>
+				{#if conflict !== undefined}
+					<p>Saved source</p>
+					<pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Saved source">{savedConflictSource}</pre>
+				{/if}
+				<p>Your source</p>
+				<pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved source">{unsavedText(pending)}</pre>
 			{/if}
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="min-w-0 flex-1" role="status" data-testid="write-status">
@@ -237,7 +246,10 @@
 						Saved
 					{/if}
 				</span>
-				{#if pending !== undefined && (recovery || unsaved)}
+				{#if pending?.error?.name === 'Conflict'}
+					<Button size="sm" variant="outline" disabled={locked || pending.saving} onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
+					<Button size="sm" variant="outline" disabled={locked || pending.saving} onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
+				{:else if pending !== undefined && (recovery || unsaved)}
 					<Button size="sm" variant="outline" disabled={locked || pending.saving} onclick={() => void fileEdit.save()}>{missing && as === 'note' ? 'Save it again' : 'Save again'}</Button>
 					<Button size="sm" variant="ghost-destructive" disabled={locked || pending.saving} onclick={confirmDiscard}>{missing && as === 'note' ? 'Discard it' : 'Discard changes'}</Button>
 				{/if}

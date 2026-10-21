@@ -154,7 +154,11 @@ export function parseRowSource(source: string): Result<
 > {
 	const frame = frameRowText(source);
 	if (frame.kind === 'missing')
-		return refuse('The source does not start with a --- line', [], 1);
+		return Ok({
+			document: { fields: {}, body: source.slice(frame.bom.length) },
+			keyOrder: [],
+			lineOf: () => undefined,
+		});
 	if (frame.kind === 'unclosed')
 		return refuse(
 			'The frontmatter opening line has no closing --- line',

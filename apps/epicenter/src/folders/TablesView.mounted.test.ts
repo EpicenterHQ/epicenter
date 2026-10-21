@@ -96,7 +96,7 @@ describe.skipIf(!browser)('pending table documents', async () => {
 			type(input(), 'Repaired');
 			expect(input()?.value).toBe('Repaired');
 			await until(() => !row()?.textContent?.includes('required'));
-			expect(folder.files.edit(path).getPending()?.kind).toBe('document');
+			expect(folder.files.edit(path).getPending()?.text).toContain('title: Repaired');
 			expect(folder.files.edit(path).getText()).toContain('title: Repaired');
 			expect(await readFile(join(directory, path), 'utf8')).toBe(source);
 

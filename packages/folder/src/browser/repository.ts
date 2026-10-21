@@ -6,7 +6,6 @@ import {
 	rowAddressProblem,
 	writableExistingPath,
 } from '../paths.js';
-import { frameRowText } from '../shared/content/markdown.js';
 import { readDocument } from '../shared/document.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import { changeMarkdown } from '../shared/markdown-codec.js';
@@ -117,7 +116,8 @@ export async function openRepository<
 		from: FileContent | null,
 		content: FileContent | null,
 		rowFields?: Record<string, unknown>,
-		frontmatter?: 'required' | 'optional',
+		checkBody = false,
+		replaceExact = false,
 	) {
 		// A mutable caller buffer must not change the edit's witness during retries.
 		const base = from instanceof Uint8Array ? from.slice() : from;
@@ -161,30 +161,29 @@ export async function openRepository<
 					}
 				}
 				const current = snapshotContent(snapshot, path);
+				if (replaceExact && sameContent(current, change))
+					return Ok({ deleted: false, stored: current });
+				if (replaceExact && !sameContent(current, base))
+					return SaveError.Conflict({ path, base, current });
 				if (
-					(rowFields !== undefined || frontmatter !== undefined) &&
+					(rowFields !== undefined || checkBody) &&
 					current !== null
 				) {
 					const row = readDocument(path, current);
 					const problem = row.issues?.[0];
 					if (problem?.kind === 'not-text') return SaveError.NotText();
-					if (
-						frontmatter === 'required' &&
-						frameRowText(row.text).kind !== 'frontmatter'
-					)
-						return SaveError.Unparseable({
-							reason: 'The source has no closed frontmatter',
-						});
-					if (frontmatter !== undefined && row.body === undefined)
+					if (checkBody && row.body === undefined)
 						return SaveError.Unparseable({
 							reason: 'The source has no known body boundary',
 						});
 					if (rowFields !== undefined && problem?.kind === 'frontmatter')
 						return SaveError.Unparseable({ reason: problem.message });
 				}
-				const merged = await merge(path, { base, current, change });
+				const merged = replaceExact
+					? { content: change }
+					: await merge(path, { base, current, change });
 				let content = merged.content;
-				if (frontmatter !== undefined && content !== null) {
+				if (checkBody && content !== null) {
 					const result = readDocument(
 						path,
 						typeof content === 'string'
@@ -193,11 +192,7 @@ export async function openRepository<
 					);
 					if (result.issues?.[0]?.kind === 'not-text')
 						return SaveError.NotText();
-					if (
-						(frontmatter === 'required' &&
-							frameRowText(result.text).kind !== 'frontmatter') ||
-						result.body === undefined
-					)
+					if (result.body === undefined)
 						return SaveError.Unparseable({
 							reason: 'The merged source has no known body boundary',
 						});
@@ -211,7 +206,6 @@ export async function openRepository<
 								: content,
 						),
 						{ fields: rowFields },
-						frontmatter ?? 'optional',
 					);
 					if (applied.error !== null)
 						return SaveError.Unparseable({ reason: applied.error.reason });
@@ -306,7 +300,7 @@ export async function openRepository<
 					from?.text ?? null,
 					sent.data.text,
 					change.fields,
-					'required',
+					change.body !== undefined,
 				);
 				if (saved.error !== null) return Err(saved.error);
 				return Ok({
@@ -356,10 +350,11 @@ export async function openRepository<
 				from: FileContent | null,
 				content: FileContent,
 				fields?: Record<string, unknown>,
-				frontmatter?: 'required' | 'optional',
+				checkBody?: boolean,
+				replaceExact = false,
 			): Promise<Result<{ stored: FileContent | null }, SaveError>> {
 				assertOpen();
-				const result = await saveFile(path, from, content, fields, frontmatter);
+				const result = await saveFile(path, from, content, fields, checkBody, replaceExact);
 				return result.error !== null
 					? Err(result.error)
 					: Ok({ stored: result.data.stored });

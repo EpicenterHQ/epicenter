@@ -1,20 +1,12 @@
 /**
- * Field Patch, Text Transition and Fence Tests
+ * Source-draft handoff and fence tests
  *
  * Drives `folder.files.edit(path)` on any Markdown path of a real browser
  * folder (in-memory IndexedDB), with a second handle as another writer. The
  * engine's `write` is replaced below the handle to hold or refuse saves.
  *
- * Key behaviors:
- * - A field patch saves over the file as stored then, keeping removal apart
- *   from `null`, a byte-order mark and CRLF line ends; a failed patch saves
- *   again on another save attempt or new input
- * - Text typed over a field patch while it saves keeps the document the
- *   person saw and takes in the landed fields, so a later revert of them
- *   saves and a body the person never saw survives
- * - Fields typed while text saves go into the text, from the right base
- * - `run` reserves its path at once, sends held input first, refuses when
- *   it does not save, releases after a failure, and settle waits for it
+ * Covers command order while saving, owned nested field values, and `run`
+ * reservations around held source.
  */
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
@@ -26,7 +18,6 @@ import { BUSY, UNSAVED } from './edits.js';
 import type { FileContent } from './folder.js';
 import type { FolderEngine } from './handle.js';
 import { folderHandle } from './handle.js';
-import { readDocument } from './shared/document.js';
 import { SaveError } from './shared/errors.js';
 
 const encode = (text: string) => new TextEncoder().encode(text);
@@ -63,13 +54,13 @@ async function setup(files: Record<string, string> = {}) {
 	let started = Promise.withResolvers<void>();
 	/** Whether each write is refused as a full disk. */
 	let refusing = false;
-	engine.files.write = async (path, from, content, fields) => {
+	engine.files.write = async (path, from, content, fields, checkBody, replaceExact) => {
 		writes.push({ path, from, content });
 		started.resolve();
 		if (gate !== undefined) await gate.promise;
 		if (refusing)
 			return SaveError.StorageFailed({ cause: new Error('disk full') });
-		return write(path, from, content, fields);
+		return write(path, from, content, fields, checkBody, replaceExact);
 	};
 	cleanup.push(() => gate?.resolve());
 
@@ -86,6 +77,7 @@ async function setup(files: Record<string, string> = {}) {
 
 	return {
 		folder,
+		engine,
 		other,
 		writes,
 		/** Hold writes; resolves once the next one starts. */
@@ -141,9 +133,6 @@ async function setup(files: Record<string, string> = {}) {
 }
 
 const before = '---\ntitle: before\nlink: before\n---\nbody before\n';
-const external = before.replace('body before', 'body from another writer');
-const aliased =
-	'---\ntitle: &a before\nlink: *a\n---\nbody from another writer\n';
 
 test('a structured patch requires a known source; missing and binary sources refuse it', async () => {
 	const disk = await setup({ 'a.md': '---\ntitle: before\n---\nbody\n' });
@@ -175,75 +164,6 @@ test('a structured patch requires a known source; missing and binary sources ref
 	);
 	expect(folder.getStatus().unsaved).toEqual([]);
 });
-
-test('an assignment equal to its original value survives a guarded merge', async () => {
-	const original = '---\ntitle: before\n---\nbody\n';
-	const disk = await setup({ 'a.md': original });
-	const edit = disk.folder.files.edit('a.md');
-	expectOk(await edit.read());
-	expectOk(edit.change({ fields: { title: 'before' } }));
-	await disk.elsewhere('a.md', original, '---\ntitle: outside\n---\nbody\n');
-	await edit.save();
-	expect(await disk.stored('a.md')).toBe(original);
-	expect(edit.getPending()).toBeUndefined();
-});
-
-for (const { revert, refuseFirst, aliases } of [
-	{ revert: false, refuseFirst: false, aliases: false },
-	{ revert: true, refuseFirst: false, aliases: false },
-	{ revert: false, refuseFirst: true, aliases: false },
-	{ revert: false, refuseFirst: false, aliases: true },
-]) {
-	test(`text typed over a field patch while it saves keeps an outside body (revert: ${revert}, first save refused: ${refuseFirst}, aliases: ${aliases})`, async () => {
-		const disk = await setup({ 'a.md': before });
-		const { folder, writes } = disk;
-		const text = folder.files.edit('a.md');
-		expectOk(await text.read());
-		expect(text.getText()).toBe(before);
-		text.change({ fields: aliases ? { title: undefined } : { title: 'mine' } });
-		if (!aliases) await disk.unseen('a.md', before, external);
-		const started = disk.hold();
-		if (refuseFirst) disk.refuse(true);
-		const fieldSave = text.save();
-		await started;
-		if (aliases) {
-			// The accumulated patch resolves the alias after removing its anchor.
-			text.change({ fields: { link: 'independent' } });
-			await disk.elsewhere('a.md', before, aliased);
-			expectOk(await text.read());
-		}
-		const shown = text.getText();
-		if (shown === undefined) throw new Error('The field overlay was lost');
-		expect(shown.includes('body from another writer')).toBe(aliases);
-		expectOk(text.replaceText(`${shown}my appended line\n`));
-		disk.release();
-		await fieldSave;
-		disk.refuse(false);
-		if (aliases)
-			expect(
-				readDocument('a.md', encode((await disk.stored('a.md')) ?? '')).fields,
-			).toEqual({ link: 'before' });
-		expect(text.getPending()).toMatchObject({ kind: 'text', error: undefined });
-
-		if (revert) {
-			const held = text.getText();
-			if (held === undefined) throw new Error('The source edit was lost');
-			expectOk(text.replaceText(held.replace('title: mine', 'title: before')));
-		}
-		await text.save();
-		expect(text.getPending()).toBeUndefined();
-		if (refuseFirst) expect(writes[1]?.from).toEqual(before);
-		const stored = (await disk.stored('a.md')) ?? '';
-		if (aliases)
-			expect(readDocument('a.md', encode(stored)).fields).toEqual({
-				link: 'independent',
-			});
-		else expect(stored).toContain(revert ? 'title: before' : 'title: mine');
-		expect(stored).toContain('body from another writer');
-		expect(stored).toContain('my appended line');
-	});
-}
-
 test.each([false, true])(
 	'text typed over held fields starts from them (fields saving meanwhile: %s)',
 	async (saving) => {
@@ -265,7 +185,6 @@ test.each([false, true])(
 		);
 		expectOk(text.replaceText(`${text.getText()}append\n`));
 		expect(text.getPending()).toMatchObject({
-			kind: 'text',
 			text: '---\ntitle: mine\nlink: mine too\n---\nbody\nappend\n',
 		});
 		disk.release();
@@ -319,7 +238,7 @@ test.each([false, true])(
 		await first;
 		disk.refuse(false);
 		const held = text.getPending();
-		if (held?.kind !== 'text') throw new Error('The text was lost');
+		if (held === undefined) throw new Error('The text was lost');
 		expect(held.text).toContain('body typed in Files');
 		expect(held.text).toContain('title: changed in grid');
 		expect(held.text).not.toContain('obsolete:');
@@ -330,156 +249,6 @@ test.each([false, true])(
 		expect(text.getPending()).toBeUndefined();
 	},
 );
-
-test('held fields show over a fresh body, and save attempts a failed patch again', async () => {
-	const disk = await setup({
-		'a.md': '---\ntitle: before\n---\nbody before\n',
-	});
-	const { folder, writes } = disk;
-	const text = folder.files.edit('a.md');
-	await text.read();
-	expectOk(text.change({ fields: { title: 'mine' } }));
-	const remote = '---\ntitle: before\nother: remote\n---\nbody remote\n';
-	await disk.elsewhere(
-		'a.md',
-		'---\ntitle: before\n---\nbody before\n',
-		remote,
-	);
-	expectOk(await text.read());
-	expect(text.getText()).toContain('body remote');
-	expect(text.getText()).toContain('title: mine');
-
-	disk.refuse(true);
-	await text.save();
-	expect(writes[0]?.content).toContain('other: remote');
-	expect(writes[0]?.content).toContain('body remote');
-	expect(text.getPending()?.error?.name).toBe('StorageFailed');
-	await text.save();
-	expect(writes).toHaveLength(2);
-
-	disk.refuse(false);
-	await text.save();
-	expect(text.getPending()).toBeUndefined();
-	expect(await disk.stored('a.md')).toContain('title: mine');
-});
-
-test('text typed over held fields keeps the latest body; fields over malformed source stay as fields', async () => {
-	const disk = await setup({ 'a.md': '---\ntitle: before\n---\nbody\n' });
-	const { folder } = disk;
-	const text = folder.files.edit('a.md');
-	await text.read();
-	text.change({ fields: { title: 'mine' } });
-	await disk.elsewhere(
-		'a.md',
-		'---\ntitle: before\n---\nbody\n',
-		'---\ntitle: before\n---\nnew body\n',
-	);
-	expectOk(await text.read());
-	expectOk(text.replaceText(`${text.getText()}typed\n`));
-	await text.save();
-	expect(await disk.stored('a.md')).toBe(
-		'---\ntitle: mine\n---\nnew body\ntyped\n',
-	);
-
-	text.change({ fields: { title: 'second' } });
-	const broken = '---\ntitle: [\n---\nbroken\n';
-	await disk.elsewhere(
-		'a.md',
-		'---\ntitle: mine\n---\nnew body\ntyped\n',
-		broken,
-	);
-	expectOk(await text.read());
-	const pending = text.getPending();
-	expect(expectErr(text.replaceText('repair')).name).toBe('InvalidFields');
-	expect(text.getPending()).toBe(pending);
-	expect(text.getPending()).toMatchObject({
-		kind: 'document',
-		fields: { title: 'second' },
-		error: undefined,
-	});
-	// Fields that no longer apply leave the stored text to show.
-	expect(text.getText()).toBe(broken);
-	const [unsaved] = await folder.settle();
-	expect(unsaved).toMatchObject({
-		kind: 'document',
-		fields: { title: 'second' },
-		error: { name: 'Unparseable' },
-	});
-	expect(text.discard()).toBe(unsaved as never);
-});
-
-test('a failed patch keeps removal apart from null, then retries over fresh source with its mark and line ends', async () => {
-	const path = 'nested/tasks/a.md';
-	const first = '﻿---\r\nobsolete: old\r\nunknown: keep\r\n---\r\nbody\r\n';
-	const disk = await setup({ [path]: first });
-	const { folder, other, writes } = disk;
-	const text = folder.files.edit(path);
-	await text.read();
-	expectOk(
-		text.change({
-			fields: {
-				obsolete: undefined,
-				destination: null,
-			},
-		}),
-	);
-	disk.refuse(true);
-	const [held] = await folder.settle();
-	if (held?.kind !== 'document')
-		throw new Error('The failed field patch was lost');
-	expect(Object.hasOwn(held.fields, 'obsolete')).toBe(true);
-	expect(held.fields).toEqual({ obsolete: undefined, destination: null });
-	expect(writes).toHaveLength(1);
-
-	const second =
-		'﻿---\r\nobsolete: changed externally\r\nunknown: keep\r\nremote: added\r\n---\r\nbody from another writer\r\n';
-	expectOk(await other.files.write(path, first, second));
-	disk.refuse(false);
-	await text.save();
-	const stored = (await disk.stored(path)) ?? '';
-	const document = readDocument(path, encode(stored));
-	expect(document.fields).toEqual({
-		unknown: 'keep',
-		remote: 'added',
-		destination: null,
-	});
-	expect(document.body).toContain('body from another writer');
-	expect(stored.startsWith('﻿')).toBe(true);
-	expect(stored.replaceAll('\r\n', '')).not.toContain('\n');
-	expect(text.getPending()).toBeUndefined();
-	expect(text.getText()).toBe(stored);
-});
-
-test('close saves failed patches after storage and a missing file recover', async () => {
-	const disk = await setup({ 'a.md': '---\ntitle: before\n---\nbody\n' });
-	const { folder, other, writes } = disk;
-	const text = folder.files.edit('a.md');
-	await text.read();
-	text.change({ fields: { title: 'mine' } });
-	disk.refuse(true);
-	await text.save();
-	expect(writes).toHaveLength(1);
-	disk.refuse(false);
-
-	const gone = folder.files.edit('b.md');
-	expectOk(await other.files.write('b.md', null, '---\ntitle: b\n---\n'));
-	await gone.read();
-	gone.change({ fields: { title: 'mine' } });
-	expectOk(await other.files.delete('b.md', '---\ntitle: b\n---\n'));
-	await gone.save();
-	expect(gone.getPending()).toBeUndefined();
-	expect(await disk.stored('b.md')).toBe('---\ntitle: mine\n---\n');
-
-	const unsaved = await folder.close();
-	expect(unsaved).toEqual([]);
-	expect(writes).toHaveLength(3);
-	expect(await disk.stored('a.md')).toBe('---\ntitle: mine\n---\nbody\n');
-	expect(await disk.stored('b.md')).toBe('---\ntitle: mine\n---\n');
-});
-
-// ============================================================================
-// Reserved work
-// ============================================================================
 
 test('work admitted before close writes its reserved path through the folder while close waits', async () => {
 	const disk = await setup({ 'epicenter.json': '{}' });
@@ -581,7 +350,6 @@ test('held input that does not save refuses reserved work and stays readable', a
 	expect(refused).toMatchObject({ name: 'NotStarted', reason: UNSAVED });
 	expect(changed).toBe(false);
 	expect(source.getPending()).toMatchObject({
-		kind: 'text',
 		text: 'my source',
 	});
 	expect(source.isLocked()).toBe(false);
@@ -622,10 +390,8 @@ test('failed reserved work releases its path while another file saves independen
 	expect(folder.getStatus()).toMatchObject({ saving: false, unsaved: [] });
 });
 
-for (const malformed of [false, true]) {
-	test(`accepted nested fields are owned copies over ${malformed ? 'malformed' : 'valid'} source`, async () => {
-		const initial = malformed ? '---\ntitle: [broken\n---\nbody\n' : before;
-		const disk = await setup({ 'a.md': initial });
+test('accepted nested fields are owned copies in the source draft', async () => {
+		const disk = await setup({ 'a.md': before });
 		const edit = disk.folder.files.edit('a.md');
 		expectOk(await edit.read());
 		const payload = new Proxy(
@@ -635,16 +401,10 @@ for (const malformed of [false, true]) {
 		expectOk(edit.change({ fields: { payload } }));
 		payload.tags.push('mutated after acceptance');
 		payload.options.level = 9;
-		expect(edit.getPending()).toMatchObject({
-			fields: { payload: { tags: ['accepted'], options: { level: 1 } } },
+		expect(edit.getMarkdown()?.fields?.payload).toEqual({
+			tags: ['accepted'], options: { level: 1 },
 		});
-		if (malformed) {
-			expect(edit.getMarkdown()?.fields).toBeUndefined();
-			expect(edit.getMarkdown()?.body).toBe('body\n');
-			await edit.save();
-			expect(edit.getPending()?.error?.name).toBe('Unparseable');
-			await disk.elsewhere('a.md', initial, before);
-		}
+		expect(edit.getPending()?.text).toBe(edit.getText());
 		await edit.save();
 		expect(edit.getPending()).toBeUndefined();
 		expect(edit.getMarkdown()?.fields?.payload).toEqual({
@@ -652,7 +412,6 @@ for (const malformed of [false, true]) {
 			options: { level: 1 },
 		});
 	});
-}
 
 test('nested values accepted while saving remain owned through the next save', async () => {
 	const disk = await setup({ 'a.md': before });
@@ -672,33 +431,4 @@ test('nested values accepted while saving remain owned through the next save', a
 	await edit.save();
 	expect(edit.getPending()).toBeUndefined();
 	expect(edit.getMarkdown()?.fields?.payload).toEqual({ values: ['next'] });
-});
-
-test('failed fields remain recoverable after external malformed source and save after repair', async () => {
-	const disk = await setup({ 'a.md': before });
-	const edit = disk.folder.files.edit('a.md');
-	expectOk(await edit.read());
-	expectOk(edit.change({ fields: { title: 'Held' } }));
-	disk.refuse(true);
-	await edit.save();
-	disk.refuse(false);
-	const pending = edit.getPending();
-	expect(pending?.error?.name).toBe('StorageFailed');
-	const broken = '---\ntitle: [broken\n---\nOutside body\n';
-	await disk.elsewhere('a.md', before, broken);
-	expectOk(await edit.read());
-	expect(edit.getText()).toBe(broken);
-	expect(edit.getMarkdown()?.fields).toBeUndefined();
-	expect(edit.getMarkdown()?.body).toBe('Outside body\n');
-	expect(edit.getPending()).toBe(pending);
-	expect(
-		expectErr(edit.replaceText('repair that would lose held fields')).name,
-	).toBe('InvalidFields');
-	expect(edit.getPending()).toBe(pending);
-	const repaired = '---\ntitle: Repaired\nextra: kept\n---\nOutside body\n';
-	await disk.elsewhere('a.md', broken, repaired);
-	await edit.save();
-	expect(edit.getPending()).toBeUndefined();
-	expect(edit.getMarkdown()?.fields).toEqual({ title: 'Held', extra: 'kept' });
-	expect(await disk.stored('a.md')).toContain('Outside body\n');
 });

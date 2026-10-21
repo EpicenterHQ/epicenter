@@ -11,13 +11,12 @@
  * - Opening and listing write nothing; a typed title or body saves once it
  *   is sent, and keeps every key Honeycrisp does not name
  * - Typing during a running save saves next; a read never replaces typing,
- *   and the save merges what another tab saved meanwhile
- * - A list action sets its field and keeps the fields another tab changed
+ *   and a changed outside source reports a whole-file conflict
+ * - A list action sets its field; an outside change stays available for resolution
  * - A failed save keeps the typing on screen and says so; Save again saves it
  * - A note that does not read as one is listed for repair, opens as text,
  *   saves as typed, and opens as a note once repaired
- * - A note open as its file takes text edits, merged by line with another
- *   tab's change, and permits row patches meanwhile
+ * - A note open as its file takes source edits and permits row changes
  * - Create opens the new note in the folder shown; deleting a folder moves
  *   its notes out first, and refuses while a note cannot say its folder or
  *   before moving any note when it finds one in the folder it did not name
@@ -129,7 +128,7 @@ test('a body typed while its save runs is saved next, from the body that save se
 	expect(note.getMarkdown()?.body).toBe('one two\n');
 });
 
-test('a read that lands while a body is held does not replace it, and the save merges what it brought', async () => {
+test('a read that lands while a body is held leaves it pinned until resolution', async () => {
 	const fixture = await setup({
 		[A]: noteText({ body: 'one\n\ntwo\n' }),
 	});
@@ -145,12 +144,16 @@ test('a read that lands while a body is held does not replace it, and the save m
 	expect(note.getMarkdown()?.body).toBe('one!\n\ntwo\n');
 
 	await saveA(fixture);
+	expect(note.getPending()?.error?.name).toBe('Conflict');
+	expect(await text(A)).toContain('one\n\ntwo?\n');
+	expectOk(note.change({ body: 'one!\n\ntwo?\n' }));
+	await note.resolveConflict('draft');
 	await quiet(notes);
 	expect(await text(A)).toContain('one!\n\ntwo?\n');
 	expect(note.getMarkdown()?.body).toBe('one!\n\ntwo?\n');
 });
 
-test('a list action sets its field at once and keeps the fields another tab changed', async () => {
+test('a list action stays pinned when another tab changed a field', async () => {
 	const { notes, otherTab, text } = await setup();
 	const tab = await otherTab();
 	const theirs = await noteIn(tab, 'a');
@@ -160,6 +163,10 @@ test('a list action sets its field at once and keeps the fields another tab chan
 	// The list still shows the title before their save.
 	expect(notes.patchNote(A, { pinned: true })).toBeUndefined();
 	await until(() => !notes.isWriting(A), 'the pin to save');
+	const edit = notes.folder.tables.notes.edit('a');
+	await until(() => edit.getPending()?.error?.name === 'Conflict', 'the field conflict');
+	expectOk(edit.change({ fields: { title: 'Theirs' } }));
+	await edit.resolveConflict('draft');
 	await quiet(notes);
 	const saved = (await text(A)) ?? '';
 	expect(saved).toContain('pinned: true');
@@ -231,10 +238,7 @@ test('a note whose text is not a note is listed for repair, opens as text, saves
 	expect(notes.patchNote(A, { pinned: true })).toBeDefined();
 
 	expectOk(typeInto(notes, A, noteText()));
-	expect(notes.folder.files.edit(A).getPending()).toMatchObject({
-		kind: 'text',
-		text: noteText(),
-	});
+	expect(notes.folder.files.edit(A).getPending()?.text).toBe(noteText());
 	await notes.folder.files.edit(A).save();
 	await quiet(notes);
 	expect(await text(A)).toBe(noteText());
@@ -246,7 +250,7 @@ test('a note whose text is not a note is listed for repair, opens as text, saves
 	).toBe(false);
 });
 
-test('a note open as its file takes text edits merged by line with another tab, and permits row patches meanwhile', async () => {
+test('a note open as its file permits row commands and resolves outside text explicitly', async () => {
 	const { notes, observe, otherTab, text } = await setup({
 		[A]: noteText({ body: 'one\n\ntwo\n' }),
 	});
@@ -263,6 +267,9 @@ test('a note open as its file takes text edits merged by line with another tab, 
 	const typed = noteText({ title: 'Mine', body: 'one!\n\ntwo\n' });
 	expectOk(typeInto(notes, A, typed));
 	await notes.folder.files.edit(A).save();
+	expect(note.getPending()?.error?.name).toBe('Conflict');
+	expectOk(note.replaceText(noteText({ title: 'Mine', body: 'one!\n\ntwo?\n' })));
+	await note.resolveConflict('draft');
 	await quiet(notes);
 	const saved = (await text(A)) ?? '';
 	expect(saved).toContain('title: "Mine"');
@@ -496,10 +503,7 @@ test('a failed file edit stays visible across selection and accepts a field patc
 	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
 		'Keep this unfinished file\n',
 	);
-	expect(notes.folder.files.edit(A).getPending()).toMatchObject({
-		kind: 'text',
-		text: changed,
-	});
+	expect(notes.folder.files.edit(A).getPending()?.text).toBe(changed);
 	failSaves(false);
 	expect(notes.patchNote(A, { pinned: true })).toBeUndefined();
 	await notes.folder.files.edit(A).save();
