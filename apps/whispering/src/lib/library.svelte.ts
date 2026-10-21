@@ -889,18 +889,6 @@ export function createLibrary(
 		},
 		/** The input held for this path, from either view, read reactively. */
 		heldAt: (path: string) => textAt(path).pending,
-		/**
-		 * The row of `table` at `path` as last read, whether or not it reads:
-		 * its exact source and, when it does not read, its issues.
-		 */
-		rowSource<T extends RowTable>(
-			table: T,
-			path: string,
-		): ListedRow<T> | undefined {
-			const stem = rowIdOf(table, path);
-			if (stem === undefined) return undefined;
-			return listed(table)?.find((row) => row.id === stem);
-		},
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText(path: string) {
 			return showsText(path);

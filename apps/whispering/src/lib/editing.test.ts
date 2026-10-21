@@ -23,8 +23,8 @@
  * - Typing into a row deleted elsewhere brings the row back: an unseen
  *   deletion never erases an edit
  * - A row that is not valid is named for repair, edited as its text, and
- *   edited as fields once it reads; switching refuses while the edit being
- *   left did not save, either way
+ *   edited as fields once it reads; switching keeps unsaved input and its
+ *   recovery state in either view
  * - A deletion saves the typing first, then removes the recording and its
  *   results, keeping its audio
  * - Close waits for a save being written
@@ -245,9 +245,6 @@ test('a read never touches notes typed, and their save merges with the change it
 	await writeElsewhere(root, editor.path, recordingText('Theirs', audioPath));
 	await settle(library);
 	// The listing reads the file; the notes typed are untouched.
-	expect(library.rowSource('recordings', editor.path)?.fields).toMatchObject({
-		title: 'Theirs',
-	});
 	expect(editor.draft.body).toBe('Mine.\n');
 	expect(editor.draft.fields.title).toBe('Theirs');
 
@@ -345,9 +342,8 @@ test('discarded field input preserves removals, literal values and the body for 
 	const { library, root, failWrites } = await open();
 	const editor = await record(library);
 	const before = await text(root, editor.path);
-	const observed = library.rowSource('recordings', editor.path)!;
 	// The listing read answered the edit's document.
-	const edit = library.local.folder.tables.recordings.edit(observed.id);
+	const edit = library.rowEdit('recordings', editor.path);
 	failWrites(editor.path);
 	expectOk(
 		edit.change({
@@ -362,7 +358,7 @@ test('discarded field input preserves removals, literal values and the body for 
 		remove: ['durationMs'],
 		body: 'Kept notes.\n',
 	});
-	expect(edit.getPending()).toBeUndefined();
+	expect(edit.pending).toBeUndefined();
 	expect(await text(root, editor.path)).toBe(before);
 	failWrites();
 });

@@ -131,6 +131,11 @@ test('saved file text stays shown when the reread fails, and typing on keeps it'
 			target,
 			'textarea[aria-label="Contents of draft.txt"]',
 		);
+	// The edit's asynchronous read can finish after the file query does.
+	for (let tries = 0; tries < 500 && input() === null; tries++) {
+		await Bun.sleep(2);
+		flushSync();
+	}
 	expect(input()?.value).toBe('Original text');
 	const read = library.local.folder.files.read;
 	library.local.folder.files.read = async (file) =>
@@ -182,6 +187,29 @@ test('a saved transcript stays shown when the reread fails, and typing on keeps 
 	expect(await readFile(join(root, A), 'utf8')).toBe(
 		transcript('Alpha, saved.\nMore.\n'),
 	);
+});
+
+test('a transcript card shows valid unsaved Source input and keeps it when returning to its body', async () => {
+	const { library, target, root, disk } = await open({
+		'recordings/one.md': recording('One', ''),
+		[A]: transcript('Alpha.\n'),
+	});
+	await show(library, 'recordings/one.md');
+	expect(target.querySelector('[data-testid="transcript-text"]')).not.toBeNull();
+	expect(await library.editSource(A)).toBeUndefined();
+	library.editText(library.textEdit(A), transcript('Typed in Source.\n'));
+	flushSync();
+	expect(target.querySelector('[data-testid="transcript-text-readonly"]')?.textContent).toBe('Typed in Source.\n');
+
+	disk.refusing = true;
+	await library.textEdit(A).save();
+	flushSync();
+	expect(target.querySelector('[data-testid="transcript-text-readonly"]')?.textContent).toBe('Typed in Source.\n');
+	expect(await library.useForm(A)).toBeUndefined();
+	flushSync();
+	expect(target.querySelector<HTMLTextAreaElement>('[data-testid="transcript-text"]')?.value).toBe('Typed in Source.\n');
+	expect(library.heldAt(A)?.error).toBeDefined();
+	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha.\n'));
 });
 
 test('typing in a transcript’s view edits the path it shows, and writes it', async () => {
@@ -268,7 +296,7 @@ test('typing into a recording deleted elsewhere brings it back with the typing: 
 	).not.toBeNull();
 });
 
-test('a transformation that does not read opens as its text with its issues, and Instructions opens once it reads', async () => {
+test('a transformation opens in Source when invalid and clears repaired diagnostics before saving', async () => {
 	const broken = '---\ntitle: Clean up\n---\nTidy.\n';
 	const { library, target, root } = await open(
 		{ [RECIPE]: broken },
@@ -286,6 +314,11 @@ test('a transformation that does not read opens as its text with its issues, and
 	expect(instructions()?.disabled).toBe(true);
 
 	type(source(), '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
+	flushSync();
+	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
+	expect(instructions()?.disabled).toBe(false);
+	expect(library.heldAt(RECIPE)).toBeDefined();
+	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(broken);
 	leave(source());
 	await settle(library);
 	flushSync();

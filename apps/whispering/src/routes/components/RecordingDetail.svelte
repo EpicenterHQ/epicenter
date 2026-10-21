@@ -83,8 +83,8 @@
 	const text = $derived(
 		asText && (textEdit.pending !== undefined || opened.data?.kind === 'text') ? textEdit.text : undefined,
 	);
-	/** Why the file, as last saved, is not a recording yet. Typing saves after a pause, and this follows. */
-	const issues = $derived(asText ? (library.rowSource(RECORDINGS, path)?.issues ?? undefined) : undefined);
+	/** Why the current source does not read as a recording, including unsaved input. */
+	const issues = $derived(asText ? (rowEdit.row?.issues ?? undefined) : undefined);
 	const id = $derived(rowIdOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */

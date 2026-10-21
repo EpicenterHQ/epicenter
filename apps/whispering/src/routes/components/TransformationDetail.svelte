@@ -87,21 +87,15 @@
 	const source = $derived(
 		asText && (textEdit.pending !== undefined || opened.data?.kind === 'text') ? textEdit.text : undefined,
 	);
-	/**
-	 * The file as last saved, while its text is what is edited: a recipe when
-	 * it reads, and why it does not when it does not. Typing saves after a
-	 * pause, and this follows.
-	 */
-	const saved = $derived(asText ? library.rowSource(TRANSFORMATIONS, path) : undefined);
-	const issues = $derived(saved?.issues ?? undefined);
+	/** The current source as a row, including unsaved input and its issues. */
+	const sourceRow = $derived(asText ? rowEdit.row : undefined);
+	const issues = $derived(sourceRow?.issues ?? undefined);
 	// The edits outlive the view; send now.
 	onDestroy(() => void rowEdit.save());
 
-	/** The row already includes typed fields and body; source mode uses the last valid saved recipe. */
+	/** Either view resolves the same current recipe, including unsaved input. */
 	const recipe = $derived(
-		row ? { fields: row.fields, body: row.body }
-			: saved?.issues === null ? { fields: saved.fields, body: saved.body }
-				: undefined,
+		row ?? (sourceRow?.issues === null ? sourceRow : undefined),
 	);
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
@@ -329,7 +323,7 @@
 								() => shown.body,
 								(value) => library.editBody(rowEdit, value)
 							}
-							onblur={() => void rowEdit.save()}
+						onblur={() => void rowEdit.save()}
 							disabled={locked}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"

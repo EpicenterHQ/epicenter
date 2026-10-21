@@ -72,9 +72,9 @@
 	const text = $derived(
 		textEdit.pending !== undefined || opened.data?.kind === 'text' ? textEdit.text : undefined,
 	);
-	/** Why a row file, as last saved, is not a row yet. Typing saves after a pause, and this follows. */
+	/** Why the current source does not read as a row, including unsaved input. */
 	const issues = $derived(
-		table === undefined || text === undefined ? undefined : (library.rowSource(table, path)?.issues ?? undefined),
+		table === undefined || text === undefined ? undefined : (library.rowEdit(table, path).row?.issues ?? undefined),
 	);
 	const locked = $derived(library.locked(path));
 	const pending = $derived(library.heldAt(path));

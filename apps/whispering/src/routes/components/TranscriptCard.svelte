@@ -42,7 +42,6 @@
 	// svelte-ignore state_referenced_locally
 	const rowEdit = library.rowEdit(TRANSCRIPTIONS, own);
 	const row = $derived.by(() => {
-		if (asText) return undefined;
 		const shown = rowEdit.row;
 		return shown?.issues === null ? shown : undefined;
 	});
@@ -80,7 +79,7 @@
 	{/if}
 	{#if progress.kind === 'running' || progress.kind === 'writing'}
 		<!-- The answer is on its way into this file. A file with text is not filled, so typing now would keep it out. -->
-	{:else if row}
+	{:else if row && !asText}
 		{@const shown = row}
 		<Textarea
 			class="min-h-32 resize-y font-sans"
