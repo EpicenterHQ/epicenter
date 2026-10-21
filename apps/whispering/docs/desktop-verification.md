@@ -8,6 +8,35 @@
 
 ## Closing and quitting inside Epicenter (October 21, 2026)
 
+### Current policy: always-confirm Quit and unsaved-only Close
+
+Epicenter application Quit always confirms and mentions an active recording.
+Window Close confirms only for unsaved edits. Closing a saved recording window
+ends capture silently and keeps its audio. No page reports save status or reads
+native recording status for departure.
+
+**Live macOS verification of this policy:**
+
+- Saved application Quit shows one native confirmation; repeated Cmd-Q adds no
+  sheet, and Cancel returns to a usable launcher.
+- Closing a saved recording window shows no warning and finalizes readable
+  16 kHz PCM16 audio (183,979 frames, 11.499 seconds).
+- A permission-denied title save still shows the unsaved-edit Close warning.
+  Cancel retains the complete title and running capture.
+- Application Quit adds the active-recording warning. Repeated requests share
+  its sheet; Cancel keeps capture and input. Quit Anyway exits and finalizes
+  readable audio (911,019 frames, 56.939 seconds); the failed title stays
+  unwritten. Fixture permissions were restored and the isolated app exited.
+
+Source checks confirm that the page-status events, timeout, and page-facing
+recording command are removed. Shared close tests and native Quit tests cover
+failure recovery and stale answers. Windows and Linux remain unverified.
+
+### Earlier native checks
+
+The checks below record the preceding policy. Silent saved application Quit and
+recording-only Close warnings are superseded by the current policy above.
+
 The page awaits one native confirmation for its pending or failed Folder saves
 and its native recording. Cancel keeps both. Confirmed destruction finalizes
 captured audio without waiting for pending metadata saves. Each window answers

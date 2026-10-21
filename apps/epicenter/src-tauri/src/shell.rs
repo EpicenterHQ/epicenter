@@ -1,23 +1,18 @@
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
 
 use tauri::image::Image;
 use tauri::menu::MenuBuilder;
 use tauri::tray::TrayIconBuilder;
-use tauri::{
-    AppHandle, Emitter, EventTarget, ExitRequestApi, Listener, Manager, Runtime, WebviewWindow,
-};
+use tauri::{AppHandle, ExitRequestApi, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-use tauri_plugin_epicenter_folder::FolderExt;
 use tauri_plugin_epicenter_recorder::recording_owner;
 
 use crate::{request_window, BuiltInApp, DesktopAppHandle};
 
 const TRAY_ID: &str = "epicenter-tray";
 
-/// Application Quit owns one check and confirmation across all folder windows.
+/// Application Quit always asks once, independently of each window’s close.
 /// Window close is answered independently by each page.
 #[derive(Default)]
 pub(crate) struct QuitRequest(Mutex<QuitState>);
@@ -26,45 +21,25 @@ pub(crate) struct QuitRequest(Mutex<QuitState>);
 enum QuitState {
     #[default]
     Ready,
-    Checking {
+    Prompting {
         id: u64,
         parent: Option<String>,
     },
     Approved,
 }
 
-/// Whether the invoking window owns a recording that closing would end.
-/// The recorder remains the source of truth; the page stores no copy.
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn window_is_recording<R: Runtime>(app: AppHandle<R>, window: tauri::Window<R>) -> bool {
-    recording_owner(&app).as_deref() == Some(window.label())
-}
+static NEXT_QUIT: AtomicU64 = AtomicU64::new(1);
 
-#[derive(serde::Deserialize)]
-struct SaveReply {
-    id: u64,
-    label: String,
-    pending: bool,
-}
-
-static NEXT_CHECK: AtomicU64 = AtomicU64::new(1);
-
-fn quit_message(recording: bool, unsaved: bool) -> Option<&'static str> {
-    match (recording, unsaved) {
-        (false, false) => None,
-        (true, false) => Some(
-            "A recording is running. Quitting ends it and keeps the audio captured so far.",
-        ),
-        (false, true) => Some("Changes may not have saved. Quit anyway?"),
-        (true, true) => Some(
-            "A recording is running, and changes may not have saved. Quitting ends it and keeps the audio captured so far.",
-        ),
+fn quit_message(recording: bool) -> &'static str {
+    if recording {
+        "A recording is running. Quitting ends it and keeps the audio captured so far. Unsaved changes may be lost."
+    } else {
+        "Unsaved changes may be lost."
     }
 }
 
-/// Ask every mounted folder page for its current save status and the recorder
-/// whether it is capturing. Repeated Quit requests join this one decision.
+/// Called by ExitRequested on the native event thread. Quit always asks;
+/// repeated requests share this sheet, without querying any folder page.
 pub(crate) fn request_quit<R: Runtime>(app: &AppHandle<R>, api: &ExitRequestApi, code: i32) {
     let quit = app.state::<QuitRequest>();
     let mut state = quit
@@ -75,74 +50,45 @@ pub(crate) fn request_quit<R: Runtime>(app: &AppHandle<R>, api: &ExitRequestApi,
         return;
     }
     api.prevent_exit();
-    if matches!(*state, QuitState::Checking { .. }) {
+    if matches!(*state, QuitState::Prompting { .. }) {
         return;
     }
-    let id = NEXT_CHECK.fetch_add(1, Ordering::Relaxed);
-    *state = QuitState::Checking { id, parent: None };
+    // Native getters do not yield the event thread. Choose and record the
+    // parent before showing or focusing it, which can deliver window events.
+    let windows = app.webview_windows();
+    let parent = windows
+        .values()
+        .find(|window| window.is_focused().unwrap_or(false))
+        .or_else(|| {
+            windows
+                .values()
+                .find(|window| window.is_visible().unwrap_or(false))
+        })
+        .or_else(|| windows.values().next());
+    let id = NEXT_QUIT.fetch_add(1, Ordering::Relaxed);
+    *state = QuitState::Prompting {
+        id,
+        parent: parent.map(|window| window.label().to_owned()),
+    };
     drop(state);
 
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let unsaved = needs_confirmation(&app, id).await;
-        // Read after the pages answer so a recording started meanwhile counts.
-        let Some(message) = quit_message(recording_owner(&app).is_some(), unsaved) else {
-            finish_quit(&app, id, code, true);
-            return;
-        };
-        let windows = app.webview_windows();
-        let parent = windows
-            .values()
-            .find(|window| window.is_focused().unwrap_or(false))
-            .or_else(|| {
-                windows
-                    .values()
-                    .find(|window| window.is_visible().unwrap_or(false))
-            })
-            .or_else(|| windows.values().next());
-        let Some(parent) = parent else {
-            finish_quit(&app, id, code, true);
-            return;
-        };
-        {
-            let quit = app.state::<QuitRequest>();
-            let mut state = quit
-                .0
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let QuitState::Checking {
-                id: current,
-                parent: owner,
-            } = &mut *state
-            else {
-                return;
-            };
-            if *current != id {
-                return;
-            }
-            *owner = Some(parent.label().to_owned());
-        }
-        // The parent may have closed while the pages answered. A destroyed
-        // parent need not deliver a dialog callback; release this Quit attempt.
-        if app.get_webview_window(parent.label()).is_none() {
-            finish_quit(&app, id, code, false);
-            return;
-        }
+    let mut dialog = app
+        .dialog()
+        .message(quit_message(recording_owner(app).is_some()))
+        .title("Quit Epicenter?")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Quit Anyway".into(),
+            "Cancel".into(),
+        ));
+    if let Some(parent) = parent {
         if let Err(error) = parent.show().and_then(|()| parent.set_focus()) {
             log::warn!("could not reveal the Quit confirmation window: {error}");
         }
-        let finish_app = app.clone();
-        app.dialog()
-            .message(message)
-            .parent(parent)
-            .title("Quit Epicenter?")
-            .kind(MessageDialogKind::Warning)
-            .buttons(MessageDialogButtons::OkCancelCustom(
-                "Quit Anyway".into(),
-                "Cancel".into(),
-            ))
-            .show(move |confirmed| finish_quit(&finish_app, id, code, confirmed));
-    });
+        dialog = dialog.parent(parent);
+    }
+    let finish_app = app.clone();
+    dialog.show(move |confirmed| finish_quit(&finish_app, id, code, confirmed));
 }
 
 /// An independently confirmed window close can remove the Quit sheet's parent.
@@ -153,7 +99,7 @@ pub(crate) fn quit_parent_ended<R: Runtime>(app: &AppHandle<R>, label: &str) {
         .0
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if matches!(&*state, QuitState::Checking { parent: Some(parent), .. } if parent == label) {
+    if matches!(&*state, QuitState::Prompting { parent: Some(parent), .. } if parent == label) {
         *state = QuitState::Ready;
     }
 }
@@ -164,7 +110,7 @@ fn finish_quit<R: Runtime>(app: &AppHandle<R>, id: u64, code: i32, confirmed: bo
         .0
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !matches!(*state, QuitState::Checking { id: current, .. } if current == id) {
+    if !matches!(*state, QuitState::Prompting { id: current, .. } if current == id) {
         return;
     }
     *state = if confirmed {
@@ -176,68 +122,6 @@ fn finish_quit<R: Runtime>(app: &AppHandle<R>, id: u64, code: i32, confirmed: bo
     if confirmed {
         app.exit(code);
     }
-}
-
-async fn needs_confirmation<R: Runtime>(app: &AppHandle<R>, id: u64) -> bool {
-    let windows = folder_windows(app);
-    if windows.is_empty() {
-        return false;
-    }
-
-    let (sender, mut replies) = tokio::sync::mpsc::unbounded_channel();
-    let listener = app.listen_any("epicenter://quit-status", move |event| {
-        if let Ok(reply) = serde_json::from_str::<SaveReply>(event.payload()) {
-            if reply.id == id {
-                let _ = sender.send(reply);
-            }
-        }
-    });
-    let mut waiting: HashSet<String> = windows
-        .iter()
-        .map(|window| window.label().to_owned())
-        .collect();
-    for window in &windows {
-        if let Err(error) = app.emit_to(
-            EventTarget::webview_window(window.label()),
-            "epicenter://quit-check",
-            id,
-        ) {
-            log::warn!("could not check save status of {}: {error}", window.label());
-            app.unlisten(listener);
-            return true;
-        }
-    }
-    let result = tokio::time::timeout(Duration::from_millis(750), async {
-        while !waiting.is_empty() {
-            let Some(reply) = replies.recv().await else {
-                return true;
-            };
-            if !waiting.remove(&reply.label) {
-                continue;
-            }
-            if reply.pending {
-                return true;
-            }
-        }
-        false
-    })
-    .await;
-    app.unlisten(listener);
-    // A page that did not answer, or a folder window opened during the check,
-    // leaves the answer uncertain, so show the confirmation.
-    result.unwrap_or(true)
-        || folder_windows(app).iter().any(|window| {
-            !windows
-                .iter()
-                .any(|checked| checked.label() == window.label())
-        })
-}
-
-fn folder_windows<R: Runtime>(app: &AppHandle<R>) -> Vec<WebviewWindow<R>> {
-    app.webview_windows()
-        .into_values()
-        .filter(|window| app.folders().bound(window.label()).is_ok())
-        .collect()
 }
 
 pub fn create_tray(app: &DesktopAppHandle) -> tauri::Result<()> {
@@ -289,7 +173,7 @@ mod tests {
     #[test]
     fn a_closed_quit_parent_releases_the_attempt_and_late_answers_cannot_end_its_replacement() {
         let app = tauri::test::mock_builder()
-            .manage(QuitRequest(Mutex::new(QuitState::Checking {
+            .manage(QuitRequest(Mutex::new(QuitState::Prompting {
                 id: 1,
                 parent: Some("closing".into()),
             })))
@@ -299,11 +183,11 @@ mod tests {
         quit_parent_ended(app.handle(), "another-window");
         assert!(matches!(
             *quit.0.lock().unwrap(),
-            QuitState::Checking { id: 1, .. }
+            QuitState::Prompting { id: 1, .. }
         ));
         quit_parent_ended(app.handle(), "closing");
         assert!(matches!(*quit.0.lock().unwrap(), QuitState::Ready));
-        *quit.0.lock().unwrap() = QuitState::Checking {
+        *quit.0.lock().unwrap() = QuitState::Prompting {
             id: 2,
             parent: Some("remaining".into()),
         };
@@ -311,7 +195,7 @@ mod tests {
             finish_quit(app.handle(), 1, 0, answer);
             assert!(matches!(
                 *quit.0.lock().unwrap(),
-                QuitState::Checking { id: 2, .. }
+                QuitState::Prompting { id: 2, .. }
             ));
         }
         finish_quit(app.handle(), 2, 0, false);
@@ -319,24 +203,15 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_application_with_no_recording_needs_no_quit_warning() {
-        assert_eq!(quit_message(false, false), None);
+    fn quit_always_warns_even_without_a_recording() {
+        assert_eq!(quit_message(false), "Unsaved changes may be lost.");
     }
 
     #[test]
-    fn quit_warns_about_unsaved_or_unknown_saves_without_claiming_a_save_will_finish() {
-        let message = quit_message(false, true).unwrap();
-        assert!(message.contains("may not have saved"));
-        assert!(!message.contains("recording"));
-    }
-
-    #[test]
-    fn quit_combines_a_recording_and_unsaved_input_in_one_warning() {
-        for unsaved in [false, true] {
-            let message = quit_message(true, unsaved).unwrap();
-            assert!(message.contains("recording"));
-            assert!(message.contains("keeps the audio captured so far"));
-            assert_eq!(message.contains("may not have saved"), unsaved);
-        }
+    fn quit_adds_the_recording_warning_without_promising_pending_changes_saved() {
+        let message = quit_message(true);
+        assert!(message.contains("recording"));
+        assert!(message.contains("keeps the audio captured so far"));
+        assert!(message.contains("Unsaved changes may be lost"));
     }
 }

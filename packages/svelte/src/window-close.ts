@@ -9,8 +9,8 @@
  * itself.
  *
  * Each page answers its own close with one awaited native confirmation for
- * unfinished saves or a recording. Epicenter supplies only the recording
- * fact, from its native recorder; application Quit stays in `shell.rs`.
+ * unfinished saves. Native destruction ends a recording and keeps its audio;
+ * a recording adds no close warning. Application Quit stays in `shell.rs`.
  * Repeated requests for this window join its current answer. Other windows
  * answer independently. Destroying needs `core:window:allow-destroy`; a failed
  * destroy keeps the listener and restores input so another close can be tried.
@@ -22,56 +22,12 @@
  * and the notice's toast only when one is shown, so a store that imports
  * the folder context loads neither.
  */
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
 import type { Window } from '@tauri-apps/api/window';
 import { createLogger } from 'wellcrafted/logger';
 
 const log = createLogger('svelte/window-close');
 let holding = false;
-
-/**
- * Whether Epicenter serves this page and supplies recording status and Quit:
- * its `epicenter-app` scheme, which Tauri serves as
- * `epicenter-app://localhost` on macOS and Linux and as
- * `http(s)://epicenter-app.localhost` on Windows and Android.
- */
-function inEpicenter() {
-	const location = globalThis.location;
-	if (location === undefined) return false;
-	if (location.protocol === 'epicenter-app:')
-		return location.hostname === 'localhost';
-	return (
-		(location.protocol === 'http:' || location.protocol === 'https:') &&
-		location.hostname === 'epicenter-app.localhost'
-	);
-}
-
-/** Let Epicenter ask this page whether its one mounted folder has pending saves. */
-export async function reportFolderSaveStatus(
-	pendingSave: () => boolean,
-): Promise<() => void> {
-	if (!isTauri() || !inEpicenter()) return () => {};
-	const [{ emit, listen }, { getCurrentWindow }] = await Promise.all([
-		import('@tauri-apps/api/event'),
-		import('@tauri-apps/api/window'),
-	]);
-	const label = getCurrentWindow().label;
-	return listen<number>(
-		'epicenter://quit-check',
-		({ payload }) => {
-			void emit('epicenter://quit-status', {
-				id: payload,
-				label,
-				pending: pendingSave(),
-			}).catch((cause: unknown) =>
-				log.error(
-					new Error('Could not report the folder save status', { cause }),
-				),
-			);
-		},
-		{ target: { kind: 'WebviewWindow', label } },
-	);
-}
 
 /** Select a background native tab without making focus a condition of closing. */
 async function focusWindow(current: Window) {
@@ -100,7 +56,7 @@ async function notifyCloseFailure(current: Window) {
 }
 
 /**
- * Answer this window's close from its unfinished Folder saves and recording.
+ * Answer this window's close from its unfinished Folder saves.
  * Successful destruction stays occupied and inert until the page is gone:
  * Tauri's destroy promise acknowledges dispatch, not completed destruction.
  */
@@ -123,26 +79,19 @@ export async function holdWindowClose(
 			const page = globalThis.document?.documentElement;
 			const wasInert = page?.inert ?? false;
 			try {
-				const recording = inEpicenter()
-					? await invoke<boolean>('window_is_recording')
-					: false;
-				if (stopped) return;
-				const unsaved = pendingSave();
-				if (unsaved || recording) {
+				if (pendingSave()) {
 					await focusWindow(current);
 					const { confirm } = await import('@tauri-apps/plugin-dialog');
 					if (stopped) return;
-					const message = recording
-						? unsaved
-							? 'This window is recording, and a change has not saved yet. Closing it ends the recording and keeps the audio captured so far.'
-							: 'This window is recording. Closing it ends the recording and keeps the audio captured so far.'
-						: 'A change has not saved yet. Close anyway?';
-					const confirmed = await confirm(message, {
-						title: 'Close window?',
-						kind: 'warning',
-						okLabel: 'Close Anyway',
-						cancelLabel: 'Cancel',
-					});
+					const confirmed = await confirm(
+						'A change has not saved yet. Close anyway?',
+						{
+							title: 'Close window?',
+							kind: 'warning',
+							okLabel: 'Close Anyway',
+							cancelLabel: 'Cancel',
+						},
+					);
 					if (!confirmed) {
 						closing = false;
 						return;

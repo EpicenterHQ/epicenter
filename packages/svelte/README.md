@@ -71,20 +71,20 @@ path. It never falls back to browser storage if a native open fails. Opening nee
 no account, remote, or network. The root shows a loading or refusal screen,
 sends held input when the page hides, and closes after pending work settles.
 Only a pending Folder save prompts before a browser unload. In a desktop
-window, the editable page appears only after its close listener is
-installed. Closing that window checks `folder.getStatus().saving` and
-`folder.getStatus().unsaved`. An unsubmitted form does not prompt. A page
-Epicenter serves reads `window_is_recording`, which answers whether its own
-native recorder is capturing, then awaits one native `confirm(...)` for that
-recording and any unsaved input. Each window answers independently; repeated
-requests for that window share its current answer. Successful destruction
-keeps the page inert until it is gone. Cancel or failure leaves it usable.
-Save status is sampled once for that request. A save finishing while the native
-question opens does not withdraw it.
+window, the editable page appears only after its close listener is installed.
+Closing checks `folder.getStatus().saving` and `folder.getStatus().unsaved` and
+awaits a native `confirm(...)` only for unfinished saves. Saved windows close
+silently, including while recording: native destruction ends capture and keeps
+its audio. Repeated requests for one window share its current answer; other
+windows answer independently. Successful destruction keeps the page inert until
+it is gone. Cancel or failure leaves it usable. Save status is sampled once;
+a save finishing while the question opens does not withdraw it.
+
 Desktop capabilities grant `dialog:allow-message`, `core:window:allow-set-focus`,
-and `core:window:allow-destroy`; Epicenter also grants `allow-window-is-recording`.
-Application Quit separately asks every mounted folder page for save status and
-checks the native recorder. If a save still fails as the route unmounts, the
+and `core:window:allow-destroy`. No page asks for native recording status or
+reports save status to Quit. Epicenter application Quit always confirms in
+Rust and adds its native recording warning when capture is active.
+If a save still fails as the route unmounts, the
 root shows its fields and body for copying in a
 notice held by the app layout's toaster.
 

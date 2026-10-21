@@ -4,6 +4,27 @@
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) to warn about a native recording as well as unfinished saves.
 
+## Amendment: always confirm Quit; Close warns only for unsaved edits
+
+Application Quit always asks one native question. The native recorder adds a
+recording warning when capture is active. No folder page reports save status:
+the query/reply events, expected-window set, channel, timeout, reporter lifecycle,
+and asynchronous collection phase are deleted.
+
+A window Close warns only for unfinished Folder saves, using the page's local
+status and `await confirm(...)`. A recording alone adds no Close warning:
+closing ends capture and keeps its audio. The page-facing recording command,
+its grants, generated bindings, and host-origin detection are deleted. Rust
+keeps its direct recorder read for application Quit.
+
+Repeated prompts, Cancel/retry, failed destruction recovery, and stale Quit
+answers retain their existing protections. The Quit sheet still owns an attempt
+ID and parent label; independent parent destruction releases only that attempt.
+Startup, folder selection, and stored formats do not change.
+
+The following sections describe the prior policy and its evidence. This
+amendment supersedes their Close and Quit selection rules.
+
 ## Decision
 
 Each page answers its own window close through an awaited native `confirm(...)`.

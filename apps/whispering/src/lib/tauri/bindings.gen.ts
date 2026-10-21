@@ -91,11 +91,6 @@ export const commands = {
 /**  Local transcription model administration. */
 "transcription" | null>("take_pending_home_section"),
 	/**
-	 *  Whether the invoking window owns a recording that closing would end.
-	 *  The recorder remains the source of truth; the page stores no copy.
-	 */
-	windowIsRecording: () => __TAURI_INVOKE<boolean>("window_is_recording"),
-	/**
 	 *  List the data folders under the Epicenter folder root.
 	 * 
 	 *  Granted to the `folders` window alone. Off the main thread, since it

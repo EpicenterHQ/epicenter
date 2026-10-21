@@ -19,8 +19,8 @@
  * reads, closes the folder, and clears the cache, in that order.
  *
  * In the desktop app the context also answers its window's close
- * (`guardWindowClose`) from the folder's current save status; inside
- * Epicenter it also reports that status for the separate application Quit.
+ * (`guardWindowClose`) from the folder's current save status.
+ * Application Quit always confirms separately, without querying pages.
  *
  * Plain module, so a store imports the types without loading components.
  */
@@ -34,7 +34,7 @@ import { createSubscriber } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
 import { createFolderQueries, folderKeys } from './folder-queries.js';
-import { holdWindowClose, reportFolderSaveStatus } from './window-close.js';
+import { holdWindowClose } from './window-close.js';
 import { pendingFailure, type WriteFailure } from './write-failure.js';
 
 const log = createLogger('svelte/folder');
@@ -200,10 +200,6 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	/** Only accepted Folder work determines whether departure needs a prompt. */
 	const pendingSave = () =>
 		folder.getStatus().saving || folder.getStatus().unsaved.length > 0;
-	const quitReporter = reportFolderSaveStatus(pendingSave).catch((cause: unknown) => {
-		log.error(new Error('Could not report this folder’s save status to Quit', { cause }));
-		return () => {};
-	});
 
 	return {
 		folder,
@@ -231,17 +227,14 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		},
 		/**
 		 * In the desktop app, prompt when the folder has an accepted save
-		 * pending or its native recorder is capturing, then destroy the window
-		 * on confirmation. Application Quit checks all folders separately.
+		 * pending, then destroy the window on confirmation. Application Quit
+		 * always confirms separately. Native departure keeps captured audio.
 		 * A browser tab keeps its own unload behavior.
 		 */
 		guardWindowClose(): Promise<void> {
 			if (closing !== undefined)
 				return Promise.reject(new Error('The folder is closing'));
-			guarding ??= Promise.all([
-				holdWindowClose(pendingSave),
-				quitReporter,
-			]).then(([stop]) => {
+			guarding ??= holdWindowClose(pendingSave).then((stop) => {
 				if (closing !== undefined) stop();
 				else stopWindow = stop;
 			});
@@ -281,7 +274,6 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 				clearTimeout(refreshTimer);
 				// A window close from here on is the shell's own.
 				stopWindow?.();
-				(await quitReporter)();
 				// An action already started may still call the folder after an
 				// await; it finishes before the folder closes.
 				await settleActions();

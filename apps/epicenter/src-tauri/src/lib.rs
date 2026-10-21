@@ -137,7 +137,6 @@ macro_rules! shell_commands {
             get_local_transcription_readiness,
             open_home,
             take_pending_home_section,
-            shell::window_is_recording::<tauri::Wry>,
             data_folders::list_data_folders,
             folder_opening::pending_folder_openings,
             folder_opening::accept_folder_opening,
@@ -881,8 +880,7 @@ mod tests {
                 "dialog:allow-message",
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",
-                "core:window:allow-destroy",
-                "allow-window-is-recording"
+                "core:window:allow-destroy"
             ])
         );
         for app in BundledApp::ALL {
@@ -927,8 +925,7 @@ mod tests {
                 "dialog:allow-message",
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",
-                "core:window:allow-destroy",
-                "allow-window-is-recording"
+                "core:window:allow-destroy"
             ])
         );
         for label in folder_labels(crate::folder_windows::EDITOR_PREFIX) {
@@ -970,7 +967,6 @@ mod tests {
                 "core:event:allow-unlisten",
                 "core:window:allow-set-focus",
                 "core:window:allow-destroy",
-                "allow-window-is-recording",
                 "epicenter-recorder:default",
                 {
                     "identifier": "opener:allow-open-url",
