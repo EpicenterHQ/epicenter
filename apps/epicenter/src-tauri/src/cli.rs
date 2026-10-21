@@ -2103,3 +2103,13 @@ console.log(JSON.stringify({ signedIn: { grant: 'desktop' } }));
         let _ = fs::remove_dir_all(dir);
     }
 }
+
+/// Messages alone reaches Beeper through a fixed CLI command. Tokens cross on stdin.
+#[tauri::command]
+#[specta::specta]
+pub async fn messages_beeper(webview: Webview, request: String) -> Result<String, CliError> {
+    let answer: Value = window_invocation(&webview)?
+        .answer(&["messages", "--json"], Some(request.into_bytes()))
+        .await?;
+    Ok(answer.to_string())
+}

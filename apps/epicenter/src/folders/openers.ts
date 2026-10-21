@@ -22,6 +22,7 @@ const TITLES: Record<BundledApp, string> = {
 	capture: 'Capture',
 	honeycrisp: 'Honeycrisp',
 	whispering: 'Whispering',
+	messages: 'Messages',
 };
 
 /** The apps Epicenter bundles, by title. */

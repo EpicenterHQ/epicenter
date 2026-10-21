@@ -175,7 +175,8 @@
 		"nuke": "bun run scripts/clean.ts --nuke",
 		"cf:audit:remote": "bun run --cwd ops cf:audit:remote",
 		"jsrepo:build": "jsrepo build",
-		"build:honeycrisp:ui": "bun run --cwd apps/honeycrisp build"
+		"build:honeycrisp:ui": "bun run --cwd apps/honeycrisp build",
+		"dev:messages": "bun run --cwd apps/messages dev"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",

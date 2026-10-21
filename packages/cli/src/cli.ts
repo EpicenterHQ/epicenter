@@ -28,6 +28,7 @@ type Run = (
  * `--version` and `--help` start without the folder engine.
  */
 const HANDLERS: Record<string, Run> = {
+	'messages': async () => (await import('./messages.js')).messagesCommand(),
 	'schema export': async ({ positionals: [directory], json }) =>
 		(await import('./schema-commands.ts')).exportSchemas(
 			directory as string,

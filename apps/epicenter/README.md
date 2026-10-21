@@ -8,8 +8,8 @@ Git commands still exist outside a Folder handle, but the current folder and
 product pages offer no Save version, Connect, or Sync action.
 
 The existing app owns one Tauri runtime, one native command API, and the short
-list of what it compiles in. It bundles [Todos, Capture, Honeycrisp, and
-Whispering](#bundled-apps), each built from its own folder under `apps/` with
+list of what it compiles in. It bundles [Todos, Capture, Honeycrisp, Whispering, and
+Messages](#bundled-apps), each built from its own folder under `apps/` with
 Epicenter's own pages. Epicenter installs no other app: there is no source
 installer, manifest, approval, or app build on this machine. Clones and
 builds an earlier version installed are left on disk, never read and never
@@ -21,7 +21,7 @@ page source                         build output        served at
 apps/epicenter/src/ui ------------> dist/home --------> epicenter-app://localhost/home/
 apps/epicenter/src/folders -------> dist/folders -----> epicenter-app://localhost/folders/
 apps/<page> (build:host) ---------> dist/<page> ------> epicenter-app://localhost/<page>/
-  for todos, capture, honeycrisp, whispering
+  for todos, capture, honeycrisp, whispering, messages
 ```
 
 Rust serves every page Epicenter shows from one origin,
@@ -196,7 +196,7 @@ bun dev:epicenter
 
 This starts the local API on `http://localhost:8787` and the desktop app.
 Before the app starts, Tauri runs `bun run build:desktop`, which builds
-Settings, the Folders window, and the four bundled apps into `dist/` and compiles the
+Settings, the Folders window, and the five bundled apps into `dist/` and compiles the
 `epicenter` binary. A development build's scheme serves the pages from that `dist/`
 directly, so after changing a page, run `bun run --cwd apps/epicenter build`
 and reload its window (Cmd-R). There is no dev server and no hot reload: the
@@ -431,7 +431,7 @@ The Folders view does not use `epicenter.json` to authorize any of them.
 
 ## Bundled apps
 
-Epicenter bundles Todos, Capture, Honeycrisp, and Whispering
+Epicenter bundles Todos, Capture, Honeycrisp, Whispering, and Messages
 (`src-tauri/src/bundled_apps.rs`). One closed table, `BundledApp`, names for
 each its page, its fixed default folder, its window label and capability, and
 its build path:
@@ -442,6 +442,7 @@ its build path:
 | `capture` | `<folderDir>/Capture` | `capture:<digest>` | `bundled-app.json` |
 | `honeycrisp` | `<folderDir>/Honeycrisp` | `honeycrisp:<digest>` | `bundled-app.json` |
 | `whispering` | `<folderDir>/Whispering` | `whispering:<digest>` | `whispering.json` |
+| `messages` | `<folderDir>/Messages` | `messages:<digest>` | `messages.json` |
 
 `build:bundled` (`scripts/build-bundled-apps.ts`) runs each app's own
 `build:host` (`EPICENTER_HOST=1`) in `apps/<page>` and copies its `dist/` to
@@ -591,12 +592,14 @@ Application Quit always shows a native confirmation, even when every folder is
 saved. Its message warns that unsaved changes may be lost. If the native
 recorder is capturing, it also explains that Quit ends the recording and keeps
 its captured audio. Cancel keeps every window and its input; Quit Anyway exits
-without waiting for pending saves. Repeated requests share the current sheet.
+without waiting for pending saves. Repeated requests share the current alert.
 
-Quit queries no page and waits for no status reply or timeout. Window close
-remains independent and warns only for unsaved Folder work. If a window close
-destroys the Quit sheet's parent, that Quit attempt is abandoned and can be
-retried. Attempt IDs reject late answers from earlier sheets.
+Quit queries no page and waits for no status reply or timeout. Its standalone
+native alert has no window parent, so closing a window leaves the Quit question
+in place. Window close remains independent and warns only for unsaved Folder
+work. Quit owns only ready, prompting, and approved state; it needs no attempt
+ID or window-destruction hook. On macOS, the unparented dialog uses the system's
+standalone alert presentation rather than an attached window sheet.
 
 The app menu's Quit, Cmd-Q, and tray Quit use this path. macOS Dock Quit,
 logout, and abrupt process termination are outside it. Standalone Todos' Cmd-Q
@@ -662,3 +665,13 @@ line for what has landed.
 [ADR-0649](../../docs/adr/0649-folders-json-selects-this-machines-folder-locations.md)
 makes that folder's location a machine-local selection; `so.epicenter` is the
 initial default name.
+
+### Messages and Beeper
+
+Messages starts with fictional demo conversations. Its `FolderApp` opens the
+bound folder for drafts and send recovery records, never for a message mirror.
+Only `messages:*` windows receive `messages_beeper`; the fixed command passes a
+validated operation to `epicenter messages --json` over stdin. The CLI owns the
+Beeper token in the device keychain and uses the local Desktop API. The page's
+connection policy remains unchanged. See [Messages](../messages/README.md) for
+persistence, manual connection setup and checks that use no live data.

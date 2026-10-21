@@ -55,7 +55,8 @@ can still hold close open, as app actions could before.
 Workflow updates use witnessed storage changes, rather than a second editor
 lifecycle. Honeycrisp's logical-folder deletion keeps its partial-progress and
 final-membership checks; Whispering keeps confirmed-file deletion and rename
-witnesses; Capture promotes a draft once.
+witnesses; Capture promotes a draft once; Messages keeps the durable sending
+marker and uncertain-send recovery across its request.
 
 ## Alternatives
 
@@ -67,7 +68,7 @@ semantics beyond the existing local edit fence; it is not required here.
 ## Built
 
 `packages/folder/src/handle.ts`, `edit-owner.ts` and `folder.ts`, with migrations
-in the Svelte context, Honeycrisp, Whispering, Capture and saved views.
+in the Svelte context, Honeycrisp, Whispering, Capture, Messages and saved views.
 Regression coverage includes late child admission, expiry, early return and
 throw while calls drain, reentrant close, failed-input recovery, and close during
 real multi-step app actions.

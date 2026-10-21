@@ -153,6 +153,7 @@ macro_rules! shell_commands {
             cli::ai_key_state,
             cli::auth_login::<tauri::Wry>,
             cli::auth_status,
+            cli::messages_beeper,
             cli::auth_logout,
             cli::whispering_connection_read,
             cli::whispering_connection_set,
@@ -726,10 +727,11 @@ mod tests {
     const HOME: &str = include_str!("../capabilities/home.json");
     const BUNDLED_APP: &str = include_str!("../capabilities/bundled-app.json");
     const WHISPERING: &str = include_str!("../capabilities/whispering.json");
+    const MESSAGES: &str = include_str!("../capabilities/messages.json");
     const FOLDER_EDITOR: &str = include_str!("../capabilities/folder-editor.json");
 
     /// Every capability file, for checks that hold for all of them.
-    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, BUNDLED_APP, WHISPERING, FOLDER_EDITOR];
+    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, BUNDLED_APP, WHISPERING, FOLDER_EDITOR, MESSAGES];
 
     /// The windows a page with label prefix `prefix` opens in, on two folders.
     fn folder_labels(prefix: &str) -> [String; 2] {
@@ -797,6 +799,7 @@ mod tests {
                 "folder-editor.json",
                 "folders.json",
                 "home.json",
+                "messages.json",
                 "whispering.json"
             ]
         );
@@ -896,7 +899,7 @@ mod tests {
                 }
             }
         }
-        for encoded in [BUNDLED_APP, WHISPERING, FOLDER_EDITOR] {
+        for encoded in [BUNDLED_APP, WHISPERING, FOLDER_EDITOR, MESSAGES] {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for built_in in BuiltInApp::ALL {
                 assert!(!selects(&capability, built_in.id()), "{}", built_in.id());

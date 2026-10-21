@@ -6,6 +6,7 @@
 import type { CommandSpec } from './parse.ts';
 
 export const COMMANDS: readonly CommandSpec[] = [
+	{ path: ['messages'], args: '', minArgs: 0, maxArgs: 0, hidden: true, summary: 'Beeper operation as JSON on stdin' },
 	{
 		path: ['schema', 'export'],
 		args: '<dir>',

@@ -12,10 +12,12 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@beeper/desktop-api": "^6.0.0",
 		"@epicenter/ai": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/folder": "workspace:*",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"typebox": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/server": "workspace:*",
@@ -25,5 +27,8 @@
 		"pg": "^8.20.0",
 		"typescript": "catalog:"
 	},
-	"license": "AGPL-3.0-or-later"
+	"license": "AGPL-3.0-or-later",
+	"exports": {
+		"./messages-protocol": "./src/messages-protocol.ts"
+	}
 }

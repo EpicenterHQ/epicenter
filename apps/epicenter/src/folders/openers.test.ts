@@ -12,6 +12,7 @@ test('every bundled app is offered once, by title', () => {
 	expect(bundledOpeners).toEqual([
 		{ app: 'capture', title: 'Capture' },
 		{ app: 'honeycrisp', title: 'Honeycrisp' },
+		{ app: 'messages', title: 'Messages' },
 		{ app: 'todos', title: 'Todos' },
 		{ app: 'whispering', title: 'Whispering' },
 	]);

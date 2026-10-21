@@ -21,6 +21,7 @@ export const BUNDLED_PAGES = [
 	'capture',
 	'honeycrisp',
 	'whispering',
+	'messages',
 ] as const;
 
 export type BundledPage = (typeof BUNDLED_PAGES)[number];

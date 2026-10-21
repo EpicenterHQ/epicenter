@@ -1,0 +1,40 @@
+{
+	"name": "@epicenter/messages-app",
+	"description": "A local messaging UI backed by Beeper Desktop",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "NODE_ENV=production vite build",
+		"build:host": "EPICENTER_HOST=1 bun run build",
+		"preview": "vite preview",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"test": "bun test --isolate --path-ignore-patterns='**/*.mounted.test.ts' src/lib && bun run test:mounted",
+		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte mounted.test",
+		"smoke:browser": "bun scripts/browser-smoke.ts"
+	},
+	"dependencies": {
+		"@epicenter/folder": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
+		"@epicenter/ui": "workspace:*",
+		"@tanstack/svelte-query": "catalog:",
+		"@tauri-apps/api": "catalog:",
+		"wellcrafted": "catalog:",
+		"@epicenter/cli": "workspace:*",
+		"typebox": "catalog:"
+	},
+	"devDependencies": {
+		"@epicenter/vite-config": "workspace:*",
+		"@sveltejs/adapter-static": "catalog:",
+		"@sveltejs/kit": "catalog:",
+		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@types/bun": "catalog:",
+		"playwright": "^1.61.1",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

@@ -1,0 +1,19 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "messages",
+	"description": "Messages has its bound folder and the fixed Beeper CLI operation. No page connects to a network directly.",
+	"local": true,
+	"windows": [
+		"messages:*"
+	],
+	"permissions": [
+		"epicenter-folder:default",
+		"core:event:allow-listen",
+		"core:event:allow-emit",
+		"dialog:allow-message",
+		"core:event:allow-unlisten",
+		"core:window:allow-set-focus",
+		"core:window:allow-destroy",
+		"allow-messages-beeper"
+	]
+}

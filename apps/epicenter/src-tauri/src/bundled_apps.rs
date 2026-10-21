@@ -1,7 +1,7 @@
 //! The apps Epicenter bundles, each opened on one existing folder per window.
 //!
-//! `BundledApp` is the closed table: Todos, Capture, Honeycrisp, and
-//! Whispering. Each row names the app's page, built from `apps/<page>` into
+//! `BundledApp` is the closed table: Todos, Capture, Honeycrisp, Whispering,
+//! and Messages. Each row names the app's page, built from `apps/<page>` into
 //! `dist/<page>/` and served by the scheme at `/<page>/`; its fixed default
 //! folder under `folder_dir`; and the prefix of its windows' labels, which
 //! selects their capability. Opening one clones, builds, and fetches
@@ -56,14 +56,16 @@ pub enum BundledApp {
     Capture,
     Honeycrisp,
     Whispering,
+    Messages,
 }
 
 impl BundledApp {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Todos,
         Self::Capture,
         Self::Honeycrisp,
         Self::Whispering,
+        Self::Messages,
     ];
 
     /// The app's source folder under `apps/`, the directory below the pages
@@ -75,6 +77,7 @@ impl BundledApp {
             Self::Capture => "capture",
             Self::Honeycrisp => "honeycrisp",
             Self::Whispering => "whispering",
+            Self::Messages => "messages",
         }
     }
 
@@ -85,6 +88,7 @@ impl BundledApp {
             Self::Capture => "Capture",
             Self::Honeycrisp => "Honeycrisp",
             Self::Whispering => "Whispering",
+            Self::Messages => "Messages",
         }
     }
 
@@ -96,6 +100,7 @@ impl BundledApp {
             Self::Capture => "Capture",
             Self::Honeycrisp => "Honeycrisp",
             Self::Whispering => "Whispering",
+            Self::Messages => "Messages",
         }
     }
 
@@ -107,6 +112,7 @@ impl BundledApp {
         match self {
             Self::Todos | Self::Capture | Self::Honeycrisp => "bundled-app",
             Self::Whispering => "whispering",
+            Self::Messages => "messages",
         }
     }
 
@@ -430,11 +436,12 @@ mod tests {
     }
 
     #[test]
-    fn the_table_has_stable_pages_names_paths_and_capabilities() {
+    fn the_table_has_stable_pages_titles_folder_names_paths_and_capabilities() {
         let actual = BundledApp::ALL.map(|app| {
             (
                 app.page(),
                 app.name(),
+                app.folder_name(),
                 app.path(),
                 format!("{}:", app.page()),
                 app.capability(),
@@ -443,6 +450,7 @@ mod tests {
         let row = |page: &'static str, name: &'static str, capability: &'static str| {
             (
                 page,
+                name,
                 name,
                 format!("/{page}/"),
                 format!("{page}:"),
@@ -456,6 +464,7 @@ mod tests {
                 row("capture", "Capture", "bundled-app"),
                 row("honeycrisp", "Honeycrisp", "bundled-app"),
                 row("whispering", "Whispering", "whispering"),
+                row("messages", "Messages", "messages"),
             ]
         );
         for app in BundledApp::ALL {
@@ -680,13 +689,13 @@ mod tests {
             let refused = fixture.listed(app, "A").unwrap_err();
             assert_eq!(refused, "The folder \"A\" is not there anymore.");
             assert!(!fixture.folder_dir.join("A").exists());
-            assert!(!fixture.folder_dir.join(app.name()).exists());
+            assert!(!fixture.folder_dir.join(app.folder_name()).exists());
 
             // A name that is not one listed directory, and a path, open nothing.
             for unlisted in ["B", "data:A", "/tmp", "../A", "", "A/B"] {
                 assert!(fixture.listed(app, unlisted).is_err(), "{unlisted}");
             }
-            assert!(!fixture.folder_dir.join(app.name()).exists());
+            assert!(!fixture.folder_dir.join(app.folder_name()).exists());
             assert!(fixture.app.webview_windows().is_empty());
         }
     }
@@ -698,7 +707,7 @@ mod tests {
     fn each_missing_default_folder_is_created_and_bound() {
         let fixture = fixture();
         for app in BundledApp::ALL {
-            let default = fixture.folder_dir.join(app.name());
+            let default = fixture.folder_dir.join(app.folder_name());
             assert!(!default.exists());
 
             let (label, was_open) = fixture.open(app, AppFolder::Default).unwrap();
@@ -711,7 +720,7 @@ mod tests {
                 fixture.open(app, AppFolder::Default).unwrap(),
                 (label.clone(), true)
             );
-            assert_eq!(fixture.listed(app, app.name()).unwrap(), label);
+            assert_eq!(fixture.listed(app, app.folder_name()).unwrap(), label);
             assert_eq!(
                 fixture
                     .open(app, AppFolder::Chosen(default.clone()))
@@ -724,7 +733,10 @@ mod tests {
             .into_iter()
             .map(|folder| folder.name)
             .collect();
-        assert_eq!(names, ["Capture", "Honeycrisp", "Todos", "Whispering"]);
+        assert_eq!(
+            names,
+            ["Capture", "Honeycrisp", "Messages", "Todos", "Whispering"]
+        );
     }
 
     #[test]
@@ -732,7 +744,7 @@ mod tests {
         for app in BundledApp::ALL {
             let fixture = fixture();
             let label = fixture.default(app).unwrap();
-            let default = fixture.folder_dir.join(app.name());
+            let default = fixture.folder_dir.join(app.folder_name());
             fs::remove_dir(&default).unwrap();
             assert_eq!(
                 invoke(&fixture.window(&label), "open_folder", json!({})).unwrap_err(),
@@ -752,7 +764,11 @@ mod tests {
     fn a_linked_default_folder_is_refused() {
         let fixture = fixture();
         let elsewhere = fixture.elsewhere("elsewhere");
-        std::os::unix::fs::symlink(&elsewhere, fixture.folder_dir.join(Whispering.name())).unwrap();
+        std::os::unix::fs::symlink(
+            &elsewhere,
+            fixture.folder_dir.join(Whispering.folder_name()),
+        )
+        .unwrap();
         assert!(fixture.default(Whispering).is_err());
         assert!(fixture.app.webview_windows().is_empty());
     }
@@ -840,7 +856,7 @@ mod tests {
     #[test]
     fn the_default_takes_the_spelling_the_directory_has() {
         let fixture = fixture();
-        let default = || default_name(&fixture.folder_dir, Todos.name());
+        let default = || default_name(&fixture.folder_dir, Todos.folder_name());
         assert_eq!(default(), "Todos");
         fs::create_dir(fixture.folder_dir.join("todos")).unwrap();
         let insensitive = fixture.folder_dir.join("Todos").exists();

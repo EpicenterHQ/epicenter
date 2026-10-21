@@ -32,6 +32,7 @@ pub const COMMANDS: &[&str] = &[
     "ai_key_state",
     "auth_login",
     "auth_status",
+    "messages_beeper",
     "auth_logout",
     "whispering_connection_read",
     "whispering_connection_set",

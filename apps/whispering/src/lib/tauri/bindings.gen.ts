@@ -162,6 +162,8 @@ export const commands = {
 	authLogin: (onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("auth_login", { onEvent })),
 	/**  Who each of the CLI's grants on this computer belongs to. */
 	authStatus: () => typedError<AuthStatus, CliError>(__TAURI_INVOKE("auth_status")),
+	/**  Messages alone reaches Beeper through a fixed CLI command. Tokens cross on stdin. */
+	messagesBeeper: (request: string) => typedError<string, CliError>(__TAURI_INVOKE("messages_beeper", { request })),
 	/**
 	 *  Sign the app out: the CLI revokes its grant and deletes it from the
 	 *  keychain. A terminal's `epicenter auth login` is left signed in.
@@ -389,7 +391,7 @@ export type AuthStatus = {
 };
 
 /**  An app Epicenter bundles. The page API names it by its page. */
-export type BundledApp = "todos" | "capture" | "honeycrisp" | "whispering";
+export type BundledApp = "todos" | "capture" | "honeycrisp" | "whispering" | "messages";
 
 export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "RevealFailed"; message: string };
 

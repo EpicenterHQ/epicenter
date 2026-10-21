@@ -103,3 +103,10 @@ Use `Shell` for surrounding layout and `View` for a screen or representation.
 Keep a specific tool name such as `FolderEditor` for a window within a larger
 application. For the naming rationale, see
 [product root component names](../docs/adr/0655-product-root-components-use-the-app-name-and-app-suffix.md).
+
+## Messages and Beeper
+
+[Messages](messages/README.md) uses `FolderApp` for authored drafts and send
+recovery state. Conversation history stays in Beeper and is read into memory.
+The app starts with fictional demo chats; only an explicit desktop connection
+reaches Beeper. Its token stays in the device keychain through the CLI.

@@ -19,7 +19,8 @@
 				"home",
 				"bundled-app",
 				"whispering",
-				"folder-editor"
+				"folder-editor",
+				"messages"
 			]
 		}
 	},

@@ -265,6 +265,32 @@
         "vite": "catalog:",
       },
     },
+    "apps/messages": {
+      "name": "@epicenter/messages-app",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/cli": "workspace:*",
+        "@epicenter/folder": "workspace:*",
+        "@epicenter/svelte": "workspace:*",
+        "@epicenter/ui": "workspace:*",
+        "@tanstack/svelte-query": "catalog:",
+        "@tauri-apps/api": "catalog:",
+        "typebox": "catalog:",
+        "wellcrafted": "catalog:",
+      },
+      "devDependencies": {
+        "@epicenter/vite-config": "workspace:*",
+        "@sveltejs/adapter-static": "catalog:",
+        "@sveltejs/kit": "catalog:",
+        "@sveltejs/vite-plugin-svelte": "catalog:",
+        "@types/bun": "catalog:",
+        "playwright": "^1.61.1",
+        "svelte": "catalog:",
+        "svelte-check": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+      },
+    },
     "apps/posthog-reverse-proxy": {
       "name": "@epicenter/posthog-reverse-proxy",
       "version": "0.0.1",
@@ -485,9 +511,11 @@
         "epicenter": "./src/bin.ts",
       },
       "dependencies": {
+        "@beeper/desktop-api": "^6.0.0",
         "@epicenter/ai": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/folder": "workspace:*",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -837,6 +865,8 @@
 
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
 
+    "@beeper/desktop-api": ["@beeper/desktop-api@6.0.0", "", {}, "sha512-dpFltNVoUg4gKwFp/czJwA1PAxiBOOmcwJTlTyXOaBgGE0dMbneoHaKcFU3dfSQ48qwHZpM0lT5uetW+Qyx/uA=="],
+
     "@better-auth/core": ["@better-auth/core@1.8.0-beta.0", "", { "dependencies": { "@opentelemetry/semantic-conventions": "^1.41.1", "@standard-schema/spec": "^1.1.0", "zod": "^4.5.4" }, "peerDependencies": { "@better-auth/utils": "^0.4.2 || ^0.5.0", "@better-fetch/fetch": "1.3.2", "@opentelemetry/api": "^1.9.0", "better-call": "1.4.2", "jose": "^6.1.0", "kysely": "^0.28.5 || ^0.29.0", "nanostores": "^1.0.1" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-taCTk6t3H+5t3fDgEkwc5czi86M6qHt4pxGyceTS7Ui9FwsYCaWses4ljLeE/8yUv+TxEefnu5Ly80KYKoWvOQ=="],
 
     "@better-auth/drizzle-adapter": ["@better-auth/drizzle-adapter@1.8.0-beta.0", "", { "peerDependencies": { "@better-auth/core": "^1.8.0-beta.0", "@better-auth/utils": "^0.4.2 || ^0.5.0", "drizzle-orm": "^0.45.2 || >=1.0.0-rc.1 <2.0.0" }, "optionalPeers": ["drizzle-orm"] }, "sha512-+BZKTOl8C3tBxyYiuryN6zitTKXubeQkrvriDkhvSlMgd14JACRlVdJy36MIuR4DeYekKosqeEKaUxEKd1ZCuQ=="],
@@ -972,6 +1002,8 @@
     "@epicenter/local-books": ["@epicenter/local-books@workspace:apps/local-books"],
 
     "@epicenter/local-books-ui": ["@epicenter/local-books-ui@workspace:apps/local-books/ui"],
+
+    "@epicenter/messages-app": ["@epicenter/messages-app@workspace:apps/messages"],
 
     "@epicenter/ops": ["@epicenter/ops@workspace:ops"],
 
