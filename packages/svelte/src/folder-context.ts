@@ -143,18 +143,21 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		void refresh(change.paths ?? undefined);
 	});
 
-	const trackStatus = createSubscriber((update) =>
-		folder.getStatus().closing ? () => {} : folder.onStatusChange(update),
-	);
-	const actions = new Set<Promise<unknown>>();
-	let closing: Promise<WriteFailure[]> | undefined;
-	const closingListeners = new Set<() => void>();
-	const trackClosing = createSubscriber((update) => {
-		closingListeners.add(update);
+	// Svelte shares this subscription across every reactive reader. Context
+	// close uses the same update before the Folder itself starts closing.
+	let updateStatus: (() => void) | undefined;
+	const trackStatus = createSubscriber((update) => {
+		updateStatus = update;
+		const stop = folder.getStatus().closing
+			? () => {}
+			: folder.onStatusChange(update);
 		return () => {
-			closingListeners.delete(update);
+			updateStatus = undefined;
+			stop();
 		};
 	});
+	const actions = new Set<Promise<unknown>>();
+	let closing: Promise<WriteFailure[]> | undefined;
 	let stopWindow: (() => void) | undefined;
 	let guarding: Promise<void> | undefined;
 
@@ -206,7 +209,6 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		refresh,
 		/** Whether close was called: no app action or input is taken from then on. Read reactively. */
 		get closing(): boolean {
-			trackClosing();
 			trackStatus();
 			return closing !== undefined || folder.getStatus().closing;
 		},
@@ -275,7 +277,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			// answers this same promise.
 			const completion = Promise.withResolvers<WriteFailure[]>();
 			closing = completion.promise;
-			for (const listener of [...closingListeners]) listener();
+			updateStatus?.();
 			(async () => {
 				clearTimeout(refreshTimer);
 				// A window close from here on is the shell's own.
