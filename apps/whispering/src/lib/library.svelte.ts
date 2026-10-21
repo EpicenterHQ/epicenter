@@ -419,12 +419,6 @@ export function createLibrary(
 	 * settles or closes. Reading its input reads no file.
 	 */
 	const textAt = (path: string) => createTextEdit(folder.files, path);
-	/** The text typed into `path` and not saved, read reactively. */
-	function heldText(path: string) {
-		const pending = textAt(path).pending;
-		return pending?.kind === 'text' ? pending : undefined;
-	}
-
 	// Each save of a file's text that fails is told once, with the text to
 	// copy, a retry and a discard: a failure the folder reports that was not
 	// reported before. Typing over failed text clears it and tells nothing.
@@ -846,8 +840,7 @@ export function createLibrary(
 			if (
 				read !== undefined &&
 				!read.paths.has(path) &&
-				rowEditAt(path)?.pending === undefined &&
-				heldText(path) === undefined
+				textAt(path).pending === undefined
 			)
 				return undefined;
 			return {
@@ -868,8 +861,7 @@ export function createLibrary(
 			if (
 				read !== undefined &&
 				!read.paths.has(path) &&
-				rowEditAt(path)?.pending === undefined &&
-				heldText(path) === undefined
+				textAt(path).pending === undefined
 			)
 				return undefined;
 			return {
@@ -909,8 +901,6 @@ export function createLibrary(
 			if (stem === undefined) return undefined;
 			return listed(table)?.find((row) => row.id === stem);
 		},
-		/** The text typed into `path` that is not saved yet, read reactively. */
-		editedText: (path: string): string | undefined => heldText(path)?.text,
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText(path: string) {
 			return showsText(path);
@@ -934,19 +924,17 @@ export function createLibrary(
 		/**
 		 * Type `body` as the body of the row a view shows, over what it last
 		 * showed; it saves a second after the last change, or at once with
-		 * `saveBody`, merged with whatever changed since.
+		 * `rowEdit.save()`, merged with whatever changed since.
 		 */
 		editBody(rowEdit: RowEdit, body: string): void {
 			if (fenced || busyPaths.has(rowEdit.path)) return;
 			rowEdit.change({ body });
 		},
-		/** Send what is typed into the row at `path` now, as leaving it does. */
-		saveBody: (path: string) => rowEditAt(path)?.save() ?? Promise.resolve(),
 		/**
 		 * The exact text of `path` as views show and type it: the folder's edit
 		 * of the file, held text, else the file as stored (`.text`).
 		 * Typing (`editText`) types over the text it shows now and saves a
-		 * second after the last change, or at once with `saveText`.
+		 * second after the last change, or at once with `textEdit.save()`.
 		 */
 		textEdit: textAt,
 		/** Type `text` as the whole text a view shows, over what it last showed. */
@@ -954,8 +942,6 @@ export function createLibrary(
 			if (fenced || busyPaths.has(textEdit.path)) return;
 			if (textEdit.change(text).error === null) asText.add(textEdit.path);
 		},
-		/** Save the text typed into `path` now, as leaving it does; resolves once no save of it runs. */
-		saveText: (path: string) => folder.files.edit(path).save(),
 		/** Hear each save of a file's text that failed, which the person is told. */
 		onWriteFailure(listener: (notice: WriteFailure) => void): () => void {
 			noticeListeners.add(listener);

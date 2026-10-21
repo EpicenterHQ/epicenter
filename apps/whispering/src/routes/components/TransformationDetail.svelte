@@ -94,12 +94,8 @@
 	 */
 	const saved = $derived(asText ? library.rowSource(TRANSFORMATIONS, path) : undefined);
 	const issues = $derived(saved?.issues ?? undefined);
-	/** Send the row or source input held by the folder. */
-	function flush() {
-		void rowEdit.save();
-	}
 	// The edits outlive the view; send now.
-	onDestroy(flush);
+	onDestroy(() => void rowEdit.save());
 
 	/** The row already includes typed fields and body; source mode uses the last valid saved recipe. */
 	const recipe = $derived(
@@ -183,7 +179,7 @@
 
 	async function run() {
 		// What is typed is the recipe that runs; it is sent, and the run settles it.
-		flush();
+		void rowEdit.save();
 		const problem =
 			applySource === 'pasted'
 				? await library.transformText(path, pastedText)
@@ -333,7 +329,7 @@
 								() => shown.body,
 								(value) => library.editBody(rowEdit, value)
 							}
-							onblur={() => void library.saveBody(own)}
+							onblur={() => void rowEdit.save()}
 							disabled={locked}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
@@ -539,7 +535,7 @@
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(shown), (value) => library.editText(textEdit, withFileNewlines(value, shown))}
-					onblur={() => void library.saveText(path)}
+					onblur={() => void textEdit.save()}
 					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}

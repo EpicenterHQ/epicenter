@@ -90,8 +90,8 @@ test('text held by the Folder prompts; Cancel retains it', async () => {
 
 	expect(nativeDialog.count).toBe(1);
 	expect(nativeWindow.destroyed).toBe(0);
-	expect(window.library.editedText(path)).toBe(typed);
-	await window.library.saveText(path);
+	expect(text.view.pending).toMatchObject({ kind: 'text', text: typed });
+	await window.library.textEdit(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);
@@ -104,13 +104,13 @@ test('a failed save keeps the window until explicit retry saves the text', async
 	const typed = `${before}Typed but not saved.\n`;
 	window.control.refuse = true;
 	window.library.editText(text.view, typed);
-	await window.library.saveText(path);
+	await window.library.textEdit(path).save();
 
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeDialog.count).toBe(1);
-	expect(window.library.editedText(path)).toBe(typed);
+	expect(text.view.pending).toMatchObject({ kind: 'text', text: typed });
 	expect(window.library.unsaved).toBe(true);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(before);
 
@@ -128,10 +128,10 @@ test('a thrown file write leaves a failed draft that can save on retry', async (
 	const typed = `${text.draft}Retained after throw.\n`;
 	window.control.throwWrite = true;
 	window.library.editText(text.view, typed);
-	await window.library.saveText(path);
+	await window.library.textEdit(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
-	expect(window.library.editedText(path)).toBe(typed);
+	expect(text.view.pending).toMatchObject({ kind: 'text', text: typed });
 	expect(window.library.unsaved).toBe(true);
 	window.control.throwWrite = false;
 	await window.library.retry(path);

@@ -47,7 +47,7 @@
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	// The library's timers outlive the view; send what is typed now instead.
-	onDestroy(() => void library.saveText(own));
+	onDestroy(() => void textEdit.save());
 	const table = $derived(rowTableOf(path));
 	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
 	const asText = $derived(!audio && library.showsText(path));
@@ -162,7 +162,7 @@
 					() => row.body,
 					(value) => library.editBody(rowEdit, value)
 				}
-				onblur={() => void library.saveBody(path)}
+				onblur={() => void rowEdit.save()}
 				disabled={locked}
 				aria-label="Contents of {name}"
 			/>
@@ -197,7 +197,7 @@
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
 				bind:value={() => lf(shown), (value) => library.editText(textEdit, withFileNewlines(value, shown))}
-				onblur={() => void library.saveText(path)}
+				onblur={() => void textEdit.save()}
 				disabled={locked}
 				aria-label="Contents of {name}"
 				spellcheck={false}

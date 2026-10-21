@@ -142,14 +142,14 @@ test('saved file text stays shown when the reread fails, and typing on keeps it'
 	});
 	type(input(), 'Committed words');
 	flushSync();
-	await library.saveText(path);
+	await library.textEdit(path).save();
 	await reportChanged(library);
 	expect(await readFile(join(root, path), 'utf8')).toBe('Committed words');
 	expect(input()?.value).toBe('Committed words');
 
 	type(input(), 'Committed words, and more');
 	flushSync();
-	await library.saveText(path);
+	await library.textEdit(path).save();
 	await reportChanged(library);
 	expect(await readFile(join(root, path), 'utf8')).toBe(
 		'Committed words, and more',
@@ -171,14 +171,14 @@ test('a saved transcript stays shown when the reread fails, and typing on keeps 
 	});
 	type(body(), 'Alpha, saved.\n');
 	flushSync();
-	await library.saveBody(A);
+	await library.textEdit(A).save();
 	await reportChanged(library);
 	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha, saved.\n'));
 	expect(body()?.value).toBe('Alpha, saved.\n');
 
 	type(body(), 'Alpha, saved.\nMore.\n');
 	flushSync();
-	await library.saveBody(A);
+	await library.textEdit(A).save();
 	expect(await readFile(join(root, A), 'utf8')).toBe(
 		transcript('Alpha, saved.\nMore.\n'),
 	);
@@ -408,7 +408,7 @@ test('failed file text stays visible when polling finds a binary replacement', a
 	type(input(), 'Keep this unsaved text');
 	flushSync();
 	disk.refusing = true;
-	await library.saveText(path);
+	await library.textEdit(path).save();
 	flushSync();
 	disk.refusing = false;
 	await writeFile(join(root, path), new Uint8Array([0, 1, 2]));
@@ -450,7 +450,7 @@ for (const item of [
 			type(source(), 'Keep this failed source');
 			flushSync();
 			disk.refusing = true;
-			await library.saveText(item.path);
+			await library.textEdit(item.path).save();
 			disk.refusing = false;
 			flushSync();
 			const read = library.local.folder.files.read;
@@ -619,7 +619,7 @@ for (const item of [
 			type(source(), 'Keep my automatic Source draft');
 			flushSync();
 			disk.refusing = true;
-			await library.saveText(item.path);
+			await library.textEdit(item.path).save();
 			disk.refusing = false;
 			if (replacement === 'missing') await rm(join(root, item.path));
 			else await writeFile(join(root, item.path), item.repaired);
@@ -645,7 +645,7 @@ for (const replacement of ['missing', 'binary'] as const) {
 			'Keep my transcript',
 		);
 		flushSync();
-		await library.saveBody(A);
+		await library.textEdit(A).save();
 		disk.refusing = false;
 		if (replacement === 'missing') await rm(join(root, A));
 		else await writeFile(join(root, A), new Uint8Array([0, 1, 2]));

@@ -592,7 +592,7 @@ test('files an earlier version left in an ordinary directory read as they are, e
 	const view = library.rowEdit('recordings', entry.path);
 	expect(view.row?.body).toBeDefined();
 	library.editBody(view, 'My notes, edited\n');
-	await library.saveBody(entry.path);
+	await view.save();
 	await settle(library);
 	const saved = await readFile(join(root, 'recordings', 'kept.md'), 'utf8');
 	expect(saved).toContain('mood: calm');

@@ -34,7 +34,7 @@
 	// svelte-ignore state_referenced_locally
 	const own = result.path;
 	// The library's timer outlives the card; send what is typed now instead.
-	onDestroy(() => void library.saveBody(own));
+	onDestroy(() => void rowEdit.save());
 
 	/** Edited here unless the person opened its file as text in Files. */
 	const asText = $derived(library.showsText(result.path));
@@ -88,7 +88,7 @@
 				() => shown.body,
 				(value) => library.editBody(rowEdit, value)
 			}
-			onblur={() => void library.saveBody(result.path)}
+			onblur={() => void rowEdit.save()}
 			disabled={locked}
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"

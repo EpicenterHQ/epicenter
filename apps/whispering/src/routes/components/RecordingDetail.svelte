@@ -227,7 +227,7 @@
 							() => shown.body,
 							(value) => library.editBody(rowEdit, value)
 						}
-						onblur={() => void library.saveBody(own)}
+						onblur={() => void rowEdit.save()}
 						disabled={locked}
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
@@ -290,7 +290,7 @@
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(shown), (value) => library.editText(textEdit, withFileNewlines(value, shown))}
-					onblur={() => void library.saveText(path)}
+					onblur={() => void textEdit.save()}
 					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}

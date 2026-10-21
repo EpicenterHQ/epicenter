@@ -58,7 +58,7 @@ function rowEditor<T extends RowTable>(
 			if (Object.keys(set).length > 0) library.setFields(view, set as never);
 			if (next.body !== before.body) {
 				library.editBody(view, next.body);
-				void library.saveBody(path);
+				void view.save();
 			}
 		},
 	};
@@ -89,7 +89,7 @@ export function textEditor(library: Library, path: string) {
 		},
 		input(text: string) {
 			library.editText(view, text);
-			void library.saveText(path);
+			void view.save();
 		},
 	};
 }
