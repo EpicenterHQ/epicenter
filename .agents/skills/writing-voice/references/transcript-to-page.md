@@ -223,3 +223,44 @@ same image.
 the plainer draft won over one adding “Thankfully, YC itself gave me events
 that anchored my sense of time.” His point was that he was grinding too hard
 to write anything down; the addition changed what happened.
+
+## Keep the Precision a Voice Pass Would Loosen
+
+From the unfinished draft *Centralization Takes Information and Processing
+Power*, October 21, 2026. A voice pass on the saved, committed draft proposed a
+more conversational version. The commit was a source-control checkpoint, not a
+decision that the draft was finished, and the input was draft prose, not a
+transcript. Braden preferred the committed draft's wording; in dictation he
+said it “sounded more smart, sharper.”
+
+**Committed draft, preferred**
+
+> Sometimes the choice between centralizing and decentralizing processing comes
+> down to whether the center has both the information and the computational
+> power to do something useful with it.
+>
+> The center might be able to process an enormous amount of information, but it
+> still needs to receive it. If what matters is happening somewhere else, how
+> quickly can that information reach the center? A faster processor can still be
+> working from an outdated picture of the situation.
+
+**Proposed voice pass, not chosen**
+
+> Sometimes the choice between centralizing and decentralizing processing comes
+> down to two things: how much the center can process, and how quickly it can
+> get the information it needs.
+>
+> The center might have enough computational power to handle everything. But if
+> what matters is happening somewhere else, the information still has to reach
+> it. How quickly can it get there? A faster processor can still be working from
+> an outdated picture of the situation.
+
+His stated reason was the sharpness; the rest is a craft reading, not his
+explanation. “Both” and “something useful” make information and processing a
+joint condition for a purpose. This particular list presents them as separate
+factors, drops the purpose, and pulls the next paragraph's question of speed
+into the opening. “Handle everything” claims an absolute that “an enormous
+amount” did not, and “but it still needs to receive it” turns on the problem in
+one clause where the pass spends two sentences. One preferred version does not
+show that a saved draft's wording should usually stand; it shows that sounding
+more conversational is not what makes a pass sound like him.
