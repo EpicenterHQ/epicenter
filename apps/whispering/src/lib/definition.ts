@@ -4,8 +4,7 @@ import { Type } from 'typebox';
 /**
  * Whispering's tables: each recording is `recordings/<id>.md` with its
  * metadata in frontmatter and notes in the Markdown body. Its audio is the
- * unique supported sibling `recordings/<id>.<extension>`; new rows store no
- * path. Existing audioPath links remain readable without moving old files.
+ * unique supported sibling `recordings/<id>.<extension>`; rows store no path.
  * The row is written when the recording starts and
  * holds facts only: when it started and, once it stops,
  * how long it is. Whether a recording is running is never written
@@ -44,11 +43,6 @@ const recordings = defineTable({
 		durationMs: field.optional(field.number()),
 		/** Where the audio came from, so fixture audio is never mistaken for a microphone take. */
 		capture: field.select(['microphone', 'fixture']),
-		/**
-		 * Legacy explicit link, preserved for existing recordings. New captures
-		 * omit it and resolve a supported sibling by the recording's stem.
-		 */
-		audioPath: field.optional(field.string()),
 	},
 });
 
@@ -161,17 +155,6 @@ export const DEFAULT_TRANSCRIPTION_CONNECTION = {
  */
 export function recordingAudioStem(id: string): string {
 	return `${RECORDINGS}/${id}`;
-}
-
-/**
- * An existing recording's explicit audio link. New rows omit it; their audio
- * is resolved from supported same-stem siblings by recordingAudio.
- */
-export function audioPathIn(
-	fields: Readonly<Partial<RecordingFields>>,
-): string | undefined {
-	const path = fields.audioPath;
-	return typeof path === 'string' && path !== '' ? path : undefined;
 }
 
 /**

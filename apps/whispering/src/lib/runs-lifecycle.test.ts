@@ -62,14 +62,17 @@ test('ambiguous sibling audio refuses transcription without sending a provider r
 	});
 });
 
-test('transcribing saves an accepted audio path change before preparing its request', async () => {
+test('transcribing saves accepted recording notes before preparing its request', async () => {
 	const { library, folder, entry, transcribed } = await open();
 	const edit = folder.tables.recordings.edit(entry.stem);
 	await edit.read();
-	expectOk(edit.change({ fields: { audioPath: 'audio/typed.wav' } }));
+	expectOk(edit.change({ body: 'Notes accepted before transcription.\n' }));
 	await library.transcribe(entry);
+	expect(expectOk(await folder.tables.recordings.get(entry.stem))?.body).toBe(
+		'Notes accepted before transcription.\n',
+	);
 	expect(transcribed.map((request) => request.audioPath)).toEqual([
-		'audio/typed.wav',
+		entry.path.replace(/\.md$/, '.wav'),
 	]);
 });
 
@@ -90,13 +93,13 @@ for (const replacement of ['missing', 'malformed'] as const)
 		expect(transcribed).toHaveLength(1);
 	});
 
-test('an audio path change that cannot save sends no older recording audio', async () => {
+test('recording notes that cannot save prevent transcription', async () => {
 	const { library, folder, root, entry, transcribed } = await open();
 	const edit = folder.tables.recordings.edit(entry.stem);
 	await edit.read();
 	chmodSync(join(root, 'recordings'), 0o555);
 	try {
-		expectOk(edit.change({ fields: { audioPath: 'audio/typed.wav' } }));
+		expectOk(edit.change({ body: 'Notes accepted before transcription.\n' }));
 		await library.transcribe(entry);
 		expect(transcribed).toEqual([]);
 		expect(library.transcriptionRun(entry.stem)).toMatchObject({

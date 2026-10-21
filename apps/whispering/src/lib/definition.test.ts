@@ -10,18 +10,14 @@
  * - The tables are the five directories, with the fields in their order
  * - A recipe names its model, `null` reads as "use the connection", and a
  *   field left out is an issue, never a refusal
- * - A recording needs no audioPath; old explicit links remain readable
+ * - Recording metadata contains no audio path
  * - A field the schema does not name is kept with the row
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import {
-	audioPathIn,
-	recordingAudioStem,
-	whisperingTables,
-} from './definition.js';
+import { recordingAudioStem, whisperingTables } from './definition.js';
 import {
 	openTestFolder,
 	whisperingDirectory,
@@ -64,7 +60,6 @@ test('the tables are the five directories, with their fields in order', () => {
 		'recordedAt',
 		'durationMs',
 		'capture',
-		'audioPath',
 	]);
 	// A result on pasted text names no recording or transcript.
 	expect(properties('text_runs')).toEqual([
@@ -106,28 +101,23 @@ test('a recipe names its model, or says “use the connection” with null; a fi
 	expect(silent?.body).toBe('Fix it.\n');
 });
 
-test('new audio lives beside its row, optional legacy paths read, and unknown fields survive', async () => {
+test('audio lives beside its row and unknown fields survive', async () => {
 	expect(recordingAudioStem('20260102-030405-abcd')).toBe(
 		'recordings/20260102-030405-abcd',
 	);
-	expect(audioPathIn({ audioPath: 'audio/take.wav' })).toBe('audio/take.wav');
-	// Only legacy explicit links are read here; sibling resolution is tested separately.
-	expect(audioPathIn({})).toBeUndefined();
-	expect(audioPathIn({ audioPath: '' })).toBeUndefined();
 
 	const folder = await folderWith({
 		'recordings/take.md':
-			'---\ntitle: Take\nrecordedAt: 2026-01-02T03:04:05.000Z\ncapture: microphone\naudioPath: audio/take.wav\nmood: calm\n---\n',
+			'---\ntitle: Take\nrecordedAt: 2026-01-02T03:04:05.000Z\ncapture: microphone\nmood: calm\n---\n',
 		'recordings/nameless.md':
 			'---\ntitle: Take\nrecordedAt: 2026-01-02T03:04:05.000Z\ncapture: microphone\n---\n',
 		'recordings/bad-time.md':
-			'---\ntitle: Take\nrecordedAt: yesterday\ncapture: microphone\naudioPath: audio/take.wav\n---\n',
+			'---\ntitle: Take\nrecordedAt: yesterday\ncapture: microphone\n---\n',
 	});
 	const recordings = folder.tables.recordings;
 	const take = expectOk(await recordings.get('take'));
 	expect(take?.issues).toBeNull();
 	expect(take?.fields).toMatchObject({
-		audioPath: 'audio/take.wav',
 		mood: 'calm',
 	});
 	expect(expectOk(await recordings.get('nameless'))?.issues).toBeNull();

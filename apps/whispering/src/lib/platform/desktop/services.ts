@@ -69,12 +69,10 @@ export function createServices(
 		location: 'The folder opened in Epicenter',
 		capture: createDesktopMicrophone(),
 		async recoverRecordings() {
-			for (const under of [RECORDINGS, 'audio']) {
-				const { error } = await recoverRecordings({ under });
-				if (error !== null)
-					return `Recordings a quit cut off could not be checked: ${error.message}`;
-			}
-			return undefined;
+			const { error } = await recoverRecordings({ under: RECORDINGS });
+			return error === null
+				? undefined
+				: `Recordings a quit cut off could not be checked: ${error.message}`;
 		},
 		async transcribe(request) {
 			let route: Route;

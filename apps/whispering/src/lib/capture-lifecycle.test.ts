@@ -13,8 +13,8 @@ import {
 	type RecordingEndedReason,
 } from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
-import { toneWav } from './capture.js';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { toneWav } from './capture.js';
 import { closeTestLibrary, openTestLibrary } from './library.test-support.js';
 import { createMicrophoneDevice } from './microphone.js';
 import {
@@ -176,7 +176,7 @@ test('the capture adapter reports a native cancellation failure', async () => {
 	const active = expectOk(
 		await capture.start({
 			folder: { write: async () => Ok(undefined) },
-			path: 'audio/test',
+			path: 'recordings/test',
 		}),
 	);
 	const result = await active.cancel();
@@ -324,7 +324,9 @@ for (const reason of [
 		await eventually(() => opened.library.recorder.phase === 'idle');
 		await closeTestLibrary(opened.library);
 		expect(opened.stops()).toBe(1);
-		const [name] = (await readdir(join(test.root, 'recordings'))).filter((name) => name.endsWith('.md'));
+		const [name] = (await readdir(join(test.root, 'recordings'))).filter(
+			(name) => name.endsWith('.md'),
+		);
 		const saved = await readFile(join(test.root, 'recordings', name!), 'utf8');
 		expect(saved).toContain('durationMs: 1000');
 		expect(new Uint8Array(await readFile(join(test.root, audioPath)))).toEqual(
@@ -351,7 +353,7 @@ test('closing waits for an interrupted capture and does not stop it twice', asyn
 		cancel: async () => Ok(undefined),
 		stop: async () => {
 			await release.promise;
-			return Ok({ path: 'audio/interrupted.wav', durationMs: 1000 });
+			return Ok({ path: 'recordings/interrupted.wav', durationMs: 1000 });
 		},
 	});
 	await library.startRecording();

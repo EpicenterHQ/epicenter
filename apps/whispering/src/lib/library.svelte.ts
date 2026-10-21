@@ -686,7 +686,7 @@ export function createLibrary(
 			finishedOver.get(entry.stem)?.count ===
 				(queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0);
 		if (!unlisted) finishedOver.delete(entry.stem);
-		return recordingAudio(entry.stem, entry.row.fields, {
+		return recordingAudio(entry.stem, {
 			capturePath:
 				active?.id === entry.stem
 					? active.capture.audioPath

@@ -78,11 +78,11 @@ What Whispering adds on top:
 
 - A recording's identity is its stem. Results refer to it by `recordingId`, so
   the app never renames a recording's row; the title is a field.
-- A new recording resolves its audio from the unique supported same-stem file
+- A recording resolves its audio from the unique supported same-stem file
   beside its Markdown row in `recordings/`. No matching file is absent; several
-  matching files are ambiguous and cannot play or transcribe. New rows store
-  no path. Existing explicit `audioPath` links stay readable without moving
-  files. Deleting a recording keeps the audio as an ordinary file.
+  matching files are ambiguous and cannot play or transcribe. Rows store no
+  path, and no metadata field overrides this layout. Deleting a recording
+  keeps the audio as an ordinary file.
 - A transcription is a separate row, so a recording can have several and each is
   a readable file.
 - A transformation (a recipe) is a row in `transformations/`: title in
@@ -368,7 +368,7 @@ There are two capture devices, and each mounted product has exactly one, chosen 
 - The fixture device (`src/lib/capture.ts`) writes fixed bytes on stop, under
   the fixture's own extension, and marks the row `fixture`.
 
-When the library starts it calls `recoverRecordings` over `recordings/` and the legacy `audio/` directory: on
+When the library starts it calls `recoverRecordings` over `recordings/`: on
 the desktop the shell rewrites the header of any WAV a quit or a crash cut
 off, so it plays to its end; a browser has none. The row of such a recording
 has no length.

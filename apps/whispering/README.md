@@ -115,7 +115,7 @@ store no `audioPath` field.
 
 - No matching audio means the recording is readable but cannot play or transcribe on this device.
 - Multiple matching audio files need repair. Whispering lists the candidates and never chooses by extension order.
-- Existing explicit `audioPath` links remain readable; startup moves and rewrites no old recordings.
+- Only the same-stem layout supplies recording audio. Frontmatter paths have no special meaning, and startup performs no migration.
 - Renaming a linked audio file from the app is refused. Deleting the recording still keeps its audio as an ordinary file.
 
 See [ADR-0659](../../docs/adr/0659-whispering-audio-lives-beside-its-markdown.md).
@@ -622,7 +622,7 @@ These are absent, not hidden behind a setting:
 - Opening the desktop folder from a browser tab. The shell binds the folder
   to Whispering's window alone.
 - Moving audio away from its recording or renaming its stem and having the recording follow.
-  Nothing collects orphan audio automatically. Old explicit `audioPath` links remain readable.
+  Nothing collects orphan audio automatically or follows a frontmatter audio path.
 
 The earlier Whispering stored recordings and transformations in a Yjs store.
 Nothing reads that data. There is no migration. The pages, sidebar, and

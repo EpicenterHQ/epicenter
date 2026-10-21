@@ -22,7 +22,6 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
 import {
-	audioPathIn,
 	RECORDINGS,
 	rowIdOf,
 	rowPath,
@@ -259,11 +258,9 @@ export function createRuns({
 		if (late !== undefined) return Err(late);
 		if (deleting.has(recording)) return Err(BEING_DELETED);
 		if (capturing.has(recording)) return Err(STILL_RECORDING);
-		const legacy = audioPathIn(entry.fields);
-		if (legacy !== undefined) return Ok(legacy);
 		const listed = await folder.files.list(RECORDINGS);
 		if (listed.error !== null) return Err(describeError(listed.error));
-		const audio = recordingAudio(recording, entry.fields, {
+		const audio = recordingAudio(recording, {
 			listing: listingOf(listed.data),
 			settling: false,
 		});

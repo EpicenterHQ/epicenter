@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
-- **Related history:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) and [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md), both superseded, describe earlier placement and capture decisions. This record replaces the app's current explicit-path convention for new captures; existing links remain readable.
+- **Related history:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) and [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md), both superseded, describe earlier placement and capture decisions. This record replaces the explicit-path convention with a clean break.
+- **Amended:** 2026-10-21. The initial implementation retained explicit audio links; the user chose to remove that compatibility path entirely.
 
 ## Decision
 
@@ -19,10 +20,12 @@ the unique supported sibling by exact stem. Multiple matches are reported as
 ambiguous and cannot play or transcribe. A missing local audio file does not
 make otherwise valid recording metadata malformed.
 
-Existing explicit `audioPath` links remain readable, including files under
-the former `audio/` directory. Opening does not move files or rewrite old
-metadata. Native interrupted-WAV recovery checks both locations. Audio remains
-an ordinary authored file; deleting a recording keeps its audio as before.
+The same-stem layout is the only recording-audio relationship. The schema
+declares no `audioPath`, and no metadata field overrides sibling resolution.
+There is no alternate-directory lookup, data-version dispatch, or migration.
+Opening leaves existing bytes untouched; recordings without a matching sibling
+show missing audio. Native interrupted-WAV recovery checks only `recordings/`.
+Audio remains an ordinary authored file; deleting a recording keeps its audio.
 
 Whispering maintains these ordinary `.gitignore` rules throughout its folder:
 

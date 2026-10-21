@@ -18,7 +18,6 @@ import type { ReadError, Row, SaveError } from '@epicenter/folder';
 import { basename } from '@epicenter/folder/file-browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
-	audioPathIn,
 	RECORDINGS,
 	type RecordingFields,
 	rowIdOf,
@@ -186,9 +185,9 @@ export async function captureDeletion(
 			recordingId,
 		);
 		if (resultsError !== null) return Err(resultsError);
-		const listed = await folder.files.list(audioPathIn(fields) ?? RECORDINGS);
+		const listed = await folder.files.list(RECORDINGS);
 		if (listed.error !== null) return Err(listed.error.message);
-		const audio = recordingAudio(recordingId, fields, {
+		const audio = recordingAudio(recordingId, {
 			listing: listingOf(listed.data),
 			settling: false,
 		});

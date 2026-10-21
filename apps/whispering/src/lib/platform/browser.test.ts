@@ -10,8 +10,8 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { toneWav } from '../capture.js';
 import { whisperingTables } from '../definition.js';
 import { readBytes } from '../files.js';
-import { openTestServices } from '../services.test-support.js';
 import type { WhisperingFolder } from '../folder.js';
+import { openTestServices } from '../services.test-support.js';
 
 // Compile the Vite build flag for this adapter test; no microphone is opened.
 Bun.plugin({
@@ -71,7 +71,9 @@ async function preferences(getItem: (key: string) => string | null) {
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
-	const browser = createServices(expectOk(await openFolder({ tables: whisperingTables })));
+	const browser = createServices(
+		expectOk(await openFolder({ tables: whisperingTables })),
+	);
 	cleanups.push(async () => {
 		await folder.close();
 		await services.remove();
@@ -95,14 +97,16 @@ test('a recording’s audio is read back from the folder as its exact bytes for 
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
-	expectOk(await folder.files.write('audio/take.webm', null, toneWav()));
-	const browser = createServices(expectOk(await openFolder({ tables: whisperingTables })));
+	expectOk(await folder.files.write('recordings/take.webm', null, toneWav()));
+	const browser = createServices(
+		expectOk(await openFolder({ tables: whisperingTables })),
+	);
 	cleanups.push(async () => {
 		await folder.close();
 		await services.remove();
 	});
 
-	expect(expectOk(await readBytes(folder, 'audio/take.webm'))).toEqual(
+	expect(expectOk(await readBytes(folder, 'recordings/take.webm'))).toEqual(
 		toneWav(),
 	);
 });
@@ -179,7 +183,9 @@ async function browserWithStorage(stored: Map<string, string>) {
 		});
 		return Response.json({ choices: [{ message: { content: 'ok' } }] });
 	}) as unknown as typeof fetch;
-	const browser = createServices(expectOk(await openFolder({ tables: whisperingTables })));
+	const browser = createServices(
+		expectOk(await openFolder({ tables: whisperingTables })),
+	);
 	cleanups.push(async () => {
 		globalThis.fetch = originalFetch;
 		await folder.close();

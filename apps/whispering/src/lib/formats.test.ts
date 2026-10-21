@@ -46,7 +46,7 @@ const transcribe = (
 ) =>
 	transcribeOverConnection(
 		async () => stored,
-		{ audioPath: 'audio/a.wav', expectedBaseUrl: stored.baseUrl, model },
+		{ audioPath: 'recordings/a.wav', expectedBaseUrl: stored.baseUrl, model },
 		async () => Ok(audio),
 		send,
 	);

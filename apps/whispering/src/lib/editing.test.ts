@@ -169,8 +169,8 @@ async function transcript(library: Library) {
 const listed = (library: Library, path: string) =>
 	library.entries.find((entry) => entry.path === path);
 
-const recordingText = (title: string, audioPath: string) =>
-	`---\ntitle: ${title}\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: ${audioPath}\n---\n`;
+const recordingText = (title: string) =>
+	`---\ntitle: ${title}\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: fixture\n---\n`;
 
 // ============================================================================
 // Edits and saves
@@ -231,7 +231,6 @@ test('notes typed while a save runs are saved next, from the row that save sent'
 test('a read never touches notes typed, and their save merges with the change it read', async () => {
 	const { library, root, failNextWrite } = await open();
 	const editor = await record(library);
-	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	// A save that fails keeps the notes unsaved, and says so.
 	failNextWrite(editor.path);
 	editor.edit((row) => {
@@ -242,7 +241,7 @@ test('a read never touches notes typed, and their save merges with the change it
 	expect(library.unsaved).toBe(true);
 
 	// Another program changes the title, and the folder is read again.
-	await writeElsewhere(root, editor.path, recordingText('Theirs', audioPath));
+	await writeElsewhere(root, editor.path, recordingText('Theirs'));
 	await settle(library);
 	// The listing reads the file; the notes typed are untouched.
 	expect(editor.draft.body).toBe('Mine.\n');
@@ -260,11 +259,10 @@ test('a read never touches notes typed, and their save merges with the change it
 test('a field typed over a change made elsewhere sets its field and keeps theirs', async () => {
 	const { library, root } = await open();
 	const editor = await record(library);
-	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	await writeElsewhere(
 		root,
 		editor.path,
-		`${recordingText('Theirs', audioPath)}Their notes.\n`,
+		`${recordingText('Theirs')}Their notes.\n`,
 	);
 
 	editor.edit((row) => {
@@ -280,11 +278,10 @@ test('a field typed over a change made elsewhere sets its field and keeps theirs
 test('a field another program added survives every edit of the row', async () => {
 	const { library, root } = await open();
 	const editor = await record(library);
-	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	await writeElsewhere(
 		root,
 		editor.path,
-		recordingText('Theirs', audioPath).replace('---\n', '---\nspeaker: Ada\n'),
+		recordingText('Theirs').replace('---\n', '---\nspeaker: Ada\n'),
 	);
 	await settle(library);
 
@@ -407,8 +404,7 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	const { library, root } = await open();
 	const editor = await record(library);
 	const { path } = editor;
-	const audioPath = editor.path.replace(/\.md$/, '.wav');
-	const broken = `---\ntitle: Broken\naudioPath: ${audioPath}\n---\n`;
+	const broken = '---\ntitle: Broken\n---\n';
 	await writeElsewhere(root, path, broken);
 	await settle(library);
 
@@ -418,10 +414,10 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	expect(source.draft).toBe(broken);
 	expect(await library.useForm(path)).toContain('does not read');
 
-	source.input(recordingText('Repaired', audioPath));
-	expect(source.draft).toBe(recordingText('Repaired', audioPath));
+	source.input(recordingText('Repaired'));
+	expect(source.draft).toBe(recordingText('Repaired'));
 	await settle(library);
-	expect(await text(root, path)).toBe(recordingText('Repaired', audioPath));
+	expect(await text(root, path)).toBe(recordingText('Repaired'));
 	expect(library.repairs).toEqual([]);
 	expect(await library.useForm(path)).toBeUndefined();
 	expect(library.showsText(path)).toBe(false);
@@ -432,12 +428,11 @@ test('text typed over a file changed elsewhere merges with it, and the typing wi
 	const { library, root } = await open();
 	const editor = await record(library);
 	const { path } = editor;
-	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	expect(await library.editSource(path)).toBeUndefined();
 	const source = await openText(library, path);
-	await writeElsewhere(root, path, recordingText('Theirs', audioPath));
+	await writeElsewhere(root, path, recordingText('Theirs'));
 
-	source.input(recordingText('Mine', audioPath));
+	source.input(recordingText('Mine'));
 	await settle(library);
 	const merged = (await text(root, path)) ?? '';
 	expect(merged).toContain('title: Mine\n');
@@ -571,11 +566,7 @@ test('a deletion removes the recording as it is when it runs, whatever changed s
 	const editor = await record(library);
 	const { path } = editor;
 	const deletion = expectOk(await library.deletionFor(path));
-	await writeElsewhere(
-		root,
-		path,
-		recordingText('Changed', editor.path.replace(/\.md$/, '.wav')),
-	);
+	await writeElsewhere(root, path, recordingText('Changed'));
 
 	expect(await library.delete(deletion)).toBeUndefined();
 	await settle(library);

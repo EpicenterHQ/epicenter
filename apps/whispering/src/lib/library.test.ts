@@ -14,11 +14,11 @@
  * - Record and stop leave same-stem Markdown and audio with its exact
  *   bytes; reopening reads both, and a recording being captured never reads
  *   as absent
- * - Files an earlier version left in a directory read as they are: rows,
+ * - Files supplied in an ordinary directory read as they are: rows,
  *   transcripts, results, and audio, with every field kept
  * - Captured audio survives a row write that fails at start
- * - Pathless rows resolve supported siblings; old explicit paths still read
- *   without moving files, and malformed rows remain repairable
+ * - Only same-stem siblings resolve as audio; unrelated metadata never redirects
+ *   playback or transcription, and malformed rows remain repairable
  * - Deleting a recording deletes its row and its results and keeps its audio.
  *   It is refused while work for it runs or a result cannot say whose it is
  * - A transcription result is its own row naming the recording, written with
@@ -64,12 +64,9 @@ import {
 } from './services.test-support.js';
 import { filesLine } from './status.js';
 
-/** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
+/** The recording rows and their sibling audio, sorted. */
 const recordingFiles = async (root: string) =>
-	[
-		...(await readdir(join(root, 'recordings')).catch(() => [] as string[])),
-		...(await readdir(join(root, 'audio')).catch(() => [] as string[])),
-	].sort();
+	(await readdir(join(root, 'recordings')).catch(() => [] as string[])).sort();
 
 const { recordingId } = await import('./library.svelte.ts');
 
@@ -289,7 +286,6 @@ test('record and stop leave adjacent Markdown and exact audio without a stored p
 	const audioPath = entry.path.replace(/\.md$/, '.wav');
 	expect(fields.capture).toBe('fixture');
 	expect(fields.durationMs).toBe(1000);
-	expect(fields.audioPath).toBeUndefined();
 	expect(library.selectedPath).toBe(entry.path);
 	expect(library.selection?.entry?.path).toBe(entry.path);
 	expect(library.showsText(entry.path)).toBe(false);
@@ -562,21 +558,20 @@ test('a row write that fails at start leaves the recording running, says so, and
 	).toEqual(toneWav());
 });
 
-test('files an earlier version left in an ordinary directory read as they are, extra fields included', async () => {
-	const root = await whisperingDirectory('whispering-earlier-');
+test('files in an ordinary directory read as they are, extra fields included', async () => {
+	const root = await whisperingDirectory('whispering-files-');
 	roots.push(root);
 	await mkdir(join(root, 'recordings'), { recursive: true });
-	await mkdir(join(root, 'audio'), { recursive: true });
 	await mkdir(join(root, 'transcriptions'), { recursive: true });
 	const recording =
-		'---\ntitle: Kept take\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: microphone\naudioPath: audio/kept.wav\nmood: calm\n---\nMy notes\n';
+		'---\ntitle: Kept take\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: microphone\nmood: calm\n---\nMy notes\n';
 	await writeFile(join(root, 'recordings', 'kept.md'), recording);
-	await writeFile(join(root, 'audio', 'kept.wav'), toneWav());
+	await writeFile(join(root, 'recordings', 'kept.wav'), toneWav());
 	await writeFile(
 		join(root, 'transcriptions', 'kept-t.md'),
 		'---\nrecordingId: kept\ncreatedAt: 2026-01-02T03:05:00.000Z\nmodel: whisper-1\nendpoint: https://api.openai.com/v1\n---\nhello there\n',
 	);
-	// What the earlier version published beside its files stays as it is.
+	// An unrelated file beside the documents stays as it is.
 	await writeFile(join(root, 'epicenter.json'), '{"title":"Whispering"}\n');
 
 	const { library } = await open({ root });
@@ -585,7 +580,6 @@ test('files an earlier version left in an ordinary directory read as they are, e
 	expect(entry.stem).toBe('kept');
 	expect(entry.row.fields).toMatchObject({
 		title: 'Kept take',
-		audioPath: 'audio/kept.wav',
 	});
 	expect(entry.row.body).toBe('My notes\n');
 	expect(library.audioOf(entry).kind).toBe('here');
@@ -593,7 +587,7 @@ test('files an earlier version left in an ordinary directory read as they are, e
 		'hello there\n',
 	]);
 	expect(
-		expectOk(await readBytes(library.local.folder, 'audio/kept.wav')),
+		expectOk(await readBytes(library.local.folder, 'recordings/kept.wav')),
 	).toEqual(toneWav());
 
 	// Editing the notes keeps the field this version does not know.
@@ -610,42 +604,35 @@ test('files an earlier version left in an ordinary directory read as they are, e
 	);
 });
 
-test('a pathless recording reads without guessing an old audio directory, and a legacy link remains readable', async () => {
+test('frontmatter paths never redirect audio and opening never relocates files', async () => {
 	const { library, root, transcribed } = await open();
 	await mkdir(join(root, 'recordings'), { recursive: true });
 	await mkdir(join(root, 'audio'), { recursive: true });
-	const old =
-		'---\ntitle: Old take\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: fixture\n---\nNotes\n';
-	await writeFile(join(root, 'recordings', 'old.md'), old);
-	await writeFile(join(root, 'audio', 'old.wav'), toneWav());
+	const source =
+		'---\ntitle: Take\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: audio/take.wav\n---\nNotes\n';
+	await writeFile(join(root, 'recordings', 'take.md'), source);
+	await writeFile(join(root, 'audio', 'take.wav'), toneWav());
 	await settle(library);
+	const entry = library.entries[0]!;
+	expect(library.audioOf(entry).kind).toBe('absent');
+	expect(library.recordingNaming('audio/take.wav')).toBeUndefined();
+	await library.transcribe(entry);
+	expect(transcribed).toEqual([]);
+	expect(await readFile(join(root, entry.path), 'utf8')).toBe(source);
+	expect(await readdir(join(root, 'recordings'))).toEqual(['take.md']);
+	expect<Uint8Array>(
+		new Uint8Array(await readFile(join(root, 'audio', 'take.wav'))),
+	).toEqual(toneWav());
 
-	expect(library.entries).toHaveLength(1);
-	expect(library.repairs).toEqual([]);
-	expect(library.audioOf(library.entries[0]!).kind).toBe('absent');
-	expect(library.isRecording('recordings/old.md')).toBe(true);
-	expect(library.recordingNaming('audio/old.wav')).toBeUndefined();
-
-	// The person repairs it as text by naming the audio.
-	expect(await library.open('recordings/old.md')).toBeUndefined();
-	const text = await openText(library, 'recordings/old.md');
-	expect(text.draft).toBe(old);
-	text.input(
-		old.replace(
-			'capture: fixture\n',
-			'capture: fixture\naudioPath: audio/old.wav\n',
-		),
-	);
+	await writeFile(join(root, 'recordings', 'take.wav'), toneWav());
 	await settle(library);
-	expect(await library.useForm('recordings/old.md')).toBeUndefined();
-	await settle(library);
-	const repaired = library.entries.find((item) => item.stem === 'old')!;
-	expect(library.recordingNaming('audio/old.wav')?.path).toBe(
-		'recordings/old.md',
-	);
-	await library.transcribe(repaired);
+	await library.transcribe(entry);
+	expect(library.audioOf(entry)).toEqual({
+		kind: 'here',
+		path: 'recordings/take.wav',
+	});
 	expect(transcribed.map((request) => request.audioPath)).toEqual([
-		'audio/old.wav',
+		'recordings/take.wav',
 	]);
 });
 
@@ -1125,16 +1112,20 @@ test('a rename never replaces a file already at the new name', async () => {
 
 test('renaming audio no recording names moves its exact bytes', async () => {
 	const { library, root } = await open();
-	await mkdir(join(root, 'audio'), { recursive: true });
-	await writeFile(join(root, 'audio', 'loose.wav'), toneWav());
+	await mkdir(join(root, 'recordings'), { recursive: true });
+	await writeFile(join(root, 'recordings', 'loose.wav'), toneWav());
 	await settle(library);
 
-	expect(await library.rename('audio/loose.wav', 'kept.wav')).toBeUndefined();
+	expect(
+		await library.rename('recordings/loose.wav', 'kept.wav'),
+	).toBeUndefined();
 
 	expect<Uint8Array>(
-		new Uint8Array(await readFile(join(root, 'audio', 'kept.wav'))),
+		new Uint8Array(await readFile(join(root, 'recordings', 'kept.wav'))),
 	).toEqual(toneWav());
-	expect(await Bun.file(join(root, 'audio', 'loose.wav')).exists()).toBe(false);
+	expect(await Bun.file(join(root, 'recordings', 'loose.wav')).exists()).toBe(
+		false,
+	);
 });
 
 test('recording and transformation files keep their names, and a transcript keeps its extension', async () => {

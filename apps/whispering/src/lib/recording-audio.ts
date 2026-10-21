@@ -1,16 +1,12 @@
 /**
  * Whether a recording's audio is in this device's folder.
  *
- * New recordings resolve one supported audio file beside the Markdown file
+ * Recordings resolve one supported audio file beside the Markdown file
  * with the same stem. Multiple matches need repair instead of an arbitrary
- * extension preference. Old explicit audioPath links remain readable.
+ * extension preference.
  */
 import { audioMimeTypeOf } from './audio-format.js';
-import {
-	audioPathIn,
-	type RecordingFields,
-	recordingAudioStem,
-} from './definition.js';
+import { recordingAudioStem } from './definition.js';
 import type { Listing } from './files.js';
 
 export type RecordingAudio =
@@ -33,24 +29,16 @@ export type RecordingAudio =
  */
 export function recordingAudio(
 	stem: string,
-	fields: Readonly<Partial<RecordingFields>>,
 	{
 		listing,
 		settling,
 		capturePath,
 	}: {
-		listing: Pick<Listing, 'paths' | 'byStem'> | undefined;
+		listing: Pick<Listing, 'byStem'> | undefined;
 		settling: boolean;
 		capturePath?: string;
 	},
 ): RecordingAudio {
-	// Existing recordings keep their explicit link; new rows omit this field.
-	const legacy = audioPathIn(fields);
-	if (legacy !== undefined) {
-		return settling || listing === undefined || listing.paths.has(legacy)
-			? { kind: 'here', path: legacy }
-			: { kind: 'absent', path: legacy };
-	}
 	if (settling && capturePath !== undefined)
 		return { kind: 'here', path: capturePath };
 	if (listing === undefined) return { kind: 'none' };

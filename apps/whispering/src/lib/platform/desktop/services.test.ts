@@ -423,7 +423,7 @@ test('recovery repairs recordings a quit cut off and reports a repair failure', 
 	// The recorder repairs the window's folder; the page names none.
 	expect(asked).toEqual([]);
 	const notice = await repaired.recoverRecordings();
-	expect(asked).toEqual([{ under: 'recordings' }, { under: 'audio' }]);
+	expect(asked).toEqual([{ under: 'recordings' }]);
 	expect(notice).toBeUndefined();
 	await repairedFolder.close();
 
@@ -442,7 +442,7 @@ test('saves go through the shell: audio lands as its exact bytes, and a row as t
 	const { services, folder: openedFolder } = await openDesktop();
 	const audio = new Uint8Array([1, 2, 3, 0, 255]);
 
-	expectOk(await openedFolder.files.write('audio/a.wav', null, audio));
+	expectOk(await openedFolder.files.write('recordings/a.wav', null, audio));
 	expectOk(
 		await openedFolder.tables.transformations.set('clean', null, {
 			fields: { title: 'Clean up', model: null },
@@ -454,13 +454,15 @@ test('saves go through the shell: audio lands as its exact bytes, and a row as t
 	// The recording's bytes reach the shell as a raw body, in the one call
 	// that puts them at their path, and land exactly.
 	const put = sent('put_folder_file').find(
-		(call) => call.args.path === 'audio/a.wav',
+		(call) => call.args.path === 'recordings/a.wav',
 	);
 	expect(put?.args.bytes).toEqual(audio);
-	expect(new Uint8Array(await readFile(join(root, 'audio', 'a.wav')))).toEqual(
+	expect(
+		new Uint8Array(await readFile(join(root, 'recordings', 'a.wav'))),
+	).toEqual(audio);
+	expect(expectOk(await readBytes(openedFolder, 'recordings/a.wav'))).toEqual(
 		audio,
 	);
-	expect(expectOk(await readBytes(openedFolder, 'audio/a.wav'))).toEqual(audio);
 	expect(
 		await readFile(join(root, 'transformations', 'clean.md'), 'utf8'),
 	).toContain('title: Clean up');
@@ -686,11 +688,11 @@ test('a connection save whose reply Epicenter never delivered is not reported as
 test('a transcription reads the audio through the shell and Epicenter sends it with the key, only while the connection is the one it was prepared for', async () => {
 	setup();
 	const granting = await granted();
-	await granting.write('audio/take.wav', toneWav());
+	await granting.write('recordings/take.wav', toneWav());
 	const host = await epicenter();
 	const { services, folder: openedFolder } = await openWith(host);
 	const request = {
-		audioPath: 'audio/take.wav',
+		audioPath: 'recordings/take.wav',
 		expectedBaseUrl: ENDPOINT,
 		model: 'whisper-1',
 	};
@@ -725,7 +727,7 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 	// The page read the audio through the shell, and was never sent the key.
 	expect(
 		sent('read_folder_file').some((read) =>
-			String(read.args.path).endsWith('audio/take.wav'),
+			String(read.args.path).endsWith('recordings/take.wav'),
 		),
 	).toBe(true);
 	expect(host.lines.join('\n')).not.toContain('transcription-key');
@@ -739,7 +741,7 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 	// Audio that cannot be read is certain: nothing is sent.
 	const { error: unreadable } = await services.transcribe({
 		...request,
-		audioPath: 'audio/gone.wav',
+		audioPath: 'recordings/gone.wav',
 	});
 	expect(unreadable?.name).toBe('AudioUnreadable');
 	expect(host.provider).toHaveLength(1);
@@ -749,7 +751,7 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 test('a reply Epicenter never delivered is reported as unknown, never as not sent, and nothing is sent again', async () => {
 	setup();
 	const granting = await granted();
-	await granting.write('audio/take.wav', toneWav());
+	await granting.write('recordings/take.wav', toneWav());
 	const host = await epicenter();
 	const { services, folder: openedFolder } = await openWith(host);
 	for (const operation of ['transcription', 'text'] as const)
@@ -769,7 +771,7 @@ test('a reply Epicenter never delivered is reported as unknown, never as not sen
 	host.lose(true);
 
 	const transcribed = await services.transcribe({
-		audioPath: 'audio/take.wav',
+		audioPath: 'recordings/take.wav',
 		expectedBaseUrl: ENDPOINT,
 		model: 'model',
 	});
@@ -876,7 +878,7 @@ function localModel({
 test('a recording is transcribed on this computer with Epicenter’s active model, from the bytes its row names', async () => {
 	setup();
 	const granting = await granted();
-	await granting.write('audio/take.wav', toneWav());
+	await granting.write('recordings/take.wav', toneWav());
 	const local = localModel({ active: 'parakeet-tdt-0.6b-v3' });
 	const { services, folder: openedFolder } = await openDesktop({
 		commands: local.commands,
@@ -884,17 +886,21 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 	const transcriber = services.localTranscription!;
 
 	expect(await transcriber.readiness()).toEqual({ ready: true });
-	expect(expectOk(await transcriber.transcribe('audio/take.wav'))).toEqual({
-		text: 'a local tone',
-		model: 'parakeet-tdt-0.6b-v3',
-	});
+	expect(expectOk(await transcriber.transcribe('recordings/take.wav'))).toEqual(
+		{
+			text: 'a local tone',
+			model: 'parakeet-tdt-0.6b-v3',
+		},
+	);
 	// The active model, never another installed one, and exactly the file's bytes.
 	expect(local.asked).toEqual([
 		{ modelId: 'parakeet-tdt-0.6b-v3', bytes: Array.from(toneWav()) },
 	]);
 
 	// Audio that cannot be read is not handed to the model.
-	const { error: unreadable } = await transcriber.transcribe('audio/gone.wav');
+	const { error: unreadable } = await transcriber.transcribe(
+		'recordings/gone.wav',
+	);
 	expect(unreadable?.name).toBe('AudioUnreadable');
 	expect(local.asked).toHaveLength(1);
 
@@ -906,7 +912,7 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 test('with no active local model nothing is transcribed, and the reason names Settings', async () => {
 	setup();
 	const granting = await granted();
-	await granting.write('audio/take.wav', toneWav());
+	await granting.write('recordings/take.wav', toneWav());
 	const local = localModel({ active: undefined });
 	const { services, folder: openedFolder } = await openDesktop({
 		commands: local.commands,
@@ -917,7 +923,7 @@ test('with no active local model nothing is transcribed, and the reason names Se
 		ready: false,
 		message: 'No local transcription model is chosen on this device.',
 	});
-	const { error } = await transcriber.transcribe('audio/take.wav');
+	const { error } = await transcriber.transcribe('recordings/take.wav');
 	expect(error?.name).toBe('ConnectionUnavailable');
 	expect(error?.message).toContain('Epicenter’s Settings');
 	expect(local.asked).toEqual([]);
@@ -927,7 +933,7 @@ test('with no active local model nothing is transcribed, and the reason names Se
 test('a local model that fails is reported as that failure, and an empty recording is an empty transcript', async () => {
 	setup();
 	const granting = await granted();
-	await granting.write('audio/take.wav', toneWav());
+	await granting.write('recordings/take.wav', toneWav());
 	for (const [outcome, expected] of [
 		[
 			{ error: { name: 'ModelLoadError', message: 'the model did not load' } },
@@ -947,8 +953,9 @@ test('a local model that fails is reported as that failure, and an empty recordi
 		const { services, folder: openedFolder } = await openDesktop({
 			commands: local.commands,
 		});
-		const { error } =
-			await services.localTranscription!.transcribe('audio/take.wav');
+		const { error } = await services.localTranscription!.transcribe(
+			'recordings/take.wav',
+		);
 		expect(error?.name).toBe(expected);
 		expect(error?.message).toContain(outcome.error.message);
 		await openedFolder.close();
@@ -962,7 +969,9 @@ test('a local model that fails is reported as that failure, and an empty recordi
 		commands: empty.commands,
 	});
 	expect(
-		expectOk(await services.localTranscription!.transcribe('audio/take.wav')),
+		expectOk(
+			await services.localTranscription!.transcribe('recordings/take.wav'),
+		),
 	).toEqual({ text: '', model: 'whisper-small' });
 	await openedFolder.close();
 });

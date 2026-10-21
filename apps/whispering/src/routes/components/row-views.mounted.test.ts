@@ -24,15 +24,15 @@
  *
  * jsdom has no layout, focus, selection, or IME; see svelte-dom.test-support.
  */
-import { closeTestLibrary } from '../../lib/library.test-support.js';
 
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { ReadError } from '@epicenter/folder';
-import { expectOk } from 'wellcrafted/testing';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
+import { expectOk } from 'wellcrafted/testing';
 import type { Library } from '../../lib/library.svelte.js';
+import { closeTestLibrary } from '../../lib/library.test-support.js';
 import { quiet } from '../../lib/query.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
 
@@ -56,7 +56,7 @@ const A = 'transcriptions/a.md';
 const RECIPE = 'transformations/clean.md';
 const RECORDING = 'recordings/take.md';
 const recording = (title: string, body: string) =>
-	`---\ntitle: ${title}\nrecordedAt: 2026-10-01T00:00:00.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: audio/take.wav\n---\n${body}`;
+	`---\ntitle: ${title}\nrecordedAt: 2026-10-01T00:00:00.000Z\ndurationMs: 1000\ncapture: fixture\n---\n${body}`;
 
 test('new captures play their sibling without audioPath and conflicting formats disable transcription', async () => {
 	const { library, target, root } = await open({});
@@ -64,16 +64,24 @@ test('new captures play their sibling without audioPath and conflicting formats 
 	await library.stopRecording();
 	await settle(library);
 	const entry = library.entries[0]!;
-	expect(entry.row.fields.audioPath).toBeUndefined();
 	await show(library, entry.path);
 	expect(target.querySelector('[data-testid="audio-player"]')).not.toBeNull();
-	expect(field<HTMLButtonElement>(target, '[data-testid="transcribe"]')?.disabled).toBe(false);
-	await writeFile(join(root, entry.path.replace(/\.md$/, '.webm')), new Uint8Array([1, 2]));
+	expect(
+		field<HTMLButtonElement>(target, '[data-testid="transcribe"]')?.disabled,
+	).toBe(false);
+	await writeFile(
+		join(root, entry.path.replace(/\.md$/, '.webm')),
+		new Uint8Array([1, 2]),
+	);
 	await reportChanged(library);
 	flushSync();
 	expect(target.querySelector('[data-testid="audio-player"]')).toBeNull();
-	expect(target.textContent).toContain('More than one audio file matches this recording');
-	expect(field<HTMLButtonElement>(target, '[data-testid="transcribe"]')?.disabled).toBe(true);
+	expect(target.textContent).toContain(
+		'More than one audio file matches this recording',
+	);
+	expect(
+		field<HTMLButtonElement>(target, '[data-testid="transcribe"]')?.disabled,
+	).toBe(true);
 });
 
 /**
@@ -184,7 +192,10 @@ test('a saved transcript stays shown when the reread fails, and typing on keeps 
 	const { library, target, root } = await open({ [A]: transcript('Alpha.\n') });
 	await show(library, A);
 	const body = () =>
-		field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]');
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of a.md"]',
+		);
 	expect(body()?.value).toBe('Alpha.\n');
 	const list = library.local.folder.tables.transcriptions.list;
 	library.local.folder.tables.transcriptions.list = async () =>
@@ -196,7 +207,9 @@ test('a saved transcript stays shown when the reread fails, and typing on keeps 
 	flushSync();
 	await library.textEdit(A).save();
 	await reportChanged(library);
-	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha, saved.\n'));
+	expect(await readFile(join(root, A), 'utf8')).toBe(
+		transcript('Alpha, saved.\n'),
+	);
 	expect(body()?.value).toBe('Alpha, saved.\n');
 
 	type(body(), 'Alpha, saved.\nMore.\n');
@@ -213,19 +226,30 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 		[A]: transcript('Alpha.\n'),
 	});
 	await show(library, 'recordings/one.md');
-	expect(target.querySelector('[data-testid="transcript-text"]')).not.toBeNull();
+	expect(
+		target.querySelector('[data-testid="transcript-text"]'),
+	).not.toBeNull();
 	expect(await library.editSource(A)).toBeUndefined();
 	library.editText(library.textEdit(A), transcript('Typed in Source.\n'));
 	flushSync();
-	expect(target.querySelector('[data-testid="transcript-text-readonly"]')?.textContent).toBe('Typed in Source.\n');
+	expect(
+		target.querySelector('[data-testid="transcript-text-readonly"]')
+			?.textContent,
+	).toBe('Typed in Source.\n');
 
 	disk.refusing = true;
 	await library.textEdit(A).save();
 	flushSync();
-	expect(target.querySelector('[data-testid="transcript-text-readonly"]')?.textContent).toBe('Typed in Source.\n');
+	expect(
+		target.querySelector('[data-testid="transcript-text-readonly"]')
+			?.textContent,
+	).toBe('Typed in Source.\n');
 	expect(await library.useForm(A)).toBeUndefined();
 	flushSync();
-	expect(target.querySelector<HTMLTextAreaElement>('[data-testid="transcript-text"]')?.value).toBe('Typed in Source.\n');
+	expect(
+		target.querySelector<HTMLTextAreaElement>('[data-testid="transcript-text"]')
+			?.value,
+	).toBe('Typed in Source.\n');
 	expect(library.heldAt(A)?.error).toBeDefined();
 	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha.\n'));
 });
@@ -414,7 +438,7 @@ test('a recording whose audio is not in the folder says it is not on this device
 	expect(runAgain()?.disabled).toBe(true);
 
 	// The audio is copied in: it is this device's to play and transcribe now.
-	await Bun.write(join(root, 'audio/take.wav'), 'RIFF');
+	await Bun.write(join(root, 'recordings/take.wav'), 'RIFF');
 	await reportChanged(library);
 	expect(absent()).toBeNull();
 	expect(transcribe()?.disabled).toBe(false);
@@ -523,7 +547,7 @@ for (const item of [
 }
 
 test('a slow audio read joins polling, keeps unchanged playback, and detects same-length replacements', async () => {
-	const path = 'audio/take.wav';
+	const path = 'recordings/take.wav';
 	const { library, target, root } = await open({ [path]: 'First audio' });
 	const read = library.local.folder.files.read;
 	const gate = Promise.withResolvers<void>();
@@ -627,7 +651,8 @@ for (const item of [
 			if (replacement === 'missing') await rm(join(root, item.path));
 			else await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
 			await reportChanged(library);
-			if (replacement === 'binary') await library.local.folder.files.edit(item.path).read();
+			if (replacement === 'binary')
+				await library.local.folder.files.edit(item.path).read();
 			flushSync();
 			const retained = target.querySelector<HTMLTextAreaElement>(
 				`textarea[aria-label="${item.label}"]`,
@@ -701,7 +726,8 @@ for (const replacement of ['missing', 'binary'] as const) {
 		if (replacement === 'missing') await rm(join(root, A));
 		else await writeFile(join(root, A), new Uint8Array([0, 1, 2]));
 		await reportChanged(library);
-		if (replacement === 'binary') await library.local.folder.files.edit(A).read();
+		if (replacement === 'binary')
+			await library.local.folder.files.edit(A).read();
 		flushSync();
 		expect(
 			field<HTMLTextAreaElement>(
