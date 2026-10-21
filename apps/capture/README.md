@@ -32,10 +32,17 @@ OPFS captures shows an empty current timeline.
 
 ## What you can do
 
-- **New capture** saves the text exactly as written, with an empty Thoughts
-  section. The file is named for the time, `captures/20261001-023000-ab12c.md`.
-  Ctrl or ⌘ + Enter adds it, and the new capture opens with the cursor in
-  Add a thought. Closing the form keeps its text.
+- **New capture** creates a draft Markdown file before accepting typing and
+  opens its composition view. Writing saves after a pause, on blur, and on
+  orderly page close. Return to the timeline to find every saved draft under
+  **Drafts**, including after restart. Even an empty draft stays until discarded.
+- **Add capture** promotes that same file, preserving its identity, appending
+  the Thoughts section, and setting `capturedAt` to the time of Add. Ctrl or
+  ⌘ + Enter adds it and focuses Add a thought. Arbitrary pasted Markdown is
+  kept; a completed file whose layout is ambiguous opens as text for repair.
+- **Discard draft…** asks before deleting the draft file. If its pending input
+  cannot save or deletion fails, the draft remains and the failure is shown.
+  Restore storage, use Save again if needed, then retry discard.
 - Open a capture from the timeline to edit its text, and to add, edit,
   reorder, copy, and delete thoughts. A thought can span lines and hold
   nested Markdown. Add a thought sits after the last thought, which is where
@@ -54,7 +61,9 @@ OPFS captures shows an empty current timeline.
 One capture is open at a time. Moving a thought to another capture has no
 control: cut it from one capture and paste it into the other.
 
-The timeline lists only files that read as captures. A file that does not
+The timeline lists completed captures and, separately, unfinished drafts.
+Draft bodies are raw writing and do not need a valid Thoughts layout.
+A completed file that does not read as a capture
 (frontmatter that does not parse, a `capturedAt` that is not a date and
 time, or an ambiguous layout: two "Thoughts" headings, text between the
 heading and the list, two lists) is named below the timeline with its path
@@ -107,19 +116,34 @@ are not text are listed apart and not opened.
   stale; returning to the window reads nothing.
 - Opening and listing captures write nothing.
 
-## Text not added yet
+## Compositions and unfinished thoughts
 
-Text you typed and did not add lives only in the open page: the New capture
-text, a thought typed in Add a thought, and a thought being edited. Any
-typed character counts, spaces included, until you add it or clear it.
+A composition is an ordinary `captures/<stem>.md` file with optional boolean
+`draft: true` frontmatter. Its body is the exact raw writing, including spaces,
+trailing newlines, open fences, and the writer's own Thoughts headings. The
+capture codec is applied once, on Add. Existing captures without this marker
+keep their interpretation; a nonboolean `draft` value needs repair as text.
 
-- Each capture keeps its own Add a thought text and thought edit while you
-  open other captures. Leaving a capture never asks anything.
-- The New capture text stays in its form while you open and leave captures.
-- Reloading, closing the tab, or leaving the app asks first only while the
-  Folder has an accepted change still saving or held unsaved.
+The stem names the file throughout composition and after Add. Its initial
+`capturedAt` timestamps the draft; Add replaces that with the capture time.
+No draft registry, draft-to-capture mapping, or separate content cache exists.
+Draft discovery uses the ordinary captures rows query. The Folder edit owns
+input, debounce, pending saves and retries.
 
-Text not added does not prompt and does not persist across a reload.
+Add holds the file through an exclusive Folder action, saves raw input first,
+then writes the composed body and removes `draft` together. A failed promotion
+keeps the raw draft. Retrying an already-added file succeeds without composing
+it again. Another tab still follows Folder's ordinary merge behavior; there is
+no cross-device composition lock, and an unseen edit may resurrect a deletion.
+
+New composition input now participates in the normal Folder departure policy:
+unsaved or saving input prompts, while a saved draft closes without a prompt.
+A forced close can lose keystrokes not yet saved; durable does not mean every
+keystroke has already reached storage.
+
+An Add a thought input and an unfinished thought edit still live only in the
+open page, per capture. They remain while moving between captures, but do not
+prompt and do not persist across reload. They are outside the composition change.
 
 ## How it is wired
 
@@ -197,7 +221,8 @@ profile stands in for another tab.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store over a real local folder: creating and listing, blank text refused, timeline order and repairs, an edit saved keeping undeclared frontmatter, another tab's change merged with a held save, a failed save kept and saved again, thought commands and stale ones, thought text kept per capture, Edit as text saved exactly and merged with another tab, repair as text, a failed text save, delete after the edits land, and close. |
+| `src/lib/captures.test.ts` | The store over a real local folder: durable draft creation and same-file Add, blank Add refused, timeline order and repairs, an edit saved keeping undeclared frontmatter, another tab's change merged with a held save, a failed save kept and saved again, thought commands and stale ones, thought text kept per capture, Edit as text saved exactly and merged with another tab, repair as text, a failed text save, delete after the edits land, and close. |
+| `src/lib/compositions.test.ts` | Same-profile restart recovery, multiple drafts, arbitrary Markdown, failed creation/autosave/promotion/discard, retry without duplicate Thoughts, close during Add, and another tab promoting while input is held. |
 | `src/lib/bundle.test.ts` | Which folder adapter each build bundles: the installed bundle has the desktop adapter and no browser adapter, local folder engine, OPFS store, or Node module; the browser bundle has the browser adapter and the local folder engine; neither has the older `FolderApp`. |
 | `src/lib/components/*.mounted.test.ts` | The real views and page mounted in jsdom: text and thoughts saved, another tab's change merged with typing held here, a failed save with Save again, a thought not added kept to copy, repair as text and Open as capture, CRLF kept, input refused while closing, the New capture text box and Add capture, the failed-save list, an earlier OPFS folder that does not block opening, a fresh browser with no Save version, and edits sent when the page closes. jsdom has no layout, focus, selection, or IME. |
 

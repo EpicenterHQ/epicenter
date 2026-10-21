@@ -11,7 +11,7 @@
  * - A fresh browser opens an empty timeline whose header offers no Save
  *   version, Sync, or Connect
  * - A capture added here, and its edit, are in the folder once the page
- *   closes, and a reload is held back while text is not added
+ *   closes; a reload is held back while composition input is unsaved
  * - Text typed with Edit as text is in the folder once the page closes
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
@@ -48,7 +48,7 @@ function reload() {
 	return !cancelled;
 }
 
-const { flushSync, mount, tick, unmount } = await import('svelte');
+const { flushSync, mount, unmount } = await import('svelte');
 const { default: PageHost } = await import('./fixtures/PageHost.svelte');
 const { default: PageLeavingHost } = await import(
 	'./fixtures/PageLeavingHost.svelte'
@@ -138,18 +138,19 @@ test('a fresh browser opens an empty timeline with no Save version, Sync, or Con
 	);
 });
 
-test('a capture added here is in the folder once the page closes; unsubmitted text does not hold reload', async () => {
+test('composition input holds reload until saved, then Add and later edits persist on close', async () => {
 	freshProfile();
 	const page = mountPage();
 	await until(() => page.text().includes('No captures yet'), 'the timeline');
 
 	click(page.target, 'New capture');
 	flushSync();
-	await tick();
+	await until(() => document.getElementById('new-capture') !== null, 'the composition');
 	const box = document.getElementById('new-capture');
 	type(box, 'Kept in this browser');
-	expect(reload()).toBe(true);
+	expect(reload()).toBe(false);
 
+	flushSync();
 	click(document, 'Add capture');
 	await until(
 		() => document.getElementById('new-thought') !== null,
@@ -251,4 +252,32 @@ test('a failed text save remains copyable after the page unmounts', async () => 
 	).toBe(draft);
 	expect(page.text()).toContain(`Could not save ${path}`);
 	expect(page.text()).toContain('Copy your text');
+});
+
+test('a saved composition survives page restart, resumes from Drafts, and explicit discard removes it', async () => {
+	freshProfile();
+	const page = mountPage();
+	await until(() => page.text().includes('No captures yet'), 'the timeline');
+	click(page.target, 'New capture');
+	await until(() => document.getElementById('new-capture') !== null, 'the composition');
+	const raw = '## Thoughts\n\n- belongs to my paste\n\n```ts';
+	type(document.getElementById('new-capture'), raw);
+	document.getElementById('new-capture')?.dispatchEvent(new FocusEvent('blur'));
+	await until(() => page.target.querySelector('[aria-label="Saving"]')?.textContent === 'Saved', 'the saved composition');
+	expect(reload()).toBe(true);
+	await page.close();
+	// The same profile, a new mounted page and Folder handle.
+	const resumed = mountPage();
+	await until(() => resumed.target.querySelector('[aria-label="Draft captures"] button') !== null, 'the recovered draft');
+	resumed.target.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')?.click();
+	await until(() => document.getElementById('new-capture') !== null, 'the resumed composer');
+	expect((document.getElementById('new-capture') as HTMLTextAreaElement).value).toBe(raw);
+	click(document, 'Discard draft…');
+	await until(() => document.body.textContent?.includes('Discard this draft?') ?? false, 'discard confirmation');
+	click(document, 'Discard draft');
+	await until(() => resumed.text().includes('No captures yet'), 'the empty timeline');
+	await resumed.close();
+	const again = mountPage();
+	await until(() => again.text().includes('No captures yet'), 'the empty timeline after restart');
+	expect(again.target.querySelector('[aria-label="Draft captures"]')).toBeNull();
 });

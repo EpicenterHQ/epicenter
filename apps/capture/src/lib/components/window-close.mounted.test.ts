@@ -8,7 +8,7 @@
  * reads what was stored.
  *
  * Key behaviors:
- * - New capture text not added closes without prompting
+ * - Composition input prompts until saved, then closes without prompting
  * - Text held by Folder prompts; Cancel retains it
  * - A failed save of that text keeps the window and the text; once saving
  *   works, explicit retry saves and the next close destroys
@@ -36,7 +36,7 @@ import {
 
 mock.module('$app/navigation', () => ({ beforeNavigate() {} }));
 
-const { flushSync, mount, tick, unmount } = await import('svelte');
+const { flushSync, mount, unmount } = await import('svelte');
 const { default: PageHost } = await import('./fixtures/PageHost.svelte');
 
 setWide(true);
@@ -140,17 +140,22 @@ async function editAsText(page: Awaited<ReturnType<typeof openWindow>>) {
 	return () => page.target.querySelector<HTMLTextAreaElement>(CONTENTS);
 }
 
-test('New capture text not added closes without prompting', async () => {
+test('composition input prompts while unsaved and closes without prompting once saved', async () => {
 	const page = await openWindow();
 	click(page.target, 'New capture');
 	flushSync();
-	await tick();
+	await until(() => document.getElementById('new-capture') !== null, 'the composition');
 	type(document.getElementById('new-capture'), 'Not added yet');
 
 	await requestClose();
 
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(nativeDialog.count).toBe(1);
+	document.getElementById('new-capture')?.dispatchEvent(new FocusEvent('blur'));
+	await until(() => page.target.querySelector('[aria-label="Saving"]')?.textContent === 'Saved', 'the composition to save');
+	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(nativeDialog.count).toBe(0);
+	expect(nativeDialog.count).toBe(1);
 });
 
 test('text held by Folder prompts; Cancel retains it', async () => {

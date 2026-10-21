@@ -28,8 +28,6 @@
 
 	// One page: the timeline or the one open capture.
 	const item = $derived(captures.opened);
-	/** The capture just added from the timeline, so its view starts at Add a thought. */
-	let created = $state<string>();
 
 	// Read save status when leaving is requested, not while the view renders.
 	beforeNavigate(({ willUnload, cancel }) => {
@@ -59,10 +57,10 @@
 <main class="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-16 pt-6 sm:px-6">
 	<div>
 		{#if item === undefined}
-			<Timeline {captures} onCreated={() => (created = captures.opened?.stem)} />
+			<Timeline {captures} />
 		{:else if item.mode === 'capture'}
 			{#key item}
-				<CaptureDetail {captures} stem={item.stem} focusNewThought={created === item.stem} />
+				<CaptureDetail {captures} stem={item.stem} />
 			{/key}
 		{:else}
 			{#key item}

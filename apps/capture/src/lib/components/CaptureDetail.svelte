@@ -1,5 +1,5 @@
 <!--
-	One capture as its text and thoughts: the folder's edit of its row, the
+	One capture, including its raw composition before Add: the folder's edit of its row, the
 	capture as stored with what is typed over it, which the timeline's reads
 	keep current too, so the two never disagree. A thought
 	command saves at once; the capture text saves a second after the last
@@ -12,7 +12,6 @@
 	values the file does not have, and Edit as text is the way to repair it.
 -->
 <script lang="ts">
-	import { captureBody } from '@epicenter/capture';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -24,21 +23,19 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick, untrack } from 'svelte';
-	import { type Captures, capturePath, describeFailure, instantOf } from '$lib/captures.svelte.js';
+	import { type Captures, capturePath, describeFailure, instantOf, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 	import ThoughtEditForm from './ThoughtEditForm.svelte';
+	import Composition from './Composition.svelte';
 
 	let {
 		captures,
 		stem,
-		focusNewThought = false,
 	}: {
 		captures: Captures;
 		/** The capture shown. The parent keys this view by it. */
 		stem: string;
-		/** The capture was just added: the next thing to type is a thought. */
-		focusNewThought?: boolean;
 	} = $props();
 
 	// The view is keyed by the capture, so neither changes for this view.
@@ -58,7 +55,7 @@
 	// it; the edit outlives the view, so send it now.
 	onDestroy(() => void form.flush());
 	/** The body as text and thoughts, or why it cannot be edited here. */
-	const reading = $derived(stored === undefined ? undefined : captureBody.decode(stored.body));
+	const reading = $derived(stored === undefined ? undefined : readCaptureBody(stored));
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
 	const capturedAt = $derived(instantOf(stored?.fields.capturedAt));
@@ -68,10 +65,11 @@
 
 	let newThoughtField = $state<HTMLTextAreaElement | null>(null);
 	let thoughtList = $state<HTMLOListElement>();
+	let added = $state(false);
 
-	// The new capture opens before its creation is reported, so this follows the prop.
+	// Promotion replaces the composer with the thought controls in this view.
 	$effect(() => {
-		if (focusNewThought) untrack(() => newThoughtField)?.focus();
+		if (added) newThoughtField?.focus();
 	});
 
 	// Engines without content-sized fields fall back to this many rows.
@@ -127,8 +125,12 @@
 		});
 	}
 
-	/** The capture as typed and not saved, text and thoughts, as Markdown to copy. */
-	const unsavedText = $derived(form.body?.replace(/^\n/, '') ?? '');
+	/** Copy pending input exactly, even when a deleted file no longer has a readable row. */
+	const unsavedText = $derived.by(() => {
+		if (pending?.kind === 'text') return pending.text;
+		if (pending?.kind === 'row' && pending.body !== undefined) return pending.body;
+		return row?.body ?? '';
+	});
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
 		confirmationDialog.open({
@@ -156,7 +158,9 @@
 	{/if}
 {/snippet}
 
-{#if reading === undefined}
+{#if reading?.data?.draft}
+	<Composition {captures} {stem} {rowEdit} onAdded={() => (added = true)} />
+{:else if reading === undefined}
 	<div class="flex flex-col gap-4">
 		<div>
 			<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>

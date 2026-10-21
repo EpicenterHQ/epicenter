@@ -9,7 +9,6 @@
 	including unsaved text. Open as capture changes views without saving. The parent keys this view by the capture.
 -->
 <script lang="ts">
-	import { captureBody } from '@epicenter/capture';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -21,7 +20,7 @@
 	import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, untrack } from 'svelte';
-	import { type Captures, capturePath, describeFailure } from '$lib/captures.svelte.js';
+	import { type Captures, capturePath, describeFailure, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
@@ -39,8 +38,8 @@
 	/** The folder's edit of the file: its exact text as stored, and what is typed over it. */
 	const textEdit = untrack(() => createTextEdit(captures.folder.files, path));
 	const rowEdit = untrack(() => createRowEdit(captures.folder.tables.captures, stem));
- const row = $derived(rowEdit.row);
- const status = $derived(textEdit.readStatus);
+	const row = $derived(rowEdit.row);
+	const status = $derived(textEdit.readStatus);
 	const unreadable = $derived(status.known === 'not-text');
 	const pending = $derived(textEdit.pending);
 	const typed = $derived(pending?.kind === 'text' ? pending.text : undefined);
@@ -59,7 +58,7 @@
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
 		if (row === undefined || unreadable) return [];
 		if (row.issues !== null) return row.issues;
-		const { error: refusal } = captureBody.decode(row.body);
+		const { error: refusal } = readCaptureBody(row);
 		return refusal === null ? [] : [{ message: refusal.message }];
 	});
 

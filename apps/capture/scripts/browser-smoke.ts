@@ -16,11 +16,28 @@
  */
 import assert from 'node:assert/strict';
 import { type ChildProcess, spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 
 const root = join(import.meta.dir, '../../..');
+
+// Other checks regenerate SvelteKit files. Give this browser its own app
+// directory so those writes cannot reload it during an interaction.
+const scratch = join(root, '.scratch');
+mkdirSync(scratch, { recursive: true });
+const appDirectory = mkdtempSync(join(scratch, 'capture-smoke-'));
+const sourceApp = join(root, 'apps/capture');
+cpSync(sourceApp, appDirectory, {
+	recursive: true,
+	filter: (path) =>
+		!['node_modules', '.svelte-kit', 'build', 'dist'].includes(basename(path)),
+});
+symlinkSync(
+	join(sourceApp, 'node_modules'),
+	join(appDirectory, 'node_modules'),
+	'dir',
+);
 const artifacts = process.env.CAPTURE_SMOKE_ARTIFACT_DIR;
 if (artifacts) mkdirSync(artifacts, { recursive: true });
 
@@ -42,7 +59,7 @@ const vite: ChildProcess = spawn(
 	[
 		'run',
 		'--cwd',
-		'apps/capture',
+		appDirectory,
 		'dev',
 		'--host',
 		'127.0.0.1',
@@ -154,12 +171,17 @@ try {
 	await first.goto(app);
 	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
 
-	// 2. The new-capture text survives closing the dialog, then saves exactly.
+	// 2. An unfinished composition survives a real reload before Add.
 	const text = 'Dinner with Sebastian\nFriday at seven\nBring the invitation.';
 	await first.getByRole('button', { name: 'New capture' }).click();
 	await first.getByLabel('Capture text').fill(text);
-	await first.getByLabel('Capture text').press('Escape');
-	await first.getByRole('button', { name: 'New capture (draft)' }).click();
+	await saved(first);
+	await first.reload();
+	await first
+		.getByLabel('Draft captures')
+		.getByRole('button')
+		.filter({ hasText: 'Dinner with Sebastian' })
+		.click();
 	assert.equal(await first.getByLabel('Capture text').inputValue(), text);
 	// Ctrl+Enter adds it, and the new capture opens ready for a thought.
 	await first.getByLabel('Capture text').press('Control+Enter');
@@ -269,20 +291,17 @@ try {
 	await first.getByRole('button', { name: 'Back to timeline' }).click();
 	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
 
-	// 8. Unadded thought text holds a reload back.
+	// 8. Unsubmitted thoughts remain page state; only pending Folder input prompts.
 	let asked = 0;
 	second.on('dialog', (dialog) => {
 		asked++;
 		void dialog.dismiss();
 	});
 	await second.getByLabel('Add a thought').fill('typed, not added');
-	await second.reload({ timeout: 5000 }).catch(() => {});
-	assert.equal(asked, 1, 'unadded thought text is protected');
-	assert.equal(
-		await second.getByLabel('Add a thought').inputValue(),
-		'typed, not added',
-	);
-	await second.getByLabel('Add a thought').fill('');
+	await second.reload();
+	assert.equal(asked, 0, 'unsubmitted thought text does not prompt');
+	await openFromTimeline(second, 'Saved over it');
+	assert.equal(await second.getByLabel('Add a thought').inputValue(), '');
 	await second.getByRole('button', { name: 'Back to timeline' }).click();
 
 	// 9. Ambiguous Thoughts markup opens as text, with why.
@@ -340,9 +359,71 @@ try {
 		}),
 	);
 
+	// 13. Discard removes the durable draft, including after another reload.
+	await earlier.getByRole('button', { name: 'New capture' }).click();
+	await earlier
+		.getByLabel('Capture text')
+		.fill('Discard this unfinished composition');
+	await saved(earlier);
+	await earlier.getByRole('button', { name: 'Discard draft…' }).click();
+	await earlier
+		.getByRole('button', { name: 'Discard draft', exact: true })
+		.click();
+	await earlier.getByText('No captures yet').waitFor();
+	await earlier.reload();
+	await earlier.getByText('No captures yet').waitFor();
+
+	// 14. Full-disk autosave and promotion failures keep the raw writing recoverable.
+	await earlier.getByRole('button', { name: 'New capture' }).click();
+	await earlier.getByLabel('Capture text').waitFor();
+	const fillDisk = async () =>
+		earlier.evaluate(() => {
+			const target = window as typeof window & {
+				restoreCaptureWrites?: () => void;
+			};
+			const put = IDBObjectStore.prototype.put;
+			target.restoreCaptureWrites = () => {
+				IDBObjectStore.prototype.put = put;
+			};
+			IDBObjectStore.prototype.put = () => {
+				throw new DOMException('Disk is full', 'QuotaExceededError');
+			};
+		});
+	const restoreDisk = async () =>
+		earlier.evaluate(() => {
+			(
+				window as typeof window & { restoreCaptureWrites?: () => void }
+			).restoreCaptureWrites?.();
+		});
+	await fillDisk();
+	await earlier
+		.getByLabel('Capture text')
+		.fill('Writing retained through failures');
+	await earlier.getByText('Your draft is not saved', { exact: true }).waitFor();
+	assert.equal(
+		await earlier.getByLabel('Capture text').inputValue(),
+		'Writing retained through failures',
+	);
+	await restoreDisk();
+	await earlier.getByRole('button', { name: 'Save again' }).click();
+	await saved(earlier);
+	await fillDisk();
+	await earlier.getByRole('button', { name: 'Add capture' }).click();
+	await earlier
+		.getByText('The capture was not added', { exact: true })
+		.waitFor();
+	assert.equal(
+		await earlier.getByLabel('Capture text').inputValue(),
+		'Writing retained through failures',
+	);
+	await restoreDisk();
+	await earlier.getByRole('button', { name: 'Add capture' }).click();
+	await earlier.getByLabel('Add a thought').waitFor();
+	assert.equal((await source(earlier)).match(/^## Thoughts$/gm)?.length, 1);
+
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a save merged with a change from another page, no Save version, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a save merged with a change from another page, no Save version, durable composition restart and discard, full-disk autosave and promotion recovery, unsubmitted thought departure, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
 	);
 } catch (cause) {
 	console.error(cause);
@@ -373,4 +454,5 @@ try {
 				console.error('Could not stop the dev server.', cause);
 		}
 	}
+	rmSync(appDirectory, { recursive: true, force: true });
 }

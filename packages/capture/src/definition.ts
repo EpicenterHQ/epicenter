@@ -5,8 +5,9 @@ import { type Static, Type } from 'typebox';
  * The tables Capture reads from its local folder,
  * `openFolder({ tables: captureTables })`. Each capture is
  * `captures/<stem>.md`: `capturedAt` in frontmatter, and a Markdown body
- * holding the capture text and its thoughts. The stem is the file's
- * identity. Thoughts are not rows; `document.ts` reads them from the body.
+ * holding the capture text and its thoughts. A `draft: true` file instead
+ * holds raw composition text until Add. The stem remains its identity.
+ * Thoughts are not rows; `document.ts` reads them from completed bodies.
  *
  * `capturedAt` is an RFC 3339 datetime, so a file written by hand with an
  * offset (`2026-10-01T10:30:00+08:00`) is as valid as the UTC form the app
@@ -14,7 +15,11 @@ import { type Static, Type } from 'typebox';
  * and a file that does not fit is listed with its source and issues.
  */
 export const captureTables = {
-	captures: Type.Object({ capturedAt: Type.String({ format: 'date-time' }) }),
+	captures: Type.Object({
+		capturedAt: Type.String({ format: 'date-time' }),
+		/** A composition holds raw writing until Add appends its Thoughts section. */
+		draft: Type.Optional(Type.Boolean()),
+	}),
 };
 
 export const CAPTURES_TABLE = 'captures';

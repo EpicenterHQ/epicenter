@@ -19,21 +19,22 @@
  * landed. Closing fences new input, then sends the edits held. There is no
  * history, sync, or remote on this path.
  *
- * Input not committed yet is `$state`: the New capture text, and for each
- * capture its thought typed and not added and its thought being edited
- * (`formOf`). Those stay while the person moves between captures.
+ * A new composition is a capture file with `draft: true`, its raw writing
+ * in the body. Add promotes that same file. Only unfinished thought forms
+ * remain in page state (`formOf`).
  */
 
 import {
 	CAPTURES_TABLE,
 	type CaptureRow,
 	captureBody,
-	type captureTables,
+	captureTables,
 	composeBody,
 	excerpt,
 } from '@epicenter/capture';
-import type { ReadError, SaveError } from '@epicenter/folder';
-import { ActionError, CLOSING } from '@epicenter/folder/edits';
+import { type ReadError, SaveError } from '@epicenter/folder';
+import { documentChange, readDocument } from '@epicenter/folder/documents';
+import { ActionError, CLOSING, UNSAVED } from '@epicenter/folder/edits';
 import { createRowEdit } from '@epicenter/svelte/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
 import { SvelteMap } from 'svelte/reactivity';
@@ -75,6 +76,7 @@ export type Deletion = {
 	readonly path: string;
 	/** What the dialog names: the start of the capture's text, if it reads as one. */
 	readonly title: string;
+	readonly draft: boolean;
 };
 
 /** A failure a person is told about. */
@@ -125,6 +127,20 @@ function byPath(left: { path: string }, right: { path: string }) {
 const notText = (row: CaptureRow) =>
 	row.issues?.some((issue) => issue.kind === 'not-text') ?? false;
 
+/** Drafts hold raw writing; only added captures interpret a Thoughts section. */
+export function readCaptureBody(row: Extract<CaptureRow, { issues: null }>) {
+	if (row.fields.draft === true)
+		return Ok({
+			draft: true,
+			text: row.body,
+			thoughts: [] as string[],
+			hasOtherContent: false,
+		});
+	const reading = captureBody.decode(row.body);
+	if (reading.error !== null) return reading;
+	return Ok({ ...reading.data, draft: false });
+}
+
 /** Why a row does not read as a capture's frontmatter, one sentence per issue. */
 export function problemOf(row: CaptureRow): string {
 	return (row.issues ?? [])
@@ -145,6 +161,7 @@ export function problemOf(row: CaptureRow): string {
  */
 export function timelineOf(listed: CaptureRow[]) {
 	const rows: TimelineRow[] = [];
+	const drafts: TimelineRow[] = [];
 	const repairs: Repair[] = [];
 	const unreadable: { path: string; message: string }[] = [];
 	for (const row of listed) {
@@ -158,12 +175,12 @@ export function timelineOf(listed: CaptureRow[]) {
 			repairs.push({ stem, path, problem: problemOf(row) });
 			continue;
 		}
-		const { data: body, error: refusal } = captureBody.decode(row.body);
+		const { data: body, error: refusal } = readCaptureBody(row);
 		if (refusal !== null) {
 			repairs.push({ stem, path, problem: refusal.message });
 			continue;
 		}
-		rows.push({
+		(body.draft ? drafts : rows).push({
 			stem,
 			path,
 			capturedAt: instantOf(row.fields.capturedAt),
@@ -173,6 +190,7 @@ export function timelineOf(listed: CaptureRow[]) {
 	}
 	return {
 		rows: rows.sort(newestFirst),
+		drafts: drafts.sort(newestFirst),
 		repairs: repairs.sort(byPath),
 		unreadable: unreadable.sort(byPath),
 	};
@@ -184,6 +202,8 @@ export function describeFailure(error: Failure): string {
 		case 'StorageFailed':
 			return `This device's storage refused it: ${extractErrorMessage(error.cause)}.`;
 		case 'NotStarted':
+			if (error.reason === UNSAVED)
+				return 'Your latest writing is not saved. Use Save again, then try this action again.';
 			return error.reason;
 		case 'Unparseable':
 			return `Its frontmatter cannot be read: ${error.reason}. Edit it as text.`;
@@ -201,8 +221,6 @@ export function createCaptures(context: CaptureFolder) {
 
 	/** What the detail shows. */
 	let opened = $state.raw<Opened | undefined>();
-	/** The New capture text, typed and not added. */
-	let newCapture = $state('');
 	/** Each capture's input not committed yet, kept while the person moves between captures. */
 	const forms = new SvelteMap<string, CaptureForm>();
 
@@ -222,16 +240,20 @@ export function createCaptures(context: CaptureFolder) {
 		return form;
 	}
 
-
 	/** Show either view of the path's current edit; invalid content stays as text. */
- function open(stem: string, mode: Mode) {
-  let as = mode;
-  if (mode === 'capture') {
-   const row = folder.tables.captures.edit(stem).getRow() ?? rowOf(stem);
-   if (row !== undefined && (row.issues !== null || captureBody.decode(row.body).error !== null)) as = 'text';
-  }
-  opened = { stem, mode: as };
- }
+	function open(stem: string, mode: Mode) {
+		let as = mode;
+		if (mode === 'capture') {
+			const row = folder.tables.captures.edit(stem).getRow() ?? rowOf(stem);
+			if (
+				row !== undefined &&
+				(row.issues !== null || readCaptureBody(row).error !== null)
+			)
+				as = 'text';
+		}
+		if (opened?.stem !== stem || opened.mode !== as)
+			opened = { stem, mode: as };
+	}
 
 	return {
 		folder,
@@ -254,8 +276,9 @@ export function createCaptures(context: CaptureFolder) {
 		},
 		/** Every capture whose last save failed, as fields or as text, with why. */
 		get failures(): { stem: string; path: string; reason: string }[] {
-			return context.getStatus().failures
-				.map(({ path, error }) => ({
+			return context
+				.getStatus()
+				.failures.map(({ path, error }) => ({
 					stem: path.slice(CAPTURES_TABLE.length + 1, -'.md'.length),
 					path,
 					reason: error === undefined ? '' : describeFailure(error),
@@ -298,50 +321,71 @@ export function createCaptures(context: CaptureFolder) {
 		// Actions
 		// ------------------------------------------------------------------
 
-		get newCapture() {
-			return newCapture;
-		},
-		inputNewCapture(value: string) {
-			if (!context.closing) newCapture = value;
-		},
-		/**
-		 * Save `text` as a new capture file and open it. The New capture text
-		 * stays in the form when this fails.
-		 */
-		async create(
-			text: string,
-		): Promise<Result<{ stem: string }, SaveError | ActionError>> {
-			if (context.closing)
-				return ActionError.NotStarted({ reason: CLOSING });
-			// Blank text is refused and stays in the form: only the person clears it.
-			if (text.trim() === '')
-				return ActionError.NotStarted({ reason: 'Write something first.' });
+		/** Create a durable empty composition before accepting any typing. */
+		async create(): Promise<Result<{ stem: string }, SaveError | ActionError>> {
+			if (context.closing) return ActionError.NotStarted({ reason: CLOSING });
 			const now = new Date();
 			const stem = newStem(now);
-			const { body } = composeBody(text);
 			const saved = await folder.tables.captures.set(stem, null, {
-				fields: { capturedAt: now.toISOString() },
-				body,
+				fields: { capturedAt: now.toISOString(), draft: true },
+				body: '',
 			});
 			if (saved.error !== null) return saved;
-			if (newCapture === text) newCapture = '';
 			if (context.closing) return Ok({ stem });
 			// Listed before it opens, so the view never says it is gone. A read
 			// for this view, joining the one the save's change started.
 			await context.refresh([capturePath(stem)]);
-			// Text that does not read as text and thoughts opens as text.
-			await open(stem, 'capture');
+			open(stem, 'capture');
 			return Ok({ stem });
+		},
+		/** Save raw input, then promote this same file once. A failed write keeps the raw draft. */
+		async add(stem: string): Promise<Result<void, Failure>> {
+			const path = capturePath(stem);
+			const added = await folder.files
+				.edit(path)
+				.exclusive(async (file): Promise<Result<void, Failure>> => {
+					const read = await file.read();
+					if (read.error !== null) return read;
+					if (read.data === undefined)
+						return ActionError.NotStarted({
+							reason: 'This draft is no longer here.',
+						});
+					const bytes = new Uint8Array(await read.data.content.arrayBuffer());
+					const row = readDocument(path, bytes, captureTables.captures);
+					if (row.issues !== null)
+						return ActionError.NotStarted({
+							reason: 'Repair this file as text before adding it.',
+						});
+					// A previous attempt or another tab already added it. Never append twice.
+					if (row.fields.draft !== true) return Ok(undefined);
+					if (row.body.trim() === '')
+						return ActionError.NotStarted({ reason: 'Write something first.' });
+					const changed = documentChange(row, {
+						fields: { draft: undefined, capturedAt: new Date().toISOString() },
+						body: composeBody(row.body).body,
+					});
+					if (changed.error !== null)
+						return SaveError.Unparseable({ reason: changed.error.reason });
+					return file.write(bytes, changed.data.text);
+				});
+			if (added.error !== null) return added;
+			if (added.data.error !== null) return added.data;
+			if (!context.closing) {
+				await context.refresh([path]);
+				open(stem, 'capture');
+			}
+			return Ok(undefined);
 		},
 		/** What deleting the capture at `stem` would remove, for the person to confirm. */
 		deletionFor(stem: string): Deletion {
-			const body = forms.get(stem)?.body ?? rowOf(stem)?.body;
-			const text =
-				body === undefined ? undefined : captureBody.decode(body).data?.text;
+			const row = folder.tables.captures.edit(stem).getRow() ?? rowOf(stem);
+			const reading =
+				row?.issues === null ? readCaptureBody(row).data : undefined;
 			return {
 				stem,
 				path: capturePath(stem),
-				title: text?.trim().slice(0, 60) ?? '',
+				title: reading?.text.trim().slice(0, 60) ?? '',
+				draft: reading?.draft ?? false,
 			};
 		},
 		/**
@@ -350,9 +394,10 @@ export function createCaptures(context: CaptureFolder) {
 		 * is stored then. A file changed in that moment, here or in another
 		 * tab, is kept, and the result says so (`deleted: false`).
 		 */
-		async delete(deletion: Deletion): Promise<Result<{ deleted: boolean }, Failure>> {
-			if (context.closing)
-				return ActionError.NotStarted({ reason: CLOSING });
+		async delete(
+			deletion: Deletion,
+		): Promise<Result<{ deleted: boolean }, Failure>> {
+			if (context.closing) return ActionError.NotStarted({ reason: CLOSING });
 			const { stem } = deletion;
 			const deleted = await folder.tables.captures.edit(stem).delete();
 			if (deleted.error !== null) return deleted;

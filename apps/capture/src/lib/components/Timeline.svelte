@@ -2,125 +2,59 @@
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
-	import * as Field from '@epicenter/ui/field';
 	import * as Item from '@epicenter/ui/item';
-	import * as Modal from '@epicenter/ui/modal';
 	import { onDestroy } from 'svelte';
-	import { Textarea } from '@epicenter/ui/textarea';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { type Captures, describeFailure, timelineOf } from '$lib/captures.svelte.js';
+	import { resultMutationOptions } from 'wellcrafted/query';
 	import TechnicalDetails from './TechnicalDetails.svelte';
 
-	let {
-		captures,
-		onCreated,
-	}: {
-		captures: Captures;
-		/** The new capture is open; the next thing to type is a thought. */
-		onCreated: () => void;
-	} = $props();
+	let { captures }: { captures: Captures } = $props();
 
 	const listing = createQuery(() => captures.rowsQuery(timelineOf));
 	const timeline = $derived(listing.data?.rows ?? []);
+	const drafts = $derived(listing.data?.drafts ?? []);
 	const repairs = $derived(listing.data?.repairs ?? []);
 	const unreadable = $derived(listing.data?.unreadable ?? []);
-	/** Adding opens the new capture, which unmounts this view before the add answers. */
-	let creating = $state(false);
-
+	const create = createMutation(() => resultMutationOptions({ mutationKey: ['captures', 'create'], mutationFn: () => captures.create() }));
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-
-	let dialogOpen = $state(false);
-	let createProblem = $state('');
-	/** The capture just added is opening: focus goes there, not back to the button. */
-	let created = false;
-	/** Cleared on destroy: the collection outlives this view, and a held form must not submit to it. */
 	let mounted = true;
-	onDestroy(() => {
-		mounted = false;
-	});
-
-	// The text lives in `captures`, so closing the dialog keeps it and leaving
-	// the page asks first.
-	async function addCapture(event: SubmitEvent) {
-		event.preventDefault();
-		if (!mounted || creating) return;
-		if (captures.newCapture.trim() === '') {
-			createProblem = 'Write something first.';
-			return;
-		}
-		creating = true;
-		const { error } = await captures.create(captures.newCapture);
-		creating = false;
-		if (error !== null) {
-			createProblem = `The capture was not saved: ${describeFailure(error)} Your text is still here.`;
-			return;
-		}
-		createProblem = '';
-		created = true;
-		dialogOpen = false;
-		onCreated();
-	}
+	onDestroy(() => { mounted = false; });
 </script>
 
 {#snippet newCaptureButton()}
-	<Button aria-haspopup="dialog" onclick={() => (dialogOpen = true)}>
-		New capture{captures.newCapture === '' ? '' : ' (draft)'}
-	</Button>
+	<Button disabled={create.isPending || captures.fenced} onclick={() => {
+		if (mounted && !create.isPending) create.mutate();
+	}}>{create.isPending ? 'Creating…' : 'New capture'}</Button>
 {/snippet}
 
 <div class="mb-4 flex min-h-9 items-center justify-between gap-4">
 	<h1 class="text-lg font-semibold tracking-tight">Timeline</h1>
-	<!-- The empty timeline holds this button itself. -->
-	{#if timeline.length || !listing.isSuccess}{@render newCaptureButton()}{/if}
+	{#if timeline.length || drafts.length || !listing.isSuccess}{@render newCaptureButton()}{/if}
 </div>
 
-<Modal.Root bind:open={dialogOpen}>
-	<Modal.Content
-		class="md:max-w-xl"
-		onCloseAutoFocus={(event) => {
-			if (created) event.preventDefault();
-		}}
-	>
-		<Modal.Header>
-			<Modal.Title>New capture</Modal.Title>
-			<Modal.Description>It is saved as a Markdown file, exactly as written.</Modal.Description>
-		</Modal.Header>
-		<form onsubmit={addCapture} class="flex flex-col gap-4 px-4 pb-4 md:p-0">
-			<Field.Field>
-				<Field.Label for="new-capture">Capture text</Field.Label>
-				<!-- Its own lifetime: the collection keeps the text after this view is gone. -->
-				<Textarea
-					id="new-capture"
-					readonly={captures.fenced}
-					bind:value={
-						() => captures.newCapture,
-						(value) => {
-							if (!mounted) return;
-							createProblem = '';
-							captures.inputNewCapture(value);
-						}
-					}
-					onkeydown={(event) => {
-						if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-							event.preventDefault();
-							event.currentTarget.form?.requestSubmit();
-						}
-					}}
-					rows={6}
-					aria-invalid={createProblem !== ''}
-					class="max-h-64 min-h-32"
-					placeholder="Write or paste something…"
-				/>
-				<Field.Description>Closing keeps this text until you add it or clear it. Ctrl or ⌘ + Enter adds it.</Field.Description>
-				{#if createProblem}<Field.Error>{createProblem}</Field.Error>{/if}
-			</Field.Field>
-			<Modal.Footer class="flex-row justify-end gap-2 p-0">
-				<Button type="button" variant="outline" onclick={() => (dialogOpen = false)}>Close</Button>
-				<Button type="submit" disabled={creating || captures.fenced}>{creating ? 'Saving…' : 'Add capture'}</Button>
-			</Modal.Footer>
-		</form>
-	</Modal.Content>
-</Modal.Root>
+{#if create.error}
+	<Alert.Root variant="destructive" class="mb-4" role="alert">
+		<Alert.Title>Could not create a draft</Alert.Title>
+		<Alert.Description>{describeFailure(create.error)} Try New capture again when storage is available.</Alert.Description>
+	</Alert.Root>
+{/if}
+
+{#if drafts.length}
+	<section class="mb-6" aria-label="Draft captures">
+		<h2 class="mb-2 font-medium">Drafts</h2>
+		<Item.Group class="gap-1">
+			{#each drafts as row (row.path)}
+				<Item.Button size="sm" class="w-full text-left hover:bg-muted" onclick={() => captures.open(row.stem, 'capture')}>
+					<Item.Content>
+						<Item.Title class="line-clamp-2 whitespace-pre-line break-words">{row.preview || 'Empty draft'}</Item.Title>
+						<Item.Description>Continue writing</Item.Description>
+					</Item.Content>
+				</Item.Button>
+			{/each}
+		</Item.Group>
+	</section>
+{/if}
 
 {#if captures.failures.length}
 	<!-- A save that failed keeps its edit; this says where, from wherever the person is. -->
@@ -165,7 +99,7 @@
 			</Item.Button>
 		{/each}
 	</Item.Group>
-{:else if listing.isSuccess}
+{:else if listing.isSuccess && drafts.length === 0}
 	<Empty.Root>
 		<Empty.Header>
 			<Empty.Title>No captures yet</Empty.Title>

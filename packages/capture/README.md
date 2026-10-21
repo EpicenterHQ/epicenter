@@ -22,11 +22,18 @@ The original capture text.
   It can continue across multiple lines.
 ```
 
-`captureTables` declares the one table, `captures`, with one field:
+`captureTables` declares the one table, `captures`, with required
 `capturedAt`, an RFC 3339 datetime (`Type.String({ format: 'date-time' })`).
 A UTC time and a time with an offset are both valid, so order captures by
 the parsed instant, never by the string. The schema only interprets:
 unknown frontmatter keys are kept, and a save is never refused by it.
+
+The optional boolean `draft` field reserves `draft: true` for an unfinished
+composition. Its body is raw writing, not a capture text-and-thoughts layout.
+Capture lists these separately and applies `composeBody` only on Add, removing
+`draft` and updating `capturedAt` in the same file write. Existing files without
+`draft` remain completed captures. `captureBody` itself only interprets bodies;
+the application checks the row's lifecycle before decoding one.
 
 ## Reading a capture
 

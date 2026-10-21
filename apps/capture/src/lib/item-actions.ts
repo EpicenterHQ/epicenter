@@ -11,20 +11,27 @@ import { type Captures, describeFailure } from './captures.svelte.js';
 export function confirmDelete(captures: Captures, stem: string) {
 	const deletion = captures.deletionFor(stem);
 	const named = deletion.title ? `“${deletion.title}” ` : 'This capture ';
+	const failed = deletion.draft
+		? 'The draft was not discarded'
+		: 'The capture was not deleted';
 	confirmationDialog.open({
-		title: 'Delete this capture?',
-		description: `${named}and its thoughts are deleted from this device. A deleted capture cannot be brought back.`,
-		confirm: { text: 'Delete', variant: 'destructive' },
+		title: deletion.draft ? 'Discard this draft?' : 'Delete this capture?',
+		description: deletion.draft
+			? `${named}will be deleted from this device. A discarded draft cannot be brought back.`
+			: `${named}and its thoughts are deleted from this device. A deleted capture cannot be brought back.`,
+		confirm: {
+			text: deletion.draft ? 'Discard draft' : 'Delete',
+			variant: 'destructive',
+		},
 		async onConfirm() {
 			const { data, error } = await captures.delete(deletion);
 			if (error !== null)
-				toast.error('The capture was not deleted', {
+				toast.error(failed, {
 					description: describeFailure(error),
 				});
 			else if (!data.deleted && captures.isStored(stem))
-				toast.error('The capture was not deleted', {
-					description:
-						'It changed while it was being deleted, so it was kept.',
+				toast.error(failed, {
+					description: 'It changed while it was being deleted, so it was kept.',
 				});
 		},
 	});

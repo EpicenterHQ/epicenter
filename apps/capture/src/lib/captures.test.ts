@@ -7,8 +7,8 @@
  * same profile stands in for another tab.
  *
  * Key behaviors:
- * - Creating a capture saves its text and an empty Thoughts section, and
- *   opens it; blank text is refused and stays in the form
+ * - New creates a durable composition; Add promotes that same file,
+ *   refusing blank text without losing it
  * - The timeline orders by the captured instant, and names files that are
  *   not captures for repair as text
  * - An edit is typed through the row's edit handle over the cache, saved
@@ -66,38 +66,42 @@ async function textOfOne({ folder }: CapturesHarness) {
 	return edit;
 }
 
-test('creating saves the text with an empty Thoughts section and opens it', async () => {
+test('New creates an empty durable draft, then Add promotes the same file', async () => {
 	const harness = await open();
-	const { captures } = harness;
-	captures.inputNewCapture('Hello\nworld');
-	const { stem } = expectOk(await captures.create('Hello\nworld'));
-
+	const { captures, folder } = harness;
+	const { stem } = expectOk(await captures.create());
 	expect(stem).toMatch(/^\d{8}-\d{6}-[0-9a-z]{5}$/);
 	expect(captures.opened).toEqual({ stem, mode: 'capture' });
-	expect(captures.newCapture).toBe('');
-	const text = await harness.text(`captures/${stem}.md`);
-	expect(text).toMatch(
-		/^---\ncapturedAt: "?\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z"?\n---\n\nHello\nworld\n\n## Thoughts\n$/,
-	);
-	expect(harness.cached(stem)?.issues).toBeNull();
+	const edit = folder.tables.captures.edit(stem);
+	expectOk(await edit.read());
+	expect(edit.getRow()?.fields.draft).toBe(true);
+	expectOk(edit.change({ body: 'Hello\nworld' }));
+	expectOk(await captures.add(stem));
+	const row = expectOk(await folder.tables.captures.get(stem));
+	expect(row?.fields.draft).toBeUndefined();
+	expect(row?.body).toBe('\nHello\nworld\n\n## Thoughts\n');
+	expect(harness.rows()).toHaveLength(1);
 });
 
-test('blank text is refused and stays in the form', async () => {
-	const { captures } = await open();
-	captures.inputNewCapture('   ');
-	const refusal = expectErr(await captures.create('   '));
-	expect(refusal.message).toBe('Write something first.');
-	expect(captures.newCapture).toBe('   ');
-	expect(captures.opened).toBeUndefined();
-});
-
-test('closing after Add waits for the accepted capture save', async () => {
+test('blank composition is refused by Add and remains recoverable', async () => {
 	const harness = await open();
-	const creating = harness.captures.create('Keep this');
+	const { stem } = expectOk(await harness.captures.create());
+	const edit = harness.folder.tables.captures.edit(stem);
+	expectOk(await edit.read());
+	expectOk(edit.change({ body: '   ' }));
+	const refusal = expectErr(await harness.captures.add(stem));
+	expect(refusal.message).toBe('Write something first.');
+	expect(edit.getRow()?.body).toBe('   ');
+	expect(edit.getRow()?.fields.draft).toBe(true);
+});
+
+test('closing after New waits for the accepted draft creation', async () => {
+	const harness = await open();
+	const creating = harness.captures.create();
 	const closing = harness.context.close();
 	const { stem } = expectOk(await creating);
 	expect(await closing).toEqual([]);
-	expect(await harness.text(`captures/${stem}.md`)).toContain('Keep this');
+	expect(await harness.text(`captures/${stem}.md`)).toContain('draft: true');
 });
 
 test('closing after Delete waits for the accepted removal', async () => {
@@ -144,14 +148,20 @@ test('an edit saves after a pause and keeps undeclared frontmatter', async () =>
 	form.inputText('Edited');
 	// The row's body starts after the frontmatter, at its blank separator line.
 	expect(form.body).toBe('\nEdited\n\n## Thoughts\n\n- first\n  nested line\n');
-	expect(harness.context.getStatus().saving || harness.context.getStatus().unsaved.length > 0).toBe(true);
+	expect(
+		harness.context.getStatus().saving ||
+			harness.context.getStatus().unsaved.length > 0,
+	).toBe(true);
 
 	await harness.quiet();
 	expect(form.body).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(
 		withBody('Edited\n\n## Thoughts\n\n- first\n  nested line\n'),
 	);
-	expect(harness.context.getStatus().saving || harness.context.getStatus().unsaved.length > 0).toBe(false);
+	expect(
+		harness.context.getStatus().saving ||
+			harness.context.getStatus().unsaved.length > 0,
+	).toBe(false);
 });
 
 test("another tab's change shows without replacing typing, and the save merges with it", async () => {
@@ -343,7 +353,10 @@ test('a thought typed and not added stays with its capture', async () => {
 
 	expect(captures.formOf('one').newThought).toBe('not yet');
 	expect(captures.formOf('two').newThought).toBe('');
-	expect(harness.context.getStatus().saving || harness.context.getStatus().unsaved.length > 0).toBe(false);
+	expect(
+		harness.context.getStatus().saving ||
+			harness.context.getStatus().unsaved.length > 0,
+	).toBe(false);
 	expect(await harness.text(PATH)).toBe(HAND);
 });
 
@@ -384,8 +397,8 @@ test('a file repaired as text opens as a capture before saving', async () => {
 	(await textOfOne(harness)).change(fixed);
 	await captures.open('one', 'capture');
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
- expect(captures.formOf('one').rowEdit.row?.text).toBe(fixed);
- expect(await harness.text(PATH)).toBe(broken);
+	expect(captures.formOf('one').rowEdit.row?.text).toBe(fixed);
+	expect(await harness.text(PATH)).toBe(broken);
 });
 
 test('a failed text save keeps the typing until saved again', async () => {
@@ -462,12 +475,10 @@ test('close sends the edit held and refuses new input', async () => {
 	expect(captures.fenced).toBe(true);
 	form.inputText('Too late');
 	expect(form.body).toBeUndefined();
-	expect(
-		expectErr(harness.folder.files.edit(PATH).change('x')).name,
-	).toBe('Locked');
-	captures.inputNewCapture('Too late');
-	expect(captures.newCapture).toBe('');
-	expect(expectErr(await captures.create('Too late')).name).toBe('NotStarted');
+	expect(expectErr(harness.folder.files.edit(PATH).change('x')).name).toBe(
+		'Locked',
+	);
+	expect(expectErr(await captures.create()).name).toBe('NotStarted');
 });
 
 test('switching from failed text to a capture keeps input and error until explicit retry', async () => {
@@ -482,7 +493,7 @@ test('switching from failed text to a capture keeps input and error until explic
 	restore();
 	await captures.open('one', 'capture');
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
- expect(captures.formOf('one').rowEdit.row?.text).toBe(changed);
+	expect(captures.formOf('one').rowEdit.row?.text).toBe(changed);
 	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
 	expect(await harness.text(PATH)).toBe(HAND);
 	await edit.retry();
