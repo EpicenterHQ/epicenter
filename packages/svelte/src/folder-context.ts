@@ -63,7 +63,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	});
 	queryClient.mount();
 	const queries = createFolderQueries(folder);
-	let closed = false;
+	let closing: Promise<WriteFailure[]> | undefined;
 
 	// A refresh must show bytes read after the change. Join an older scan
 	// before invalidating, rather than abandoning I/O that cannot be cancelled.
@@ -71,14 +71,14 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		filters: InvalidateQueryFilters,
 		options?: { throwOnError?: boolean },
 	) {
-		if (closed) return;
+		if (closing !== undefined) return;
 		await Promise.allSettled(
 			queryClient
 				.getQueryCache()
 				.findAll(filters)
 				.map((query) => query.promise),
 		);
-		if (closed) return;
+		if (closing !== undefined) return;
 		// An unobserved old value must not become a recreated file's source.
 		// Disabled observers still own their query, so test observer count directly.
 		queryClient.removeQueries({
@@ -150,7 +150,6 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	const trackStatus = createSubscriber((update) =>
 		folder.getStatus().closing ? () => {} : folder.onStatusChange(update),
 	);
-	let closing: Promise<WriteFailure[]> | undefined;
 	let stopWindow: (() => void) | undefined;
 	let guarding: Promise<void> | undefined;
 
@@ -235,7 +234,6 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			closing = completion.promise;
 			// Stop refreshes before Folder close reports its status or saves.
 			// Accepted work retains its own storage capability while close drains it.
-			closed = true;
 			stopChanges();
 			clearTimeout(refreshTimer);
 			queryClient.unmount();

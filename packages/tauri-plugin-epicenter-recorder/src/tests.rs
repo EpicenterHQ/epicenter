@@ -243,6 +243,10 @@ fn a_meter_is_closed_by_its_window_or_with_its_page() {
         recorders.lock().is_capturing(),
         "an open meter is an open microphone"
     );
+    assert!(
+        !crate::is_recording(fixture.app.handle()),
+        "a microphone meter must not add a recording warning to Quit"
+    );
     let refused = invoke(&other, "close_meter", json!({ "id": first })).unwrap_err();
     assert_eq!(name(&refused), "NotRecording", "{refused}");
     assert_eq!(
@@ -453,10 +457,7 @@ fn a_destroyed_window_finalizes_its_recording() {
         "7",
         "main",
     );
-    assert_eq!(
-        crate::recording_owner(fixture.app.handle()).as_deref(),
-        Some("main")
-    );
+    assert!(crate::is_recording(fixture.app.handle()));
     crate::page_ended(fixture.app.handle(), "other");
     assert!(fixture
         .app
@@ -465,13 +466,10 @@ fn a_destroyed_window_finalizes_its_recording() {
         .held_path()
         .is_some());
     // Another window going leaves this one recording.
-    assert_eq!(
-        crate::recording_owner(fixture.app.handle()).as_deref(),
-        Some("main")
-    );
+    assert!(crate::is_recording(fixture.app.handle()));
 
     crate::page_ended(fixture.app.handle(), "main");
-    assert_eq!(crate::recording_owner(fixture.app.handle()), None);
+    assert!(!crate::is_recording(fixture.app.handle()));
     assert!(fixture
         .app
         .state::<Recorders<MockRuntime>>()

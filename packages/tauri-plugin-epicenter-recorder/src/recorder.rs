@@ -889,21 +889,15 @@ impl Recorder {
     /// still holds the slot, but nothing is being captured, and a tray that kept
     /// claiming otherwise would be lying about the microphone.
     pub fn is_capturing(&self) -> bool {
-        !self.meters.is_empty()
-            || self
-                .active
-                .as_ref()
-                .is_some_and(|active| active.ended_reason.is_none())
+        !self.meters.is_empty() || self.is_recording()
     }
 
-    /// The window whose recording is still capturing. A recording whose
-    /// capture ended holds the slot until its owner stops it, but leaving
-    /// would no longer cut anything off, so it is not counted.
-    pub fn capturing_owner(&self) -> Option<&str> {
+    /// A recording whose capture ended still holds the slot until its owner
+    /// stops it, but departure would no longer cut it off. Meters do not record.
+    pub fn is_recording(&self) -> bool {
         self.active
             .as_ref()
-            .filter(|active| active.ended_reason.is_none())
-            .map(|active| active.owner_label.as_str())
+            .is_some_and(|active| active.ended_reason.is_none())
     }
 
     /// The file of the held recording, which `recover` must not rewrite.
@@ -1814,7 +1808,7 @@ pub(crate) mod tests {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
-        assert_eq!(recorder.capturing_owner(), Some("app-notes"));
+        assert!(recorder.is_recording());
 
         assert!(
             recorder
@@ -1826,7 +1820,7 @@ pub(crate) mod tests {
         // The microphone is closed, so the tray must stop claiming otherwise,
         // and leaving its window no longer cuts a recording off.
         assert!(!recorder.is_capturing());
-        assert_eq!(recorder.capturing_owner(), None);
+        assert!(!recorder.is_recording());
 
         // Everything else is unchanged: same recording, same owner, now carrying
         // the reason its capture ended.

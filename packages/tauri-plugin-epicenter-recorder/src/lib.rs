@@ -21,9 +21,8 @@
 //! PCM16 to it as the microphone captures; `stop` finalizes its header. Nothing
 //! deletes a recording once capture has begun. When the page that started a
 //! recording reloads, or its window is destroyed, the recording is finalized
-//! for it; a shell asks
-//! `recording_owner` before closing a window or quitting, since leaving ends
-//! that recording. `recover` rewrites the
+//! for it. Epicenter reads `is_recording` for its application Quit warning;
+//! a recording alone adds no window Close warning. `recover` rewrites the
 //! header of any WAV a quit or crash cut off, which a page calls when it opens
 //! its folder.
 //!
@@ -155,14 +154,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new().build()
 }
 
-/// The label of the window whose recording is capturing now, if one is: what
-/// a shell asks before a window closes or the app quits, since leaving ends
-/// that recording. The recorder is the only record of it; no page mirrors it.
-pub fn recording_owner<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    app.try_state::<Recorders<R>>()?
-        .lock()
-        .capturing_owner()
-        .map(str::to_owned)
+/// Whether a recording is capturing now, for Epicenter's application Quit
+/// warning. An open meter or an ended recording adds no recording warning.
+pub fn is_recording<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.try_state::<Recorders<R>>()
+        .is_some_and(|recorders| recorders.lock().is_recording())
 }
 
 /// The typed command contract. The TypeScript bindings in

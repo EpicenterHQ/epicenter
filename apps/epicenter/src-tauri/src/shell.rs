@@ -5,7 +5,7 @@ use tauri::menu::MenuBuilder;
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, ExitRequestApi, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-use tauri_plugin_epicenter_recorder::recording_owner;
+use tauri_plugin_epicenter_recorder::is_recording;
 
 use crate::{request_window, BuiltInApp, DesktopAppHandle};
 
@@ -52,7 +52,7 @@ pub(crate) fn request_quit<R: Runtime>(app: &AppHandle<R>, api: &ExitRequestApi,
 
     let finish_app = app.clone();
     app.dialog()
-        .message(quit_message(recording_owner(app).is_some()))
+        .message(quit_message(is_recording(app)))
         .title("Quit Epicenter?")
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom(
