@@ -2,7 +2,7 @@ import type { Folder, ReadError, Row, SaveError } from '@epicenter/folder';
 import { documentChange } from '@epicenter/folder/documents';
 import type { ActionError } from '@epicenter/folder/edits';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import type { Backend } from './backend.js';
 import type { messagesTables } from './definition.js';
 
@@ -61,6 +61,7 @@ export async function openDraft(
 /** Save a durable fence before contacting Beeper; never replay a send after a crash. */
 export async function sendDraft(
 	folder: MessagesFolder,
+	id: string,
 	chatId: string,
 	backend: Backend,
 ): Promise<
@@ -69,87 +70,82 @@ export async function sendDraft(
 		ReadError | SaveError | ActionError | InferErrors<typeof DraftError>
 	>
 > {
-	const admitted = await folder.run([], async (lifetime) => {
-		const id = await draftId(backend, chatId);
-		const path = `drafts/${id}.md`;
-		const send = () =>
-			lifetime.run([path], async (work) => {
-				const read = await work.tables.drafts.get(id);
-				if (read.error !== null) return read;
-				const row = read.data;
-				if (!row || row.issues !== null)
-					return DraftError.Refused({
-						message:
-							'The draft could not be read. Open its Markdown file to repair it.',
-					});
-				if (row.fields.state === 'sending')
-					return DraftError.Refused({
-						message: 'Check this attempt in Beeper before sending again.',
-					});
-				if (
-					row.fields.chatId !== chatId ||
-					row.fields.mode !== backend.mode ||
-					row.fields.profile !== backend.profile
-				)
-					return DraftError.Refused({
-						message:
-							'This draft does not match the conversation or connection. Check its Markdown file.',
-					});
-				if (!row.body.trim())
-					return DraftError.Refused({ message: 'Write a message first.' });
-				if (row.body.length > 20000)
-					return DraftError.Refused({
-						message: 'Messages must be at most 20,000 characters.',
-					});
-				const prepared = documentChange(row, {
-					fields: { state: 'sending', pendingId: '' },
+	const path = `drafts/${id}.md`;
+	const sent = await folder.run([path], async (work) => {
+		const send = async () => {
+			const read = await work.tables.drafts.get(id);
+			if (read.error !== null) return read;
+			const row = read.data;
+			if (!row || row.issues !== null)
+				return DraftError.Refused({
+					message:
+						'The draft could not be read. Open its Markdown file to repair it.',
 				});
-				if (prepared.error !== null)
-					return DraftError.Refused({ message: prepared.error.reason });
-				const text = prepared.data.text;
-				const fenced = await work.files.write(path, row.text, text);
-				if (fenced.error !== null) return fenced;
-				const answer = await backend.request({
-					action: 'send',
-					chatId,
-					profile: backend.profile,
-					text: row.body,
+			if (row.fields.state === 'sending')
+				return DraftError.Refused({
+					message: 'Check this attempt in Beeper before sending again.',
 				});
-				if (answer.kind !== 'accepted')
-					return DraftError.Refused({
-						message:
-							answer.kind === 'error'
-								? answer.message
-								: 'Beeper did not confirm the send. Check Beeper before trying again.',
-					});
-				const receipt = documentChange(
-					{ text, issues: null },
-					{
-						fields: { state: 'accepted', pendingId: answer.pendingId },
-						body: '',
-					},
-				);
-				if (receipt.error !== null)
-					return DraftError.Refused({
-						message:
-							'Beeper accepted the message, but its receipt could not be prepared. Check Beeper before sending again.',
-					});
-				const accepted = await work.files.write(path, text, receipt.data.text);
-				if (accepted.error !== null)
-					return DraftError.Refused({
-						message:
-							'Beeper accepted the message, but the receipt could not be saved. Check Beeper before sending again.',
-					});
-				return Ok(answer.pendingId);
+			if (
+				row.fields.chatId !== chatId ||
+				row.fields.mode !== backend.mode ||
+				row.fields.profile !== backend.profile
+			)
+				return DraftError.Refused({
+					message:
+						'This draft does not match the conversation or connection. Check its Markdown file.',
+				});
+			if (!row.body.trim())
+				return DraftError.Refused({ message: 'Write a message first.' });
+			if (row.body.length > 20000)
+				return DraftError.Refused({
+					message: 'Messages must be at most 20,000 characters.',
+				});
+			const prepared = documentChange(row, {
+				fields: { state: 'sending', pendingId: '' },
 			});
+			if (prepared.error !== null)
+				return DraftError.Refused({ message: prepared.error.reason });
+			const text = prepared.data.text;
+			const fenced = await work.files.write(path, row.text, text);
+			if (fenced.error !== null) return fenced;
+			const answer = await backend.request({
+				action: 'send',
+				chatId,
+				profile: backend.profile,
+				text: row.body,
+			});
+			if (answer.kind !== 'accepted')
+				return DraftError.Refused({
+					message:
+						answer.kind === 'error'
+							? answer.message
+							: 'Beeper did not confirm the send. Check Beeper before trying again.',
+				});
+			const receipt = documentChange(
+				{ text, issues: null },
+				{
+					fields: { state: 'accepted', pendingId: answer.pendingId },
+					body: '',
+				},
+			);
+			if (receipt.error !== null)
+				return DraftError.Refused({
+					message:
+						'Beeper accepted the message, but its receipt could not be prepared. Check Beeper before sending again.',
+				});
+			const accepted = await work.files.write(path, text, receipt.data.text);
+			if (accepted.error !== null)
+				return DraftError.Refused({
+					message:
+						'Beeper accepted the message, but the receipt could not be saved. Check Beeper before sending again.',
+				});
+			return Ok(answer.pendingId);
+		};
 		// The desktop host reuses one window per folder. Web Locks also serialize browser tabs.
-		const fenced =
-			typeof navigator !== 'undefined' && navigator.locks
-				? await navigator.locks.request(`messages-send-${id}`, send)
-				: await send();
-		if (fenced.error !== null) return Err(fenced.error);
-		return fenced.data;
+		return typeof navigator !== 'undefined' && navigator.locks
+			? await navigator.locks.request(`messages-send-${id}`, send)
+			: await send();
 	});
-	if (admitted.error !== null) return admitted;
-	return admitted.data;
+	if (sent.error !== null) return sent;
+	return sent.data;
 }

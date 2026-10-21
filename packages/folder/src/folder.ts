@@ -134,14 +134,6 @@ export type FolderWork<TTables extends Record<string, Schema>> = {
 	readonly [folderWork]: true;
 	files: FolderFileOperations;
 	tables: { [TName in keyof TTables]: FolderTableOperations<TTables[TName]> };
-	/**
-	 * Admit child work, including during close. Nonempty paths reserve local
-	 * input and competing reservations; overlaps refuse without queuing.
-	 */
-	run<T>(
-		paths: readonly string[],
-		action: (work: FolderWork<TTables>) => Promise<T>,
-	): Promise<Result<T, ActionError>>;
 };
 
 /**
@@ -167,15 +159,21 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	/** Called when save status changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
 	/**
-	 * Admit an action that close waits for. Use [] for lifetime only, or reserve
-	 * paths together and save their held input before the callback starts.
-	 * A refusal leaves that input recoverable. Storage access survives close
-	 * and expires with the callback; already-started calls and children finish.
-	 * Reservations protect local input and competing reservations, not raw
-	 * storage calls or outside programs. This is not a storage transaction.
-	 * Do not await this folder's settle/close inside the action: they wait for it.
+	 * Admit an action that close waits for. `paths` is its reservation, declared
+	 * up front and fixed for the action: those paths are reserved together, and
+	 * their held input is saved before the callback starts. Use [] when only
+	 * admission is needed. Overlapping reservations refuse without queuing, and
+	 * a refusal leaves held input recoverable.
+	 * Storage access survives close and expires with the callback;
+	 * already-started calls finish. Reservations protect local input and
+	 * competing reservations, not raw storage calls or outside programs. This
+	 * is not a storage transaction. Do not await this folder's settle/close
+	 * inside the action: they wait for it.
 	 */
-	run: FolderWork<TTables>['run'];
+	run<T>(
+		paths: readonly string[],
+		action: (work: FolderWork<TTables>) => Promise<T>,
+	): Promise<Result<T, ActionError>>;
 	/**
 	 * Attempt available held input now, including previous failures, drain
 	 * admitted work, then attempt newly released paths. Answers what did not
@@ -184,8 +182,8 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	settle(): Promise<Pending[]>;
 	/**
 	 * Refuse new input and root actions immediately; root storage calls and
-	 * new listeners throw. Save available input and drain admitted actions,
-	 * their children, and started saves before releasing storage/listeners.
+	 * new listeners throw. Save available input and drain admitted actions
+	 * and started saves before releasing storage/listeners.
 	 * Reserved paths save when released. Failed input stays held for recovery.
 	 * Unscoped reads already running are not waited for. Edits remain readable;
 	 * read() rejects, save() attempts its path during close and does nothing

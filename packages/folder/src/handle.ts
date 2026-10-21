@@ -213,7 +213,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		return operation.promise;
 	}
 
-	/** A live action can start children after an await, even while closing. */
+	/** A live action can start saves after an await, even while closing. */
 	async function drainWork() {
 		while (inflight.size > 0) await Promise.allSettled([...inflight]);
 	}
@@ -452,56 +452,6 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		]),
 	);
 
-	/** Only this callback's access stays open when the root Folder closes. */
-	function run<T>(
-		paths: readonly string[],
-		action: (work: FolderWork<Record<string, Schema>>) => Promise<T>,
-	): Promise<Result<T, ActionError>> {
-		return edits.run(paths, async () => {
-			let live = true;
-			const started = new Set<Promise<unknown>>();
-			const scoped = <
-				TOperations extends Record<
-					string,
-					(...args: never[]) => Promise<unknown>
-				>,
-			>(
-				operations: TOperations,
-			): TOperations =>
-				Object.fromEntries(
-					Object.entries(operations).map(([name, operation]) => [
-						name,
-						(...args: never[]) => {
-							if (!live) throw new Error('This folder action has ended');
-							return track(() => operation(...args), started);
-						},
-					]),
-				) as TOperations;
-			const work: FolderWork<Record<string, Schema>> = {
-				[folderWork]: true,
-				files: scoped(readFiles),
-				tables: Object.fromEntries(
-					Object.entries(readTables).map(([name, table]) => [
-						name,
-						scoped(table),
-					]),
-				),
-				run(paths, action) {
-					if (!live) throw new Error('This folder action has ended');
-					return track(() => run(paths, action), started);
-				},
-			};
-			try {
-				return await action(work);
-			} finally {
-				// Revoke access now, then keep reservations until calls and children
-				// already started have finished, including when the callback threw.
-				live = false;
-				while (started.size > 0) await Promise.allSettled([...started]);
-			}
-		});
-	}
-
 	const folder: Folder<Record<string, Schema>> = {
 		files: {
 			...opened(readFiles),
@@ -534,10 +484,49 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				statusListeners.delete(listener);
 			};
 		},
+		/** Only this callback's access stays open when the root Folder closes. */
 		run(paths, action) {
 			if (closing !== undefined)
 				return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
-			return run(paths, action);
+			return edits.run(paths, async () => {
+				let live = true;
+				const started = new Set<Promise<unknown>>();
+				const scoped = <
+					TOperations extends Record<
+						string,
+						(...args: never[]) => Promise<unknown>
+					>,
+				>(
+					operations: TOperations,
+				): TOperations =>
+					Object.fromEntries(
+						Object.entries(operations).map(([name, operation]) => [
+							name,
+							(...args: never[]) => {
+								if (!live) throw new Error('This folder action has ended');
+								return track(() => operation(...args), started);
+							},
+						]),
+					) as TOperations;
+				const work: FolderWork<Record<string, Schema>> = {
+					[folderWork]: true,
+					files: scoped(readFiles),
+					tables: Object.fromEntries(
+						Object.entries(readTables).map(([name, table]) => [
+							name,
+							scoped(table),
+						]),
+					),
+				};
+				try {
+					return await action(work);
+				} finally {
+					// Revoke access now, then keep reservations until calls already
+					// started have finished, including when the callback threw.
+					live = false;
+					await Promise.allSettled([...started]);
+				}
+			});
 		},
 		async settle() {
 			assertOpen();

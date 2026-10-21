@@ -19,7 +19,8 @@
  * - A note open as its file takes text edits, merged by line with another
  *   tab's change, and permits row patches meanwhile
  * - Create opens the new note in the folder shown; deleting a folder moves
- *   its notes out first, and refuses while a note cannot say its folder
+ *   its notes out first, and refuses while a note cannot say its folder or
+ *   before moving any note when it finds one in the folder it did not name
  * - Delete sends what is typed first, then deletes the file
  * - Close sends typing still waiting and refuses input from then on
  */
@@ -317,6 +318,58 @@ test('a folder deletion keeps notes already moved when a later note cannot save'
 	expect(await text(A)).toContain('folderId: null');
 	expect(await text('notes/b.md')).toContain('folderId: work');
 	expect(await text('folders/work.md')).toBe(folderText('Work'));
+});
+
+test('a folder deletion that finds a note this page did not list moves nothing, saves what is typed, and succeeds again', async () => {
+	// Not observed: another tab's save marks the rows stale without rereading
+	// them, so the page still lists only `a`.
+	const fixture = await openNotes();
+	cleanup.push(() => fixture.close());
+	const { notes, write, text } = fixture;
+	await write('folders/work.md', folderText('Work'));
+	await write(A, noteText({ folderId: 'work' }));
+	await notes.load();
+	await write('notes/b.md', noteText({ title: 'B', folderId: 'work' }));
+	await quiet(notes);
+	expect(rows(notes).map((note) => note.id)).toEqual(['a']);
+	expectOk(
+		notes.folder.tables.notes.edit('a').change({ body: 'Typed first\n' }),
+	);
+
+	const refused = await notes.deleteFolder(folderEntry(notes, 'work'));
+	expect(refused).toContain('b.md');
+	expect(refused).toContain('no note was moved');
+	expect(await text(A)).toContain('folderId: work');
+	expect(await text(A)).toContain('Typed first');
+	expect(await text('notes/b.md')).toContain('folderId: work');
+	expect(await text('folders/work.md')).toBe(folderText('Work'));
+	// The page holds what the refused deletion read.
+	expect(rows(notes).map((note) => note.id)).toEqual(['a', 'b']);
+
+	expect(await notes.deleteFolder(folderEntry(notes, 'work'))).toBeUndefined();
+	expect(await text(A)).toContain('folderId: null');
+	expect(await text(A)).toContain('Typed first');
+	expect(await text('notes/b.md')).toContain('folderId: null');
+	expect(await text('folders/work.md')).toBeUndefined();
+});
+
+test('a folder deletion saves a note being moved into it, even one the page does not list, then moves it out', async () => {
+	const fixture = await openNotes();
+	cleanup.push(() => fixture.close());
+	const { notes, write, text } = fixture;
+	await write('folders/work.md', folderText('Work'));
+	await notes.load();
+	await write('notes/b.md', noteText({ title: 'B' }));
+	await quiet(notes);
+	expect(rows(notes)).toEqual([]);
+	const b = notes.folder.tables.notes.edit('b');
+	expectOk(await b.read());
+	expectOk(b.change({ fields: { folderId: 'work' } }));
+
+	expect(await notes.deleteFolder(folderEntry(notes, 'work'))).toBeUndefined();
+	expect(b.getPending()).toBeUndefined();
+	expect(await text('notes/b.md')).toContain('folderId: null');
+	expect(await text('folders/work.md')).toBeUndefined();
 });
 
 test('close drains an admitted folder deletion through its later note moves without changing the departing view', async () => {

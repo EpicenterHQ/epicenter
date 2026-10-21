@@ -369,17 +369,15 @@ test('close lets a started action write after its await, and refuses a new one',
 	expectOk(fileEdit.change({ body: 'Accepted before closing' }));
 	const actionStarted = Promise.withResolvers<void>();
 	const releaseAction = Promise.withResolvers<void>();
-	const action = folder.run([], async (work) => {
+	const action = folder.run(['action.txt'], async (work) => {
 		actionStarted.resolve();
 		await releaseAction.promise;
-		return work.run(['notes/milk.md', 'action.txt'], async (scoped) =>
-			expectOk(await scoped.files.write('action.txt', null, 'done')),
-		);
+		return work.files.write('action.txt', null, 'done');
 	});
 	await actionStarted.promise;
 	const closing = context.close();
 	// Folder close fences every editor immediately. Work admitted earlier
-	// may still acquire its file scope after an await.
+	// keeps its storage access after an await.
 	expect(fileEdit.locked).toBe(true);
 	expect(folder.getStatus().closing).toBe(true);
 	expect(expectErr(fileEdit.replaceText('Late source')).name).toBe('Locked');

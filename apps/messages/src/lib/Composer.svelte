@@ -26,7 +26,7 @@
 	const failed = $derived(fileEdit.pending?.error !== undefined && !fileEdit.pending.saving);
 	const send = createMutation(() => ({
 		mutationFn: async () => {
-			const result = await sendDraft(context.folder, chatId, backend);
+			const result = await sendDraft(context.folder, draftId, chatId, backend);
 			await context.refresh([`drafts/${draftId}.md`]);
 			if (result.error !== null) { message = result.error.message; return; }
 			message = backend.mode === 'demo' ? 'Demo message sent.' : 'Accepted by Beeper. Delivery status appears in the conversation.';

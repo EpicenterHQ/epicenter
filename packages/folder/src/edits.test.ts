@@ -25,7 +25,7 @@
  *   close work with no view and no subscriber; close waits for saves, not
  *   reads, and answers what did not save
  * - Admitted work survives close, expires with its callback, and retains
- *   path reservations until its started storage calls and children finish
+ *   path reservations until its started storage calls finish
  */
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
@@ -1974,59 +1974,6 @@ for (const closing of [false, true]) {
 	});
 }
 
-test('a lifetime action admits a late child reservation during close and drains it after returning', async () => {
-	const { folder, edit, load, stored } = await setup();
-	await load();
-	expectOk(edit.change({ fields: { title: 'Held before close' } }));
-	const entered = Promise.withResolvers<void>();
-	const acquire = Promise.withResolvers<void>();
-	const childEntered = Promise.withResolvers<void>();
-	const childGate = Promise.withResolvers<void>();
-	cleanup.push(() => {
-		acquire.resolve();
-		childGate.resolve();
-	});
-	let parent: FolderWork<typeof tables> | undefined;
-	let child: ReturnType<typeof folder.run> | undefined;
-	const operation = folder.run([], async (work) => {
-		parent = work;
-		entered.resolve();
-		await acquire.promise;
-		child = work.run([MILK], async (scoped) => {
-			expect(await stored(MILK)).toContain('title: Held before close');
-			childEntered.resolve();
-			await childGate.promise;
-			const row = expectOk(await scoped.tables.notes.get('milk'));
-			expectOk(
-				await scoped.tables.notes.set('milk', row!, { body: 'child finished' }),
-			);
-		});
-	});
-	await entered.promise;
-	expect(folder.getStatus().saving).toBe(false);
-	const closing = folder.close();
-	let closed = false;
-	void closing.then(() => {
-		closed = true;
-	});
-	expect(expectErr(await folder.run([MILK], async () => {}))).toMatchObject({
-		name: 'NotStarted',
-		reason: CLOSING,
-	});
-	acquire.resolve();
-	await childEntered.promise;
-	expect(folder.getStatus().saving).toBe(true);
-	expect(() => parent!.run([], async () => {})).toThrow('has ended');
-	expect(() => parent!.files.list()).toThrow('has ended');
-	await Bun.sleep(0);
-	expect(closed).toBe(false);
-	childGate.resolve();
-	expectOk(await operation);
-	expectOk(await child!);
-	expect(await closing).toEqual([]);
-	expect(await stored(MILK)).toContain('child finished');
-});
-
 for (const throws of [false, true]) {
 	test(`a callback that ${throws ? 'throws' : 'returns'} expires its work but keeps paths reserved until its started write finishes`, async () => {
 		const { folder, engine, edit, stored } = await setup();
@@ -2074,48 +2021,6 @@ for (const throws of [false, true]) {
 		}
 		await closing;
 		expect(await stored(MILK)).toBe('started before callback ended');
-	});
-}
-
-for (const throws of [false, true]) {
-	test(`a parent callback that ${throws ? 'throws' : 'returns'} retains its paths until an unawaited child finishes`, async () => {
-		const { folder, edit, stored } = await setup();
-		const childPath = 'audio/take.bin';
-		const entered = Promise.withResolvers<void>();
-		const finish = Promise.withResolvers<void>();
-		cleanup.push(() => finish.resolve());
-		const operation = folder.run([MILK], async (work) => {
-			void work.run([childPath], async (child) => {
-				entered.resolve();
-				await finish.promise;
-				expectOk(await child.files.write(childPath, null, 'child saved'));
-			});
-			if (throws) throw new Error('parent failed');
-			return 'parent returned';
-		});
-		const outcome = operation.then(
-			(result) => ({ result }),
-			(cause: unknown) => ({ cause }),
-		);
-		await entered.promise;
-		await Bun.sleep(0);
-		expect(edit.isLocked()).toBe(true);
-		expect(folder.files.edit(childPath).isLocked()).toBe(true);
-		expect(expectErr(await folder.run([MILK], async () => {})).name).toBe(
-			'NotStarted',
-		);
-		finish.resolve();
-		const finished = await outcome;
-		if ('cause' in finished) {
-			expect(throws).toBe(true);
-			expect(finished.cause).toMatchObject({ message: 'parent failed' });
-		} else {
-			expect(throws).toBe(false);
-			expect(expectOk(finished.result)).toBe('parent returned');
-		}
-		expect(edit.isLocked()).toBe(false);
-		expect(folder.files.edit(childPath).isLocked()).toBe(false);
-		expect(await stored(childPath)).toBe('child saved');
 	});
 }
 

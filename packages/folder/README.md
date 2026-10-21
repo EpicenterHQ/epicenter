@@ -90,8 +90,8 @@ the saved files.
 | `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A save of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
 | `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or reserved action running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
 | `settle()` | Attempts unreserved held input now, drains admitted work and started saves, then attempts newly released paths. A failed revision is not retried within the same call. Unscoped reads are not waited for. Answers the input that did not save. |
-| `run(paths, action)` | Admits a complete action that close waits for. `[]` admits lifetime only; nonempty paths additionally reserve shared input and competing reservations and flush held input before the callback. Its storage access and child actions work during close, then expire. |
-| `close()` | At once, new input and root actions are refused and every root storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; admitted actions, their child actions and running deletes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` attempts its path during close and does nothing after completion. Answers the input that did not save. Calling it again returns the same promise. |
+| `run(paths, action)` | Admits a complete action that close waits for. `paths` is its reservation, declared up front and fixed for the action: those paths are reserved together against local input and competing reservations, and their held input is flushed before the callback. `[]` admits lifetime only. Its storage access works during close, then expires. |
+| `close()` | At once, new input and actions are refused and every root storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; admitted actions and running deletes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` attempts its path during close and does nothing after completion. Answers the input that did not save. Calling it again returns the same promise. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
 saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
@@ -206,15 +206,11 @@ await file.read();
 file.change({ fields: { title: 'x' } });
 file.replaceText(editedText);
 // The callback receives storage access, without a second editor or lifecycle.
+// Its reservation is declared before it starts and cannot grow.
 await folder.run(['notes/a.md', 'audio/a.bin'], async (work) => {
   const note = await work.files.read('notes/a.md');
-  // Both paths' held input saved first. Use work.files or work.tables here.
-});
-
-await folder.run([], async (work) => {
-  const path = await choosePath();
-  // An admitted action can acquire a path even if close started during the await.
-  return work.run([path], async (held) => held.files.write(path, null, next));
+  // Both paths' held input saved first. Use work.files or work.tables here,
+  // even if close started during an await.
 });
 ```
 
@@ -294,16 +290,19 @@ programs still use their ordinary content witnesses; it is not a storage lock or
 an atomic transaction.
 
 The callback receives `FolderWork`: `files` and typed `tables` with storage
-operations, plus `run` for child actions. It has no editor, listeners, `settle`, or
-`close`. Use `[]` when the action needs only admission across awaits. This does
-not set `saving`; its actual writes and reserved actions do. Use the callback's
-storage access for every continuation: root Folder calls refuse immediately once
-close starts. Asking to reserve an already-held path refuses, including from a
-child; use the current action's storage access for paths it already holds.
+operations. It has no editor, listeners, `settle`, `close`, or `run`: an
+action's reservation is declared before it starts and cannot grow. The
+reservation protects held input and competing reservations; it does not limit
+which paths the callback's storage calls may reach. Use `[]` when the action
+needs only admission across awaits. This does not set `saving`; its actual
+writes and reserved actions do. Use the callback's storage access for every
+continuation: root Folder calls refuse immediately once close starts. A
+workflow that depends on reserved input for a path it finds later, such as
+Honeycrisp's folder deletion, refuses when that path was not reserved, so the
+person can try again with the larger set.
 
 Access expires when the callback returns or throws, including saved method
-references. Calls and child actions already started finish before its reservations
-release. Await operations to inspect their outcomes. Do not await the captured
+references. Calls already started finish before its reservations release. Await operations to inspect their outcomes. Do not await the captured
 root's `settle()` or `close()` inside an action, because they wait for that action.
 Close refuses new input immediately, drains admitted actions and saves, then
 attempts newly released input once. `FileEdit.save()` attempts or joins only its path

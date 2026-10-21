@@ -97,9 +97,8 @@ expectTypeOf(
 		expectTypeOf(work.tables.notes.get('a')).toEqualTypeOf<
 			Promise<Result<Row<typeof notes> | undefined, ReadError>>
 		>();
-		expectTypeOf(work.run([], async () => 42)).toEqualTypeOf<
-			Promise<Result<number, ActionError>>
-		>();
+		// @ts-expect-error Only Folder admits actions; admitted work has no child run.
+		work.run([], async () => 42);
 		// @ts-expect-error Admitted work exposes storage, not editable input.
 		work.files.edit('notes/a.md');
 		// @ts-expect-error Admitted table work exposes storage, not editable input.
@@ -110,7 +109,7 @@ expectTypeOf(
 		work.settle();
 		// @ts-expect-error Admitted work does not expose folder listeners.
 		work.onChange(() => {});
-		// @ts-expect-error Unknown tables remain unavailable in child work.
+		// @ts-expect-error Unknown tables remain unavailable in admitted work.
 		work.tables.unknown.get('a');
 		return 'done';
 	}),

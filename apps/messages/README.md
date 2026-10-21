@@ -102,8 +102,9 @@ The app sends no read receipts and provides no archive, delete, edit, reaction,
 account-management or new-conversation operation.
 
 Opening a draft and sending enter Folder work before their first asynchronous
-step. A send then reserves its draft path, saves held typing and writes
-`state: sending` durably. Only then does it send one request. A confirmation
+step. A send reserves its draft path when it is called, saves held typing and
+writes `state: sending` durably; a second send of the same draft meanwhile is
+refused. Only then does it send one request. A confirmation
 means Beeper accepted the request, not that the network delivered it. The app
 saves the pending ID and clears the draft after that acknowledgement. An
 unknown outcome or interrupted attempt retains the original text in `sending`

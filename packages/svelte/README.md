@@ -95,7 +95,7 @@ initialization. The context contains `folder`, `queryClient`,
 Context close stops the change channel and calls `folder.close()` immediately.
 `FolderStatus.closing` becomes true at that call, and retained edits refuse new
 input. Accepted work finishes through its `FolderWork` capability, including
-storage calls and child scopes begun after an await. The Folder drains that work
+storage calls begun after an await. The Folder drains that work
 and held input before releasing storage. The context cancels page reads and
 clears its cache; it owns no second action queue or close phase.
 Every save, own or not, reaches the context through the folder's one change
@@ -251,9 +251,12 @@ owner and fence. For path membership, use the folder context's
 `getStatus().unsaved`; for the actual input, use `.pending` on an existing edit.
 
 Use `folder.run(paths, async (work) => ...)` for work that must finish through
-close. An empty path list admits the lifetime without reporting saving by itself.
-Nonempty paths reserve input together and flush it before the callback starts;
-overlapping reservations refuse. Use `work.files`, `work.tables`, and `work.run`
+close. `paths` is the action's reservation, declared up front and fixed for the
+action: those paths reserve local input together and flush it before the
+callback starts, and overlapping reservations refuse. A reservation is not a
+storage transaction or a limit on which paths the callback may write; raw
+storage calls and other programs keep their own content witnesses. An empty
+path list admits the lifetime without reporting saving by itself. Use `work.files` and `work.tables`
 for every storage call after an await. That capability expires when the callback
 ends. Do not await `folder.close()` or `folder.settle()` inside the callback,
 since they wait for accepted work. Context `close()` answers copyable failures,

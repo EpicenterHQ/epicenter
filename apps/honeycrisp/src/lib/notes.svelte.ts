@@ -274,73 +274,86 @@ export function createNotes(local: NotesFolder) {
 	}
 
 	/**
-	 * Delete a folder after moving its notes out. Refused while any note
-	 * cannot say which folder it is in. What is typed lands first; each note
-	 * then moves out as a list action does; the notes are read again, and
-	 * the folder's file goes only when none is still in it. Not one atomic
-	 * step: a note already moved out stays moved out if the delete stops,
-	 * and another tab can still put a note in the folder after the last read.
+	 * Delete a folder after moving its notes out, as one action over every
+	 * file it may change, named before it starts: the notes this page holds
+	 * in the folder, every note with unsaved typing (which may move a note
+	 * into it), and the folder's file. What is typed there lands first.
+	 * Refused while any note cannot say which folder it is in, and, before
+	 * any note moves, when the notes read now put one in the folder that was
+	 * not named; the page then holds that read, so deleting again names it.
+	 * Each note moves out as a list action does; the notes are read again,
+	 * and the folder's file goes only when none is still in it. Not one
+	 * atomic step: a note already moved out stays moved out if the delete
+	 * stops, and another tab can still put a note in the folder after the
+	 * last read.
 	 */
-	async function deleteFolder(
-		entry: FolderEntry,
-		work: FolderWork<HoneycrispTables>,
-	): Promise<string | undefined> {
-		// Flush known notes before asking storage which logical folder they name.
-		const flushed = await work.run(
-			(rowsOf(NOTES) ?? []).map((note) => rowFile(NOTES, note.id)),
-			async () => {},
-		);
-		if (flushed.error !== null) return describeFailure(flushed.error);
-		const listed = await work.tables.notes.list();
-		if (listed.error !== null) return describeFailure(listed.error);
-		const unknown = unknownRelations(listed.data);
-		if (unknown !== undefined) return unknown;
-		for (const note of notesOf(listed.data)) {
-			if (note.fields.folderId !== entry.id) continue;
-			const moved = await work.run(
-				[rowFile(NOTES, note.id)],
-				async (scoped) => {
-					const current = await scoped.tables.notes.get(note.id);
-					if (current.error !== null) return describeFailure(current.error);
-					if (current.data === undefined) return undefined;
-					const unknown = unknownRelations([current.data]);
-					if (unknown !== undefined) return unknown;
-					if (current.data.fields?.folderId !== entry.id) return undefined;
-					const saved = await scoped.tables.notes.set(note.id, current.data, {
-						fields: { folderId: null },
-					});
-					return saved.error === null
-						? undefined
-						: describeFailure(saved.error);
-				},
-			);
-			const why =
-				moved.error === null ? moved.data : describeFailure(moved.error);
-			if (why !== undefined)
-				return `A note could not be moved out of the folder: ${why}`;
-		}
-		const reread = await work.tables.notes.list();
-		if (reread.error !== null) return describeFailure(reread.error);
-		const unreadable = unknownRelations(reread.data);
-		if (unreadable !== undefined) return unreadable;
-		const remaining = notesOf(reread.data).filter(
-			(note) => note.fields.folderId === entry.id,
-		);
-		if (remaining.length > 0)
-			return `Some notes are still in this folder (${remaining
-				.slice(0, 3)
-				.map((note) => `${note.id}.md`)
-				.join(', ')}), so it was kept. Delete it again to move them out.`;
+	function deleteFolder(entry: FolderEntry) {
 		const path = rowFile(FOLDERS, entry.id);
-		const removed = await work.run([path], (scoped) =>
-			deleteConfirmed({ path, title: undefined }, scoped),
-		);
-		const why =
-			removed.error === null ? removed.data : describeFailure(removed.error);
-		if (why !== undefined) return why;
-		if (!local.closing && view.folderId === entry.id)
-			view = { ...view, folderId: null };
-		return undefined;
+		const reserved = new Set([
+			...(rowsOf(NOTES) ?? []).flatMap((note) =>
+				storedNote(note.id)?.fields.folderId === entry.id
+					? [rowFile(NOTES, note.id)]
+					: [],
+			),
+			...folder
+				.getStatus()
+				.unsaved.filter((unsaved) => noteIdOf(unsaved) !== undefined),
+			path,
+		]);
+		return runAction([...reserved], async (work) => {
+			const listed = await work.tables.notes.list();
+			if (listed.error !== null) return describeFailure(listed.error);
+			if (!local.closing) queryClient.setQueryData(rowsKey(NOTES), listed.data);
+			const unknown = unknownRelations(listed.data);
+			if (unknown !== undefined) return unknown;
+			const members = notesOf(listed.data).filter(
+				(note) => note.fields.folderId === entry.id,
+			);
+			// A note this action did not name may be moved elsewhere meanwhile;
+			// setting its folder from this read would undo that.
+			const unnamed = members.filter(
+				(note) => !reserved.has(rowFile(NOTES, note.id)),
+			);
+			if (unnamed.length > 0)
+				return `Some notes in this folder were not listed here yet (${unnamed
+					.slice(0, 3)
+					.map((note) => `${note.id}.md`)
+					.join(
+						', ',
+					)}), so it was kept and no note was moved. Delete it again to move them out.`;
+			const moveFailed = 'A note could not be moved out of the folder:';
+			for (const note of members) {
+				const current = await work.tables.notes.get(note.id);
+				if (current.error !== null)
+					return `${moveFailed} ${describeFailure(current.error)}`;
+				if (current.data === undefined) continue;
+				const unreadable = unknownRelations([current.data]);
+				if (unreadable !== undefined) return `${moveFailed} ${unreadable}`;
+				if (current.data.fields?.folderId !== entry.id) continue;
+				const saved = await work.tables.notes.set(note.id, current.data, {
+					fields: { folderId: null },
+				});
+				if (saved.error !== null)
+					return `${moveFailed} ${describeFailure(saved.error)}`;
+			}
+			const reread = await work.tables.notes.list();
+			if (reread.error !== null) return describeFailure(reread.error);
+			const unreadable = unknownRelations(reread.data);
+			if (unreadable !== undefined) return unreadable;
+			const remaining = notesOf(reread.data).filter(
+				(note) => note.fields.folderId === entry.id,
+			);
+			if (remaining.length > 0)
+				return `Some notes are still in this folder (${remaining
+					.slice(0, 3)
+					.map((note) => `${note.id}.md`)
+					.join(', ')}), so it was kept. Delete it again to move them out.`;
+			const why = await deleteConfirmed({ path, title: undefined }, work);
+			if (why !== undefined) return why;
+			if (!local.closing && view.folderId === entry.id)
+				view = { ...view, folderId: null };
+			return undefined;
+		});
 	}
 
 	/** Refuse deletion while any row cannot identify its logical folder. */
@@ -525,8 +538,7 @@ export function createNotes(local: NotesFolder) {
 			if (why === undefined) await openCreated(path, 'text');
 			return why;
 		},
-		deleteFolder: (entry: FolderEntry) =>
-			runAction([], (work) => deleteFolder(entry, work)),
+		deleteFolder,
 		/** What deleting `path` would remove, for the person to confirm. */
 		async deletionFor(path: string): Promise<Result<Deletion, string>> {
 			if (local.closing) return Err(CLOSING);

@@ -72,3 +72,32 @@ in the Svelte context, Honeycrisp, Whispering, Capture, Messages and saved views
 Regression coverage includes late child admission, expiry, early return and
 throw while calls drain, reentrant close, failed-input recovery, and close during
 real multi-step app actions.
+
+## Amendment, 2026-10-21: one action reserves one upfront set
+
+`FolderWork.run` is removed. The child-action clauses above (FolderWork's child
+`run`, children finishing before release, child admission during close, and
+overlaps with an ancestor) and the late-child regression test are history.
+`folder.run(paths, action)` is admission only: an action's reservation is
+declared before it starts and cannot grow. `[]` still admits lifetime only, as
+Messages' draft opening uses it. Reservations still protect local input and
+competing reservations; they do not limit which paths the callback's storage
+calls reach, do not cover raw storage calls or outside programs, and are not
+storage transactions. Root storage still refuses as soon as close starts; an
+admitted callback's storage access still survives close until the action ends,
+calls already started still finish before release, and close still drains late
+scoped storage calls.
+
+Child scopes were correct: Honeycrisp's folder deletion reserved each member
+in its own child, then read it fresh and checked its folder before writing from
+that witness. The single scope keeps that protection with less machinery: one
+fixed set and one lifetime per attempt. Deletion reserves the notes the page
+lists in the folder, every note with unsaved typing, and the folder's file;
+still rechecks each member fresh before writing; and, because the set cannot
+grow, refuses before any move when its fresh read finds a member it did not
+reserve. Writing such a member from that unreserved read could undo a
+concurrent move, so a workflow that depends on reserved input refuses rather
+than writes it. The page then holds that read, so the next attempt includes
+it. Messages reserves its durable draft path when a send is
+called, with its Web Lock inside that action. Capture, Whispering and Epicenter
+already used one level.

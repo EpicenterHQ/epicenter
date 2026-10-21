@@ -129,16 +129,21 @@ save. Once it reads as a note, **Open as note** shows its fields again. A file
 in `notes/` that is not text, and a file in `folders/` that does not read as a
 folder, are listed apart and open nothing here; Files can still delete them.
 
-Deleting a folder first saves held input in known notes, then rereads the
-notes. It reserves each affected note, checks its current membership, and saves
-only `folderId: null`. It is refused while any note cannot say which folder it
-is in: repair or remove those first. The folder's file goes only after another
-read finds none left in it. This is not one atomic step: notes already moved
-stay moved if a later save fails. Each delete uses the file just read as its
-witness, keeping a file another writer changed in the meantime.
+Deleting a folder is one action over the files it may change, named before it
+starts: the notes the page lists in the folder, every note with unsaved typing
+(which may be moving it into the folder), and the folder's file. Their held
+input saves first; then the notes are read again. It is refused while any note
+cannot say which folder it is in: repair or remove those first. If that read
+finds a note in the folder that was not named, nothing moves; the page now
+lists that note, so deleting again includes it. Otherwise each note's current
+membership is checked and only `folderId: null` is saved. The folder's file
+goes only after another read finds none left in it. This is not one atomic
+step: notes already moved stay moved if a later save fails. Each delete uses
+the file just read as its witness, keeping a file another writer changed in
+the meantime.
 
-Async actions enter `folder.run` and use its scoped `work.files`, `work.tables`,
-and child `work.run` calls. Closing fences new input immediately; admitted
+Async actions enter `folder.run` with every path they change and use its
+scoped `work.files` and `work.tables`. Closing fences new input immediately; admitted
 work can finish its later storage calls, while the departing view keeps its
 selection and does not open newly created files.
 
