@@ -96,10 +96,12 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   which adds the key. A key is never returned to
   the page, logged, or written to the folder, including inside an error
   message.
-- **Nothing is sent or seeded on its own.** No request leaves at launch or
-  after a recording without the person asking, and no file is created in the
-  folder that they did not create. Missing settings stay in memory until an
-  explicit settings save.
+- **Provider requests and settings saves are explicit.** No provider request
+  leaves at launch or after a recording without the person asking. Missing
+  settings stay in memory until an explicit settings save. App-maintained
+  exclusions use the ordinary files API, preserving unrelated source; they
+  do not initialize Git or send files. Create other folder files only for
+  the person's actions.
 - Do not rename a recording's or a transformation's files from the app: other
   rows refer to the stem.
 - Use wellcrafted `Result` types instead of try-catch for expected failures.
