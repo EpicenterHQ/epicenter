@@ -13,123 +13,59 @@ not create a second implementation assignment.
 
 ## Current plan
 
-Reviewed against this checkout and the current chats on 2026-10-20. Finish the
-shared Folder work, prove recovery, then establish browser sync behavior before
-refining its internal API. Other product ideas below remain conditional.
+Reviewed against committed source and the engineering chats on 2026-10-21.
+The unified FileEdit, app migrations, Whispering app owner, Folder-owned action
+admission, and the current Close/Quit policy have landed. Their source, tests,
+READMEs and ADRs own the implementation and acceptance evidence. Do not resume
+the obsolete createRowEdit/createTextEdit migration or recreate a page action
+registry.
 
-| Stage | Outcome | Continuation and finish |
+| State | Remaining outcome | Continuation |
 | --- | --- | --- |
-| Implementation underway; not landed | Framework-independent editing core and framework bindings | “Clarify editor framework direction”, `01a159a0-8bc6-76f1-88a6-323f8fd98f63`, is implementing the core, bindings, and ADR. Standardize on its passive `.edit()` handles and explicit observed values. Preserve revision-specific read acknowledgement and the generic editor's acceptance contract below. |
-| Acceptance underway; migration follows the core | [One editing queue per path in the generic editor](#land-the-shared-editor-queue) | “Summarize app hosting vision”, `01a1589b-3f09-7b81-a529-44f8a37cd028`, owns generic-editor migration and acceptance. Preserve field/text transitions and the saved-view source fence; delete the separate queue only when the shared core replaces their behavior. |
-| Reviewing alignment | Honeycrisp follows the shared edit-handle shape | “Assess migration readiness”, `01a1591c-e525-7a03-9383-f126c140cef0`, is checking the framework direction. Its prerequisite landed in `640599af5b`; coordinate with the implementation above rather than starting a parallel core extraction. |
-| Underway, independent | Shared file queries and path refresh | “Summarize Folder API demo”, `01a15760-42b7-76d2-8dc0-86c774ece1f1`, owns generated representation keys, shared readers, refresh matching, and removing app listeners. Coordinate refresh acknowledgement with the core owner; preserve pending input. |
-| Next | [Prove unfinished input survives failures and closing](#prove-unfinished-input-survives-failures-and-closing) | Recheck the editing changes above before starting; preserve any remaining recovery gap in their shared owner. |
-| Underway, independent | [Preserve local-only files during Git exchange](#preserve-local-only-files-during-git-exchange) and bound transfer costs | “Explain index CB and folder client”, `01a158ac-1ca5-75e2-94c2-4c220bd1eae8`, is implementing ordinary `.gitignore` semantics in Folder and declaration code. Keep queue changes out of that storage work. |
-| After sync behavior settles | [Make browser snapshot capture intent explicit](#make-browser-snapshot-capture-intent-explicit) | Derive the requests from the agreed read and sync behavior; avoid a parallel storage API rewrite. |
-| Later, bounded cleanup | [Preserve operation types through CLI history replies](#preserve-operation-types-through-cli-history-replies) | Independent of app migration; preserve output and exit behavior. |
+| Reproduced; implementation not assigned | [Preserve newer input when an older save receipt arrives](#preserve-newer-input-when-an-older-save-receipt-arrives) | “Tighten Markdown File Contracts”, `01a15d59-b44b-79d2-8f6d-58de231dc6fe`, holds the editing-model discussion. The independent reproduction came from “Improve adversary skill conflict tri”, `01a15dd6-e3c3-7d31-8f48-2c38c97fa989`. Preserve the current merge contract unless a replacement is explicitly selected. |
+| Proposed; not built | One Markdown interpretation and ordered local editing | [ADR-0665](docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) and [ADR-0666](docs/adr/0666-a-source-replacement-decides-local-content-and-still-merges-on-save.md). The same Markdown chat is comparing automatic merging with explicit conflicts on outside changes. Neither proposal authorizes a second editor owner. |
+| Independent design review | Challenge nested Folder work scopes | “Explain editing queue collapse”, `01a15ad0-b196-7660-840b-c7b9565eac43`, is reviewing one scope for a whole action. The committed Folder.run contract remains current until an authorized replacement is delivered. |
+| Underway | Messages draft previews and send recovery | “Rethink Epicenter’s content model”, `01a15c9c-a592-7b50-9ded-f8d4b9e0a5d7`, owns the Messages app integration. Keep checks on fictional data and preserve uncertain-send recovery. |
+| Underway | Evaluate an unparented application Quit alert | “Review native save-close flow”, `01a15c9a-215d-7222-86b9-5e0f2670d9af`, owns the disposable native experiment and any authorized adoption. Keep startup and other work separate. |
+| Remaining investigation | [Bound browser Git transfer costs](#preserve-local-only-files-during-git-exchange) | Preserve the delivered ignore and retry behavior; measure before replacing transport. |
+| After transfer behavior settles | [Make browser snapshot capture intent explicit](#make-browser-snapshot-capture-intent-explicit) | Derive the request shape from actual read and sync callers. |
+| Bounded future cleanup | [Preserve operation types through CLI history replies](#preserve-operation-types-through-cli-history-replies) | Keep output, validation and exit behavior. |
 
-Resolve integration with `braden-w/data-folders` after the active changes settle,
-as agreed in the browser chat. Preserve this branch's newer architecture and
-intentional deletions; assess useful incoming fixes against current code.
+Resolve integration with `braden-w/data-folders` after active changes settle.
+Preserve this branch's newer architecture and intentional deletions; assess
+incoming fixes against current source. A backlog edit is not a message to
+another chat and does not create an implementation assignment.
 
 ## Folder correctness and transfer
 
-### Land the shared editor queue
+### Preserve newer input when an older save receipt arrives
 
-One opened Folder context should own accepted input, serialized saves, and path
-operations. Views keep selection, unsubmitted settings, and rich-text history.
-The remaining duplication is between
-[`createFileDrafts`](apps/epicenter/src/folders/drafts.svelte.ts) and
-[`createEdits`](packages/svelte/src/edits.svelte.ts).
-
-The framework-direction chat now implements the shared core and bindings.
-Honeycrisp contributes its migration and recovery requirements; this chat owns
-generic-editor migration and acceptance. Query refresh stays with its existing
-owner. Reconcile overlapping context edits before staging.
-
-Use passive `folder.tables.<table>.edit(id)` and `folder.files.edit(path)` handles.
-The JavaScript core accepts the observed row or bytes explicitly when changing
-input. Framework bindings supply that source: Svelte receives a reactive accessor,
-and React receives the value associated with its render. Keep shared reads
-separate; do not require a source getter or another snapshot object in the core.
-These are the agreed target shapes, not APIs currently available in Folder.
-
-Land in this order:
-
-1. The core owner captures its reproduced loss: a confirmed write followed by a
-   failed reread exposes old text that later typing can overwrite. Distinguish
-   unsaved input from committed input awaiting observation. Keep the latter
-   visible; newer writes and close must not wait for refresh. A failed read must
-   not replay a successful write. Acknowledgements identify a committed revision
-   and must come from reads begun after it committed. Older reads cannot clear
-   newer input. Reads remain separate from handles.
-2. This chat migrates the generic editor and deletes its old queue in one change.
-   Preserve arbitrary-path field patches, exact text, and typed row semantics.
-   Generic field patches reread source before saving; typed rows retain their
-   observed base. Preserve generic field/text transitions during running saves
-   and Honeycrisp's drain-before-switch behavior. The declaration's exclusive
-   operation joins that same path owner: fence input synchronously, drain edits,
-   retain failures, then run the targeted writer and reread. Keep entry comparison
-   and sibling preservation in the existing Folder declaration writer.
-3. Review the contract before migration and the cumulative result afterward, with
-   adversarial reviews and collapse passes. Run the existing
-   [draft tests](apps/epicenter/src/folders/drafts.test.ts) and
-   [mounted tests](apps/epicenter/src/folders/FolderView.mounted.test.ts), then
-   exercise grid/board/Files transitions, external edits, failed recovery,
-   malformed/deleted source, deletion, closing, and saved-view/source races in the
-   native app. Preserve exact save bases, removal versus null, BOM, and CRLF.
-
-The decisive remaining race combines both generic edit policies: observe body A,
-queue a title patch, let another writer save body B, and type source from the
-displayed A plus the patch while its field save runs. A failed newer reread and
-late acknowledgement of the field save must not erase the newer text overlay or
-substitute unseen bytes as its editing base. Further saves must retain body B and
-the person's appended text without waiting for display refresh.
-
-The real-storage field-to-text test also records a known failure: after the field
-save commits, reverting its title in Files is lost because the base still has
-the original title. Its expected-failure marker must be removed with the fix.
-Acknowledge our committed field changes without adopting an unseen body. Do not
-assume the submitted field subset can always patch later observed source: valid
-YAML aliases can make that subset fail while the accumulated patch succeeds.
-
-Do not add an interim coordinator while waiting for the core. Delete the local
-queue's timers, revision tracking, and work registration when its behavior moves.
-Retain `registerWork` for other app-owned work. No declaration format, schema
-registry, Git policy, or second Folder handle is needed. Remove this entry when
-the old queue is gone and acceptance lives in the relevant README and tests.
-
-### Prove unfinished input survives failures and closing
-
-- Desired result: Newer typing remains accessible through save failures, note
-  switches, representation changes, and window or page teardown.
-- Current gap: [FolderContext](packages/svelte/src/folder-context.ts) logs a
-  registered owner's rejected `settle()`. Its native close guard blocks, but
-  `close()` builds copyable failures only from fulfilled owners' returned
-  drafts before closing the handle. A throwing owner contributes no text to
-  that report. This is a recovery gap to verify, not evidence that every native
-  close loses input.
-- Finish: Exercise a throwing file owner alongside successful and failed row
-  saves, newer typing during a save, rich-text/source switching, and later
-  recovery. Distinguish failed actions with no draft from unfinished text.
-  Recheck the Honeycrisp migration above before changing the shared contract.
-- Source: Archived chat `01a15623-1fc4-7f32-87f9-42e2ea1b4563` and the active
-  migration chat named above.
+- Desired result: A save acknowledges only the input it submitted. A later
+  assignment remains pending even if its value equals an earlier submitted
+  value. Failed input and typing during saves remain available.
+- Reproduction: Submit title A and delay its completion receipt. An outside
+  writer stores B; this handle reads B and explicitly assigns A again. Deliver
+  the old receipt. The current owner clears the newer assignment by comparing
+  values, and another explicit save does nothing.
+- Evidence boundary: The independent review reproduced this with the real edit
+  owner over in-memory storage and a delayed receipt. Full storage-engine and
+  mounted regressions are still needed before calling a repair verified.
+- Finish: Add a regression at the submitted-input acknowledgment boundary and
+  preserve the newer assignment through another save, failure/retry, and close.
+  A bounded reducer experiment may inform the broader proposed model, but the
+  current bug does not require adopting that redesign. Do not silently change
+  automatic merge behavior while fixing acknowledgment.
 
 ### Preserve local-only files during Git exchange
 
 - Desired result: Files excluded from publication remain on this device, never
   enter an outgoing snapshot, and survive remote adoption. Saved local content,
   exact uncertain sends, and acknowledged remote content retain distinct roles.
-- Grounding: The browser review reproduced a pending commit containing
-  `audio/take.wav` despite `local: ["audio/"]`. It used disposable storage and
-  sent nothing. Native history has publication rules; the private browser sync
-  does not yet enforce the same behavior. The public browser app does not
-  invoke that sync trigger yet.
-- Continuation: The browser chat is comparing declaration-based rules with
-  `.gitignore` semantics. Settle the promise before choosing the representation;
-  keep this outcome independent of the rule's spelling. Prove outgoing exclusion,
-  incoming preservation, rule changes, and retry after an uncertain push.
+- Delivered behavior: Ordinary .gitignore rules govern publication while
+  remote adoption retains local-only files. Current Folder regressions cover
+  ignored audio, authored rule changes, pending deletions and uncertain-send
+  retries. Keep those guarantees; the former declaration-local-policy
+  migration is no longer the next implementation step.
 - Transfer cost: Measure a small edit against a large folder and long remote
   ancestry. The current adapter rebuilds temporary Git storage and may expand
   historical file contents. Keep ancestry evidence while avoiding unnecessary
