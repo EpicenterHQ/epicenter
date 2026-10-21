@@ -1,0 +1,7 @@
+{
+	"sandbox": {
+		"excludedCommands": [
+			"bun test --isolate ./apps/whispering/src/lib/platform/desktop/connections.postgres.test.ts"
+		]
+	}
+}

@@ -13,8 +13,9 @@
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"test": "bun test --isolate --path-ignore-patterns='src/routes/**' && bun run test:mounted",
+		"test": "bun test --isolate --path-ignore-patterns='src/routes/**' --path-ignore-patterns='**/*.postgres.test.ts' && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/routes",
+		"test:postgres": "bun test --isolate ./src/lib/platform/desktop/connections.postgres.test.ts",
 		"build": "NODE_ENV=production vite build",
 		"build:host": "EPICENTER_HOST=1 bun run build",
 		"check": "bun run typecheck",

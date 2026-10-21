@@ -166,10 +166,35 @@ Checks, from `apps/whispering`:
 
 ```sh
 bun run typecheck                 # the page
-bun run test                      # platform and workflow tests, then the mounted row views
+bun run test                      # tests without PostgreSQL, then the mounted row views
 bun run build                     # the browser build, into build/
 bun run build:host                # Epicenter's bundled page, into dist/
 ```
+
+Run the PostgreSQL connection check separately, from a normal terminal at the
+repository root:
+
+```sh
+bun run --cwd apps/whispering test:postgres
+```
+
+It requires `initdb` and `pg_ctl` on PATH and starts and stops a private
+temporary cluster; it never connects to a configured database. Both test commands
+are needed to check the whole app. The PostgreSQL check is separate because
+Claude Code's macOS sandbox can leave shared-memory segments behind when it
+refuses PostgreSQL startup. Claude Code 2.1.302 keeps `bun run` calls sandboxed
+even when they match an exclusion. From Claude, use the equivalent direct
+command from the repository root:
+
+```sh
+bun test --isolate ./apps/whispering/src/lib/platform/desktop/connections.postgres.test.ts
+```
+
+The repository's `.claude/settings.json` excludes only that exact direct command
+from the sandbox. Send it as a standalone command: adding `cd`, redirects, or
+chaining other commands can prevent the exception from matching. See Claude Code's
+[command matching rules](https://code.claude.com/docs/en/sandboxing#run-commands-outside-the-sandbox-with-excludedcommands).
+Other tests keep their existing sandbox behavior.
 
 Epicenter's native checks cover what it grants Whispering:
 `cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml`.
