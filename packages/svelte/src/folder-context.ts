@@ -41,9 +41,6 @@ const log = createLogger('svelte/folder');
 /** The root of every query over the folder. */
 const KEY = folderKeys.all;
 
-/** The confirmation shown when an accepted Folder change has not saved. */
-const NOT_SAVED = 'A change has not saved yet. Close anyway?';
-
 /**
  * Whether what the person did is in this device's storage, from the folder's
  * status alone. `saved` only when no input is held, no save runs, and no
@@ -235,7 +232,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			if (closing !== undefined)
 				return Promise.reject(new Error('The folder is closing'));
 			guarding ??= Promise.all([
-				holdWindowClose(pendingSave, NOT_SAVED),
+				holdWindowClose(pendingSave),
 				quitReporter,
 			]).then(([stop]) => {
 				if (closing !== undefined) stop();

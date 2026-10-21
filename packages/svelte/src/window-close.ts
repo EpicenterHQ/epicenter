@@ -51,8 +51,8 @@ export async function reportFolderSaveStatus(
 	);
 }
 
-/** Tell the person why the window did what it did. */
-async function notify(current: Window, title: string, description: string) {
+/** Explain a refused destroy while keeping the window available to retry. */
+async function notifyCloseFailure(current: Window) {
 	// A refused close can come from a background native tab. Select it so
 	// the input and the explanation remain visible.
 	try {
@@ -64,16 +64,19 @@ async function notify(current: Window, title: string, description: string) {
 	}
 	try {
 		const { toast } = await import('@epicenter/ui/sonner');
-		toast.warning(title, { description });
+		toast.warning('The window stayed open', {
+			description: 'The window could not close. Try again.',
+		});
 	} catch (cause) {
-		log.error(new Error(`${title}: ${description}`, { cause }));
+		log.error(
+			new Error('Could not show the window-close failure notice', { cause }),
+		);
 	}
 }
 
 /** Prompt only for accepted Folder work that has not saved. Answers the stop. */
 export async function holdWindowClose(
 	pendingSave: () => boolean,
-	message: string,
 ): Promise<() => void> {
 	if (!isTauri()) return () => {};
 	if (holding) throw new Error('This window already has a Folder close guard');
@@ -91,12 +94,15 @@ export async function holdWindowClose(
 				if (stopped) return;
 				// A fast save may finish while the dialog module loads.
 				if (pendingSave()) {
-					const confirmed = await confirm(message, {
-						title: 'Close window?',
-						kind: 'warning',
-						okLabel: 'Close Anyway',
-						cancelLabel: 'Cancel',
-					});
+					const confirmed = await confirm(
+						'A change has not saved yet. Close anyway?',
+						{
+							title: 'Close window?',
+							kind: 'warning',
+							okLabel: 'Close Anyway',
+							cancelLabel: 'Cancel',
+						},
+					);
 					if (!confirmed) return;
 				}
 			}
@@ -109,11 +115,7 @@ export async function holdWindowClose(
 				await current.destroy();
 			} catch (cause) {
 				log.error(new Error('The window could not close itself', { cause }));
-				await notify(
-					current,
-					'The window stayed open',
-					'The window could not close. Try again.',
-				);
+				await notifyCloseFailure(current);
 			} finally {
 				if (page) page.inert = wasInert ?? false;
 			}

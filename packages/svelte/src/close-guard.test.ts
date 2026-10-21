@@ -21,7 +21,7 @@ afterEach(() => {
 
 test('a late confirmation from a stopped guard cannot destroy the replacement page', async () => {
 	desktop(true);
-	const stop = await holdWindowClose(() => true, 'Close anyway?');
+	const stop = await holdWindowClose(() => true);
 	cleanup.push(stop);
 	const answer = Promise.withResolvers<boolean>();
 	nativeDialog.answer = answer.promise;
@@ -30,7 +30,7 @@ test('a late confirmation from a stopped guard cannot destroy the replacement pa
 		await Bun.sleep(1);
 	expect(nativeDialog.count).toBe(1);
 	stop();
-	cleanup.push(await holdWindowClose(() => false, 'Close anyway?'));
+	cleanup.push(await holdWindowClose(() => false));
 	answer.resolve(true);
 	await closing;
 
@@ -43,7 +43,7 @@ test('a late confirmation from a stopped guard cannot destroy the replacement pa
 test('a save finishing while the window is focused needs no confirmation', async () => {
 	desktop(true);
 	let pending = true;
-	cleanup.push(await holdWindowClose(() => pending, 'Close anyway?'));
+	cleanup.push(await holdWindowClose(() => pending));
 	const closing = requestClose();
 	pending = false;
 	await closing;
@@ -59,7 +59,7 @@ test('a status check that throws keeps the window and allows another attempt', a
 		await holdWindowClose(() => {
 			if (refuse) throw new Error('Save status is unavailable');
 			return false;
-		}, 'Close anyway?'),
+		}),
 	);
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
@@ -71,11 +71,11 @@ test('a status check that throws keeps the window and allows another attempt', a
 test('failed registration releases ownership for a new guard', async () => {
 	desktop(true);
 	nativeWindow.refuseRegistration = true;
-	await expect(holdWindowClose(() => false, 'Close anyway?')).rejects.toThrow(
+	await expect(holdWindowClose(() => false)).rejects.toThrow(
 		'Close listener could not be installed',
 	);
 	nativeWindow.refuseRegistration = false;
-	cleanup.push(await holdWindowClose(() => false, 'Close anyway?'));
+	cleanup.push(await holdWindowClose(() => false));
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 });
