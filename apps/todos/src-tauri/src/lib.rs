@@ -67,17 +67,21 @@ pub fn run() {
                                 });
                         }
                         status => {
-                            let target_has_work = status == launch::TargetStatus::HasWork;
-                            let message = if target_has_work {
-                                format!(
+                            let create_target = status == launch::TargetStatus::Empty;
+                            let message = match status {
+                                launch::TargetStatus::HasWork => format!(
                                     "Todos work exists in both locations. Choose which folder to open. Nothing will be copied or merged.\n\nExisting: {}\nEpicenter: {}",
                                     legacy.display(), target.display()
-                                )
-                            } else {
-                                format!(
+                                ),
+                                launch::TargetStatus::Empty => format!(
                                     "Todos found work in its previous location. Open that work, or create the new Epicenter folder. Nothing will be copied or moved.\n\nExisting: {}\nEpicenter: {}",
                                     legacy.display(), target.display()
-                                )
+                                ),
+                                launch::TargetStatus::Uninspected(error) => format!(
+                                    "Todos found work in its previous location. The Epicenter folder exists, but some contents could not be inspected: {error}\n\nYou can try opening the existing Epicenter folder. Nothing will be created, copied, or merged.\n\nExisting: {}\nEpicenter: {}",
+                                    legacy.display(), target.display()
+                                ),
+                                launch::TargetStatus::Unavailable(_) => unreachable!(),
                             };
                             let choice_handle = handle.clone();
                             app.dialog()
@@ -91,13 +95,13 @@ pub fn run() {
                                 .show_with_result(move |choice| match choice {
                                     MessageDialogResult::Yes => open_or_report(&choice_handle, &legacy, false),
                                     MessageDialogResult::No => {
-                                        open_or_report(&choice_handle, &target, !target_has_work)
+                                        open_or_report(&choice_handle, &target, create_target)
                                     }
                                     MessageDialogResult::Custom(label) if label == "Open Existing" => {
                                         open_or_report(&choice_handle, &legacy, false)
                                     }
                                     MessageDialogResult::Custom(label) if label == "Open Epicenter" => {
-                                        open_or_report(&choice_handle, &target, !target_has_work)
+                                        open_or_report(&choice_handle, &target, create_target)
                                     }
                                     _ => choice_handle.exit(0),
                                 });

@@ -21,6 +21,7 @@ pub enum Launch {
 pub enum TargetStatus {
     Empty,
     HasWork,
+    Uninspected(String),
     Unavailable(String),
 }
 
@@ -60,16 +61,27 @@ pub fn decide(legacy: &Path, target: &Path) -> io::Result<Launch> {
     if !legacy_has_work {
         return Ok(Launch::Default(target.to_path_buf()));
     }
-    let target_status = match has_work(target, false) {
-        Ok(true) => TargetStatus::HasWork,
-        Ok(false) => TargetStatus::Empty,
-        Err(error) => TargetStatus::Unavailable(error.to_string()),
-    };
+    let target_status = inspect_target(target);
     Ok(Launch::Choose {
         legacy: legacy.to_path_buf(),
         target: target.to_path_buf(),
         target_status,
     })
+}
+
+fn inspect_target(target: &Path) -> TargetStatus {
+    match fs::symlink_metadata(target) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => TargetStatus::Empty,
+        Err(error) => TargetStatus::Unavailable(path_error(target, error).to_string()),
+        Ok(meta) if !meta.is_dir() || meta.file_type().is_symlink() => {
+            TargetStatus::Unavailable(format!("{} is not a real directory", target.display()))
+        }
+        Ok(_) => match has_work(target, false) {
+            Ok(true) => TargetStatus::HasWork,
+            Ok(false) => TargetStatus::Empty,
+            Err(error) => TargetStatus::Uninspected(error.to_string()),
+        },
+    }
 }
 
 /// Inspect without following links. A file or link counts even if it cannot
@@ -79,7 +91,7 @@ pub fn decide(legacy: &Path, target: &Path) -> io::Result<Launch> {
 fn has_work(root: &Path, legacy: bool) -> io::Result<bool> {
     match fs::symlink_metadata(root) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(error),
+        Err(error) => return Err(path_error(root, error)),
         Ok(meta) if !meta.is_dir() || meta.file_type().is_symlink() => {
             return Err(io::Error::other(format!(
                 "{} is not a real directory",
@@ -88,8 +100,8 @@ fn has_work(root: &Path, legacy: bool) -> io::Result<bool> {
         }
         Ok(_) => {}
     }
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
+    for entry in fs::read_dir(root).map_err(|error| path_error(root, error))? {
+        let entry = entry.map_err(|error| path_error(root, error))?;
         let name = entry.file_name();
         if name == ".DS_Store" || (legacy && name == "EBWebView") {
             continue;
@@ -100,7 +112,11 @@ fn has_work(root: &Path, legacy: bool) -> io::Result<bool> {
             }
             continue;
         }
-        if entry.file_type()?.is_dir() {
+        if entry
+            .file_type()
+            .map_err(|error| path_error(&entry.path(), error))?
+            .is_dir()
+        {
             if contains_file(&entry.path())? {
                 return Ok(true);
             }
@@ -112,23 +128,27 @@ fn has_work(root: &Path, legacy: bool) -> io::Result<bool> {
 }
 
 fn git_has_work(git: &Path) -> io::Result<bool> {
-    if !fs::symlink_metadata(git)?.is_dir() {
+    if !fs::symlink_metadata(git)
+        .map_err(|error| path_error(git, error))?
+        .is_dir()
+    {
         return Ok(true);
     }
     for name in ["objects", "refs"] {
         let path = git.join(name);
         match fs::symlink_metadata(&path) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
+            Err(error) => return Err(path_error(&path, error)),
             Ok(meta) if !meta.is_dir() => return Ok(true),
             Ok(_) if contains_file(&path)? => return Ok(true),
             Ok(_) => {}
         }
     }
     for name in ["index", "packed-refs", "shallow", "commondir"] {
-        match fs::symlink_metadata(git.join(name)) {
+        let path = git.join(name);
+        match fs::symlink_metadata(&path) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
+            Err(error) => return Err(path_error(&path, error)),
             Ok(_) => return Ok(true),
         }
     }
@@ -136,9 +156,13 @@ fn git_has_work(git: &Path) -> io::Result<bool> {
 }
 
 fn contains_file(directory: &Path) -> io::Result<bool> {
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() {
+    for entry in fs::read_dir(directory).map_err(|error| path_error(directory, error))? {
+        let entry = entry.map_err(|error| path_error(directory, error))?;
+        if entry
+            .file_type()
+            .map_err(|error| path_error(&entry.path(), error))?
+            .is_dir()
+        {
             if contains_file(&entry.path())? {
                 return Ok(true);
             }
@@ -147,6 +171,13 @@ fn contains_file(directory: &Path) -> io::Result<bool> {
         }
     }
     Ok(false)
+}
+
+fn path_error(path: &Path, error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        format!("Cannot inspect {}: {error}", path.display()),
+    )
 }
 
 #[cfg(test)]
@@ -248,6 +279,51 @@ mod tests {
                 }
             ));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_new_directory_can_still_be_chosen_as_existing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join("old");
+        let target = temp.path().join("Epicenter/Todos");
+        fs::create_dir_all(legacy.join("todos")).unwrap();
+        fs::write(legacy.join("todos/milk.md"), "milk").unwrap();
+        let unreadable = target.join("todos");
+        fs::create_dir_all(&unreadable).unwrap();
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
+        let decision = decide(&legacy, &target).unwrap();
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o700)).unwrap();
+        match decision {
+            Launch::Choose {
+                target_status: TargetStatus::Uninspected(message),
+                ..
+            } => {
+                assert!(message.contains(&unreadable.display().to_string()));
+            }
+            other => panic!("expected an uninspected target, got {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_legacy_work_blocks_with_the_offending_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join("old");
+        let target = temp.path().join("Epicenter/Todos");
+        let unreadable = legacy.join("todos");
+        fs::create_dir_all(&unreadable).unwrap();
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000)).unwrap();
+        let error = decide(&legacy, &target).unwrap_err();
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(error
+            .to_string()
+            .contains(&unreadable.display().to_string()));
+        assert!(!target.exists());
     }
 
     #[test]

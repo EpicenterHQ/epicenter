@@ -9,7 +9,7 @@
 //! tauri::Builder::default()
 //!     .plugin(tauri_plugin_epicenter_folder::init())
 //!     .setup(|app| {
-//!         let directory = Directory::create(&app.path().app_data_dir()?)?;
+//!         let directory = Directory::create(&app.path().home_dir()?.join("Epicenter/Todos"))?;
 //!         app.open_folder_window("todos", directory, url, |builder| {
 //!             Ok(builder.title("Todos"))
 //!         })?;
