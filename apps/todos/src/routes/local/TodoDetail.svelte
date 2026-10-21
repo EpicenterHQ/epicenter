@@ -145,12 +145,14 @@
 		</div>
 
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{#if pending?.error && !pending.saving}
-				Not saved: {describeFailure(pending.error)}
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={confirmDiscard}>Discard changes</Button>
-			{:else if pending}
-				Saving…
+			{#if fileEdit.pending}
+				{#if fileEdit.pending.error && !fileEdit.pending.saving}
+					Not saved: {describeFailure(fileEdit.pending.error)}
+					<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
+					<Button variant="link" size="xs" class="h-auto p-0" onclick={confirmDiscard}>Discard changes</Button>
+				{:else}
+					Saving…
+				{/if}
 			{:else}
 				Saved on this device
 			{/if}

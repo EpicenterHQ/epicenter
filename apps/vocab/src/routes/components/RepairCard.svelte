@@ -47,13 +47,15 @@
 				/>
 			{/if}
 		{/if}
-		{#if pending?.error && !pending.saving}
-			<p role="alert" class="text-destructive">
-				Not saved: {describeFailure(pending.error)}
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit?.save()}>Try again</Button>
-			</p>
-		{:else if pending !== undefined}
-			<p role="status" class="text-muted-foreground">Saving…</p>
+		{#if fileEdit.pending}
+			{#if fileEdit.pending.error && !fileEdit.pending.saving}
+				<p role="alert" class="text-destructive">
+					Not saved: {describeFailure(fileEdit.pending.error)}
+					<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit?.save()}>Try again</Button>
+				</p>
+			{:else}
+				<p role="status" class="text-muted-foreground">Saving…</p>
+			{/if}
 		{/if}
 		{#if stored.issues}
 			<ul role="alert" class="space-y-1 text-destructive" aria-label="Problems in the current text">

@@ -249,13 +249,15 @@
 	</div>
 
 	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-		{pending?.saving
-			? 'Saving…'
-			: pending?.error
-				? 'Not saved'
-				: pending
-					? 'Saving…'
-					: `Saved to ${path}`}
+		{#if fileEdit.pending}
+			{#if fileEdit.pending.error && !fileEdit.pending.saving}
+				Not saved
+			{:else}
+				Saving…
+			{/if}
+		{:else}
+			Saved to {path}
+		{/if}
 	</p>
 
 	{@render saveFailed()}

@@ -34,7 +34,6 @@
 	const fileEdit = entries.edit(id);
 	/** The word with what is typed over it, or as the list read it while that is not known. */
 	const shown = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown.fields : entry.row.fields);
-	const pending = $derived(fileEdit.pending);
 
 	/** Delete once the note typed here is sent, so the delete removes what was saved last. */
 	function remove() {
@@ -58,10 +57,12 @@
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
 		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option} disabled={locked} onclick={() => fileEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">
-			{#if pending?.saving}
-				Saving…
-			{:else if pending?.error}
-				Not saved: {describeFailure(pending.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
+			{#if fileEdit.pending}
+				{#if fileEdit.pending.saving}
+					Saving…
+				{:else if fileEdit.pending.error}
+					Not saved: {describeFailure(fileEdit.pending.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
+				{/if}
 			{/if}
 		</span>
 	</div>

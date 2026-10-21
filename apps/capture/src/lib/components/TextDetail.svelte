@@ -135,7 +135,15 @@
 	{#if text !== undefined}
 		{@const shown = text}
 		<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-			{pending === undefined ? `Saved to ${path}` : pending?.error && !pending.saving ? 'Not saved' : 'Saving…'}
+			{#if fileEdit.pending}
+				{#if fileEdit.pending.error && !fileEdit.pending.saving}
+					Not saved
+				{:else}
+					Saving…
+				{/if}
+			{:else}
+				Saved to {path}
+			{/if}
 		</p>
 
 		{#if issues.length > 0}

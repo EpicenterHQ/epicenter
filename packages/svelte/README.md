@@ -219,17 +219,21 @@ a failed reread retains the last known source. `read()` completes the refresh;
 use the getters afterwards for current values. Creating an adapter is passive.
 The folder retains input, timers and failures when every view unmounts.
 
-Read `fileEdit.markdown` directly. Use `{@const}` inside a condition when a
-local preserves narrowing in a binding callback:
+Read `fileEdit.markdown` directly for immediate template reads. When a binding
+callback needs a narrowed value, capture it with `{@const}` in the nearest
+template block containing its controls, then narrow that local before creating
+the callbacks. For example, each rendered edit owns one local:
 
 ```svelte
-{#if fileEdit.markdown?.issues === null}
+{#each fileEdits as fileEdit (fileEdit.path)}
   {@const markdown = fileEdit.markdown}
-  <Input
-    bind:value={() => markdown.fields.title, title => fileEdit.change({ fields: { title } })}
-    onblur={() => void fileEdit.save()}
-  />
-{/if}
+  {#if markdown && markdown.issues === null}
+    <Input
+      bind:value={() => markdown.fields.title, title => fileEdit.change({ fields: { title } })}
+      onblur={() => void fileEdit.save()}
+    />
+  {/if}
+{/each}
 ```
 
 Avoid a script alias that merely repeats `fileEdit.markdown`. Keep a local snapshot

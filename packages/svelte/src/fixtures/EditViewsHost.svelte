@@ -17,8 +17,8 @@
 <button onclick={() => id = id === 'a' ? 'c' : 'a'}>Switch address</button>
 
 {#each rowEdits as rowEdit, i}
-	{#if rowEdit.markdown?.issues === null}
-		{@const row = rowEdit.markdown}
+	{@const row = rowEdit.markdown}
+	{#if row && row.issues === null}
 		<textarea aria-label={`Row ${i}`} bind:value={() => row.body, body => rowEdit.change({ body })}></textarea>
 	{/if}
 {/each}
