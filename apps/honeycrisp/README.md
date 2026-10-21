@@ -156,8 +156,8 @@ again. Returning to the tab reads nothing.
 | What happened | What Honeycrisp does |
 | --- | --- |
 | Another tab changed a note | The lists and the open note show it. If you were not typing, the rich-text view starts over on the new text, so its undo history restarts. |
-| Another tab changed a note while you were typing | What you typed stays on screen. Its save merges with their change, as above. |
-| Another tab deleted a note you are typing in | The note leaves the list, and what you typed is offered to copy. Its next save, after a pause or **Save it again**, puts the note back with your typing; **Discard it** lets it go. |
+| Another tab changed a note while you were typing | The whole unsaved source stays on screen. Saving reports a conflict and leaves their file intact. Compare both sources, then use the saved file or explicitly replace it with your typing. |
+| Another tab deleted a note you are typing in | The note leaves the list, and what you typed is offered to copy. Saving reports a conflict; **Replace saved file** explicitly restores it, while **Discard it** lets it go. |
 | A save failed, for example because storage is full | What you typed stays on screen, the note shows **Not saved** with the reason, and the header says so. It saves again with your next change, or with **Save again**. |
 | You delete a note or file | What you typed in it is saved first, and a delete refuses while it did not save. A file another tab changed at that moment is kept. |
 
@@ -193,7 +193,7 @@ features exist in this version.
 
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
-- `@epicenter/folder` for the local folder, its rows and files, merging saves, and change reports; `@epicenter/svelte` for `<FolderApp>`, its query cache, and its edit layer; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and [TypeBox](https://github.com/sinclairzx81/typebox) for the row schemas
+- `@epicenter/folder` for the local folder, its rows and files, guarded source drafts, and change reports; `@epicenter/svelte` for `<FolderApp>`, its query cache, and its edit layer; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and [TypeBox](https://github.com/sinclairzx81/typebox) for the row schemas
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises
@@ -212,8 +212,8 @@ It drops these promises of the version before it:
   own. A directory exists while a file is in it.
 - A delete keeps a file another tab changed at that moment, instead of
   deleting it anyway.
-- Typing in a note another tab deleted is saved, which puts the note back,
-  instead of being refused.
+- Typing in a note another tab deleted remains available to copy or discard.
+  The file is restored only after explicitly choosing **Replace saved file**.
 - While a note is open as its file, its repair reasons include unsaved text.
 - A note file named `notes/.md` is not listed: the local folder needs a
   non-empty name.

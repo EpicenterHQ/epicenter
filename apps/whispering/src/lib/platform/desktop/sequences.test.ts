@@ -12,9 +12,9 @@
  * - typing is saved as it is typed, one save at a time; what was typed while
  *   one ran is saved next, so input superseded meanwhile is never written
  * - a save that failed or whose reply could not be confirmed keeps the
- *   typing and says it is not saved; the next edit saves it
- * - a save over another writer's change merges with it, and the typing wins
- *   where both changed
+ *   typing and says it is not saved; a retry still checks the observed source
+ * - a save over changed source retains the typing and reports a conflict;
+ *   replacing the saved file requires an explicit resolution
  * - a deletion waits for the save of the row, and one whose reply was lost
  *   is confirmed by reading back and recreates nothing
  *
@@ -122,7 +122,7 @@ function holdNext(kind: DataChange['kind']) {
 	return { reached: reached.promise, release: () => held.resolve() };
 }
 
-test('a save whose reply could not be confirmed keeps the typing as not saved, and it saves again over what landed', async () => {
+test('more typing after an unconfirmed save conflicts with what landed until explicitly resolved', async () => {
 	const { context, whispering, session } = await open({ [PATH]: SEED });
 	shell.control.loseReplies = 1;
 	// The engine reads the file to check it before it writes. Once the write
@@ -142,10 +142,15 @@ test('a save whose reply could not be confirmed keeps the typing as not saved, a
 	await settle(whispering, context);
 	type(session, 'Tidy it all.\n');
 	await settle(whispering, context);
-	// Whether the lost save landed was unknown, so the typing saves again from
-	// where it started, over what did land, and wins.
-	expect(whispering.unsaved).toBe(false);
+	// The observed base remains the original source; the unconfirmed write
+	// is a different stored source, so newer typing cannot silently replace it.
+	expect(whispering.edit(PATH).pending?.error?.name).toBe('Conflict');
+	expect(whispering.unsaved).toBe(true);
 	expect(session.draft.body).toBe('Tidy it all.\n');
+	expect(await shell.text(PATH)).toContain('Tidy it.\n');
+	await whispering.edit(PATH).resolveConflict('draft');
+	await settle(whispering, context);
+	expect(whispering.unsaved).toBe(false);
 	expect(await shell.text(PATH)).toContain('Tidy it all.\n');
 });
 
@@ -185,11 +190,17 @@ test('a refused save keeps the typing as not saved; the next edit saves it', asy
 	expect(await shell.text(PATH)).toContain('Mine, again.\n');
 });
 
-test('another writer’s change merges with the typing: where both changed, the typing wins', async () => {
+test('another writer’s change is kept until the typing explicitly replaces it', async () => {
 	const { context, whispering, session } = await open({ [PATH]: SEED });
 	await shell.write(PATH, SEED.replace('Tidy.', 'Theirs.'));
 
 	type(session, 'Mine.\n');
+	await settle(whispering, context);
+	expect(whispering.edit(PATH).pending?.error?.name).toBe('Conflict');
+	expect(whispering.unsaved).toBe(true);
+	expect(session.draft.body).toBe('Mine.\n');
+	expect(await shell.text(PATH)).toBe(SEED.replace('Tidy.', 'Theirs.'));
+	await whispering.edit(PATH).resolveConflict('draft');
 	await settle(whispering, context);
 	expect(whispering.unsaved).toBe(false);
 	expect(await shell.text(PATH)).toContain('Mine.\n');

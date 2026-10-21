@@ -11,8 +11,8 @@
  * Key behaviors:
  * - The capture text and Add a thought are shown at once and saved to the
  *   file
- * - Another tab's change never replaces typing held here; the save merges
- *   with it, and the view then shows both
+ * - Another tab's change never replaces typing held here; saving conflicts
+ *   until an explicit whole-source resolution chooses the result
  * - A failed save says so, keeps the edit, and Save again lands it
  * - A thought typed and not added is the view's: it writes nothing, a
  *   refusal keeps it, leaving the capture clears it, and it stays visible to

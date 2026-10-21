@@ -10,7 +10,8 @@
  * folder holds each capture as stored and what is typed over
  * it, one kind of input per path, and saves it a second after the last
  * change or when the person leaves it, one save at a time from where it
- * started, merged with whatever was saved since. Changes made outside this
+ * started. Changed saved source causes a whole-file conflict and keeps the
+ * draft pinned until explicitly resolved. Changes made outside this
  * page (another tab of Capture) reach the edits and the rows query alike;
  * the shared context also polls what visible views read. A failed save
  * keeps the edit on screen with its reason.

@@ -452,8 +452,8 @@ in this build.
 - Terminal commands and other programs edit the files directly.
 - Folder reports saves made through its handles, including another browser
   tab's saves. Visible queries poll for edits from other programs or a
-  terminal. A save over a file that changed since your edit started merges with the
-  change (see [Editing](#editing)).
+  terminal. If the file changed since typing began, saving keeps the unsaved
+  source and reports a whole-file conflict (see [Editing](#editing)).
 - If the folder is a Git repository you manage, `git` works on it as on any
   directory. Whispering commits nothing, and recording audio stays out of
   that repository only according to its tracked-file and `.gitignore` rules.
@@ -535,18 +535,19 @@ the table shows the row once it is saved.
 
 - Each file is written one change at a time. Changes typed while one write
   runs are written next, so fast typing writes what you typed last.
-- A save merges with a change made elsewhere since your edit started: fields
-  and lines only one side changed are both kept. Where both changed the same
-  field or the same lines, your edit wins, with no notice. Reading the folder again never touches
-  what you are typing.
-- Text edited as a whole file (Source, or any text file from Files) merges the
-  same way, by line (ADR-0551).
-- Typing into a row deleted elsewhere brings the row back with what you
-  typed: a deletion you did not see never erases an edit (ADR-0632). A row
-  deleted elsewhere with nothing typed in it stays deleted.
+- Reading the folder again never touches a dirty draft. If another writer
+  changes the file, saving reports a whole-file conflict and keeps the exact
+  unsaved source. This applies to fields, body, Source, and text files alike.
+- The status line offers both sources for comparison and explicit choices to
+  use the saved file or replace it with the draft. A replacement is guarded
+  against another outside change. A deleted row is recreated only after that
+  explicit choice.
+- Stop's saved recording length is also a changed source. A title still held
+  from before Stop can conflict with it. Accepting the saved file before
+  reapplying the title preserves the completed recording's length.
 - A save that fails, or whose reply could not be confirmed, keeps your edit in
   the window, and the file's status line says **Not saved** with **Try
-  again** and **Discard**. It is also saved again with your next change, and
+  again** and **Discard** for storage failures. It is also saved again with your next change, and
   before anything that reads the file, such as a run or a deletion. Discard
   leaves the file as it is and offers what you typed to copy. A failed save of
   a file's whole text is also reported with the text to copy.
@@ -608,8 +609,9 @@ is saved (ADR-0632). These promises of the earlier build changed:
   ordinary files API, separately from committing or syncing.
 - In a browser tab, recordings an earlier build kept in OPFS are not read or
   changed. An origin with only those recordings opens an empty current folder.
-- Typing into a row deleted elsewhere brings it back with what you typed. The
-  earlier build kept it deleted and offered the text to copy.
+- Typing into a row deleted elsewhere stays held and copyable. Restoring the
+  file requires explicitly choosing to replace the saved file; retrying alone
+  leaves it deleted.
 - A value that does not fit a row is saved, and the row is listed for repair.
   The earlier build refused it.
 - Saving a row from its fields keeps comments and the file's own spelling.

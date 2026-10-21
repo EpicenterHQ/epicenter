@@ -18,8 +18,8 @@
  * - `stateShowing` follows the body. The same content keeps the state, so a
  *   body this view wrote, a save landing, or a respelling in Source changes
  *   nothing on screen. Different content (Source, a chosen version, the file
- *   read again after it changed elsewhere, or a save that merged a change
- *   made elsewhere) starts a new state and a new undo history, because the
+ *   read again while clean, or an explicitly accepted saved source) starts
+ *   a new state and a new undo history, because the
  *   old history describes text that is gone. The draft holds the version
  *   its edit started from and a read never changes it, so typing in flight
  *   is never replaced.

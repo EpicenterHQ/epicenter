@@ -1,8 +1,8 @@
 <!--
 	One transformation: its instructions, model, results, and a place to try
 	it. One folder edit holds title, model, instructions, and source input.
-	It saves after a pause, even after this view leaves, and merges with
-	changes saved elsewhere. Run sends what is typed first.
+	It saves after a pause, even after this view leaves. Changed saved source
+	causes a whole-file conflict; the draft stays pinned. Run sends what is typed first.
 -->
 <script lang="ts">
 	import { unsavedText } from '@epicenter/svelte/write-failure';

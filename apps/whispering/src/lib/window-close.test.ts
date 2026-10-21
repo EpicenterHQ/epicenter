@@ -94,7 +94,7 @@ test('text held by the Folder prompts; Cancel retains it', async () => {
 
 	expect(nativeDialog.count).toBe(1);
 	expect(nativeWindow.destroyed).toBe(0);
-	expect(text.view.pending).toMatchObject({ kind: 'text', text: typed });
+	expect(text.view.pending).toMatchObject({ path, text: typed });
 	await window.whispering.edit(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
@@ -114,7 +114,7 @@ test('a failed save keeps the window until another save attempt saves the text',
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeDialog.count).toBe(1);
-	expect(text.view.pending).toMatchObject({ kind: 'text', text: typed });
+	expect(text.view.pending).toMatchObject({ path, text: typed });
 	expect(window.whispering.unsaved).toBe(true);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(before);
 
@@ -135,7 +135,7 @@ test('a thrown file write leaves a failed draft that can save again', async () =
 	await window.whispering.edit(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
-	expect(text.view.pending).toMatchObject({ kind: 'text', text: typed });
+	expect(text.view.pending).toMatchObject({ path, text: typed });
 	expect(window.whispering.unsaved).toBe(true);
 	window.control.throwWrite = false;
 	await window.context.folder.files.edit(path).save();

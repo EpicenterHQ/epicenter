@@ -207,7 +207,11 @@ test('a failed discard leaves the draft discoverable and retry removes it', asyn
 
 test('an accepted finish completes when close begins and new input is refused', async () => {
 	const t = await setup({ one: '' });
-	const { stem, edit, path } = await typeInto(t, 'one', 'Accepted before close');
+	const { stem, edit, path } = await typeInto(
+		t,
+		'one',
+		'Accepted before close',
+	);
 	const finishing = t.captures.finishDraft(stem);
 	expectErr(edit.change({ body: 'Late input' }));
 	const closing = t.context.close();
@@ -231,7 +235,7 @@ test('finishing rereads the schema and refuses a draft another writer made inval
 	expect(await t.text('captures/one.md')).toContain('draft: true');
 });
 
-test("another tab's finish keeps full-file edits already typed here through the ordinary merge", async () => {
+test("another tab's finish conflicts with held source until the saved capture is accepted", async () => {
 	const t = await setup({ one: 'Before' });
 	const edit = t.folder.tables.captures.edit('one');
 	expectOk(await edit.read());
@@ -240,11 +244,19 @@ test("another tab's finish keeps full-file edits already typed here through the 
 	cleanup.push(() => otherContext.close());
 	const otherCaptures = createCaptures(otherContext);
 	expectOk(edit.replaceText(draftFile('Typed here')));
+	const held = edit.getText();
 	expectOk(await otherCaptures.finishDraft('one'));
+	const finished = await t.text('captures/one.md');
 	await edit.read();
+	expect(edit.getText()).toBe(held);
 	await edit.save();
-	const text = await t.text('captures/one.md');
-	expect(text).toContain('Typed here');
-	expect(text).toContain('## Thoughts');
-	expect(text).not.toContain('draft:');
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(edit.getPending()?.text).toBe(held);
+	expect(await t.text('captures/one.md')).toBe(finished);
+	expect(finished).toContain('Before');
+	expect(finished).toContain('## Thoughts');
+	expect(finished).not.toContain('draft:');
+	await edit.resolveConflict('current');
+	expect(edit.getPending()).toBeUndefined();
+	expect(edit.getText()).toBe(finished);
 });

@@ -3,7 +3,7 @@
 	the stage are typed through the word's edit handle: a stage press is saved at once, a note
 	a second after the last keystroke, even after the card goes away.
 	A read that lands meanwhile never replaces the typing.
-	Each save merges with whatever was saved to the word's file meanwhile.
+	A changed saved source causes a whole-file conflict and keeps the typing.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';

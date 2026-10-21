@@ -1,10 +1,10 @@
 /**
  * What a view does to edit a file, for tests that drive Whispering without
  * mounting components: change the row or the text, and send it, as a view
- * does once the person pauses or leaves. A changed field or body is the
- * row's draft, saved as a change from the row it started from; a changed
- * text is a text draft saved over the text it started from. `draft` reads
- * what the view shows now: what is typed over the cache. Type-only imports
+ * does once the person pauses or leaves. Field, body, and text changes all
+ * update one whole-source draft, whose save compares with the exact source
+ * observed when typing began. `draft` reads what the view shows now: the held
+ * source interpreted through the row schema. Type-only imports
  * from Whispering, so this loads before the Svelte compiler plugin is
  * registered.
  */

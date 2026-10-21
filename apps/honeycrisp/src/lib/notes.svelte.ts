@@ -13,7 +13,8 @@
  * (`folder.tables.notes.edit(id)`), which holds the row as the lists last
  * read it or a save stored it: what is typed shows at once, saves a second
  * after the last change or at once when the view leaves it, keeps on screen
- * when a save fails, and merges with whatever was saved meanwhile. A file
+ * when a save fails. Changed saved source causes a whole-file conflict and
+ * leaves the entire local draft pinned until explicitly resolved. A file
  * open as its exact text (Edit as file, repair, any other file) uses the
  * folder's edit of the file (`folder.files.edit(path)`). The folder keeps one
  * document, input, save queue and deletion fence per path for both.

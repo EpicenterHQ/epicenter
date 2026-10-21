@@ -204,8 +204,8 @@
 
 	// Follow the body shown. A body this view wrote, a save landing, or the
 	// same content respelled keeps the state; different content (Source, a
-	// version, the file read again after a change elsewhere, a save that merged
-	// one in) replaces it with a new history. While an edit is held the body is
+	// version, or an explicitly accepted saved source) replaces it with a new
+	// history. While an edit is held the body is
 	// the draft's, which a read never changes, so this never replaces typing in
 	// flight.
 	$effect(() => {

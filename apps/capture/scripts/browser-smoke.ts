@@ -276,16 +276,19 @@ try {
 	await openFromTimeline(first, 'Dinner with Sebastian');
 	assert.equal(await source(first), edited);
 
-	// 6. Another page edits the file. Its save reaches the first page on the
-	// folder's change channel, and the first page's next save merges with
-	// whatever it has not read yet: where both changed the text, the first
-	// page's text wins.
+	// 6. Another page's save reaches the clean first page. Wait for that
+	// source to be observed before starting a new draft on the first page.
 	const second = await context.newPage();
 	second.on('pageerror', (error) => errors.push(`second: ${error.message}`));
 	await second.goto(app);
 	await openFromTimeline(second, 'Dinner with Sebastian');
 	await second.getByLabel('Capture text').fill('Changed in the other window');
 	await saved(second);
+	await first.waitForFunction(
+		() =>
+			document.querySelector<HTMLTextAreaElement>('#capture-text')?.value ===
+			'Changed in the other window',
+	);
 	await first.getByLabel('Capture text').fill('Mine');
 	await saved(first);
 
@@ -419,9 +422,13 @@ try {
 	// 14. A saved draft from an earlier version uses the same whole-file editor.
 	// Seed its on-disk shape through ordinary file editing, without a test API.
 	await openFromTimeline(earlier, 'Writing retained through failures');
-	await earlier.getByRole('button', { name: 'Edit as text', exact: true }).click();
+	await earlier
+		.getByRole('button', { name: 'Edit as text', exact: true })
+		.click();
 	const previous = await fileText(earlier).inputValue();
-	const draftHead = previous.slice(0, previous.indexOf('\n---\n') + 1) + 'draft: true\nunknownKey: kept\n---\n';
+	const draftHead =
+		previous.slice(0, previous.indexOf('\n---\n') + 1) +
+		'draft: true\nunknownKey: kept\n---\n';
 	const raw = '\n  Saved draft writing  \nsecond line\n';
 	const legacyDraft = draftHead + raw;
 	await fileText(earlier).fill(legacyDraft);
@@ -430,10 +437,17 @@ try {
 	await earlier.reload();
 	await earlier.getByLabel('Draft captures').getByRole('button').click();
 	assert.equal(await fileText(earlier).inputValue(), legacyDraft);
-	assert.equal(await earlier.getByRole('button', { name: 'Open as capture', exact: true }).count(), 0);
+	assert.equal(
+		await earlier
+			.getByRole('button', { name: 'Open as capture', exact: true })
+			.count(),
+		0,
+	);
 
 	// A frontmatter typo never replaces the text box with a different view.
-	await fileText(earlier).fill(legacyDraft.replace('draft: true', 'draft: tru'));
+	await fileText(earlier).fill(
+		legacyDraft.replace('draft: true', 'draft: tru'),
+	);
 	await earlier.getByRole('status', { name: 'Needs repair' }).waitFor();
 	assert.equal(await fileText(earlier).count(), 1);
 	await fileText(earlier).fill(legacyDraft);
@@ -441,7 +455,10 @@ try {
 
 	// Failed autosave and failed Finish keep the same whole-file input.
 	await fillDisk();
-	const revisedDraft = legacyDraft.replace('second line', 'second line, edited');
+	const revisedDraft = legacyDraft.replace(
+		'second line',
+		'second line, edited',
+	);
 	await fileText(earlier).fill(revisedDraft);
 	await earlier.getByText('Your edit is not saved', { exact: true }).waitFor();
 	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
@@ -449,11 +466,17 @@ try {
 	await earlier.getByRole('button', { name: 'Save again' }).click();
 	await saved(earlier);
 	await fillDisk();
-	await earlier.getByRole('button', { name: 'Add capture', exact: true }).click();
-	await earlier.getByText('The capture was not added', { exact: true }).waitFor();
+	await earlier
+		.getByRole('button', { name: 'Add capture', exact: true })
+		.click();
+	await earlier
+		.getByText('The capture was not added', { exact: true })
+		.waitFor();
 	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
 	await restoreDisk();
-	await earlier.getByRole('button', { name: 'Add capture', exact: true }).click();
+	await earlier
+		.getByRole('button', { name: 'Add capture', exact: true })
+		.click();
 	await earlier.getByLabel('Add a thought').waitFor();
 	const finishedDraft = await source(earlier);
 	assert.equal(finishedDraft.match(/^## Thoughts$/gm)?.length, 1);
@@ -462,21 +485,27 @@ try {
 	assert(finishedDraft.includes('second line, edited'));
 
 	// Confirmed discard removes an existing draft, including after reload.
-	await earlier.getByRole('button', { name: 'Edit as text', exact: true }).click();
+	await earlier
+		.getByRole('button', { name: 'Edit as text', exact: true })
+		.click();
 	await fileText(earlier).fill(legacyDraft);
 	await saved(earlier);
 	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
 	await earlier.reload();
 	await earlier.getByLabel('Draft captures').getByRole('button').click();
-	await earlier.getByRole('button', { name: 'Discard draft…', exact: true }).click();
-	await earlier.getByRole('button', { name: 'Discard draft', exact: true }).click();
+	await earlier
+		.getByRole('button', { name: 'Discard draft…', exact: true })
+		.click();
+	await earlier
+		.getByRole('button', { name: 'Discard draft', exact: true })
+		.click();
 	await earlier.getByText('No captures yet').waitFor();
 	await earlier.reload();
 	await earlier.getByText('No captures yet').waitFor();
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, a save merged with a change from another page, no Save version, full-disk Add recovery, saved drafts reopened as full files, repaired without replacing the editor, retried after failed autosave and Finish, finished once, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, no Save version, full-disk Add recovery, saved drafts reopened as full files, repaired without replacing the editor, retried after failed autosave and Finish, finished once, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
 	);
 } catch (cause) {
 	console.error(cause);

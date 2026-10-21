@@ -7,8 +7,8 @@
  * (`createFileEdit(folder.tables.entries.edit(id))`), whose text is the file's
  * exact editable source. The folder holds what is typed, writes it a second after
  * the last keystroke and at once on `save()`, one write at a time, each from
- * the text it started from, merged by line with a change made elsewhere
- * meanwhile. A reread never replaces what is typed. A failed write keeps the
+ * the text it started from. A changed saved source causes a whole-file
+ * conflict; a reread never replaces what is typed. A failed write keeps the
  * text and its error; `save()` tries again, and so does further
  * typing. The repair itself holds only which file is open.
  */

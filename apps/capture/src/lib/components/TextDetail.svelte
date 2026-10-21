@@ -3,7 +3,8 @@
 	edit of the file. Typing is held over it and saved a second
 	after the last keystroke, even after this view goes away, valid or not,
 	so a file that is not a valid capture is
-	repaired here. Each save merges with whatever was saved meanwhile.
+	repaired here. A changed saved source causes a whole-file conflict;
+	the typing stays pinned until the person explicitly resolves it.
 
 	What keeps the file from reading as a capture follows the current edit,
 	including unsaved text. Open as capture changes views without saving.

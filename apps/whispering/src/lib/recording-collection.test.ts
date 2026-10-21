@@ -24,8 +24,9 @@
  * - Deleting several captures each deletion first, leaves out what the
  *   whispering refuses, removes only what was captured, and keeps the audio
  * - A transcript is edited in its own draft beside its recording, which stays
- *   selected, and saves as it is typed; an outside change merges with the
- *   next save; closing the details or changing page discards nothing
+ *   selected, and saves as it is typed; changed outside source causes a
+ *   conflict until explicitly resolved; closing the details or changing page
+ *   discards nothing
  * - A recording that left the folder is unticked when a listing confirms it,
  *   so a file made later at its path is not ticked; a search and a failed
  *   listing untick nothing
@@ -700,7 +701,7 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 	);
 });
 
-test('typing over a transcript changed outside, before the window read it again, merges with the change', async () => {
+test('typing over a transcript changed outside keeps both sources until explicit replacement', async () => {
 	const { context, whispering, root } = await history();
 	whispering.open(path('standup'));
 	const notices: WriteFailure[] = [];
@@ -712,13 +713,20 @@ test('typing over a transcript changed outside, before the window read it again,
 	);
 	await writeFile(join(root, TRANSCRIPT), outside);
 
-	// Typing before the window read it again: both replaced the same line,
-	// so the typing wins there, and nothing is told.
+	// Typing before the window read it again still compares with the source
+	// the editor observed, rather than overwriting the changed file.
 	editor.edit((row) => {
 		row.body = 'What I typed.\n';
 	});
 	await settle(whispering, context);
-	expect(notices).toEqual([]);
+	expect(notices).toHaveLength(1);
+	expect(notices[0]?.error?.name).toBe('Conflict');
+	expect(editor.draft.body).toBe('What I typed.\n');
+	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toBe(outside);
+	expect(whispering.isUnsaved(TRANSCRIPT)).toBe(true);
+	await whispering.edit('transcriptions', TRANSCRIPT).resolveConflict('draft');
+	await settle(whispering, context);
+	expect(whispering.isUnsaved(TRANSCRIPT)).toBe(false);
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	expect(saved).toContain('What I typed.');
 	expect(saved).not.toContain('migration');

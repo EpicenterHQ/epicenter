@@ -14,8 +14,8 @@
  * - Rich-text typing reaches the note's draft through ProseMirror's own DOM
  *   reading, saves after its pause, and stays undoable after the save lands
  * - Different Source text replaces the rich-text document
- * - A title typed before another tab saved keeps their body and wins the
- *   title
+ * - A title typed before another tab saved pins the whole local source;
+ *   replacing the saved file requires explicit conflict resolution
  * - A change another tab saved shows in the open note
  * - A save that fails says so and offers Save again, which saves it
  * - Switching presentations keeps one recovery surface and the held input

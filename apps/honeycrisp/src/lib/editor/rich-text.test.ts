@@ -25,8 +25,8 @@
  * - A transaction built before the body changed is dropped
  * - A change another tab saved replaces a clean editor; a save landing
  *   does not
- * - A read that lands while an edit is held does not replace the typing,
- *   and the save merges the change it brought
+ * - A read that lands while an edit is held does not replace the typing;
+ *   a conflicting save keeps both sources until explicitly resolved
  */
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
@@ -305,12 +305,10 @@ describe('every displayed edit is in the note', () => {
 
 	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
-		const { type, end, body, settled, failures, stored, writes, note } = await open(
-			'',
-			{
+		const { type, end, body, settled, failures, stored, writes, note } =
+			await open('', {
 				text: crlf,
-			},
-		);
+			});
 		expect(body()).toBe('\none\n\ntwo\n');
 		expect(note.getMarkdown()?.body).toBe('\r\none\r\n\r\ntwo\r\n');
 		expect(note.getText()).toBe(crlf);
@@ -588,7 +586,7 @@ describe('the editor follows the note', () => {
 		expect(undoDepth(view.shown())).toBe(0);
 	});
 
-	test('typing in flight is not replaced by a read, and its save merges what the read brought', async () => {
+	test('typing in flight stays pinned through a read and a conflict until explicitly saved', async () => {
 		const {
 			fixture,
 			notes,
@@ -620,17 +618,27 @@ describe('the editor follows the note', () => {
 		follow();
 		expect(view.shown()).toBe(state);
 		expect(body()).toBe('one!\n');
+		const edit = fixture.folder.tables.notes.edit('a');
+		await edit.save();
+		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(failures()).toMatchObject([
+			{ path: PATH, error: { name: 'Conflict' } },
+		]);
+		expect(await stored()).toContain('one\n\ntheirs\n');
+		expect(body()).toBe('one!\n');
+		await edit.resolveConflict('draft');
 		await settled();
 		expect(failures()).toEqual([]);
-		expect(await stored()).toContain('one!\n\ntheirs\n');
-		// The merged body is new content: the view shows it.
-		expect(body()).toBe('one!\n\ntheirs\n');
+		expect(await stored()).toContain('one!\n');
+		expect(await stored()).not.toContain('theirs');
 		follow();
-		expect(view.shown().doc.textContent).toBe('one!theirs');
+		expect(view.shown()).toBe(state);
+		expect(undoDepth(view.shown())).toBe(1);
 	});
 
-	test('a save that meets a change made elsewhere to the same line keeps the typing', async () => {
-		const { fixture, type, end, settled, body, failures } = await open('one\n');
+	test('accepting a saved same-line change replaces the held typing and resets history', async () => {
+		const { fixture, type, end, settled, body, failures, follow, ...view } =
+			await open('one\n');
 		end();
 		expect(type('!')).toBe(true);
 		const tab = await fixture.otherTab();
@@ -638,9 +646,19 @@ describe('the editor follows the note', () => {
 		expectOk(
 			await tab.tables.notes.set('a', theirs ?? null, { body: 'theirs\n' }),
 		);
-		await settled();
-		// Both changed the one line: the typing is the fresher intent.
-		expect(failures()).toEqual([]);
+		const edit = fixture.folder.tables.notes.edit('a');
+		await edit.save();
+		expect(edit.getPending()?.error?.name).toBe('Conflict');
+		expect(failures()).toMatchObject([
+			{ path: PATH, error: { name: 'Conflict' } },
+		]);
 		expect(body()).toBe('one!\n');
+		await edit.resolveConflict('current');
+		await settled();
+		expect(failures()).toEqual([]);
+		expect(body()).toBe('theirs\n');
+		follow();
+		expect(view.shown().doc.textContent).toBe('theirs');
+		expect(undoDepth(view.shown())).toBe(0);
 	});
 });

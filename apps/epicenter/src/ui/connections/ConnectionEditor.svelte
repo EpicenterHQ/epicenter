@@ -18,8 +18,8 @@
 	 * edited in place through the folder's edit of the row
 	 * (`createFileEdit(folder.tables.connections.edit(id))`): what is typed shows at
 	 * once and saves a second after the last keystroke, even after the editor
-	 * goes away, merged with whatever was saved
-	 * meanwhile (ADR-0576). For an `openai-compatible` connection, the
+	 * goes away. Changed saved source causes a whole-file conflict and keeps
+	 * the unsaved source. For an `openai-compatible` connection, the
 	 * endpoint and key this computer keeps for it are in the keychain
 	 * (ADR-0557). The page hands a key to the keychain and never reads one
 	 * back. The list keys each editor by its id.

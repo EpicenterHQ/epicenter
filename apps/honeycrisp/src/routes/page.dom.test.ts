@@ -421,11 +421,11 @@ test('failed whole-file input survives Open as note and another tab deleting the
 		'the external deletion',
 	);
 	await until(
-		() => page.target.querySelector('[aria-label="Unsaved text"]') !== null,
+		() => page.target.querySelector('[aria-label="Unsaved source"]') !== null,
 		'copyable failed input after deletion',
 	);
 	expect(
-		page.target.querySelector('[aria-label="Unsaved text"]')?.textContent,
+		page.target.querySelector('[aria-label="Unsaved source"]')?.textContent,
 	).toBe(changed);
 	button(page.target, 'Discard it').click();
 	await until(
@@ -434,7 +434,7 @@ test('failed whole-file input survives Open as note and another tab deleting the
 	);
 	button(document.body, 'Discard changes').click();
 	await until(
-		() => page.target.querySelector('[aria-label="Unsaved text"]') === null,
+		() => page.target.querySelector('[aria-label="Unsaved source"]') === null,
 		'discarding the failed text',
 	);
 });

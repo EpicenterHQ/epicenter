@@ -66,9 +66,12 @@ vocabulary (`@epicenter/definition`). The local `Folder` from
 schema only interprets (ADR-0632): a row that does not fit comes back with its
 exact source and its issues, and a save never validates, so a field another
 program added survives every edit. A table owns exactly one Markdown file per
-row; any other file is an ordinary file reached through `folder.files`. Each
-save names the content it started from, and the folder merges it with
-whatever was saved meanwhile. The package's
+row; any other file is an ordinary file reached through `folder.files`.
+`FileEdit` holds one exact source draft per path. Its save compares against
+the source observed when editing began; changed storage causes a whole-file
+conflict and leaves the draft pinned until explicitly resolved. Direct table
+and file writes retain their guarded merge behavior, including the result
+publication described below. The package's
 [README](../../packages/folder/README.md) is the contract.
 
 `definition.ts` builds the table schemas with `@epicenter/definition` and

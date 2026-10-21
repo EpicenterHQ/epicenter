@@ -1,8 +1,8 @@
 <!--
 	One recording: its audio, transcripts, notes, and source. The folder's
-	row edit holds title and notes together, saves after a pause, and merges
-	with changes saved elsewhere. Input and autosave outlive this view.
-	Saving an edit to a recording deleted elsewhere restores its Markdown file.
+	file edit holds one source draft, saves after a pause, and reports a conflict
+	if the saved source changed. Input and autosave outlive this view.
+	Restoring a recording deleted elsewhere requires explicit conflict resolution.
 -->
 <script lang="ts">
 	import { unsavedText } from '@epicenter/svelte/write-failure';

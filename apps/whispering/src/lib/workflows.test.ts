@@ -405,7 +405,7 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 	);
 });
 
-test('a title typed while recording is kept when the recording stops and gets its length', async () => {
+test('stopping preserves its length while an earlier title draft conflicts until explicitly reapplied', async () => {
 	const { context, whispering, root } = await open();
 	await whispering.startRecording();
 	await quiet(context);
@@ -414,6 +414,20 @@ test('a title typed while recording is kept when the recording stops and gets it
 
 	edit.change({ fields: { title: 'Standup notes' } });
 	await whispering.stopRecording();
+	await edit.save();
+	await settle(whispering, context);
+	expect(edit.pending?.error?.name).toBe('Conflict');
+	expect(edit.markdown?.fields?.title).toBe('Standup notes');
+	expect(whispering.entries[0]!.row.fields).toMatchObject({
+		title: entry.row.fields.title,
+		durationMs: 1000,
+	});
+
+	// Accept the completed recording's source before explicitly reapplying
+	// the title; a retry alone cannot merge that title with the new length.
+	await edit.resolveConflict('current');
+	expect(edit.pending).toBeUndefined();
+	expectOk(edit.change({ fields: { title: 'Standup notes' } }));
 	await edit.save();
 	await settle(whispering, context);
 

@@ -11,9 +11,10 @@
  * Typing is never lost to a reread. Fields, body and whole text use one
  * FileEdit interface, selected through a typed table or file path. Each
  * failed save is reported. Folder saves a second after the last
- * change, or when the view leaves it, as a change from what it started
- * from, and the folder merges it with whatever was saved meanwhile
- * (ADR-0632). A save that fails keeps what is typed and is reported.
+ * change. The source draft remains owned by Folder after the view leaves.
+ * Each save compares against the source observed when typing began;
+ * changed saved source causes a conflict and keeps the typing pinned until
+ * explicitly resolved. A save that fails keeps what is typed and is reported.
  *
  * Closing waits for nothing here: `dispose` refuses new work and late answers
  * and returns. Folder close drains admitted saves and file actions, including

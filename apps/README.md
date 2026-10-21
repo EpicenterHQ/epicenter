@@ -23,8 +23,11 @@ IndexedDB. It requires no account, network connection, Git repository, or
 schema file. In a desktop window the same call opens the one directory the
 shell bound to that window before it existed; the page names no path, scope,
 or window. Bun receives `{ directory, tables }` with an existing path. Native
-files use directory writes, with the same row parsing and merge rules as the
-browser.
+files use directory writes, with the same row parsing, guarded writes, and
+source-draft behavior as the browser. `FileEdit` holds one complete source
+draft per path; a changed stored source causes a whole-file conflict until
+explicitly resolved. Direct table and file writes retain their own guarded
+merge rules.
 
 The previous browser opener stored named folders in OPFS. The new browser
 opener uses IndexedDB independently. It does not read, inspect, change, or

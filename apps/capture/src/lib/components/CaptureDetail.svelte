@@ -186,7 +186,7 @@
 			</Empty.Root>
 		{:else if status.known === 'missing'}
 			{#if pending}
-				<!-- Deleted in another tab while an edit was held: saving it brings the capture back. -->
+				<!-- Deleted in another tab while an edit was held: restoring it requires explicit conflict resolution. -->
 				<Alert.Root aria-label="Edit kept">
 					<Alert.Title>This capture was deleted, and your edit is still here</Alert.Title>
 					<Alert.Description>

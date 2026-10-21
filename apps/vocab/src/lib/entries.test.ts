@@ -213,7 +213,8 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 	await until(() => edit.getPending() === undefined, 'the note to save');
 	await quiet(vocab);
 	expect(
-		expectOk(await context.folder.tables.entries.get(context.word().id))?.fields?.note,
+		expectOk(await context.folder.tables.entries.get(context.word().id))?.fields
+			?.note,
 	).toBe('clear and bright');
 	expect(context.word().note).toBe('clear and bright');
 	expect(
@@ -238,7 +239,7 @@ test('a stage press saves at once and keeps a note typed just before it', async 
 	expect(edit.getPending()).toBeUndefined();
 });
 
-test("another tab's save reaches this page's list, and a save here keeps the field only the other tab changed", async () => {
+test("another tab's save updates the list while the whole local draft stays pinned", async () => {
 	await using context = await setup();
 	await using other = await openVocab(
 		await context.browser.open({ saveAfterMs: 60_000 }),
@@ -258,12 +259,24 @@ test("another tab's save reaches this page's list, and a save here keeps the fie
 		'the other tab’s stage to reach this page',
 	);
 
-	await slow.vocab.folder.tables.entries.edit(mine.id).save();
+	const edit = slow.vocab.folder.tables.entries.edit(mine.id);
+	await edit.save();
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(edit.getMarkdown()?.fields).toMatchObject({
+		note: 'mine',
+		stage: 'new',
+	});
 	const saved = expectOk(await context.folder.tables.entries.get(mine.id));
-	expect(saved?.fields).toMatchObject({ note: 'mine', stage: 'usable' });
+	expect(saved?.fields).toMatchObject({ note: '', stage: 'usable' });
+	await edit.resolveConflict('current');
+	expect(edit.getPending()).toBeUndefined();
+	expect(edit.getMarkdown()?.fields).toMatchObject({
+		note: '',
+		stage: 'usable',
+	});
 });
 
-test('a save over a note changed elsewhere wins the note', async () => {
+test('a note changed elsewhere is replaced only after explicit conflict resolution', async () => {
 	await using context = await setup();
 	await using slow = await openVocab(
 		await context.browser.open({ saveAfterMs: 60_000 }),
@@ -277,7 +290,15 @@ test('a save over a note changed elsewhere wins the note', async () => {
 			fields: { note: 'theirs' },
 		}),
 	);
-	await slow.vocab.folder.tables.entries.edit(word.id).save();
+	const edit = slow.vocab.folder.tables.entries.edit(word.id);
+	await edit.save();
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(edit.getMarkdown()?.fields?.note).toBe('mine');
+	expect(
+		expectOk(await context.folder.tables.entries.get(word.id))?.fields?.note,
+	).toBe('theirs');
+	await edit.resolveConflict('draft');
+	expect(edit.getPending()).toBeUndefined();
 	expect(
 		expectOk(await context.folder.tables.entries.get(word.id))?.fields?.note,
 	).toBe('mine');
@@ -308,9 +329,9 @@ test('a saved stage stays shown when the reread fails, and pressing the old stag
 	} finally {
 		folder.tables.entries.list = list;
 	}
-	expect(expectOk(await folder.tables.entries.get(word.id))?.fields?.stage).toBe(
-		'new',
-	);
+	expect(
+		expectOk(await folder.tables.entries.get(word.id))?.fields?.stage,
+	).toBe('new');
 });
 
 test('a save that fails keeps the typing and its error, and saving again writes it', async () => {
@@ -410,7 +431,8 @@ test('a valid unsaved repair returns to structured editing without saving or ref
 	await using browser = createBrowser();
 	const folder = await browser.open({ saveAfterMs: 60_000 });
 	const path = 'entries/broken.md';
-	const broken = '---\ntext: lucid\nnote: ""\nstage: invalid\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\n';
+	const broken =
+		'---\ntext: lucid\nnote: ""\nstage: invalid\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\n';
 	await put(folder, path, broken);
 	await using opened = await openVocab(folder);
 	const { repair } = opened.vocab.entries;
@@ -422,7 +444,9 @@ test('a valid unsaved repair returns to structured editing without saving or ref
 	expect(repair.close()).toBe(true);
 	expect(repair.open).toBeUndefined();
 	expect(await fileText(folder, path)).toBe(broken);
-	expect(opened.vocab.entries.edit('broken').markdown?.fields?.stage).toBe('usable');
+	expect(opened.vocab.entries.edit('broken').markdown?.fields?.stage).toBe(
+		'usable',
+	);
 	expect(fileEdit.pending).toBeDefined();
 });
 
@@ -462,13 +486,15 @@ test('typing that failed to save keeps its word from being deleted', async () =>
 	expect(await tableFiles(folder, 'entries')).toEqual([context.path]);
 	expect(edit.getPending()).toBeDefined();
 	// Discarding is the learner's explicit choice, and lets the delete go ahead.
-	expect(edit.discard()).toMatchObject({ fields: { note: 'clear' } });
+	const held = edit.getText();
+	expect(edit.getMarkdown()?.fields?.note).toBe('clear');
+	expect(edit.discard()?.text).toBe(held);
 	expect(expectOk(await vocab.entries.delete(context.word()))).toEqual({
 		deleted: true,
 	});
 });
 
-test('a note saved to a word deleted elsewhere brings the word back with the note: an edit beats an unseen delete', async () => {
+test('a word deleted elsewhere stays deleted until the held source is explicitly restored', async () => {
 	await using context = await setup();
 	await using slow = await openVocab(
 		await context.browser.open({ saveAfterMs: 60_000 }),
@@ -476,7 +502,15 @@ test('a note saved to a word deleted elsewhere brings the word back with the not
 	const word = cached(slow.vocab, 'lucid');
 	slow.vocab.entries.setNote(word, 'clear');
 	expectOk(await context.folder.tables.entries.delete(word.id, word.row));
-	await slow.vocab.folder.tables.entries.edit(word.id).save();
+	const edit = slow.vocab.folder.tables.entries.edit(word.id);
+	await edit.save();
+	expect(edit.getPending()?.error?.name).toBe('Conflict');
+	expect(edit.getMarkdown()?.fields?.note).toBe('clear');
+	expect(
+		expectOk(await context.folder.tables.entries.get(word.id)),
+	).toBeUndefined();
+	await edit.resolveConflict('draft');
+	expect(edit.getPending()).toBeUndefined();
 	expect(
 		expectOk(await context.folder.tables.entries.get(word.id))?.fields,
 	).toMatchObject({ text: 'lucid', note: 'clear' });

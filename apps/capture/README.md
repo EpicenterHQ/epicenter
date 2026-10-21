@@ -80,8 +80,8 @@ are not text are listed apart and not opened.
   you typed, held by the folder's edit of the row
   (`folder.tables.captures.edit(stem)`) over the capture as stored. What
   the page reads from the folder never replaces it, and a failed reread never
-  shows the capture older than your last save; another writer's lines merge
-  in when your edit saves. A thought you add, delete, or move is saved at
+  shows the capture older than your last save. Another writer's changed source
+  causes a whole-file conflict when your edit saves. A thought you add, delete, or move is saved at
   once. The capture text is saved a second after you stop typing, even after you
   open something else. Saves of one
   capture run one at a time, and what you typed while one ran goes in the
@@ -144,7 +144,10 @@ Capture writes no new drafts. A nonboolean `draft` value needs repair as text.
 action (`folder.run([path], work)`), saves raw input first, then writes the
 composed body, removes `draft`, and sets `capturedAt` together. A failed promotion keeps the raw draft.
 Retrying an already-finished file succeeds without composing it again.
-Another tab still follows Folder's ordinary merge behavior.
+If another tab finishes the file while local source is held, that source stays
+pinned and its save reports a conflict. Accepting the saved capture or
+explicitly replacing it resolves that conflict; retrying alone does not merge
+the unfinished source into the completed capture.
 
 ## How it is wired
 
@@ -182,8 +185,8 @@ one adapter.
 ## Desktop
 
 The host build opens the directory Epicenter's shell grants its window.
-It uses the same Folder row and merge rules as the browser, with guarded
-directory writes. A missing grant is shown as a refusal. Git and remote
+It uses the same Folder row interpretation and whole-source draft guards as
+the browser, with guarded directory writes. A missing grant is shown as a refusal. Git and remote
 actions remain absent.
 
 ## Layout

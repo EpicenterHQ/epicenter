@@ -10,10 +10,10 @@
  * (`folder.tables.entries.edit(id)`): a note typed is saved a second after
  * the last keystroke, a stage press at once. The folder holds every field
  * typed since the word last saved, so one word's saves run one at a time
- * and a stage press never undoes a note. Each field starts from the row it
- * was typed over, and the folder merges a save with whatever was saved
- * meanwhile: what only the other writer changed stays, and this edit wins
- * the field both changed. A failed save keeps the typing and its error.
+ * and a stage press never undoes a note. Fields and body share one exact
+ * source draft. A changed saved source causes a whole-file conflict; the
+ * typing stays pinned until explicitly resolved. A failed save keeps the
+ * typing and its error.
  *
  * A new word's file is named by the SHA-256 of its exact text, so two adds
  * of one text reach the same file. An add reads that file first and writes
