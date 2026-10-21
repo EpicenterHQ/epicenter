@@ -25,17 +25,17 @@ verify it against the code. The constraints below apply to every edit here.
 - Send immediate note and folder changes through the shared Folder edit.
   Preserve pending input across rereads and view changes. A failed save
   keeps that input and its error; a read must never replace it.
-- Whole-file input and row patches share one pending representation and
-  one save queue per path.
+- Whole-file input and row patches share one edit owner and one save
+  queue per path.
   Switching representations must preserve failed input for retry, copying,
   or explicit discard. Selecting another file does not release that input.
   Reads must not initiate saves or wait for them.
 - A save moves no timestamp (ADR-0573). Do not add a last-edited field or
   write `updatedAt`; the list orders and groups notes by `createdAt`.
 - The folder refuses text that is not well-formed, so the title, Source, and
-  a file's text pass through `wellFormed`, and the rich-text view replaces a
+  a file's text pass through `toWellFormed()`, and the rich-text view replaces a
   lone surrogate with U+FFFD in its transaction. The folder reads a body with
-  its file's line endings; `noteBody` shows it with line feeds, so the
+  its file's line endings; the editor presentation shows it with line feeds, so the
   editors read and write line feeds (ADR-0572) and opening writes nothing.
   `FileView` edits a file's exact text, so it keeps `withFileNewlines`.
 - Nothing goes stale on its own (`staleTime: Infinity`) and focus never
@@ -51,13 +51,13 @@ verify it against the code. The constraints below apply to every edit here.
 
 ## Editor ownership
 
-- The Folder's row edit owns the note's body.
+- The Folder's FileEdit owns the note's body.
   ProseMirror's `EditorState` owns only what that edit has no place for: the
   cursor, pending formatting, undo history, and an empty paragraph Markdown
   cannot spell yet. Its document is never a third copy of the body.
 - Every ProseMirror transaction that changes the document goes through
   `stateAfter`: reconciliation with the body shown now, checked Markdown
-  serialization, then `NoteBody.edit`, before it is shown. An edit that is
+  serialization, then `FileEdit.change({ body })`, before it is shown. An edit that is
   refused is not shown.
 - `stateShowing` follows the body shown by content: the same content keeps
   the state; different content (Source, another tab's change) replaces it.
@@ -73,18 +73,17 @@ verify it against the code. The constraints below apply to every edit here.
   element. Do not make its mount effect read anything that changes on a
   keystroke or a write, including `locked`; that recreates the view and
   erases undo history.
-- Views disable their inputs with `notes.isLocked(path)`: once the notes are
+- Views disable their inputs with their tracked `fileEdit.locked`: once the notes are
   closing, and while the file is deleted.
 
 ## Closing
 
-- `<FolderApp>` closes the folder when the page goes away: the edit
-  layer refuses new input (`notes.fenced`), sends every draft, waits for the
-  saves, then closes the handle. Views send their own drafts as they go away,
-  and the shared root sends pending edits when the page is hidden. A new way
-  to change a file must check `fenced`, and a control in a menu, popover, or
-  dialog must also be `disabled`, because those render outside the inert
-  root.
+- `<FolderApp>` closes the folder when the page goes away: Folder refuses
+  new edit input, sends every draft, waits for the saves, then closes the
+  handle. Views send their own drafts as they go away,
+  and the shared root sends pending edits when the page is hidden. App actions check `fenced`; FileEdit refuses new input itself. Controls in
+  menus, popovers, and dialogs must also be `disabled`, because those render
+  outside the inert root.
 - Keep the browser unload guard in `FolderApp` and the in-page navigation
   guard (`beforeNavigate`) in `HoneycrispApp`. They ask before leaving only
   while the Folder has a pending save.
