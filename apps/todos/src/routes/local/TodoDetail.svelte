@@ -2,13 +2,12 @@
 	One todo over this browser's local folder: the folder's edit of its row
 	(`createFileEdit(folder.tables.todos.edit(id))`), the same document the list's
 	reads keep current, so it never disagrees with the list. The parent keys
-	this view by the todo, so a save sent as it goes away lands on the todo it
-	was typed into.
+	this view by the todo. Its input and autosave timer stay with the folder
+	after this view goes away.
 
 	The title, done, and notes are typed into that edit: what is typed shows
-	at once and saves a second after the last keystroke, at once when the
-	person leaves the field, ticks the checkbox, or the view goes away. A
-	reread never replaces it. Each save merges with whatever was saved
+	at once and saves a second after the last keystroke, or at once when the
+	person ticks the checkbox. A reread never replaces it. Each save merges with whatever was saved
 	meanwhile, here or in another tab. A save that fails keeps the typing and
 	offers Try again.
 
@@ -28,7 +27,6 @@
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { getFolder } from '$lib/folder.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-	import { onDestroy } from 'svelte';
 	import { describeFailure, labelOf, todoPath } from '$lib/local-todos.js';
 
 	const { folder } = getFolder();
@@ -57,9 +55,6 @@
 	/** What is known of the file, and why the last read failed. */
 	const status = $derived(fileEdit.readStatus);
 	const pending = $derived(fileEdit.pending);
-
-	// The input outlives the view; send what is typed now.
-	onDestroy(() => void fileEdit.save());
 
 	function confirmDiscard() {
 		confirmationDialog.open({
@@ -146,7 +141,6 @@
 				aria-label="Title"
 				disabled={fileEdit.locked}
 				bind:value={() => shown.fields.title, (title) => fileEdit.change({ fields: { title } })}
-				onblur={() => void fileEdit.save()}
 			/>
 		</div>
 
@@ -169,7 +163,6 @@
 				aria-label="Notes"
 				disabled={fileEdit.locked}
 				bind:value={() => shown.body, (body) => fileEdit.change({ body })}
-				onblur={() => void fileEdit.save()}
 			/>
 		</div>
 

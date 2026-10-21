@@ -364,7 +364,8 @@ Files, grid, and board use `createFileEdit(folder.files.edit(path, schema))` and
 separate save queue. The reactive `.markdown` getter reads the current structured view, `.text` reads its source,
 `.pending` reads unsaved input, and `replaceText(text)` or `change({ fields })`
 accepts new input without a source argument. Input
-survives view switches. Field intent overlays fresh reads, so another
+and its autosave timer survive view switches; blur and editor teardown need
+no save hooks. Field intent overlays fresh reads, so another
 writer's body changes remain visible. A failed reread leaves the text already
 shown in place and editable; text this window saved, with no readable source
 left, stays readable to copy but takes no typing. Starting to type source text deliberately turns that draft into

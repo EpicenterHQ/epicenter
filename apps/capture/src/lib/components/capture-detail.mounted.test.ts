@@ -142,7 +142,7 @@ test('two mounted capture views update each other and an intentional revert is s
 		type(a, 'one\nTWO');
 		flushSync();
 		expect(b.value).toBe('one\nTWO');
-		blur(a);
+		await harness.folder.files.edit(PATH).save();
 		await settle(harness);
 		expect(await harness.text(PATH)).toBe(saved('one\nTWO'));
 	} finally {
@@ -152,7 +152,7 @@ test('two mounted capture views update each other and an intentional revert is s
 });
 
 test("another tab's change never replaces typing held here, and the save merges with it", async () => {
-	// Typing waits for its pause, or for the person to leave the text box.
+	// Hold typing until the foreign change has arrived, then save the merge.
 	const harness = await setup({ [PATH]: FILE }, 'capture', {
 		saveAfterMs: 60_000,
 	});
@@ -167,7 +167,7 @@ test("another tab's change never replaces typing held here, and the save merges 
 	expect(field('capture-text')?.value).toBe('Mine');
 	expect(harness.target.textContent).not.toContain('theirs');
 
-	blur(field('capture-text'));
+	await harness.folder.files.edit(PATH).save();
 	await settle(harness);
 	expect(field('capture-text')?.value).toBe('Mine');
 	expect(harness.target.textContent).toContain('theirs');
@@ -202,15 +202,13 @@ test('failed row input stays copyable in the text view after switching and forei
 	const restore = harness.failSaves();
 	type(field('capture-text'), 'Kept row input');
 	blur(field('capture-text'));
-	await until(
-		() => harness.folder.files.edit(PATH).getPending()?.error !== undefined,
-		'the failed row save',
-	);
+	expect(harness.folder.files.edit(PATH).getPending()?.saving).toBe(false);
 	await harness.captures.open('one', 'text');
 	flushSync();
+	expect(harness.folder.files.edit(PATH).getPending()?.saving).toBe(false);
 	await until(
 		() => harness.folder.files.edit(PATH).getPending()?.error !== undefined,
-		'the failed save when leaving the row view',
+		'the failed autosave after leaving the row view',
 	);
 	restore();
 	let copied: string | undefined;

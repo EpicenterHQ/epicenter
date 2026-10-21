@@ -7,8 +7,7 @@
  * transformations pages do, under the library's query client.
  *
  * Key behaviors:
- * - typing in a view edits the path it shows, and writes it once the person
- *   leaves the field
+ * - typing in a view edits the path it shows, and autosaves after a pause
  * - a change made elsewhere shows once the folder reports it
  * - typing over a change made elsewhere merges with it, and the typing wins
  *   where both changed; typing into a recording deleted elsewhere brings it
@@ -37,7 +36,7 @@ import { quiet } from '../../lib/query.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
 
 // Load the services after the mounted loader registered its plugin.
-const { openGatedTestFolder, openTestServices, whisperingDirectory } =
+const { openGatedTestFolder, openTestServices, whisperingDirectory, eventually } =
 	await import('../../lib/services.test-support.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTestWhispering } = await import('../../lib/library.test-support.js');
@@ -129,6 +128,10 @@ async function show(library: Library, path: string) {
 
 /** Let writes and the views settle. */
 async function settle(library: Library) {
+	await eventually(() => library.local.folder.getStatus().unsaved.every((path) => {
+		const pending = library.local.folder.files.edit(path).getPending();
+		return pending === undefined || (!pending.saving && pending.error !== undefined);
+	}));
 	await quiet(library);
 	flushSync();
 }
@@ -255,9 +258,10 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha.\n'));
 });
 
-test('typing in a transcript’s view edits the path it shows, and writes it', async () => {
+test('a transcript autosaves to its own path after switching files', async () => {
 	const { library, target, notices, root } = await open({
 		[A]: transcript('Alpha.\n'),
+		'other.txt': 'Another file',
 	});
 	await show(library, A);
 	const body = field<HTMLTextAreaElement>(
@@ -270,12 +274,17 @@ test('typing in a transcript’s view edits the path it shows, and writes it', a
 	flushSync();
 	expect(writeStatus(target)).toBe('Saving…');
 	leave(body);
+	expect(library.local.folder.files.edit(A).getPending()?.saving).toBe(false);
+	await show(library, 'other.txt');
+	expect(library.local.folder.files.edit(A).getPending()?.saving).toBe(false);
 	await settle(library);
 
 	expect(notices).toEqual([]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith(
 		'---\nAlpha, typed.\n',
 	);
+	expect(await readFile(join(root, 'other.txt'), 'utf8')).toBe('Another file');
+	await show(library, A);
 	expect(writeStatus(target)).toBe('Saved');
 });
 

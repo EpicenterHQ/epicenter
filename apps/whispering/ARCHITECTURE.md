@@ -561,7 +561,8 @@ the Svelte edits expose tracked properties over its read methods. A read never r
   Each view keeps one adapter for its address, including when it switches
   between fields and Source. Autosave policy is configured when opening Folder.
   Folder owns one document, input, save ordering, and failure per physical path.
-  Switching views requires no save or refresh. A mounted Source control keeps
+  Switching views requires no save or refresh; the owner’s autosave timer
+  continues after blur or unmount. FolderApp handles page-hidden and close saves. A mounted Source control keeps
   Source selected through external repairs until the person returns to fields. Failed input and recovery remain
   available even if the saved file can no longer be interpreted.
 - **A failed save** keeps the typing. The file's status line says **Not

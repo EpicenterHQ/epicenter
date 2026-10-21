@@ -1,7 +1,7 @@
 <!--
 	One transformation: its instructions, model, results, and a place to try
-	it. The folder's row edit holds title, model and instructions together;
-	its text edit holds source input. They save after a pause and merge with
+	it. One folder edit holds title, model, instructions, and source input.
+	It saves after a pause, even after this view leaves, and merges with
 	changes saved elsewhere. Run sends what is typed first.
 -->
 <script lang="ts">
@@ -26,7 +26,7 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { onDestroy, tick } from 'svelte';
+	import { tick } from 'svelte';
 	import { rowIdOf, TRANSFORMATIONS } from '$lib/definition.js';
 	import type { TransformationEntry } from '$lib/library.svelte.js';
 	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
@@ -52,9 +52,7 @@
 	const { library, view } = getWhispering();
 
 	const asText = $derived(library.showsText(path));
-	// The parent keys this view by the file. While it replaces the view, the
-	// prop already reads the next file, so what is sent as the view goes away
-	// uses this one.
+	// The parent keys this view by the file; keep its original path.
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	/**
@@ -78,8 +76,6 @@
 	/** The current source as a row, including unsaved input and its issues. */
 	const sourceRow = $derived(asText ? fileEdit.markdown : undefined);
 	const issues = $derived(sourceRow?.issues ?? undefined);
-	// The edits outlive the view; send now.
-	onDestroy(() => void fileEdit.save());
 
 	/** Either view resolves the same current recipe, including unsaved input. */
 	const recipe = $derived(
@@ -232,7 +228,6 @@
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={() => shown.fields.title, (value) => fileEdit.change({ fields: { title: value } })}
-				onblur={() => void fileEdit.save()}
 				disabled={fileEdit.locked}
 				placeholder="Title"
 				aria-label="Transformation title"
@@ -305,7 +300,6 @@
 								() => shown.body,
 								(value) => fileEdit.change({ body: value })
 							}
-						onblur={() => void fileEdit.save()}
 							disabled={fileEdit.locked}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
@@ -341,7 +335,6 @@
 											fileEdit.change({ fields: { model: value.trim() === '' ? null : value } });
 										}
 									}
-									onblur={() => void fileEdit.save()}
 									disabled={fileEdit.locked}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
@@ -512,7 +505,6 @@
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
 					{@attach () => { library.editSource(path); }}
-					onblur={() => void fileEdit.save()}
 					disabled={fileEdit.locked}
 					aria-label="Markdown source"
 					spellcheck={false}

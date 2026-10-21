@@ -82,8 +82,8 @@ are not text are listed apart and not opened.
   the page reads from the folder never replaces it, and a failed reread never
   shows the capture older than your last save; another writer's lines merge
   in when your edit saves. A thought you add, delete, or move is saved at
-  once. The capture text is saved a second after you stop typing, when you
-  leave the text box, and when you open something else. Saves of one
+  once. The capture text is saved a second after you stop typing, even after you
+  open something else. Saves of one
   capture run one at a time, and what you typed while one ran goes in the
   next.
 - The capture view edits text and thoughts; each change is checked to read
@@ -103,8 +103,7 @@ are not text are listed apart and not opened.
 - A save writes the row with only its body replaced: frontmatter keys
   Capture does not declare, and their spelling, stay.
 - Edit as text saves the whole text over the file it started from, a second
-  after you stop typing, when you leave the text box, and when you open
-  something else, valid or not, and keeps the file's line endings. It merges
+  after you stop typing, even after you open something else, valid or not, and keeps the file's line endings. It merges
   with a change another tab saved since, the same way. What keeps the file
   from reading as a capture is checked against the current edit as you type.
   Open as capture switches views when that edit reads as a capture, without

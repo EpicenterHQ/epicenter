@@ -7,7 +7,7 @@
  * bytes waits for the test to let it land or refuse it as a full disk would.
  *
  * Key behaviors:
- * - Choosing another file sends what was typed; a save that fails keeps it,
+ * - Autosave continues after choosing another file; a save that fails keeps input,
  *   the tree marks the file, and the header names it
  * - Choosing the file again shows the typing and why it did not save; Try
  *   again saves it, and the mark goes
@@ -523,7 +523,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 				'the mark',
 			);
 
-			// Choosing another file sends what was typed, which fails.
+			// Autosave continues after choosing another file, then fails.
 			press(file('b.md'));
 			await until(() => held.length === 1, 'the save');
 			expect(held[0]!.path).toBe('a.md');

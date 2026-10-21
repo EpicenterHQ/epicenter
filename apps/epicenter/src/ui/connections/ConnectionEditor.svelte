@@ -4,7 +4,6 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { onDestroy } from 'svelte';
 	import { commands } from '../bindings.gen';
 	import {
 		type Connection,
@@ -19,8 +18,8 @@
 	 * One AI connection: its row in `so.epicenter`, whose title and model are
 	 * edited in place through the folder's edit of the row
 	 * (`createFileEdit(folder.tables.connections.edit(id))`): what is typed shows at
-	 * once and saves a second after the last keystroke, when the field loses
-	 * focus, and when the editor goes away, merged with whatever was saved
+	 * once and saves a second after the last keystroke, even after the editor
+	 * goes away, merged with whatever was saved
 	 * meanwhile (ADR-0576). For an `openai-compatible` connection, the
 	 * endpoint and key this computer keeps for it are in the keychain
 	 * (ADR-0557). The page hands a key to the keychain and never reads one
@@ -46,9 +45,6 @@
 	const pending = $derived(fileEdit.pending);
 	const failure = $derived(pending?.saving ? undefined : pending?.error);
 	const client = useQueryClient();
-
-	// The input outlives the editor; send what is typed now.
-	onDestroy(() => void fileEdit.save());
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -126,7 +122,6 @@
 				disabled={fileEdit.locked}
 				aria-invalid={pending?.error !== undefined}
 				oninput={(event) => type('title', event.currentTarget.value)}
-				onblur={() => void fileEdit.save()}
 			/>
 		</label>
 		<label class="grid gap-1">
@@ -137,7 +132,6 @@
 				disabled={fileEdit.locked}
 				aria-invalid={pending?.error !== undefined}
 				oninput={(event) => type('model', event.currentTarget.value)}
-				onblur={() => void fileEdit.save()}
 			/>
 		</label>
 	</div>

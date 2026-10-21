@@ -1,8 +1,8 @@
 <!--
 	A file opened beside the recordings. A transcript that reads shows its
 	body, edited as a row. Any other text file, and a row file shown as text,
-	shows its exact text from its own query. An edit holds the version it
-	started from and is written at once, one write at a time for this file.
+	shows its exact editable text. The folder retains input and autosaves
+	after a pause, even after this view leaves, one write at a time for this file.
 -->
 <script lang="ts">
 	import { getWhispering } from '$lib/whispering.svelte.js';
@@ -22,7 +22,6 @@
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
 	import { toast } from '@epicenter/ui/sonner';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { onDestroy } from 'svelte';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
 	import { type Library, rowTableOf } from '$lib/library.svelte.js';
@@ -46,8 +45,6 @@
 	// The parent keys this view by the file; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
 	const own = path;
-	// The library's timers outlive the view; send what is typed now instead.
-	onDestroy(() => void fileEdit.save());
 	const table = $derived(rowTableOf(path));
 	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
 	const asText = $derived(!audio && library.showsText(path));
@@ -158,7 +155,6 @@
 					() => row.body,
 					(value) => fileEdit.change({ body: value })
 				}
-				onblur={() => void fileEdit.save()}
 				disabled={fileEdit.locked}
 				aria-label="Contents of {name}"
 			/>
@@ -194,7 +190,6 @@
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
 				bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
 				{@attach () => { library.editSource(path); }}
-				onblur={() => void fileEdit.save()}
 				disabled={fileEdit.locked}
 				aria-label="Contents of {name}"
 				spellcheck={false}

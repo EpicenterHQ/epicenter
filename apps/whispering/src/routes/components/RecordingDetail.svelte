@@ -1,9 +1,8 @@
 <!--
 	One recording: its audio, transcripts, notes, and source. The folder's
 	row edit holds title and notes together, saves after a pause, and merges
-	with changes saved elsewhere. Leaving sends the held input. A recording
-	deleted elsewhere is never written again: what was typed is reported as
-	not saved, and the view closes.
+	with changes saved elsewhere. Input and autosave outlive this view.
+	Saving an edit to a recording deleted elsewhere restores its Markdown file.
 -->
 <script lang="ts">
 	import { getWhispering } from '$lib/whispering.svelte.js';
@@ -24,7 +23,6 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { onDestroy } from 'svelte';
 	import { RECORDINGS, rowIdOf } from '$lib/definition.js';
 	import type { RecordingEntry } from '$lib/library.svelte.js';
 	import AudioAbsent from './AudioAbsent.svelte';
@@ -57,9 +55,7 @@
 	 * kept, one press away, under File details.
 	 */
 	const asText = $derived(library.showsText(path));
-	// The parent keys this view by the file. While it replaces the view, the
-	// prop already reads the next file, so what is sent as the view goes away
-	// uses this one.
+	// The parent keys this view by the file; keep its original path.
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	/**
@@ -86,8 +82,6 @@
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 	const pending = $derived(fileEdit.pending);
 
-	// The edits outlive the view; send what is typed now.
-	onDestroy(() => void fileEdit.save());
 	const results = $derived(library.resultsFor(id));
 	const run = $derived(library.transcriptionRun(id));
 	/** Playback requires one unambiguous audio file. */
@@ -119,7 +113,6 @@
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={() => shown.fields.title, (value) => fileEdit.change({ fields: { title: value } })}
-				onblur={() => void fileEdit.save()}
 				disabled={fileEdit.locked}
 				placeholder="Title"
 				aria-label="Recording title"
@@ -224,7 +217,6 @@
 							() => shown.body,
 							(value) => fileEdit.change({ body: value })
 						}
-						onblur={() => void fileEdit.save()}
 						disabled={fileEdit.locked}
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
@@ -288,7 +280,6 @@
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
 					{@attach () => { library.editSource(path); }}
-					onblur={() => void fileEdit.save()}
 					disabled={fileEdit.locked}
 					aria-label="Markdown source"
 					spellcheck={false}

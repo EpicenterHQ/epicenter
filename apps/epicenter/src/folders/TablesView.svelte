@@ -435,7 +435,6 @@
 													} });
 												}
 											}
-											onblur={() => void fileEdit.save()}
 										/>
 									{:else}<span class="font-mono text-xs"
 											>{display(fieldValue(shown.fields, column))}</span

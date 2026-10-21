@@ -9,8 +9,7 @@
  *
  * Key behaviors:
  * - The note is editable at once and saved after the pause that follows the
- *   last keystroke, or at once when the learner leaves it or the card goes
- *   away
+ *   last keystroke, even after the card goes away
  * - The typed note survives the list being read again before it is saved
  * - A stage press is saved at once, and keeps a note typed meanwhile
  * - A save that fails keeps the note on screen and says why, and Try again
@@ -76,6 +75,12 @@ async function setup(text: string, { saveAfterMs = 60 } = {}) {
 		target,
 		props: { client: vocab.queryClient, card: props },
 	});
+	let mounted = true;
+	async function leaveCard() {
+		if (!mounted) return;
+		mounted = false;
+		await unmount(card);
+	}
 	flushSync();
 	const id = props.entry.id;
 	const note = () =>
@@ -88,7 +93,7 @@ async function setup(text: string, { saveAfterMs = 60 } = {}) {
 		target,
 		note,
 		/** Take the card away, as the list does when the word leaves it. */
-		unmount: () => void unmount(card),
+		unmount: leaveCard,
 		/** The word's fields as its file holds them, or `undefined` when it is gone. */
 		saved: async () => expectOk(await folder.tables.entries.get(id))?.fields,
 		/** Every save fails, as a full browser store answers, until `restore` is called. */
@@ -103,7 +108,7 @@ async function setup(text: string, { saveAfterMs = 60 } = {}) {
 		},
 		async [Symbol.asyncDispose]() {
 			confirmationDialog.close();
-			void unmount(card);
+			await leaveCard();
 			unsubscribe();
 			target.remove();
 			await opened[Symbol.asyncDispose]();
@@ -132,18 +137,17 @@ test('the note is editable at once, and saved after a pause in typing', async ()
 	expect((await context.saved())?.note).toBe('clear');
 });
 
-test('leaving the note saves it at once, and so does the card going away', async () => {
-	await using context = await setup('lucid', { saveAfterMs: 60_000 });
+test('blur and leaving the card keep the owner’s autosave timer', async () => {
+	await using context = await setup('lucid', { saveAfterMs: 100 });
 	type(context.note(), 'left');
 	blur(context.note());
+	expect(held(context)?.saving).toBe(false);
+	await context.unmount();
+	expect(held(context)?.saving).toBe(false);
+	expect((await context.saved())?.note).toBe('');
+	await until(() => held(context) === undefined, 'autosave after leaving the card');
 	await quiet(context.vocab);
 	expect((await context.saved())?.note).toBe('left');
-
-	type(context.note(), 'gone');
-	flushSync();
-	context.unmount();
-	await quiet(context.vocab);
-	expect((await context.saved())?.note).toBe('gone');
 });
 
 test('the typed note survives the list being read again before it is saved', async () => {
@@ -153,7 +157,7 @@ test('the typed note survives the list being read again before it is saved', asy
 	await quiet(context.vocab);
 	flushSync();
 	expect(context.note()?.value).toBe('mine');
-	blur(context.note());
+	await context.folder.tables.entries.edit(cached(context.vocab, 'lucid').id).save();
 	await quiet(context.vocab);
 	expect((await context.saved())?.note).toBe('mine');
 });
@@ -179,7 +183,7 @@ test('a stage press is saved at once, and keeps a note typed meanwhile', async (
 });
 
 test('a save that fails keeps the note on screen and says why, and Try again saves it', async () => {
-	await using context = await setup('lucid', { saveAfterMs: 60_000 });
+	await using context = await setup('lucid');
 	const restore = context.failSaves();
 	type(context.note(), 'kept');
 	blur(context.note());

@@ -1,8 +1,8 @@
 <!--
 	One capture file as its exact Markdown, frontmatter included: the folder's
 	edit of the file. Typing is held over it and saved a second
-	after the last keystroke, when the person leaves the text, and when this
-	view goes away, valid or not, so a file that is not a valid capture is
+	after the last keystroke, even after this view goes away, valid or not,
+	so a file that is not a valid capture is
 	repaired here. Each save merges with whatever was saved meanwhile.
 
 	What keeps the file from reading as a capture follows the current edit,
@@ -23,7 +23,7 @@
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { onDestroy, untrack } from 'svelte';
+	import { untrack } from 'svelte';
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import { type Captures, capturePath, describeFailure, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
@@ -66,8 +66,6 @@
 		node.focus();
 		node.setSelectionRange(selection.start, selection.end);
 	}
-	// The text saves after a pause, and outlives the view; send it now.
-	onDestroy(() => void fileEdit.save());
 	/** Poll this edit's file while shown, including changes made outside this page. */
 	createQuery(() => captures.readQuery(fileEdit));
 
@@ -177,7 +175,6 @@
 				event.preventDefault();
 				finish();
 			}}
-			onblur={() => void fileEdit.save()}
 			{@attach selectThought}
 		/>
 		{#if refusal}<p role="alert" class="text-sm text-destructive">{refusal} Your previous text is kept.</p>{/if}

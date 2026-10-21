@@ -14,14 +14,13 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ResultStatus from './ResultStatus.svelte';
 	import SaveStatus from './SaveStatus.svelte';
-	import { onDestroy } from 'svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
 	/**
 	 * One transcript of the recording that is open, edited where it is read,
 	 * beside the player. Its text is the body of the transcript's own file,
 	 * edited from the version it started at and saved a second after the last
-	 * keystroke, when the person leaves it, and when the card goes away.
+	 * keystroke, even after the card goes away.
 	 * A transcript whose answer has not reached its file says why instead, and
 	 * is not edited while its answer is on its way. Nothing here selects the
 	 * transcript's file, so the recording stays open.
@@ -34,8 +33,6 @@
 	// The list keys each card by its file; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
 	const own = result.path;
-	// The library's timer outlives the card; send what is typed now instead.
-	onDestroy(() => void fileEdit.save());
 
 	/** Edited here unless the person opened its file as text in Files. */
 	const asText = $derived(library.showsText(result.path));
@@ -86,7 +83,6 @@
 				() => shown.body,
 				(value) => fileEdit.change({ body: value })
 			}
-			onblur={() => void fileEdit.save()}
 			disabled={fileEdit.locked}
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"

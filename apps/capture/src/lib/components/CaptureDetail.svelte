@@ -3,7 +3,7 @@
 	row, the capture as stored with what is typed over it, which the
 	timeline's reads keep current too, so the two never disagree. A thought
 	command saves at once; the capture text saves a second after the last
-	keystroke, when the person leaves it, and when this view goes away. "Edit
+	keystroke, even after this view goes away. "Edit
 	as text" opens the file's exact Markdown instead, for the whole capture or
 	one thought. A thought not added yet is this view's input: leaving the
 	capture clears it. The parent keys this view by the capture.
@@ -24,7 +24,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { onDestroy, tick, untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { createCaptureActions } from '$lib/capture-actions.svelte.js';
 	import { type Captures, capturePath, describeFailure, instantOf, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
@@ -52,9 +52,6 @@
 	const status = $derived(fileEdit.readStatus);
 	const stored = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown : undefined);
 	const pending = $derived(fileEdit.pending);
-	// The capture text typed saves after a pause, and when the person leaves
-	// it; the edit outlives the view, so send it now.
-	onDestroy(() => void fileEdit.save());
 	/** The body as text and thoughts, or why it cannot be edited here. */
 	const reading = $derived(stored === undefined ? undefined : readCaptureBody(stored));
 	const text = $derived(reading?.data?.text ?? '');
@@ -290,7 +287,6 @@
 					id="capture-text"
 					readonly={locked}
 					bind:value={() => text, (typed) => actions.inputText(typed)}
-					onblur={() => void fileEdit.save()}
 					rows={rowsFor(text)}
 					class="max-h-96 resize-y leading-relaxed"
 					placeholder="Write here…"

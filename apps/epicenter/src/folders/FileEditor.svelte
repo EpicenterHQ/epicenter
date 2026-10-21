@@ -3,7 +3,6 @@
 	import { getFolder } from './context.js';
 	import { Button } from '@epicenter/ui/button';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { onDestroy } from 'svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
@@ -12,8 +11,8 @@
 	/**
 	 * One file of the window's folder, edited as the exact text it holds.
 	 * What is typed is held by the folder (`folder.files.edit(path)`), not by
-	 * this editor: it saves a second after the last keystroke, when the box
-	 * loses focus, and when the editor goes away, and choosing the file again
+	 * this editor: it saves a second after the last keystroke, even after
+	 * the editor goes away, and choosing the file again
 	 * shows it. The folder merges each save, by line, with whatever else was
 	 * saved meanwhile, so lines another window or agent changed stay. A
 	 * reread never replaces what is typed. A failed save keeps the typing and
@@ -25,8 +24,7 @@
 
 	const { folder, queries } = getFolder();
 
-	// The view keys this editor by its file; while it replaces one, the prop
-	// may already read the next file, so a save sent as it goes uses this.
+	// The view keys this editor by its file; keep its original path.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
 
@@ -66,9 +64,6 @@
 	let refusal = $state<string>();
 	/** The text box's text: one line feed per line, as a text box holds it. */
 	const boxText = $derived(text?.replaceAll('\r\n', '\n') ?? '');
-
-	// The input outlives the editor; send what is typed now.
-	onDestroy(() => void fileEdit.save());
 </script>
 
 <section class="flex min-h-0 flex-1 flex-col" aria-label={path}>
@@ -143,7 +138,6 @@
 				const { error } = fileEdit.replaceText(withFileNewlines(value, text ?? ''));
 				refusal = error?.message;
 			}}
-			onblur={() => void fileEdit.save()}
 		/>
 	{/if}
 </section>

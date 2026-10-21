@@ -1,15 +1,16 @@
 <!--
 	A word file that is not a valid word, open as its exact text. What is
 	typed is held by the file's text edit handle, written a second after the last
-	keystroke, when the learner leaves the text, when the page is hidden, and
-	when the card goes away. The problems shown are the current document's, including unsaved changes. Once that document is a valid word, "Show note
+	keystroke, even after the card goes away. FolderApp sends pending input
+	when the page is hidden. The problems shown are the current document's,
+	including unsaved changes. Once that document is a valid word, "Show note
 	and stage" closes the repair and the list shows it as a word.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { onDestroy, untrack } from 'svelte';
+	import { untrack } from 'svelte';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { rowPath } from '$lib/data.js';
 	import type { Entries } from '$lib/entries.svelte.js';
@@ -26,15 +27,7 @@
 	const pending = $derived(fileEdit?.pending);
 	const unsaved = $derived(pending === undefined ? undefined : unsavedText(pending));
 	const notText = $derived(status?.known === 'not-text');
-	// The text outlives the card; send what is typed now.
-	onDestroy(() => void fileEdit?.save());
 </script>
-
-<svelte:document
-	onvisibilitychange={() => {
-		if (document.visibilityState === 'hidden') void fileEdit?.save();
-	}}
-/>
 
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
 	{#if fileEdit?.markdown && !notText}
@@ -51,7 +44,6 @@
 					class="min-h-32 font-mono text-xs"
 					aria-label="File text for {path}"
 					bind:value={() => text, (next) => fileEdit.replaceText(next)}
-					onblur={() => void fileEdit?.save()}
 				/>
 			{/if}
 		{/if}
