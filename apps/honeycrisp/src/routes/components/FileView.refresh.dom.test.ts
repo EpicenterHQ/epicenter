@@ -1,16 +1,17 @@
 /**
  * File editing during cache refresh. Background reads keep the existing text
  * editable; failed exact-source input stays visible after the saved file is
- * replaced by binary content. The mounted view uses real IndexedDB storage.
+ * replaced by binary content. Failed row input stays available when its file
+ * disappears. The mounted view uses real IndexedDB storage.
  */
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { ReadError } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
-import { type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { click, type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 const { flushSync, mount, unmount } = await import('svelte');
-const { openNotes, quiet, until } = await import(
+const { openNotes, noteText, quiet, until } = await import(
 	'../../lib/local.test-support.ts'
 );
 const FileView = (await import('./FileView.svelte')).default;
@@ -20,10 +21,10 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 	document.body.replaceChildren();
 });
-async function open() {
+async function open(path = 'draft.txt', content = 'Original text') {
 	const fixture = await openNotes();
-	await fixture.write('draft.txt', 'Original text');
-	fixture.observe('draft.txt');
+	await fixture.write(path, content);
+	fixture.observe(path);
 	await quiet(fixture.notes);
 	const target = document.createElement('main');
 	document.body.append(target);
@@ -32,7 +33,7 @@ async function open() {
 		props: {
 			client: fixture.notes.queryClient,
 			component: FileView as never,
-			props: { notes: fixture.notes, path: 'draft.txt' },
+			props: { notes: fixture.notes, path },
 		},
 	});
 	cleanups.push(async () => {
@@ -41,11 +42,11 @@ async function open() {
 	});
 	const input = () =>
 		target.querySelector<HTMLTextAreaElement>(
-			'textarea[aria-label="Contents of draft.txt"]',
+			`textarea[aria-label="Contents of ${path.split('/').at(-1)}"]`,
 		);
 	await until(() => {
 		flushSync();
-		return input()?.value === 'Original text';
+		return input()?.value === content;
 	}, 'the file editor');
 	return { ...fixture, target, input };
 }
@@ -131,4 +132,27 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
 	expect(notes.folder.files.edit('draft.txt').getPending()).toMatchObject({ kind: 'text', text: 'Keep this unsaved text' });
+});
+
+test('failed row changes remain available in Files after another tab deletes the note, and retry restores them', async () => {
+	const path = 'notes/a.md';
+	const { notes, folder, otherTab, failSaves, local, target, text } = await open(path, noteText());
+	notes.noteBody(path).change({ body: 'Keep my row changes\n' });
+	failSaves();
+	await folder.files.edit(path).save();
+	failSaves(false);
+	const other = await otherTab();
+	const stored = expectOk(await other.files.read(path))!;
+	expectOk(await other.files.delete(path, new Uint8Array(await stored.content.arrayBuffer())));
+	await local.refresh([path]);
+	await until(() => {
+		flushSync();
+		return folder.files.edit(path).getReadStatus().known === 'missing';
+	}, 'the missing note');
+	expect(target.querySelector('[aria-label="Unsaved note changes"]')?.textContent).toContain('Keep my row changes');
+	expect(target.textContent).toContain('Save again');
+	expect(target.textContent).toContain('Discard changes');
+	click(target, 'Save again');
+	await until(() => folder.files.edit(path).getPending() === undefined, 'the explicit retry');
+	expect(await text(path)).toContain('Keep my row changes');
 });

@@ -110,16 +110,16 @@
 		</Button>
 	</div>
 
+	{#if pending?.error !== undefined && (text === undefined || pending.kind !== 'text')}
+		<div class="space-y-2 p-4" role="status">
+			<p>These changes have not saved. If they cannot be applied to this file, copy them before discarding.</p>
+			<pre class="max-h-40 overflow-auto whitespace-pre-wrap" aria-label="Unsaved note changes">{unsavedText(pending)}</pre>
+			<Button disabled={locked} onclick={() => void textEdit.retry()}>Save again</Button>
+			<Button variant="outline" disabled={locked} onclick={() => textEdit.discard()}>Discard changes</Button>
+		</div>
+	{/if}
 	{#if text !== undefined}
 		{@const shown = text}
-		{#if pending?.error !== undefined && pending.kind !== 'text'}
-			<div class="space-y-2 p-4" role="status">
-				<p>These changes have not saved. If they cannot be applied to this file, copy them before discarding.</p>
-				<pre class="max-h-40 overflow-auto whitespace-pre-wrap" aria-label="Unsaved note changes">{unsavedText(pending)}</pre>
-				<Button disabled={locked} onclick={() => void textEdit.retry()}>Save again</Button>
-				<Button variant="outline" disabled={locked} onclick={() => textEdit.discard()}>Discard changes</Button>
-			</div>
-		{/if}
 		{#if file.isError}
 			<p class="px-4 py-2 text-sm" role="alert">Could not read the saved file: {file.error.message} <Button variant="link" size="xs" onclick={() => void file.refetch()}>Try again</Button></p>
 		{/if}
