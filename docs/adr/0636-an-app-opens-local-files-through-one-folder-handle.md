@@ -1,6 +1,7 @@
 # 0636. An app opens local files through one folder handle
 
 - **Status:** Accepted
+- **Amended by:** [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) at the standalone native default: authored work defaults to a child of the Epicenter root, while AppData holds app-managed local state.
 - **Date:** 2026-10-19
 - **Amended by:** [ADR-0643](0643-the-folder-package-owns-its-local-engine.md) at implementation ownership: the shared engine belongs inside `@epicenter/folder`, with one public `Folder` type and no enduring `@epicenter/data` package.
 - **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) only at requiring authored data beneath the Epicenter root: a standalone app may default to a durable directory inside its own app data; [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) only at the public `Folder` handle: it names rooted file paths, while a directory remains a physical filesystem location; [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at the planned `@epicenter/data` `open` and `Repository` app surface; and [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) at how each runtime selects local data independently of its remote.
