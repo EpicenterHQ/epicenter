@@ -158,21 +158,28 @@ that decision, not a demand for unanimity or proof that no better design exists.
 
 ## Reconstruct before judging
 
-Trace the affected design through its entrypoints, callers, owners, lifecycle,
-and invariants. Include earlier implementation waves and relevant unchanged
-consumers. Expand only far enough to establish the owner and consequences;
-this is not a repository-wide audit.
+Start from the desired outcome and actual use. Map the concepts, operations,
+callers, ownership, and lifetimes someone must understand. Show where information
+lives, how it moves, and which relationships require coordination. Choose a
+representation that exposes those relationships; a file list alone is
+insufficient.
 
-For implemented code, apply
-[post-implementation-review](../post-implementation-review/SKILL.md)'s inspection
-passes in review-only mode: first read, mental inlining, ownership, smells,
-invariants, API shape, naming, and file organization. Those passes supply the
-files-read tree and code inspection; reuse them rather than repeating
-reconstruction. This does not initiate another independent review or authorize
-implementation.
+Mentally inline helpers, wrappers, components, props, extracted types, and
+forwarding layers into their consumers. Read the resulting behavior afresh.
+Which boundaries explain necessary work, and which merely preserve an earlier
+arrangement?
 
-For a proposal, list every file read as an ASCII tree before analysis. Trace
-actual consumers and mentally inline boundaries to understand the design.
+Investigate rather than relying on the presented diff. Search for callers, dead
+paths, mirrored state, repeated decisions, compatibility branches, and related
+implementations. Trace findings through construction, reads, writes, and cleanup.
+Use search matches as leads, not proof that something should disappear.
+
+Challenge the guarantees themselves. Who needs each promise, what does it
+enable, and what machinery does it require? Develop alternatives that remove,
+narrow, or replace promises as well as implementations. Show the resulting
+caller experience, complexity introduced and removed, and any user loss or
+obligation. Changes to explicit requirements remain proposals for the user's
+judgment.
 
 ## Find the deletion prize
 
@@ -298,8 +305,9 @@ Explain accepted findings before editing.
 Implement and verify repairs within existing authorization; bring changes to
 the accepted outcome or unresolved product judgment to the user.
 
-After repairs, apply [post-implementation-review](../post-implementation-review/SKILL.md#output-shape)'s
-local post-edit checks to every repaired file before closing the review.
+After repairs, apply [post-implementation-review](../post-implementation-review/SKILL.md#verify)'s
+verification guidance to the repaired files and their callers before closing
+the review.
 
 When executing a plan, rewrite remaining work around the resulting design and
 delete obsolete tasks. Record consequential findings and decisions in the active
