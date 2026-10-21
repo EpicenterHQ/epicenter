@@ -29,6 +29,11 @@ native capture and inference through `#platform/services`.
 Product shutdown registers recording finalization and accepted workflow writes
 before FolderApp closes storage. Route changes retain the same product state.
 
+Product-specific components read that mounted instance with `getWhispering()`
+during initialization. Props select files or supply UI actions. Transformation
+input stays in `whispering.view`, so closing an editor or switching pages keeps
+it without parent bindings.
+
 ## The data folder
 
 ```text

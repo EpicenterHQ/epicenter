@@ -7,17 +7,18 @@
 <script lang="ts">
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
-	import type { Library } from '$lib/library.svelte.js';
+	import { setWhispering, type Whispering } from '$lib/whispering.svelte.js';
 	import { setFolder } from '$lib/folder.js';
 	import FileView from '../FileView.svelte';
 	import RecordingDetail from '../RecordingDetail.svelte';
 	import TransformationDetail from '../TransformationDetail.svelte';
 
-	let { library, page }: { library: Library; page: { shown: boolean; tab: 'recordings' | 'transformations' } } =
+	let { whispering, page }: { whispering: Whispering; page: { shown: boolean; tab: 'recordings' | 'transformations' } } =
 		$props();
-	let applyTo = $state<string | undefined>();
-	let applySource = $state<'transcript' | 'pasted'>('transcript');
-	let pastedText = $state('');
+	// svelte-ignore state_referenced_locally
+	setWhispering(whispering);
+	// svelte-ignore state_referenced_locally
+	const { library } = whispering;
 	// The test mounts the same opened context as the product root.
 	// svelte-ignore state_referenced_locally
 	setFolder(library.local);
@@ -29,11 +30,11 @@
 		{@const selection = library.selection}
 		{#if selection?.kind === 'recording'}
 			{#key selection.path}
-				<RecordingDetail {library} path={selection.path} entry={selection.entry} />
+				<RecordingDetail path={selection.path} entry={selection.entry} />
 			{/key}
 		{:else if selection?.kind === 'file'}
 			{#key selection.path}
-				<FileView {library} path={selection.path} />
+				<FileView path={selection.path} />
 			{/key}
 		{/if}
 	{:else if page.shown && page.tab === 'transformations'}
@@ -41,12 +42,8 @@
 		{#if selected}
 			{#key selected.path}
 				<TransformationDetail
-					{library}
 					path={selected.path}
 					entry={selected.entry}
-					bind:applyTo
-					bind:applySource
-					bind:pastedText
 					onOpenFile={() => {}}
 				/>
 			{/key}

@@ -32,7 +32,7 @@ import { ReadError } from '@epicenter/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import type { Library } from '../../lib/library.svelte.js';
-import { closeTestLibrary } from '../../lib/library.test-support.js';
+import { closeTestWhispering } from '../../lib/library.test-support.js';
 import { quiet } from '../../lib/query.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
 
@@ -40,7 +40,7 @@ import { leave, type } from '../svelte-dom.test-support.js';
 const { openGatedTestFolder, openTestServices, whisperingDirectory } =
 	await import('../../lib/services.test-support.js');
 const { flushSync, mount, unmount } = await import('svelte');
-const { createTestLibrary } = await import('../../lib/library.test-support.js');
+const { createTestWhispering } = await import('../../lib/library.test-support.js');
 const { pageState } = await import('../page-state.test-support.svelte.js');
 const Host = (await import('./test-fixtures/SelectionHost.svelte')).default;
 
@@ -101,21 +101,22 @@ async function open(
 	});
 	for (const [path, text] of Object.entries(files))
 		await Bun.write(join(root, path), text);
-	const library = await createTestLibrary(stubs);
-	await library.start();
+	const whispering = await createTestWhispering(stubs);
+	await whispering.start();
+	const { library } = whispering;
 	const notices: WriteFailure[] = [];
 	library.onWriteFailure((notice) => notices.push(notice));
 	const page = pageState({ shown: true, tab });
 	const target = document.createElement('main');
 	document.body.append(target);
-	const host = mount(Host, { target, props: { library, page } });
+	const host = mount(Host, { target, props: { whispering, page } });
 	cleanups.push(async () => {
 		unmount(host);
-		await closeTestLibrary(library);
+		await closeTestWhispering(whispering);
 		await stubs.remove();
 		await rm(dirname(root), { recursive: true, force: true });
 	});
-	return { library, page, target, notices, root, disk };
+	return { whispering, library, page, target, notices, root, disk };
 }
 
 /** Select a file and let the views render it, with any text they read. */
@@ -761,4 +762,52 @@ test('a Source control remains mounted after external repair and keeps failed in
 	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBeNull();
 	expect(field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]')?.value).toContain('Failed instructions');
 	disk.refusing = false;
+});
+
+test('transformation controls share the mounted app state across remounts and isolate another app', async () => {
+	const files = { [RECIPE]: '---\ntitle: Clean up\n---\nTidy.\n' };
+	const first = await open(files, 'transformations');
+	await show(first.library, RECIPE);
+	const { view } = first.whispering;
+	view.applyTo = 'transcriptions/a.md';
+	view.applySource = 'pasted';
+	field<HTMLButtonElement>(first.target, '[data-testid="tab-try"]')!.click();
+	flushSync();
+	type(
+		field<HTMLTextAreaElement>(first.target, '[data-testid="pasted-text"]'),
+		'Keep this input',
+	);
+	flushSync();
+	expect(view.pastedText).toBe('Keep this input');
+	first.page.shown = false;
+	flushSync();
+	view.pastedText += ' while hidden';
+	first.page.shown = true;
+	flushSync();
+	field<HTMLButtonElement>(first.target, '[data-testid="tab-try"]')!.click();
+	flushSync();
+	expect(
+		field<HTMLTextAreaElement>(first.target, '[data-testid="pasted-text"]')!
+			.value,
+	).toBe('Keep this input while hidden');
+	expect(view.applyTo).toBe('transcriptions/a.md');
+	expect(view.applySource).toBe('pasted');
+
+	const second = await open(files, 'transformations');
+	await show(second.library, RECIPE);
+	field<HTMLButtonElement>(second.target, '[data-testid="tab-try"]')!.click();
+	flushSync();
+	field<HTMLButtonElement>(
+		second.target,
+		'[data-testid="apply-pasted"]',
+	)!.click();
+	flushSync();
+	type(
+		field<HTMLTextAreaElement>(second.target, '[data-testid="pasted-text"]'),
+		'Another app',
+	);
+	flushSync();
+	expect(second.whispering.view.pastedText).toBe('Another app');
+	expect(second.whispering.view.applyTo).toBeUndefined();
+	expect(view.pastedText).toBe('Keep this input while hidden');
 });

@@ -5,6 +5,7 @@
 	started from and is written at once, one write at a time for this file.
 -->
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { textRead } from '$lib/file-reads.js';
 	import { getFolder } from '$lib/folder.js';
@@ -32,16 +33,15 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 
 	let {
-		library,
 		path,
 		onBack,
 	}: {
-		library: Library;
 		/** The file shown. The parent keys this view by it. */
 		path: string;
 		/** Shown on narrow windows, where the list and the editor take turns. */
 		onBack?: () => void;
 	} = $props();
+	const { library } = getWhispering();
 
 	// The parent keys this view by the file; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
@@ -121,14 +121,14 @@
 	</div>
 
 	{#if (asText ? text === undefined : transcript === undefined) && pending !== undefined}
-		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
+		<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
 		<div class="space-y-2 p-4" role="status">
 			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
 			<Textarea readonly aria-label="Unsaved file changes" value={unsavedText(pending)} class="min-h-40 font-mono text-xs" />
 		</div>
 	{:else if audio}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4" data-testid="audio-file-view">
-			<AudioPlayer {library} {path} label="Audio in {name}" />
+			<AudioPlayer {path} label="Audio in {name}" />
 			<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
 				<dt class="text-muted-foreground">Type</dt>
 				<dd>{details()} · {audioMimeTypeOf(path)}</dd>
@@ -146,7 +146,7 @@
 		</div>
 	{:else if transcript}
 		{@const row = transcript}
-		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
+		<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<p class="text-xs text-muted-foreground">
 				The transcript’s text, the body of its file. Its fields are kept as they are.
@@ -170,7 +170,7 @@
 		</Empty.Root>
 	{:else if text !== undefined}
 		{@const shown = text}
-		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
+		<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">

@@ -20,5 +20,5 @@
 		</Tooltip.Provider>
 	</QueryClientProvider>
 {:else}
-	<SelectionHost library={whispering.library} page={{ shown: true, tab: 'recordings' }} />
+	<SelectionHost {whispering} page={{ shown: true, tab: 'recordings' }} />
 {/if}

@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import type { Library, ResultState } from '$lib/library.svelte.js';
+	import type { ResultState } from '$lib/library.svelte.js';
 	import { copyText } from './file-actions.js';
 
 	/**
@@ -12,19 +13,18 @@
 	 * the file discards it.
 	 */
 	let {
-		library,
 		path,
 		result,
 		onDelete,
 		audioAbsent = false,
 	}: {
-		library: Library;
 		path: string;
 		result: Exclude<ResultState, { kind: 'answered' }>;
 		onDelete: () => void;
 		/** The recording's audio is not in this device's folder, so nothing can be sent again from here. */
 		audioAbsent?: boolean;
 	} = $props();
+	const { library } = getWhispering();
 
 	async function runAgain() {
 		const problem = await library.runAgain(path);

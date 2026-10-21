@@ -6,6 +6,7 @@
 	not saved, and the view closes.
 -->
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { getFolder } from '$lib/folder.js';
 	import { textRead } from '$lib/file-reads.js';
@@ -25,7 +26,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { RECORDINGS, rowIdOf } from '$lib/definition.js';
-	import type { Library, RecordingEntry } from '$lib/library.svelte.js';
+	import type { RecordingEntry } from '$lib/library.svelte.js';
 	import AudioAbsent from './AudioAbsent.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete, lf } from './file-actions.js';
@@ -34,13 +35,11 @@
 	import TranscriptCard from './TranscriptCard.svelte';
 
 	let {
-		library,
 		path,
 		entry,
 		onBack,
 		onClose,
 	}: {
-		library: Library;
 		/** The recording's file. The parent keys this view by it. */
 		path: string;
 		/** The listed row, or undefined when the file does not read. */
@@ -50,6 +49,7 @@
 		/** Shown on wide windows, where the details are a pane beside the table. */
 		onClose?: () => void;
 	} = $props();
+	const { library } = getWhispering();
 
 	/**
 	 * What is worked on comes first: the audio, then the transcript beside it,
@@ -134,7 +134,7 @@
 		{/if}
 	</div>
 
-	<SaveStatus {library} {path} saved="Saved to {path}" class="shrink-0 border-b px-4 py-1" />
+	<SaveStatus {path} saved="Saved to {path}" class="shrink-0 border-b px-4 py-1" />
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
@@ -178,7 +178,6 @@
 					<p class="text-sm text-destructive" role="alert">More than one audio file matches this recording: {audio.paths.join(', ')}. Keep one matching file.</p>
 				{:else if audioPath}
 					<AudioPlayer
-						{library}
 						path={audioPath}
 						label="Audio of {title || id}"
 					/>
@@ -209,7 +208,7 @@
 						</p>
 					{/if}
 					{#each results as result (result.path)}
-						<TranscriptCard {library} {result} audioAbsent={absent} />
+						<TranscriptCard {result} audioAbsent={absent} />
 					{:else}
 						{#if run === undefined}
 							<p class="text-sm text-muted-foreground">No transcription yet.</p>

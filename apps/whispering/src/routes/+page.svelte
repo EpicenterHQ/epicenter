@@ -66,7 +66,7 @@
 			<SectionHeader.Description class="text-base">Record audio. Transcribe it when you’re ready.</SectionHeader.Description>
 		</SectionHeader.Root>
 
-		<RecorderCard {library} />
+		<RecorderCard />
 	</div>
 
 	<div class="w-full flex-3">
@@ -80,7 +80,6 @@
 
 				{#if transcript && progress && progress.kind !== 'answered'}
 					<ResultStatus
-						{library}
 						path={transcript.path}
 						result={progress}
 						audioAbsent={absent}
@@ -125,7 +124,6 @@
 					{/if}
 					{#if outputs[0]}
 						<TransformationOutput
-							{library}
 							output={{ source: 'transcript', entry: outputs[0] }}
 							naming="transformation"
 							onOpenFile={(path) => void openFile(path)}
@@ -159,7 +157,6 @@
 					{:else if audioPath}
 						<div class="min-w-0 flex-1 basis-full sm:basis-0">
 							<AudioPlayer
-								{library}
 								path={audioPath}
 								label="Audio of {recordingTitle(latest)}"
 							/>

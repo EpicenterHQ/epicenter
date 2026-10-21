@@ -41,12 +41,8 @@
 	{#if selected}
 		{#key selected.path}
 			<TransformationDetail
-				{library}
 				path={selected.path}
 				entry={selected.entry}
-				bind:applyTo={view.applyTo}
-				bind:applySource={view.applySource}
-				bind:pastedText={view.pastedText}
 				{onBack}
 				onOpenFile={(path) => void openFile(path)}
 			/>
@@ -70,7 +66,7 @@
 {#if wide.current}
 	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
 		<Resizable.Pane id="transformations" order={1} defaultSize={34} minSize={20}>
-			<TransformationList {library} />
+			<TransformationList />
 		</Resizable.Pane>
 		<Resizable.Handle />
 		<Resizable.Pane id="transformation" order={2} defaultSize={66} minSize={30}>
@@ -80,5 +76,5 @@
 {:else if view.showingTransformation}
 	{@render detail(back)}
 {:else}
-	<TransformationList {library} onOpen={() => (view.showingTransformation = true)} />
+	<TransformationList onOpen={() => (view.showingTransformation = true)} />
 {/if}

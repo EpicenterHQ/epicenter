@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { toast } from '@epicenter/ui/sonner';
-	import type { Library, TextRunEntry, TransformationRunEntry } from '$lib/library.svelte.js';
+	import type { TextRunEntry, TransformationRunEntry } from '$lib/library.svelte.js';
 	import { copyText, formatTime, recordingTitle } from './file-actions.js';
 	import ResultStatus from './ResultStatus.svelte';
 
@@ -13,8 +14,7 @@
 	 * the transformation, or the transcript or pasted text it was made from,
 	 * has changed or gone. A file with no answer yet says why.
 	 */
-	let { library, output, naming, onOpenFile }: {
-		library: Library;
+	let { output, naming, onOpenFile }: {
 		/** A result on a transcript, from `transformation_runs/`, or on pasted text, from `text_runs/`. */
 		output:
 			| { readonly source: 'transcript'; readonly entry: TransformationRunEntry }
@@ -23,6 +23,7 @@
 		naming: 'transformation' | 'source';
 		onOpenFile: (path: string) => void;
 	} = $props();
+	const { library } = getWhispering();
 
 	const recording = $derived(
 		output.source === 'transcript'
@@ -67,7 +68,7 @@
 	{#if progress.kind === 'answered'}
 		<p class="whitespace-pre-wrap">{output.entry.row.body.trim() || '(empty result)'}</p>
 	{:else}
-		<ResultStatus {library} path={output.entry.path} result={progress} onDelete={remove} />
+		<ResultStatus path={output.entry.path} result={progress} onDelete={remove} />
 	{/if}
 	<footer class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 		<span>{formatTime(output.entry.row.fields.createdAt) || 'Unknown time'} · {output.entry.row.fields.model}</span>

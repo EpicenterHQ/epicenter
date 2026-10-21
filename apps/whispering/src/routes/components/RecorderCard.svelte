@@ -1,9 +1,9 @@
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { cn } from '@epicenter/ui/utils';
 	import SquareIcon from '@lucide/svelte/icons/square';
-	import type { Library } from '$lib/library.svelte.js';
 	import MicrophoneControl from './MicrophoneControl.svelte';
 	import PostProcessingControl from './PostProcessingControl.svelte';
 	import RecorderClock from './RecorderClock.svelte';
@@ -15,7 +15,7 @@
 	 * sit at its lower right on wide windows and below the hint on narrow ones.
 	 * Fixture mode adds its warning under them.
 	 */
-	let { library }: { library: Library } = $props();
+	const { library } = getWhispering();
 
 	const active = $derived(library.recorder.phase === 'recording');
 	const pending = $derived(library.recorder.phase === 'starting' || library.recorder.phase === 'stopping');

@@ -38,11 +38,11 @@
 	{@const selection = library.selection}
 	{#if selection?.kind === 'recording'}
 		{#key selection.path}
-			<RecordingDetail {library} path={selection.path} entry={selection.entry} {onBack} {onClose} />
+			<RecordingDetail path={selection.path} entry={selection.entry} {onBack} {onClose} />
 		{/key}
 	{:else if selection?.kind === 'file'}
 		{#key selection.path}
-			<FileView {library} path={selection.path} onBack={onBack ?? onClose} />
+			<FileView path={selection.path} onBack={onBack ?? onClose} />
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">

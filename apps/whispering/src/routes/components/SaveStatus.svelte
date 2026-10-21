@@ -4,23 +4,22 @@
 	offers the typing it let go to copy, so nothing typed is lost unseen.
 -->
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
-	import type { Library } from '$lib/library.svelte.js';
 	import { copyText } from './file-actions.js';
 
 	let {
-		library,
 		path,
 		saved = 'Saved',
 		class: className = '',
 	}: {
-		library: Library;
 		path: string;
 		/** What the line says once everything typed is saved. */
 		saved?: string;
 		class?: string;
 	} = $props();
+	const { library } = getWhispering();
 
 	const fileEdit = $derived(library.edit(path));
 	const saving = $derived(library.isSaving(path));

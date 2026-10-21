@@ -5,6 +5,7 @@
 	changes saved elsewhere. Run sends what is typed first.
 -->
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { getFolder } from '$lib/folder.js';
 	import { textRead } from '$lib/file-reads.js';
@@ -27,7 +28,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick } from 'svelte';
 	import { rowIdOf, TRANSFORMATIONS } from '$lib/definition.js';
-	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
+	import type { TransformationEntry } from '$lib/library.svelte.js';
 	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import SaveStatus from './SaveStatus.svelte';
@@ -35,30 +36,20 @@
 	import TransformationOutput from './TransformationOutput.svelte';
 
 	let {
-		library,
 		path,
 		entry,
-		applyTo = $bindable(),
-		applySource = $bindable(),
-		pastedText = $bindable(),
 		onBack,
 		onOpenFile,
 	}: {
-		library: Library;
 		/** The transformation's file. The parent keys this view by it. */
 		path: string;
 		/** The listed row, or undefined when the file left the folder. */
 		entry: TransformationEntry | undefined;
-		/** The transcription this is tried on, by row path. Kept by the app across pages. */
-		applyTo: string | undefined;
-		/** Whether this is tried on a saved transcript or on pasted text. Kept by the app. */
-		applySource: 'transcript' | 'pasted';
-		/** The pasted text. Kept by the app, so it stays across pages and transformations. */
-		pastedText: string;
 		/** Shown on narrow windows, where the list and the editor take turns. */
 		onBack?: () => void;
 		onOpenFile: (path: string) => void;
 	} = $props();
+	const { library, view } = getWhispering();
 
 	const asText = $derived(library.showsText(path));
 	// The parent keys this view by the file. While it replaces the view, the
@@ -131,7 +122,7 @@
 				})),
 		),
 	);
-	const chosen = $derived(transcripts.find((item) => item.result.path === applyTo));
+	const chosen = $derived(transcripts.find((item) => item.result.path === view.applyTo));
 	/** This recipe's runs under way, on a transcript and on pasted text. Each result shows below once its file is written. */
 	const running = $derived(library.recipeRuns.some((run) => run.transformationId === id && run.transcriptionId !== undefined));
 	const runningOnText = $derived(library.recipeRuns.some((run) => run.transformationId === id && run.transcriptionId === undefined));
@@ -152,9 +143,9 @@
 		if (entry === undefined) return 'This transformation is not in the folder.';
 		// Running settles its saves first, so what has to be sound is the text as typed.
 		if (resolved.kind === 'blocked') return resolved.reason;
-		if (applySource === 'pasted') {
+		if (view.applySource === 'pasted') {
 			if (runningOnText) return 'Running on pasted text…';
-			if (pastedText.trim() === '') return 'Paste some text to run this on.';
+			if (view.pastedText.trim() === '') return 'Paste some text to run this on.';
 			return undefined;
 		}
 		if (transcripts.length === 0) return 'Transcribe a recording first, or paste text to run this on.';
@@ -168,8 +159,8 @@
 		// What is typed is the recipe that runs; it is sent, and the run settles it.
 		void fileEdit.save();
 		const problem =
-			applySource === 'pasted'
-				? await library.transformText(path, pastedText)
+			view.applySource === 'pasted'
+				? await library.transformText(path, view.pastedText)
 				: chosen && (await library.transform(chosen.result.path, path));
 		if (problem) toast.error('The transformation did not run', { description: problem });
 	}
@@ -218,7 +209,7 @@
 		await tick();
 		const focused = document.activeElement;
 		if (focused !== null && focused !== document.body && focused !== from) return;
-		(blocked === undefined ? runButtons[applySource] : (goToInstructionsButton ?? blockedReason))?.focus();
+		(blocked === undefined ? runButtons[view.applySource] : (goToInstructionsButton ?? blockedReason))?.focus();
 	}
 
 	/** Show the fields or the whole text. Answers whether it switched. */
@@ -252,7 +243,7 @@
 		{/if}
 	</div>
 
-	<SaveStatus {library} {path} saved="Saved to {path}" class="shrink-0 border-b px-4 py-1" />
+	<SaveStatus {path} saved="Saved to {path}" class="shrink-0 border-b px-4 py-1" />
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
@@ -387,8 +378,8 @@
 			<div class="flex flex-col gap-5 py-1">
 				<div class="flex flex-col gap-2">
 					<Tabs.Root
-						value={applySource}
-						onValueChange={(next) => (applySource = next === 'pasted' ? 'pasted' : 'transcript')}
+						value={view.applySource}
+						onValueChange={(next) => (view.applySource = next === 'pasted' ? 'pasted' : 'transcript')}
 						class="flex flex-col gap-2"
 					>
 						<Tabs.List class="self-start" aria-label="Run it on">
@@ -397,7 +388,7 @@
 						</Tabs.List>
 						<Tabs.Content value="transcript" class="flex flex-col gap-2">
 							<div class="flex flex-wrap items-center gap-2">
-								<Select.Root type="single" bind:value={() => applyTo ?? '', (value) => (applyTo = value || undefined)}>
+								<Select.Root type="single" bind:value={() => view.applyTo ?? '', (value) => (view.applyTo = value || undefined)}>
 									<Select.Trigger class="min-w-0 flex-1" aria-label="Transcript to transform" disabled={transcripts.length === 0} data-testid="transformation-input">
 										<span class="truncate">{chosen?.label ?? (transcripts.length === 0 ? 'No saved transcripts yet' : 'Choose a transcript')}</span>
 									</Select.Trigger>
@@ -430,7 +421,7 @@
 						<Tabs.Content value="pasted" class="flex flex-col gap-2">
 							<Textarea
 								class="min-h-28 resize-y font-sans"
-								bind:value={pastedText}
+								bind:value={view.pastedText}
 								placeholder="Paste text to try this on. It stays here while you move between pages and transformations. Running saves it with its result."
 								aria-label="Text to transform"
 								data-testid="pasted-text"
@@ -498,7 +489,7 @@
 						</p>
 					{/if}
 					{#each outputs as output (output.entry.path)}
-						<TransformationOutput {library} {output} naming="source" {onOpenFile} />
+						<TransformationOutput {output} naming="source" {onOpenFile} />
 					{:else}
 						<p class="text-sm text-muted-foreground">No results yet.</p>
 					{/each}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { toast } from '@epicenter/ui/sonner';
@@ -7,7 +8,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
-	import type { Library, TranscriptionEntry } from '$lib/library.svelte.js';
+	import type { TranscriptionEntry } from '$lib/library.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
 	import { confirmDelete, copyText, formatTime, openItem } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -26,10 +27,10 @@
 	 * transcript's file, so the recording stays open.
 	 */
 	let {
-		library,
 		result,
 		audioAbsent = false,
-	}: { library: Library; result: TranscriptionEntry; audioAbsent?: boolean } = $props();
+	}: { result: TranscriptionEntry; audioAbsent?: boolean } = $props();
+	const { library } = getWhispering();
 	// The list keys each card by its file; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
 	const own = result.path;
@@ -69,7 +70,6 @@
 <article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
 	{#if progress.kind !== 'answered'}
 		<ResultStatus
-			{library}
 			path={result.path}
 			result={progress}
 			{audioAbsent}
@@ -93,7 +93,7 @@
 			data-testid="transcript-text"
 		/>
 		{#if library.isSaving(result.path) || library.isUnsaved(result.path)}
-			<SaveStatus {library} path={result.path} />
+			<SaveStatus path={result.path} />
 		{/if}
 	{:else}
 		<p class="max-h-64 overflow-y-auto rounded border p-2 whitespace-pre-wrap" data-testid="transcript-text-readonly">{text}</p>
@@ -146,7 +146,6 @@
 	</footer>
 	{#each outputs as output (output.path)}
 		<TransformationOutput
-			{library}
 			output={{ source: 'transcript', entry: output }}
 			naming="transformation"
 			onOpenFile={(path) => void openItem(library, path)}

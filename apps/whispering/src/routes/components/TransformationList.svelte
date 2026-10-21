@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
@@ -10,11 +11,12 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { STARTER_TRANSFORMATIONS } from '$lib/definition.js';
-	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
+	import type { TransformationEntry } from '$lib/library.svelte.js';
 	import { recipeModel } from '$lib/recipe.js';
 	import { openItem } from './file-actions.js';
 
-	let { library, onOpen }: { library: Library; onOpen?: () => void } = $props();
+	let { onOpen }: { onOpen?: () => void } = $props();
+	const { library } = getWhispering();
 
 	let creating = $state(false);
 
