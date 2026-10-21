@@ -60,16 +60,15 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   do not add another document owner, save queue, mirror, or second store of
   recordings. Do not add Yjs, the
   `@epicenter/app` store, or accounts to this workflow.
-- **A recording's audio is the file its row names.** `audioPath` is the only
-  link. Do not infer audio from a file that shares the row's stem, do not
-  fill in a missing `audioPath`, and do not delete audio because its row was
-  deleted: a table owns one Markdown file per row.
+- **Recording audio is a supported same-stem sibling of its Markdown file.**
+  New captures store no path. Refuse ambiguous matches; preserve existing
+  explicit audio links without moving files. Deleting a row keeps its audio.
 - **A saved status follows publication.** The header says a save landed only
   after the folder confirms it. A failed save keeps the person's typing and
   shows the failure beside it.
 - **A recording is in the folder from its start, and its row holds facts
-  only** (ADR-0543). The row is created when the recording starts, naming its
-  audio; its length is written when it stops. Never add a status, pending, or
+  only** (ADR-0543). The row is created when the recording starts; its length
+  is written when it stops. Never add a status, pending, or
   interrupted field, and never hold a recording's audio in the page to save
   later on the desktop: the shell writes it as it captures. Only `cancel`
   deletes a recording. Save a row through its table (`set`) as a change from
