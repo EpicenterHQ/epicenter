@@ -13,9 +13,20 @@
 **Standalone Quit alert update:** Application Quit now uses an unparented native
 alert. The user inspected its appearance in the isolated macOS app and accepted
 it. Computer use cannot capture or control its
-`com.apple.UserNotificationCenter` surface. The isolated build succeeded and its
-native suite passed 143 tests, with one ignored. Final manual Cancel and Quit
-Anyway verification remains pending. Window Close and the native recording
+`com.apple.UserNotificationCenter` surface, so the user clicked the alert's
+buttons and computer use independently checked the resulting app state:
+
+- Cancel left both the saved Todos window and the Folders launcher open. Computer
+  use opened the saved todo's details, confirmed both windows in the Window menu,
+  and switched back to the launcher, establishing that the app remained usable.
+- Cmd-Q after Cancel opened a fresh Quit alert. The user selected Quit Anyway;
+  an anchored process check confirmed the isolated executable exited without
+  relaunching it.
+
+This run used saved windows with no active capture. It establishes standalone
+Quit Cancel, retry, and confirmed exit; the recording evidence below comes from
+the preceding attached-sheet build. The isolated build succeeded and its native
+suite passed 143 tests, with one ignored. Window Close and the native recording
 warning remain unchanged. The attached-sheet parent and stale-attempt checks
 below describe the superseded design.
 

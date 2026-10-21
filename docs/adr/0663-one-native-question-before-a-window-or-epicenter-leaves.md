@@ -18,9 +18,13 @@ conditional Close confirmation remain unchanged.
 
 On macOS, the installed dialog backend uses `CFUserNotificationDisplayAlert`
 for the unparented dialog. Computer use cannot inspect that system-owned alert;
-the user verified its appearance directly. Final manual Cancel and Quit Anyway
-verification remains pending. The attached-sheet and stale-parent checks below
-describe the superseded design. Startup does not change.
+the user accepted its appearance and manually clicked Cancel and Quit Anyway in
+the final isolated build. Computer use verified that Cancel retained both windows
+and usable navigation, and an independent process check confirmed exit after a
+fresh Quit request and Quit Anyway. This run used saved Todos and Folders windows
+with no active capture; recording evidence remains from the preceding
+attached-sheet build. The attached-sheet and stale-parent checks below describe
+the superseded design. Startup does not change.
 
 ## Amendment: always confirm Quit; Close warns only for unsaved edits
 
