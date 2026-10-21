@@ -1,83 +1,81 @@
 ---
 name: writing-voice
-description: Help Braden bring the thought he is reaching for into its fullest, clearest expression, so he recognizes both the thought and himself in the result. Use when drafting or revising substantial prose, doing an ear pass, working on voice or tone, or comparing prose revisions, including short replies and exact selections. Present selected wording without reopening or repolishing it.
+description: Help the author give their thought a convincing expression that feels unmistakably theirs. Use when drafting or revising prose, developing voice or tone, doing an ear pass, or comparing passages and integrating selected wording.
 ---
 
 # Writing Voice
 
-> Help me bring the thought I’m reaching for into its fullest, clearest expression. Hear what is trying to emerge from my words, and develop it until I recognize both the thought and myself in the result.
+> Take responsibility for giving my thought a convincing expression that feels unmistakably mine.
+>
+> Use my words, distinctions, emphasis, and movement to understand what I am reaching for, and contribute the language, connections, and explanations that help it become fully expressed.
 
-Whatever he gives you, a voice transcript, a rough draft, or a finished page,
-is an attempt to say something. Listen for what he is reaching for and how he
-gets there. Use his words, rhythm, and associations to form your best
-understanding, and give it a concrete expression he can react to. The thought
-itself may develop through the writing; what he recognizes or changes can
-deepen your understanding and shape the next attempt.
+## Give The Thought Expression
 
-Shape the writing with confidence. Untangle the syntax, supply the connections,
-find the sharper word, articulate what he has only partly expressed, and add
-the explanation a reader needs to follow him. He should be reacting to a
-convincing passage, not doing the repairs himself. Keep what makes it his: the
-ordinary words and the exact ones, the particulars, the order he moves through,
-and where he puts the emphasis. Let go of what only belonged to the moment of
-speaking without trading his sharpness for a casual sound.
+Compose the passage as a whole. Find the language and arrangement that give
+fuller expression to the author's thought, including what they have only partly
+said. Let their way of seeing and thinking give the writing its character. The
+author should recognize themselves in a convincing expression they might not
+have reached alone.
 
-The boundary is his meaning, and its precision is part of it: how his ideas
-relate, how far each claim reaches, and what it is for. Saying his thought
-better is your job, and often means stating those more exactly; saying
-something he didn't mean is a proposal he can accept. A rewrite that loses how
-his ideas relate or changes how far a claim reaches has loosened the thought,
-however naturally it reads. Don't invent an experience, feeling, or
-significance to give the prose depth. Keep his stance, including his
-qualifications and the questions he leaves open: “I would argue” is not
-“I wonder whether.”
+Give the author's thought a more exact expression by understanding how their
+ideas relate, how far their claims reach, and where they stand. Use that
+understanding to sharpen the passage, so its clarity and force express their
+meaning more fully.
 
-Express the perspective through the telling itself. Let what the author
-notices, explains, questions, and judges carry the thought forward. Use
-reflection when it contributes a thought of its own; avoid commentary whose
-only work is to announce the significance of the surrounding passage. A small
-observation can be complete as it stands.
+Let what the author notices, and how those things come together, do the
+expressive work. Help the reader see what they see through the telling.
 
-Read the result aloud as one passage. A sentence that improves on its own can
-break the rhythm or connection that made the whole sound like him, and a
-repetition or pause sometimes carries the thought.
+## Think Through The Writing Together
 
-His reaction is the test. When a version doesn't sound like him, find what
-needs attention in the thought or its expression, and revise from there.
-Return to the source when it helps recover what he meant, while keeping
-developments he welcomed.
+Give the author actual prose to judge. Your understanding can deepen as you
+write, and their response can reveal more of the thought or a better way to
+express it. Use what they recognize and what they change to shape the next
+revision.
 
-When he asks you to tighten, condense, or try a freer shape, that request sets
-the scope.
-
-[Observed transcript-to-page examples](references/transcript-to-page.md) show
-how much shaping a faithful page can involve, and what a looser pass can lose.
-For work meant to be heard, read
-[spoken destinations](references/spoken-destinations.md).
-
-## Respect The Form
-
-A message, essay, button, and technical explanation have different jobs; let
-the job set length and register while he stays audible. Prefer periods. Use
-colons for a real explanation, semicolons for closely related independent
-clauses, and parentheses for genuine asides. Avoid en dashes, and use em dashes
-only for a real interruption.
+When a passage feels wrong, articulate the suspected mismatch with enough
+prose to make the interpretation tangible. The author may recognize the meaning
+and dislike the rhythm, or a phrase may expose something you misunderstood.
+Return to their source language and the versions they welcomed when these help
+recover what was lost. Carry useful contributions forward. If the author
+recognizes parts of several versions, compose the synthesis yourself. Use
+[dialectic](../dialectic/SKILL.md) when meaning or direction
+needs exploring together.
 
 ## Show Revisions In Context
 
-He reacts from chat, not the file. Show versions together in blockquotes, each
-readable on its own, with enough context to judge meaning and sound: the whole
-short piece when its overall movement is at issue, and the lead-in for an
-ending. Bold the wording that differs, including reworded or moved passages,
-and leave shared wording plain; use strikethrough only for direct deletions. A
-reordering shows both passages and a brief map of what moved; note other
-structural changes briefly outside the prose. Make the first revision of
-existing prose recognizably continuous with it, and offer bigger departures,
-or two or three equally good options, as labeled alternatives. Mark what you
-supplied so he can strike it, and say whether wording is proposed or saved.
-Keeping the current wording is a valid outcome, and liking a comparison is not
-choosing it.
+Usually offer one considered recommendation. The author judges the writing
+from chat. When revising existing prose, show the current and proposed passages
+together, each readable on its own, with enough context to hear the difference.
+Show the whole short piece when its movement is at issue, the lead-in when
+revising an ending, and the affected passages when changing their order.
 
-He may take a phrase, combine candidates, or reject them all; synthesize the
-next passage yourself. Integrate selected wording exactly, without
-repolishing it. Showing a revision adds no approval step.
+Make the recommendation easy to find. Bold changed wording or the parts that
+need attention, and use a blockquote when it helps separate the passage from
+the explanation. In comparisons, leave shared wording plain; use strikethrough
+for direct deletions. Explain consequential changes in meaning or arrangement
+briefly outside the prose. Say what is proposed and what has been saved.
+
+Offer distinct alternatives when they help examine an unresolved choice.
+For comparisons, label the current version Current and the alternatives A, B,
+and so on, with short labels explaining their differences. Recommend one and
+briefly explain why.
+Keep the current wording available as a valid outcome. Once the author selects
+wording, integrate it exactly. A reaction that likes something is evidence
+to work with; it does not necessarily select the whole version.
+
+## Hear The Whole Piece
+
+Let the destination set the length and register. Read the result at speaking
+speed as one passage, listening for connections, emphasis, and rhythm. A
+locally smoother sentence can weaken the whole. Keep the expression as casual,
+precise, funny, forceful, or searching as this thought calls for.
+
+Prefer periods. Use colons for explanations, semicolons for closely related
+independent clauses, and parentheses for asides. Avoid en dashes; reserve em
+dashes for an interruption.
+
+Read the [observed writing examples](references/transcript-to-page.md)
+to calibrate how substantial shaping can remain faithful and how a smoother
+revision can lose precision. For prose intended to be heard, read
+[spoken destinations](references/spoken-destinations.md)
+to judge what a listener needs in sequence.
