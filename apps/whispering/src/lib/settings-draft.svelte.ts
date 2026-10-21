@@ -9,12 +9,12 @@
  * what was typed in the header's Settings is what the form beside the
  * recorder shows, and each connection has one save.
  *
- * The base URL and model follow the saved connection until they are typed
- * in, and follow it again when it changes. A connection not set up yet
+ * Untouched fields follow the saved connection. Typed fields stay with the
+ * form until their explicit save succeeds; a completed save clears only
+ * its submitted input, so later typing survives. A connection not set up yet
  * starts from the device's defaults; nothing is sent to those, or saved,
- * until Save. The
- * key is never read back: the draft holds only what was typed since the last
- * save, and whether to keep, replace, or remove the saved one. Keeping is
+ * until Save. The key is never read back: the draft holds only what was typed
+ * since the last save, and whether to keep, replace, or remove the saved one. Keeping is
  * offered only for the base URL the key was saved for, by the same rule the
  * storage applies.
  */
@@ -53,28 +53,34 @@ function createConnectionDraft(library: Library, operation: Operation) {
 			model: defaults.model,
 		};
 	});
-	// A refreshed connections object must not reset typing when these values
-	// are unchanged. Writable overrides depend on the values, not the object.
-	const configuredBaseUrl = $derived(saved?.baseUrl ?? start.baseUrl);
-	const configuredModel = $derived(saved?.model ?? start.model);
-	const configuredKeyAction = $derived<KeyAction>(
-		saved?.keyPresent ? 'keep' : 'replace',
-	);
-	let baseUrl = $derived(configuredBaseUrl);
-	let model = $derived(configuredModel);
-	let keyAction = $derived<KeyAction>(configuredKeyAction);
-	let key = $state('');
+	/** Explicit input stays independent of refreshed saved values. */
+	type Input = {
+		readonly baseUrl: string;
+		readonly model: string;
+		readonly keyAction: KeyAction;
+		readonly key: string;
+	};
+	const configured = $derived<Input>({
+		baseUrl: saved?.baseUrl ?? start.baseUrl,
+		model: saved?.model ?? start.model,
+		keyAction: saved?.keyPresent ? 'keep' : 'replace',
+		key: '',
+	});
+	let typed = $state.raw<Partial<Input>>({});
+	const input = $derived({ ...configured, ...typed });
 	let saving = $state(false);
 
 	/** The change Save would make: a blank new key where none is saved means no key. */
 	const change = $derived.by((): ConnectionChange => {
 		const keyChange: KeyChange =
-			keyAction === 'replace' && key.trim() === '' && !saved?.keyPresent
+			input.keyAction === 'replace' &&
+			input.key.trim() === '' &&
+			!saved?.keyPresent
 				? { action: 'remove' }
-				: keyAction === 'replace'
-					? { action: 'replace', key }
-					: { action: keyAction };
-		return { baseUrl, model, key: keyChange };
+				: input.keyAction === 'replace'
+					? { action: 'replace', key: input.key }
+					: { action: input.keyAction };
+		return { baseUrl: input.baseUrl, model: input.model, key: keyChange };
 	});
 
 	/** Why Save would be refused, by the rule the storage applies; undefined when it would not. */
@@ -103,28 +109,28 @@ function createConnectionDraft(library: Library, operation: Operation) {
 			return saved?.readOnlyReason;
 		},
 		get baseUrl() {
-			return baseUrl;
+			return input.baseUrl;
 		},
 		set baseUrl(value: string) {
-			baseUrl = value;
+			typed = { ...typed, baseUrl: value };
 		},
 		get model() {
-			return model;
+			return input.model;
 		},
 		set model(value: string) {
-			model = value;
+			typed = { ...typed, model: value };
 		},
 		get keyAction() {
-			return keyAction;
+			return input.keyAction;
 		},
 		set keyAction(value: KeyAction) {
-			keyAction = value;
+			typed = { ...typed, keyAction: value };
 		},
 		get key() {
-			return key;
+			return input.key;
 		},
 		set key(value: string) {
-			key = value;
+			typed = { ...typed, key: value, keyAction: input.keyAction };
 		},
 		get problem() {
 			return problem;
@@ -135,21 +141,21 @@ function createConnectionDraft(library: Library, operation: Operation) {
 		/** Input the person has not explicitly saved. */
 		get unsent() {
 			return (
-				baseUrl !== configuredBaseUrl ||
-				model !== configuredModel ||
-				keyAction !== configuredKeyAction ||
-				key !== ''
+				input.baseUrl !== configured.baseUrl ||
+				input.model !== configured.model ||
+				input.keyAction !== configured.keyAction ||
+				input.key !== ''
 			);
 		},
 		/**
 		 * Save this connection on the device. Nothing is sent to the endpoint
-		 * and nothing is written to the folder. A key typed while the save is
-		 * under way is kept in the field.
+		 * and nothing is written to the folder. Input typed while the save is
+		 * under way stays in the form for its next explicit save.
 		 */
 		async save(): Promise<SettingsSaveProblem | undefined> {
 			if (saving) return undefined;
 			const submitted = change;
-			const submittedKey = key;
+			const submittedInput = input;
 			saving = true;
 			try {
 				const refused = await library.saveConnection(operation, submitted);
@@ -158,7 +164,23 @@ function createConnectionDraft(library: Library, operation: Operation) {
 						title: `Could not save the ${operation} connection`,
 						description: refused,
 					};
-				if (key === submittedKey) key = '';
+				// Saved values may have changed while this form was still being edited.
+				// Drop only the submission, keeping each newer field and its key choice.
+				const newerKey =
+					typed.key !== undefined && typed.key !== submittedInput.key;
+				typed = {
+					...(typed.baseUrl !== undefined &&
+						typed.baseUrl !== submittedInput.baseUrl && {
+							baseUrl: typed.baseUrl,
+						}),
+					...(typed.model !== undefined &&
+						typed.model !== submittedInput.model && { model: typed.model }),
+					...(newerKey && { key: typed.key }),
+					...(typed.keyAction !== undefined &&
+						(typed.keyAction !== submittedInput.keyAction || newerKey) && {
+							keyAction: typed.keyAction,
+						}),
+				};
 				return undefined;
 			} finally {
 				saving = false;

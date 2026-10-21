@@ -305,6 +305,11 @@ teardown through `context.run`, so FolderApp's close waits for it, including
 the recorder's final row write, before releasing the folder. Product teardown
 stops workflows and listeners; it never closes the folder or its context.
 
+Settings keep one replace-only draft of explicit input, separate from saved
+connection values. Untouched fields follow saved values and defaults; a
+completed Save releases only what it submitted. Endpoint, model, key choice,
+and key typed during that save remain for the next explicit Save.
+
 Route changes render inside the same product root. The recording, selections,
 running requests, pasted text, settings draft, and query cache survive them.
 Only page-local presentation state resets. Reload mounts a fresh root and

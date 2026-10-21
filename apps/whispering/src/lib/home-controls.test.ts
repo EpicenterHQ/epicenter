@@ -51,7 +51,8 @@ afterEach(async () => {
 });
 
 async function open(
-	change: (services: WhisperingServices) => WhisperingServices = (services) => services,
+	change: (services: WhisperingServices) => WhisperingServices = (services) =>
+		services,
 	options: TestServicesOptions = {},
 ) {
 	const test = await openTestServices(options);
@@ -207,7 +208,10 @@ test('the settings draft saves a connection on the device only, keeps the saved 
 		keyPresent: true,
 	});
 	// The draft follows what was saved, and the key is never read back.
+	expect(draft.baseUrl).toBe('http://127.0.0.1:9000/v1');
 	expect(draft.model).toBe('local-whisper');
+	expect(draft.unsent).toBe(false);
+	expect(draft.problem).toBeUndefined();
 	expect(draft.key).toBe('');
 	expect(draft.keyAction).toBe('keep');
 
@@ -264,12 +268,18 @@ test('a connection the device refuses is reported, its typed key stays, and noth
 	const draft = whispering.settings.transcription;
 	draft.keyAction = 'replace';
 	draft.key = 'typed-key';
+	draft.baseUrl = 'http://127.0.0.1:9000/v1/';
+	draft.model = ' typed-model ';
 
 	expect(await draft.save()).toEqual({
 		title: 'Could not save the transcription connection',
 		description: 'The transcription connection comes from the environment.',
 	});
+	expect(draft.baseUrl).toBe('http://127.0.0.1:9000/v1/');
+	expect(draft.model).toBe(' typed-model ');
 	expect(draft.key).toBe('typed-key');
+	expect(draft.keyAction).toBe('replace');
+	expect(draft.unsent).toBe(true);
 	expect(draft.saving).toBe(false);
 	expect(device.stored.transcription?.apiKey).toBeUndefined();
 });
@@ -285,6 +295,7 @@ test.each([true, false])(
 		text.baseUrl = 'http://127.0.0.1:9001/v1';
 		text.model = 'unsaved-text-model';
 		text.keyAction = 'remove';
+		transcription.baseUrl = 'http://127.0.0.1:9002/v1';
 		transcription.model = 'changed-transcription-model';
 
 		expect(await transcription.save()).toBeUndefined();
@@ -312,16 +323,73 @@ test('saving uses the submitted key and keeps typing done while the save is unde
 	}));
 	const draft = whispering.settings.transcription;
 	draft.keyAction = 'replace';
+	draft.baseUrl = 'http://127.0.0.1:8100/v1/';
+	draft.model = ' submitted-model ';
 	draft.key = 'submitted-fixture-key';
 	const saving = draft.save();
 	await started.promise;
 	expect(draft.saving).toBe(true);
+	draft.baseUrl = 'http://127.0.0.1:8200/v1';
+	draft.model = 'next-model';
 	draft.key = 'next-fixture-key';
 	finish.resolve();
 	expect(await saving).toBeUndefined();
 	expect(changes.map((change) => change.key)).toEqual([
 		{ action: 'replace', key: 'submitted-fixture-key' },
 	]);
+	expect(draft.baseUrl).toBe('http://127.0.0.1:8200/v1');
+	expect(draft.model).toBe('next-model');
 	expect(draft.key).toBe('next-fixture-key');
+	expect(draft.keyAction).toBe('replace');
+	expect(draft.unsent).toBe(true);
 	expect(draft.saving).toBe(false);
+	expect(await draft.save()).toBeUndefined();
+	expect(draft.unsent).toBe(false);
+	expect(changes[1]).toEqual({
+		baseUrl: 'http://127.0.0.1:8200/v1',
+		model: 'next-model',
+		key: { action: 'replace', key: 'next-fixture-key' },
+	});
+});
+
+test('a newer key choice survives a save that changes whether a key is present', async () => {
+	const started = deferred<void>();
+	const finish = deferred<void>();
+	const { whispering } = await open((services) => ({
+		...services,
+		connections: {
+			...services.connections,
+			async set(operation, change) {
+				started.resolve();
+				await finish.promise;
+				return services.connections.set(operation, change);
+			},
+		},
+	}));
+	const draft = whispering.settings.transcription;
+	draft.baseUrl = 'http://127.0.0.1:8100/v1/';
+	draft.model = ' submitted-model ';
+	draft.key = 'submitted-key';
+	const saving = draft.save();
+	await started.promise;
+	draft.keyAction = 'remove';
+	finish.resolve();
+	expect(await saving).toBeUndefined();
+	expect(draft.baseUrl).toBe('http://127.0.0.1:8100/v1');
+	expect(draft.model).toBe('submitted-model');
+	expect(draft.keyAction).toBe('remove');
+	expect(draft.key).toBe('');
+	expect(draft.unsent).toBe(true);
+});
+
+test('an untouched text endpoint follows saved transcription defaults until it is typed', async () => {
+	const { whispering } = await open(undefined, { connections: {} });
+	const { text, transcription } = whispering.settings;
+	expect(text.baseUrl).toBe('https://api.openai.com/v1');
+	transcription.baseUrl = 'http://127.0.0.1:9000/v1';
+	transcription.model = 'transcription-model';
+	expect(await transcription.save()).toBeUndefined();
+	expect(text.baseUrl).toBe('http://127.0.0.1:9000/v1');
+	expect(text.model).toBe('');
+	expect(text.unsent).toBe(false);
 });

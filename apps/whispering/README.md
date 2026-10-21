@@ -362,6 +362,9 @@ keychain. A connection synced from another computer is not set up on this
 one until you save its base URL, and key, here. In a browser tab they are in
 this site's `localStorage`. Nothing about them is in Whispering's folder.
 
+You can keep editing while a connection's Save runs. Its completion preserves
+any newer endpoint, model, key choice, or key for the next explicit Save.
+
 - Nothing is sent until a connection is saved. A keyless local endpoint is
   set up the same way, with no key.
 - A request goes only to its connection's base URL, with that connection's
