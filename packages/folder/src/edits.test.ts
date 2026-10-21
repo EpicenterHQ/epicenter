@@ -17,9 +17,10 @@
  *   or holds input for; another path keeps what it read, to type over, and
  *   reads it again once someone subscribes
  * - An older read's failure never replaces the status of a newer read
- * - Each typed unit keeps its base, so a revert typed during a save and an
- *   outside change read meanwhile both survive; a field typed over a header
- *   another writer broke is refused and the raw text stays repairable
+ * - One whole-source draft stays pinned across outside reads; a changed
+ *   stored source conflicts at save, and explicit recovery chooses the source
+ * - Typing during a save stays visible; a structured change over malformed
+ *   fields is refused while the exact raw source remains repairable
  * - A change is nested fields and body, taken as one change
  * - The folder owns input from construction: autosave, status, settle and
  *   close work with no view and no subscriber; close waits for saves, not

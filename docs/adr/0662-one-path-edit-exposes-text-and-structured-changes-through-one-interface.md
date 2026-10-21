@@ -114,7 +114,8 @@ token, or separate row/text editor lifecycle.
 One Svelte adapter accepts the core editor and exposes tracked `.text`,
 `.markdown`, `.pending`, `.readStatus` and `.locked` getters. Commands remain
 methods. A React adapter keeps explicit read methods over committed-render
-snapshots and preserves changes made by other handlers in the same event.
+snapshots. Commands apply to the live source in call order; a later body or
+whole-source replacement determines that source rather than merging handlers.
 Adapters are recreated only when their bound address or interpretation changes.
 
 ## Consequences

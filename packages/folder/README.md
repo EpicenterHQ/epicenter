@@ -134,11 +134,12 @@ table, and reading creates nothing.
 
 ### Saving
 
-Every save names what it started from: `from` is the content or row as read,
+Every direct write names what it started from: `from` is the content or row as read,
 or `null` for something new. The engine reads the file as it is now and
 merges the change from `from` into it, so saves that landed meanwhile stay,
 then writes the result guarded by what it read. Another writer landing in
-between makes the engine read and merge again.
+between makes the engine read and merge again. `FileEdit.save()` instead
+compares whole source and retains a conflicting draft ([below](#unsaved-input)).
 
 - `files.write(path, from, content)` saves text or bytes. Pass bytes for a
   binary file or to keep a byte-order mark; a byte array is copied when the
@@ -344,8 +345,8 @@ older stores are not opened or changed.
 
 A directory folder's files are the saved data: every read goes to disk, and
 every save is one guarded change of one file (`native/engine.ts`). Opening
-reads a file a person left there as it is and changes nothing; only a save of
-that path, merged with its current bytes, replaces it. Git is optional: a
+reads a file a person left there as it is and changes nothing; only a guarded
+save of that path replaces it. Git is optional: a
 directory with no `.git`, or with a `.git` file or link, opens and saves the
 same, and saving creates no repository.
 
@@ -427,7 +428,7 @@ Schema imports and generation patch selected declaration sections with
 conditional writes. A stale write rereads and reapplies its change; JSON line
 merge cannot safely preserve two section changes sharing a line. Duplicate keys
 and numeric values that cannot survive serialization stop a replacement, with
-the original source available for repair. Ordinary source editing and Git merge
+the original source available for repair. Direct file writes and Git sync
 still merge JSON by line.
 
 ### Saved views
@@ -520,7 +521,7 @@ app-version ledger, or first-use flag.
 Sync merges by the same rules on every host. Its merge commit's tree uses
 `src/git/tree-merge.ts` over the merge base, the
 remote's tree as current, and this device's as the change, with each file
-both sides changed merged by the content rules a save uses (`shared/merge.ts`).
+both sides changed merged by the content rules direct writes use (`shared/merge.ts`).
 A delete never erases an edit it did not see. No rename is followed: a move
 on one side against an edit on the other keeps both paths. A file against a
 directory takes this device's entry whole. JSON, `epicenter.json` included,

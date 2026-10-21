@@ -58,8 +58,8 @@ await folder.close();
 
 In a desktop page or Bun script, pass `directory` with `tables`. In a desktop
 page it is the shell's registered directory ID; in Bun it is a directory path.
-Schemas change interpretation, not write authority. Local saves use the same
-row and merge rules on both hosts. Git exchange is separate from opening the
+Schemas change interpretation, not write authority. Both hosts use the same
+row interpretation, direct-write merge rules, and whole-source draft guards. Git exchange is separate from opening the
 Folder.
 
 [Read the folder API](packages/folder/README.md)

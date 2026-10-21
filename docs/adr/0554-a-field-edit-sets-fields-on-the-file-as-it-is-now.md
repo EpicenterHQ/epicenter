@@ -6,6 +6,8 @@
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) at "an edit holds its own starting version", and [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) where it describes drafts.
 - **Built:** `table.update` and `WRITE_ATTEMPTS`; `folderOptions`' `update` and the per-file turn its writes share; Todos, Capture, Honeycrisp, Whispering, Vocab, the Git lab, and the Folders window composed as below; `createTextDraft` and `createBodyDraftState` for documents; and the deletions.
 
+- **Current edit implementation:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) describes the implemented whole-source draft behavior; its decision remains Proposed. `FileEdit` commands change one pinned source in call order; storage matching neither its observed source nor its draft causes a whole-file `Conflict` rather than a field or body merge. Direct `files.write`, `tables.<name>.set`, and Git sync retain their content merge rules. The earlier draft-merge descriptions below record the prior model.
+
 ## Context
 
 ADR-0548 gave every editor a draft: the row it started from and the edited

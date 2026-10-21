@@ -34,18 +34,26 @@ migrates or removes data.
 ## Editing and saving
 
 `folder.files` reads and changes paths; `folder.tables` reads and changes
-rows at `<table>/<id>.md`. Every save supplies the file or row it started
-from. The engine compares that base with the current stored content and
-merges a complete submitted change. Frontmatter fields and regions of text
-use the same content rule in browser, Tauri, and Bun. Unknown fields,
-comments, and repairable source remain visible and survive unrelated edits.
+rows at `<table>/<id>.md`. Direct `files.write` and `tables.<name>.set` calls
+supply the file or row they started from. The engine merges their complete
+submitted change with current storage, by frontmatter field or text region,
+using the same content rules in browser, Tauri, and Bun.
+
+An edit handle instead owns one whole-source draft per path. `change()` applies
+fields and body to the displayed source in call order; `replaceText()` replaces
+it. Rereads do not fold outside changes into a dirty draft. `FileEdit.save()`
+succeeds if storage still matches the observed source or already equals the
+draft; otherwise it reports a whole-file `Conflict` and retains the draft.
+`resolveConflict()` explicitly accepts saved content or submits a guarded
+replacement. Unknown fields, comments, and repairable source remain visible;
+no field-level merge runs implicitly on a draft save.
 
 The browser commits a save in IndexedDB. The desktop shell and Bun stage
 bytes beside the directory, compare the expected file under a shared save
 lock, and replace one file. The native shell also checks every path and
 refuses links that could leave the granted root. A failed save leaves the
 previous file in place; the app retains its draft and shows the failure.
-`onChange` tells another view which paths to reread. `status` reports saves
+`onChange` tells another view which paths to reread. `getStatus()` reports saves
 in progress and storage failures. Closing a handle finishes saves already
 started and releases its listeners and storage.
 

@@ -13,7 +13,8 @@
  * - A replaced file keeps its mode; a new file is `0600`
  * - Saves take the save lock other processes and the desktop shell take
  * - Rows keep exact source, unknown fields, comments, and repairable frontmatter
- * - Every save is guarded by the bytes it read, and merges what landed meanwhile
+ * - Direct writes merge what landed meanwhile and guard the bytes they read
+ * - FileEdit saves compare whole source and retain conflicting drafts
  * - Structural refusals are results, not storage failures
  * - A row delete keeps adjacent files, and an unseen edit keeps the row
  * - Saves notify this handle and the directory's other handles in this process

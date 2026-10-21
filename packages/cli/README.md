@@ -319,9 +319,11 @@ runs the CLI, or the release app's directories when they are unset.
 
 ## Merging with plain Git
 
-`epicenter sync` merges a folder's files by unit, with the merge every save
-uses (ADR-0576, ADR-0591): Markdown frontmatter by field and its body by line,
-JSON by key, other text by line. Plain `git merge` and `git pull` run on a
+`epicenter sync` merges a folder's files by the same content rules as direct
+`files.write` and `tables.<name>.set` calls ([ADR-0622](../../docs/adr/0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)):
+Markdown frontmatter by field, Markdown bodies and other text (including JSON)
+by text region. `FileEdit` draft saves compare whole source and report conflicts
+instead of applying that merge. Plain `git merge` and `git pull` run on a
 folder use Git's own merge and stop on Git's ordinary conflict markers;
 nothing configures a merge driver for them.
 

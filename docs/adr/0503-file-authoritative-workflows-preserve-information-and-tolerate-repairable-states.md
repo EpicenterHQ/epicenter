@@ -6,6 +6,8 @@
 - **Relates:** [ADR-0477](0477-file-folder-operations-tolerate-repairable-layout-disorder.md) and [ADR-0482](0482-folder-mutations-publish-one-file-at-a-time.md) establish repairable layouts and independent file operations.
 - **Unbuilt:** Applying this review criterion to application refusals and choosing simpler folder-deletion behavior in Honeycrisp.
 
+- **Current edit implementation:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) describes the implemented whole-source draft behavior; its decision remains Proposed. `FileEdit` commands change one pinned source in call order; storage matching neither its observed source nor its draft causes a whole-file `Conflict` rather than a field or body merge. Direct `files.write`, `tables.<name>.set`, and Git sync retain their content merge rules. The earlier draft-merge descriptions below record the prior model.
+
 ## Context
 
 Epicenter stores ordinary files so a human or coding agent can inspect what

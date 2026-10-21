@@ -130,7 +130,7 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 
 | Name | Meaning |
 | --- | --- |
-| Draft or unsaved input | What the person is editing before an acknowledged local save. It retains the exact source the edit started from. |
+| Draft or unsaved input | One complete source the person is editing before an acknowledged local save, pinned against the exact source observed when editing began. |
 | Save | Acknowledged local persistence of an edit. It does not promise a Git commit or remote receipt. |
 | Write | A file or storage operation, as in `files.write`. It is not a second kind of dataset or an automatic upload. |
 | Commit or version | A fixed Git snapshot. Prefer commit in technical text; version can explain it in a UI. |
@@ -144,14 +144,25 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | Transaction or publication | Atomic storage work that acknowledges local state. This publication is unrelated to the retired app-owned schema publication. |
 | Cache | Data rebuilt without losing saved work. Unsent edits and uncertain pending commits are not caches. |
 
-For a local save, the merge's `base` is the caller's `from`: the exact source
-that save started from. `current` is the file captured from local storage for
-that attempt. `change` is the complete file the caller submitted. A table's
+For a direct write (`files.write` or `tables.<name>.set`), the merge's `base`
+is the caller's `from`: the exact source that write started from. `current` is
+the file captured from local storage for that attempt. `change` is the complete file the caller submitted. A table's
 public `set(id, from, change)` takes a partial row change; it builds that
 complete file before merging. The returned `sent` is the submitted row for the
-draft's next `from`, not necessarily the merged file now stored. During sync,
-the same merge roles describe a base tree, the fetched remote tree, and the
-local tree being merged. These are roles in Epicenter's merge, not Git's
+next direct write's `from`, not necessarily the merged file now stored.
+
+`FileEdit` saves use a different rule: local commands update one whole-source
+draft in call order. Rereads update storage knowledge without folding outside
+fields or body edits into that draft. Saving compares storage against the exact
+source observed when the draft began (or the last submitted source that landed).
+Storage that already equals the draft satisfies it. Any other changed source,
+including deletion, reports `Conflict` and retains the draft.
+`resolveConflict('current' | 'draft' | { text })` explicitly accepts saved
+content or submits a guarded replacement. Direct writes and Git sync keep
+their content merge rules. See [Folder editing](../packages/folder/README.md#unsaved-input).
+
+During sync, the same merge roles describe a base tree, the fetched remote
+tree, and the local tree being merged. These are roles in Epicenter's merge, not Git's
 `ours` and `theirs` names.
 
 Native sync applies the file merge again when it publishes the computed tree
@@ -165,8 +176,8 @@ directory handoff rather than define another content merge policy.
 The planned app-facing synchronization states are `local`, `synced`, `pending`,
 `disconnected`, and `stuck`. Local means no destination is configured. The
 remaining states describe a configured synchronization connection, independently
-of local saving. The current public `Folder.status` reports `saving` and
-`storageFailure`; it does not expose those network states.
+of local saving. The current public `Folder.getStatus()` reports local saving
+and recovery; it does not expose those network states.
 
 ## Clients, services, and access
 

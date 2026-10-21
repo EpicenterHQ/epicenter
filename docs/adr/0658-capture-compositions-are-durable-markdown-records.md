@@ -4,6 +4,8 @@
 - **Date:** 2026-10-21
 - **Relates:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md), Folder input ownership, and [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md), departure based on pending saves.
 
+- **Current edit implementation:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) describes the implemented whole-source draft behavior; its decision remains Proposed. `FileEdit` commands change one pinned source in call order; storage matching neither its observed source nor its draft causes a whole-file `Conflict` rather than a field or body merge. Direct `files.write`, `tables.<name>.set`, and Git sync retain their content merge rules. The earlier draft-merge descriptions below record the prior model.
+
 ## Context
 
 Capture has two kinds of typing. Existing documents (a capture's text, a

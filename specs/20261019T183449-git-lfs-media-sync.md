@@ -156,7 +156,8 @@ Use disposable repositories and storage. The release proof must cover:
   commit while local text and audio remain readable. A retry publishes once.
 - Two different recordings created concurrently at the same path remain valid
   whole-pointer competition, not concatenated pointer text. Independent normal
-  Markdown edits still merge under the existing rules.
+  Markdown changes still merge during Git sync under the existing content rules.
+  `FileEdit` drafts retain their whole-source conflict behavior on local save.
 - Delayed downloads, local playback while offline, local-download removal, and
   explicit record deletion under the chosen retention policy.
 - External Git/LFS pairs work on native targets; the browser reports unsupported

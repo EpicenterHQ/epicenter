@@ -311,7 +311,7 @@ test('restoring committed bytes restores the same root and creates no additional
 	}
 });
 
-test('row sent bases preserve another draft, including schema-invalid fields and raw repairs', async () => {
+test('direct row writes preserve concurrent values across sent bases and raw repairs', async () => {
 	const schema = {
 		type: 'object',
 		properties: { title: { type: 'string' }, done: { type: 'boolean' } },
@@ -336,7 +336,7 @@ test('row sent bases preserve another draft, including schema-invalid fields and
 		const laptop = expectOk(
 			await table.set('one', first, { fields: { title: 'Laptop' } }),
 		).sent;
-		// sent is the draft, not the merged row; the draft never showed done:true.
+		// Direct set returns submitted source, not the merged row. No FileEdit is involved.
 		expect(laptop.fields?.done).toBe(false);
 		expectOk(
 			await table.set('one', laptop, { fields: { title: 'Laptop again' } }),
