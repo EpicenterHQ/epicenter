@@ -70,7 +70,10 @@ test('independent fields and paragraphs survive together', async () => {
 });
 
 test('independent field edits retain the current source comment and unknown field', async () => {
-	const base = row('title: Seed\ndone: false\nextra: keep\n# source note\n', 'Body');
+	const base = row(
+		'title: Seed\ndone: false\nextra: keep\n# source note\n',
+		'Body',
+	);
 	const result = await merge('todos/a.md', {
 		base,
 		current: base.replace('title: Seed', 'title: Edited'),
@@ -302,4 +305,25 @@ test('plain text keeps embedded carriage returns and Unicode separators as part 
 		content: 'A\rb\nc\u2028d\nE\u2029f',
 		overridden: [],
 	});
+});
+
+test('independent frontmatter additions to plain Markdown retain both fields, body edits and current framing', async () => {
+	for (const bom of ['', '\ufeff']) {
+		for (const newline of ['\n', '\r\n']) {
+			const base = `${bom}one${newline}two${newline}three${newline}`;
+			const current = `${bom}---${newline}a: 1${newline}---${newline}ONE${newline}two${newline}three${newline}`;
+			const change = `${bom}---${newline}b: 2${newline}---${newline}one${newline}two${newline}THREE${newline}`;
+			const result = await merge('plain.md', { base, current, change });
+			expect(document(result.content)).toEqual({
+				fields: { a: 1, b: 2 },
+				body: `ONE${newline}two${newline}THREE${newline}`,
+			});
+			expect(result.content?.slice(0, bom.length + 3)).toBe(`${bom}---`);
+			expect(result.overridden).toEqual([]);
+			if (newline === '\r\n')
+				expect((result.content as string).replaceAll('\r\n', '')).not.toContain(
+					'\n',
+				);
+		}
+	}
 });

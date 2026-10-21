@@ -9,7 +9,11 @@ import {
 	sameValue,
 } from './content/canonical.js';
 import { frameRowText, joinRowText } from './content/markdown.js';
-import { type CompetingRegion, mergeLines } from './content/merge-lines.js';
+import {
+	type CompetingRegion,
+	type DiffArrays,
+	mergeLinesWith,
+} from './content/merge-lines.js';
 import { rowChange } from './row.js';
 
 export type FileContent = string | Uint8Array;
@@ -72,8 +76,18 @@ const linesOf = (
 /** Merge files using named roles. Unchanged content retains its exact representation. */
 export async function merge(
 	path: string,
-	{ base, current, change }: FileVersions,
+	versions: FileVersions,
 ): Promise<Merged> {
+	const { diffArrays } = await import('diff');
+	return mergeWith(diffArrays, path, versions);
+}
+
+/** The same file merge with its diff implementation already available. */
+export function mergeWith(
+	diffArrays: DiffArrays,
+	path: string,
+	{ base, current, change }: FileVersions,
+): Merged {
 	if (sameContent(current, change) || sameContent(change, base))
 		return { content: current, overridden: [] };
 	if (sameContent(current, base)) return { content: change, overridden: [] };
@@ -95,16 +109,20 @@ export async function merge(
 			(text) => text !== null && frameRowText(text).kind === 'frontmatter',
 		)
 	) {
-		const markdown = await mergeMarkdown(b, c, n);
+		const markdown = mergeMarkdown(diffArrays, b, c, n);
 		if (markdown !== undefined)
 			return preserveRepresentation(markdown, current, change);
 		return preserveRepresentation(
-			await mergeUnparsedMarkdown(b, c, n),
+			mergeUnparsedMarkdown(diffArrays, b, c, n),
 			current,
 			change,
 		);
 	}
-	const text = await mergeLines({ base: b ?? '', current: c, change: n });
+	const text = mergeLinesWith(diffArrays, {
+		base: b ?? '',
+		current: c,
+		change: n,
+	});
 	return preserveRepresentation(
 		{
 			content: text.content,
@@ -148,7 +166,8 @@ function framed(text: string): Framed | undefined {
 }
 
 /** Keep a side's presentation, including independent comment edits, when its values stand. */
-async function keptHead(
+function keptHead(
+	diffArrays: DiffArrays,
 	base: Framed | null,
 	current: Framed,
 	change: Framed,
@@ -161,7 +180,8 @@ async function keptHead(
 		change.head === base.head
 	)
 		return { head: kept.head, overridden: [] as Overridden[] };
-	const merged = await mergeLines(
+	const merged = mergeLinesWith(
+		diffArrays,
 		{ base: base.head, current: current.head, change: change.head },
 		{ union: false },
 	);
@@ -190,17 +210,30 @@ async function keptHead(
 	};
 }
 
-async function mergeMarkdown(
+function mergeMarkdown(
+	diffArrays: DiffArrays,
 	base: string | null,
 	current: string,
 	change: string,
-): Promise<Merged | undefined> {
-	const [b, c, n] = [
-		base === null ? null : framed(base),
-		framed(current),
-		framed(change),
-	];
-	if (b === undefined || c === undefined || n === undefined) return undefined;
+): Merged | undefined {
+	const [c, n] = [framed(current), framed(change)];
+	if (c === undefined || n === undefined) return undefined;
+	// Two valid headers added to plain Markdown share an empty field base.
+	// A malformed or unclosed base still uses the repairable-text fallback.
+	const frame = base === null ? undefined : frameRowText(base);
+	const b: Framed | null | undefined =
+		base === null
+			? null
+			: frame?.kind === 'missing'
+				? {
+						fields: {},
+						body: lineFeeds(base.slice(frame.bom.length)),
+						text: base,
+						head: frame.bom,
+						keyOrder: [],
+					}
+				: framed(base);
+	if (b === undefined) return undefined;
 	const fields: Record<string, unknown> = {};
 	const overridden: Overridden[] = [];
 	const value = (row: Framed | null, key: string) =>
@@ -228,7 +261,7 @@ async function mergeMarkdown(
 				writable: true,
 			});
 	}
-	const body = await mergeLines({
+	const body = mergeLinesWith(diffArrays, {
 		base: b?.body ?? '',
 		current: c.body,
 		change: n.body,
@@ -236,7 +269,7 @@ async function mergeMarkdown(
 	overridden.push(...body.regions.map((region) => linesOf('body', region)));
 	const kept = [c, n].find((side) => sameValue(fields, side.fields));
 	if (kept !== undefined) {
-		const head = await keptHead(b, c, n, kept);
+		const head = keptHead(diffArrays, b, c, n, kept);
 		const units = [...head.overridden, ...overridden];
 		if (head.head === kept.head && body.content === kept.body)
 			return { content: kept.text, overridden: units };
@@ -263,25 +296,29 @@ async function mergeMarkdown(
 			enumerable: true,
 		});
 	}
+	const bodyContent = c.head.includes('\r\n')
+		? body.content.replaceAll('\n', '\r\n')
+		: body.content;
 	const edited = rowChange(
 		{ text: c.text, issues: null },
-		{ fields: patch, body: body.content },
+		{ fields: patch, body: bodyContent },
 	);
 	if (edited.error === null) return { content: edited.data.text, overridden };
 	// Existing keys keep current's order. All newly introduced keys sort together.
 	const { data, error } = formatRowSource(
-		{ fields, body: body.content },
+		{ fields, body: bodyContent },
 		c.keyOrder,
 	);
 	return error === null ? { content: data.text, overridden } : undefined;
 }
 
 /** Invalid frontmatter stays repairable text; body insertions still union. */
-async function mergeUnparsedMarkdown(
+function mergeUnparsedMarkdown(
+	diffArrays: DiffArrays,
 	base: string | null,
 	current: string,
 	change: string,
-): Promise<Merged> {
+): Merged {
 	const split = (text: string) => {
 		const frame = frameRowText(text);
 		return frame.kind === 'frontmatter'
@@ -297,7 +334,8 @@ async function mergeUnparsedMarkdown(
 		split(change),
 	];
 	if (b === undefined || c === undefined || n === undefined) {
-		const text = await mergeLines(
+		const text = mergeLinesWith(
+			diffArrays,
 			{ base: base ?? '', current, change },
 			{ union: false },
 		);
@@ -306,11 +344,12 @@ async function mergeUnparsedMarkdown(
 			overridden: text.regions.map((region) => linesOf('text', region)),
 		};
 	}
-	const head = await mergeLines(
+	const head = mergeLinesWith(
+		diffArrays,
 		{ base: b.head, current: c.head, change: n.head },
 		{ union: false },
 	);
-	const body = await mergeLines({
+	const body = mergeLinesWith(diffArrays, {
 		base: b.body,
 		current: c.body,
 		change: n.body,
