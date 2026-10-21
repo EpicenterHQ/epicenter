@@ -10,6 +10,9 @@
 - **Amended by:** [ADR-0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) at outside-repository audio placement and migration: ignored bytes can remain in W, and declaration privacy policy is removed without migration.
 - **Unbuilt:** removing legacy schema-owned local patterns and app-local arguments from the folder engine and its callers.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 `local` in the Definition (`packages/definition/src/declaration.ts:99`)
@@ -21,9 +24,9 @@ rule and one a `!` line in `.gitignore` re-includes (ADR-0577). `localNow`
 with the file's and refuses a save version or a sync when `epicenter.json`
 does not read. A read-through handle also passes the reading app's patterns
 as `appLocal`, which the desktop sends to the CLI as `--app-local`
-(`app_local_options` in `apps/epicenter/src-tauri/src/history.rs`). Only
+(`app_local_options` in `944d86823af5:apps/epicenter/src-tauri/src/history.rs`). Only
 that handle passes them (`createCliHistory` in
-`packages/folder/src/tauri-history.ts`): the Folders window's Save version,
+`9d13dd25854e:packages/folder/src/tauri-history.ts`): the Folders window's Save version,
 the CLI run by hand, and an agent's plain `git` commit the same folder
 without them.
 

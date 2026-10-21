@@ -8,22 +8,25 @@
 - **Amended by:** [ADR-0597](0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md) at "`approvals.json` keys an approval by the readable address and the commit": the approval is the bare clone's detached `HEAD`. [ADR-0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md) at "The publisher runs the desktop build", at the browser build alone carrying the template commit's objects (the commit, its trees, and its blobs), and at the `template` branch's history: there is one build, the published repository holds the same artifact a web host serves, every build carries the objects of its template commit and of every template commit before it, the publisher only fast-forwards `template`, and the desktop never fetches it. [ADR-0600](0600-an-approved-commit-supplies-a-windows-page-and-its-relative-assets.md) at "One approved commit of the default branch supplies every byte a window runs" and "A window runs exactly the bytes approved": it supplies the window's page and the assets it loads by relative path. [ADR-0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md) at the deleted manifest's `title` and `id`: the name `<FolderApp>` shows, and a browser folder's commit author, come from the last segment of the app's address. [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) at "An app is one Git repository of built files at an address", the default branch holding "the built app", "Approving a commit trusts it fully", "Building happens in a publish step, never on a person's machine", CI publishing, `epicenter app publish`, "The publisher runs the desktop build", the deleted install-time build, and the consequences about approved built bytes, the publish step, the edit loop, and shell updates: the repository holds source, the desktop builds it with `bun run build`, and installing trusts the author; the address, its clone rule, substitution, encoding, the declared `app`, the page API contract, and the other deletions stand, and the template clauses are withdrawn by ADR-0609. [ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) at "An OAuth client id is a constant in each app's code, registered on the server": a third-party app registers nothing, and its client id is its metadata document's URL; first-party apps keep their constants. [ADR-0609](0609-a-new-data-folder-copies-its-apps-template-once.md) at the `template` branch, `template-commit`, the browser build carrying the template commit's objects, and "the `template` branch's `epicenter.json` holds it as `app`": an app's template is the `template/` directory on its default branch, copied once into a new folder, and `template/epicenter.json` declares the address.
 - **Unbuilt:** all of it: the `template-commit` file and the browser build's template objects (withdrawn by ADR-0609); the address grammar, its clone rule, the machine-local substitution, and the encoding; the publish step in CI and `epicenter app publish` (withdrawn by ADR-0605); per-app repositories under EpicenterHQ, each with a default branch and a `template` branch, created by the owner (the `template` branch withdrawn by ADR-0609); an installer that clones, approves, and serves built bytes, and approvals keyed by address and commit (both withdrawn by ADR-0605); OAuth client ids as constants in each app (for first-party apps only; a third-party browser app's client id is its metadata document's URL, ADR-0606); the page API in a package of its own; and every deletion below.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 An app is a folder inside any Git repository, holding `epicenter.app.json`
 with a reverse-domain `id` and a `title` (ADR-0552, ADR-0560). The
 installer clones the whole repository into the Epicenter folder's `Apps/`,
 records the app's folder as `epicenter.folder` in the clone's
-`.git/config` (`FOLDER_KEY`, `packages/cli/src/installed-apps.ts:71`),
+`.git/config` (`FOLDER_KEY`, `f16c69134b49:packages/cli/src/installed-apps.ts`),
 finds apps by scanning four directories deep for manifests
 (`RepositoryApp`, `:136`; `listRepository`, `:761`), checks the id with
 `appIdProblem` (`:215`), and builds on the person's machine: `bun install
 --frozen-lockfile --ignore-scripts` at the root, then `bun run
 build:installed` (`BUILD_SCRIPT`, `:77`; `:1047-1054`). The Folders window
 hard-codes Epicenter's monorepo and `apps/todos` to offer Todos
-(`apps/epicenter/src/folders/InstallApps.svelte:24-25`). A browser build
+(`f16c69134b49:apps/epicenter/src/folders/InstallApps.svelte`). A browser build
 signs in with the manifest's id as its OAuth client id
-(`apps/todos/src/lib/platform/auth.browser.ts:20`).
+(`6e6551b3bc03:apps/todos/src/lib/platform/auth.browser.ts`).
 
 The build runs code from the approved commit and from the machine:
 untracked and ignored files in the clone reach the build, which is then

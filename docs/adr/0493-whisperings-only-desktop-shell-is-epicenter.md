@@ -3,8 +3,11 @@
 - **Status:** Proposed
 - **Date:** 2026-10-15
 - **Relates:** [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), whose exclusion of a separately shipped Whispering desktop runtime this keeps; [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md), whose Settings opens Whispering once local transcription is ready.
-- **Built:** Whispering installed as an app opening `so.epicenter.whispering` (`apps/whispering/epicenter.app.json`, [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)); its native commands granted to its windows by app id (`apps/epicenter/src-tauri/capabilities/installed-whispering-*.json`): the recorder, local transcription with the active model, and opening Settings; its two connections kept in Epicenter's AI connections, with keys in the keychain and requests sent through Epicenter's host, so the page needs no `__WHISPERING_BRIDGE__`; local transcription in the desktop workspace (`apps/whispering/src/lib/workspace/local-transcription.ts`); and the deletion of `apps/whispering/src-tauri/`, the Bun host in `apps/whispering/native/`, the bridge, `BuiltInApp::Whispering`, and `build:whispering`.
+- **Built:** Whispering installed as an app opening `so.epicenter.whispering` (`f16c69134b49:apps/whispering/epicenter.app.json`, [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)); its native commands granted to its windows by app id (`apps/epicenter/src-tauri/capabilities/installed-whispering-*.json`): the recorder, local transcription with the active model, and opening Settings; its two connections kept in Epicenter's AI connections, with keys in the keychain and requests sent through Epicenter's host, so the page needs no `__WHISPERING_BRIDGE__`; local transcription in the desktop workspace (`caf928c446fc:apps/whispering/src/lib/workspace/local-transcription.ts`); and the deletion of `apps/whispering/src-tauri/`, the Bun host in `apps/whispering/native/`, the bridge, `BuiltInApp::Whispering`, and `build:whispering`.
 - **Unbuilt:** the terminal and Reveal folder in Epicenter (they ran in the deleted Bun host, and Whispering offers neither now); choosing local transcription in Whispering's Settings; a recording overlay and global shortcuts, which Whispering's page does not use, so Epicenter creates and grants neither.
+
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
 
 ## Context
 
@@ -16,7 +19,7 @@ global shortcuts. `apps/whispering/src-tauri/` is a second Tauri shell with its
 own installer.
 
 Only the second one works. The page opens its folder only when
-`window.__WHISPERING_BRIDGE__` exists (`apps/whispering/src/lib/workspace/index.ts`),
+`window.__WHISPERING_BRIDGE__` exists (`caf928c446fc:apps/whispering/src/lib/workspace/index.ts`),
 <!-- doc-path-check: ignore-next-line -->
 and only the standalone shell injects it (`apps/whispering/src-tauri/src/lib.rs`).
 Epicenter's `APPLICATION_FOLDERS` (`apps/epicenter/src-tauri/src/data_folders.rs`)

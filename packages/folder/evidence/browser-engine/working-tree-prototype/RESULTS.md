@@ -19,9 +19,12 @@ read, list, phase measurement, and collection. The throwaway comparison runners
 were retired when working-tree storage replaced the overlay. Their exact source
 is retained in [source.tar.gz](source.tar.gz), with repository-relative paths.
 For historical reproduction, extract it in a checkout of the overlay engine
-(for example `1f0af37e6aaed08fd3639d97fa9b4217f803fc1c`) and run the archived
-`packages/folder/smoke/working-tree-prototype/run.ts` with Bun. Current production
-behavior is covered by the [working-tree checks](../working-tree/RESULTS.md).
+(for example `1f0af37e6aaed08fd3639d97fa9b4217f803fc1c`) and run the archived runner:
+
+<!-- doc-path-check: ignore-next-line (runner is preserved in the linked source.tar.gz archive) -->
+`packages/folder/smoke/working-tree-prototype/run.ts` with Bun.
+
+Current production behavior is covered by the [working-tree checks](../working-tree/RESULTS.md).
 
 `--browser chromium`, `--trials 1`, and `--saves 120` narrow the run. Each run
 creates and removes fresh browser profiles. Every database uses a

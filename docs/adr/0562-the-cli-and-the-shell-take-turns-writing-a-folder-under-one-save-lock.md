@@ -8,6 +8,9 @@
 - **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the `epicenter` CLI writes folders the app may hold open), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge that settles commits).
 - **Unbuilt:** a test of `epicenter sync` and a page saving one file in the same folder at once, with neither save lost.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md)
@@ -34,7 +37,7 @@ lock across its check and its change.**
 
 The save lock is an exclusive SQLite transaction on
 `.<name>.epicenter-save-lock` beside the folder. The shell takes it in
-`publishing()` (`packages/tauri-plugin-epicenter-folder/core/src/registry.rs`)
+`publishing()` (`dda3b5cdaa57:packages/tauri-plugin-epicenter-folder/core/src/registry.rs`)
 around each checked rename and removal. `@epicenter/folder/bun`
 (`packages/folder/src/bun.ts`, `holdingSaveLock`) takes it around each of its
 own, so the CLI and any other Bun process do too. Each waits at most 10 seconds

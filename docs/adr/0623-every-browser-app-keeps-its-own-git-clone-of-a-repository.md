@@ -7,15 +7,18 @@
 - **Relates:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) (a browser clone's unsent edits are its working files, and it holds no cache), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the merge a sync and a save make), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) (the causes of `stuck`).
 - **Unbuilt:** the public local opening API, automatic sync scheduling, safe object collection, migration from OPFS, and hosted and phone verification.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 The browser backend runs isomorphic-git over a folder's `.git` and working
 tree in the origin private file system (OPFS), keeps a Git index, and holds
 a Web Lock for index and branch work
-(`packages/folder/src/git/browser-backend.ts`,
-`packages/folder/src/git/opfs-git.ts`,
+(`9d13dd25854e:packages/folder/src/git/browser-backend.ts`,
+`9d13dd25854e:packages/folder/src/git/opfs-git.ts`,
 `packages/folder/src/git/index-file.ts`,
-`packages/folder/src/opfs-store.ts`). A commit happens at sync or when a
+`9d13dd25854e:packages/folder/src/opfs-store.ts`). A commit happens at sync or when a
 person saves a version
 ([ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md)),
 and it captures the whole folder, reading every file

@@ -7,6 +7,9 @@
 - **Amended by:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at the `local` key, the engine's rule table, `publishLocalPatterns`, and the consequences about `local` merging: audio stays on the machine while the folder's `.gitignore` ignores it, whoever edits that line decides for every device, a recording committed by mistake syncs and is repaired by rewriting history outside Epicenter, and Epicenter never refuses to commit a file because of what it holds.
 - **Unbuilt:** LFS (ADR-0544).
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 Whispering committed each recording, `recordings/<id>.wav`, as real bytes in
@@ -72,7 +75,7 @@ The rule is the engine's, on both backends, whatever `.gitignore` says
 
 **The handle also writes the patterns into the root `.gitignore`**, which
 mirrors them for plain `git`. `publishLocalPatterns`
-(`packages/folder/src/publish-definition.ts`) runs after `publishDefinition`,
+(`9d13dd25854e:packages/folder/src/publish-definition.ts`) runs after `publishDefinition`,
 before a handle's first write: a missing `.gitignore` is created holding the
 patterns, a present one gains each missing pattern as a line at its end, and a
 person's own lines are never rewritten. A failed write is logged and never

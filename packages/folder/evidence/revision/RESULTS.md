@@ -1,5 +1,8 @@
 # Repository revision contention experiment
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 Date: 2026-10-19. Question: does one repository revision cause enough retries
 during two-tab saves and sync to justify storing a base and revision for each
 pending file?
@@ -40,7 +43,7 @@ edits, constructed Git blobs/trees/commits, and attempted atomic publication.
 
 Objects were hashed with the Git object header and held inflated by oid.
 The fixture read its commit and two directory trees inside each snapshot read.
-The content merge was the existing `packages/folder/src/merge-file.ts` with
+The content merge was the existing `2c54debe4f44:packages/folder/src/merge-file.ts` with
 its field and independent text-region behavior. Its older deletion and JSON
 policies were not exercised. The large-file case put about 100 KB of text in
 one row, edited by both tabs.

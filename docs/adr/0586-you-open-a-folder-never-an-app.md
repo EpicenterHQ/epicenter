@@ -10,27 +10,30 @@
 - **Relates:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (`app` in `epicenter.json`, templates, the folder listing); [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) (Epicenter keeps no folder, so `admit` names none); [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) (every commit that runs is approved); [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) (an app is named by its address).
 - **Unbuilt:** independent app integration and migration of the legacy launcher; the Epicenter desktop app and its runner remain deferred under ADR-0635.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 An app opens first, and a folder follows from it. Opening an installed app
 with no folder hands its window `<folder_dir>/<app-id>`
 (`data_folders::own_folder`, called from
-`apps/epicenter/src-tauri/src/installed_apps.rs:234`), which the first grant
+`f16c69134b49:apps/epicenter/src-tauri/src/installed_apps.rs`), which the first grant
 creates (`register_own_folder`, `apps/epicenter/src-tauri/src/data_folders.rs:183`).
 The page opens it with `openFolder({ app, definition })`; `handedFolder`
-(`packages/folder/src/tauri-adapter.ts:88-104`) refuses a window that runs
+(`9d13dd25854e:packages/folder/src/tauri-adapter.ts`) refuses a window that runs
 another app as `AppMismatch` (`packages/folder/src/errors.ts:257`). The
 shell's reply is `WindowFolder { app, folder }`
 (`packages/tauri-plugin-epicenter-folder/src/lib.rs:71`). `<FolderApp>`
 (`packages/svelte/src/folder-app.svelte`) takes `app={manifest}` and passes
 `manifest.id` on. App ids are folder ids: `TODOS_FOLDER_ID`
 (`apps/todos/src/lib/definition.ts:14`) and `WHISPERING_FOLDER_ID`
-(`apps/whispering/src/lib/workspace/types.ts:45`) read `manifest.id` from
+(`caf928c446fc:apps/whispering/src/lib/workspace/types.ts`) read `manifest.id` from
 each app's `epicenter.app.json`, and Capture and Honeycrisp pass
 `manifest.id` through `<FolderApp>`.
 
 An app's id and title live in `epicenter.app.json`, which `parseManifest`
-reads (`packages/cli/src/installed-apps.ts:163`), and its tables live in
+reads (`f16c69134b49:packages/cli/src/installed-apps.ts`), and its tables live in
 `defineFolder` in code: two sources for one app. Installed apps are full
 clones in `<folder_dir>/Apps/<app-id>/` (`apps_dir` and `APPS_DIRECTORY`,
 `apps/epicenter/src-tauri/src/app_data.rs:81-88`; `APPS_DIRECTORY` and
@@ -39,7 +42,7 @@ clones in `<folder_dir>/Apps/<app-id>/` (`apps_dir` and `APPS_DIRECTORY`,
 
 The shell admits windows to folders through a per-window scope registry
 (`FolderKind`, `FolderConfig`, `ScopeConfig`, `register`, `permit`, and
-`windows` in `packages/tauri-plugin-epicenter-folder/core/src/registry.rs`).
+`windows` in `dda3b5cdaa57:packages/tauri-plugin-epicenter-folder/core/src/registry.rs`).
 The Folders window holds a folder grant only because the generic editor
 runs inside it.
 

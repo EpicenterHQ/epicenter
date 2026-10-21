@@ -5,6 +5,9 @@
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (the one writer)
 - **Unbuilt:** a check that runs the cross-reader corpus in continuous integration, and readers beyond PyYAML and Ruby's Psych (Go `yaml.v2`, Java SnakeYAML) in that corpus.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 Row files are plain Markdown that people, other programs, and agents read
@@ -65,7 +68,11 @@ Some strings that could be plain, such as `café ☕` or `a: b`, are quoted.
 
 ## Verification
 
-`packages/folder/src/row-text.test.ts` and `canonical.test.ts` pin the format,
+Current serialization coverage lives in
+[content/canonical.test.ts](../../packages/folder/src/shared/content/canonical.test.ts).
+The tests and manual corpus results below record verification at decision time.
+
+`2c2cd06e3125:packages/folder/src/row-text.test.ts` and `canonical.test.ts` pin the format,
 the case-varied and doubtful strings, multi-line rules, floats, negative zero,
 key order with integer-like keys, and absent keys. The cross-reader corpus
 was run by hand: every value read back identically in PyYAML 6.0.3 and Psych

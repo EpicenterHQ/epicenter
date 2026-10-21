@@ -14,6 +14,9 @@
 - **Amended by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) at "Epicenter builds every app with `bun run build:installed` in its folder and keeps `dist/`": Epicenter builds every app with `bun run build` at its repository's root, writing `dist/`.
 - **Unbuilt:** marking an app and folder pair that refused once, so "Open in" stops offering a pair that will refuse again.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)
@@ -30,7 +33,7 @@ made `epicenter.app.json` five fields:
 ```
 
 `opens` named a committed `shape.json`, `formatDeclaration` of the app's
-definition. `inspect` in `apps/epicenter/src-tauri/src/installed_apps.rs` read
+definition. `inspect` in `f16c69134b49:apps/epicenter/src-tauri/src/installed_apps.rs` read
 it from the clone and returned it as `InstalledApp.opens`; `installedOpeners`
 and `openersOf` in `apps/epicenter/src/folders/openers.ts` offered an app
 under "Open in" only on a folder whose `epicenter.json` contained that shape,
@@ -83,7 +86,7 @@ the `ready` or `unbuilt` state, by title, and each folder offers all of them as
 its shape. `InstalledApp` has no `opens`, and the shell reads no shape. An
 app whose lens cannot add rows shows that in its own window, not in the
 Folders window.
-Whispering's desktop workspace (`apps/whispering/src/lib/workspace/desktop.ts`)
+Whispering's desktop workspace (`caf928c446fc:apps/whispering/src/lib/workspace/desktop.ts`)
 opens a handed folder the same way, refuses a mismatch with "Whispering cannot
 open the folder '<name>': …", and records into the scope it opened
 (`Workspace.folderId`).

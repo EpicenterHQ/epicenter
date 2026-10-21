@@ -9,7 +9,10 @@
 - **Amended by:** [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) at "Opening any installed app permits its window into `so.epicenter`": an app window reaches only the folder it was handed.
 - **Amended by:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) at "an app window reaches only the folder it was handed", as ADR-0587 restated it: an app window reaches every data folder.
 - **Relates:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (approving an app trusts it fully), [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md) and [ADR-0334](0334-a-deployed-app-is-a-trusted-app-because-deploying-it-was-the-consent.md) (a capability file is not a sandbox), [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) (AI connections).
-- **Built:** `apps/epicenter/src-tauri/capabilities/installed-app.json`, selecting `app:*` with the union of what Todos and Whispering called; `open_installed_window` in `apps/epicenter/src-tauri/src/lib.rs` permitting every installed app's window into `so.epicenter`.
+- **Built:** `f16c69134b49:apps/epicenter/src-tauri/capabilities/installed-app.json`, selecting `app:*` with the union of what Todos and Whispering called; `open_installed_window` in `apps/epicenter/src-tauri/src/lib.rs` permitting every installed app's window into `so.epicenter`.
+
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
 
 ## Context
 

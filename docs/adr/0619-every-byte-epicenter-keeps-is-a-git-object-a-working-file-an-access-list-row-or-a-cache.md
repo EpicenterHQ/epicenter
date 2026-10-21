@@ -7,6 +7,9 @@
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (the Git service, the CLI, and the library), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the access list), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (what a browser clone holds).
 - **Unbuilt:** all of it: the deletion of `refs/epicenter/publishing`, `refs/epicenter/builds`, and `neutralizeAttributes`; and an `epicenter sync` that recovers an interrupted checkout on disk from the working files and Git alone.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 Epicenter keeps state Git cannot read. Sync points
@@ -15,9 +18,9 @@ has begun, and the next commit finishes that publish before recording
 anything
 ([ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md);
 `packages/folder/src/git/backend.ts`,
-`packages/folder/src/git/browser-backend.ts`). The installed-app layout
+`9d13dd25854e:packages/folder/src/git/browser-backend.ts`). The installed-app layout
 names each build's tree `refs/epicenter/builds/<commit>`
-(`packages/cli/src/installed-apps.ts`). Every repository Epicenter creates
+(`f16c69134b49:packages/cli/src/installed-apps.ts`). Every repository Epicenter creates
 or clones gets a line in `info/attributes` that unsets each attribute that
 changes bytes (`neutralizeAttributes`,
 `packages/folder/src/git/neutral-attributes.ts`;

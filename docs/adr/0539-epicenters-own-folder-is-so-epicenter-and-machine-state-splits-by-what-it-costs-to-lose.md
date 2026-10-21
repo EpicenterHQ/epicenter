@@ -12,8 +12,11 @@
 - **Amended by:** [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) at "Epicenter's own folder is `~/Epicenter/so.epicenter`", its tree's `so.epicenter/` entries, and "App source never sits inside `so.epicenter`": Epicenter keeps no folder, and AI connections live in `connections.json` in app data and the keychain.
 - **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at the tree's `so.epicenter.todos/` and `Apps/<app-id>/` and "`Apps/` is beside it": installed apps' clones live in `<data_dir>/apps/`.
 - **Amended by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) at "Whatever a person or an agent reads, edits, repairs, or versions as files lives in a folder under the Epicenter root" and the built bundles in Caches: an installed app's source clone lives in app data (`<data_dir>/apps/`) and is authored work, which nothing deletes, and builds live in app data.
-- **Built:** the `so.epicenter` folder, registered for the Folders window and Settings, declared by the CLI at every launch (`packages/cli/src/epicenter-folder.ts`); `~/Epicenter/Apps/`; `approvals.json` in app data, written only by the shell; built bundles in Caches (`cache_dir` in `apps/epicenter/src-tauri/src/app_data.rs`, `EPICENTER_CACHE_DIR`).
+- **Built:** the `so.epicenter` folder, registered for the Folders window and Settings, declared by the CLI at every launch (`a4fa6201aa89:packages/cli/src/epicenter-folder.ts`); `~/Epicenter/Apps/`; `approvals.json` in app data, written only by the shell; built bundles in Caches (`cache_dir` in `apps/epicenter/src-tauri/src/app_data.rs`, `EPICENTER_CACHE_DIR`).
 - **Unbuilt:** Settings opening `so.epicenter` (its scope is registered for the `home` window, which holds no folder plugin grant yet).
+
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
 
 ## Context
 

@@ -11,6 +11,9 @@
 - **Amended by:** [ADR-0597](0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md) at "the approvals in `approvals.json`": the bare clones alone record what is installed and approved.
 - **Amended by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) at the clones of built repositories and "the bare clones alone record what is installed and approved": the installed apps are the person's clones of app source in `<data_dir>/apps/<encoded address>/`, and nothing records an approval.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 ADR-0539 gave `so.epicenter` an `apps` table, one row per installed app at
@@ -25,7 +28,7 @@ published `epicenter.json` when it opened, and after each listing it wrote a
 row for every app whose state was `ready` (`recordInstalledApps`,
 `writeAppRows`). Three facts made the table wrong:
 
-- Nothing read it. `inspect` in `packages/cli/src/installed-apps.ts` reads an
+- Nothing read it. `inspect` in `f16c69134b49:packages/cli/src/installed-apps.ts` reads an
   app's source from `origin`, its folder from `epicenter.folder`, and its
   commit from `HEAD`; no code read an `apps` row or `defaultApp`.
 - The CLI and the Folders window disagreed. `epicenter app list` reads the
@@ -46,20 +49,20 @@ of them.**
 ~/Epicenter/so.epicenter/epicenter.json                declares the connections table only
 ```
 
-- `listInstalled` in `packages/cli/src/installed-apps.ts` lists every
+- `listInstalled` in `f16c69134b49:packages/cli/src/installed-apps.ts` lists every
   directory of `Apps/` that does not start with `.`, and `inspect` reads each
   app and its approval. The Folders window lists through the same command
-  (`list_installed_apps` in `apps/epicenter/src-tauri/src/installed_apps.rs`
+  (`list_installed_apps` in `f16c69134b49:apps/epicenter/src-tauri/src/installed_apps.rs`
   runs `epicenter app list --json`).
 - `so.epicenter` has no `apps` table and no `defaultApp` setting.
-  `epicenterDefinition` in `packages/cli/src/epicenter-folder.ts` declares
+  `epicenterDefinition` in `a4fa6201aa89:packages/cli/src/epicenter-folder.ts` declares
   `connections` ([ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md))
   and an empty `kv`.
 
 **The CLI owns `so.epicenter`'s declaration and publishes it at every
 launch.** `epicenter declare-epicenter-folder` writes
 `so.epicenter/epicenter.json` (`declareEpicenterFolder` in
-`packages/cli/src/epicenter-folder.ts`). The shell runs it in the background
+`a4fa6201aa89:packages/cli/src/epicenter-folder.ts`). The shell runs it in the background
 at every launch (`spawn_epicenter_folder_declaration` in
 `apps/epicenter/src-tauri/src/cli.rs`, called from `run` in
 `apps/epicenter/src-tauri/src/lib.rs`) and opens no installed app until it has

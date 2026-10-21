@@ -9,12 +9,15 @@
 - **Amended by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) at "Every build a window runs was approved when it was built", `needsApproval` for every unapproved `HEAD`, "Every local commit costs one approval", the URL `epicenter-app://localhost/apps/<app-id>/<commit>/`, and "a page may still fetch another build's files": no commit is approved, and a window's label chooses its build on its app's own host; a window keeping the build it opened on, `InstalledWindowCommits`, and the "open on another version" refusal stand.
 - **Unbuilt:** removing a build no window runs; every earlier commit's directory stays in `builds/<app-id>/`.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)
 let a commit made on this machine run without approval when every commit
 since the approved one was unreachable from every remote-tracking ref and
-from `FETCH_HEAD` (`mayRun` in `packages/cli/src/installed-apps.ts`). A
+from `FETCH_HEAD` (`mayRun` in `f16c69134b49:packages/cli/src/installed-apps.ts`). A
 commit pulled from a URL that is not a remote passes that test once a later
 fetch moves `FETCH_HEAD`, so code from elsewhere built unapproved.
 

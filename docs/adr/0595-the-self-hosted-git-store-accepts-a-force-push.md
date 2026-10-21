@@ -7,6 +7,9 @@
 - **Relates:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) (a file committed by mistake is repaired by rewriting history in Git, which reaches a remote only as a force push).
 - **Unbuilt:** all of it: dropping `receive.denyNonFastForwards` from the disk store and inverting its test. Whether Cloudflare Artifacts accepts a force push is not verified; Epicenter does not promise that a hosted repository accepts one until a forced push to the deployed binding has replaced a branch.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 The Bun entry's Git store runs every `git` with
@@ -26,7 +29,7 @@ Epicenter's own sync never forces. The desktop pushes `<oid>:refs/heads/<branch>
 with no `+` (`packages/folder/src/git/native-backend.ts:418-421`), and the
 browser passes `force: false` to isomorphic-git, which refuses a
 non-fast-forward before it sends the update
-(`packages/folder/src/git/browser-backend.ts:317-322`).
+(`9d13dd25854e:packages/folder/src/git/browser-backend.ts`).
 
 ## Decision
 

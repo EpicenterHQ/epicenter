@@ -14,9 +14,9 @@ origin holds no hosted repository grant. It selects the most recently
 consented grant when no ID is supplied. That permits offline use after
 consent, but prevents a first launch from opening data without sign-in.
 
-The internal `openRepository` in `packages/data/src/repository.ts` already
+The internal `openRepository` in `packages/folder/src/browser/repository.ts` already
 opens IndexedDB without authentication. `createSync` in
-`packages/data/src/sync.ts` separately receives that repository, a URL, and
+`packages/folder/src/browser/sync.ts` separately receives that repository, a URL, and
 an HTTP transport. Local saving and network exchange have separate owners.
 Neither constructor is a public app API yet.
 

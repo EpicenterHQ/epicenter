@@ -6,12 +6,15 @@
 - **Amends:** [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) at `approvals.json`, `builds/<app-id>/current`, the checkout by `git worktree add` with every filter driver emptied, `<commit>.built`, "a finished build is never replaced", and the rejected alternative "`git archive` of the commit instead of a worktree": the approved commit is the clone's detached `HEAD`, a build directory is a `git archive` of that commit checked against it at every open, and per-commit directories, URLs, and window pinning stand. [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "`approvals.json` keys an approval by the readable address and the commit": the approval is the clone's `HEAD`, and the clone is bare. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at "the approvals in `approvals.json`": the clones alone record what is installed and approved. [ADR-0586](0586-you-open-a-folder-never-an-app.md) at `approvals.json` in its app-data tree: there is no such file.
 - **Unbuilt:** the encoded address in the clone and build paths, since ADR-0589's addresses are unbuilt: clones are `<data_dir>/apps/<app-id>/` and builds `<cache_dir>/builds/<app-id>/<commit>/`. A build directory as an archive of the approved commit itself: until ADR-0589 moves the build to publishing, the commit is built from source (extracted by `git archive` into `<cache_dir>/sources/<app-id>/`), its `dist/` is written into the clone as the tree `refs/epicenter/builds/<commit>`, and the build directory is a `git archive` of that tree, checked against it at every open.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 An installed app is a clone in app data (ADR-0586, ADR-0589). Which commit
 may run is a second record beside it, `approvals.json`
 (`readApprovals` and `recordApproval`,
-`packages/cli/src/installed-apps.ts:303`, `:345`), and which build a new
+`f16c69134b49:packages/cli/src/installed-apps.ts`, `:345`), and which build a new
 window loads is a third, `builds/<app-id>/current` (`CURRENT_BUILD`, `:81`;
 `currentBuild`, `:591`). `inspect` (`:653`) compares the clone's `HEAD` with
 the approval and `settle` (`:933`) writes `current`. A clone with a working

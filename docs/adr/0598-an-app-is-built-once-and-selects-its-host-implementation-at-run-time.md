@@ -8,6 +8,9 @@
 - **Amended by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) at "The one build prerenders every route and also writes a fallback page", the scheme serving each route's prerendered document and a fallback document with an inserted `<base href>`, and "The repository ADR-0589 publishes holds this build": nothing is prerendered, `index.html` is the fallback, the desktop serves each app at the root of its own host, and the repository holds source; run-time host selection and one build stand, and the template paragraph is withdrawn by ADR-0609. [ADR-0609](0609-a-new-data-folder-copies-its-apps-template-once.md) at "Every build carries its template's whole history, and `template` only moves forward" and the consequence "Each build carries every template commit ever published": a build carries the files of `template/` and no template history, and nothing updates a folder from its app.
 - **Unbuilt:** all of it: run-time selection of each app's seams, the one build with every route prerendered and a fallback page, and the scheme serving each route's own document and the fallback document with a `<base href>` (both withdrawn by ADR-0605); the template history in every build and the publisher's fast-forward-only push of `template` (withdrawn by ADR-0609); the checks that replace the platform selection tests, and the deletions below. That SvelteKit's fallback document loads its assets and finds its router base through an inserted `<base href>` was found false (ADR-0605).
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 Each folder app builds twice. `EPICENTER_HOST=1` turns on the
@@ -15,7 +18,7 @@ Each folder app builds twice. `EPICENTER_HOST=1` turns on the
 `@epicenter/folder/tauri`; without it the alias points at
 `@epicenter/folder/browser` (`installedAppViteConfig`,
 `packages/vite-config/src/index.ts:77-104`; `isInstalledAppBuild`,
-`packages/vite-config/src/installed-app.js:11`). The condition picks each
+`c885481f906d:packages/vite-config/src/installed-app.js`). The condition picks each
 app's `#platform/*` leaf: Todos' sign-in (`#platform/auth` in
 `apps/todos/package.json`) and Whispering's workspace
 (`#platform/workspace` in `apps/whispering/package.json`).
@@ -94,7 +97,7 @@ Deleted, about 700 lines removed or rewritten:
 - the `epicenter-host` condition, the `@epicenter/folder` alias, and the
   `EPICENTER_HOST` define in `installedAppViteConfig`;
   `isInstalledAppBuild`, and `installedAppAdapterOptions`' switch;
-- `apps/todos/tsconfig.epicenter-host.json`,
+- `6e6551b3bc03:apps/todos/tsconfig.epicenter-host.json`,
   `apps/whispering/tsconfig.epicenter-host.json`, and their `svelte-check`;
 - `build:installed` in Capture, Honeycrisp, Todos, and Whispering;
 - the `prerender` conditionals in those four `+layout.ts` files;

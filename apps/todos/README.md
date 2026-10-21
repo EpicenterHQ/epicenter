@@ -40,6 +40,7 @@ bun dev:todos:desktop
 
 This builds the host page into `apps/todos/dist` (`build:host`) and runs the Tauri shell in `src-tauri/`, which needs a Rust toolchain. The development identifier `so.epicenter.todos.dev` selects `~/Epicenter Dev/Todos`; release builds select `~/Epicenter/Todos`. The window opens without an account or network.
 
+<!-- doc-path-check: ignore-next-line (generated Tauri bundle output, not a tracked source file) -->
 To build a local macOS app that you can quit and reopen from Finder, run `bun build:todos:desktop` from the repository root. The result is `apps/todos/src-tauri/target/release/bundle/macos/Todos.app`. This local build is not a signed distribution.
 
 The standalone window defaults to `~/Epicenter/Todos` on macOS, or `~/Epicenter Dev/Todos` in development. `EPICENTER_FOLDER_DIR` can replace the Epicenter root with an absolute path; Todos remains its direct child. The shell creates a missing default and binds it before the page loads. Todos rows land at `todos/<id>.md` inside the bound folder. The Folder's save lock and scratch directory sit beside that folder.
@@ -86,7 +87,7 @@ Earlier Todos builds kept named folders in OPFS. This build opens its IndexedDB 
 
 ## Boundaries and checks
 
-`src/routes/+page.svelte` mounts one `FolderApp` with `open={() => openFolder({ tables: todosTables })}`. The app supplies the opener; the root owns calling it, the Folder handle, query cache, drafts, status, and close. `src/routes/local/` contains the UI; it reads the handle through the Svelte context. `scripts/native.ts` uses the same public Folder operations over a directory. Todos has no account, inference, or sync action.
+`src/routes/+page.svelte` mounts one `FolderApp` with `open={() => openFolder({ tables: todosTables })}`. The app supplies the opener; the root owns calling it, the Folder handle, query cache, drafts, status, and close. `src/routes/local/` contains the UI; it reads the handle through the Svelte context. `apps/todos/scripts/native.ts` uses the same public Folder operations over a directory. Todos has no account, inference, or sync action.
 
 From the repository root:
 

@@ -7,6 +7,9 @@
 - **Amended by:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) at "an app window reaches only the folder it was handed", "an app window opens the folder it was handed", and "no window reaches a folder it was not handed": an app window reaches every data folder.
 - **Unbuilt:** all of it: `connections.json` and the CLI's writes to it; `epicenter auth key list` and the shell command that runs it; Settings and Whispering listing connections through it; Whispering's choice of connection kept in `connections.json`; and every deletion below.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 Epicenter kept one folder for itself, `~/Epicenter/so.epicenter/`
@@ -23,7 +26,7 @@ The row syncs and the entry does not, so on another machine an
 `openai-compatible` row is unusable until its endpoint and key are entered
 again. Holding the row required a folder no person chose:
 
-- `packages/cli/src/epicenter-folder.ts` declares it (`epicenterDefinition`,
+- `a4fa6201aa89:packages/cli/src/epicenter-folder.ts` declares it (`epicenterDefinition`,
   `EPICENTER_FOLDER_ID`), and `declareEpicenterFolder` publishes it at
   every launch; the shell waits on that (`EpicenterFolderDeclared`,
   `apps/epicenter/src-tauri/src/cli.rs:583`) before opening an installed
@@ -36,12 +39,12 @@ again. Holding the row required a folder no person chose:
   `apps/epicenter/src/ui/connections/AiConnections.svelte:29-30`) and lists
   `connections` (`ConnectionList.svelte`). Whispering's desktop workspace
   opens it through `connectionsDefinition`
-  (`apps/whispering/src/lib/workspace/desktop.ts:89-90`) and reads and
+  (`caf928c446fc:apps/whispering/src/lib/workspace/desktop.ts`) and reads and
   writes the fixed rows `whispering-transcription` and `whispering-text`
   (`desktop-connections.ts:51-54`).
 - The CLI special-cases its name: `isApplicationFolder`
   (`packages/cli/src/history-commands.ts:57`) and the installer's refusal of
-  the id (`packages/cli/src/installed-apps.ts:232`).
+  the id (`f16c69134b49:packages/cli/src/installed-apps.ts`).
 
 ## Decision
 
@@ -92,7 +95,7 @@ account. Whispering's fixed ids `whispering-transcription` and
 - `connectionsTable`, `connectionsDefinition`, and `CONNECTIONS_FOLDER_ID`
   (`packages/ai/src/connection-table.ts` and its `./connection-table`
   export);
-- `packages/cli/src/epicenter-folder.ts` and its test, with
+- `a4fa6201aa89:packages/cli/src/epicenter-folder.ts` and its test, with
   `epicenterDefinition` and `EPICENTER_FOLDER_ID`, and Epicenter's own
   template;
 - the `CONNECTIONS_FOLDER_ID` clauses in `history-commands.ts` and

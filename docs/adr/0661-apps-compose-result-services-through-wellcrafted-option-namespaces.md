@@ -3,7 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-10-21
 - **Unbuilt:** Adoption of Wellcrafted's proposed `createQueries` and `createMutations` exports, including migration of the dashboard's read definitions and shared mutation invalidation.
-- **Relates:** [Wellcrafted](https://github.com/wellcrafted-dev/wellcrafted), `docs/adr/0001-result-namespaces-produce-native-tanstack-options.md`, for the library-owned conversion contract.
+<!-- doc-path-check: ignore-next-line (the ADR path belongs to the external Wellcrafted repository) -->
+- **Relates:** [Wellcrafted](https://github.com/wellcrafted-dev/wellcrafted) and its own proposed ADR, `docs/adr/0001-result-namespaces-produce-native-tanstack-options.md`, for the library-owned conversion contract.
 
 ## Context
 

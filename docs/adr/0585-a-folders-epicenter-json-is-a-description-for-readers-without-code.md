@@ -9,6 +9,9 @@
 - **Amended by:** [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at "`openFolder({ definition })` (ADR-0586) validates every table read and write against `definition`" and "`openFolder({ id })` and `openFolder({ root, git })`": an app opens a repository with `open({ id?, tables })`, and its schemas check what it reads and refuse no write.
 - **Unbuilt:** migration of CLI readers to the new root schema-file format and application migration away from declaration publication and containment checks.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 `epicenter.json` held a folder's Definition, and code read it to decide who
@@ -16,15 +19,15 @@ may write the file and which apps may open the folder.
 
 - **Publication.** An app publishes its Definition into the folder named
   after it (ADR-0583): `opening` sets `own` when the folder id equals the
-  app id (`packages/folder/src/opening.ts:43`), and `handleStorage`
+  app id (`9d13dd25854e:packages/folder/src/opening.ts`), and `handleStorage`
   (`packages/folder/src/folder.ts:292`) runs `publishDefinition` and
   `publishLocalPatterns` before the first put (`:314-333`).
 - **Containment.** Every other app reads through its definition: `mismatches`
-  (`packages/definition/src/shape.ts:73`) refuses a folder whose declaration
+  (`2c2cd06e3125:packages/definition/src/shape.ts`) refuses a folder whose declaration
   does not contain it, returned as `DefinitionMismatch`
-  (`packages/folder/src/open-at-root.ts:130`), and writes are checked
+  (`9d13dd25854e:packages/folder/src/open-at-root.ts`), and writes are checked
   against the folder's own declaration. A table the app reads but cannot
-  fill is `canCreate: false` (`packages/folder/src/table.ts:99`).
+  fill is `canCreate: false` (`9d13dd25854e:packages/folder/src/table.ts`).
 - **Listing.** The desktop shell lists a directory in the Epicenter folder
   only when it holds `epicenter.json`
   (`apps/epicenter/src-tauri/src/data_folders.rs:219-220`), and at every

@@ -7,6 +7,9 @@
 - **Relates:** ADR-0566 (deleted) (the command link, whose platform table and NSIS hook this decision removed while 0566 was still Proposed), [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the `epicenter` CLI), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) (its serving probe now runs on one platform).
 - **Unbuilt:** a release workflow for the macOS app.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 The desktop app builds one bundle, `"targets": ["app"]` in
@@ -21,7 +24,7 @@ Windows or Linux. The code still carried guesses at both:
 - `packages/cli/src/app-paths.ts`: `LOCALAPPDATA` and the XDG directories.
 - `apps/epicenter/src-tauri/src/cli.rs`: `epicenter-cli.exe` and a
   `taskkill /T` stop for a window's children.
-- `apps/epicenter/src-tauri/src/history.rs`: `install_git` opening the Git
+- `944d86823af5:apps/epicenter/src-tauri/src/history.rs`: `install_git` opening the Git
   for Windows page, and a message for Linux.
 - ADR-0559's plan to bundle MinGit on Windows, with its license review and a
   `!`-prefixed helper check under MinGit; ADR-0566's per-platform table of

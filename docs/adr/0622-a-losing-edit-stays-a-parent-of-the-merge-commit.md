@@ -9,12 +9,15 @@
 
 - **Current edit implementation:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) describes the implemented whole-source draft behavior; its decision remains Proposed. `FileEdit` commands change one pinned source in call order; storage matching neither its observed source nor its draft causes a whole-file `Conflict` rather than a field or body merge. Direct `files.write`, `tables.<name>.set`, and Git sync retain their content merge rules. The earlier draft-merge descriptions below record the prior model.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
-`merge` in `packages/folder/src/merge-file.ts` takes three versions with
+`merge` in `2c54debe4f44:packages/folder/src/merge-file.ts` takes three versions with
 `ours` as the writer acting and a `winner` option, and merges text with a
 line merge of its own (`mergeLines`,
-`packages/folder/src/git/merge-lines.ts`) that joins two insertions at one
+`2c54debe4f44:packages/folder/src/git/merge-lines.ts`) that joins two insertions at one
 place
 ([ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md),
 [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md)).

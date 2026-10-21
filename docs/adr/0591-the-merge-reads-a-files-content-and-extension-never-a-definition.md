@@ -6,9 +6,12 @@
 - **Amended by:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) at "`epicenter.json` included": a `table.json` is text and merges as any text file does; [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at "one region of body lines", "other UTF-8 text | one region of lines", the line merge `rowTextWins`, "a `.json` file, `epicenter.json` included | one key of an object", and "binary, or a side absent | the whole file" for a side absent: all text, `.json` included, merges by diff3 region, and an edit beats a delete it never saw.
 - **Unbuilt:** deleting `localPatterns`, which stays in `packages/folder/src/declaration.ts` while publication and history still read `local`, until ADR-0592 removes it.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
-`fileKindOf` and `tableAt` (`packages/folder/src/merge-file.ts:56`, `:67`)
+`fileKindOf` and `tableAt` (`2c54debe4f44:packages/folder/src/merge-file.ts`, `:67`)
 classify a path as a row only when it is `<declared table>/<id>.md`, one
 level deep, and `epicenter.json` as the `definition` kind, which merges
 whole but unions `local` (`definitionWins`, `:191`). `rowWins` reads each
@@ -24,7 +27,7 @@ validates one field at a time with no rule across fields
 comes from ours or theirs, so a field merge of two valid rows is always
 valid. The gate only demoted an invalid side to a coarser merge. The field
 merge itself needs no table: `mergeRows`
-(`packages/folder/src/row-merge.ts:92`) takes rows and returns fields, and
+(`2c54debe4f44:packages/folder/src/row-merge.ts`) takes rows and returns fields, and
 orders keys base, then ours, then theirs (`:106-110`).
 
 Sync takes its classifier from the opened handle (`kindOf`,

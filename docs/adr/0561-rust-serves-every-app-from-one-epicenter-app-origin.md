@@ -12,6 +12,9 @@
 - **Built:** the scheme handler, `apps/epicenter/src-tauri/src/scheme.rs`: GET only, a path resolved inside the page's directory or the app's current build with links and anything outside refused, `index.html` for an extensionless route, the Content-Type, and a Content-Security-Policy hashing each inline script; Folders at `/folders/`, Settings at `/home/`, and installed apps at `/apps/<app-id>/`, with navigation held to the origin; capability files with `"local": true` and no `remote.urls`, the `*-development.json` files deleted; and the loopback server, its per-launch token, and the Bun host lifecycle in `lib.rs` deleted. The probe ran on macOS only ([ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md)): `isSecureContext`, `crypto.randomUUID()`, `crypto.subtle.digest`, `localStorage` across a relaunch, IPC as a local page, and the policy enforced.
 - **Unbuilt:** another installed app's WebView microphone on the scheme, `getUserMedia({ audio: true })` then `enumerateDevices()` with labels, untested because the probe machine had no audio device (Whispering's desktop build calls neither, ADR-0571); Windows and Linux, which wait for those platforms (ADR-0567).
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 The Bun host serves every page Epicenter shows at `http://127.0.0.1:39130` (or
@@ -49,7 +52,7 @@ app's own `index.html` for an extensionless path; and sets a
 **Every page shares the one origin.** WebView2 gives one host per scheme, and a
 scheme cannot be registered for an app installed after startup, so a scheme
 per app is not available. The desktop uses no Web Locks or `BroadcastChannel`
-(`packages/folder/src/tauri-directory.ts:41-58`).
+(`9d13dd25854e:packages/folder/src/tauri-directory.ts`).
 
 **Capability files are local and come once.** A page on a registered scheme is
 local to Tauri (`webview/mod.rs:1961-2000`), so each capability file sets

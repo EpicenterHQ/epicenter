@@ -5,12 +5,15 @@
 - **Relates:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) (the generic editor is its own app, reached by "Show files"), [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (a row that does not fit reads as an invalid row, for repair).
 - **Unbuilt:** source repair paths in clients migrating to the local-data API; the Epicenter desktop app is deferred under ADR-0635.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 A row that does not fit its app's fields reads as an invalid row, "for
 repair" (ADR-0585). The generic editor today shows an invalid row's text
 read-only, in a `<pre>` beside its issues
-(`apps/epicenter/src/folders/TableGrid.svelte:182-193`), and edits a valid
+(`a4fa6201aa89:apps/epicenter/src/folders/TableGrid.svelte`), and edits a valid
 row only by field and body (`FieldEditor.svelte`, `RowBody.svelte`). Every
 folder has a "Show files" action that opens it in the editor (ADR-0586).
 A standalone browser app keeps its folder in its origin's storage

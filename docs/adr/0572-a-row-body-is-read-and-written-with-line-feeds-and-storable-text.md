@@ -5,13 +5,16 @@
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (one read and write pipeline), [ADR-0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) (every write reads its own text back), [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md)
 - **Unbuilt:** `parseRow` converting body line endings to `\n`; `formatRow` writing `\n` and replacing unpaired surrogates; removing `lf`, and the `withFileNewlines` and `wellFormed` calls, from row editors in Todos, Honeycrisp, Capture, Vocab, and Whispering.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 A `<textarea>` reports its value with `\n` line endings. A body read from a
 file written with `\r\n` differs from the control's value, so each row editor
 converts it for display and converts it back on save. Todos defines a local
 `lf` and saves `notes.change(stored, withFileNewlines(wellFormed(typed), base.row.body))`
-(`apps/todos/src/routes/components/TodoDetail.svelte`). `formatRow` refuses a
+(`6e6551b3bc03:apps/todos/src/routes/components/TodoDetail.svelte`). `formatRow` refuses a
 string with an unpaired surrogate, so every text setter also calls
 `wellFormed`; Todos' title does too. Honeycrisp, Capture, Vocab, and Whispering
 repeat the same calls. A missed `lf` makes the cursor jump, a missed

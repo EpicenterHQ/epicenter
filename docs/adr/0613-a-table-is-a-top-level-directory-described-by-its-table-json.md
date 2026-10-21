@@ -8,6 +8,9 @@
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`check` and `query`), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the repository a table lives in), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (the app API over tables and rows).
 - **Unbuilt:** migration of generic readers to selected schema files, the shared row predicate, and application migration from legacy declaration gates.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 A data folder is a directory whose root `epicenter.json` describes its
@@ -17,9 +20,9 @@ Its author may keep `epicenter.ts` and run `epicenter generate`
 (`packages/folder/src/generate-declaration.ts`) to write the JSON
 ([ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md)).
 An app named after a folder takes its own definition as the truth and
-`publishDefinition` (`packages/folder/src/publish-definition.ts`) writes it
+`publishDefinition` (`9d13dd25854e:packages/folder/src/publish-definition.ts`) writes it
 over the folder's; otherwise `mismatches` in
-`packages/definition/src/shape.ts` refuses the folder with
+`2c2cd06e3125:packages/definition/src/shape.ts` refuses the folder with
 `DefinitionMismatch`, and a table write refuses a row with
 `RowWriteError`'s `InvalidValues`. A row is addressed by its stem
 ([ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md)),

@@ -446,7 +446,7 @@ its build path:
 | `whispering` | `<folderDir>/Whispering` | `whispering:<digest>` | `whispering.json` |
 | `messages` | `<folderDir>/Messages` | `messages:<digest>` | `messages.json` |
 
-`build:bundled` (`scripts/build-bundled-apps.ts`) runs each app's own
+`build:bundled` (`apps/epicenter/scripts/build-bundled-apps.ts`) runs each app's own
 `build:host` (`EPICENTER_HOST=1`) in `apps/<page>` and copies its `dist/` to
 `dist/<page>/`, which the scheme serves at `/<page>/`; each build loads its
 assets by relative path. Standalone Todos builds the same `dist/` for its own

@@ -5,12 +5,15 @@
 - **Supersedes:** [ADR-0474](0474-incoming-git-adoption-retains-a-recoverable-plan.md)
 - **Amends:** [ADR-0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md), withdrawing `git.recoverIncoming()` and `git.snapshot.pendingIncoming`.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 ADR-0474 had the browser write `.git/epicenter-incoming.json` (an operation id,
 the branch, the old and new head) and pin both commits under
 `refs/epicenter/incoming/expected` and `refs/epicenter/incoming/next` before it
-applied an incoming update (`packages/folder/src/git/opfs-git.ts`). While the
+applied an incoming update (`9d13dd25854e:packages/folder/src/git/opfs-git.ts`). While the
 record exists the update is pending: staging, commits, and further incoming
 updates are refused until a person runs `git.recoverIncoming()`. The desktop
 and Bun keep no record since ADR-0531: `publishIncoming` in

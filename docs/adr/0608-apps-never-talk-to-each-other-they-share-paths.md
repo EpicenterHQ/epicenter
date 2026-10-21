@@ -8,6 +8,9 @@
 - **Relates:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) (an app opens any folder by id), [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) (principle 2: a folder is named by its directory), [ADR-0586](0586-you-open-a-folder-never-an-app.md) (a folder's id is its directory name), [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (`epicenter.json` describes tables), [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) (Sync refuses a link), [ADR-0165](0165-browser-origins-contain-independent-epicenter-replicas.md) (each browser origin holds its own replica).
 - **Unbuilt:** client integration over shared file conventions; automatic cross-repository reference resolution and a new reference-field format are deferred.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 Apps keep their data in folders under `~/Epicenter` (ADR-0590), and after
@@ -18,7 +21,7 @@ stores a bare file stem, which names a row only inside the folder that holds
 it.
 
 The folder id is not yet one name on both hosts. In a tab it is the
-directory name at the OPFS root (`packages/folder/src/browser-adapter.ts`,
+directory name at the OPFS root (`9d13dd25854e:packages/folder/src/browser-adapter.ts`,
 header). On the desktop it is a scope, `data:<name>` or an app id, mapped
 from directory names only in `DataFolderScopes`
 (`apps/epicenter/src-tauri/src/data_folders.rs:124`), which is filled

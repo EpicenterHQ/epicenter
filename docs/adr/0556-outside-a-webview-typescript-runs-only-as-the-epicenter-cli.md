@@ -14,6 +14,9 @@
 - **Unbuilt:** `epicenter sync <dir>` started by Rust with no window open, whose timing is not decided. Checks: (1) `Bun.secrets` `set` and `get` from the signed release binary on macOS, and again after an update; (2) a 30 MB response through `send` into a page's `Channel`, since only the child pipe was measured. Windows and Linux checks wait for those platforms ([ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md)).
 - **Relates:** [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) serves pages without the host, [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) lets the CLI and the shell write one folder, [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) keeps hidden windows for events, [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) and [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) move the rest of the host's work, [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) names the CLI's commands, and [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) moves desktop Git into it; [ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md) (Rust downloads models), [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) (a Bun process is the engine's third host), [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) (app data is written only by Epicenter, which the CLI is), [ADR-0111](0111-super-chat-v1-exposes-built-in-epicenter-apps-and-defers-extension-surfaces.md), [ADR-0113](0113-super-chat-session-commands-are-host-owned-transports-only-frame-them.md), and [ADR-0236](0236-remote-super-chat-attach-is-deferred-until-the-complete-product-exists.md) (Super Chat, whose host session was Home Chat), and [ADR-0009](0009-the-cli-dispatches-through-a-mandatory-daemon.md) and [ADR-0084](0084-super-chat-shell-is-a-bun-hosted-local-server-not-a-bundled-spa.md), already superseded by ADR-0112 and ADR-0118.
 
+Retired source files below use Git snapshots (`commit:path`); inspect one with
+`git show commit:path`. Where available, these use the record's stated revision.
+
 ## Context
 
 Line numbers below are at `999012befb`.
@@ -35,7 +38,7 @@ moves it), keeps OS credentials with the `keyring` crate
 (`apps/epicenter/src-tauri/src/keyring_storage.rs`), downloads transcription
 models ([ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md),
 `apps/epicenter/src-tauri/src/download.rs`), and installs apps
-(`apps/epicenter/src-tauri/src/installed_apps.rs`, 2,017 lines), running `bun`
+(`999012befb:apps/epicenter/src-tauri/src/installed_apps.rs`, 2,017 lines), running `bun`
 as the compiled host with `BUN_BE_BUN=1` on Unix (`:355-382`) and nothing on
 Windows (`:385-388`).
 
@@ -91,9 +94,9 @@ OAuth client, lives in the CLI's own modules (`packages/cli/src`).
 
 | Capability | Shared package | Desktop | Browser |
 | --- | --- | --- | --- |
-| Files | `@epicenter/folder` | the shell's read and checked change commands (`packages/folder/src/tauri-directory.ts`) | OPFS (`packages/folder/src/browser-adapter.ts`) |
-| Watching | `@epicenter/folder` | the shell's watcher (`packages/folder/src/changes-tauri.ts`) | `packages/folder/src/changes-browser.ts` |
-| Git and sync | `@epicenter/folder` | the CLI over system `git` (`packages/folder/src/git/native-backend.ts`, ADR-0559) | isomorphic-git over OPFS (`packages/folder/src/git/browser-backend.ts`) |
+| Files | `@epicenter/folder` | the shell's read and checked change commands (`999012befb:packages/folder/src/tauri-directory.ts`) | OPFS (`999012befb:packages/folder/src/browser-adapter.ts`) |
+| Watching | `@epicenter/folder` | the shell's watcher (`999012befb:packages/folder/src/changes-tauri.ts`) | `999012befb:packages/folder/src/changes-browser.ts` |
+| Git and sync | `@epicenter/folder` | the CLI over system `git` (`packages/folder/src/git/native-backend.ts`, ADR-0559) | isomorphic-git over OPFS (`999012befb:packages/folder/src/git/browser-backend.ts`) |
 | Inference and account calls | `@epicenter/ai`, `@epicenter/auth` | `epicenter send` | the page's own `fetch` (ADR-0557) |
 | Sign-in | `@epicenter/auth` | `epicenter auth login --loopback` | redirect (`packages/auth/src/browser-oauth.ts`) |
 

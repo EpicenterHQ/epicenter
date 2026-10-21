@@ -6,7 +6,10 @@
 - **Amends:** [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) at principle 7, "A window opens exactly the folder it was handed, on exactly the build it opened on", the bold "an app is code the host hands one folder", and the diagram's "handed exactly one", "windows: label -> one commit, one folder", and "+ one folder, for its lifetime": principle 7 reads "A window runs exactly its build", and an app opens folders by id. [ADR-0586](0586-you-open-a-folder-never-an-app.md) at "On the desktop every app window is handed a folder and never looks for one", `openFolder({ definition })` opening the folder `window_folder` answers, the admit rule's `label "app:..."  its handed folder` and "an app window opens the folder it was handed", "Kept: `Folders::hand` and `window_folder`", a browser app's "one fixed folder directory per origin" and "Several folders in one browser origin are deferred", and the consequence "the app gets the folder it is handed": an app window is admitted to every data folder, the launcher names the folder on the app's URL, and a browser origin holds several folders; the name rule, the folder id as directory name, a new opening choosing the app `epicenter.json` names, the generic editor, and installing's first folder stand. [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "An app opens the folder it was handed" and "on the desktop the shell decides which folder a window opens (`Folders::hand`, `window_folder`), never the page's URL": an app opens any folder by id, and the launcher names the first one on the URL; opening with the app's own definition and never reading `epicenter.json` stand. [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) at "an app window reaches only the folder it was handed", "which ADR-0586 reduces to one: an app window opens the folder it was handed", and "no window reaches a folder it was not handed": an app window reaches every data folder; Epicenter keeping no folder stands. [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "an app window reaches only the folder it was handed", as ADR-0587 restated it. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at the rename of `WindowFolder.folder` to `folderId`: `WindowFolder` is deleted, so nothing is renamed.
 - **Amended by:** [ADR-0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) at the consequence "Files a folder's `.gitignore` ignores, such as Whispering's audio (ADR-0592), and changes not yet committed are gone once a page deletes them, since a storage deletion keeps no copy": on the desktop a deleted file goes to the macOS Trash, and in a browser tab a deletion stays permanent.
 - **Relates:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (installing trusts the author fully, and no build is sandboxed), [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) (a window keeps its build), [ADR-0165](0165-browser-origins-contain-independent-epicenter-replicas.md) (each browser origin holds its own replica), [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) (a folder's id is its directory name and its repository name, and a reference is a relative path).
-- **Unbuilt:** all of it: the shell admitting an installed app's window to every data folder; the launcher's `?folder=<id>` and `openFolder` keeping it in `sessionStorage`; several folders in one browser origin with the default folder named by the app's address; and the removal of the fence: `admit_installed_window` (`apps/epicenter/src-tauri/src/data_folders.rs:94-110`), the scopes registered for the Folders window alone (`register_own_folder`, `:178-184`, and the `data:<name>` registration, `:250-255`), `permitted` and `WindowNotPermitted` (`packages/tauri-plugin-epicenter-folder/core/src/registry.rs:249-266`), the one handed folder per label (`Folders.handed` and `hand`, `packages/tauri-plugin-epicenter-folder/src/lib.rs:85`, `:106-112`), `window_folder`, `WindowFolder`, `handedFolder`, and the test `a_registered_data_folder_is_granted_to_the_folders_window_alone` (`data_folders.rs:813-822`).
+- **Unbuilt:** all of it: the shell admitting an installed app's window to every data folder; the launcher's `?folder=<id>` and `openFolder` keeping it in `sessionStorage`; several folders in one browser origin with the default folder named by the app's address; and the removal of the fence: `admit_installed_window` (`apps/epicenter/src-tauri/src/data_folders.rs:94-110`), the scopes registered for the Folders window alone (`register_own_folder`, `:178-184`, and the `data:<name>` registration, `:250-255`), `permitted` and `WindowNotPermitted` (`dda3b5cdaa57:packages/tauri-plugin-epicenter-folder/core/src/registry.rs`), the one handed folder per label (`Folders.handed` and `hand`, `packages/tauri-plugin-epicenter-folder/src/lib.rs:85`, `:106-112`), `window_folder`, `WindowFolder`, `handedFolder`, and the test `a_registered_data_folder_is_granted_to_the_folders_window_alone` (`data_folders.rs:813-822`).
+
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
 
 ## Context
 
@@ -17,10 +20,10 @@ which permits the window's label into the folder's scope and `so.epicenter`
 (`Folders::permit`) and hands it a `WindowFolder { app, folder }`
 (`Folders::hand`). The page asks `window_folder`
 (`packages/tauri-plugin-epicenter-folder/src/commands.rs:48`), and
-`handedFolder` (`packages/folder/src/tauri-adapter.ts:88-104`) refuses a
+`handedFolder` (`9d13dd25854e:packages/folder/src/tauri-adapter.ts`) refuses a
 window running another app as `AppMismatch`. Any other scope is refused by
 the per-window scope registry: `grant` goes through `permitted`
-(`packages/tauri-plugin-epicenter-folder/core/src/registry.rs:249-266`),
+(`dda3b5cdaa57:packages/tauri-plugin-epicenter-folder/core/src/registry.rs`),
 which answers `WindowNotPermitted`. A data folder's scope, `data:<name>`, is
 registered for the Folders window alone (`data_folders.rs:250-255`). The
 window label encodes the folder (`installed_window_label`, `lib.rs:679-688`).
@@ -32,7 +35,7 @@ states it as principle 7.
 
 In a browser tab there is no fence. `openFolder({ id })` opens the
 directory named `id` at the root of the origin's private file system
-(`packages/folder/src/browser-adapter.ts`, header), whatever `id` is. A
+(`9d13dd25854e:packages/folder/src/browser-adapter.ts`, header), whatever `id` is. A
 probe of the browser opener held two folders, `crm` and `journal`, open in
 one page, each with its own `epicenter.json`, `.git`, locks, and change
 channel.

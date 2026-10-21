@@ -12,6 +12,9 @@
 - **Built:** an unchanged declaration is not rewritten (b3bb9cacb2); scratch names carry their engine and coordination names derive from the root (a5870ca92e); the shell compares and publishes every save, prerequisite 1 below; a folder is registered for several windows and may permit more (`ScopeConfig.windows`, `Folders::permit`), under one cross-process lock per folder; the two openers and `definition` on every handle. `openDataFolder` takes `{ root, git }` in Bun and, until opaque grants exist, `{ id }` naming a registered scope in a desktop page; the browser form opens an origin-private folder by ID, whose first write creates its directory, and whose first commit creates its repository, as `openFolder`'s does (ADR-0548). The Git lab opens its working copies with it. The shell lists the data folders under the Epicenter folder root for its Folders window (`list_data_folders`): an application's folder through the application's own scope, which the window is permitted into, and any other through a `data:<directory name>` scope registered for that window once per run. The listing returns scope IDs and titles, never paths, though the page still learns each root from the plugin's grant. The Folders window opens each listed folder with `openDataFolder({ id })`, edits its rows by the folder's own declaration, saves every edit at once with `table.save`, which merges with another window's save by `mergeRow`, this window's edit winning a field or body lines both changed (ADR-0548); a desktop data folder inside another repository never gets its own, as in Bun: the shell names the host at the grant and refuses `git init` there, and never creates a data folder's missing root.
 - **Unbuilt:** opaque grants, so a page never receives a root; the persisted grant registry, and its dialog for a folder outside the Epicenter root.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 Every opener takes a definition from code: `openFolder({ id, definition })`
@@ -27,7 +30,7 @@ a folder whose schema belongs to the folder:
   would replace that file on its first save.
 - The Git lab opens arbitrary working copies with
   `defineFolder({ kv: {}, tables: {} })`
-  (`apps/git/src/lib/workspace.svelte.ts`), so its first save publishes an
+  (`a4fa6201aa89:apps/git/src/lib/workspace.svelte.ts`), so its first save publishes an
   empty declaration over the copy's own.
 
 A desktop browser over data folders, the Vault's scripts, and the Git lab all

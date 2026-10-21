@@ -10,6 +10,9 @@
 
 - **Current edit implementation:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) describes the implemented whole-source draft behavior; its decision remains Proposed. `FileEdit` commands change one pinned source in call order; storage matching neither its observed source nor its draft causes a whole-file `Conflict` rather than a field or body merge. Direct `files.write`, `tables.<name>.set`, and Git sync retain their content merge rules. The earlier draft-merge descriptions below record the prior model.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 Epicenter is a convention and toolkit for local-first apps whose data lives
@@ -32,7 +35,7 @@ All desktop Git runs in the CLI
 ([ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)),
 whose `packages/cli/src/commands.ts` carries `check`, `query`, `generate`,
 `status`, `history`, `save-version`, `sync --to`, `clone`, `repos`, the
-`app` group with `packages/cli/src/installed-apps.ts`, the `auth` group,
+`app` group with `f16c69134b49:packages/cli/src/installed-apps.ts`, the `auth` group,
 `auth key`, `send`, `declare-epicenter-folder`, and `install-command`
 ([ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md)).
 The shell's Folders window lists the folders on disk and opens each in the

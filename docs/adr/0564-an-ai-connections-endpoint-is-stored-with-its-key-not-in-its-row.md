@@ -9,6 +9,9 @@
 - **Relates:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (approving an app trusts it fully), [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) (native commands granted by app id), [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) (`epicenter auth key`).
 - **Unbuilt:** a build-time flag that replaces the `EPICENTER_TEST_SECRETS` check, so a release binary has no in-memory store; Whispering's `transcriptionConnection` and `textConnection` in `so.epicenter.whispering/kv.json`, replacing the fixed rows `whispering-transcription` and `whispering-text`.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 ADR-0557 stored an `openai-compatible` connection's endpoint twice. The synced
@@ -115,7 +118,7 @@ endpoint and key together on each machine, in one form with two fields.
   over connections is added to both lists, and no test checks that they agree.
 - Whispering keeps ADR-0557's decision that an app's choice of connection is
   its own setting, in its own folder. The build does not implement it:
-  `CONNECTION_IDS` in `apps/whispering/src/lib/workspace/desktop-connections.ts`
+  `CONNECTION_IDS` in `caf928c446fc:apps/whispering/src/lib/workspace/desktop-connections.ts`
   fixes the stems `whispering-transcription` and `whispering-text`, so
   Whispering cannot use a connection made in Settings, and its two rows appear
   in Settings beside the others.
