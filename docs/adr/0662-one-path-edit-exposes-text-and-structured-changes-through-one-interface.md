@@ -130,13 +130,14 @@ Removing those public distinctions does not prove that submitted versions,
 body merge bases, structured/text handoffs or exclusive-operation guards can
 also be removed.
 
-The table accessor requires frontmatter; a generic file accessor permits
-missing frontmatter. Both require a known body boundary before a structured
-body save. A closed malformed header still has a known body, while an unclosed
-header refuses the save and retains the pending input. The engine checks this
-on every guarded storage attempt, including after a concurrent change.
-Named field assignments survive a handoff from whole-source input and are
-reapplied after merging, even when the assigned value matched the original.
+The current table accessor requires frontmatter while generic file access
+permits its absence. That framing policy is a Markdown interpretation choice,
+not a second editor lifecycle. Both require a known body boundary before a
+structured body save. A closed malformed header still has a known body, while
+an unclosed header refuses the save and retains the pending input. The engine
+checks this on every guarded storage attempt, including after a concurrent
+change. Named field assignments survive a handoff from whole-source input and
+are reapplied after merging, even when the assigned value matched the original.
 
 Source-only readers retain a method that overlaps `markdown.text`. That overlap
 avoids parsing and validating Markdown for every source-only read, including
