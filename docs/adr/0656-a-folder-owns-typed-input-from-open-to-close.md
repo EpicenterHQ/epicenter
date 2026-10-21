@@ -4,7 +4,7 @@
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) and [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md), where an editor's input lives: input not yet saved is held by the folder, not by a page draft or a queue in each app. A field edit still sets fields on the file as it is now, a body or text still merges by line, and one write path and one channel of change remain.
 - **Relates:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge each save uses), [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) (folder queries), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (the app's folder context), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) (a control binds one part of a row)
-- **Built:** `createEditOwner` (`packages/folder/src/edit-owner.ts`) inside every folder handle; `folder.tables.<t>.edit(id)` and `folder.files.edit(path)`; `folder.getStatus()` with `unsaved`, `failures` and `closing`; `folder.settle()` and `folder.close()` answering `Pending[]`; the `saveAfterMs` open option on every opener; read notes (`shared/observation.ts`); `createRowEdit` and `createTextEdit` in `@epicenter/svelte/edits`; `useRowEdit` and `useTextEdit` in `@epicenter/react/edits`; a context `getSaveState()` read from `folder.getStatus()` alone; Todos, Capture, Honeycrisp, Vocab, Whispering and the generic editor on them; and the deletions below.
+- **Built:** `createEditOwner` (`packages/folder/src/edit-owner.ts`) inside every folder handle; `folder.tables.<t>.edit(id)` and `folder.files.edit(path)`; `folder.getStatus()` with `unsaved`, `failures` and `closing`; `folder.settle()` and `folder.close()` answering `Pending[]`; the `saveAfterMs` open option on every opener; read notes (`shared/observation.ts`); `createRowEdit` and `createTextEdit` in `@epicenter/svelte/edits`; `useRowEdit` and `useTextEdit` in `@epicenter/react/edits`; the context's `getStatus()`, `folder.getStatus()` read reactively, with no summary of it beside; Todos, Capture, Honeycrisp, Vocab, Whispering and the generic editor on them; and the deletions below.
 
 ## Context
 
@@ -38,8 +38,10 @@ for, a recording), forms not yet submitted (a new thought, a connection
 draft), and the page's query cache stay the app's. The Svelte context's
 `run` tracks started app actions so normal teardown waits for writes they may
 make after an await. A form that has not been submitted has no accepted
-Folder edit. Their lifetimes do not determine file save status: `getSaveState()`
-is read from `folder.getStatus()` alone. Departure prompts are a separate UI
+Folder edit. Their lifetimes do not determine file save status: the context's
+`getStatus()` is `folder.getStatus()` alone. A folder-wide label formats that
+status; a label beside one editor reads that edit's own `pending`, so another
+file's failure is never shown as its. Departure prompts are a separate UI
 policy from the Folder's close and recovery contract.
 
 ### Entry points
@@ -137,7 +139,7 @@ A save ends when storage answers. The views read again because `onChange`
 named the path, never because the save waited for them. An app reads after an
 action only where its next step goes by what is listed (opening a file just
 created, counting a bulk transcription), and that read runs after the action,
-outside what close and `getSaveState()` wait for.
+outside what close waits for and what `getStatus()` reports.
 
 ### Lifecycle
 

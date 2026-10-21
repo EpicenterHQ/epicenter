@@ -10,7 +10,7 @@
  * Key behaviors:
  * - A save lands without waiting for the context's reread, and the binding
  *   shows what storage kept, also when the reread fails; typing on keeps it
- * - A failed save shows in `saveState` and `failures` until saved
+ * - A failed save remains in folder status `failures` until saved
  * - Close refuses input and new actions, lets a started action write after an
  *   await, never waits for a reread, and answers copyable failures
  * - The binding reads the row the first time a view shows it, and tells
@@ -39,6 +39,14 @@ const { cell, follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync } = await import('svelte');
 
 const notes = Type.Object({ title: Type.String(), done: Type.Boolean() });
+
+/** Folder status with nothing held, running, or failing in storage. */
+const settled = {
+	saving: false,
+	unsaved: [],
+	failures: [],
+	storageFailure: null,
+};
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
@@ -180,7 +188,7 @@ test('a save lands without waiting for the reread, and the view shows what stora
 	await milk.save();
 	await until(() => reread.held > 0);
 	expect(milk.getPending()).toBeUndefined();
-	expect(context.getSaveState()).toBe('saved');
+	expect(context.getStatus()).toMatchObject(settled);
 	expect(cached().fields.title).toBe('Milk');
 	expect(view.row?.fields.title).toBe('Oat milk');
 
@@ -219,24 +227,24 @@ test('a failed reread keeps the save shown, and typing over it does not lose it'
 	folder.tables.notes.list = list;
 	await observer.refetch();
 	expect(cached().fields.title).toBe('Buy oat milk!');
-	expect(context.getSaveState()).toBe('saved');
+	expect(context.getStatus()).toMatchObject(settled);
 });
 
-test('a failed save shows in the save state and failures until retry() after recovery saves it', async () => {
+test('a failed save remains in folder status until retry() after recovery saves it', async () => {
 	const { context, milk, cached } = await setup();
 	const restore = fillDisk();
 	milk.change({ fields: { title: 'Oat milk' } });
 	await milk.save();
 	expect(milk.getPending()?.error?.name).toBe('StorageFailed');
 	expect(milk.getRow()?.fields.title).toBe('Oat milk');
-	expect(context.getSaveState()).toBe('failed');
+	expect(context.getStatus().failures).toHaveLength(1);
 	expect(context.getStatus().failures.map(({ path }) => path)).toEqual(['notes/milk.md']);
 
 	restore();
 	await milk.retry();
 	expect(milk.getPending()).toBeUndefined();
 	await until(() => cached().fields.title === 'Oat milk');
-	expect(context.getSaveState()).toBe('saved');
+	expect(context.getStatus()).toMatchObject(settled);
 });
 
 test('a later malformed source cannot hide a failed save', async () => {
@@ -279,10 +287,10 @@ test('a storage failure without held input is reported as a past failure', async
 			)
 		).error?.name,
 	).toBe('StorageFailed');
-	expect(context.getSaveState()).toBe('recent-failure');
+	expect(context.getStatus().storageFailure?.name).toBe('StorageFailed');
 	restore();
 	expectOk(await folder.files.write('notes/milk.md', source, source));
-	expect(context.getSaveState()).toBe('saved');
+	expect(context.getStatus()).toMatchObject(settled);
 });
 
 // ============================================================================
@@ -327,20 +335,20 @@ test('an app action does not enter Folder save status until its write is accepte
 		await releaseRequest.promise;
 		return folder.files.write('action.txt', null, 'done');
 	});
-	expect(context.getSaveState()).toBe('saved');
+	expect(context.getStatus()).toMatchObject(settled);
 	expect(folder.getStatus().saving).toBe(false);
 
 	// Its write is accepted: the folder says so, and so does the context.
-	const states: string[] = [];
+	const states: boolean[] = [];
 	cleanup.push(
 		folder.onStatusChange(() => {
-			states.push(context.getSaveState());
+			states.push(context.getStatus().saving);
 		}),
 	);
 	releaseRequest.resolve();
 	expect((await action).error).toBeNull();
-	expect(states).toEqual(['saving', 'saved']);
-	expect(context.getSaveState()).toBe('saved');
+	expect(states).toEqual([true, false]);
+	expect(context.getStatus()).toMatchObject(settled);
 });
 
 test('close lets a started action write after its await, and refuses a new one', async () => {
@@ -508,10 +516,10 @@ test("a binding re-runs for its own path's typing, its document, and close; not 
 	const bread = createRowEdit(notesTable.table, 'bread');
 	const title = follow(() => milk.row?.fields.title);
 	const breadPending = follow(() => bread.pending);
-	const saveState = follow(() => context.getSaveState());
+	const unsaved = follow(() => context.getStatus().unsaved);
 	const breadLocked = follow(() => bread.locked);
 	cleanup.push(() => {
-		for (const { stop } of [title, breadPending, saveState, breadLocked])
+		for (const { stop } of [title, breadPending, unsaved, breadLocked])
 			stop();
 	});
 	flushSync();
@@ -520,7 +528,7 @@ test("a binding re-runs for its own path's typing, its document, and close; not 
 	flushSync();
 	expect(title.values).toEqual(['Milk', 'Oat milk']);
 	expect(breadPending.values).toEqual([undefined]);
-	expect(saveState.values).toEqual(['saved', 'saving']);
+	expect(unsaved.values).toEqual([[], ['notes/milk.md']]);
 	expectErr(bread.change({ fields: { title: 'Bread' } }));
 	// The list answered milk, and bread is read only for its status.
 	expect(notesTable.reads).toEqual({});
@@ -528,7 +536,7 @@ test("a binding re-runs for its own path's typing, its document, and close; not 
 	await context.close();
 	flushSync();
 	expect(breadLocked.values).toEqual([false, true]);
-	expect(saveState.values.at(-1)).toBe('saved');
+	expect(unsaved.values.at(-1)).toEqual([]);
 });
 
 test('a binding types over the row it shows, an outside change included', async () => {

@@ -332,6 +332,8 @@ describe.skipIf(!browser)('folder editor', async () => {
 		const { held } = disk;
 		const page = openEditor(disk.folder);
 		const { file, box, header, target } = page;
+		const unsavedOutput = () =>
+			target.querySelector('output[aria-label="Unsaved paths"]');
 		try {
 			await until(() => file('a.md') !== null, 'the tree');
 			press(file('a.md'));
@@ -349,6 +351,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await until(() => box()?.value === 'beta\n', 'b.md read');
 			held.shift()!.answer(Err(new Error('disk full')));
 			await until(() => header() === 'Not saved: a.md', 'the header');
+			expect(unsavedOutput()?.textContent).toBe('a.md');
 			expect(file('a.md')?.textContent).toContain('(not saved yet)');
 			expect(file('b.md')?.textContent).not.toContain('(not saved yet)');
 
@@ -371,9 +374,12 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(box()?.value).toBe('alpha\nmine\n');
 			expect(target.textContent).not.toContain('Your edit was not saved');
 			expect(await disk.text('a.md')).toBe('alpha\nmine\n');
-			await until(() => page.context.getSaveState() === 'saved', 'saved');
 			await until(
-				() => target.querySelector('output')?.textContent === 'saved',
+				() => !page.context.getStatus().saving && page.context.getStatus().unsaved.length === 0,
+				'saved',
+			);
+			await until(
+				() => unsavedOutput()?.textContent === '',
 				'reactive save completion',
 			);
 		} finally {
@@ -414,7 +420,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 
 			// That save fails: the text stays pending until retried or discarded.
 			held.shift()!.answer(Err(new Error('disk full')));
-			await until(() => context.getSaveState() === 'failed', 'the failure');
+			await until(() => context.getStatus().failures.length > 0, 'the failure');
 			expect(context.getStatus().saving || context.getStatus().unsaved.length > 0).toBe(true);
 			// Settling retains failure; Try again explicitly sends it once.
 			expect(await context.folder.settle()).not.toEqual([]);
@@ -483,7 +489,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 				press(page.file('b.md'));
 				await until(() => disk.held.length === 1, 'the save');
 				disk.held.shift()!.answer(Err(new Error('disk full')));
-				await until(() => page.context.getSaveState() === 'failed', 'the failure');
+				await until(() => page.context.getStatus().failures.length > 0, 'the failure');
 				if (failure === 'deleted') {
 					await disk.remove('a.md');
 					await page.context.refresh(['a.md']);

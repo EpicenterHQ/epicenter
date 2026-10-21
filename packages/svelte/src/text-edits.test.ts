@@ -105,7 +105,12 @@ test('typing while a save runs starts from the exact submitted text and keeps an
 	);
 	expect(text.getPending()).toBeUndefined();
 	expect(text.getText()).toBe(next.replace('two\n', 'two?\n'));
-	expect(context.getSaveState()).toBe('saved');
+	expect(context.getStatus()).toMatchObject({
+		saving: false,
+		unsaved: [],
+		failures: [],
+		storageFailure: null,
+	});
 });
 
 test('failed text stays visible to the row view, whose next change preserves other text', async () => {

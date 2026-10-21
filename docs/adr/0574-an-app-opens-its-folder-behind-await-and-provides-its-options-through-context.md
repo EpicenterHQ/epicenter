@@ -86,7 +86,7 @@ subscriptions. A new-item form, connection form, selection, or search stays
 with the app. Product capabilities and workflows also stay outside Folder.
 
 `context.run(action)` counts accepted app work that may write after an await.
-It affects `busy` and closing; `saveState` comes from Folder status alone.
+It affects closing; `getStatus()` reads Folder status alone.
 `registerUnsent` identifies forms that would be lost on departure without
 submitting them for the person.
 

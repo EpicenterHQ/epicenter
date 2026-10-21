@@ -41,13 +41,6 @@ const log = createLogger('svelte/folder');
 /** The root of every query over the folder. */
 const KEY = folderKeys.all;
 
-/**
- * Whether what the person did is in this device's storage, from the folder's
- * status alone. `saved` only when no input is held, no save runs, and no
- * failure is outstanding. App actions are tracked only for normal teardown.
- */
-export type SaveState = 'saved' | 'saving' | 'failed' | 'recent-failure';
-
 export function createFolderContext<TTables extends Record<string, TSchema>>(
 	folder: Folder<TTables>,
 ) {
@@ -255,24 +248,16 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		/** Query options include generated keys; apps supply only their read policy. */
 		queries,
 
-		/** The folder's save status, held input included, read reactively. */
+		/**
+		 * The folder's save status, held input included, read reactively: the
+		 * one record of whether what the person did is in this device's
+		 * storage. App actions are not in it; their writes are, from their
+		 * call until they land. A per-file label reads its own edit's
+		 * `pending` instead, so another file's failure is never shown as its.
+		 */
 		getStatus(): FolderStatus {
 			trackStatus();
 			return folder.getStatus();
-		},
-		/**
-		 * Whether everything is saved on this device, read reactively: the
-		 * folder's own facts, held input and its saves. An app action that
-		 * saves nothing yet, such as a request it waits for, is not `saving`;
-		 * its writes are, from their call until they land.
-		 */
-		getSaveState(): SaveState {
-			trackStatus();
-			const { failures, saving, unsaved, storageFailure } = folder.getStatus();
-			if (failures.length > 0) return 'failed';
-			if (saving || unsaved.length > 0) return 'saving';
-			if (storageFailure !== null) return 'recent-failure';
-			return 'saved';
 		},
 		/**
 		 * Refuse new app actions, let started ones finish, stop listening and
