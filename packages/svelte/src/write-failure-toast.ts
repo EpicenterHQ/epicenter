@@ -1,7 +1,7 @@
 /**
  * The one toast every folder app shows for a failed save: what failed, why,
- * and the text the file does not hold, to copy. Shown by `<FolderApp>` for
- * each `WriteFailure` an app reports through `getFolder().writeFailed`.
+ * and the text the file does not hold, to copy. `<FolderApp>` and app failure
+ * listeners pass each `WriteFailure` to `toastWriteFailure`.
  *
  * The toast is the only place the unsaved text exists, so nothing here
  * closes it before the text is safe: Copy closes it once the clipboard took
@@ -14,16 +14,6 @@
 import { toast } from '@epicenter/ui/sonner';
 import UnsavedText from './unsaved-text.svelte';
 import { describeWriteError, type WriteFailure } from './write-failure.js';
-
-/** Copy `text`; resolves whether the clipboard took it. */
-async function copied(text: string): Promise<boolean> {
-	try {
-		await navigator.clipboard.writeText(text);
-		return true;
-	} catch {
-		return false;
-	}
-}
 
 /**
  * Say a save failed. Text that is in no file is offered as "Copy your
@@ -42,7 +32,7 @@ export function toastWriteFailure(failure: WriteFailure) {
  * toast's timer with its duration, and an infinite duration then closes it
  * at once.
  */
-function show(failure: WriteFailure, copyRefused = false): string | number {
+function show(failure: WriteFailure, copyRefused = false) {
 	const { path, error, unsaved, retry, discard } = failure;
 	const title = `Could not save ${path}`;
 	const said =
@@ -50,21 +40,24 @@ function show(failure: WriteFailure, copyRefused = false): string | number {
 			? describeWriteError(error)
 			: `${describeWriteError(error)} Your edit is still on screen.`;
 	const copyable = unsaved !== '';
-	let shown: string | number = '';
 	/** Set while this toast's copy runs, so a second click starts none. */
 	let copying = false;
 
 	const copy = {
 		label: 'Copy your text',
-		onClick: (event: MouseEvent) => {
+		onClick: async (event: MouseEvent) => {
 			// Closed only once the clipboard took the text.
 			event.preventDefault();
 			if (copying) return;
 			copying = true;
-			void copied(unsaved).then((took) => {
+			try {
+				await navigator.clipboard.writeText(unsaved);
+			} catch {
 				toast.dismiss(shown);
-				if (!took) show(failure, true);
-			});
+				show(failure, true);
+				return;
+			}
+			toast.dismiss(shown);
 		},
 	};
 	/** Start the save again; when none starts, show the failure again without Save again. */
@@ -86,23 +79,19 @@ function show(failure: WriteFailure, copyRefused = false): string | number {
 						show({ path, error, unsaved: dropped }, copyRefused);
 				};
 
-	shown = toast.error(title, {
+	const shown = toast.error(title, {
 		...(copyRefused ||
 		discarded !== undefined ||
 		(copyable && retry === undefined)
 			? {
 					description: UnsavedText,
-					componentProps: copyRefused
-						? {
-								message: `${said} Copying did not work: select your text below and copy it.`,
-								text: unsaved,
-								discard: discarded,
-							}
-						: {
-								message: said,
-								text: retry === undefined ? unsaved : undefined,
-								discard: discarded,
-							},
+					componentProps: {
+						message: copyRefused
+							? `${said} Copying did not work: select your text below and copy it.`
+							: said,
+						text: copyRefused || retry === undefined ? unsaved : undefined,
+						discard: discarded,
+					},
 				}
 			: { description: said }),
 		duration: copyable ? Number.POSITIVE_INFINITY : undefined,
@@ -118,5 +107,4 @@ function show(failure: WriteFailure, copyRefused = false): string | number {
 				? { label: 'Save again', onClick: saveAgain }
 				: undefined,
 	});
-	return shown;
 }
