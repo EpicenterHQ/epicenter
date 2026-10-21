@@ -631,9 +631,8 @@ export function createLibrary(
 	 * that cannot take its length keeps everything else, and says why.
 	 */
 	async function finishRecording() {
-		if (active === undefined) return;
+		if (active === undefined || recorder.phase !== 'recording') return;
 		const { id, capture, rowSave } = active;
-		active = undefined;
 		recorder = { phase: 'stopping' };
 		const path = rowPath(RECORDINGS, id);
 		const selectionBefore = selectedPath;
@@ -650,6 +649,7 @@ export function createLibrary(
 				count: queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0,
 				path: capture.audioPath,
 			});
+		active = undefined;
 		capturing.delete(id);
 		recorder = { phase: 'idle' };
 		if (stopError !== null) {
@@ -1189,6 +1189,14 @@ export function createLibrary(
 		// Recording
 		// ------------------------------------------------------------------
 
+		/** The live capture writing `path`, until its audio has finished stopping. */
+		capturePhase(path: string): 'recording' | 'stopping' | undefined {
+			return (recorder.phase === 'recording' || recorder.phase === 'stopping') &&
+				active?.capture.audioPath === path
+				? recorder.phase
+				: undefined;
+		},
+
 		get recorder() {
 			return recorder;
 		},
@@ -1278,6 +1286,7 @@ export function createLibrary(
 		},
 		/** Stop and delete: the audio file and the row written at start both go. */
 		async cancelRecording() {
+			if (recorder.phase === 'stopping') return;
 			starting?.abort();
 			starting = undefined;
 			const cancelled = active;

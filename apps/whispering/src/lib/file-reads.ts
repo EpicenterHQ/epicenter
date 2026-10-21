@@ -4,7 +4,7 @@ import { defineFileRead } from '@epicenter/svelte/folder-queries';
 import { audioMimeTypeOf } from './audio-format.js';
 import { readBytes } from './files.js';
 
-export type LoadedAudio = {
+type LoadedAudio = {
 	readonly path: string;
 	readonly sha256: string;
 	readonly blob: Blob;

@@ -8,7 +8,7 @@
 <script lang="ts">
 	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { getFolder } from '$lib/folder.js';
-	import { textRead, audioRead } from '$lib/file-reads.js';
+	import { textRead } from '$lib/file-reads.js';
 
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -183,7 +183,8 @@
 					<p class="text-sm text-destructive" role="alert">More than one audio file matches this recording: {audio.paths.join(', ')}. Keep one matching file.</p>
 				{:else if audioPath}
 					<AudioPlayer
-						source={{ kind: 'file', query: context.queries.file(audioPath, audioRead) }}
+						{library}
+						path={audioPath}
 						label="Audio of {title || id}"
 					/>
 				{:else}
@@ -198,7 +199,7 @@
 						<Button
 							class="ml-auto"
 							size="sm"
-							disabled={entry === undefined || audioPath === undefined || absent || run?.kind === 'running'}
+							disabled={entry === undefined || audioPath === undefined || library.capturePhase(audioPath) !== undefined || run?.kind === 'running'}
 							onclick={() => entry && void library.transcribe(entry)}
 							data-testid="transcribe"
 						>

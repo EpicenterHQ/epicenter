@@ -1,61 +1,46 @@
 <script lang="ts">
 	import { createQuery } from '@tanstack/svelte-query';
-	import { onDestroy } from 'svelte';
-	import type { LoadedAudio } from '$lib/file-reads.js';
-	import type { QueryObserverOptions } from '@tanstack/query-core';
+	import { audioRead } from '$lib/file-reads.js';
+	import type { Library } from '$lib/library.svelte.js';
 
-	/** Active audio reads share the folder's query polling and keep unchanged bytes playing. */
-	let { source, label }: {
-		source:
-			| { readonly kind: 'file'; readonly query: QueryObserverOptions<LoadedAudio> }
-			| { readonly kind: 'bytes'; readonly bytes: Uint8Array; readonly mimeType: string };
+	/** Play a finished file; live capture owns its bytes until Stop finalizes them. */
+	let { library, path, label }: {
+		library: Library;
+		path: string;
 		label: string;
 	} = $props();
-	const reading = createQuery<LoadedAudio>(() => source.kind === 'file'
-		? source.query
-		: { queryKey: ['audio-preview'], enabled: false });
+	const capture = $derived(library.capturePhase(path));
+	const reading = createQuery(() => ({
+		...library.local.queries.file(path, audioRead),
+		enabled: capture === undefined,
+	}));
+	const audio = $derived(capture === undefined ? reading.data : undefined);
+	const problem = $derived(capture === undefined ? reading.error?.message : undefined);
 
 	let url = $state<string | undefined>();
-	let problem = $state<string | undefined>();
-	/** What `url` was made from, when it came from the folder. */
-	let loaded: LoadedAudio | undefined;
-	let held: string | undefined;
 
-	function show(blob: Blob) {
-		if (held) URL.revokeObjectURL(held);
-		held = URL.createObjectURL(blob);
-		url = held;
-		problem = undefined;
-	}
-
+	// The decoded value keeps its identity across rereads of unchanged bytes.
+	// Each changed Blob owns its URL until it is replaced or this view leaves.
 	$effect(() => {
-		const current = source;
-		if (current.kind === 'bytes') {
-			loaded = undefined;
-			show(new Blob([current.bytes as Uint8Array<ArrayBuffer>], { type: current.mimeType }));
-			return;
-		}
-		const audio = reading.data;
-		problem = reading.error?.message;
 		if (audio === undefined) {
 			url = undefined;
 			return;
 		}
-		if (audio === loaded) return;
-		loaded = audio;
-		show(audio.blob);
-	});
-
-	onDestroy(() => {
-		if (held) URL.revokeObjectURL(held);
+		const current = URL.createObjectURL(audio.blob);
+		url = current;
+		return () => URL.revokeObjectURL(current);
 	});
 </script>
 
-{#if problem}
-	<p class="text-xs text-destructive" role="alert">The audio could not be loaded: {problem}</p>
-{/if}
-{#if url}
-	<audio class="h-10 w-full" controls preload="metadata" src={url} aria-label={label} data-testid="audio-player"></audio>
-{:else if !problem}
-	<p class="text-xs text-muted-foreground">Loading audio…</p>
+{#if capture !== undefined}
+	<p class="text-xs text-muted-foreground" role="status">{capture === 'recording' ? 'Recording…' : 'Stopping…'}</p>
+{:else}
+	{#if problem}
+		<p class="text-xs text-destructive" role="alert">The audio could not be loaded: {problem}</p>
+	{/if}
+	{#if url}
+		<audio class="h-10 w-full" controls preload="metadata" src={url} aria-label={label} data-testid="audio-player"></audio>
+	{:else if !problem}
+		<p class="text-xs text-muted-foreground">Loading audio…</p>
+	{/if}
 {/if}

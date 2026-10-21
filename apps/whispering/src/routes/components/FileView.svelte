@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import { unsavedText } from '@epicenter/svelte/write-failure';
-	import { textRead, audioRead } from '$lib/file-reads.js';
+	import { textRead } from '$lib/file-reads.js';
 	import { getFolder } from '$lib/folder.js';
 
 	import { Badge } from '@epicenter/ui/badge';
@@ -132,7 +132,7 @@
 		</div>
 	{:else if audio}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4" data-testid="audio-file-view">
-			<AudioPlayer source={{ kind: 'file', query: context.queries.file(path, audioRead) }} label="Audio in {name}" />
+			<AudioPlayer {library} {path} label="Audio in {name}" />
 			<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
 				<dt class="text-muted-foreground">Type</dt>
 				<dd>{details()} · {audioMimeTypeOf(path)}</dd>

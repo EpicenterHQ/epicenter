@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { audioRead } from '$lib/file-reads.js';
-	import { getFolder } from '$lib/folder.js';
-
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as SectionHeader from '@epicenter/ui/section-header';
@@ -20,7 +17,6 @@
 	import TransformationOutput from './components/TransformationOutput.svelte';
 
 	const whispering = getWhispering();
-	const context = getFolder();
 	const { library, view } = whispering;
 
 	/** The newest saved recording. A capture still being saved is in the notice under the header. */
@@ -142,7 +138,7 @@
 					{/if}
 				{:else if run?.kind === 'failed'}
 					<p class="text-sm text-destructive" role="alert" data-testid="transcription-error">{run.message}</p>
-				{:else if audioPath && !absent}
+				{:else if audioPath}
 					<p class="text-sm text-muted-foreground">
 						{#if run?.kind === 'running'}
 							Transcribing…
@@ -163,7 +159,8 @@
 					{:else if audioPath}
 						<div class="min-w-0 flex-1 basis-full sm:basis-0">
 							<AudioPlayer
-								source={{ kind: 'file', query: context.queries.file(audioPath, audioRead) }}
+								{library}
+								path={audioPath}
 								label="Audio of {recordingTitle(latest)}"
 							/>
 						</div>
@@ -174,7 +171,7 @@
 						<Button
 							size="sm"
 							tooltip={model ? `Transcribes with ${model}` : undefined}
-							disabled={audioPath === undefined || absent || run?.kind === 'running'}
+							disabled={audioPath === undefined || library.capturePhase(audioPath) !== undefined || run?.kind === 'running'}
 							onclick={() => void library.transcribe(latest)}
 							data-testid="transcribe-latest"
 						>
