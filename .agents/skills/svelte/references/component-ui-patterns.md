@@ -221,7 +221,7 @@ each other and which source information survives.
 
 ## File editor views
 
-Use [ADR-0528](../../../../docs/adr/0528-applications-edit-files-through-the-query-cache.md)
+Use [Folder editing](../../../../packages/folder/README.md#unsaved-input)
 for how an app edits files and [the input patterns](input-ownership.md) for the
 choice between immediate editing and explicit submission.
 
@@ -230,17 +230,22 @@ shows its reason and opens as text, as below; repairing text does not switch a
 mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
-The query cache holds the files. An edit is one immutable change to the cached
-row or text, written by a mutation keyed and scoped by the file's path as the
-change from the version the edit started from, which the folder merges into the
-file as it is now (ADR-0576). A failed write reads the file again, which rolls
-the row back, and a toast says what happened. Do not keep a
-draft, an edit session, an open-item slot, or a save bar beside the cache.
-`$state` holds only input that is not committed yet: a new-item box, a search,
-or a typed field that does not parse yet. A row whose text is not valid opens as
-text with its issues and is repaired through `folder.write`. A rich widget
-keeps its document, selection, and history; an unfinished Add, Send, or Save
-form owns a separate explicit-submission draft.
+The query cache owns saved listings and refresh; `FileEdit` owns one whole-source
+draft per path. Bind controls through `createFileEdit`: `change()` updates named
+fields or the body in the current source, and `replaceText()` replaces it.
+Commands act in call order. Rereads do not fold outside changes into a dirty
+draft. A save failure retains the source for recovery; an outside change can
+cause a whole-file conflict that requires an explicit resolution. Read that save
+lifecycle from a ready `.buffer`'s optional `unsaved` value. Direct
+`folder.tables.<name>.set` and `folder.files.write` keep their content merge
+behavior; do not infer draft merging from those APIs.
+
+Do not mirror the edit owner's draft in the query cache or a page store.
+`$state` can hold a new-item box, a search, or input that has not been accepted
+by the edit. Invalid source opens as text with its issues and is repaired
+through the same edit's `replaceText()`. A rich widget keeps its document,
+selection, and history; an unfinished Add, Send, or Save form owns a separate
+explicit-submission draft.
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
 mounting, so do not repeat `tab === value` inside each panel. A disabled trigger

@@ -13,16 +13,18 @@ component draft and synchronize the two with effects.
 
 | Control | Read | Write |
 | --- | --- | --- |
-| Complete file text | Current editor text | `editor.setText(text)` |
-| Structured field | Current valid row fields | `editor.set({ ...editor.row, fields: { ...editor.row.fields, title } })` |
-| Markdown body | Current valid row body | `editor.set({ ...editor.row, body })` |
+| Complete file text | Current editor text | `fileEdit.replaceText(text)` |
+| Structured field | Current valid Markdown fields | `fileEdit.change({ fields: { title } })` |
+| Markdown body | Current Markdown body | `fileEdit.change({ body })` |
 
 Render structured controls only while the current row is valid. Invalid rows
 show a reason and a Files repair action; do not invent empty field values.
-TypeScript narrowing inside a rendering branch does not automatically narrow a
-later callback. Writers read and narrow the current row when the event arrives,
-rather than spreading a render-time snapshot. These data-shape checks are not
-view permissions.
+When a binding getter needs narrowed Markdown, capture it with `{@const}` in
+the nearest template scope, then narrow that local before creating the binding
+callbacks. The setter calls `fileEdit.change()` with the named change; the edit
+owner applies it to the live source in call order. Do not spread a render-time
+row back into the source or merge it with outside changes in the control.
+These data-shape checks are not view permissions.
 
 Real bindings preserve file newlines and present refusal or save errors according
 to the app's policy. Accepted input whose save fails stays with its editor, above
