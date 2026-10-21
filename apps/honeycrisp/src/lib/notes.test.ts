@@ -293,6 +293,52 @@ test('deleting a folder moves its notes out first, then deletes its file', async
 	expect(notes.view.folderId).toBeNull();
 });
 
+test('a folder deletion keeps notes already moved when a later note cannot save', async () => {
+	const { notes, failSaves, text } = await setup({
+		'folders/work.md': folderText('Work'),
+		[A]: noteText({ folderId: 'work' }),
+		'notes/b.md': noteText({ title: 'B', folderId: 'work' }),
+	});
+	cleanup.push(
+		notes.folder.onChange((change) => {
+			if (change.origin === 'this-handle' && change.paths?.includes(A))
+				failSaves();
+		}),
+	);
+
+	expect(await notes.deleteFolder(folderEntry(notes, 'work'))).toContain(
+		'QuotaExceededError',
+	);
+	expect(await text(A)).toContain('folderId: null');
+	expect(await text('notes/b.md')).toContain('folderId: work');
+	expect(await text('folders/work.md')).toBe(folderText('Work'));
+});
+
+test('close drains an admitted folder deletion through its later note moves without changing the departing view', async () => {
+	const { notes, local, text } = await setup({
+		'folders/work.md': folderText('Work'),
+		[A]: noteText({ folderId: 'work' }),
+	});
+	notes.showFolder('work');
+	notes.open('folders/work.md', 'text');
+	expectOk(
+		notes.folder.tables.notes
+			.edit('a')
+			.change({ body: 'Accepted before departure\n' }),
+	);
+
+	const deleting = notes.deleteFolder(folderEntry(notes, 'work'));
+	const closing = local.close();
+	expect(notes.folder.getStatus().closing).toBe(true);
+	expect(await deleting).toBeUndefined();
+	expect(await closing).toEqual([]);
+	expect(await text(A)).toContain('folderId: null');
+	expect(await text(A)).toContain('Accepted before departure');
+	expect(await text('folders/work.md')).toBeUndefined();
+	expect(notes.view.folderId).toBe('work');
+	expect(notes.selected?.path).toBe('folders/work.md');
+});
+
 test('a folder is not deleted while a note cannot say which folder it is in', async () => {
 	const { notes, text } = await setup({
 		'folders/work.md': folderText('Work'),

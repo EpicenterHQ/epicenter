@@ -37,11 +37,13 @@ them without Git or `epicenter.json`.
 
 `<FolderApp>` calls the app's opener and provides one UI context. Each app
 installs that exact context for descendants to read through `getFolder()`.
-Folder owns accepted edits, autosave, save status, and storage closure. The
-context connects it to one TanStack Query cache, change invalidation, app
-actions, and window behavior. Failed saves retain input in Folder. Accepted
-app actions use `context.run()` so their final writes finish before storage
-closes; unfinished forms remain with the app.
+Folder owns accepted edits, autosave, save status, admitted actions, and storage
+closure. The context connects it to one TanStack Query cache, change invalidation,
+and window behavior. Failed saves retain input in Folder. An action that reaches
+later Folder calls after an `await` enters through `folder.run(paths, action)` and
+uses its callback's storage access; normal close waits for that work. Empty paths
+admit lifetime only. Nonempty paths also reserve local editing and save held input
+before the action starts. Unfinished forms remain with the app.
 
 The editing lifecycle is recorded in [ADR 0656](../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md).
 

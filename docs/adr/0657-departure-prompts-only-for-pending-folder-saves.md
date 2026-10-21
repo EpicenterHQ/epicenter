@@ -4,6 +4,8 @@
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md) for application Quit, window close, and browser departure, and [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) for the context's former `busy`, `leaving`, and `registerUnsent` departure policy. File-first recovery and orderly context teardown remain.
 
+- **Lifecycle amendment:** [ADR-0664](0664-folder-close-drains-admitted-work-through-one-owner.md) replaces context action admission and the split shutdown sequence with Folder-owned work and close.
+
 ## Context
 
 ADR-0542 made application Quit immediate and later made individual window close settle every edit and wait for saves. The latter also guarded unsubmitted forms and app actions. A subsequent native Quit path closed each folder window through that guard, so a failed save could leave some windows closed and others open. A window could also be kept open for a form the person had not submitted even when its Folder was fully saved.

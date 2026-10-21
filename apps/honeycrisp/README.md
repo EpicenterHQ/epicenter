@@ -129,10 +129,18 @@ save. Once it reads as a note, **Open as note** shows its fields again. A file
 in `notes/` that is not text, and a file in `folders/` that does not read as a
 folder, are listed apart and open nothing here; Files can still delete them.
 
-Deleting a folder first moves its notes out, each as a list action. It is
-refused while any note cannot say which folder it is in: repair or remove
-those first. The folder's file goes only after the notes were read again with
-none left in the folder. This is not one atomic step.
+Deleting a folder first saves held input in known notes, then rereads the
+notes. It reserves each affected note, checks its current membership, and saves
+only `folderId: null`. It is refused while any note cannot say which folder it
+is in: repair or remove those first. The folder's file goes only after another
+read finds none left in it. This is not one atomic step: notes already moved
+stay moved if a later save fails. Each delete uses the file just read as its
+witness, keeping a file another writer changed in the meantime.
+
+Async actions enter `folder.run` and use its scoped `work.files`, `work.tables`,
+and child `work.run` calls. Closing fences new input immediately; admitted
+work can finish its later storage calls, while the departing view keeps its
+selection and does not open newly created files.
 
 ## When something changes underneath you
 

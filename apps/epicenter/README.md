@@ -411,7 +411,7 @@ Invalid and future view entries remain in the source with diagnostics while
 valid siblings stay available.
 
 A structured save of the declaration runs as an exclusive change of
-`epicenter.json` (`edit.exclusive`): it sends pending source input, refuses if
+`epicenter.json` (`folder.run(['epicenter.json'], ...)`): it sends pending source input, refuses if
 that input still cannot save, and holds source editing read-only until the
 declaration write finishes. Saved-view writes use the narrow
 Tauri adapter for this window's bound folder. The generic editor is a desktop

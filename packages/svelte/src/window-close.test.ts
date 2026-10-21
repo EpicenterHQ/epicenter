@@ -123,8 +123,8 @@ test('Confirm destroys without waiting for the accepted edit to save', async () 
 
 test('an app action before its first Folder write does not prompt', async () => {
 	const { context } = await guarded();
-	context
-		.run(() => Promise.reject(new Error('save interrupted')))
+	context.folder
+		.run([], () => Promise.reject(new Error('save interrupted')))
 		.catch(() => {});
 
 	await requestClose();

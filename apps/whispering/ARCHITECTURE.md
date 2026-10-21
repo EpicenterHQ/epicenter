@@ -116,8 +116,8 @@ What Whispering adds on top:
 
 Every file action, including settings saves, file creation, rename, and
 deletion, is ordinary work refused once closing begins. Closing waits for
-the saves the Folder already admitted, never for a workflow still on its way
-to the Folder, and product teardown itself waits for nothing. A request to
+the saves and file actions the Folder already admitted. Product teardown
+itself waits for nothing. A request to
 an endpoint is not waited for: its result row is in the folder before it goes
 out (ADR-0542), and an answer that has not arrived when the app quits is lost.
 
@@ -300,14 +300,14 @@ No Git or provider request is made.
 
 The same startup attempt then calls `services.recoverRecordings()` before reading
 the folder and device settings. A thrown startup error disposes Whispering and
-shows its original message under "Whispering could not start". The folder
-remains owned by FolderApp until unmount.
+shows its original message under "Whispering could not start". Disposal
+starts the folder context’s close immediately.
 
 On destruction, WhisperingApp calls `whispering.dispose()`, which returns at once:
 it refuses new work and late answers, releases a microphone test, and stops
 observers and listeners. It finishes no recording and waits for no write; a
-recording under way ends with the page (ADR-0663). It never closes the folder
-or its context.
+recording under way ends with the page (ADR-0663). It starts the context’s
+close synchronously and logs an unexpected close failure without awaiting it.
 
 Settings keep one replace-only draft of explicit input, separate from saved
 connection values. Untouched fields follow saved values and defaults; a
@@ -545,10 +545,12 @@ deleted with one nor in the way of deleting one, readable or not.
 
 What a deletion of a recording or transformation path removes is decided by
 its file as read after the typing held for it saved, not by the last
-listing. Before any delete, `folder.files.exclusive(paths, action)` reserves
+listing. Before any delete, `folder.run(paths, action)` reserves
 all confirmed paths and attempts their held input once. If any input cannot
 save, no file is deleted. The action reads and conditionally deletes each
-file through its scoped `ExclusiveFile`, for both rows and other files.
+file through the work scope’s `files` methods, for both rows and other files.
+The result listing also uses that admitted scope, so it remains readable when
+close begins during the deletion.
 A file that does not read as a row is deleted alone; its results stay because
 nothing in that file says which results are its own.
 Each delete names what it read (ADR-0632), so a
@@ -609,10 +611,11 @@ Whispering retains view selection, connection forms, pasted text, capture
 state, and answers whose files are not written. Folder retains accepted
 file edits. Renaming a file saves its typing, saves its exact
 bytes under the new name, then deletes the old name as read; the selection
-follows it. Recording and transformation files keep their names. Once the
-Whispering is disposed, it calls `folder.stopEditing()` so all core and Svelte handles
-refuse new input. It does not drain workflows. The Folder preserves accepted
-input and admitted storage actions, which can finish during close. This differs from the
+follows it. Recording and transformation files keep their names. When
+Whispering is disposed, it starts `context.close()` synchronously, so all core
+and Svelte handles refuse new input. Disposal returns immediately. The folder
+drains accepted saves and scoped file actions, including their later reads and
+writes, before it closes. This differs from the
 person confirming immediate departure.
 
 ## Closing

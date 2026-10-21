@@ -3,7 +3,7 @@
 Svelte state around an opened `@epicenter/folder` handle. The Folder package
 owns files, row parsing, merging, storage, change reports, local save
 status, and unsaved input (`@epicenter/folder/edits`). This package owns the
-page's query cache, Svelte tracking of that input, pending actions, recovery,
+page's query cache, Svelte tracking of that input, recovery,
 and close sequence. It also has separate agent conversation and
 status UI helpers.
 
@@ -90,13 +90,14 @@ notice held by the app layout's toaster.
 
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
 initialization. The context contains `folder`, `queryClient`,
-`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `queries.read(edit)`, `getStatus()`, `closing`, `run`,
+`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `queries.read(edit)`, `getStatus()`, `closing`,
 `guardWindowClose`, `refresh`, and `close`.
-Context close calls `folder.stopEditing()` immediately, so every retained edit
-refuses new input while previously admitted app actions finish. Accepted input
-can still save, and admitted actions can acquire file scopes and use storage.
-The final `folder.close()` then drains accepted work and releases storage.
-Stopping editing alone does not set `FolderStatus.closing`.
+Context close stops the change channel and calls `folder.close()` immediately.
+`FolderStatus.closing` becomes true at that call, and retained edits refuse new
+input. Accepted work finishes through its `FolderWork` capability, including
+storage calls and child scopes begun after an await. The Folder drains that work
+and held input before releasing storage. The context cancels page reads and
+clears its cache; it owns no second action queue or close phase.
 Every save, own or not, reaches the context through the folder's one change
 channel (`onChange`), which also names a save of this handle that changed
 nothing; the context marks the queries over the named paths stale. No save
@@ -245,17 +246,18 @@ for copying, saving again or discarding.
 
 `save()` attempts held input, including a previous failure, or joins its running
 attempt. Failure keeps input and error without looping. Another attempt or
-accepted input clears the older error. `discard()`, `delete()` and `exclusive()`
-use the same owner and fence. For path membership, use the folder context's
+accepted input clears the older error. `discard()` and `delete()` use the same
+owner and fence. For path membership, use the folder context's
 `getStatus().unsaved`; for the actual input, use `.pending` on an existing edit.
 
-Use `context.run(action)` for accepted app actions that may write after an
-await. A write or exclusive change that enters Folder before the first await
-is already covered by `folder.close()`. The context waits for later writes during normal close;
-their file writes enter `getStatus()`. `close()` refuses new actions and app input
-(`closing`), lets started actions finish, stops the change channel and
-cancels reads, then calls `folder.close()`, which fences input, sends it, and
-waits for saves. It answers copyable failures, which `<FolderApp>` offers
+Use `folder.run(paths, async (work) => ...)` for work that must finish through
+close. An empty path list admits the lifetime without reporting saving by itself.
+Nonempty paths reserve input together and flush it before the callback starts;
+overlapping reservations refuse. Use `work.files`, `work.tables`, and `work.run`
+for every storage call after an await. That capability expires when the callback
+ends. Do not await `folder.close()` or `folder.settle()` inside the callback,
+since they wait for accepted work. Context `close()` answers copyable failures,
+which `<FolderApp>` offers
 after unmount: whole-file text exactly as typed, and field input as JSON with
 the values set (`set`), the names of the fields removed (`remove`), and a
 typed `body` (`unsavedText`), so a removal never reads as a value.

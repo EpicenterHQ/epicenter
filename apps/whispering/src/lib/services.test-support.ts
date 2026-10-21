@@ -208,6 +208,8 @@ export type TestServicesOptions = {
 	failAnswerWrites?: number;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Partial<Record<Operation, StoredConnection>>;
+	/** Pause real storage listings beneath root and admitted work handles. */
+	beforeStorageList?: () => Promise<void>;
 	/** Open this folder instead of a directory with the Bun opener. */
 	folder?: WhisperingFolder;
 };
@@ -263,9 +265,23 @@ export async function openTestServices({
 	failAnswerWrites = 0,
 	connections,
 	folder: given,
+	beforeStorageList,
 }: TestServicesOptions = {}) {
 	const root = await whisperingDirectory('whispering-services-');
-	let folder = given ?? (await openTestFolder(root));
+	const storage = nativeStorage(root);
+	let folder = given ?? (beforeStorageList === undefined
+		? await openTestFolder(root)
+		: createNativeFolder({
+			storage: {
+				...storage,
+				async list() {
+					await beforeStorageList();
+					return storage.list();
+				},
+			},
+			tables: whisperingTables,
+			directory: `bun:${root}`,
+		}));
 	const failures: ResultFailures = {
 		starts: failResultStarts,
 		answers: failAnswerWrites,

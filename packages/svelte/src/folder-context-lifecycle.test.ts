@@ -1,6 +1,6 @@
 /**
- * Reactive context closing before the Folder itself closes. All current
- * readers must see input fenced while a started action is still allowed to
+ * Reactive context tracking the Folder close. All current
+ * readers must see input fenced while accepted Folder work can still
  * write; retiring or remounting readers must not disconnect another view.
  */
 import './svelte-modules.test-support.js';
@@ -19,10 +19,10 @@ test('closing reaches every current reader after earlier readers unmount', async
 	const context = createFolderContext(folder);
 	const release = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
-	const action = context.run(async () => {
+	const action = folder.run([], async (work) => {
 		started.resolve();
 		await release.promise;
-		expectOk(await folder.files.write('finished.txt', null, 'done'));
+		expectOk(await work.files.write('finished.txt', null, 'done'));
 	});
 	const readers: ReturnType<typeof follow<boolean>>[] = [];
 	try {
@@ -47,11 +47,11 @@ test('closing reaches every current reader after earlier readers unmount', async
 
 		const closing = context.close();
 		flushSync();
-		expect(folder.getStatus().closing).toBe(false);
+		expect(folder.getStatus().closing).toBe(true);
 		expect(second.values).toEqual([false, true]);
 		expect(replacement.values).toEqual([false, true]);
 		release.resolve();
-		await action;
+		expectOk(await action);
 		expect(await closing).toEqual([]);
 	} finally {
 		for (const reader of readers) reader.stop();

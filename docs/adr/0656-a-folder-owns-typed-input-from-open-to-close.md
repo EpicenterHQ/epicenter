@@ -7,6 +7,8 @@
 - **Relates:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge each save uses), [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) (folder queries), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (the app's folder context), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) (a control binds one part of a row)
 - **Built:** `createEditOwner` (`packages/folder/src/edit-owner.ts`) inside every folder handle; `folder.tables.<t>.edit(id)` and `folder.files.edit(path)`; `folder.getStatus()` with `unsaved`, `failures` and `closing`; `folder.settle()` and `folder.close()` answering `Pending[]`; the `saveAfterMs` open option on every opener; read notes (`shared/observation.ts`); `createRowEdit` and `createTextEdit` in `@epicenter/svelte/edits`; `useRowEdit` and `useTextEdit` in `@epicenter/react/edits`; the context's `getStatus()`, `folder.getStatus()` read reactively, with no summary of it beside; Todos, Capture, Honeycrisp, Vocab, Whispering and the generic editor on them; and the deletions below.
 
+- **Lifecycle amendment:** [ADR-0664](0664-folder-close-drains-admitted-work-through-one-owner.md) replaces context action admission and the split shutdown sequence with Folder-owned work and close.
+
 ## Context
 
 Typed input had three owners. The Svelte folder context kept a queue of row

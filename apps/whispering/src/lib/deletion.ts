@@ -14,8 +14,7 @@
  * cannot say which recording it belongs to. A result on pasted text names no
  * recording and is never part of one.
  */
-import type { Row } from '@epicenter/folder';
-import type { ExclusiveFile } from '@epicenter/folder/edits';
+import type { FolderWork, Row } from '@epicenter/folder';
 import { basename } from '@epicenter/folder/file-browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -27,6 +26,7 @@ import {
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
 	type TransformationFields,
+	type WhisperingTables,
 } from './definition.js';
 import { describeError, listingOf } from './files.js';
 import type { WhisperingFolder } from './folder.js';
@@ -101,7 +101,7 @@ function problemOf(row: Row): string {
  * recording's.
  */
 async function resultsOf(
-	{ folder }: DeletionContext,
+	folder: Pick<FolderWork<WhisperingTables>, 'tables'>,
 	id: string,
 ): Promise<Result<string[], string>> {
 	const [transcripts, outputs] = await Promise.all([
@@ -160,7 +160,7 @@ export async function captureDeletion(
 			});
 		const fields: RecordingFields = stored.fields;
 		const { data: results, error: resultsError } = await resultsOf(
-			context,
+			folder,
 			recordingId,
 		);
 		if (resultsError !== null) return Err(resultsError);
@@ -225,15 +225,14 @@ const changedMeanwhile = (path: string) =>
 /** Delete the current stored bytes through the already reserved file scope. */
 async function deleteFile(
 	context: RunContext,
-	files: ReadonlyMap<string, ExclusiveFile>,
+	work: FolderWork<WhisperingTables>,
 	path: string,
 ): Promise<string | undefined> {
-	const file = files.get(path)!;
-	const { data: found, error: readError } = await file.read();
+	const { data: found, error: readError } = await work.files.read(path);
 	if (readError !== null) return describeError(readError);
 	if (found !== undefined) {
 		const bytes = new Uint8Array(await found.content.arrayBuffer());
-		const { data, error } = await file.delete(bytes);
+		const { data, error } = await work.files.delete(path, bytes);
 		if (error !== null) return describeError(error);
 		if (!data.deleted) return changedMeanwhile(path);
 	}
@@ -241,12 +240,10 @@ async function deleteFile(
 	return undefined;
 }
 
-type RunContext = DeletionContext & {
+type RunContext = {
 	dropFailed(recordingId: string): void;
 	/** The caches let a deleted file go. */
 	deleted(path: string): void;
-	/** Refuse a workflow whose preflight answered after the product stopped. */
-	refused(): string | undefined;
 };
 
 /**
@@ -256,26 +253,24 @@ type RunContext = DeletionContext & {
 export async function runDeletion(
 	context: RunContext,
 	deletion: Deletion,
-	files: ReadonlyMap<string, ExclusiveFile>,
+	work: FolderWork<WhisperingTables>,
 ): Promise<string | undefined> {
 	if (deletion.kind !== 'recording')
-		return deleteFile(context, files, deletion.path);
+		return deleteFile(context, work, deletion.path);
 	const { id } = deletion;
 	// The caller reserved the recording and all confirmed files before this read.
-	const { data: now, error } = await resultsOf(context, id);
+	const { data: now, error } = await resultsOf(work, id);
 	if (error !== null) return error;
-	const why = context.refused();
-	if (why !== undefined) return why;
 	const confirmed = new Set(deletion.results);
 	if (now.some((result) => !confirmed.has(result)))
 		return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
-	const refused = await deleteFile(context, files, deletion.path);
+	const refused = await deleteFile(context, work, deletion.path);
 	if (refused !== undefined) return refused;
 	context.dropFailed(id);
 	// One file at a time: an outside change keeps that file; earlier deletes stay deleted.
 	const leftovers: string[] = [];
 	for (const result of deletion.results) {
-		const problem = await deleteFile(context, files, result);
+		const problem = await deleteFile(context, work, result);
 		if (problem !== undefined) leftovers.push(result);
 	}
 	return leftovers.length > 0

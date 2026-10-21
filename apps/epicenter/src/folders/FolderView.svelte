@@ -57,13 +57,13 @@
 		}
 	});
 	// The declaration's source, fenced while a view setting is written to it.
-	// Only its fence and exclusive change are used, so it reads nothing.
+	// Only its editing fence is used, so it reads nothing.
 	const fileEdit = createFileEdit(folder.files.edit('epicenter.json'));
 	const views = createViews({
 		saved: () => saved.data?.views ?? {},
 		update: (change) => updateView(change),
 		async exclusive(action) {
-			const done = await fileEdit.exclusive(action);
+			const done = await folder.run(['epicenter.json'], action);
 			if (done.error !== null) throw new Error(done.error.reason);
 			return done.data;
 		},

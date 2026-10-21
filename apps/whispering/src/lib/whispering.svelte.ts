@@ -16,10 +16,10 @@
  * (ADR-0632). A save that fails keeps what is typed and is reported.
  *
  * Closing waits for nothing here: `dispose` refuses new work and late answers
- * and returns. FolderApp's close waits for the saves the Folder already
- * admitted, never for a workflow (create, rename, delete, a connection, a
- * Stop's length) still on its way to the Folder. A recording under way ends
- * with the page (ADR-0663).
+ * and returns. Folder close drains admitted saves and file actions, including
+ * a rename or delete that is already running. Provider requests and recording
+ * workflows are fenced by the product and never delay its disposal. A
+ * recording under way ends with the page (ADR-0663).
  *
  * A recording is in the folder from the moment it starts (ADR-0543): its row
  * is written then beside its same-stem audio. On the desktop the audio is
@@ -46,6 +46,8 @@ import {
 import { customAlphabet } from 'nanoid';
 import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
+import { defineErrors } from 'wellcrafted/error';
+import { createLogger } from 'wellcrafted/logger';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
@@ -89,6 +91,14 @@ import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
 import { createRuns } from './runs.svelte.js';
 import { createSettingsDraft } from './settings-draft.svelte.js';
+
+const log = createLogger('whispering');
+const LifecycleError = defineErrors({
+	CloseFailed: ({ cause }: { cause: unknown }) => ({
+		message: 'Whispering could not finish closing its folder',
+		cause,
+	}),
+});
 
 export const STOPPED = 'Whispering stopped before it finished starting.';
 
@@ -837,25 +847,36 @@ export function createWhispering(context: WhisperingContext) {
 	/** Delete row `stem` of a result table as it is stored, after its typing saved. */
 	function deleteResult(table: typeof TRANSFORMATION_RUNS | typeof TEXT_RUNS) {
 		return async (entry: { readonly stem: string; readonly path: string }) => {
-			const { data, error } = await folder.tables[table]
-				.edit(entry.stem)
-				.delete();
-			if (error !== null) return describeError(error);
-			if (!data.deleted) {
-				// Kept because it changed, or already gone, here or elsewhere.
-				const { data: still } = await folder.tables[table].get(entry.stem);
-				if (still !== undefined)
-					return `${entry.path} changed meanwhile, so it was kept.`;
-			}
-			deleted(entry.path);
-			return undefined;
+			const outcome = await folder.run([entry.path], async (work) => {
+				const read = await work.tables[table].get(entry.stem);
+				if (read.error !== null) return describeError(read.error);
+				const { data, error } = await work.tables[table].delete(
+					entry.stem,
+					read.data ?? null,
+				);
+				if (error !== null) return describeError(error);
+				if (!data.deleted) {
+					// Kept because it changed, or already gone, here or elsewhere.
+					const still = await work.tables[table].get(entry.stem);
+					if (still.error !== null) return describeError(still.error);
+					if (still.data !== undefined)
+						return `${entry.path} changed meanwhile, so it was kept.`;
+				}
+				if (!fenced) deleted(entry.path);
+				return undefined;
+			});
+			return outcome.error === null
+				? outcome.data
+				: describeError(outcome.error);
 		};
 	}
 
 	function dispose(): void {
 		if (fenced) return;
 		fenced = true;
-		folder.stopEditing();
+		void context.close().catch((cause: unknown) => {
+			log.warn(LifecycleError.CloseFailed({ cause }));
+		});
 		runs.stop();
 		input.close();
 		if (captureState.phase === 'starting') {
@@ -1395,19 +1416,17 @@ export function createWhispering(context: WhisperingContext) {
 			)
 				return TRANSCRIPT_NAME;
 			if (taken(to)) return TAKEN;
-			const outcome = await folder.files.exclusive(
+			const outcome = await folder.run(
 				[path, to],
-				async (files) => {
-					const source = files.get(path)!;
-					const destination = files.get(to)!;
-					const { data: found, error: readError } = await source.read();
+				async (work) => {
+					const { data: found, error: readError } = await work.files.read(path);
 					if (readError !== null) return describeError(readError);
 					if (found === undefined) return `No file exists at '${path}'.`;
 					const bytes = new Uint8Array(await found.content.arrayBuffer());
-					const { error: copyError } = await destination.write(null, bytes);
+					const { error: copyError } = await work.files.write(to, null, bytes);
 					if (copyError !== null) return describeError(copyError);
 					const { data: removed, error: removeError } =
-						await source.delete(bytes);
+						await work.files.delete(path, bytes);
 					if (removeError !== null)
 						return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
 					if (!removed.deleted)
@@ -1438,7 +1457,15 @@ export function createWhispering(context: WhisperingContext) {
 		async deletionFor(path: string): Promise<Result<Deletion, string>> {
 			const why = refused();
 			if (why !== undefined) return Err(why);
-			return captureDeletion(deletionContext(), path);
+			try {
+				const captured = await captureDeletion(deletionContext(), path);
+				const why = refused();
+				return why === undefined ? captured : Err(why);
+			} catch (cause) {
+				const why = refused();
+				if (why !== undefined) return Err(why);
+				throw cause;
+			}
 		},
 		/**
 		 * Delete what was confirmed, as it is stored: a file that changed after
@@ -1463,20 +1490,16 @@ export function createWhispering(context: WhisperingContext) {
 					: [deletion.path];
 			if (recording !== undefined) deleting.add(recording);
 			try {
-				const outcome = await folder.files.exclusive(paths, async (files) => {
-					const why = refused();
-					if (why !== undefined) return why;
+				const outcome = await folder.run(paths, async (work) => {
 					return runDeletion(
 						{
-							...deletionContext(),
 							dropFailed: runs.dropFailed,
 							deleted: (path) => {
 								if (!fenced) deleted(path);
 							},
-							refused,
 						},
 						deletion,
-						files,
+						work,
 					).catch((cause: unknown) => describe(cause));
 				});
 				return outcome.error === null

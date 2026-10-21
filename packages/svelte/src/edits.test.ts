@@ -29,7 +29,7 @@ import { afterEach, expect, test } from 'bun:test';
 import type { FolderTable } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import type { FileEdit } from '@epicenter/folder/edits';
-import { QueryObserver } from '@tanstack/query-core';
+import { focusManager, QueryObserver } from '@tanstack/query-core';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
@@ -343,10 +343,10 @@ test('close never waits for a reread that does not answer', async () => {
 test('an app action does not enter Folder save status until its write is accepted', async () => {
 	const { folder, context } = await setup();
 	const releaseRequest = Promise.withResolvers<void>();
-	const action = context.run(async () => {
+	const action = folder.run([], async (work) => {
 		// A request the app waits for: nothing of the folder's is saving.
 		await releaseRequest.promise;
-		return folder.files.write('action.txt', null, 'done');
+		return work.files.write('action.txt', null, 'done');
 	});
 	expect(context.getStatus()).toMatchObject(settled);
 
@@ -358,49 +358,60 @@ test('an app action does not enter Folder save status until its write is accepte
 		}),
 	);
 	releaseRequest.resolve();
-	expect((await action).error).toBeNull();
+	expectOk(expectOk(await action));
 	expect(saving).toEqual([true, false]);
 	expect(context.getStatus()).toMatchObject(settled);
 });
 
 test('close lets a started action write after its await, and refuses a new one', async () => {
-	const { folder, context } = await setup();
+	const { folder, context, observer } = await setup();
 	const fileEdit = createFileEdit(folder.tables.notes.edit('milk'));
 	expectOk(fileEdit.change({ body: 'Accepted before closing' }));
 	const actionStarted = Promise.withResolvers<void>();
 	const releaseAction = Promise.withResolvers<void>();
-	const action = context.run(async () => {
+	const action = folder.run([], async (work) => {
 		actionStarted.resolve();
 		await releaseAction.promise;
-		return folder.files.exclusive(['notes/milk.md', 'action.txt'], async (files) =>
-			expectOk(await files.get('action.txt')!.write(null, 'done')),
+		return work.run(['notes/milk.md', 'action.txt'], async (scoped) =>
+			expectOk(await scoped.files.write('action.txt', null, 'done')),
 		);
 	});
 	await actionStarted.promise;
 	const closing = context.close();
-	// Context teardown stops every editor before it closes storage. An
-	// action admitted earlier may still acquire its file scope after an await.
+	// Folder close fences every editor immediately. Work admitted earlier
+	// may still acquire its file scope after an await.
 	expect(fileEdit.locked).toBe(true);
-	expect(folder.getStatus().closing).toBe(false);
+	expect(folder.getStatus().closing).toBe(true);
 	expect(expectErr(fileEdit.replaceText('Late source')).name).toBe('Locked');
-	expect(expectErr(folder.tables.notes.edit('milk').change({ body: 'Late body' })).name).toBe('Locked');
+	expect(
+		expectErr(folder.tables.notes.edit('milk').change({ body: 'Late body' }))
+			.name,
+	).toBe('Locked');
 	expect(fileEdit.markdown?.body).toBe('Accepted before closing');
+	// A visibility return during the drain must not reread the closed public handle.
+	cleanup.push(() => focusManager.setFocused(undefined));
+	focusManager.setFocused(false);
+	focusManager.setFocused(true);
+	await Bun.sleep(0);
+	expect(observer.getCurrentResult().error).toBeNull();
 	let lateActionStarted = false;
-	await expect(
-		context.run(async () => {
+	expectErr(
+		await folder.run([], async () => {
 			lateActionStarted = true;
 		}),
-	).rejects.toThrow('The folder is closing');
+	);
 	expect(lateActionStarted).toBe(false);
 	releaseAction.resolve();
-	expectOk(await action);
+	expectOk(expectOk(await action));
 	await closing;
 	const reopened = await open();
 	cleanup.push(() => reopened.close());
 	expect(
 		await expectOk(await reopened.files.read('action.txt'))?.content.text(),
 	).toBe('done');
-	expect(expectOk(await reopened.tables.notes.get('milk'))?.body).toBe('Accepted before closing');
+	expect(expectOk(await reopened.tables.notes.get('milk'))?.body).toBe(
+		'Accepted before closing',
+	);
 });
 
 test('close answers the typing whose save failed, as copyable text', async () => {

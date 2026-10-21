@@ -37,7 +37,7 @@ import {
 	mergeWith,
 	sameContent,
 } from './shared/merge.js';
-import { type MarkdownValue, type Row } from './shared/row.js';
+import type { MarkdownValue, Row } from './shared/row.js';
 
 /** How long after its last change input saves, unless the folder was opened with another pause. */
 export const SAVE_AFTER_MS = 1000;
@@ -162,25 +162,6 @@ export type FileEdit<TRowSchema extends TSchema = typeof anyFields> = {
 	/** Release held input, returning it for recovery. Refused while a save or action runs. */
 	discard(): Pending | undefined;
 	delete(): Promise<DeleteResult>;
-	/** Fence this path, save held input, then perform one protected action. */
-	exclusive<T>(
-		action: (file: ExclusiveFile) => Promise<T>,
-	): Promise<Result<T, ActionError>>;
-};
-
-/**
- * The one file an `exclusive` action holds: read it, save it from what was
- * read (`from`, as `folder.files.write` takes it), or delete it. It works
- * only while the action runs, the folder's close included.
- */
-export type ExclusiveFile = {
-	readonly path: string;
-	read(): ReturnType<FolderFileOperations['read']>;
-	write(
-		from: FileContent | null,
-		content: FileContent,
-	): ReturnType<FolderFileOperations['write']>;
-	delete(from: FileContent | null): ReturnType<FolderFileOperations['delete']>;
 };
 
 /**
@@ -447,6 +428,9 @@ export function createEditOwner({
 	writeDocument,
 	saveAfterMs,
 	onAggregate,
+	track,
+	drainWork,
+	waitForPaths,
 }: {
 	readonly files: FolderFileOperations;
 	readonly writeDocument: (
@@ -466,13 +450,17 @@ export function createEditOwner({
 	readonly saveAfterMs?: number;
 	/** Called after anything `aggregate` reports may have changed. */
 	readonly onAggregate: () => void;
+	/** One handle registry owns saves and complete actions. */
+	readonly track: <T>(action: () => Promise<T>) => Promise<T>;
+	readonly drainWork: () => Promise<void>;
+	readonly waitForPaths: (paths: readonly string[]) => Promise<unknown>;
 }) {
 	const pause = saveDelay(saveAfterMs);
 	const states = new Map<string, PathState>();
 	/** Paths with input held, kept for the aggregate. */
 	const held = new Set<string>();
-	/** Fenced actions running, which settle and close wait for. */
-	const actions = new Set<Promise<unknown>>();
+	/** Reserved actions count as saving; lifetime-only work does not. */
+	let reservations = 0;
 	let revisions = 0;
 	/** Orders reads against what overtakes them: saves stored and changes reported. */
 	let clock = 0;
@@ -484,8 +472,7 @@ export function createEditOwner({
 	let rereads: Set<string> | undefined;
 	let saves = 0;
 	let aggregate: EditAggregate = { unsaved: [], failures: [], working: false };
-	let editingStopped = false;
-	let closing: Promise<Pending[]> | undefined;
+	let phase: 'open' | 'closing' | 'closed' = 'open';
 
 	function stateOf(path: string): PathState {
 		let state = states.get(path);
@@ -543,7 +530,7 @@ export function createEditOwner({
 			const pending = states.get(path)?.input?.pending;
 			return pending?.error !== undefined && !pending.saving ? [pending] : [];
 		});
-		const working = actions.size > 0 || saves > 0;
+		const working = reservations > 0 || saves > 0;
 		if (
 			sameList(unsaved, aggregate.unsaved) &&
 			sameList(failures, aggregate.failures) &&
@@ -648,7 +635,7 @@ export function createEditOwner({
 			rereads = paths;
 			queueMicrotask(() => {
 				rereads = undefined;
-				if (closing !== undefined) return;
+				if (phase !== 'open') return;
 				for (const reread of paths)
 					void readPath(reread, states.get(reread)?.asOf ?? -1);
 			});
@@ -734,7 +721,7 @@ export function createEditOwner({
 
 	/** One `read()`: read again, joining the reread, while a reported change overtakes it. */
 	async function read(path: string): Promise<Result<void, ReadError>> {
-		if (closing !== undefined) throw new Error('The folder is closed');
+		if (phase !== 'open') throw new Error('The folder is closed');
 		for (let attempt = 0; attempt < READ_ATTEMPTS; attempt++) {
 			const outcome = await readPath(path, states.get(path)?.asOf ?? floor);
 			if (outcome.error !== null) return { data: null, error: outcome.error };
@@ -746,7 +733,7 @@ export function createEditOwner({
 	}
 
 	const isLocked = (state: PathState | undefined) =>
-		editingStopped || closing !== undefined || state?.action !== undefined;
+		phase !== 'open' || state?.action !== undefined;
 
 	function clearTimer(state: PathState) {
 		clearTimeout(state.timer);
@@ -783,15 +770,6 @@ export function createEditOwner({
 		saves++;
 		drain(path, state).then(started.resolve, started.reject);
 		return started.promise;
-	}
-
-	/**
-	 * A save asked for from outside: from close on, nothing new is sent, and
-	 * the asker waits for close, which sends held input once itself.
-	 */
-	function requested(path: string): Promise<void> {
-		if (closing !== undefined) return close().then(() => {});
-		return flush(path);
 	}
 
 	async function send(
@@ -984,7 +962,7 @@ export function createEditOwner({
 				else await landed(path, state, input, prepared);
 				// Close drains eligible input accepted before its fence, including
 				// input a listener added as this attempt finished.
-			} while (state.again || closing !== undefined);
+			} while (state.again || phase !== 'open');
 		} finally {
 			// Stop accepting joins in the same turn that draining ends. A
 			// queued listener can then start the next save, never join a dead one.
@@ -995,11 +973,29 @@ export function createEditOwner({
 	}
 
 	/**
-	 * Attempt each held path once, after fenced actions; answer what did not save.
+	 * Send available input now, then newly released paths after actions drain.
 	 */
 	async function settle(): Promise<Pending[]> {
-		await Promise.allSettled([...actions]);
-		await Promise.allSettled([...held].map((path) => flush(path)));
+		const attempted = new Map<string, number>();
+		const sendReady = () =>
+			[...held].flatMap((path) => {
+				const state = states.get(path);
+				const input = state?.input;
+				if (
+					input === undefined ||
+					state?.action !== undefined ||
+					attempted.get(path) === input.revision
+				)
+					return [];
+				attempted.set(path, input.revision);
+				return [flush(path)];
+			});
+		// Unrelated network work must not postpone the input already in memory.
+		await Promise.allSettled(sendReady());
+		await drainWork();
+		// Reservations may have released paths meanwhile. Don't retry a failed
+		// revision that this same settle already attempted.
+		await Promise.allSettled(sendReady());
 		return [...held].sort().flatMap((path) => {
 			const pending = states.get(path)?.input?.pending;
 			return pending === undefined ? [] : [pending];
@@ -1015,10 +1011,8 @@ export function createEditOwner({
 	function fence<T>(
 		paths: readonly string[],
 		reason: string,
-		action: (files: ReadonlyMap<string, ExclusiveFile>) => Promise<T>,
+		action: () => Promise<T>,
 	): Promise<Result<T, ActionError>> {
-		if (closing !== undefined)
-			return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
 		const uniquePaths = [...new Set(paths)];
 		for (const path of uniquePaths) {
 			if (!readablePath(path))
@@ -1039,63 +1033,44 @@ export function createEditOwner({
 			clearTimer(state);
 			return { path, state };
 		});
-		let taken = true;
-		const ended = () => {
-			if (!taken)
-				throw new Error('This exclusive change of the file has ended');
-		};
-		const scopedFiles = new Map<string, ExclusiveFile>(
-			reserved.map(({ path }) => [
-				path,
-				{
-					path,
-					read: () => (ended(), files.read(path)),
-					write: (from, content) => (ended(), files.write(path, from, content)),
-					delete: (from) => (ended(), files.delete(path, from)),
-				},
-			]),
-		);
-		const completion = Promise.withResolvers<Result<T, ActionError>>();
-		const work = completion.promise;
-		actions.add(work);
-		for (const { path } of reserved) publish(path);
-		// An empty scope is still work that settle/close must wait for.
-		if (reserved.length === 0) updateAggregate();
-		(async (): Promise<Result<T, ActionError>> => {
+		// Capture already-queued storage before publication can admit more work.
+		const queued = waitForPaths(uniquePaths);
+		if (reserved.length > 0) reservations++;
+		// Track before publishing: a listener may close the folder immediately.
+		return track(async () => {
 			try {
+				for (const { path } of reserved) publish(path);
+				await queued;
 				await Promise.all(reserved.map(({ state }) => state.running));
 				await Promise.all(reserved.map(({ path }) => flush(path, true)));
 				if (reserved.some(({ state }) => state.input !== undefined))
 					return ActionError.NotStarted({ reason: UNSAVED });
-				return Ok(await action(scopedFiles));
+				return Ok(await action());
 			} finally {
-				taken = false;
 				for (const { state } of reserved) state.action = undefined;
+				if (reserved.length > 0) reservations--;
+				for (const { path } of reserved) publish(path);
 			}
-		})().then(completion.resolve, completion.reject);
-		const done = () => {
-			actions.delete(work);
-			for (const { path } of reserved) publish(path);
-			if (reserved.length === 0) updateAggregate();
-		};
-		work.then(done, done);
-		return work;
+		});
 	}
 
 	/** Delete the file as `action` finds it stored. */
-	async function remove(
-		path: string,
-		action: () => Promise<Result<{ deleted: boolean }, SaveError | ReadError>>,
-	): Promise<DeleteResult> {
+	async function remove(path: string): Promise<DeleteResult> {
+		if (phase !== 'open') return ActionError.NotStarted({ reason: CLOSING });
 		const outcome = await fence([path], DELETING, async () => {
 			try {
-				return await action();
+				const stored = await files.read(path);
+				if (stored.error !== null) return stored;
+				if (stored.data === undefined) return Ok({ deleted: false });
+				return await files.delete(
+					path,
+					new Uint8Array(await stored.data.content.arrayBuffer()),
+				);
 			} catch (cause) {
 				return SaveError.StorageFailed({ cause });
 			}
 		});
-		if (outcome.error !== null) return outcome;
-		return outcome.data;
+		return outcome.error === null ? outcome.data : outcome;
 	}
 
 	/** Let go of held input on request, unless a save or action of it runs. */
@@ -1170,8 +1145,7 @@ export function createEditOwner({
 	}
 
 	function lockReason(state: PathState | undefined) {
-		if (closing !== undefined) return CLOSING;
-		if (editingStopped) return 'Editing has stopped for this folder.';
+		if (phase !== 'open') return CLOSING;
 		return state?.action?.reason;
 	}
 
@@ -1391,50 +1365,27 @@ export function createEditOwner({
 				schedule(path, next);
 				return Ok(undefined);
 			},
-			save: () => requested(path),
+			save: () => (phase === 'closed' ? Promise.resolve() : flush(path)),
 			discard: () => discard(path),
-			delete: () =>
-				remove(path, async () => {
-					const stored = await files.read(path);
-					if (stored.error !== null) return stored;
-					if (stored.data === undefined) return Ok({ deleted: false });
-					return files.delete(
-						path,
-						new Uint8Array(await stored.data.content.arrayBuffer()),
-					);
-				}),
-			exclusive: (action) =>
-				fence([path], BUSY, (files) => action(files.get(path)!)),
+			delete: () => remove(path),
 		};
 	}
 
-	/**
-	 * Refuse new input, then wait for fenced actions and send every input
-	 * once. Answers the input that did not save. Every call answers the same
-	 * completion.
-	 */
+	/** Called once by the handle, which owns the one close completion. */
 	function close(): Promise<Pending[]> {
-		if (closing !== undefined) return closing;
-		// Assigned before the fence publishes, so a listener that closes again
-		// answers this same promise.
-		const completion = Promise.withResolvers<Pending[]>();
-		closing = completion.promise;
+		phase = 'closing';
+		onAggregate();
 		publish(undefined);
-		settle().then(completion.resolve, completion.reject);
-		return closing;
+		return settle().then((unsaved) => {
+			phase = 'closed';
+			return unsaved;
+		});
 	}
 
 	return {
 		edit,
-		exclusive: <T>(
-			paths: readonly string[],
-			action: (files: ReadonlyMap<string, ExclusiveFile>) => Promise<T>,
-		) => fence(paths, BUSY, action),
-		stopEditing() {
-			if (editingStopped) return;
-			editingStopped = true;
-			publish(undefined);
-		},
+		run: <T>(paths: readonly string[], action: () => Promise<T>) =>
+			fence(paths, BUSY, action),
 		settle,
 		close,
 		getAggregate() {

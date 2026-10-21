@@ -5,7 +5,7 @@
  * from the moment it opens (`folder.tables.<name>.edit(id)`,
  * `folder.files.edit(path)`, `folder.getStatus()`, `folder.settle()`,
  * `folder.close()`); this context reads its status reactively and adds what
- * belongs to the page: shared reads, app actions in flight, and the window's close.
+ * belongs to the page: shared reads and the window's close.
  *
  * `<FolderApp>` opens the folder, builds this, and closes it when the page
  * goes away. The app root installs its typed context for descendants to
@@ -14,9 +14,9 @@
  * Reads after a save have one path: the folder's change channel, which also
  * reports a save of this handle whose content was already stored, marks the
  * queries over the paths it names stale. Visible queries also poll for
- * outside edits. No save or close waits for a reread. `close` refuses new
- * app actions, lets those started finish, stops the channel and cancels
- * reads, closes the folder, and clears the cache, in that order.
+ * outside edits. No save or close waits for a reread. `close` stops the
+ * change channel and closes the folder immediately, then cancels page reads
+ * and clears the cache after accepted Folder work finishes.
  *
  * In the desktop app the context also answers its window's close
  * (`guardWindowClose`) from the folder's current save status.
@@ -146,20 +146,10 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		void refreshPaths(change.paths ?? undefined, undefined, true);
 	});
 
-	// Svelte shares this subscription across every reactive reader. Context
-	// close uses the same update before the Folder itself starts closing.
-	let updateStatus: (() => void) | undefined;
-	const trackStatus = createSubscriber((update) => {
-		updateStatus = update;
-		const stop = folder.getStatus().closing
-			? () => {}
-			: folder.onStatusChange(update);
-		return () => {
-			updateStatus = undefined;
-			stop();
-		};
-	});
-	const actions = new Set<Promise<unknown>>();
+	// Svelte shares the Folder's one status subscription across reactive readers.
+	const trackStatus = createSubscriber((update) =>
+		folder.getStatus().closing ? () => {} : folder.onStatusChange(update),
+	);
 	let closing: Promise<WriteFailure[]> | undefined;
 	let stopWindow: (() => void) | undefined;
 	let guarding: Promise<void> | undefined;
@@ -187,16 +177,6 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		}
 	}
 
-	/** Wait for the app actions started before close and log failures. */
-	async function settleActions(): Promise<void> {
-		for (const result of await Promise.allSettled([...actions]))
-			if (result.status === 'rejected') {
-				log.error(
-					new Error('A folder action did not finish', { cause: result.reason }),
-				);
-			}
-	}
-
 	/** Only accepted Folder work determines whether departure needs a prompt. */
 	const pendingSave = () =>
 		folder.getStatus().saving || folder.getStatus().unsaved.length > 0;
@@ -209,21 +189,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		/** Whether close was called: no app action or input is taken from then on. Read reactively. */
 		get closing(): boolean {
 			trackStatus();
-			return closing !== undefined || folder.getStatus().closing;
-		},
-		/**
-		 * Count a started app action in this context's close.
-		 * Its own Folder calls, after any await, still run before the folder
-		 * closes. Refused once close is called.
-		 */
-		run<T>(action: () => Promise<T>): Promise<T> {
-			if (closing !== undefined)
-				return Promise.reject(new Error('The folder is closing'));
-			const result = Promise.resolve()
-				.then(action)
-				.finally(() => actions.delete(result));
-			actions.add(result);
-			return result;
+			return folder.getStatus().closing;
 		},
 		/**
 		 * In the desktop app, prompt when the folder has an accepted save
@@ -246,7 +212,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		/**
 		 * The folder's save status, held input included, read reactively: the
 		 * one record of whether what the person did is in this device's
-		 * storage. App actions are not in it; their writes are, from their
+		 * storage. A lifetime-only action is not in it; its writes are, from their
 		 * call until they land. A per-file label reads its own edit's
 		 * `pending` instead, so another file's failure is never shown as its.
 		 */
@@ -255,10 +221,11 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			return folder.getStatus();
 		},
 		/**
-		 * Refuse new app actions, let started ones finish, stop listening and
-		 * cancel reads, then close the folder, which sends held input and waits
-		 * for its saves. Answers copyable failures for input that did not save,
-		 * which are also logged. Every call answers the same completion.
+		 * Stop listening and close the folder immediately, which refuses new
+		 * input and work, sends held input, and drains accepted work. Cancel
+		 * page reads, then clear the cache after that work finishes. Answers
+		 * copyable failures for input that did not save, which are also logged.
+		 * Every call answers the same completion.
 		 */
 		close(): Promise<WriteFailure[]> {
 			if (closing !== undefined) return closing;
@@ -266,28 +233,24 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			// answers this same promise.
 			const completion = Promise.withResolvers<WriteFailure[]>();
 			closing = completion.promise;
-			// Stop new input now; admitted actions can still use storage while
-			// they finish, before the handle's final close.
-			folder.stopEditing();
-			updateStatus?.();
+			// Stop refreshes before Folder close reports its status or saves.
+			// Accepted work retains its own storage capability while close drains it.
+			closed = true;
+			stopChanges();
+			clearTimeout(refreshTimer);
+			queryClient.unmount();
+			const folderClose = folder.close();
 			(async () => {
-				clearTimeout(refreshTimer);
 				// A window close from here on is the shell's own.
 				stopWindow?.();
-				// An action already started may still call the folder after an
-				// await; it finishes before the folder closes.
-				await settleActions();
-				stopChanges();
-				closed = true;
 				await queryClient.cancelQueries({ queryKey: KEY });
-				const unsaved = (await folder.close()).map(pendingFailure);
+				const unsaved = (await folderClose).map(pendingFailure);
 				for (const draft of unsaved)
 					log.warn(
 						new Error(
 							`Closed with ${draft.path} unsaved: ${draft.error.message}`,
 						),
 					);
-				queryClient.unmount();
 				queryClient.clear();
 				return unsaved;
 			})().then(completion.resolve, completion.reject);

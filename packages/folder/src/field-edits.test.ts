@@ -13,7 +13,7 @@
  *   person saw and takes in the landed fields, so a later revert of them
  *   saves and a body the person never saw survives
  * - Fields typed while text saves go into the text, from the right base
- * - `exclusive` fences its path at once, sends held input first, refuses when
+ * - `run` reserves its path at once, sends held input first, refuses when
  *   it does not save, releases after a failure, and settle waits for it
  */
 import 'fake-indexeddb/auto';
@@ -22,8 +22,8 @@ import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openRepository } from './browser/repository.js';
 import { openFolder } from './browser.js';
-import { BUSY, type ExclusiveFile, UNSAVED } from './edits.js';
-import type { FileContent } from './folder.js';
+import { BUSY, UNSAVED } from './edits.js';
+import type { FileContent, FolderWork } from './folder.js';
 import type { FolderEngine } from './handle.js';
 import { folderHandle } from './handle.js';
 import { readDocument } from './shared/document.js';
@@ -478,16 +478,16 @@ test('close saves failed patches after storage and a missing file recover', asyn
 });
 
 // ============================================================================
-// Exclusive changes
+// Reserved work
 // ============================================================================
 
-test('an exclusive change taken before close finishes its own write through its file, which then ends', async () => {
+test('work admitted before close finishes its write and expires when the callback ends', async () => {
 	const disk = await setup({ 'epicenter.json': '{}' });
 	const { folder, writes } = disk;
 	const source = folder.files.edit('epicenter.json');
 	const refused: unknown[] = [];
 	folder.onStatusChange((status) => {
-		// While the exclusive change's own write runs during close.
+		// While the admitted work writes during close.
 		if (!status.saving || !status.closing) return;
 		try {
 			void folder.files.write('reentrant.md', null, 'late');
@@ -497,13 +497,14 @@ test('an exclusive change taken before close finishes its own write through its 
 	});
 	const entered = Promise.withResolvers<void>();
 	const gate = Promise.withResolvers<void>();
-	let held: ExclusiveFile | undefined;
-	const operation = source.exclusive(async (file) => {
-		held = file;
+	let held: FolderWork<{}> | undefined;
+	const operation = folder.run([source.path], async (work) => {
+		held = work;
 		entered.resolve();
 		await gate.promise;
-		const before = expectOk(await file.read());
-		return file.write(
+		const before = expectOk(await work.files.read(source.path));
+		return work.files.write(
+			source.path,
 			before === undefined
 				? null
 				: new Uint8Array(await before.content.arrayBuffer()),
@@ -523,15 +524,15 @@ test('an exclusive change taken before close finishes its own write through its 
 	);
 
 	gate.resolve();
-	expect(expectOk(await operation).error).toBeNull();
+	expectOk(expectOk(await operation));
 	expect(await closing).toEqual([]);
 	expect(await disk.stored('epicenter.json')).toBe('{"views":{}}');
 	expect(writes.map(({ path }) => path)).toEqual(['epicenter.json']);
 	expect(refused.length).toBeGreaterThan(0);
-	expect(() => held?.read()).toThrow('has ended');
+	expect(() => held?.files.read(source.path)).toThrow('has ended');
 });
 
-test('exclusive fences input at once, sends held input first, and settle waits for it', async () => {
+test('a reservation locks input at once, sends held input first, and settle waits for it', async () => {
 	const disk = await setup({ 'epicenter.json': '{}' });
 	const { folder } = disk;
 	const source = folder.files.edit('epicenter.json');
@@ -540,7 +541,7 @@ test('exclusive fences input at once, sends held input first, and settle waits f
 	const started = disk.hold();
 	const finish = Promise.withResolvers<void>();
 	let changed = false;
-	const operation = source.exclusive(async () => {
+	const operation = folder.run([source.path], async () => {
 		changed = true;
 		await finish.promise;
 		return 'done';
@@ -562,7 +563,9 @@ test('exclusive fences input at once, sends held input first, and settle waits f
 	});
 	await Bun.sleep(0);
 	expect(settled).toBe(false);
-	expect(expectErr(await source.exclusive(async () => {}))).toMatchObject({
+	expect(
+		expectErr(await folder.run([source.path], async () => {})),
+	).toMatchObject({
 		name: 'NotStarted',
 		reason: BUSY,
 	});
@@ -575,15 +578,16 @@ test('exclusive fences input at once, sends held input first, and settle waits f
 	expect(source.getText()).toBe('{"title":"mine"}');
 });
 
-test('held input that does not save refuses the exclusive change and stays readable', async () => {
+test('held input that does not save refuses reserved work and stays readable', async () => {
 	const disk = await setup({ 'epicenter.json': '{}' });
-	const source = disk.folder.files.edit('epicenter.json');
+	const { folder } = disk;
+	const source = folder.files.edit('epicenter.json');
 	await source.read();
 	source.replaceText('my source');
 	disk.refuse(true);
 	let changed = false;
 	const refused = expectErr(
-		await source.exclusive(async () => {
+		await folder.run([source.path], async () => {
 			changed = true;
 		}),
 	);
@@ -598,7 +602,7 @@ test('held input that does not save refuses the exclusive change and stays reada
 	expect(source.getText()).toBe('{}');
 });
 
-test('a failed exclusive change releases its path while another file saves independently', async () => {
+test('failed reserved work releases its path while another file saves independently', async () => {
 	const disk = await setup({ 'epicenter.json': '{}', 'notes/a.md': 'a' });
 	const { folder } = disk;
 	const source = folder.files.edit('epicenter.json');
@@ -606,7 +610,7 @@ test('a failed exclusive change releases its path while another file saves indep
 	await source.read();
 	await other.read();
 	const gate = Promise.withResolvers<void>();
-	const operation = source.exclusive(async () => {
+	const operation = folder.run([source.path], async () => {
 		await gate.promise;
 		throw new Error('The view changed in another window');
 	});

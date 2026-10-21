@@ -54,7 +54,7 @@ const unsaved = await folder.close(); // sends held input once; answers what did
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
 | `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, and saved-view types. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
 | `@epicenter/folder/documents` | Saved Markdown documents with optional schema diagnostics, including root and nested paths. | Generic file, grid, board, or SQL interpretation. |
-| `@epicenter/folder/edits` | The vocabulary of a path's editable document and typed input (`FileEdit`, `MarkdownContent`, `DocumentChange`, `Pending`, `ExclusiveFile`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)), `ReadStatus`, and `mergeText`/`mergeFileText`, the shared body/source merge helpers. Opens nothing. | Code that names those types. |
+| `@epicenter/folder/edits` | The vocabulary of a path's editable document and typed input (`FileEdit`, `MarkdownContent`, `DocumentChange`, `Pending`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)), `ReadStatus`, and `mergeText`/`mergeFileText`, the shared body/source merge helpers. Opens nothing. | Code that names those types. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
 type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
@@ -88,10 +88,10 @@ the saved files.
 | `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, from, content)`; `delete(path, from)`; `edit(path)`, the file's editable document and typed input. |
 | `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, from, change)`, `delete(id, from)`, and `edit(id)`, the row's editable document and typed input. Adjacent files are available through `folder.files`. |
 | `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A save of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
-| `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or exclusive change running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
-| `settle()` | Attempts held input once, including previous failures, after running deletes and exclusive changes, and waits for saves already started, direct ones included, never for reads. Answers the input that did not save. |
-| `stopEditing()` | Irreversibly refuses new `FileEdit` input and discards, notifying every edit view. Existing input, timers and saves remain. Storage and exclusive actions stay open so work already admitted by an app can finish before final `close()`. Idempotent; this does not set `status.closing`. |
-| `close()` | At once, new input is refused and every storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; running deletes and exclusive changes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` joins the close. Answers the input that did not save. Calling it again returns the same promise. |
+| `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or reserved action running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
+| `settle()` | Attempts unreserved held input now, drains admitted work and started saves, then attempts newly released paths. A failed revision is not retried within the same call. Unscoped reads are not waited for. Answers the input that did not save. |
+| `run(paths, action)` | Admits a complete action that close waits for. `[]` admits lifetime only; nonempty paths additionally reserve shared input and competing reservations and flush held input before the callback. Its storage access and child actions work during close, then expire. |
+| `close()` | At once, new input and root actions are refused and every root storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; admitted actions, their child actions and running deletes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` attempts its path during close and does nothing after completion. Answers the input that did not save. Calling it again returns the same promise. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
 saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
@@ -205,13 +205,16 @@ const file = folder.files.edit('notes/a.md');
 await file.read();
 file.change({ fields: { title: 'x' } });
 file.replaceText(editedText);
-await file.exclusive(async (file) => file.write(before, next));
+// The callback receives storage access, without a second editor or lifecycle.
+await folder.run(['notes/a.md', 'audio/a.bin'], async (work) => {
+  const note = await work.files.read('notes/a.md');
+  // Both paths' held input saved first. Use work.files or work.tables here.
+});
 
-await folder.files.exclusive(['notes/a.md', 'audio/a.bin'], async (files) => {
-  const note = files.get('notes/a.md')!;
-  const audio = files.get('audio/a.bin')!;
-  // Read and write through these capabilities while both paths are held.
-  // Await all their operations before this callback returns.
+await folder.run([], async (work) => {
+  const path = await choosePath();
+  // An admitted action can acquire a path even if close started during the await.
+  return work.run([path], async (held) => held.files.write(path, null, next));
 });
 ```
 
@@ -274,27 +277,38 @@ retained source can recreate the file.
 `save()` attempts held input now, including a previous failure, or joins its
 running attempt. A failed attempt keeps its input and error without looping;
 new input or another attempt clears the older error. Blur, unmount, `settle()`,
-delete, exclusive actions and close use this same policy. `save()` resolves
+delete, reserved actions and close use this same policy. `save()` resolves
 when the attempt finishes, including failure; pending input and folder status
 report the outcome. `discard()` explicitly releases input and returns it for
 recovery; it refuses while a save or action runs.
 
-`delete()` and `exclusive(action)` fence the path immediately. The multi-file
-`folder.files.exclusive(paths, action)` deduplicates and reserves every path
-synchronously, before notifying any view or awaiting saves. Invalid structural
-paths or overlaps refuse the whole reservation without queuing. Existing
-nonportable names remain addressable under the ordinary storage rules.
-The scope waits for running saves, then attempts held input once per path.
-If any input remains, the action refuses with `ActionError.NotStarted`;
-successful saves of other paths stay landed. This is a local edit fence, not
-an atomic storage transaction or a lock on outside programs.
-An exclusive action reads and writes through its bound files, which remain
-usable during folder close and expire with the callback. Await their operations
-inside the callback. Do not await this folder's `settle()` or `close()` there,
-because both wait for the action itself.
-Close refuses new input
-immediately, waits for started saves and actions, then attempts remaining input
-once. Later `save()` calls join close.
+`delete()` fences its path immediately. `folder.run(paths, action)` deduplicates
+and reserves every named path synchronously, before notifying any view or
+awaiting saves. Invalid structural paths or overlaps refuse the whole reservation
+without queuing. Existing nonportable names remain addressable under the ordinary
+storage rules. Already-queued saves of each path finish, then held input is
+attempted once. If any input remains, the action refuses with
+`ActionError.NotStarted`; successful saves of other paths stay landed. This
+protects local input and competing reservations. Raw storage calls and outside
+programs still use their ordinary content witnesses; it is not a storage lock or
+an atomic transaction.
+
+The callback receives `FolderWork`: `files` and typed `tables` with storage
+operations, plus `run` for child actions. It has no editor, listeners, `settle`, or
+`close`. Use `[]` when the action needs only admission across awaits. This does
+not set `saving`; its actual writes and reserved actions do. Use the callback's
+storage access for every continuation: root Folder calls refuse immediately once
+close starts. Asking to reserve an already-held path refuses, including from a
+child; use the current action's storage access for paths it already holds.
+
+Access expires when the callback returns or throws, including saved method
+references. Calls and child actions already started finish before its reservations
+release. Await operations to inspect their outcomes. Do not await the captured
+root's `settle()` or `close()` inside an action, because they wait for that action.
+Close refuses new input immediately, drains admitted actions and saves, then
+attempts newly released input once. `FileEdit.save()` attempts or joins only its path
+while closing, so it never waits on an action that might be calling it. After
+close finishes it does nothing; failed input remains readable for recovery.
 
 `subscribe(listener)` reports source, read status, input and lock changes.
 Reported outside changes refresh held/subscribed sources; native queries poll
@@ -436,7 +450,7 @@ without inventing tables or initializing Git. Opening and browsing write nothing
 The writer is a desktop capability, separate from the browser Folder API.
 
 The generic editor owns unfinished view settings and each SQL execution by view
-key. A structured save of the declaration runs as an exclusive change of
+key. A structured save of the declaration runs as a reserved action on
 `epicenter.json`, after its held source input saves. Grid cells, board moves,
 and Files share the folder's file edit handles;
 the declaration supplies presentation settings rather than another record store.

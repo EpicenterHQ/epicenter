@@ -1316,3 +1316,30 @@ test('an admitted rename finishes its scoped copy and deletion while Whispering 
 	expect(await Bun.file(join(root, 'original.txt')).exists()).toBe(false);
 	expect(await readFile(join(root, 'renamed.txt'), 'utf8')).toBe('');
 });
+
+
+test('a result changed during deletion remains readable through its admitted scope after close starts', async () => {
+	const path = 'text_runs/result.md';
+	let armed = false;
+	let directory = '';
+	let stop = () => {};
+	const changed = 'Changed by another writer while deleting.\n';
+	const { whispering, context, root } = await open({
+		async beforeDiskWrite(writing) {
+			if (!armed || writing !== path) return;
+			armed = false;
+			await writeFile(join(directory, path), changed);
+			stop();
+		},
+	});
+	directory = root;
+	stop = () => whispering.dispose();
+	expectOk(await context.folder.files.write(path, null, 'Original result.\n'));
+	armed = true;
+	expect(await whispering.deleteTextResult({ stem: 'result', path })).toContain(
+		'changed meanwhile, so it was kept',
+	);
+	expect(context.folder.getStatus().closing).toBe(true);
+	await context.close();
+	expect(await readFile(join(root, path), 'utf8')).toBe(changed);
+});

@@ -140,9 +140,9 @@ hides Add. Manually removing `draft: true` makes the file a completed capture
 without composing its body or updating its date. Use Add to finish it instead.
 Capture writes no new drafts. A nonboolean `draft` value needs repair as text.
 
-`captures.finishDraft(stem)` holds the file through an exclusive Folder
-action, saves raw input first, then writes the composed body, removes `draft`,
-and sets `capturedAt` together. A failed promotion keeps the raw draft.
+`captures.finishDraft(stem)` reserves the file through a Folder
+action (`folder.run([path], work)`), saves raw input first, then writes the
+composed body, removes `draft`, and sets `capturedAt` together. A failed promotion keeps the raw draft.
 Retrying an already-finished file succeeds without composing it again.
 Another tab still follows Folder's ordinary merge behavior.
 

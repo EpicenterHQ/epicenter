@@ -6,6 +6,8 @@
 - **Amended by:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) for departure prompts, and [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md): Folder owns accepted file edits and persistence from construction until close; context connects that owner to the page.
 - **Built:** `FolderApp` and `createFolderContext` in `@epicenter/svelte`; app-local typed `getFolder`/`setFolder`; the Todos, Capture, Honeycrisp, Vocab, and Whispering roots.
 
+- **Lifecycle amendment:** [ADR-0664](0664-folder-close-drains-admitted-work-through-one-owner.md) replaces context action admission and the split shutdown sequence with Folder-owned work and close.
+
 ## Context
 
 Each app repeated opening, loading and refusal screens, query-cache setup,

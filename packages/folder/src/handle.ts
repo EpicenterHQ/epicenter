@@ -7,7 +7,12 @@
  */
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
-import { createEditOwner, type Pending } from './edit-owner.js';
+import {
+	ActionError,
+	CLOSING,
+	createEditOwner,
+	type Pending,
+} from './edit-owner.js';
 import type {
 	EditOptions,
 	FileContent,
@@ -16,9 +21,11 @@ import type {
 	FolderFileOperations,
 	FolderStatus,
 	FolderTableOperations,
+	FolderWork,
 	Row,
 	RowChange,
 } from './folder.js';
+import { folderWork } from './folder.js';
 import { callObserver } from './observer.js';
 import { ownFields } from './shared/content/canonical.js';
 import { SaveError } from './shared/errors.js';
@@ -110,7 +117,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	{ saveAfterMs }: EditOptions = {},
 ): Folder<TTables> {
 	let closing: Promise<Pending[]> | undefined;
-	/** Saves started and not settled, which close waits for. Reads are not. */
+	/** Saves and complete admitted actions share one lifetime registry. */
 	const inflight = new Set<Promise<unknown>>();
 	let saves = 0;
 	let storageFailure: FolderStatus['storageFailure'] = null;
@@ -187,11 +194,14 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			callObserver('change listener', listener, change);
 	}
 
-	/** Track the save so `close` can wait for it. */
-	function track<T>(run: () => Promise<T>): Promise<T> {
+	/** Register work before it can notify listeners or begin other work. */
+	function track<T>(
+		run: () => Promise<T>,
+		work: Set<Promise<unknown>> = inflight,
+	): Promise<T> {
 		const operation = Promise.withResolvers<T>();
-		inflight.add(operation.promise);
-		const done = () => inflight.delete(operation.promise);
+		work.add(operation.promise);
+		const done = () => work.delete(operation.promise);
 		operation.promise.then(done, done);
 		// `run` can notify a status observer synchronously. That observer may
 		// close the folder, so close must already see this save.
@@ -201,6 +211,11 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			operation.reject(cause);
 		}
 		return operation.promise;
+	}
+
+	/** A live action can start children after an await, even while closing. */
+	async function drainWork() {
+		while (inflight.size > 0) await Promise.allSettled([...inflight]);
 	}
 
 	/**
@@ -352,6 +367,10 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		},
 		saveAfterMs,
 		onAggregate: publishStatus,
+		track,
+		drainWork,
+		waitForPaths: (paths) =>
+			Promise.allSettled(paths.map((path) => queued.get(path))),
 	});
 	const stopEngine = engine.subscribe(hear);
 
@@ -426,17 +445,73 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		} satisfies FolderTableOperations;
 	}
 
+	const readTables = Object.fromEntries(
+		Object.entries(tableOperations).map(([name, table]) => [
+			name,
+			readRows(name, table),
+		]),
+	);
+
+	/** Only this callback's access stays open when the root Folder closes. */
+	function run<T>(
+		paths: readonly string[],
+		action: (work: FolderWork<Record<string, Schema>>) => Promise<T>,
+	): Promise<Result<T, ActionError>> {
+		return edits.run(paths, async () => {
+			let live = true;
+			const started = new Set<Promise<unknown>>();
+			const scoped = <
+				TOperations extends Record<
+					string,
+					(...args: never[]) => Promise<unknown>
+				>,
+			>(
+				operations: TOperations,
+			): TOperations =>
+				Object.fromEntries(
+					Object.entries(operations).map(([name, operation]) => [
+						name,
+						(...args: never[]) => {
+							if (!live) throw new Error('This folder action has ended');
+							return track(() => operation(...args), started);
+						},
+					]),
+				) as TOperations;
+			const work: FolderWork<Record<string, Schema>> = {
+				[folderWork]: true,
+				files: scoped(readFiles),
+				tables: Object.fromEntries(
+					Object.entries(readTables).map(([name, table]) => [
+						name,
+						scoped(table),
+					]),
+				),
+				run(paths, action) {
+					if (!live) throw new Error('This folder action has ended');
+					return track(() => run(paths, action), started);
+				},
+			};
+			try {
+				return await action(work);
+			} finally {
+				// Revoke access now, then keep reservations until calls and children
+				// already started have finished, including when the callback threw.
+				live = false;
+				while (started.size > 0) await Promise.allSettled([...started]);
+			}
+		});
+	}
+
 	const folder: Folder<Record<string, Schema>> = {
 		files: {
 			...opened(readFiles),
 			edit: (path, schema) => edits.edit(path, schema),
-			exclusive: edits.exclusive,
 		},
 		tables: Object.fromEntries(
-			Object.entries(tableOperations).map(([name, table]) => [
+			Object.entries(readTables).map(([name, table]) => [
 				name,
 				{
-					...opened(readRows(name, table)),
+					...opened(table),
 					edit: (id: string) =>
 						edits.edit(`${name}/${id}.md`, tables[name], true),
 				},
@@ -459,13 +534,17 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				statusListeners.delete(listener);
 			};
 		},
-		stopEditing: edits.stopEditing,
+		run(paths, action) {
+			if (closing !== undefined)
+				return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
+			return run(paths, action);
+		},
 		async settle() {
 			assertOpen();
 			// Saves already started, the folder's own and direct ones alike;
 			// reads are not waited for.
 			const unsaved = await edits.settle();
-			await Promise.allSettled([...inflight]);
+			await drainWork();
 			return unsaved;
 		},
 		close() {
@@ -480,7 +559,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				const unsaving = edits.close();
 				publishStatus();
 				const unsaved = await unsaving;
-				await Promise.allSettled([...inflight]);
+				await drainWork();
 				publishStatus();
 				statusListeners.clear();
 				changeListeners.clear();

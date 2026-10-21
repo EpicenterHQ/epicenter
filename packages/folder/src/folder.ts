@@ -25,12 +25,7 @@
  */
 import type { TSchema as Schema, TRecord, TUnknown } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type {
-	ActionError,
-	ExclusiveFile,
-	FileEdit,
-	Pending,
-} from './edit-owner.js';
+import type { ActionError, FileEdit, Pending } from './edit-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
@@ -52,7 +47,7 @@ export type FolderChange = {
  * handle, including a retry whose desired content is already stored.
  */
 export type FolderStatus = {
-	/** A save, delete or exclusive change started on this handle and not yet committed or refused. */
+	/** A save, delete or reserved action started on this handle and not yet committed or refused. */
 	readonly saving: boolean;
 	readonly storageFailure: Extract<SaveError, { name: 'StorageFailed' }> | null;
 	/** The paths whose input is held: not sent yet, saving, or failed. Sorted. */
@@ -88,15 +83,6 @@ export type FolderFileOperations = {
 };
 
 export type FolderFiles = FolderFileOperations & {
-	/** Reserve all paths at once, save their held input, then run one protected action.
-	 * Overlaps refuse without queuing. These files work during close and expire
-	 * when the callback ends. This is not an atomic multi-file storage transaction.
-	 * Do not await this folder's settle/close inside the callback: they wait for it.
-	 */
-	exclusive<T>(
-		paths: readonly string[],
-		action: (files: ReadonlyMap<string, ExclusiveFile>) => Promise<T>,
-	): Promise<Result<T, ActionError>>;
 	/**
 	 * The file at `path` as last known stored, with the whole exact text or
 	 * the fields typed into it and not saved yet, shared by every caller of
@@ -140,6 +126,24 @@ export type FolderTable<TSchema extends Schema = Schema> =
 		edit(id: string): FileEdit<TSchema>;
 	};
 
+/** Internal identity: ordinary Folder references cannot stand in for admitted work. */
+export const folderWork = Symbol('FolderWork');
+
+/** Storage access for one admitted action. It expires when its callback ends. */
+export type FolderWork<TTables extends Record<string, Schema>> = {
+	readonly [folderWork]: true;
+	files: FolderFileOperations;
+	tables: { [TName in keyof TTables]: FolderTableOperations<TTables[TName]> };
+	/**
+	 * Admit child work, including during close. Nonempty paths reserve local
+	 * input and competing reservations; overlaps refuse without queuing.
+	 */
+	run<T>(
+		paths: readonly string[],
+		action: (work: FolderWork<TTables>) => Promise<T>,
+	): Promise<Result<T, ActionError>>;
+};
+
 /**
  * The handle `openFolder` returns.
  *
@@ -163,28 +167,30 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	/** Called when save status changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
 	/**
-	 * Irreversibly refuse new FileEdit input and discards. Existing input,
-	 * timers, saves and admitted work remain; storage and exclusive actions
-	 * stay available until close. Repeated calls have no further effect.
+	 * Admit an action that close waits for. Use [] for lifetime only, or reserve
+	 * paths together and save their held input before the callback starts.
+	 * A refusal leaves that input recoverable. Storage access survives close
+	 * and expires with the callback; already-started calls and children finish.
+	 * Reservations protect local input and competing reservations, not raw
+	 * storage calls or outside programs. This is not a storage transaction.
+	 * Do not await this folder's settle/close inside the action: they wait for it.
 	 */
-	stopEditing(): void;
+	run: FolderWork<TTables>['run'];
 	/**
-	 * Attempt held input once, including previous failures, after running
-	 * exclusive changes and deletes. Answers what did not save; editing stays open.
+	 * Attempt available held input now, including previous failures, drain
+	 * admitted work, then attempt newly released paths. Answers what did not
+	 * save without retrying the same failed revision; editing stays open.
 	 */
 	settle(): Promise<Pending[]>;
 	/**
-	 * Close the handle. At once, new input is refused and every storage
-	 * call (reads, saves, deletes, listeners, `settle`) throws; running
-	 * deletes and exclusive changes finish; held input is attempted once; failures stay
-	 * held for recovery; saves
-	 * already started finish and report their real outcome; then listeners
-	 * and storage are released. Reads that are still running are not waited
-	 * for. What stays is reading what is held: `getStatus()`, and `edit(...)`
-	 * handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()`
-	 * still answer, whose `read()` rejects, and whose `save()`
-	 * joins the close. Answers the input that did not save. Closing again
-	 * returns the same promise.
+	 * Refuse new input and root actions immediately; root storage calls and
+	 * new listeners throw. Save available input and drain admitted actions,
+	 * their children, and started saves before releasing storage/listeners.
+	 * Reserved paths save when released. Failed input stays held for recovery.
+	 * Unscoped reads already running are not waited for. Edits remain readable;
+	 * read() rejects, save() attempts its path during close and does nothing
+	 * after completion. Answers input that did not save. Repeated calls return
+	 * the same promise. Do not await close inside an action it waits for.
 	 */
 	close(): Promise<Pending[]>;
 };
