@@ -4,15 +4,14 @@ import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 
 const MARKDOWN_RULES = ['*', '!*/', '!*.md', '!.gitignore'];
 
-/** Comments and empty lines do not change the final ordered rule block. */
+/** Comments and empty lines do not interrupt the ordered default block. */
 function hasMarkdownRules(text: string) {
 	const active = text
 		.replace(/^\ufeff/, '')
 		.split(/\r?\n/)
 		.filter((line) => line !== '' && !line.startsWith('#'));
-	return (
-		active.slice(-MARKDOWN_RULES.length).join('\n') ===
-		MARKDOWN_RULES.join('\n')
+	return active.some((_, index) =>
+		MARKDOWN_RULES.every((rule, offset) => active[index + offset] === rule),
 	);
 }
 
@@ -20,9 +19,9 @@ const ExclusionError = defineErrors({
 	InvalidIgnoreText: () => ({
 		message: '.gitignore is not UTF-8 text. Its bytes were left unchanged.',
 	}),
-	NotExcluded: () => ({
+	MissingRules: () => ({
 		message:
-			'.gitignore changed during startup and no longer ends with the Markdown-only rules.',
+			'.gitignore changed during startup and no longer contains the Markdown-only defaults.',
 	}),
 });
 type ExclusionError = InferErrors<typeof ExclusionError>;
@@ -49,7 +48,8 @@ async function readRules(files: Pick<FolderFiles, 'read'>) {
 
 /**
  * Maintain Markdown-only Git defaults through ordinary file saves.
- * Existing text stays intact; the four rules follow any earlier exclusions.
+ * Existing text follows the defaults so authored rules can override them.
+ * An already-installed block stays where it is.
  * No Git commit, startup marker, or separate policy is created.
  */
 export async function maintainExclusions(
@@ -60,18 +60,18 @@ export async function maintainExclusions(
 	const { before, text } = read.data;
 	if (hasMarkdownRules(text)) return Ok(undefined);
 	const newline = text.includes('\r\n') ? '\r\n' : '\n';
-	const separator = text === '' || text.endsWith('\n') ? '' : newline;
+	const bom = text.startsWith('\ufeff') ? '\ufeff' : '';
 	const saved = await files.write(
 		'.gitignore',
 		before,
-		`${text}${separator}${MARKDOWN_RULES.join(newline)}${newline}`,
+		`${bom}${MARKDOWN_RULES.join(newline)}${newline}${text.slice(bom.length)}`,
 	);
 	if (saved.error !== null) return saved;
 
-	// A save confirms merged bytes, not the meaning of the requested rules.
+	// A merged save can retain concurrent changes; confirm the block survived.
 	const verified = await readRules(files);
 	if (verified.error !== null) return Err(verified.error);
 	if (!hasMarkdownRules(verified.data.text))
-		return ExclusionError.NotExcluded();
+		return ExclusionError.MissingRules();
 	return Ok(undefined);
 }

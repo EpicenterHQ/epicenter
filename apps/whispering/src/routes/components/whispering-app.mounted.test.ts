@@ -249,7 +249,7 @@ test('a refused exclusion write is visible in the shell', async () => {
 	});
 	await app.ready();
 	expect(app.target.textContent).toContain(
-		'Audio exclusion could not be confirmed at startup',
+		'Git defaults could not be checked at startup',
 	);
 	expect(app.target.textContent).toContain('ignore file is read-only');
 });

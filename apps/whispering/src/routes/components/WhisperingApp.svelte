@@ -93,9 +93,9 @@
 	/>
 	{#if whispering.exclusionNotice !== undefined}
 		<Alert.Root variant="warning" class="rounded-none">
-			<Alert.Title>Audio exclusion could not be confirmed at startup</Alert.Title>
+			<Alert.Title>Git defaults could not be checked at startup</Alert.Title>
 			<Alert.Description>
-				{whispering.exclusionNotice} Open .gitignore in Files to repair it, then reload Whispering to check again. Audio may be included in Git commits.
+				{whispering.exclusionNotice} Open .gitignore in Files to repair it, then reload Whispering to check again. Non-Markdown files may be included in Git commits.
 			</Alert.Description>
 		</Alert.Root>
 	{/if}

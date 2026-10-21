@@ -286,10 +286,13 @@ There is no module-level mutable state.
 
 Product construction is synchronous and reads nothing. Its `start()` first
 calls `maintainExclusions` (`src/lib/exclusions.ts`), before any product read.
-It reads the root `.gitignore`, evaluates its ordered rules with `ignore`, and
-appends missing case-insensitive audio-extension patterns under `/recordings/` only if needed. The exact bytes read are the base of an
-ordinary `files.write`, preserving unrelated source. A write is followed by a
-read to check the merged rules. A refusal becomes `exclusionNotice`, shown by
+It reads the root `.gitignore` and inserts the four Markdown-only defaults before
+existing text, after any BOM, if that ordered block is missing. An existing block
+stays where it is. Authored rules after it and nested `.gitignore` files can
+override the defaults; Git alone determines commit eligibility. The exact bytes
+read are the base of an ordinary `files.write`, preserving unrelated source.
+A write is followed by a read to check that the root block survived merging.
+A refusal becomes `exclusionNotice`, shown by
 the shell while Files and other work remain available. Reload checks a repair.
 No Git or provider request is made.
 

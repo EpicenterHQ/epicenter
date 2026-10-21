@@ -27,7 +27,7 @@ Opening leaves existing bytes untouched; recordings without a matching sibling
 show missing audio. Native interrupted-WAV recovery checks only `recordings/`.
 Audio remains an ordinary authored file; deleting a recording keeps its audio.
 
-Whispering maintains these ordinary `.gitignore` rules throughout its folder:
+Whispering supplies these ordinary root `.gitignore` defaults:
 
 ```gitignore
 *
@@ -36,13 +36,16 @@ Whispering maintains these ordinary `.gitignore` rules throughout its folder:
 !.gitignore
 ```
 
-Markdown and ignore files remain eligible in nested directories. Audio,
-images, PDFs, configuration, and other non-Markdown files stay on disk but
-are excluded when untracked. Earlier ignore text is preserved and the block
-is appended when it is not the final active policy. Trailing comments and
-blank lines do not trigger another append. Merged text is read again to verify
-the block. Git still controls tracked files; this is an app-maintained default,
-not a permanent privacy boundary.
+By default, Markdown and ignore files remain eligible in nested directories.
+Audio, images, PDFs, configuration, and other non-Markdown files stay on disk
+but are excluded when untracked. A missing block is inserted before existing
+text, after any BOM, so authored rules keep their order and can override the
+defaults. A recognized block stays where it is, including one installed at the
+end by an earlier build; move that block to the top to restore earlier custom
+exclusions. Comments and blank lines do not interrupt block recognition. Merged
+text is read again to verify the root block remains present. Later rules and
+nested `.gitignore` files determine actual eligibility, and Git still controls
+tracked files. This is an app-supplied default, not a permanent privacy boundary.
 
 These rules do not remove audio that Git already tracks or erase it from
 earlier commits. Existing tracked audio requires an explicit, separate

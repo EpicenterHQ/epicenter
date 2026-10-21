@@ -1,8 +1,8 @@
 /**
  * App-maintained exclusions over real native and IndexedDB file saves.
- * Startup preserves source bytes, respects ordered Git rules, skips effective
- * exclusions, merges concurrent edits, and reports failures without replacing
- * unreadable content or claiming that an ineffective merge installed a rule.
+ * Startup installs root defaults without overriding authored rules, preserves
+ * source bytes, and merges concurrent edits. Native Git and browser commits
+ * honor customizations; unreadable content and save failures remain visible.
  */
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
@@ -76,14 +76,11 @@ test('an empty folder gets only an ordinary .gitignore, and another startup writ
 });
 
 test.each([
-	['# another app\n/cache/', `# another app\n/cache/\n${rules}`],
-	['/recordings/\n!/recordings/\n', `/recordings/\n!/recordings/\n${rules}`],
-	['/audio/\n', `/audio/\n${rules}`],
-	['/RECORDINGS/\n', `/RECORDINGS/\n${rules}`],
-	['*\n', `*\n${rules}`],
+	['# another app\n/private/', `${rules}# another app\n/private/`],
+	['!*.wav\n', `${rules}!*.wav\n`],
 	[
 		'\ufeff# café\r\n/cache/',
-		`\ufeff# café\r\n/cache/\r\n${rules.replaceAll('\n', '\r\n')}`,
+		`\ufeff${rules.replaceAll('\n', '\r\n')}# café\r\n/cache/`,
 	],
 ])(
 	'adds the Markdown-only rules while preserving %j',
@@ -104,20 +101,14 @@ test.each([
 		expect(new Uint8Array(await saved.content.arrayBuffer())).toEqual(
 			new TextEncoder().encode(after),
 		);
-		// A later rule is preserved before the restored app default.
-		expectOk(await files.write('.gitignore', after, `${after}/private/\n`));
-		expectOk(await maintainExclusions(files));
-		const installed = rules.replaceAll(
-			'\n',
-			after.includes('\r\n') ? '\r\n' : '\n',
-		);
-		expect(await text(files)).toBe(`${after}/private/\n${installed}`);
 	},
 );
 
 test.each([
 	rules,
 	`# keep\n${rules}`,
+	`/private/\n${rules}`,
+	`${rules}/private/\n!*.wav\n`,
 	`${rules}# comment\n\n`,
 	`\ufeff${rules.replaceAll('\n', '\r\n')}`,
 ])('an installed Markdown-only block causes no write: %j', async (before) => {
@@ -179,10 +170,10 @@ test('a concurrent edit after reading survives the startup save', async () => {
 			},
 		}),
 	);
-	expect(await text(files)).toBe(`# keep\n/private/\n${rules}`);
+	expect(await text(files)).toBe(`${rules}# keep\n/private/\n`);
 });
 
-test('a successful save followed by a conflicting rule reports ineffective installation without retrying', async () => {
+test('a successful save followed by removal of the block reports missing defaults without retrying', async () => {
 	const { files } = await open();
 	let writes = 0;
 	const refused = expectErr(
@@ -193,15 +184,15 @@ test('a successful save followed by a conflicting rule reports ineffective insta
 				const saved = await files.write(...args);
 				expectOk(saved);
 				expectOk(
-					await files.write('.gitignore', rules, `${rules}!/recordings/*\n`),
+					await files.write('.gitignore', rules, '# concurrent replacement\n'),
 				);
 				return saved;
 			},
 		}),
 	);
-	expect(refused.name).toBe('NotExcluded');
+	expect(refused.name).toBe('MissingRules');
 	expect(writes).toBe(1);
-	expect(await text(files)).toBe(`${rules}!/recordings/*\n`);
+	expect(await text(files)).toBe('# concurrent replacement\n');
 });
 
 test('two browser connections starting from the same bytes retain both the rule and another edit after reopening', async () => {
@@ -234,11 +225,11 @@ test('two browser connections starting from the same bytes retain both the rule 
 	b.close();
 	const reopened = await openRepository(id);
 	cleanups.push(() => reopened.close());
-	expect(await text(reopened.files)).toBe(`# keep\n/private/\n${rules}`);
+	expect(await text(reopened.files)).toBe(`${rules}# keep\n/private/\n`);
 });
 
-test('native Git includes nested Markdown and ignore files while leaving non-Markdown bytes and tracked files intact', async () => {
-	const { files, root } = await open();
+test('native Git honors root and nested customizations while retaining tracked files and offline bytes', async () => {
+	const { files, root } = await open('/private/\nnode_modules/\n');
 	const git = (...args: string[]) =>
 		execFileSync('git', args, { cwd: root, encoding: 'utf8' });
 	git('init', '--quiet');
@@ -254,7 +245,15 @@ test('native Git includes nested Markdown and ignore files while leaving non-Mar
 		await files.write('recordings/new.wav', null, new Uint8Array([4, 5, 6])),
 	);
 	expectOk(await files.write('notes/nested/one.md', null, 'Nested note\n'));
-	expectOk(await files.write('notes/nested/.gitignore', null, '# nested\n'));
+	expectOk(await files.write('private/secret.md', null, 'Private note\n'));
+	expectOk(await files.write('node_modules/pkg/README.md', null, 'Package\n'));
+	expectOk(await files.write('notes/nested/hidden.md', null, 'Hidden note\n'));
+	expectOk(
+		await files.write('notes/nested/.gitignore', null, '!*.wav\nhidden.md\n'),
+	);
+	expectOk(
+		await files.write('notes/nested/shared.wav', null, new Uint8Array([11])),
+	);
 	expectOk(
 		await files.write('notes/nested/image.png', null, new Uint8Array([7, 8])),
 	);
@@ -267,6 +266,7 @@ test('native Git includes nested Markdown and ignore files while leaving non-Mar
 		'.gitignore',
 		'notes/nested/.gitignore',
 		'notes/nested/one.md',
+		'notes/nested/shared.wav',
 		'recordings/tracked.wav',
 	]);
 	expect(
@@ -275,6 +275,9 @@ test('native Git includes nested Markdown and ignore files while leaving non-Mar
 			'recordings/new.wav',
 			'notes/nested/image.png',
 			'notes/nested/export.pdf',
+			'private/secret.md',
+			'node_modules/pkg/README.md',
+			'notes/nested/hidden.md',
 		)
 			.trim()
 			.split('\n'),
@@ -282,6 +285,9 @@ test('native Git includes nested Markdown and ignore files while leaving non-Mar
 		'recordings/new.wav',
 		'notes/nested/image.png',
 		'notes/nested/export.pdf',
+		'private/secret.md',
+		'node_modules/pkg/README.md',
+		'notes/nested/hidden.md',
 	]);
 	expect(
 		new Uint8Array(
@@ -292,12 +298,13 @@ test('native Git includes nested Markdown and ignore files while leaving non-Mar
 	).toEqual(new Uint8Array([4, 5, 6]));
 });
 
-test('startup commits only Markdown and ignore files while preserving other offline bytes and an exact pending send', async () => {
+test('browser Git honors root and nested customizations while preserving offline bytes and an exact pending send', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	cleanups.push(() => repository.close());
 	const { storage } = repository;
 	const files = filesOf(repository);
 	const audio = new Uint8Array([0, 255, 1]);
+	expectOk(await files.write('.gitignore', null, '/private/\nnode_modules/\n'));
 	expectOk(await files.write('recordings/take.wav', null, audio));
 	expectOk(await files.write('recordings/take.WEBM', null, audio));
 	expectOk(await files.write('recordings/take.md', null, 'Recording\n'));
@@ -310,9 +317,13 @@ test('startup commits only Markdown and ignore files while preserving other offl
 	);
 	expectOk(await files.write('notes/one.md', null, 'Offline note\n'));
 	expectOk(await files.write('notes/nested/two.md', null, 'Nested note\n'));
+	expectOk(await files.write('private/secret.md', null, 'Private note\n'));
+	expectOk(await files.write('node_modules/pkg/README.md', null, 'Package\n'));
+	expectOk(await files.write('notes/nested/hidden.md', null, 'Hidden note\n'));
+	expectOk(await files.write('notes/nested/shared.wav', null, audio));
 	expectOk(await files.write('notes/nested/image.png', null, audio));
 	expectOk(
-		await files.write('notes/nested/.gitignore', null, '# local rules\n'),
+		await files.write('notes/nested/.gitignore', null, '!*.wav\nhidden.md\n'),
 	);
 	expectOk(await maintainExclusions(files));
 	// A simulated first observation of an empty remote, not a network call.
@@ -334,6 +345,7 @@ test('startup commits only Markdown and ignore files while preserving other offl
 	expect([...tree.files.keys()].sort()).toEqual([
 		'.gitignore',
 		'notes/nested/.gitignore',
+		'notes/nested/shared.wav',
 		'notes/nested/two.md',
 		'notes/one.md',
 		'recordings/take.md',
@@ -348,7 +360,11 @@ test('startup commits only Markdown and ignore files while preserving other offl
 		),
 	).toEqual(audio);
 	expectOk(
-		await files.write('.gitignore', rules, '# changed after preparing\n'),
+		await files.write(
+			'.gitignore',
+			`${rules}/private/\nnode_modules/\n`,
+			'# changed after preparing\n',
+		),
 	);
 	expectOk(await maintainExclusions(files));
 	expect(await prepareCommit(storage, { ...author, timestamp: 2 })).toEqual(

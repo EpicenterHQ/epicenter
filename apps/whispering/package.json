@@ -55,7 +55,6 @@
 		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@tanstack/svelte-query": "catalog:",
-		"ignore": "^7.0.5",
 		"typebox": "catalog:",
 		"nanoid": "catalog:",
 		"runed": "catalog:",

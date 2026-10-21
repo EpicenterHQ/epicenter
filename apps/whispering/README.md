@@ -74,13 +74,13 @@ transcripts, and no audio. There a recording says "This recording's audio
 isn't on this device", and it cannot be played or transcribed.
 
 The `epicenter` CLI's `save-version` and `sync` use Git's tracked-file
-and ignore rules, without requiring `epicenter.json`. The root `.gitignore`
-excludes untracked audio, images, PDFs, and other non-Markdown files after Whispering confirms its startup update.
+and ignore rules, without requiring `epicenter.json`. By default, the root
+`.gitignore` excludes untracked audio, images, PDFs, and other non-Markdown files.
 Those files stay on disk and travel with a complete folder copy. Already-tracked
 files remain tracked; the app never silently removes them from Git or rewrites
 history. There is no extra binary refusal or declaration privacy policy.
 
-The default rules apply throughout the folder, including nested directories:
+Whispering supplies these root defaults, which also apply in nested directories:
 
 ```gitignore
 *
@@ -89,15 +89,21 @@ The default rules apply throughout the folder, including nested directories:
 !.gitignore
 ```
 
-Whispering reads `.gitignore` before starting its first product reads. If its rules
-already end with that active rule block, startup writes nothing; trailing comments
-and blank lines do not cause another write. Otherwise it preserves the existing
-text and appends the block through `folder.files.write`, using the exact bytes
-read as the merge base. This also restores the defaults after later rules change
-the policy. Comments, earlier rules, a UTF-8 BOM, and existing line endings survive.
-No version flag or rule registry is stored.
+Whispering reads `.gitignore` before starting its first product reads. If that
+ordered block is already present, startup writes nothing; comments and blank
+lines do not interrupt it. Otherwise it inserts the block before existing text,
+after any UTF-8 BOM, through `folder.files.write`, using the exact bytes read as
+the merge base. Existing text and line endings survive. No version flag or rule
+registry is stored.
 
-A changed file is read again to confirm its effective rule after merging.
+Rules after the block and nested `.gitignore` files can override these defaults.
+For example, `/private/` after the block excludes that directory, and `!*.wav`
+allows WAV files into Git. Startup never overrides these customizations. A block
+installed at the end by an earlier build stays there; move it to the top in Files
+to let earlier custom rules take precedence.
+
+A changed file is read again to confirm the root block survived merging. This
+checks its presence, not the inclusion policy of the whole folder.
 An unreadable file or failed update shows a warning while the rest of Whispering
 and Files remain available. Fix `.gitignore` in Files, then reload to check again.
 Startup leaves invalid UTF-8 or binary source unchanged. Removing a required
