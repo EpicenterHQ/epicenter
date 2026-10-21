@@ -344,6 +344,14 @@ recording, never cancels it. Nothing in a row says whether a recording is
 running: the library's live capture says that, and a running recording is
 refused transcription.
 
+The capture forwards the recorder's first unexpected ending, including one
+received before subscription. The active capture alone handles it, through
+`finishRecording`, while a tracked operation keeps teardown behind audio and
+row finalization. Repeated or stale endings cannot stop another capture. Stop
+or Cancel retires the recorder's listeners; interruption adds no persisted
+status or second save queue. The browser listens for final encoder output
+from startup, so an encoder that already stopped can still save its bytes.
+
 There are two capture devices, and each mounted product has exactly one, chosen at construction; neither falls back to the other.
 
 - The microphone device (`src/lib/microphone.ts`) records with the recorder

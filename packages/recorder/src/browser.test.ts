@@ -58,14 +58,25 @@ function fakeRecorderClass(produced: () => Uint8Array) {
 		}
 		readonly mimeType: string;
 		readonly listeners = new Map<string, ((event: unknown) => void)[]>();
-		constructor(_stream: MediaStream, options?: MediaRecorderOptions) {
+		state: RecordingState = 'inactive';
+		constructor(stream: MediaStream, options?: MediaRecorderOptions) {
+			for (const track of stream.getAudioTracks())
+				track.addEventListener('ended', () =>
+					queueMicrotask(() => {
+						if (this.state !== 'inactive') this.stop();
+					}),
+				);
 			this.mimeType = options?.mimeType ?? '';
 		}
 		addEventListener(type: string, listener: (event: unknown) => void) {
 			this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
 		}
-		start() {}
+		start() {
+			this.state = 'recording';
+		}
 		stop() {
+			if (this.state === 'inactive') throw new Error('InvalidStateError');
+			this.state = 'inactive';
 			const bytes = produced();
 			for (const listener of this.listeners.get('dataavailable') ?? [])
 				listener({ data: new Blob([bytes as BlobPart]) });
@@ -286,4 +297,47 @@ test('a browser has no cut-off recordings to repair', async () => {
 	expect(expectOk(await recoverRecordings({ under: 'recordings' }))).toEqual(
 		[],
 	);
+});
+
+test('an already-ended browser stream keeps its final bytes and reports the ending to a late subscriber', async () => {
+	const { folder, written } = fakeFolder();
+	const { stream, track } = fakeStream('default');
+	const { startRecording } = createBrowserRecorder(
+		environment({ getUserMedia: async () => stream }),
+	);
+	const recording = expectOk(
+		await startRecording({ folder, path: 'audio/interrupted' }),
+	);
+	track.end();
+	await Promise.resolve();
+	const endings: string[] = [];
+	recording.onEnded((reason) => endings.push(reason));
+	expect(endings).toEqual(['deviceDisconnected']);
+	expectOk(await recording.stop());
+	expect(written).toEqual([
+		{ path: 'audio/interrupted.webm', bytes: new Uint8Array([1, 2, 3]) },
+	]);
+	const late: string[] = [];
+	recording.onEnded((reason) => late.push(reason));
+	track.end();
+	expect(late).toEqual([]);
+});
+
+test('an ending reaches every listener when the first listener stops the browser recorder', async () => {
+	const { folder } = fakeFolder();
+	const { stream, track } = fakeStream('default');
+	const { startRecording } = createBrowserRecorder(
+		environment({ getUserMedia: async () => stream }),
+	);
+	const recording = expectOk(await startRecording({ folder, path: 'a' }));
+	let stopping: ReturnType<typeof recording.stop> | undefined;
+	const endings: string[] = [];
+	recording.onEnded(() => {
+		stopping = recording.stop();
+	});
+	recording.onEnded((reason) => endings.push(reason));
+	track.end();
+	expect(endings).toEqual(['deviceDisconnected']);
+	expect(stopping).toBeDefined();
+	expectOk(await stopping!);
 });

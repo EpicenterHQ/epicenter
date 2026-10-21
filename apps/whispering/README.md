@@ -432,6 +432,11 @@ recording: the window knows that, and only while it runs.
   outcome cannot be confirmed, the row stays and the error is shown; Stop or
   Cancel can be requested again.
 
+If the microphone disconnects, access is revoked, or capture fails, recording
+stops and the app reports why. It finishes the captured audio through the same
+save path as Stop, keeps the recording, and reports any failure to save. It
+does not restart the microphone or send a transcription automatically.
+
 A recording that is still recording cannot be transcribed; stop it first.
 
 ### When a save does not finish

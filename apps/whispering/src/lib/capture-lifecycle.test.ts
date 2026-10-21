@@ -1,10 +1,19 @@
-/** Recording cancellation keeps the microphone, row, and folder lifetimes aligned. */
+/**
+ * Capture cancellation and interruption keep the microphone, row, and folder
+ * lifetimes aligned. Ends arriving during startup or closing finalize once;
+ * failures retain the row and report what could not be saved.
+ */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { RecorderError, type Recording } from '@epicenter/recorder';
+import {
+	RecorderError,
+	type Recording,
+	type RecordingEndedReason,
+} from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
+import { toneWav } from './capture.js';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { closeTestLibrary, openTestLibrary } from './library.test-support.js';
 import { createMicrophoneDevice } from './microphone.js';
@@ -24,14 +33,17 @@ async function open({
 	cancel,
 	stop,
 	beforeStart,
+	earlyEnding,
 }: {
 	cancel: Recording['cancel'];
-	stop?: Recording['stop'];
+	stop?: (path: string) => ReturnType<Recording['stop']>;
 	beforeStart?: Promise<void>;
+	earlyEnding?: RecordingEndedReason;
 }) {
 	const test = await openTestServices();
 	let starts = 0;
 	let stops = 0;
+	const endings: Set<(reason: RecordingEndedReason) => void>[] = [];
 	const capture = createMicrophoneDevice({
 		inputs: {
 			list: async () => Ok({ devices: [] }),
@@ -43,15 +55,22 @@ async function open({
 		record: async ({ path }) => {
 			starts++;
 			await beforeStart;
+			const listeners = new Set<(reason: RecordingEndedReason) => void>();
+			endings.push(listeners);
 			return Ok({
 				path: `${path}.wav`,
 				device: 'Test microphone',
 				startedAt: Date.now(),
 				onLevel: () => () => {},
-				onEnded: () => () => {},
+				onEnded(listener) {
+					if (earlyEnding !== undefined) listener(earlyEnding);
+					else listeners.add(listener);
+					return () => listeners.delete(listener);
+				},
 				stop: async () => {
 					stops++;
-					if (stop !== undefined) return stop();
+					listeners.clear();
+					if (stop !== undefined) return stop(`${path}.wav`);
 					return Ok({ path: `${path}.wav`, durationMs: 1000 });
 				},
 				cancel,
@@ -66,7 +85,16 @@ async function open({
 		await closeTestLibrary(library);
 		await test.remove();
 	});
-	return { library, capture, test, starts: () => starts, stops: () => stops };
+	return {
+		library,
+		capture,
+		test,
+		starts: () => starts,
+		stops: () => stops,
+		end: (reason: RecordingEndedReason, index = endings.length - 1) => {
+			for (const listener of endings[index] ?? []) listener(reason);
+		},
+	};
 }
 
 test('a cancellation is registered before closing, including its row deletion', async () => {
@@ -268,3 +296,97 @@ for (const action of ['stop', 'cancel'] as const) {
 		}
 	});
 }
+
+for (const reason of [
+	'deviceDisconnected',
+	'permissionRevoked',
+	'streamFailed',
+	'storageFailed',
+] as const) {
+	test(`an interruption (${reason}) finishes captured audio and keeps its recording`, async () => {
+		let test: Awaited<ReturnType<typeof open>>['test'];
+		let audioPath = '';
+		const opened = await open({
+			cancel: async () => Ok(undefined),
+			stop: async (path) => {
+				audioPath = path;
+				expectOk(await test.folder.files.write(path, null, toneWav()));
+				return Ok({ path, durationMs: 1000 });
+			},
+		});
+		test = opened.test;
+		await opened.library.startRecording();
+		opened.end(reason);
+		await eventually(() => opened.library.recorder.phase === 'idle');
+		await closeTestLibrary(opened.library);
+		expect(opened.stops()).toBe(1);
+		const [name] = (await readdir(join(test.root, 'recordings'))).filter((name) => name.endsWith('.md'));
+		const saved = await readFile(join(test.root, 'recordings', name!), 'utf8');
+		expect(saved).toContain('durationMs: 1000');
+		expect(new Uint8Array(await readFile(join(test.root, audioPath)))).toEqual(
+			new Uint8Array(toneWav()),
+		);
+		expect(opened.library.recorderError).toContain('Recording stopped');
+	});
+}
+
+test('an interruption already reported at startup finishes the capture once', async () => {
+	const { library, stops } = await open({
+		cancel: async () => Ok(undefined),
+		earlyEnding: 'permissionRevoked',
+	});
+	await library.startRecording();
+	await eventually(() => library.recorder.phase === 'idle');
+	expect(stops()).toBe(1);
+	expect(library.recorderError).toContain('permission');
+});
+
+test('closing waits for an interrupted capture and does not stop it twice', async () => {
+	const release = Promise.withResolvers<void>();
+	const { library, test, end, stops } = await open({
+		cancel: async () => Ok(undefined),
+		stop: async () => {
+			await release.promise;
+			return Ok({ path: 'audio/interrupted.wav', durationMs: 1000 });
+		},
+	});
+	await library.startRecording();
+	end('deviceDisconnected');
+	end('streamFailed');
+	expect(library.recorder.phase).toBe('stopping');
+	expect(stops()).toBe(1);
+	let closed = false;
+	const closing = closeTestLibrary(library).then(() => {
+		closed = true;
+	});
+	try {
+		await new Promise((r) => setTimeout(r, 20));
+		expect(closed).toBe(false);
+		expect(stops()).toBe(1);
+	} finally {
+		release.resolve();
+		await closing;
+	}
+	expect(test.closes).toBe(1);
+});
+
+test.each(['refused', 'thrown'] as const)(
+	'an interrupted capture whose final save is %s keeps its row and reports the failure',
+	async (failure) => {
+		const { library, test, end } = await open({
+			cancel: async () => Ok(undefined),
+			stop: async () => {
+				if (failure === 'thrown') throw new Error('disk is full');
+				return RecorderError.Refused({ reason: 'disk is full' });
+			},
+		});
+		await library.startRecording();
+		end('storageFailed');
+		await eventually(() => library.recorder.phase === 'idle');
+		expect(expectOk(await test.folder.tables.recordings.list())).toHaveLength(
+			1,
+		);
+		expect(library.recorderError).toContain('disk is full');
+		expect(library.recorderError).not.toContain('audio was saved');
+	},
+);

@@ -648,7 +648,9 @@ export function createLibrary(
 		// the desktop it was written as it was captured, and stop finishes it.
 		// Started here, not when the mutation runs, so the microphone is let go
 		// at once.
-		const stopping = capture.stop();
+		const stopping = capture
+			.stop()
+			.catch((cause) => CaptureError.Failed({ cause }));
 		const { data: stopped, error: stopError } = await track(() => stopping);
 		if (stopError === null)
 			finishedOver.set(
@@ -1268,6 +1270,19 @@ export function createLibrary(
 			active = { id, capture, rowSave: creating };
 			capturing.add(id);
 			recorder = { phase: 'recording', startedAt: capture.startedAt };
+			capture.onEnded((reason) => {
+				if (active?.capture !== capture) return;
+				recorderError = {
+					deviceDisconnected:
+						'The microphone was disconnected. Recording stopped.',
+					permissionRevoked:
+						'Microphone permission was revoked. Recording stopped.',
+					streamFailed: 'The microphone stream failed. Recording stopped.',
+					storageFailed: 'Audio storage failed. Recording stopped.',
+				}[reason];
+				// Stop owns finalization; it keeps the captured audio and this row.
+				void hold(finishRecording());
+			});
 			const created = await creating;
 			if (
 				created.error !== null &&

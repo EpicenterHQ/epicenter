@@ -77,7 +77,7 @@ export type Recording = {
 	readonly device: string;
 	/** Hear how loud the input is, from 0 to 1, about twenty times a second. Returns the unsubscribe. */
 	onLevel(listener: (level: number) => void): () => void;
-	/** Hear that capture ended on its own. `stop` still keeps what was captured. Returns the unsubscribe. */
+	/** Hear that capture ended on its own, including an ending before subscription. `stop` keeps what was captured. Retired by stop or cancel. */
 	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
 	/** Finish the file and release the microphone. */
 	stop(): Promise<Result<StoppedRecording, RecorderError>>;

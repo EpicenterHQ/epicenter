@@ -158,6 +158,7 @@ function scriptedMicrophone(
 			return Ok({
 				audioPath,
 				startedAt: performance.now(),
+				onEnded: () => () => {},
 				async stop() {
 					release();
 					const { error } = await options.folder.write(

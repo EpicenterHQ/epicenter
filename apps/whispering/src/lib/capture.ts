@@ -12,7 +12,7 @@
  * microphone take. The platform adapter chooses which device a session uses;
  * nothing here falls back from one to the other.
  */
-import type { RecordingFolder } from '@epicenter/recorder';
+import type { Recording, RecordingFolder } from '@epicenter/recorder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { extensionOf, wavDurationMs } from './audio-format.js';
@@ -63,6 +63,8 @@ export type ActiveCapture = {
 	readonly audioPath: string;
 	/** `performance.now()` when capture began, for the elapsed-time display. */
 	readonly startedAt: number;
+	/** Hear capture end unexpectedly; stop still keeps its audio. Retired by stop or cancel. */
+	onEnded: Recording['onEnded'];
 	/** Finish the audio file and release the microphone. */
 	stop(): Promise<Result<{ readonly durationMs: number }, CaptureError>>;
 	/** Release the microphone and delete the audio file. */
@@ -185,6 +187,7 @@ export function createFixtureDevice({
 			return Ok({
 				audioPath,
 				startedAt,
+				onEnded: () => () => {},
 				async stop() {
 					if (settled) return CaptureError.Empty();
 					settled = true;

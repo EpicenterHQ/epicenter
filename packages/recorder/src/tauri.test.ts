@@ -257,3 +257,48 @@ test('a meter withdrawn while the shell opened it is closed, and a refusal arriv
 		expectErr(await openMeter({ input: { deviceId: 'x', label: 'USB Mic' } })),
 	).toMatchObject({ name: 'InputUnavailable', label: 'USB Mic' });
 });
+
+test('an ending received before start answers reaches its subscriber once and retires on stop', async () => {
+	answer = ({ cmd, args }) => {
+		if (cmd === 'plugin:epicenter-recorder|start') {
+			(args.signals as FakeChannel<unknown>).onmessage({
+				kind: 'ended',
+				reason: 'permissionRevoked',
+			});
+			return started;
+		}
+		return { path: 'recordings/a.wav', durationMs: 1250 };
+	};
+	const recording = expectOk(
+		await startRecording({ folder, path: 'recordings/a' }),
+	);
+	const endings: string[] = [];
+	recording.onEnded((reason) => endings.push(reason));
+	const channel = calls[0]?.args.signals as FakeChannel<unknown>;
+	channel.onmessage({ kind: 'ended', reason: 'streamFailed' });
+	expect(endings).toEqual(['permissionRevoked']);
+	expectOk(await recording.stop());
+	channel.onmessage({ kind: 'ended', reason: 'deviceDisconnected' });
+	const late: string[] = [];
+	recording.onEnded((reason) => late.push(reason));
+	expect(late).toEqual([]);
+});
+
+test('an ending reaches every listener when the first listener stops the native recorder', async () => {
+	const recording = expectOk(
+		await startRecording({ folder, path: 'recordings/a' }),
+	);
+	let stopping: ReturnType<typeof recording.stop> | undefined;
+	const endings: string[] = [];
+	recording.onEnded(() => {
+		stopping = recording.stop();
+	});
+	recording.onEnded((reason) => endings.push(reason));
+	(calls[0]?.args.signals as FakeChannel<unknown>).onmessage({
+		kind: 'ended',
+		reason: 'permissionRevoked',
+	});
+	expect(endings).toEqual(['permissionRevoked']);
+	expect(stopping).toBeDefined();
+	expectOk(await stopping!);
+});

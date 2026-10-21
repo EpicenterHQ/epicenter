@@ -35,6 +35,11 @@ const unsubscribe = recording.onLevel((level) => meter.set(level));
 const { data: stopped } = await recording.stop(); // { path, durationMs }, or recording.cancel()
 ```
 
+`onEnded` reports the first unexpected ending, including one received before
+subscription. Stop still claims what was captured; stop or cancel retires the
+listeners. In a browser, final encoder output is collected even if the browser
+already stopped after its microphone tracks ended.
+
 `folder` is the `write` a browser writes the recording through; a handle
 from `@epicenter/folder` supplies it. On the desktop the shell records into
 the folder it bound to the recording window, and no call names a folder.

@@ -64,11 +64,18 @@ export const startRecording: StartRecording = async ({
 	if (signal?.aborted) return RecorderError.Cancelled();
 	const levels = new Set<(level: number) => void>();
 	const endings = new Set<(reason: RecordingEndedReason) => void>();
+	let ended: RecordingEndedReason | undefined;
+	let resolved = false;
 	const signals = new Channel<RecordingSignal>();
 	signals.onmessage = (message) => {
+		if (resolved) return;
 		if (message.kind === 'level')
 			for (const listener of levels) listener(message.level ?? 0);
-		else for (const listener of endings) listener(message.reason);
+		else if (ended === undefined) {
+			const reason = message.reason;
+			ended = reason;
+			for (const listener of [...endings]) listener(reason);
+		}
 	};
 	let answer: Awaited<ReturnType<typeof commands.start>>;
 	try {
@@ -85,6 +92,8 @@ export const startRecording: StartRecording = async ({
 	}
 	const startedAt = Date.now();
 	const silence = () => {
+		resolved = true;
+		ended = undefined;
 		levels.clear();
 		endings.clear();
 	};
@@ -97,6 +106,11 @@ export const startRecording: StartRecording = async ({
 			return () => levels.delete(listener);
 		},
 		onEnded(listener) {
+			if (resolved) return () => {};
+			if (ended !== undefined) {
+				listener(ended);
+				return () => {};
+			}
 			endings.add(listener);
 			return () => endings.delete(listener);
 		},

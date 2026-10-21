@@ -71,6 +71,7 @@ export function createMicrophoneDevice({
 			return Ok({
 				audioPath: recording.path,
 				startedAt,
+				onEnded: recording.onEnded,
 				async stop() {
 					const { data: stopped, error: stopError } = await recording.stop();
 					if (stopError !== null) return Err(captureErrorOf(stopError));

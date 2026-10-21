@@ -192,12 +192,16 @@ export function createBrowserRecorder(
 		const endings = new Set<(reason: RecordingEndedReason) => void>();
 		const stopMeter = meter(environment, stream, levels);
 		const file = `${path}.${container?.extension ?? extensionOf(recorder.mimeType)}`;
-		// The microphone going away ends the capture; what was recorded stays.
-		for (const track of stream.getAudioTracks())
-			track.addEventListener('ended', () => {
-				for (const listener of endings) listener('deviceDisconnected');
-			});
 		let settled = false;
+		let ended: { reason: RecordingEndedReason; at: number } | undefined;
+		function interrupted(reason: RecordingEndedReason) {
+			if (settled || ended !== undefined) return;
+			ended = { reason, at: environment.now() };
+			for (const listener of [...endings]) listener(reason);
+		}
+		// Keep the first ending even when no consumer has subscribed yet.
+		for (const track of stream.getAudioTracks())
+			track.addEventListener('ended', () => interrupted('deviceDisconnected'));
 		const end = () => {
 			settled = true;
 			stopMeter();
@@ -205,28 +209,37 @@ export function createBrowserRecorder(
 			endings.clear();
 		};
 
-		/** Stop the encoder and collect what it produced. */
-		const finish = () =>
-			new Promise<Result<Uint8Array, RecorderError>>((resolve) => {
+		// Listen from the start: the browser may stop itself before the app calls stop.
+		const finished = new Promise<Result<undefined, RecorderError>>(
+			(resolve) => {
 				recorder.addEventListener(
 					'error',
-					(event) => resolve(RecorderError.Failed({ cause: event })),
+					(event) => {
+						resolve(RecorderError.Failed({ cause: event }));
+						interrupted('streamFailed');
+					},
 					{ once: true },
 				);
 				recorder.addEventListener(
 					'stop',
-					async () => {
-						const blob = new Blob(chunks);
-						resolve(Ok(new Uint8Array(await blob.arrayBuffer())));
+					() => {
+						resolve(Ok(undefined));
+						interrupted('streamFailed');
 					},
 					{ once: true },
 				);
-				try {
-					recorder.stop();
-				} catch (cause) {
-					resolve(RecorderError.Failed({ cause }));
-				}
-			});
+			},
+		);
+		async function finish(): Promise<Result<Uint8Array, RecorderError>> {
+			try {
+				if (recorder.state !== 'inactive') recorder.stop();
+			} catch (cause) {
+				return RecorderError.Failed({ cause });
+			}
+			const { error } = await finished;
+			if (error !== null) return Err(error);
+			return Ok(new Uint8Array(await new Blob(chunks).arrayBuffer()));
+		}
 
 		return Ok({
 			path: file,
@@ -237,6 +250,11 @@ export function createBrowserRecorder(
 				return () => levels.delete(listener);
 			},
 			onEnded(listener) {
+				if (settled) return () => {};
+				if (ended !== undefined) {
+					listener(ended.reason);
+					return () => {};
+				}
 				endings.add(listener);
 				return () => endings.delete(listener);
 			},
@@ -246,7 +264,9 @@ export function createBrowserRecorder(
 						reason: 'it was already stopped or cancelled',
 					});
 				end();
-				const durationMs = Math.round(environment.now() - startedAt);
+				const durationMs = Math.round(
+					(ended?.at ?? environment.now()) - startedAt,
+				);
 				const { data: bytes, error } = await finish();
 				release(stream);
 				if (error !== null) return Err(error);
