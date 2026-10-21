@@ -171,6 +171,7 @@ function scriptedMicrophone(
 				},
 				async cancel() {
 					release();
+					return Ok(undefined);
 				},
 			});
 		},
@@ -305,7 +306,7 @@ test('a recording asks for exactly the chosen microphone, and for the default wh
 	const { library, input, microphone } = await open();
 
 	await library.startRecording();
-	library.cancelRecording();
+	await library.cancelRecording();
 	await input.select(USB);
 	await library.startRecording();
 

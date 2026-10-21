@@ -321,8 +321,13 @@ the start time, asks the capture device to record into
 `audio/<id>` (`recordingAudioStem`), and writes the row with the start
 time and the `audioPath` the device answered. `stopRecording` stops the
 device and writes the length (`durationMs`) onto the row it reads again, so a
-title typed meanwhile is kept. `cancelRecording` stops the device, which
-deletes the audio, and deletes the row. Closing the library stops a running
+title typed meanwhile is kept. `cancelRecording` holds the microphone until
+its cancellation answers and deletes the row only after cancellation succeeds.
+The operation stays tracked through row deletion during product teardown. A
+refused or unknown cancellation keeps the row and handle for an explicit Stop
+or Cancel; a delayed initial row-save failure cannot claim a cancelled capture
+is still running. Stop reports separately when audio was saved but its row
+could not be created. Closing the library stops a running
 recording, never cancels it. Nothing in a row says whether a recording is
 running: the library's live capture says that, and a running recording is
 refused transcription.

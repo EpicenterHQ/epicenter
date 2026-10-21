@@ -423,9 +423,11 @@ recording: the window knows that, and only while it runs.
   the folder next opens, the app rewrites the header of any recording that
   was cut off so it plays to its end. Its row then has no length.
 - In a browser tab the audio is held in the page and written on stop, as
-  `recordings/<id>.webm` (or `.mp4` or `.ogg`, as the browser records).
+  `audio/<id>.webm` (or `.mp4` or `.ogg`, as the browser records).
   Reloading or closing the tab loses it, and the row stays without its audio.
-- Cancel deletes both the row and the audio.
+- Cancel deletes the audio and then its row. If cancellation fails or its
+  outcome cannot be confirmed, the row stays and the error is shown; Stop or
+  Cancel can be requested again.
 
 A recording that is still recording cannot be transcribed; stop it first.
 

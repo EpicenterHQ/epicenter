@@ -66,7 +66,7 @@ export type ActiveCapture = {
 	/** Finish the audio file and release the microphone. */
 	stop(): Promise<Result<{ readonly durationMs: number }, CaptureError>>;
 	/** Release the microphone and delete the audio file. */
-	cancel(): Promise<void>;
+	cancel(): Promise<Result<undefined, CaptureError>>;
 };
 
 /** A microphone the person chose by name. Kept on this device, never in the folder. */
@@ -207,6 +207,7 @@ export function createFixtureDevice({
 				},
 				async cancel() {
 					settled = true;
+					return Ok(undefined);
 				},
 			});
 		},

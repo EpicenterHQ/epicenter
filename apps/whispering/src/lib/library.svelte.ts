@@ -54,7 +54,7 @@ import { customAlphabet } from 'nanoid';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { ActiveCapture } from './capture.js';
+import { type ActiveCapture, CaptureError } from './capture.js';
 import type {
 	ConnectionChange,
 	ConnectionsInfo,
@@ -566,7 +566,7 @@ export function createLibrary(
 				readonly id: string;
 				readonly capture: ActiveCapture;
 				/** Its initial row save, awaited before Stop or Cancel changes that row. */
-				readonly rowSave: Promise<unknown>;
+				readonly rowSave: ReturnType<typeof folder.tables.recordings.set>;
 		  }
 		| undefined;
 	/** The recording being captured, by stem. No request starts for it until it stops. */
@@ -661,20 +661,24 @@ export function createLibrary(
 			recorderError = stopError.message;
 			return;
 		}
-		const lengthError = await track(async () => {
-			await rowSave;
+		const saveWarning = await track(async () => {
+			const { error: rowError } = await rowSave;
+			if (rowError !== null)
+				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
 			const recordings = folder.tables.recordings;
 			const { data: stored, error } = await recordings.get(id);
-			if (error !== null) return describeError(error);
+			if (error !== null)
+				return `The recording is saved, but its length could not be written: ${describeError(error)}`;
 			// A row deleted meanwhile stays deleted.
 			if (stored === undefined) return undefined;
 			const { error: saveError } = await recordings.set(id, stored, {
 				fields: { durationMs: stopped.durationMs },
 			});
-			return saveError === null ? undefined : describeError(saveError);
+			return saveError === null
+				? undefined
+				: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
 		}, path);
-		if (lengthError !== undefined)
-			recorderError = `The recording is saved, but its length could not be written: ${lengthError}`;
+		if (saveWarning !== undefined) recorderError = saveWarning;
 		if (selectedPath === selectionBefore) open(path);
 	}
 
@@ -1232,7 +1236,13 @@ export function createLibrary(
 			);
 			// Cancelled or closed while the microphone was opening: it is not kept.
 			if (starting !== attempt) {
-				if (startError === null) void capture.cancel();
+				if (startError === null) {
+					const { error } = await capture
+						.cancel()
+						.catch((cause) => CaptureError.Failed({ cause }));
+					if (error !== null && !fenced)
+						recorderError = `The late recording's cancellation could not be confirmed: ${error.message}`;
+				}
 				return;
 			}
 			starting = undefined;
@@ -1255,11 +1265,15 @@ export function createLibrary(
 				rowPath(RECORDINGS, id),
 			);
 			// Stop and Cancel await this capture's own initial row save.
-			active = { id, capture, rowSave: creating.catch(() => undefined) };
+			active = { id, capture, rowSave: creating };
 			capturing.add(id);
 			recorder = { phase: 'recording', startedAt: capture.startedAt };
 			const created = await creating;
-			if (created.error !== null)
+			if (
+				created.error !== null &&
+				active?.capture === capture &&
+				recorderError === undefined
+			)
 				recorderError = `The recording is running, but its file could not be written, so it is not listed: ${describeError(created.error)}. Its audio is ${capture.audioPath}.`;
 		},
 		/** Stop: the audio file is finished and the row gets its length. */
@@ -1273,20 +1287,42 @@ export function createLibrary(
 			starting = undefined;
 			const cancelled = active;
 			active = undefined;
-			recorder = { phase: 'idle' };
-			if (cancelled === undefined) return;
-			const { id, capture, rowSave } = cancelled;
-			await capture.cancel();
-			capturing.delete(id);
-			await rowSave;
-			const path = rowPath(RECORDINGS, id);
-			const { error } = await track(
-				() => folder.tables.recordings.edit(id).delete(),
-				path,
+			if (cancelled === undefined) {
+				// Another Stop or Cancel may still own the microphone.
+				if (recorder.phase === 'starting') recorder = { phase: 'idle' };
+				return;
+			}
+			recorder = { phase: 'stopping' };
+			await hold(
+				(async () => {
+					const { id, capture, rowSave } = cancelled;
+					const { error: cancelError } = await capture
+						.cancel()
+						.catch((cause) => CaptureError.Failed({ cause }));
+					if (cancelError !== null) {
+						// The native reply may be lost after cancellation. Keep the row
+						// and handle so an explicit Stop or Cancel can resolve it.
+						active = cancelled;
+						recorder = { phase: 'recording', startedAt: capture.startedAt };
+						recorderError = `The recording's cancellation could not be confirmed. Its row was kept: ${cancelError.message}`;
+						// Closing preserves the recording by finishing it, as ordinary
+						// teardown does, rather than leaving its microphone held.
+						if (fenced) await finishRecording();
+						return;
+					}
+					capturing.delete(id);
+					recorder = { phase: 'idle' };
+					await rowSave;
+					const path = rowPath(RECORDINGS, id);
+					const { error } = await track(
+						() => folder.tables.recordings.edit(id).delete(),
+						path,
+					);
+					if (error !== null)
+						recorderError = `The recording was stopped, but its file was not deleted: ${describeError(error)}`;
+					else deleted(path);
+				})(),
 			);
-			if (error !== null)
-				recorderError = `The recording was stopped, but its file was not deleted: ${describeError(error)}`;
-			else deleted(path);
 		},
 
 		// ------------------------------------------------------------------
