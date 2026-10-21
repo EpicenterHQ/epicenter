@@ -34,20 +34,20 @@
 	// svelte-ignore state_referenced_locally
 	const own = result.path;
 	// The library's timer outlives the card; send what is typed now instead.
-	onDestroy(() => void rowEdit.save());
+	onDestroy(() => void fileEdit.save());
 
 	/** Edited here unless the person opened its file as text in Files. */
 	const asText = $derived(library.showsText(result.path));
 	/** This card's transcript row: the folder's edit of it, as stored with what is typed over it. */
 	// svelte-ignore state_referenced_locally
-	const rowEdit = library.rowEdit(TRANSCRIPTIONS, own);
+	const fileEdit = library.edit(TRANSCRIPTIONS, own);
 	const row = $derived.by(() => {
-		const shown = rowEdit.row;
+		const shown = fileEdit.markdown;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** The text now: as typed while an edit is unsaved, else as the file holds it. */
-	const pending = $derived(rowEdit.pending);
-	const text = $derived(row?.body ?? (pending?.kind === 'row' ? pending.body : undefined) ?? result.row.body);
+	const pending = $derived(fileEdit.pending);
+	const text = $derived(row?.body ?? (pending?.kind === 'document' ? pending.body : undefined) ?? result.row.body);
 	const locked = $derived(library.locked(result.path));
 	const progress = $derived(library.resultState(result.path, text));
 
@@ -85,9 +85,9 @@
 			class="min-h-32 resize-y font-sans"
 			bind:value={
 				() => shown.body,
-				(value) => library.editBody(rowEdit, value)
+				(value) => library.editBody(fileEdit, value)
 			}
-			onblur={() => void rowEdit.save()}
+			onblur={() => void fileEdit.save()}
 			disabled={locked}
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"

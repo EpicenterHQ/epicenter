@@ -20,7 +20,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, untrack } from 'svelte';
@@ -41,24 +41,22 @@
 	// The view is keyed by the capture, so its path never changes for this view.
 	const path = untrack(() => capturePath(stem));
 	/** The folder's edit of the file: its exact text as stored, and what is typed over it. */
-	const textEdit = untrack(() => createTextEdit(captures.folder.files, path));
-	const rowEdit = untrack(() => createRowEdit(captures.folder.tables.captures, stem));
-	const row = $derived(rowEdit.row);
-	const status = $derived(textEdit.readStatus);
+	const fileEdit = untrack(() => createFileEdit(captures.folder.tables.captures.edit(stem)));
+	const status = $derived(fileEdit.readStatus);
 	const unreadable = $derived(status.known === 'not-text');
-	const pending = $derived(textEdit.pending);
+	const pending = $derived(fileEdit.pending);
 	const unsaved = $derived(pending === undefined ? undefined : unsavedText(pending));
-	const text = $derived(textEdit.text);
+	const text = $derived(fileEdit.text);
 	const finishDraft = createMutation(() => resultMutationOptions({
 		mutationKey: ['captures', 'finish-draft', stem],
 		mutationFn: () => captures.finishDraft(stem),
 	}));
-	const draft = $derived(row?.issues === null && row.fields.draft === true);
-	const locked = $derived(textEdit.locked || finishDraft.isPending);
+	const draft = $derived(fileEdit.markdown?.issues === null && fileEdit.markdown.fields.draft === true);
+	const locked = $derived(fileEdit.locked || finishDraft.isPending);
 	let refusal = $state<string>();
 
 	function finish() {
-		if (locked || !draft || row === undefined || row.body.trim() === '') return;
+		if (locked || !draft || !fileEdit.markdown?.body.trim()) return;
 		finishDraft.mutate();
 	}
 	/** The thought's lines to select as the text appears, when opened to edit one. */
@@ -69,12 +67,13 @@
 		node.setSelectionRange(selection.start, selection.end);
 	}
 	// The text saves after a pause, and outlives the view; send it now.
-	onDestroy(() => void textEdit.save());
+	onDestroy(() => void fileEdit.save());
 	/** Poll this edit's file while shown, including changes made outside this page. */
-	createQuery(() => captures.readQuery(textEdit));
+	createQuery(() => captures.readQuery(fileEdit));
 
 	/** Why the current edit is not a capture yet: each with its line when it has one. */
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
+		const row = fileEdit.markdown;
 		if (row === undefined || unreadable) return [];
 		if (row.issues !== null) return row.issues;
 		const { error: refusal } = readCaptureBody(row);
@@ -91,7 +90,7 @@
 			title: 'Discard your edit?',
 			description: `Copy anything you need first. ${path} keeps what was last saved.`,
 			confirm: { text: 'Discard edit', variant: 'destructive' },
-			onConfirm: () => void textEdit.discard(),
+			onConfirm: () => void fileEdit.discard(),
 		});
 	}
 </script>
@@ -102,7 +101,7 @@
 		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{path}</h1>
 		{#if text !== undefined}
 			{#if draft}
-				<Button size="sm" disabled={locked || row === undefined || row.body.trim() === ''} onclick={finish}>
+				<Button size="sm" disabled={locked || !fileEdit.markdown?.body.trim()} onclick={finish}>
 					{finishDraft.isPending ? 'Adding…' : 'Add capture'}
 				</Button>
 			{:else}
@@ -128,7 +127,7 @@
 			<Alert.Title>Your edit is not saved</Alert.Title>
 			<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-				<Button size="sm" variant="outline" onclick={() => void textEdit.retry()}>Save again</Button>
+				<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
 				<Button size="sm" variant="outline" onclick={() => copy(unsaved, 'Your text')}>Copy your text</Button>
 				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 			</div>
@@ -168,7 +167,7 @@
 				(typing) => {
 					// The first change starts from the source shown; later ones keep theirs.
 					if (locked) return;
-					const { error } = textEdit.change(withFileNewlines(typing.toWellFormed(), shown));
+					const { error } = fileEdit.replaceText(withFileNewlines(typing.toWellFormed(), shown));
 					refusal = error?.message;
 					if (error === null) finishDraft.reset();
 				}
@@ -178,7 +177,7 @@
 				event.preventDefault();
 				finish();
 			}}
-			onblur={() => void textEdit.save()}
+			onblur={() => void fileEdit.save()}
 			{@attach selectThought}
 		/>
 		{#if refusal}<p role="alert" class="text-sm text-destructive">{refusal} Your previous text is kept.</p>{/if}
@@ -203,7 +202,7 @@
 				<Empty.Description>{status.error.message}</Empty.Description>
 			</Empty.Header>
 			<Empty.Content>
-				<Button variant="outline" size="sm" onclick={() => void textEdit.read()}>Try again</Button>
+				<Button variant="outline" size="sm" onclick={() => void fileEdit.read()}>Try again</Button>
 			</Empty.Content>
 		</Empty.Root>
 	{:else}

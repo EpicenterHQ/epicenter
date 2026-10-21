@@ -46,7 +46,7 @@ function show(unsaved: string, discard?: () => string) {
 		path: 'notes/a.md',
 		error: { name: 'Unavailable', message: 'Disk is full.' },
 		unsaved,
-		retry: () => true,
+		save: () => true,
 		discard,
 	});
 	const notice = currentNotice();

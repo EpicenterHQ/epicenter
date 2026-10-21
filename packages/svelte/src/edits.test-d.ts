@@ -1,56 +1,45 @@
-/**
- * Type tests for the Svelte edit bindings, checked by `svelte-check`; never
- * run. A binding is made from a table and an id, or the folder's files and a
- * path, and tracks the folder edit through getters; `row` keeps the
- * schema's precision and is optional until read. A change is nested fields
- * and body; no source is named.
- */
+/** Schema precision survives the framework adapter. Checked, never run. */
 import { expectTypeOf } from 'bun:test';
-import type { Folder, Row } from '@epicenter/folder';
-import type { Pending, ReadStatus } from '@epicenter/folder/edits';
+import type { Folder } from '@epicenter/folder';
+import type {
+	MarkdownContent,
+	Pending,
+	ReadStatus,
+} from '@epicenter/folder/edits';
 import { Type } from 'typebox';
-import { createRowEdit, createTextEdit } from './edits.js';
+import { createFileEdit } from './edits.js';
 
 const notes = Type.Object({ title: Type.String(), done: Type.Boolean() });
-type Note = Row<typeof notes>;
-
 declare const folder: Folder<{ notes: typeof notes }>;
-
-const rowEdit = createRowEdit(folder.tables.notes, 'milk');
-expectTypeOf(rowEdit.path).toEqualTypeOf<string>();
-expectTypeOf(rowEdit.row).toEqualTypeOf<Note | undefined>();
-expectTypeOf(rowEdit.readStatus).toEqualTypeOf<ReadStatus>();
-expectTypeOf(rowEdit.pending).toEqualTypeOf<
+const fileEdit = createFileEdit(folder.tables.notes.edit('milk'));
+expectTypeOf(fileEdit.markdown).toEqualTypeOf<
+	MarkdownContent<typeof notes> | undefined
+>();
+expectTypeOf(fileEdit.text).toEqualTypeOf<string | undefined>();
+expectTypeOf(fileEdit.readStatus).toEqualTypeOf<ReadStatus>();
+expectTypeOf(fileEdit.pending).toEqualTypeOf<
 	Pending<typeof notes> | undefined
 >();
-expectTypeOf(rowEdit.locked).toEqualTypeOf<boolean>();
-const row = rowEdit.row;
-if (row?.issues === null)
-	expectTypeOf(row.fields.title).toEqualTypeOf<string>();
-rowEdit.change({ fields: { title: 'Oat milk', done: true } });
-rowEdit.change({ body: 'Two litres' });
-rowEdit.change({ fields: { done: false }, body: 'Two litres' });
-// @ts-expect-error A flat field is not a change.
-rowEdit.change({ title: 'Oat milk' });
-// @ts-expect-error A change names fields of the row's schema.
-rowEdit.change({ fields: { titel: 'Oat milk' } });
+expectTypeOf(fileEdit.locked).toEqualTypeOf<boolean>();
+const markdown = fileEdit.markdown;
+if (markdown?.issues === null)
+	expectTypeOf(markdown.fields.title).toEqualTypeOf<string>();
+fileEdit.change({ fields: { title: 'Oat milk', done: true } });
+fileEdit.change({ body: 'Two litres' });
+fileEdit.change({ fields: { done: false }, body: 'Two litres' });
+fileEdit.replaceText('whole source');
+// @ts-expect-error A flat field is not a markdown change.
+fileEdit.change({ title: 'Oat milk' });
+// @ts-expect-error A change names fields of this edit's schema.
+fileEdit.change({ fields: { titel: 'Oat milk' } });
 // @ts-expect-error A field takes its schema's type.
-rowEdit.change({ fields: { done: 'yes' } });
-// @ts-expect-error Svelte reads the tracked property, without a duplicate method.
-rowEdit.getRow();
-// @ts-expect-error Reactive properties are readonly; changes go through commands.
-rowEdit.row = undefined;
-// @ts-expect-error A binding is made from a table, not a core rowEdit.
-createRowEdit(folder.tables.notes.edit('milk'), () => undefined);
-
-const textEdit = createTextEdit(folder.files, 'notes/a.md');
-expectTypeOf(textEdit.text).toEqualTypeOf<string | undefined>();
-expectTypeOf(textEdit.readStatus).toEqualTypeOf<ReadStatus>();
-textEdit.change('whole text');
-textEdit.changeFields({ title: 'x' });
-// @ts-expect-error Svelte reads the tracked text property.
-textEdit.getText();
-// @ts-expect-error Reactive text is readonly.
-textEdit.text = 'replacement';
-// @ts-expect-error The whole text is a string.
-textEdit.change(new Uint8Array());
+fileEdit.change({ fields: { done: 'yes' } });
+// @ts-expect-error Source replacement takes text.
+fileEdit.replaceText(new Uint8Array());
+const generic = createFileEdit(folder.files.edit('arbitrary.md'));
+generic.change({ fields: { anyName: 'value' } });
+generic.replaceText('source');
+// @ts-expect-error Svelte exposes a tracked property, not a second read method.
+fileEdit.getMarkdown();
+// @ts-expect-error Tracked reads are readonly.
+fileEdit.markdown = undefined;

@@ -36,6 +36,8 @@ export type EngineFiles = Omit<FolderFileOperations, 'write'> & {
 		path: string,
 		from: FileContent | null,
 		content: FileContent,
+		/** Refuse malformed current frontmatter inside each guarded write attempt. */
+		fields?: boolean,
 	): Promise<Result<Stored, SaveError>>;
 };
 
@@ -138,7 +140,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	 * no-op retry included, clears the last storage failure.
 	 */
 	function publishStatus() {
-		const { unsaved, failures, working } = edits.aggregate;
+		const { unsaved, failures, working } = edits.getAggregate();
 		const next: FolderStatus = {
 			saving: saves > 0 || working,
 			storageFailure,
@@ -320,8 +322,27 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	);
 	const edits = createEditOwner({
 		files,
-		tables: tableOperations,
-		schemas: tables,
+		async writeDocument(path, prepare) {
+			const saved = await save(
+				path,
+				async () => {
+					const submission = await prepare();
+					if (submission.error !== null) return submission;
+					const { from, text, fields } = submission.data;
+					const written = await engine.files.write(path, from, text, fields);
+					return written.error !== null
+						? written
+						: Ok({
+								...written.data,
+								prepared: { base: from, sent: text },
+							});
+				},
+				written,
+			);
+			return saved.error !== null
+				? { error: saved.error }
+				: { error: null, prepared: saved.data.prepared };
+		},
 		saveAfterMs,
 		onAggregate: publishStatus,
 	});
@@ -345,7 +366,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	/**
 	 * Reads keep the edit owner's documents current: a row list or get
 	 * answers the documents of its rows, and a file read the document of a
-	 * path the owner holds. Each carries the tick it started at, so a read
+	 * path seeds text source. Each carries the tick it started at, so a read
 	 * that a save or a reported change overtook changes nothing there.
 	 */
 	const readFiles: FolderFileOperations = {
@@ -354,7 +375,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			const tick = edits.startRead();
 			try {
 				const result = await files.read(path);
-				if (result.error === null && edits.holds(path))
+				if (result.error === null)
 					try {
 						edits.readFile(
 							path,
@@ -401,14 +422,15 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	const folder: Folder<Record<string, Schema>> = {
 		files: {
 			...opened(readFiles),
-			edit: (path) => edits.text(path),
+			edit: (path, schema) => edits.edit(path, schema),
 		},
 		tables: Object.fromEntries(
 			Object.entries(tableOperations).map(([name, table]) => [
 				name,
 				{
 					...opened(readRows(name, table)),
-					edit: (id: string) => edits.row(name, id),
+					edit: (id: string) =>
+						edits.edit(`${name}/${id}.md`, tables[name], true),
 				},
 			]),
 		),

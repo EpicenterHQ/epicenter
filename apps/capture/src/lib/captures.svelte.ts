@@ -4,9 +4,10 @@
  * of the folder's context (`getFolder()`).
  *
  * The timeline reads the one rows query of the captures table. The capture
- * view uses `createRowEdit(folder.tables.captures, stem)`; Edit as text uses
- * `createTextEdit(folder.files, path)`. Both show the Folder's one path edit.
- * The folder holds each capture as stored and what is typed over
+ * view and Edit as text share one file edit
+ * (`createFileEdit(folder.tables.captures.edit(stem))`), read as a structured
+ * document or exact text. The
+ * folder holds each capture as stored and what is typed over
  * it, one kind of input per path, and saves it a second after the last
  * change or when the person leaves it, one save at a time from where it
  * started, merged with whatever was saved since. Changes made outside this
@@ -35,7 +36,7 @@ import {
 import { type ReadError, SaveError } from '@epicenter/folder';
 import { documentChange, readDocument } from '@epicenter/folder/documents';
 import { ActionError, CLOSING, UNSAVED } from '@epicenter/folder/edits';
-import { createRowEdit } from '@epicenter/svelte/edits';
+import { createFileEdit } from '@epicenter/svelte/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -233,7 +234,7 @@ export function createCaptures(context: CaptureFolder) {
 
 	/** Whether `stem` takes no edit now: closing, or it is being deleted; read reactively, reading no file. */
 	const isLocked = (stem: string) =>
-		context.closing || createRowEdit(folder.tables.captures, stem).locked;
+		context.closing || createFileEdit(folder.tables.captures.edit(stem)).locked;
 
 	const rowsData = () => queryClient.getQueryData<CaptureRow[]>(rowsKey);
 	const rowOf = (stem: string) => rowsData()?.find((row) => row.id === stem);
@@ -244,7 +245,7 @@ export function createCaptures(context: CaptureFolder) {
 	 */
 	function open(stem: string, mode: Mode, focus?: Focus) {
 		if (mode === 'capture') {
-			const row = folder.tables.captures.edit(stem).getRow() ?? rowOf(stem);
+			const row = folder.tables.captures.edit(stem).getMarkdown() ?? rowOf(stem);
 			if (
 				row !== undefined &&
 				(row.issues !== null || row.fields.draft === true || readCaptureBody(row).error !== null)
@@ -384,7 +385,7 @@ export function createCaptures(context: CaptureFolder) {
 		},
 		/** What deleting the capture at `stem` would remove, for the person to confirm. */
 		deletionFor(stem: string): Deletion {
-			const row = folder.tables.captures.edit(stem).getRow() ?? rowOf(stem);
+			const row = folder.tables.captures.edit(stem).getMarkdown() ?? rowOf(stem);
 			const reading =
 				row?.issues === null ? readCaptureBody(row).data : undefined;
 			return {

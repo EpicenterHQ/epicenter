@@ -22,6 +22,7 @@
 		class?: string;
 	} = $props();
 
+	const fileEdit = $derived(library.edit(path));
 	const saving = $derived(library.isSaving(path));
 	const unsaved = $derived(library.isUnsaved(path));
 
@@ -38,7 +39,7 @@
 <p class={['text-xs text-muted-foreground', className]} role="status" data-testid="write-status">
 	{saving ? 'Saving…' : unsaved ? 'Not saved' : saved}
 	{#if unsaved && !saving}
-		<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void library.retry(path)}>Try again</Button>
+		<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
 		<Button variant="link" size="xs" class="h-auto p-0" onclick={discard}>Discard</Button>
 	{/if}
 </p>

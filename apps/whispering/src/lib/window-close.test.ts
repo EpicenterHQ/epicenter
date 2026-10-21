@@ -91,20 +91,20 @@ test('text held by the Folder prompts; Cancel retains it', async () => {
 	expect(nativeDialog.count).toBe(1);
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(text.view.pending).toMatchObject({ kind: 'text', text: typed });
-	await window.library.textEdit(path).save();
+	await window.library.edit(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);
 });
 
-test('a failed save keeps the window until explicit retry saves the text', async () => {
+test('a failed save keeps the window until another save attempt saves the text', async () => {
 	const window = await openWindow();
 	const { path, text } = await recordAsText(window);
 	const before = text.draft;
 	const typed = `${before}Typed but not saved.\n`;
 	window.control.refuse = true;
 	window.library.editText(text.view, typed);
-	await window.library.textEdit(path).save();
+	await window.library.edit(path).save();
 
 	await requestClose();
 
@@ -115,26 +115,26 @@ test('a failed save keeps the window until explicit retry saves the text', async
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(before);
 
 	window.control.refuse = false;
-	await window.library.retry(path);
+	await window.library.local.folder.files.edit(path).save();
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);
 });
 
-test('a thrown file write leaves a failed draft that can save on retry', async () => {
+test('a thrown file write leaves a failed draft that can save again', async () => {
 	const window = await openWindow();
 	const { path, text } = await recordAsText(window);
 	const typed = `${text.draft}Retained after throw.\n`;
 	window.control.throwWrite = true;
 	window.library.editText(text.view, typed);
-	await window.library.textEdit(path).save();
+	await window.library.edit(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(text.view.pending).toMatchObject({ kind: 'text', text: typed });
 	expect(window.library.unsaved).toBe(true);
 	window.control.throwWrite = false;
-	await window.library.retry(path);
+	await window.library.local.folder.files.edit(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);

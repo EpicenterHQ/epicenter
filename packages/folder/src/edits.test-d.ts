@@ -8,9 +8,10 @@ import { Type } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import type {
 	ChangeResult,
+	MarkdownContent,
 	Pending,
 	ReadStatus,
-	RowEditChange,
+	DocumentChange,
 } from './edits.js';
 import type { Folder, ReadError, Row } from './folder.js';
 
@@ -20,7 +21,9 @@ declare const row: Row<typeof notes>;
 
 const edit = folder.tables.notes.edit('a');
 expectTypeOf(edit.path).toEqualTypeOf<string>();
-expectTypeOf(edit.getRow()).toEqualTypeOf<Row<typeof notes> | undefined>();
+expectTypeOf(edit.getMarkdown()).toEqualTypeOf<
+	MarkdownContent<typeof notes> | undefined
+>();
 expectTypeOf(edit.getPending()).toEqualTypeOf<
 	Pending<typeof notes> | undefined
 >();
@@ -31,9 +34,7 @@ expectTypeOf<ReadStatus>().toEqualTypeOf<{
 	readonly reading: boolean;
 	readonly error: ReadError | undefined;
 }>();
-expectTypeOf(edit.read()).toEqualTypeOf<
-	Promise<Result<Row<typeof notes> | undefined, ReadError>>
->();
+expectTypeOf(edit.read()).toEqualTypeOf<Promise<Result<void, ReadError>>>();
 expectTypeOf(
 	edit.change({ fields: { title: 'x' } }),
 ).toEqualTypeOf<ChangeResult>();
@@ -55,7 +56,7 @@ edit.changeBody('x');
 edit.shown(row);
 // @ts-expect-error Held input is read through `getPending()`.
 edit.pending;
-expectTypeOf<RowEditChange<typeof notes>>().toEqualTypeOf<{
+expectTypeOf<DocumentChange<typeof notes>>().toEqualTypeOf<{
 	readonly fields?: Readonly<Partial<{ title: string; body: string }>>;
 	readonly body?: string;
 }>();
@@ -63,13 +64,11 @@ expectTypeOf<RowEditChange<typeof notes>>().toEqualTypeOf<{
 const text = folder.files.edit('a.md');
 expectTypeOf(text.getText()).toEqualTypeOf<string | undefined>();
 expectTypeOf(text.getPending()).toEqualTypeOf<Pending | undefined>();
-expectTypeOf(text.read()).toEqualTypeOf<
-	Promise<Result<string | undefined, ReadError>>
->();
-text.change('x');
+expectTypeOf(text.read()).toEqualTypeOf<Promise<Result<void, ReadError>>>();
+text.replaceText('x');
 // @ts-expect-error A source is no longer named.
 text.change(new Uint8Array(), 'x');
-text.changeFields({ anything: null });
+text.change({ fields: { anything: null } });
 
 expectTypeOf(folder.close()).toEqualTypeOf<
 	Promise<import('./edits.js').Pending[]>

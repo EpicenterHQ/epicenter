@@ -1,5 +1,5 @@
 /**
- * Capture-specific commands over the Folder's row edit. Each command encodes
+ * Capture-specific commands over the Folder's file edit. Each command encodes
  * over its current body; positional commands refuse a changed thought list.
  * The only local state is the reason a command was refused.
  */
@@ -8,7 +8,7 @@ import {
 	captureBody,
 	type captureTables,
 } from '@epicenter/capture';
-import type { RowEdit } from '@epicenter/svelte/edits';
+import type { FileEdit } from '@epicenter/svelte/edits';
 
 /** A range of a file's text as a text box shows it, with LF lines. */
 export type TextRange = { readonly start: number; readonly end: number };
@@ -20,14 +20,14 @@ const CHANGED =
 const sameList = (a: readonly string[], b: readonly string[]) =>
 	a.length === b.length && a.every((item, index) => item === b[index]);
 
-/** Commands that change the capture through `rowEdit`. */
-export function createCaptureActions(rowEdit: RowEdit<(typeof captureTables)['captures']>) {
+/** Commands that change the capture through `fileEdit`. */
+export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['captures']>) {
 	/** Why the last change was not taken; the next change clears it. */
 	let refusal = $state<string | undefined>();
 
 	/** The body this command composes over: the capture as it reads now. */
 	const shown = () => {
-		const row = rowEdit.row;
+		const row = fileEdit.markdown;
 		if (row?.issues !== null || row.fields.draft === true) return undefined;
 		const { data, error } = captureBody.decode(row.body);
 		return error === null ? { body: row.body, ...data } : undefined;
@@ -50,12 +50,12 @@ export function createCaptureActions(rowEdit: RowEdit<(typeof captureTables)['ca
 		}
 		refusal = undefined;
 		if (body === over.body) return true;
-		const changed = rowEdit.change({ body });
+		const changed = fileEdit.change({ body });
 		if (changed.error !== null) {
 			refusal = changed.error.message;
 			return false;
 		}
-		if (!later) void rowEdit.save();
+		if (!later) void fileEdit.save();
 		return true;
 	}
 
@@ -75,7 +75,7 @@ export function createCaptureActions(rowEdit: RowEdit<(typeof captureTables)['ca
 		 */
 		inputText(value: string) {
 			const now = shown();
-			if (rowEdit.locked || now === undefined) return;
+			if (fileEdit.locked || now === undefined) return;
 			write(now, { text: value, thoughts: now.thoughts }, { later: true });
 		},
 		/**
@@ -83,7 +83,7 @@ export function createCaptureActions(rowEdit: RowEdit<(typeof captureTables)['ca
 		 * taken; the view clears its input only then.
 		 */
 		addThought(text: string): boolean {
-			if (rowEdit.locked) return false;
+			if (fileEdit.locked) return false;
 			if (text.trim() === '') {
 				refusal = 'Write something first.';
 				return false;
@@ -98,7 +98,7 @@ export function createCaptureActions(rowEdit: RowEdit<(typeof captureTables)['ca
 		 */
 		locateThought(index: number, list: readonly string[]): TextRange | undefined {
 			const now = current(list);
-			const row = rowEdit.row;
+			const row = fileEdit.markdown;
 			const span =
 				now === undefined
 					? undefined
@@ -116,7 +116,7 @@ export function createCaptureActions(rowEdit: RowEdit<(typeof captureTables)['ca
 		},
 		/** Delete the thought at `index` of the list `list` a view showed. */
 		deleteThought(index: number, list: readonly string[]): boolean {
-			if (rowEdit.locked) return false;
+			if (fileEdit.locked) return false;
 			const now = current(list);
 			if (now === undefined || list[index] === undefined) {
 				refusal = CHANGED;
@@ -129,7 +129,7 @@ export function createCaptureActions(rowEdit: RowEdit<(typeof captureTables)['ca
 		},
 		/** Swap two neighbouring thoughts of the list `list` a view showed. */
 		swapThoughts(from: number, to: number, list: readonly string[]): boolean {
-			if (rowEdit.locked) return false;
+			if (fileEdit.locked) return false;
 			const now = current(list);
 			const next = [...list];
 			const first = next[from];

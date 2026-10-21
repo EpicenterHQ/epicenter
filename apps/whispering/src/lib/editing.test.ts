@@ -248,7 +248,7 @@ test('a read never touches notes typed, and their save merges with the change it
 	expect(editor.draft.fields.title).toBe('Theirs');
 
 	// Try again saves the notes over the version they started from.
-	await library.retry(editor.path);
+	await library.local.folder.files.edit(editor.path).save();
 	await settle(library);
 	const written = await text(root, editor.path);
 	expect(written).toContain('title: Theirs');
@@ -340,7 +340,7 @@ test('discarded field input preserves removals, literal values and the body for 
 	const editor = await record(library);
 	const before = await text(root, editor.path);
 	// The listing read answered the edit's document.
-	const edit = library.rowEdit('recordings', editor.path);
+	const edit = library.edit('recordings', editor.path);
 	failWrites(editor.path);
 	expectOk(
 		edit.change({
@@ -449,8 +449,8 @@ test('Source shows unsaved row input while its save is still running', async () 
 	});
 	await held;
 	expect(await library.editSource(path)).toBeUndefined();
-	expect(library.textEdit(path).text).toEndWith('---\nTyped in the fields.\n');
-	expect(library.textEdit(path).pending?.saving).toBe(true);
+	expect(library.edit(path).text).toEndWith('---\nTyped in the fields.\n');
+	expect(library.edit(path).pending?.saving).toBe(true);
 	release();
 	expect(library.showsText(path)).toBe(true);
 	const source = await openText(library, path);
@@ -476,8 +476,8 @@ test('switching between fields and Source preserves failed input and recovery in
 	expect(library.isUnsaved(path)).toBe(true);
 	expect(await library.editSource(path)).toBeUndefined();
 	expect(library.showsText(path)).toBe(true);
-	expect(library.textEdit(path).text).toEndWith('Older body.\n');
-	expect(library.textEdit(path).pending?.error).toBeDefined();
+	expect(library.edit(path).text).toEndWith('Older body.\n');
+	expect(library.edit(path).pending?.error).toBeDefined();
 	expect(library.discard(path)).toBe('Older body.\n');
 	expect(library.isUnsaved(path)).toBe(false);
 
@@ -497,7 +497,7 @@ test('switching between fields and Source preserves failed input and recovery in
 
 	// Once it can save, the source lands, and no older edit overwrites it.
 	failWrites();
-	await library.retry(path);
+	await library.local.folder.files.edit(path).save();
 	await settle(library);
 	expect(await text(root, path)).toEndWith('---\nNewer source.\n');
 	expect(await library.useForm(path)).toBeUndefined();
@@ -516,7 +516,7 @@ test('a text save that fails is told with the text, Save again, and Discard', as
 	await settle(library);
 
 	expect(notices).toMatchObject([{ path: 'notes.md', unsaved: 'second\n' }]);
-	expect(notices[0]?.retry?.()).toBe(true);
+	expect(notices[0]?.save?.()).toBe(true);
 	await settle(library);
 	expect(await text(root, 'notes.md')).toBe('second\n');
 	expect(library.unsaved).toBe(false);

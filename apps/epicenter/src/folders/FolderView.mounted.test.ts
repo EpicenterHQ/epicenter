@@ -17,13 +17,16 @@
  *   save and answers what did not save
  * - A failed Board move stays visible in Grid and Files, retries from Files,
  *   preserves an outside edit, and survives reopening the folder
+ * - Mixed line endings and binary bytes stay untouched; textarea saves keep
+ *   BOM and CRLF, and a stale read cannot hide a newer repair
+ * - Deleted files leave selectable, read-only text without recreating a draft
  *
  * Run with `--conditions=browser --conditions=svelte`, which mounting needs:
  * `bun test --conditions=browser --conditions=svelte FolderView.mounted`.
  * Under Bun's default conditions this file is skipped.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { type Folder, ReadError } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { ViewUpdater } from './views.svelte';
@@ -100,7 +103,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 	 * A directory holding `files`, opened as a native folder whose every put
 	 * waits for the test to answer it, and whose listing can be made to fail.
 	 */
-	async function standIn(files: Record<string, string>) {
+	async function standIn(files: Record<string, string | Uint8Array>) {
 		const parent = await realpath(
 			await mkdtemp(join(tmpdir(), 'folder-editor-')),
 		);
@@ -108,7 +111,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 		const root = join(parent, 'folder');
 		await mkdir(root);
 		/** Write `text` at `path` as another program would. */
-		async function put(path: string, text: string) {
+		async function put(path: string, text: string | Uint8Array) {
 			await mkdir(dirname(join(root, path)), { recursive: true });
 			await writeFile(join(root, path), text);
 		}
@@ -124,6 +127,17 @@ describe.skipIf(!browser)('folder editor', async () => {
 		const folder = createNativeFolder({
 			storage: {
 				...storage,
+				read(path) {
+					return reading.has(path)
+						? Promise.resolve(
+								FileError.Io({
+									path,
+									operation: 'read',
+									cause: new Error('Source temporarily unreadable'),
+								}),
+							)
+						: storage.read(path);
+				},
 				async list() {
 					if (listing.failure !== undefined)
 						return FileError.Io({
@@ -153,17 +167,10 @@ describe.skipIf(!browser)('folder editor', async () => {
 			tables: {},
 			directory: `bun:${root}`,
 		}) as Folder<Record<never, never>>;
-		// Fail only display reads. Persistence still reads the real directory.
-		const read = folder.files.read;
-		folder.files.read = async (path) =>
-			reading.has(path)
-				? ReadError.StorageFailed({
-						cause: new Error('Source temporarily unreadable'),
-					})
-				: read(path);
 		return {
 			root,
 			folder,
+			storage,
 			held,
 			listing,
 			reading,
@@ -235,8 +242,13 @@ describe.skipIf(!browser)('folder editor', async () => {
 			type(original, 'alpha\nmine\n');
 			blur(original);
 			await until(() => disk.held.length === 1, 'the save');
-			disk.reading.add('a.md');
 			disk.held.shift()!.answer(Ok(undefined));
+			await until(
+				() => page.context.getStatus().unsaved.length === 0,
+				'the saved text',
+			);
+			disk.reading.add('a.md');
+			await page.context.refresh(['a.md']);
 			await until(
 				() =>
 					page.target.textContent?.includes('Source temporarily unreadable') ===
@@ -245,6 +257,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			);
 			expect(page.box()).toBe(original);
 			expect(original.value).toBe('alpha\nmine\n');
+			disk.reading.delete('a.md');
 			type(original, 'alpha\nmine\nlater\n');
 			blur(original);
 			await until(() => disk.held.length === 1, 'continued typing');
@@ -288,12 +301,178 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(page.box()).not.toBeNull();
 			expect(page.box()!.readOnly).toBe(true);
 			expect(page.box()!.value).toBe('alpha\nmine\n');
+			expect(page.box()!.disabled).toBe(false);
+			page.box()!.select();
+			expect(
+				page
+					.box()!
+					.value.slice(page.box()!.selectionStart, page.box()!.selectionEnd),
+			).toBe('alpha\nmine\n');
+			blur(page.box());
+			expect(disk.folder.files.edit('a.md').getPending()).toBeUndefined();
+			expect(disk.held).toHaveLength(0);
 			expect(page.target.textContent).not.toContain(
 				'Saving puts your text back',
 			);
 		} finally {
 			await page.close();
 			await page.context.close();
+		}
+	});
+
+	test.each(['alpha\r\nbeta\n', 'alpha\rbeta', 'alpha\r\nbeta\r'])(
+		'mixed line endings stay exact and copyable without a text box: %j',
+		async (source) => {
+			const disk = await standIn({ 'a.md': source });
+			const page = openEditor(disk.folder);
+			try {
+				await until(() => page.file('a.md') !== null, 'the file');
+				press(page.file('a.md'));
+				await until(
+					() => page.target.querySelector('pre')?.textContent === source,
+					'the exact mixed text',
+				);
+				expect(page.box()).toBeNull();
+				expect(page.target.textContent).toContain('mixes line endings');
+				expect(await disk.text('a.md')).toBe(source);
+				expect(disk.held).toHaveLength(0);
+			} finally {
+				await closeRefusing(page, disk);
+			}
+		},
+	);
+
+	test.each([new Uint8Array([0xff, 0xfe]), new TextEncoder().encode('a\0b')])(
+		'nontext bytes stay untouched without opening a text box: %j',
+		async (source) => {
+			const disk = await standIn({ 'a.bin': source });
+			const page = openEditor(disk.folder);
+			try {
+				await until(() => page.file('a.bin') !== null, 'the file');
+				press(page.file('a.bin'));
+				await until(
+					() =>
+						page.target.textContent?.includes('This file is not text') === true,
+					'the binary notice',
+				);
+				expect(page.box()).toBeNull();
+				expect(page.target.textContent).not.toContain('bytes)');
+				expect(
+					new Uint8Array(await readFile(join(disk.root, 'a.bin'))),
+				).toEqual(source);
+				expect(disk.held).toHaveLength(0);
+			} finally {
+				await closeRefusing(page, disk);
+			}
+		},
+	);
+
+	test('an older mixed-source read cannot hide a newer repaired document', async () => {
+		const source = 'alpha\r\nbeta\n';
+		const disk = await standIn({ 'a.md': source });
+		const page = openEditor(disk.folder);
+		const captured = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const read = disk.storage.read;
+		try {
+			await until(() => page.file('a.md') !== null, 'the file');
+			press(page.file('a.md'));
+			await until(
+				() => page.target.querySelector('pre')?.textContent === source,
+				'the mixed text',
+			);
+			let hold = true;
+			disk.storage.read = async (path) => {
+				const result = await read(path);
+				if (path === 'a.md' && hold) {
+					hold = false;
+					captured.resolve();
+					await release.promise;
+				}
+				return result;
+			};
+			const refreshing = page.context.refresh(['a.md']);
+			await captured.promise;
+			const saving = disk.folder.files.write('a.md', source, 'repaired\n');
+			await until(() => disk.held.length === 1, 'the repair');
+			disk.held.shift()!.answer(Ok(undefined));
+			expectOk(await saving);
+			await until(
+				() => page.box()?.value === 'repaired\n',
+				'the repair before the older read answers',
+			);
+			release.resolve();
+			await refreshing;
+			await until(
+				() => page.box()?.value === 'repaired\n',
+				'the repaired text',
+			);
+			expect(page.box()!.readOnly).toBe(false);
+			expect(page.target.textContent).not.toContain('mixes line endings');
+		} finally {
+			release.resolve();
+			disk.storage.read = read;
+			await closeRefusing(page, disk);
+		}
+	});
+
+	test('mixed-line-ending safety follows the displayed field patch without losing it', async () => {
+		const disk = await standIn({
+			'a.md': '---\r\ntitle: A\r\n---\r\nbody\r\n',
+		});
+		const page = openEditor(disk.folder);
+		try {
+			await until(() => page.file('a.md') !== null, 'the file');
+			press(page.file('a.md'));
+			await until(() => page.box() !== null, 'the source');
+			const textEdit = disk.folder.files.edit('a.md');
+			expectOk(textEdit.change({ fields: { title: 'Typed' } }));
+			await disk.put('a.md', '---\r\ntitle: A\n---\r\nbody\r\n');
+			await page.context.refresh(['a.md']);
+			await until(
+				() => page.box()?.value === '---\ntitle: Typed\n---\nbody\n',
+				'the safe effective text',
+			);
+			expect(page.box()!.readOnly).toBe(false);
+
+			await disk.put('a.md', '---\r\ntitle: A\r\n---\r\nbody\nnext\r\n');
+			await page.context.refresh(['a.md']);
+			await until(
+				() =>
+					page.target.querySelector('pre')?.textContent === textEdit.getText(),
+				'the exact unsafe effective text',
+			);
+			expect(page.box()).toBeNull();
+			expect(textEdit.getPending()).toMatchObject({
+				kind: 'document',
+				fields: { title: 'Typed' },
+			});
+		} finally {
+			await closeRefusing(page, disk);
+		}
+	});
+
+	test('saving textarea input preserves the file BOM and CRLF line endings', async () => {
+		const disk = await standIn({ 'a.md': '\uFEFFalpha\r\n' });
+		const page = openEditor(disk.folder);
+		try {
+			await until(() => page.file('a.md') !== null, 'the file');
+			press(page.file('a.md'));
+			await until(
+				() => page.box()?.value === '\uFEFFalpha\n',
+				'the CRLF source',
+			);
+			type(page.box(), '\uFEFFalpha\nmine\n');
+			blur(page.box());
+			await until(() => disk.held.length === 1, 'the save');
+			disk.held.shift()!.answer(Ok(undefined));
+			await until(
+				() => page.context.getStatus().unsaved.length === 0,
+				'the saved input',
+			);
+			expect(await disk.text('a.md')).toBe('\uFEFFalpha\r\nmine\r\n');
+		} finally {
+			await closeRefusing(page, disk);
 		}
 	});
 
@@ -375,7 +554,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(target.textContent).not.toContain('Your edit was not saved');
 			expect(await disk.text('a.md')).toBe('alpha\nmine\n');
 			await until(
-				() => !page.context.getStatus().saving && page.context.getStatus().unsaved.length === 0,
+				() =>
+					!page.context.getStatus().saving &&
+					page.context.getStatus().unsaved.length === 0,
 				'saved',
 			);
 			await until(
@@ -397,7 +578,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			press(file('a.md'));
 			await until(() => box()?.value === 'alpha\n', 'a.md read');
 			type(box(), 'alpha\nhidden\n');
-			expect(context.getStatus().saving || context.getStatus().unsaved.length > 0).toBe(true);
+			expect(
+				context.getStatus().saving || context.getStatus().unsaved.length > 0,
+			).toBe(true);
 
 			// Hidden: what is typed is sent at once, and settling waits for it.
 			let settled: boolean | undefined;
@@ -409,7 +592,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			held.shift()!.answer(Ok(undefined));
 			await settling;
 			expect(settled).toBe(true);
-			expect(context.getStatus().saving || context.getStatus().unsaved.length > 0).toBe(false);
+			expect(
+				context.getStatus().saving || context.getStatus().unsaved.length > 0,
+			).toBe(false);
 
 			// Shown again, typing goes on in the same box and saves.
 			expect(box()?.readOnly).toBe(false);
@@ -421,9 +606,14 @@ describe.skipIf(!browser)('folder editor', async () => {
 			// That save fails: the text stays pending until retried or discarded.
 			held.shift()!.answer(Err(new Error('disk full')));
 			await until(() => context.getStatus().failures.length > 0, 'the failure');
-			expect(context.getStatus().saving || context.getStatus().unsaved.length > 0).toBe(true);
-			// Settling retains failure; Try again explicitly sends it once.
-			expect(await context.folder.settle()).not.toEqual([]);
+			expect(
+				context.getStatus().saving || context.getStatus().unsaved.length > 0,
+			).toBe(true);
+			// Settling attempts failed input again and reports the new failure.
+			const attempted = context.folder.settle();
+			await until(() => held.length === 1, 'the save on settle');
+			held.shift()!.answer(Err(new Error('disk full')));
+			expect(await attempted).not.toEqual([]);
 			expect(held).toHaveLength(0);
 			click(page.target, 'Try again');
 			const retried = context.folder.settle();
@@ -489,7 +679,10 @@ describe.skipIf(!browser)('folder editor', async () => {
 				press(page.file('b.md'));
 				await until(() => disk.held.length === 1, 'the save');
 				disk.held.shift()!.answer(Err(new Error('disk full')));
-				await until(() => page.context.getStatus().failures.length > 0, 'the failure');
+				await until(
+					() => page.context.getStatus().failures.length > 0,
+					'the failure',
+				);
 				if (failure === 'deleted') {
 					await disk.remove('a.md');
 					await page.context.refresh(['a.md']);
@@ -511,7 +704,12 @@ describe.skipIf(!browser)('folder editor', async () => {
 					(button) => button.textContent?.trim() === 'Discard edit',
 				);
 				press(discard ?? null);
-				await until(() => !page.context.getStatus().saving && page.context.getStatus().unsaved.length === 0, 'discard completion');
+				await until(
+					() =>
+						!page.context.getStatus().saving &&
+						page.context.getStatus().unsaved.length === 0,
+					'discard completion',
+				);
 			} finally {
 				await closeRefusing(page, disk);
 			}
@@ -562,7 +760,22 @@ describe.skipIf(!browser)('folder editor', async () => {
 				() => page.box()?.value.includes('title: mine') === true,
 				'the shared input',
 			);
-			expect(page.box()?.readOnly).toBe(true);
+			expect(page.box()?.readOnly).toBe(false);
+			type(
+				page.box(),
+				page.box()!.value.replace('body', 'source after failure'),
+			);
+			await until(
+				() =>
+					disk.folder.files.edit('todos/a.md').getPending()?.kind === 'text',
+				'source takeover',
+			);
+			expect(disk.folder.files.edit('todos/a.md').getText()).toContain(
+				'title: mine',
+			);
+			expect(disk.folder.files.edit('todos/a.md').getText()).toContain(
+				'source after failure',
+			);
 			press(button('SQL'));
 			await until(
 				() =>
@@ -585,9 +798,16 @@ describe.skipIf(!browser)('folder editor', async () => {
 				).value,
 			).toBe('SELECT body FROM documents');
 			press(button('Files'));
+			await until(() => disk.held.length === 1, 'the save when leaving Files');
+			disk.held.shift()!.answer(Err(new Error('disk full')));
 			await until(() => button('Discard edit') !== null, 'the shared failure');
 			press(button('Discard edit'));
-			await until(() => !page.context.getStatus().saving && page.context.getStatus().unsaved.length === 0, 'discard');
+			await until(
+				() =>
+					!page.context.getStatus().saving &&
+					page.context.getStatus().unsaved.length === 0,
+				'discard',
+			);
 			expect(await disk.text('todos/a.md')).toBe('body\n');
 		} finally {
 			await closeRefusing(page, disk);
@@ -742,7 +962,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 					page.box()?.value.includes('Outside body') === true,
 				'shared destination',
 			);
-			expect(page.box()?.readOnly).toBe(true);
+			expect(page.box()?.readOnly).toBe(false);
 			press(button('Try again'));
 			await until(
 				() => disk.held.length === 1,
@@ -934,6 +1154,30 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(page.target.textContent).toContain(
 				'Folder temporarily unreadable',
 			);
+		} finally {
+			await closeRefusing(page, disk);
+		}
+	});
+	test('body-only input that forms malformed Markdown remains editable as source', async () => {
+		const disk = await standIn({ 'a.md': 'body\n' });
+		const page = openEditor(disk.folder);
+		try {
+			await until(() => page.file('a.md') !== null, 'the file');
+			press(page.file('a.md'));
+			await until(() => page.box() !== null, 'the source');
+			const fileEdit = disk.folder.files.edit('a.md');
+			expectOk(fileEdit.change({ body: '---\ntitle: [broken\n---\nbody\n' }));
+			await until(
+				() => page.box()?.value.includes('[broken') === true,
+				'the body input',
+			);
+			expect(page.box()?.readOnly).toBe(false);
+			type(page.box(), '---\ntitle: Repaired\n---\nbody\n');
+			await until(
+				() => fileEdit.getPending()?.kind === 'text',
+				'the source repair',
+			);
+			expect(fileEdit.getMarkdown()?.fields).toEqual({ title: 'Repaired' });
 		} finally {
 			await closeRefusing(page, disk);
 		}

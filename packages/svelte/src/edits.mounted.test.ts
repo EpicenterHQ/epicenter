@@ -38,7 +38,12 @@ test('mounted row and text views follow each other and can revert held input', a
 		}),
 	);
 	expectOk(await folder.files.write('b.md', null, initial));
-	expectOk(await folder.tables.notes.set('c', null, { fields: { title: 'C' }, body: 'Other address\n' }));
+	expectOk(
+		await folder.tables.notes.set('c', null, {
+			fields: { title: 'C' },
+			body: 'Other address\n',
+		}),
+	);
 	const edit = folder.tables.notes.edit('a');
 	const textEdit = folder.files.edit('b.md');
 	const target = document.createElement('div');
@@ -80,7 +85,7 @@ test('mounted row and text views follow each other and can revert held input', a
 	expect(field('Whole row text').value).toContain('one\ntwo\nTHREE\n');
 	expect(
 		target.querySelector('[aria-label="Shared pending"]')?.textContent,
-	).toBe('row');
+	).toBe('document');
 	type(
 		field('Whole row text'),
 		field('Whole row text').value.replace('THREE', 'Three from text'),
@@ -108,16 +113,24 @@ test('mounted row and text views follow each other and can revert held input', a
 	const switchAddress = target.querySelector('button')!;
 	switchAddress.click();
 	flushSync();
-	for (let turn = 0; turn < 100 && field('Row 0')?.value !== 'Other address\n'; turn++) {
+	for (
+		let turn = 0;
+		turn < 100 && field('Row 0')?.value !== 'Other address\n';
+		turn++
+	) {
 		await Bun.sleep(5);
 		flushSync();
 	}
 	expect(field('Row 0').value).toBe('Other address\n');
 	expect(field('Whole row text').value).toContain('title: C');
-	expect(target.querySelector('[aria-label="Shared pending"]')?.textContent).toBe('saved');
+	expect(
+		target.querySelector('[aria-label="Shared pending"]')?.textContent,
+	).toBe('saved');
 	switchAddress.click();
 	flushSync();
 	expect(field('Row 1').value).toBe('Unsent A\n');
 	expect(field('Whole row text').value).toContain('Unsent A\n');
-	expect(expectOk(await folder.tables.notes.get('a'))?.body).toBe('one\ntwo\nTHREE\n');
+	expect(expectOk(await folder.tables.notes.get('a'))?.body).toBe(
+		'one\ntwo\nTHREE\n',
+	);
 });

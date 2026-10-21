@@ -8,6 +8,7 @@
  */
 export {
 	ActionError,
+	type AnyFieldsSchema,
 	BUSY,
 	ChangeError,
 	type ChangeResult,
@@ -15,15 +16,15 @@ export {
 	DELETING,
 	type DeleteResult,
 	type ExclusiveFile,
-	type FieldsPending,
 	mergeText,
+	mergeFileText,
 	type Pending,
 	type ReadStatus,
-	type RowEdit,
-	type RowEditChange,
-	type RowPending,
+	type FileEdit,
+	type MarkdownContent,
+	type DocumentChange,
+	type DocumentPending,
 	SAVE_AFTER_MS,
-	type TextEdit,
 	type TextPending,
 	UNSAVED,
 } from './edit-owner.js';

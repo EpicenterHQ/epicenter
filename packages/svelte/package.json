@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for Epicenter: folder drafts, query cache, recovery, agent conversations, and status.",
+	"description": "Svelte 5 bindings for Epicenter: folder edits, query cache, recovery, agent conversations, and status.",
 	"keywords": [
 		"svelte",
 		"local-first",

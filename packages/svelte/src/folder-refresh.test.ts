@@ -82,11 +82,11 @@ test('visible polling discovers outside edits and preserves a pending row draft'
 	await until(() => cached().body.includes('Outside edit'));
 	expect(edit.getPending()).toBeDefined();
 	// The poll's read reached the edit too: the outside body under the typing.
-	expect(edit.getRow()?.fields.title).toBe('Typed here');
-	expect(edit.getRow()?.body).toContain('Outside edit');
+	expect(edit.getMarkdown()?.fields.title).toBe('Typed here');
+	expect(edit.getMarkdown()?.body).toContain('Outside edit');
 	await edit.save();
 	expect(edit.getPending()).toBeUndefined();
-	expect(edit.getRow()?.fields.title).toBe('Typed here');
+	expect(edit.getMarkdown()?.fields.title).toBe('Typed here');
 	await until(() => cached().fields.title === 'Typed here');
 	expect(cached().body).toContain('Outside edit');
 });
@@ -203,16 +203,16 @@ test('a save lands without waiting for a slow scan, whose older rows never repla
 	expect(edit.getPending()).toBeUndefined();
 	expect(folder.getStatus().saving).toBe(false);
 	expect(before.fields.title).toBe('Milk');
-	expect(edit.getRow()?.fields.title).toBe('Saved while reading');
+	expect(edit.getMarkdown()?.fields.title).toBe('Saved while reading');
 	// A second polling tick must join the slow scan, not replace it.
 	await Bun.sleep(2_200);
 	expect(maximum).toBe(1);
 	gate.resolve();
 	await Bun.sleep(0);
 	// The scan read before the save: the edit keeps what the save stored.
-	expect(edit.getRow()?.fields.title).toBe('Saved while reading');
+	expect(edit.getMarkdown()?.fields.title).toBe('Saved while reading');
 	await until(() => cached().fields.title === 'Saved while reading');
-	expect(edit.getRow()?.fields.title).toBe('Saved while reading');
+	expect(edit.getMarkdown()?.fields.title).toBe('Saved while reading');
 	expect(maximum).toBe(1);
 	expect(reads()).toBeLessThanOrEqual(3);
 }, 10_000);

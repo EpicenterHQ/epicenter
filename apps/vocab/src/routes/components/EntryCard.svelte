@@ -33,17 +33,16 @@
 	const locked = $derived(entries.isLocked(id));
 	/** The folder's edit of the word, the note and stage typed over it. */
 	// svelte-ignore state_referenced_locally
-	const rowEdit = entries.edit(id);
-	const row = $derived(rowEdit.row);
+	const fileEdit = entries.edit(id);
 	/** The word with what is typed over it, or as the list read it while that is not known. */
-	const shown = $derived(row?.issues === null ? row.fields : entry.row.fields);
-	const pending = $derived(rowEdit.pending);
+	const shown = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown.fields : entry.row.fields);
+	const pending = $derived(fileEdit.pending);
 	// The input outlives the card; send what is typed now.
-	onDestroy(() => void rowEdit.save());
+	onDestroy(() => void fileEdit.save());
 
 	/** Delete once the note typed here is sent, so the delete removes what was saved last. */
 	function remove() {
-		void rowEdit.save();
+		void fileEdit.save();
 		confirmDelete(entries, entry);
 	}
 </script>
@@ -58,16 +57,16 @@
 		aria-label="Your note for {entry.text}"
 		placeholder="Your note"
 		readonly={locked}
-		bind:value={() => shown.note, (typed) => rowEdit.setNote(typed)}
-		onblur={() => void rowEdit.save()}
+		bind:value={() => shown.note, (typed) => fileEdit.setNote(typed)}
+		onblur={() => void fileEdit.save()}
 	/>
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
-		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option} disabled={locked} onclick={() => rowEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>{/each}
+		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option} disabled={locked} onclick={() => fileEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">
 			{#if pending?.saving}
 				Saving…
 			{:else if pending?.error}
-				Not saved: {describeFailure(pending.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void rowEdit.retry()}>Try again</Button>
+				Not saved: {describeFailure(pending.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
 			{/if}
 		</span>
 	</div>

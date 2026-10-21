@@ -3,7 +3,7 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
-	"description": "React bindings for Epicenter folders: a folder's row and text edit handles in a view.",
+	"description": "React views over a folder's path-owned file edits.",
 	"exports": {
 		"./edits": "./src/edits.ts"
 	},

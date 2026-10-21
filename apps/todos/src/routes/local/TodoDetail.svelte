@@ -1,6 +1,6 @@
 <!--
 	One todo over this browser's local folder: the folder's edit of its row
-	(`createRowEdit(folder.tables.todos, id)`), the same document the list's
+	(`createFileEdit(folder.tables.todos.edit(id))`), the same document the list's
 	reads keep current, so it never disagrees with the list. The parent keys
 	this view by the todo, so a save sent as it goes away lands on the todo it
 	was typed into.
@@ -25,7 +25,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
-	import { createRowEdit } from '@epicenter/svelte/edits';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { getFolder } from '$lib/folder.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { onDestroy } from 'svelte';
@@ -52,23 +52,21 @@
 	const id = shownId;
 	const path = todoPath(id);
 	/** The todo as stored, with what is typed over it; the folder keeps both after this view. */
-	const rowEdit = createRowEdit(folder.tables.todos, id);
-	/** The row, when it reads as a todo. */
-	const row = $derived(rowEdit.row);
-	const todo = $derived(row?.issues === null ? row : undefined);
+	const fileEdit = createFileEdit(folder.tables.todos.edit(id));
+	const todo = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown : undefined);
 	/** What is known of the file, and why the last read failed. */
-	const status = $derived(rowEdit.readStatus);
-	const pending = $derived(rowEdit.pending);
+	const status = $derived(fileEdit.readStatus);
+	const pending = $derived(fileEdit.pending);
 
 	// The input outlives the view; send what is typed now.
-	onDestroy(() => void rowEdit.save());
+	onDestroy(() => void fileEdit.save());
 
 	function confirmDiscard() {
 		confirmationDialog.open({
 			title: 'Discard unsaved changes?',
 			description: `Copy any changes you need from ${path} before discarding them. Saved source remains on this device.`,
 			confirm: { text: 'Discard changes', variant: 'destructive' },
-			onConfirm: () => { rowEdit.discard(); },
+			onConfirm: () => { fileEdit.discard(); },
 		});
 	}
 
@@ -78,15 +76,15 @@
 	 * changed in that moment is kept.
 	 */
 	async function confirmDelete(label: string) {
-		await rowEdit.save();
+		await fileEdit.save();
 		confirmationDialog.open({
 			title: `Delete “${label}”?`,
 			description: `This deletes ${path} from this device. Other files stay in the folder.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
-				const { data, error } = await rowEdit.delete();
+				const { data, error } = await fileEdit.delete();
 				if (error !== null) toast.error(`Could not delete ${path}`, { description: describeFailure(error) });
-				else if (data.deleted || rowEdit.row === undefined) onDeleted?.();
+				else if (data.deleted || fileEdit.markdown === undefined) onDeleted?.();
 				else toast.error(`${path} was not deleted`, { description: 'It changed while it was deleted, so it was kept.' });
 			},
 		});
@@ -107,16 +105,16 @@
 		{#if status.known === 'not-text'}
 			<span class="ml-auto text-xs text-muted-foreground">Open this file elsewhere to remove it</span>
 		{:else}
-			<Button class="ml-auto" size="sm" variant="ghost-destructive" disabled={rowEdit.locked} onclick={() => void confirmDelete(label)}>Delete</Button>
+			<Button class="ml-auto" size="sm" variant="ghost-destructive" disabled={fileEdit.locked} onclick={() => void confirmDelete(label)}>Delete</Button>
 		{/if}
 	</div>
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
-	{#if status.error && row}
+	{#if status.error && fileEdit.markdown}
 		<div class="border-b bg-destructive/10 px-4 py-2 text-xs text-destructive" role="status">
 			Could not read the latest todo: {status.error.message}.
-			<Button variant="link" size="xs" onclick={() => void rowEdit.read()}>Try again</Button>
+			<Button variant="link" size="xs" onclick={() => void fileEdit.read()}>Try again</Button>
 		</div>
 	{/if}
 	{#if !todo && pending}
@@ -124,7 +122,7 @@
 			<p>Unsaved changes for {path} are still here. Select and copy them before closing this tab if saving keeps failing.</p>
 			{#if pending.error}<p>Not saved: {describeFailure(pending.error)}</p>{/if}
 			<pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved changes">{unsavedText(pending)}</pre>
-			<Button variant="outline" size="xs" onclick={() => void rowEdit.retry()}>Try saving again</Button>
+			<Button variant="outline" size="xs" onclick={() => void fileEdit.save()}>Try saving again</Button>
 			<Button variant="ghost-destructive" size="xs" onclick={confirmDiscard}>Discard changes</Button>
 		</div>
 	{/if}
@@ -134,11 +132,11 @@
 			{@render back()}
 			<Checkbox
 				aria-label="Done"
-				disabled={rowEdit.locked}
+				disabled={fileEdit.locked}
 				bind:checked={
 					() => shown.fields.done,
 					(done) => {
-						if (rowEdit.change({ fields: { done } }).error === null) void rowEdit.save();
+						if (fileEdit.change({ fields: { done } }).error === null) void fileEdit.save();
 					}
 				}
 			/>
@@ -146,16 +144,16 @@
 				class="flex-1 text-base font-medium"
 				placeholder="Title"
 				aria-label="Title"
-				disabled={rowEdit.locked}
-				bind:value={() => shown.fields.title, (title) => rowEdit.change({ fields: { title } })}
-				onblur={() => void rowEdit.save()}
+				disabled={fileEdit.locked}
+				bind:value={() => shown.fields.title, (title) => fileEdit.change({ fields: { title } })}
+				onblur={() => void fileEdit.save()}
 			/>
 		</div>
 
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
 			{#if pending?.error && !pending.saving}
 				Not saved: {describeFailure(pending.error)}
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void rowEdit.retry()}>Try again</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
 				<Button variant="link" size="xs" class="h-auto p-0" onclick={confirmDiscard}>Discard changes</Button>
 			{:else if pending}
 				Saving…
@@ -169,15 +167,15 @@
 				class="min-h-0 flex-1 field-sizing-fixed resize-none"
 				placeholder="Notes in Markdown"
 				aria-label="Notes"
-				disabled={rowEdit.locked}
-				bind:value={() => shown.body, (body) => rowEdit.change({ body })}
-				onblur={() => void rowEdit.save()}
+				disabled={fileEdit.locked}
+				bind:value={() => shown.body, (body) => fileEdit.change({ body })}
+				onblur={() => void fileEdit.save()}
 			/>
 		</div>
 
-		{@render fileBar(labelOf(shown))}
-	{:else if row}
-		{@const broken = row}
+		{@render fileBar(labelOf({ id, fields: shown.fields }))}
+	{:else if fileEdit.markdown}
+		{@const broken = fileEdit.markdown}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<h2 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h2>
@@ -203,7 +201,7 @@
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read this todo</Empty.Title>
 			<Empty.Description>{status.error.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void rowEdit.read()}>Try again</Button>
+			<Button variant="outline" size="sm" onclick={() => void fileEdit.read()}>Try again</Button>
 		</Empty.Root>
 	{:else if status.known === 'nothing'}
 		<Loading class="flex-1" label="Opening the todo…" />

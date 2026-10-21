@@ -76,7 +76,7 @@ nor an app chooses a native path, and no URL carries one. A refused open
 shows the refusal; the app does not open different storage as a fallback.
 
 Folder methods return the current source with every row. A view binds its own
-edit handle (`createRowEdit`, `createTextEdit`) and types over what it showed.
+edit handle (`createFileEdit(coreEdit)`) and types over what it showed.
 The shared folder context owns query keys and the one `onChange` listener that
 refreshes affected paths. The view reports "Saved on this device" only after
 the storage save succeeds and no input is held. Account, inference, and future Git exchange have separate

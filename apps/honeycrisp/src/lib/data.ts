@@ -16,6 +16,7 @@
  */
 import { field } from '@epicenter/definition';
 import type { Row } from '@epicenter/folder';
+import type { MarkdownContent } from '@epicenter/folder/edits';
 import { type Static, Type } from 'typebox';
 
 export const honeycrispTables = {
@@ -44,6 +45,8 @@ export type FolderFields = Static<HoneycrispTables['folders']>;
 export type NoteRow = Row<HoneycrispTables['notes']>;
 /** A folder file as the table lists it. */
 export type FolderRow = Row<HoneycrispTables['folders']>;
+
+export type NoteMarkdown = Extract<MarkdownContent<HoneycrispTables['notes']>, { issues: null }>;
 
 /** A note file that reads as a note. */
 export type NoteEntry = Extract<NoteRow, { issues: null }>;

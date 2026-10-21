@@ -4,44 +4,38 @@
  *
  * A file whose frontmatter does not read needs its whole text replaced, so
  * the repair types through the folder's edit of the file
- * (`createTextEdit(folder.files, path)`), whose document is the file's exact
- * text as stored. The folder holds what is typed, writes it a second after
+ * (`createFileEdit(folder.tables.entries.edit(id))`), whose text is the file's
+ * exact editable source. The folder holds what is typed, writes it a second after
  * the last keystroke and at once on `save()`, one write at a time, each from
  * the text it started from, merged by line with a change made elsewhere
  * meanwhile. A reread never replaces what is typed. A failed write keeps the
- * text and its error; the view's `retry()` tries again, and so does further
+ * text and its error; `save()` tries again, and so does further
  * typing. The repair itself holds only which file is open.
  */
-import { createTextEdit } from '@epicenter/svelte/edits';
-import { rowPath, type VocabFolder } from './data.js';
+import { createFileEdit } from '@epicenter/svelte/edits';
+import type { VocabFolder } from './data.js';
 
-export function createRepair(folder: Pick<VocabFolder, 'files'>) {
+export function createRepair(folder: Pick<VocabFolder, 'tables'>) {
 	/** The word file open for repair, by its row ID. */
 	let open = $state<string | undefined>();
 
-	/** The folder's edit of the open file, read reactively. */
-	const view = () =>
+	/** Recreate the adapter only when the selected path changes. */
+	const fileEdit = $derived(
 		open === undefined
 			? undefined
-			: createTextEdit(folder.files, rowPath('entries', open));
-	/** The open file's held text, read reactively; reading it reads no file. */
-	const held = () => {
-		const pending = view()?.pending;
-		return pending?.kind === 'text' ? pending : undefined;
-	};
-
+			: createFileEdit(folder.tables.entries.edit(open)),
+	);
+	const view = () => fileEdit;
 	return {
 		/** The row ID of the word file open for repair, if any. */
 		get open() {
 			return open;
 		},
 		/**
-		 * Open the word file `id` for repair. Answers whether it is open: text
-		 * still held for another file keeps that one open.
+		 * Open the word file `id` for repair. The folder keeps input for other files.
 		 */
 		start(id: string): boolean {
 			if (open === id) return true;
-			if (held() !== undefined) return false;
 			open = id;
 			return true;
 		},
@@ -50,41 +44,18 @@ export function createRepair(folder: Pick<VocabFolder, 'files'>) {
 		 * the file as stored, which a reread never replaces.
 		 */
 		view,
-		/** Write what is typed now; resolves once no write of it runs. */
-		save: (): Promise<void> => view()?.save() ?? Promise.resolve(),
-		/**
-		 * Close the repair once its text is written. Answers whether it closed:
-		 * text that could not be written keeps the repair open.
-		 */
-		async close(): Promise<boolean> {
-			const textEdit = view();
-			await textEdit?.save();
-			if (textEdit?.pending !== undefined) return false;
+		/** Return to the structured view as soon as the current document is valid. */
+		close(): boolean {
+			if (view()?.markdown?.issues !== null) return false;
 			open = undefined;
 			return true;
 		},
-		/** Let go of the repair and what is typed into it, as the learner chose. */
-		discard(): string | undefined {
-			const textEdit = view();
-			const discarded = textEdit?.discard();
-			// A write or delete of the text that runs keeps it, and the repair.
-			if (textEdit?.pending !== undefined) return undefined;
+		/** Discard this path's input, then close unless a running operation retains it. */
+		discard() {
+			const fileEdit = view();
+			fileEdit?.discard();
+			if (fileEdit?.pending !== undefined) return;
 			open = undefined;
-			return discarded?.kind === 'text' ? discarded.text : undefined;
-		},
-		get typed() {
-			return held()?.text;
-		},
-		get saving() {
-			return held()?.saving ?? false;
-		},
-		/** Why the last write failed, while the text is held. */
-		get error() {
-			return held()?.error;
-		},
-		/** Whether text is held or written: leaving then could lose it. */
-		get busy() {
-			return held() !== undefined;
 		},
 	};
 }

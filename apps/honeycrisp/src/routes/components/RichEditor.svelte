@@ -67,7 +67,7 @@
 	 * or a save landing, gives the same string, so nothing below runs
 	 * again.
 	 */
-	const body = $derived(note.getRow()?.body);
+	const body = $derived(note.getMarkdown()?.body);
 	/** The body as a document, or why it cannot be one. */
 	const rich = $derived(body === undefined ? undefined : bodyCodec.decode(body));
 	/**

@@ -32,7 +32,7 @@ export type WriteFailure = {
 	 * edit is still on screen, so saving it again is all the person needs to
 	 * do. When none starts, the toast stays up with the text to copy.
 	 */
-	readonly retry?: () => boolean;
+	readonly save?: () => boolean;
 	/**
 	 * Let go of the edit still on screen, answering the text it let go: what
 	 * is typed now, which can be newer than `unsaved`, or `undefined` when
@@ -61,8 +61,7 @@ export function unsavedText(pending: Pending): string {
 		{
 			...(set.length > 0 && { set: Object.fromEntries(set) }),
 			...(remove.length > 0 && { remove }),
-			...(pending.kind === 'row' &&
-				pending.body !== undefined && { body: pending.body }),
+			...(pending.body !== undefined && { body: pending.body }),
 		},
 		null,
 		2,

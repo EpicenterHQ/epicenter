@@ -423,7 +423,7 @@ test('a save of the transcript’s file still running settles first, then what i
 	expect(transformed[0]!.input).toBe('Typed in Files.\n');
 });
 
-test('a transcript whose save failed sends no request until explicit retry saves it', async () => {
+test('a transformation saves previously failed transcript input before sending it', async () => {
 	const { library, root, transformed } = await open();
 	const { transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
@@ -441,11 +441,6 @@ test('a transcript whose save failed sends no request until explicit retry saves
 	expect(library.isUnsaved(transcript.path)).toBe(true);
 	expect(source.draft.body).toBe('Mine.\n');
 
-	expect(await library.transform(transcript.path, editor.path)).toContain(
-		'unsaved changes',
-	);
-	expect(transformed).toHaveLength(0);
-	await library.retry(transcript.path);
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
 
 	expect(transformed).toHaveLength(1);

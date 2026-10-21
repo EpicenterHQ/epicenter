@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { getFolder } from './context.js';
-	import { documentChange, readDocument } from '@epicenter/folder/documents';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -8,7 +7,7 @@
 	import * as Table from '@epicenter/ui/table';
 	import * as Alert from '@epicenter/ui/alert';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { createTextEdit } from '@epicenter/svelte/edits';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { fileText } from './files';
 	import { applyView, boardLanes } from './view';
 	import TableControls from './TableControls.svelte';
@@ -65,35 +64,25 @@
 		].sort(),
 	);
 	const columns = $derived(view.columns ?? availableColumns);
-	const edits = $derived(documents.map((doc) => ({ doc, textEdit: createTextEdit(folder.files, doc.path) })));
+	const edits = $derived(documents.map((doc) => ({
+		doc,
+		fileEdit: createFileEdit(folder.files.edit(doc.path, tableFor(doc.path))),
+	})));
 	const rows = $derived(
-		edits.map(({ doc, textEdit }) => {
-			// The folder's edit of the document, which a field edit types into as
-			// a patch of the file as stored. Only typing held there is read
-			// from it; otherwise the listing shows the document as read.
-			const pending = textEdit.pending;
-			let text = pending === undefined ? undefined : textEdit.text;
-			// Until the edit reads the file, project its fields through the same
-			// source patcher so removals and diagnostics agree with what is shown.
-			if (text === undefined && pending?.kind === 'fields') {
-				const changed = documentChange(doc, { fields: pending.fields });
-				if (changed.error === null) text = changed.data.text;
-			}
-			const shown =
-				text === undefined || text === doc.text
-					? doc
-					: readDocument(doc.path, encoder.encode(text), tableFor(doc.path));
+		edits.map(({ doc, fileEdit }) => {
+			const pending = fileEdit.pending;
+			const markdown = fileEdit.markdown;
+			const shown = markdown === undefined ? doc : { ...doc, ...markdown };
 			return {
 				doc,
-				textEdit,
+				fileEdit,
 				shown,
 				held: pending !== undefined,
 				error: pending?.saving ? undefined : pending?.error,
 				locked:
 					fileText(doc.content).kind !== 'text' ||
 					!!shown.issues?.some((issue) => issue.kind !== 'schema') ||
-					(pending?.kind === 'fields' && pending.error !== undefined) ||
-					textEdit.locked,
+					fileEdit.locked,
 			};
 		}),
 	);
@@ -124,9 +113,8 @@
 						: newValue;
 		if (newKind === 'number' && (newValue === '' || !Number.isFinite(value)))
 			return;
-		row.textEdit.changeFields({ [view.groupBy]: value });
+		row.fileEdit.change({ fields: { [view.groupBy]: value } });
 	}
-	const encoder = new TextEncoder();
 	function tableSchema() {
 		return Object.hasOwn(reading.data?.tables ?? {}, directory)
 			? reading.data?.tables[directory]
@@ -294,9 +282,9 @@
 												view.type === 'board' &&
 												destination?.editable
 											)
-												row.textEdit.changeFields({
+												row.fileEdit.change({ fields: {
 													[view.groupBy]: destination.value,
-												});
+												} });
 										}}
 										><Select.Trigger
 											aria-label="Move {doc.path}"
@@ -314,11 +302,11 @@
 										<Button
 											size="xs"
 											variant="outline"
-											onclick={() => void row.textEdit.retry()}>Try again</Button
+											onclick={() => void row.fileEdit.save()}>Try again</Button
 										><Button
 											size="xs"
 											variant="ghost"
-											onclick={() => row.textEdit.discard()}>Discard edit</Button
+											onclick={() => row.fileEdit.discard()}>Discard edit</Button
 										>{/if}
 									{#each doc.issues ?? [] as issue}<p
 											class="text-xs text-destructive"
@@ -395,7 +383,7 @@
 				>
 				<Table.Body>
 					{#each rows as row (row.doc.path)}
-						{@const { doc, textEdit, shown, locked, error } = row}
+						{@const { doc, fileEdit, shown, locked, error } = row}
 						<Table.Row>
 							<Table.Cell
 								><Button variant="link" onclick={() => openSource(doc.path)}
@@ -419,7 +407,7 @@
 											disabled={locked}
 											bind:checked={
 												() => fieldValue(shown.fields, column) === true,
-												(value) => textEdit.changeFields({ [column]: value })
+												(value) => fileEdit.change({ fields: { [column]: value } })
 											}
 										/>
 									{:else if kind === 'string' || kind === 'number' || kind === 'integer'}
@@ -439,15 +427,15 @@
 															!Number.isFinite(Number(value)))
 													)
 														return;
-													textEdit.changeFields({
+													fileEdit.change({ fields: {
 														[column]:
 															kind === 'number' || kind === 'integer'
 																? Number(value)
 																: String(value ?? ''),
-													});
+													} });
 												}
 											}
-											onblur={() => void textEdit.save()}
+											onblur={() => void fileEdit.save()}
 										/>
 									{:else}<span class="font-mono text-xs"
 											>{display(fieldValue(shown.fields, column))}</span
@@ -461,11 +449,11 @@
 									<Button
 										size="xs"
 										variant="outline"
-										onclick={() => void textEdit.retry()}>Try again</Button
+										onclick={() => void fileEdit.save()}>Try again</Button
 									><Button
 										size="xs"
 										variant="ghost"
-										onclick={() => textEdit.discard()}>Discard edit</Button
+										onclick={() => fileEdit.discard()}>Discard edit</Button
 									>{/if}
 								{#each shown.issues ?? [] as issue}<p
 										class="text-xs text-destructive"

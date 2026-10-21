@@ -217,3 +217,38 @@ test('Delete asks first; Cancel changes nothing, and confirming deletes the word
 	await quiet(context.vocab);
 	expect(await context.saved()).toBeUndefined();
 });
+
+test('a valid unsaved repair opens its structured controls even when saving fails', async () => {
+	await using browser = createBrowser();
+	const folder = await browser.open({ saveAfterMs: 60_000 });
+	const broken = '---\ntext: lucid\nnote: ""\nstage: invalid\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\n';
+	expectOk(await folder.files.write('entries/broken.md', null, broken));
+	await using opened = await openVocab(folder);
+	const { default: WordsViewHost } = await import('./fixtures/WordsViewHost.svelte');
+	const target = document.createElement('div');
+	document.body.append(target);
+	const view = mount(WordsViewHost, {
+		target,
+		props: { client: opened.vocab.queryClient, entries: opened.vocab.entries },
+	});
+	const put = IDBObjectStore.prototype.put;
+	try {
+		await until(() => target.textContent?.includes('Repair as text') ?? false, 'the repair action');
+		click(target, 'Repair as text');
+		await until(() => target.querySelector('textarea[aria-label="File text for entries/broken.md"]') !== null, 'the source editor');
+		IDBObjectStore.prototype.put = () => {
+			throw new DOMException('storage refused', 'QuotaExceededError');
+		};
+		type(target.querySelector<HTMLTextAreaElement>('textarea[aria-label="File text for entries/broken.md"]') ?? undefined, broken.replace('stage: invalid', 'stage: usable'));
+		await until(() => target.textContent?.includes('Show note and stage') ?? false, 'live valid diagnostics');
+		click(target, 'Show note and stage');
+		await until(() => target.querySelector('textarea[aria-label="Your note for lucid"]') !== null, 'the structured editor');
+		expect(opened.vocab.entries.repair.open).toBeUndefined();
+		expect((await folder.tables.entries.get('broken')).data?.fields.stage).toBe('invalid');
+		expect(folder.tables.entries.edit('broken').getPending()).toBeDefined();
+	} finally {
+		IDBObjectStore.prototype.put = put;
+		await unmount(view);
+		target.remove();
+	}
+});

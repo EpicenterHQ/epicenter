@@ -21,7 +21,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
 	import { unsavedText } from '@epicenter/svelte/write-failure';
-	import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { folderIdOf, noteIdOf } from '$lib/data.js';
@@ -42,7 +42,7 @@
 	// the prop already reads the next item, so this view keeps its own.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
-	onDestroy(() => void textEdit.save());
+	onDestroy(() => void fileEdit.save());
 
 	/**
 	 * What the file is: text, binary, or too large to open, with its size.
@@ -50,26 +50,25 @@
 	 * current, an edit made outside this page included.
 	 */
 	const file = createQuery(() => notes.queries.file(path, textRead));
-	/** The folder's edit of the file: held text, else the file as stored. Keyed by its opening. */
-	// svelte-ignore state_referenced_locally
-	const textEdit = createTextEdit(notes.folder.files, path);
 	const name = basename(path);
 	const noteId = noteIdOf(path);
 	const folderId = folderIdOf(path);
 	// This view is keyed by its opening; only its address determines the adapter.
 	// svelte-ignore state_referenced_locally
-	const rowEdit = noteId !== undefined
-		? createRowEdit(notes.folder.tables.notes, noteId)
-		: folderId !== undefined ? createRowEdit(notes.folder.tables.folders, folderId) : undefined;
+	const fileEdit = noteId !== undefined
+		? createFileEdit(notes.folder.tables.notes.edit(noteId))
+		: folderId !== undefined
+			? createFileEdit(notes.folder.tables.folders.edit(folderId))
+			: createFileEdit(notes.folder.files.edit(path));
 	/**
 	 * The text shown: what was typed and not yet saved, else the file as
 	 * stored, while the file reads as text. A file gone, no longer text, or
-	 * too large shows as that, and is never read into the textEdit.
+	 * too large shows as that, and is never read into the fileEdit.
 	 */
-	const pending = $derived(textEdit.pending);
-	const text = $derived(pending !== undefined || file.data?.kind === 'text' ? textEdit.text : undefined);
+	const pending = $derived(fileEdit.pending);
+	const text = $derived(pending !== undefined || file.data?.kind === 'text' ? fileEdit.text : undefined);
 	/** Why the current text is not a row, including unsaved input. */
-	const issues = $derived(rowEdit?.row?.issues ?? undefined);
+	const issues = $derived(fileEdit.markdown?.issues ?? undefined);
 	/** Edits wait once the notes are closing, and while this file is deleted. */
 	const locked = $derived(notes.isLocked(path));
 	/** A failed read with nothing of this file to show but what it held before. */
@@ -114,8 +113,8 @@
 		<div class="space-y-2 p-4" role="status">
 			<p>These changes have not saved. If they cannot be applied to this file, copy them before discarding.</p>
 			<pre class="max-h-40 overflow-auto whitespace-pre-wrap" aria-label="Unsaved note changes">{unsavedText(pending)}</pre>
-			<Button disabled={locked} onclick={() => void textEdit.retry()}>Save again</Button>
-			<Button variant="outline" disabled={locked} onclick={() => textEdit.discard()}>Discard changes</Button>
+			<Button disabled={locked} onclick={() => void fileEdit.save()}>Save again</Button>
+			<Button variant="outline" disabled={locked} onclick={() => fileEdit.discard()}>Discard changes</Button>
 		</div>
 	{/if}
 	{#if text !== undefined}
@@ -146,18 +145,18 @@
 				bind:value={
 					() => shown.replace(/\r\n?/g, '\n'),
 					(typed) => {
-						const changed = textEdit.change(withFileNewlines(typed.toWellFormed(), shown));
+						const changed = fileEdit.replaceText(withFileNewlines(typed.toWellFormed(), shown));
 						if (changed.error !== null) toast.warning('That change was not made', { description: changed.error.message });
 					}
 				}
-				onblur={() => void textEdit.save()}
+				onblur={() => void fileEdit.save()}
 			/>
 		</div>
 		<p class="flex shrink-0 items-center gap-2 border-t px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
 			{#if failed !== undefined && !notes.isWriting(path)}
 				Not saved: {failed}
-				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => void textEdit.retry()}>Save again</Button>
-				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => textEdit.discard()}>Discard changes</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => void fileEdit.save()}>Save again</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => fileEdit.discard()}>Discard changes</Button>
 			{:else}
 				{notes.isWriting(path) ? 'Saving…' : 'Saved'}
 			{/if}

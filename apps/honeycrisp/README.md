@@ -74,14 +74,16 @@ message. What you type always stays on screen; a read never replaces it.
 
 A note has two views of its body, **Rich text** and **Source**. Switching
 between them saves nothing and discards nothing. **Edit as file** opens the
-note's whole text instead; while it is open that way, its text is what saves,
-and list actions on it are refused.
+note's whole text instead. Both views and list actions change the same current
+document.
 
-Row and whole-file edits share one save owner per file path. **Edit as file**
-first saves the note's pending changes; a failed save keeps the note open.
-**Open as note** waits for whole-file text to save. A failed text edit remains
-available when selecting the note again. Whole-file input also stays visible
-if another writer deletes or replaces the saved file. It can be retried,
+Structured and whole-file editing use one `FileEdit` per file path. Its
+`change({ fields?, body? })` combines structured changes; `replaceText(text)`
+replaces the whole file. `getMarkdown()` interprets current text and `getText()`
+reads it directly. Svelte uses one `createFileEdit(handle)` adapter with tracked
+`.markdown` and `.text` properties. Switching views requires no save or refresh.
+A failed edit remains available when selecting the note again, including if
+another writer deletes or replaces its saved file. It can be saved again,
 copied, or explicitly discarded.
 
 The body is edited with line feeds (ADR-0572): a note whose file has CRLF line
@@ -186,7 +188,6 @@ It drops these promises of the version before it:
   deleting it anyway.
 - Typing in a note another tab deleted is saved, which puts the note back,
   instead of being refused.
-- While a note is open as its file, its repair reasons are checked after
-  each save, not as you type.
+- While a note is open as its file, its repair reasons include unsaved text.
 - A note file named `notes/.md` is not listed: the local folder needs a
   non-empty name.

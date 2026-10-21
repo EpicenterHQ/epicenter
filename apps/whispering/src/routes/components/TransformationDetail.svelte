@@ -67,31 +67,28 @@
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	/**
-	 * This view's row and text: the folder's edits of the file, each as
-	 * stored with what is typed over it.
+	 * One file edit supplies fields, body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
-	const rowEdit = library.rowEdit(TRANSFORMATIONS, own);
+	const fileEdit = library.edit(TRANSFORMATIONS, own);
 	const context = getFolder();
 	/** What the file is while it shows as text; its reads keep the text edit current. */
 	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
-	// svelte-ignore state_referenced_locally
-	const textEdit = library.textEdit(own);
 	/** The transformation as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
-		const shown = rowEdit.row;
+		const shown = fileEdit.markdown;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** The file's text as typed while an edit is unsaved, else as stored. */
 	const source = $derived(
-		asText && (textEdit.pending !== undefined || opened.data?.kind === 'text') ? textEdit.text : undefined,
+		asText && (fileEdit.pending !== undefined || opened.data?.kind === 'text') ? fileEdit.text : undefined,
 	);
 	/** The current source as a row, including unsaved input and its issues. */
-	const sourceRow = $derived(asText ? rowEdit.row : undefined);
+	const sourceRow = $derived(asText ? fileEdit.markdown : undefined);
 	const issues = $derived(sourceRow?.issues ?? undefined);
 	// The edits outlive the view; send now.
-	onDestroy(() => void rowEdit.save());
+	onDestroy(() => void fileEdit.save());
 
 	/** Either view resolves the same current recipe, including unsaved input. */
 	const recipe = $derived(
@@ -99,11 +96,11 @@
 	);
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
-	const pending = $derived(library.heldAt(path));
+	const pending = $derived(fileEdit.pending);
 	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
 
 	/** Set fields of the transformation as its file is now, at once. */
-	const set = (fields: Partial<TransformationFields>) => library.setFields(rowEdit, fields);
+	const set = (fields: Partial<TransformationFields>) => library.setFields(fileEdit, fields);
 	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
 	const id = $derived(rowIdOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
@@ -173,7 +170,7 @@
 
 	async function run() {
 		// What is typed is the recipe that runs; it is sent, and the run settles it.
-		void rowEdit.save();
+		void fileEdit.save();
 		const problem =
 			applySource === 'pasted'
 				? await library.transformText(path, pastedText)
@@ -247,8 +244,8 @@
 			{@const shown = row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => shown.fields.title, (value) => rowEdit.change({ fields: { title: value } })}
-				onblur={() => void rowEdit.save()}
+				bind:value={() => shown.fields.title, (value) => fileEdit.change({ fields: { title: value } })}
+				onblur={() => void fileEdit.save()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Transformation title"
@@ -321,9 +318,9 @@
 							class="min-h-36 resize-y font-sans"
 							bind:value={
 								() => shown.body,
-								(value) => library.editBody(rowEdit, value)
+								(value) => library.editBody(fileEdit, value)
 							}
-						onblur={() => void rowEdit.save()}
+						onblur={() => void fileEdit.save()}
 							disabled={locked}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
@@ -356,10 +353,10 @@
 										() => shown.fields.model ?? '',
 										(value) => {
 											// An empty model uses the text connection's model.
-											rowEdit.change({ fields: { model: value.trim() === '' ? null : value } });
+											fileEdit.change({ fields: { model: value.trim() === '' ? null : value } });
 										}
 									}
-									onblur={() => void rowEdit.save()}
+									onblur={() => void fileEdit.save()}
 									disabled={locked}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
@@ -528,8 +525,8 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => library.editText(textEdit, withFileNewlines(value, shown))}
-					onblur={() => void textEdit.save()}
+					bind:value={() => lf(shown), (value) => library.editText(fileEdit, withFileNewlines(value, shown))}
+					onblur={() => void fileEdit.save()}
 					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}

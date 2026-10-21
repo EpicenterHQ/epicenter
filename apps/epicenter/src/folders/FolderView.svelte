@@ -13,9 +13,9 @@
 	} from './views.svelte';
 	import TablesView from './TablesView.svelte';
 	import SqlView from './SqlView.svelte';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { getFolder } from './context.js';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { createTextEdit } from '@epicenter/svelte/edits';
 	import FileEditor from './FileEditor.svelte';
 	import { fileTree, sourceRead } from './files';
 
@@ -58,12 +58,12 @@
 	});
 	// The declaration's source, fenced while a view setting is written to it.
 	// Only its fence and exclusive change are used, so it reads nothing.
-	const textEdit = createTextEdit(folder.files, 'epicenter.json');
+	const fileEdit = createFileEdit(folder.files.edit('epicenter.json'));
 	const views = createViews({
 		saved: () => saved.data?.views ?? {},
 		update: (change) => updateView(change),
 		async exclusive(action) {
-			const done = await textEdit.exclusive(action);
+			const done = await fileEdit.exclusive(action);
 			if (done.error !== null) throw new Error(done.error.reason);
 			return done.data;
 		},
@@ -185,11 +185,11 @@
 				>{/if}
 			<Button
 				size="sm"
-				disabled={textEdit.locked || views.busy(view) ||
+				disabled={fileEdit.locked || views.busy(view) ||
 					declaration.isPending ||
 					needsDirectory}
 				onclick={() => void save()}
-				>{textEdit.locked || views.busy(view)
+				>{fileEdit.locked || views.busy(view)
 					? 'Saving…'
 					: viewError
 						? 'Retry save'
@@ -198,7 +198,7 @@
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={textEdit.locked || views.busy(view) ||
+				disabled={fileEdit.locked || views.busy(view) ||
 					declaration.isPending ||
 					needsDirectory}
 				onclick={() => void save(true)}>Save as new</Button
@@ -207,7 +207,7 @@
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={textEdit.locked || views.busy(view)}
+					disabled={fileEdit.locked || views.busy(view)}
 					onclick={() => {
 						views.reload(view);
 						void declaration.refetch();
@@ -216,7 +216,7 @@
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={textEdit.locked || views.busy(view) || views.dirty(view)}
+					disabled={fileEdit.locked || views.busy(view) || views.dirty(view)}
 					onclick={async () => {
 						const key = view;
 						if ((await views.remove(key)) && view === key && !views.dirty(key))

@@ -166,96 +166,75 @@ A label beside one editor reads that edit's own `pending` (`error` without
 `saving` means its save failed, otherwise it is saving or waiting), so another
 file's failure is never shown as its.
 
-## Row and whole-file edits
+## File edits
 
-The folder owns each path's editable document and typed input from open to
-close (`folder.tables.<t>.edit(id)`, `folder.files.edit(path)`; the Folder
-README's "Unsaved input" states the rules,
-[ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
-`saveAfterMs` is an option of the app's `openFolder` call, not of this package.
-`@epicenter/svelte/edits` reads one of those edits in a view:
+The folder owns each path's editable source, unsaved input, reads and save queue.
+A table binds its schema to the same editor that `folder.files.edit(path, schema?)`
+returns. `saveAfterMs` belongs to the folder opener, not this adapter.
 
 ```ts
-import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
+import { createFileEdit } from '@epicenter/svelte/edits';
 
-// This component is keyed by its note, so its address is fixed.
-const rowEdit = createRowEdit(folder.tables.notes, id);
-const row = $derived(rowEdit.row);
-rowEdit.row; // the row as stored, with held input in it; undefined until known
-rowEdit.readStatus; // { known: 'nothing' | 'missing' | 'file' | 'not-text', reading, error }
-rowEdit.change({ fields: { done: true }, body: 'Two litres\n' });
+// Fixed address, for example in a component keyed by its note.
+const fileEdit = createFileEdit(folder.tables.notes.edit(id));
+fileEdit.markdown; // interpret current source only where the view needs it
+fileEdit.change({ fields: { done: true }, body: 'Two litres\n' });
+fileEdit.replaceText(editedSource);
 
-// If path changes in this component, derive the adapter from that address.
-const textEdit = $derived(createTextEdit(folder.files, path));
-textEdit.text; // the held text, held fields over the file, or the file
-textEdit.change(edited);
-textEdit.changeFields({ title: 'x' });
+// Derive a new adapter only when this address changes.
+const sourceEdit = $derived(createFileEdit(folder.files.edit(path)));
 ```
 
-The Svelte edit exposes tracked getters over the core's read methods:
-`getRow()` becomes `.row`, `getText()` becomes `.text`, `getPending()` becomes
-`.pending`, `getReadStatus()` becomes `.readStatus`, and `isLocked()` becomes
-`.locked`. Commands stay methods, shared directly with the core. Each getter
-re-runs a reader while an effect reads it (`createSubscriber`). The first time an
-effect asks for the document (`row`, `text` or `readStatus`) with
-nothing known, no read running and no read error, it reads the file; a row a list
-already read needs no read of its own. `row` is `undefined` while
-nothing is known, after a failed first read, and when no file is there;
-`readStatus` tells them apart, the same value for every view of the
-path. A failed reread keeps what is shown and says why in `error`; `read()`
-reads again. Asking only for `pending` or `locked` requests no new
-document; a subscription may refresh one already read. Commands retain
-their Folder behavior.
+The adapter tracks the core reads: `getMarkdown()` becomes `.markdown`,
+`getText()` becomes `.text`, `getPending()` becomes `.pending`,
+`getReadStatus()` becomes `.readStatus`, and `isLocked()` becomes `.locked`.
+Commands stay methods. `.markdown` contains exactly `text`, `body`, `fields`
+and `issues`; it interprets the same source `.text` returns. `issues === null`
+narrows fields to the bound schema. No usable text means `undefined`;
+`.readStatus` distinguishes loading, missing, non-text and failed reads.
+A malformed header has `fields: undefined`; its body is available only when a
+closing fence identifies it. Keep exact source through `.text` for repair.
+`.pending` contains raw, non-generic input shared across every schema-bound view
+of the path. New field values are copied when accepted, including nested values;
+changing the original object afterwards does not change the edit.
 
-Both adapters expose the same path's pending input, including input created by
-the other representation. Valid row changes patch held whole-file text; whole-file
-typing takes over applicable row or field input. A structured view reads the
-current text with its schema, so ordinary valid switching requires no save or
-refresh. Invalid content stays available as text; unapplied fields remain in
-pending for recovery. Switching views clears neither input nor its save error.
+The first tracked markdown, text or read-status read starts the initial file
+read when nothing is known and no read has failed. Reading only `.pending`
+or `.locked` requests no initial read. A failed read waits for `read()`;
+a failed reread retains the last known source. `read()` completes the refresh;
+use the getters afterwards for current values. Creating an adapter is passive.
+The folder retains input, timers and failures when every view unmounts.
 
-Row and text edits use the same commands: `save()` sends new input or joins its
-running attempt; `retry()` explicitly attempts held failed input again.
-Blur, unmount, settlement and close leave failed input held for recovery.
-Accepted new input clears the older error and may autosave.
-
-Read properties directly where convenient. When a local helps readability or preserves narrowing in a binding callback, name the value:
+Read `fileEdit.markdown` directly. Use `{@const}` inside a condition when a
+local preserves narrowing in a binding callback:
 
 ```svelte
-{#each rowEdits as rowEdit (rowEdit.path)}
-  {#if rowEdit.row?.issues === null}
-    {@const row = rowEdit.row}
-    <Input
-      bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })}
-      onblur={() => void rowEdit.save()}
-    />
-  {/if}
-{/each}
+{#if fileEdit.markdown?.issues === null}
+  {@const markdown = fileEdit.markdown}
+  <Input
+    bind:value={() => markdown.fields.title, title => fileEdit.change({ fields: { title } })}
+    onblur={() => void fileEdit.save()}
+  />
+{/if}
 ```
 
-`{@const}` is reactive: `row` follows `rowEdit.row` within its template block.
-A Folder row is `undefined` when absent; `issues === null` means it is valid.
-If script code also needs the value, use `const row = $derived(rowEdit.row)` and
-narrow it in the template. A plain script `const row = rowEdit.row` captures the
-initial value. Do not replace a missing row with empty input values.
+Avoid a script alias that merely repeats `fileEdit.markdown`. Keep a local snapshot
+when a condition or callback needs its narrowing. A plain script `const` captures
+a value instead of following it. Name the editing capability `fileEdit`.
 
-Commands type over what `row` or `text` shows now; there is no
-source to name and no last-read snapshot. A command that composes new
-content reads the row or text and changes it synchronously.
+`change({ fields?, body? })` patches named fields and replaces the supplied body,
+preserving other units. `replaceText(text)` replaces the complete source.
+Both return `Result<void, ChangeError>`: success means accepted into memory,
+not saved. Multiple views share the path's applicable input and truthful pending
+state, so valid view switching requires no save-and-refresh handshake. Invalid
+source remains readable; structured input that cannot apply remains in pending
+for copying, saving again or discarding.
 
-`change` and `changeFields` return `Result<void, ChangeError>`: `Ok(undefined)`
-means accepted into memory, while `Err` explains the refusal. It does not mean
-saved. `save()` and `retry()` resolve after their attempt; `pending?.error`
-and folder status report a storage failure. A row not read yet or gone returns
-`ChangeError.NoSource`, and a file that is not text `ChangeError.NotText`,
-leaving earlier input readable through `pending`.
-
-Name adapters `rowEdit` and `textEdit`; reserve `row` and `text` for their
-values. Each view creates its own adapter, which reads and holds nothing by
-itself. Keep it constant for a fixed address, including a component keyed by
-that address. Derive a replacement only when its table/id or files/path changes;
-changes to `.row`, `.text` or `.pending` do not require another adapter. `save`, `discard`, `delete`, `retry`
-and `exclusive` call the folder's edit.
+`save()` attempts held input, including a previous failure, or joins its running
+attempt. Failure keeps input and error without looping. Another attempt or
+accepted input clears the older error. `discard()`, `delete()` and `exclusive()`
+use the same owner and fence. For path membership, use the folder context's
+`getStatus().unsaved`; for the actual input, use `.pending` on an existing edit.
 
 Use `context.run(action)` for accepted app actions that may write after an
 await. A write or exclusive change that enters Folder before the first await

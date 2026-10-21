@@ -36,7 +36,7 @@ import {
 
 const { timelineOf } = await import('./captures.svelte.ts');
 const { createCaptureActions } = await import('./capture-actions.svelte.ts');
-const { createRowEdit } = await import('@epicenter/svelte/edits');
+const { createFileEdit } = await import('@epicenter/svelte/edits');
 
 const harnesses: CapturesHarness[] = [];
 afterEach(async () => {
@@ -59,7 +59,7 @@ const withBody = (body: string) =>
 
 /** Capture commands over the Folder edit, as the view constructs them. */
 function actionsOf({ folder }: CapturesHarness, stem = 'one') {
-	return createCaptureActions(createRowEdit(folder.tables.captures, stem));
+	return createCaptureActions(createFileEdit(folder.tables.captures.edit(stem)));
 }
 
 /** The folder's edit of capture `one` as its exact text, read. */
@@ -169,7 +169,7 @@ test('an edit saves after a pause and keeps undeclared frontmatter', async () =>
 	const fileEdit = harness.folder.tables.captures.edit('one');
 	actions.inputText('Edited');
 	// The row's body starts after the frontmatter, at its blank separator line.
-	expect(fileEdit.getRow()?.body).toBe('\nEdited\n\n## Thoughts\n\n- first\n  nested line\n');
+	expect(fileEdit.getMarkdown()?.body).toBe('\nEdited\n\n## Thoughts\n\n- first\n  nested line\n');
 	expect(
 		harness.context.getStatus().saving ||
 			harness.context.getStatus().unsaved.length > 0,
@@ -203,7 +203,7 @@ test("another tab's change shows without replacing typing, and the save merges w
 		'the other tab’s change',
 	);
 	// The cache has the outside change; the Folder still holds the input typed here.
-	expect(fileEdit.getRow()?.body).toContain('Typed here');
+	expect(fileEdit.getMarkdown()?.body).toContain('Typed here');
 
 	await fileEdit.save();
 	await harness.quiet();
@@ -223,7 +223,7 @@ test('a failed save keeps the edit and its reason; saving again lands it', async
 	expect(actions.addThought('kept')).toBe(true);
 	await until(() => fileEdit.getPending()?.error !== undefined && !fileEdit.getPending()?.saving, 'the failure');
 
-	expect(fileEdit.getRow()?.body).toContain('- kept');
+	expect(fileEdit.getMarkdown()?.body).toContain('- kept');
 	expect(harness.captures.saveLabel).toBe('Not saved');
 	expect(harness.captures.failures).toEqual([
 		{
@@ -237,7 +237,7 @@ test('a failed save keeps the edit and its reason; saving again lands it', async
 	restore();
 	expect(await harness.text(PATH)).toBe(HAND);
 
-	await fileEdit.retry();
+	await fileEdit.save();
 	await harness.quiet();
 	expect(fileEdit.getPending()).toBeUndefined();
 	expect(await harness.text(PATH)).toContain('- kept\n');
@@ -280,12 +280,12 @@ test('adding a thought uses the current Folder edit after another tab changes it
 		HAND.replace('Text', 'Text changed elsewhere'),
 	);
 	await until(
-		() => fileEdit.getRow()?.body.includes('elsewhere') === true,
+		() => fileEdit.getMarkdown()?.body.includes('elsewhere') === true,
 		'the other tab',
 	);
 	// A thought adds over what the Folder edit shows now.
 	expect(actions.addThought('shared')).toBe(true);
-	expect(fileEdit.getRow()?.body).toContain('- shared');
+	expect(fileEdit.getMarkdown()?.body).toContain('- shared');
 	await harness.quiet();
 	const saved = (await harness.text(PATH)) ?? '';
 	expect(saved).toContain('Text changed elsewhere');
@@ -324,7 +324,7 @@ async function thoughtsElsewhere(
 	const fileEdit = harness.folder.tables.captures.edit('one');
 	const changed = withBody(`Text\n\n## Thoughts\n\n${thoughts}`);
 	await harness.writeElsewhere(PATH, changed);
-	await until(() => fileEdit.getRow()?.text === changed, 'the other tab');
+	await until(() => fileEdit.getMarkdown()?.text === changed, 'the other tab');
 }
 
 test('a command on a list another tab changed is refused, though a view still showed it', async () => {
@@ -367,13 +367,13 @@ test('Edit as text saves the exact text and merges with another tab', async () =
 	await captures.open('one', 'text');
 	const edit = await textOfOne(harness);
 	const typed = HAND.replace('Text', 'Typed as text');
-	expectOk(edit.change(typed));
+	expectOk(edit.replaceText(typed));
 	await harness.quiet();
 	expect(await harness.text(PATH)).toBe(typed);
 
 	// Another tab changes the frontmatter while more is typed below.
 	const again = typed.replace('nested line', 'nested line, again');
-	edit.change(again);
+	edit.replaceText(again);
 	await harness.writeElsewhere(
 		PATH,
 		typed.replace('custom: kept', 'custom: changed'),
@@ -395,10 +395,10 @@ test('a file repaired as text opens as a capture before saving', async () => {
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'text' });
 
 	const fixed = broken.replace('yesterday', AT);
-	(await textOfOne(harness)).change(fixed);
+	(await textOfOne(harness)).replaceText(fixed);
 	await captures.open('one', 'capture');
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
-	expect(harness.folder.tables.captures.edit('one').getRow()?.text).toBe(fixed);
+	expect(harness.folder.tables.captures.edit('one').getMarkdown()?.text).toBe(fixed);
 	expect(await harness.text(PATH)).toBe(broken);
 });
 
@@ -408,7 +408,7 @@ test('unfinished Markdown typed as text saves exactly; a failed save keeps it un
 	// A thought being written as text: an open fence, no final line ending.
 	const unfinished = `${HAND}- half a thought\n\n  \`\`\`ts\n  unclosed(`;
 	const restore = harness.failSaves();
-	edit.change(unfinished);
+	edit.replaceText(unfinished);
 	await edit.save();
 
 	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
@@ -416,7 +416,7 @@ test('unfinished Markdown typed as text saves exactly; a failed save keeps it un
 	expect(harness.captures.saveLabel).toBe('Not saved');
 
 	restore();
-	await edit.retry();
+	await edit.save();
 	await harness.quiet();
 	expect(edit.getPending()).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(unfinished);
@@ -426,7 +426,7 @@ test('closing after a failed whole-file save returns its exact text for recovery
 	const harness = await open({ [PATH]: HAND });
 	const changed = HAND.replace('Text', 'Text kept after close');
 	const restore = harness.failSaves();
-	(await textOfOne(harness)).change(changed);
+	(await textOfOne(harness)).replaceText(changed);
 	const unsaved = await harness.context.close();
 	restore();
 	expect(unsaved).toMatchObject([
@@ -456,7 +456,7 @@ test('deleting waits for the edit and removes the file', async () => {
 test('a delete sends text typed as text first', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	(await textOfOne(harness)).change(`${HAND}typed\n`);
+	(await textOfOne(harness)).replaceText(`${HAND}typed\n`);
 	expectOk(await captures.delete(captures.deletionFor('one')));
 	await harness.quiet();
 	expect(harness.folder.files.edit(PATH).getPending()).toBeUndefined();
@@ -479,7 +479,7 @@ test('close sends the edit held and refuses new input', async () => {
 	expect(captures.fenced).toBe(true);
 	actions.inputText('Too late');
 	expect(fileEdit.getPending()).toBeUndefined();
-	expect(expectErr(harness.folder.files.edit(PATH).change('x')).name).toBe(
+	expect(expectErr(harness.folder.files.edit(PATH).replaceText('x')).name).toBe(
 		'Locked',
 	);
 	expect(actions.addThought('Too late')).toBe(false);
@@ -492,18 +492,18 @@ test('switching from failed text to a capture keeps input and error until anothe
 	await captures.open('one', 'text');
 	const edit = await textOfOne(harness);
 	const changed = `${HAND}more\n`;
-	edit.change(changed);
+	edit.replaceText(changed);
 	const restore = harness.failSaves();
 	await edit.save();
 	restore();
 	await captures.open('one', 'capture');
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
-	expect(harness.folder.tables.captures.edit('one').getRow()?.text).toBe(
+	expect(harness.folder.tables.captures.edit('one').getMarkdown()?.text).toBe(
 		changed,
 	);
 	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
 	expect(await harness.text(PATH)).toBe(HAND);
-	await edit.retry();
+	await edit.save();
 	await captures.open('one', 'capture');
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(await harness.text(PATH)).toBe(changed);

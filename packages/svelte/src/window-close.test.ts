@@ -76,8 +76,8 @@ type Notes = FolderContext<{ notes: typeof notes }>;
 /** Type `title` into `milk` over the row as stored. */
 async function typeTitle({ folder }: Notes, title: string) {
 	const edit = folder.tables.notes.edit('milk');
-	if (expectOk(await edit.read()) === undefined)
-		throw new Error('milk is not stored');
+	expectOk(await edit.read());
+	if (edit.getMarkdown() === undefined) throw new Error('milk is not stored');
 	expectOk(edit.change({ fields: { title } }));
 }
 
@@ -139,7 +139,7 @@ test('whole text waiting to save prompts and Cancel retains it', async () => {
 	expectOk(await context.folder.files.write(path, null, 'saved'));
 	const text = context.folder.files.edit(path);
 	expectOk(await text.read());
-	expectOk(text.change('unsaved source'));
+	expectOk(text.replaceText('unsaved source'));
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);

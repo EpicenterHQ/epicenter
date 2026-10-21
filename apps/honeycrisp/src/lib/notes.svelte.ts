@@ -22,9 +22,9 @@
  * history and has no rename or move, so Honeycrisp offers neither.
  */
 import { InstantString } from '@epicenter/definition';
-import { CLOSING, DELETING, type RowEdit } from '@epicenter/folder/edits';
+import { CLOSING, DELETING } from '@epicenter/folder/edits';
 import { ancestors, joinPath } from '@epicenter/folder/file-browser';
-import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
+import { createFileEdit } from '@epicenter/svelte/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -37,6 +37,7 @@ import {
 	type HoneycrispTables,
 	NOTES,
 	type NoteEntry,
+	type NoteMarkdown,
 	type NoteFields,
 	type NoteRow,
 	noteIdOf,
@@ -133,16 +134,15 @@ function rowAt(path: string): { table: TableName; id: string } | undefined {
 export function createNotes(local: NotesFolder) {
 	const { folder, queryClient } = local;
 
-	/** The folder's edit of `path` as exact text, read reactively; reading its input reads no file. */
-	const textAt = (path: string) => createTextEdit(folder.files, path);
-	/** The edit of the row file at `path`, if it is one. */
-	function rowEditOf(path: string): RowEdit | undefined {
+	/** One tracked file edit, with the note or folder schema when its path has one. */
+	const editAt = (path: string) => {
 		const at = rowAt(path);
-		if (at === undefined) return undefined;
-		return at.table === NOTES
-			? folder.tables.notes.edit(at.id)
-			: folder.tables.folders.edit(at.id);
-	}
+		return at?.table === NOTES
+			? createFileEdit(folder.tables.notes.edit(at.id))
+			: at?.table === FOLDERS
+				? createFileEdit(folder.tables.folders.edit(at.id))
+				: createFileEdit(folder.files.edit(path));
+	};
 	const rowsKey = (table: TableName) => local.queries.rows(table).queryKey;
 
 	/** Which notes the list shows; input not yet committed, like a search. */
@@ -167,9 +167,9 @@ export function createNotes(local: NotesFolder) {
 	}
 
 	/** The note the cache holds for `id`, if it reads as one. */
-	function storedNote(id: string): NoteEntry | undefined {
+	function storedNote(id: string): NoteMarkdown | undefined {
 		const row =
-			folder.tables.notes.edit(id).getRow() ??
+			folder.tables.notes.edit(id).getMarkdown() ??
 			rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		return row?.issues === null ? row : undefined;
 	}
@@ -183,8 +183,8 @@ export function createNotes(local: NotesFolder) {
 	/** Why a file refuses a structured change: closing or deletion. */
 	function mutationRefusal(path: string): string | undefined {
 		if (local.closing) return CLOSING;
-		const textEdit = textAt(path);
-		if (textEdit.locked) return DELETING;
+		const fileEdit = editAt(path);
+		if (fileEdit.locked) return DELETING;
 		return undefined;
 	}
 
@@ -192,7 +192,7 @@ export function createNotes(local: NotesFolder) {
 		const why = mutationRefusal(rowFile(NOTES, id));
 		if (why !== undefined) return why;
 		const row =
-			folder.tables.notes.edit(id).getRow() ??
+			folder.tables.notes.edit(id).getMarkdown() ??
 			rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		if (row === undefined) return NOT_LISTED;
 		if (row.issues !== null) return NOT_A_NOTE;
@@ -260,7 +260,7 @@ export function createNotes(local: NotesFolder) {
 		const id = noteIdOf(path);
 		if (id === undefined) return 'text';
 		const row =
-			folder.tables.notes.edit(id).getRow() ??
+			folder.tables.notes.edit(id).getMarkdown() ??
 			rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		return row === undefined || row.issues === null ? 'note' : 'text';
 	}
@@ -359,18 +359,7 @@ export function createNotes(local: NotesFolder) {
 		path,
 	}: Deletion): Promise<string | undefined> {
 		if (local.closing) return CLOSING;
-		const at = rowAt(path);
-		const row =
-			at === undefined
-				? undefined
-				: (at.table === NOTES ? rowsOf(NOTES) : rowsOf(FOLDERS))?.find(
-						(candidate) => candidate.id === at.id,
-					);
-		const rowEdit = rowEditOf(path);
-		const removed =
-			rowEdit !== undefined && row !== undefined && !notText(row)
-				? await rowEdit.delete()
-				: await folder.files.edit(path).delete();
+		const removed = await folder.files.edit(path).delete();
 		if (removed.error !== null) {
 			return describeFailure(removed.error);
 		}
@@ -437,19 +426,19 @@ export function createNotes(local: NotesFolder) {
 		},
 		/** Whether a save at `path` runs, or typing there waits to be sent. */
 		isWriting(path: string) {
-			const pending = textAt(path).pending;
+			const pending = editAt(path).pending;
 			return (
 				pending !== undefined && (pending.error === undefined || pending.saving)
 			);
 		},
 		/** Whether typing at `path` did not save, with no save running. */
 		isUnsaved(path: string) {
-			const pending = textAt(path).pending;
+			const pending = editAt(path).pending;
 			return pending?.error !== undefined && !pending.saving;
 		},
 		/** Whether edits of `path` are refused now: closing, or a delete runs. */
 		isLocked(path: string) {
-			return local.closing || textAt(path).locked;
+			return local.closing || editAt(path).locked;
 		},
 		/** Whether input and actions are held back because the notes are closing. */
 		get fenced() {
@@ -478,13 +467,13 @@ export function createNotes(local: NotesFolder) {
 			patch(fields: Partial<NoteFields>): string | undefined;
 		} {
 			const id = noteIdOf(path) ?? '';
-			const rowEdit = createRowEdit(folder.tables.notes, id);
+			const fileEdit = createFileEdit(folder.tables.notes.edit(id));
 			// The folder reads a body with its file's line endings. The editors
 			// read and write it with line feeds (ADR-0572), so a CRLF body gets
 			// line feeds with its first edit and opening it writes nothing.
-			let last: { row: NoteRow; shown: NoteEntry } | undefined;
-			function getRow(): NoteEntry | undefined {
-				const row = rowEdit.row;
+			let last: { row: NoteMarkdown; shown: NoteMarkdown } | undefined;
+			function getMarkdown(): NoteMarkdown | undefined {
+				const row = fileEdit.markdown;
 				if (row?.issues !== null || row === undefined) return undefined;
 				if (!row.body.includes('\r')) return row;
 				if (last?.row !== row)
@@ -495,13 +484,13 @@ export function createNotes(local: NotesFolder) {
 				return last.shown;
 			}
 			return {
-				getRow,
+				getMarkdown,
 				// Closing refuses input before the folder itself closes.
-				isLocked: () => local.closing || rowEdit.locked,
+				isLocked: () => local.closing || fileEdit.locked,
 				edit(body) {
-					// The rich-text editor checked its document against `getRow()`
+					// The rich-text editor checked its document against `getMarkdown()`
 					// synchronously before this change.
-					const shown = getRow();
+					const shown = getMarkdown();
 					if (shown === undefined) return false;
 					if (body === shown.body) return true;
 					return changeNote(path, { body }) === undefined;
@@ -521,11 +510,11 @@ export function createNotes(local: NotesFolder) {
 			if (why !== undefined) return why;
 			const id = folderIdOf(path);
 			if (id === undefined) return NOT_LISTED;
-			const rowEdit = folder.tables.folders.edit(id);
-			if (rowEdit.getRow()?.issues !== null) return NOT_LISTED;
-			const changed = rowEdit.change({ fields });
+			const fileEdit = folder.tables.folders.edit(id);
+			if (fileEdit.getMarkdown()?.issues !== null) return NOT_LISTED;
+			const changed = fileEdit.change({ fields });
 			if (changed.error !== null) return changed.error.message;
-			void rowEdit.save();
+			void fileEdit.save();
 			return undefined;
 		},
 
@@ -594,7 +583,7 @@ export function createNotes(local: NotesFolder) {
 			const row =
 				id === undefined || storedNote(id) === undefined
 					? undefined
-					: folder.tables.notes.edit(id).getRow();
+					: folder.tables.notes.edit(id).getMarkdown();
 			return Ok({
 				path,
 				title:

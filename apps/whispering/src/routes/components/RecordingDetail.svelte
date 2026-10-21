@@ -63,36 +63,33 @@
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	/**
-	 * This view's row and text: the folder's edits of the file, each as
-	 * stored with what is typed over it.
+	 * One file edit supplies fields, body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
-	const rowEdit = library.rowEdit(RECORDINGS, own);
+	const fileEdit = library.edit(RECORDINGS, own);
 	const context = getFolder();
 	/** What the file is while it shows as text; its reads keep the text edit current. */
 	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
-	// svelte-ignore state_referenced_locally
-	const textEdit = library.textEdit(own);
 	/** The recording as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
-		const shown = rowEdit.row;
+		const shown = fileEdit.markdown;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** The file's text as typed while an edit is unsaved, else as stored. */
 	const text = $derived(
-		asText && (textEdit.pending !== undefined || opened.data?.kind === 'text') ? textEdit.text : undefined,
+		asText && (fileEdit.pending !== undefined || opened.data?.kind === 'text') ? fileEdit.text : undefined,
 	);
 	/** Why the current source does not read as a recording, including unsaved input. */
-	const issues = $derived(asText ? (rowEdit.row?.issues ?? undefined) : undefined);
+	const issues = $derived(asText ? (fileEdit.markdown?.issues ?? undefined) : undefined);
 	const id = $derived(rowIdOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
-	const pending = $derived(library.heldAt(path));
+	const pending = $derived(fileEdit.pending);
 
 	// The edits outlive the view; send what is typed now.
-	onDestroy(() => void rowEdit.save());
+	onDestroy(() => void fileEdit.save());
 	const results = $derived(library.resultsFor(id));
 	const run = $derived(library.transcriptionRun(id));
 	/** Playback requires one unambiguous audio file. */
@@ -123,8 +120,8 @@
 			{@const shown = row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => shown.fields.title, (value) => rowEdit.change({ fields: { title: value } })}
-				onblur={() => void rowEdit.save()}
+				bind:value={() => shown.fields.title, (value) => fileEdit.change({ fields: { title: value } })}
+				onblur={() => void fileEdit.save()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Recording title"
@@ -228,9 +225,9 @@
 						class="min-h-28 resize-y font-sans"
 						bind:value={
 							() => shown.body,
-							(value) => library.editBody(rowEdit, value)
+							(value) => library.editBody(fileEdit, value)
 						}
-						onblur={() => void rowEdit.save()}
+						onblur={() => void fileEdit.save()}
 						disabled={locked}
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
@@ -292,8 +289,8 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => library.editText(textEdit, withFileNewlines(value, shown))}
-					onblur={() => void textEdit.save()}
+					bind:value={() => lf(shown), (value) => library.editText(fileEdit, withFileNewlines(value, shown))}
+					onblur={() => void fileEdit.save()}
 					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}

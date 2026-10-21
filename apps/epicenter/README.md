@@ -353,23 +353,24 @@ Boards group one field into distinct string, number, boolean, and null lanes.
 Enum and boolean schema hints retain empty destinations. **No value** represents
 an absent field. Object and array values appear in **Other**, which cannot be
 chosen as a move destination. Moving a card changes its grouping field through
-the same `TextEdit` (`folder.files.edit(path)`) as
+the same `FileEdit` (`folder.files.edit(path)`) as
 grid and Files edits. Failed moves retain their input for retry or discard.
 Cards have no separate rank or drag-order record.
 
 The opened Folder owns unfinished text and field intent per path, from open to
 close, through `folder.files.edit(path)`
 ([ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
-Files, grid, and board use `createTextEdit(folder.files, path)` and keep no
-separate save queue. The reactive `.text` getter reads the editable text,
-`.pending` reads unsaved input, and `change(text)` or `changeFields(fields)`
+Files, grid, and board use `createFileEdit(folder.files.edit(path, schema))` and keep no
+separate save queue. The reactive `.markdown` getter reads the current structured view, `.text` reads its source,
+`.pending` reads unsaved input, and `replaceText(text)` or `change({ fields })`
 accepts new input without a source argument. Input
 survives view switches. Field intent overlays fresh reads, so another
 writer's body changes remain visible. A failed reread leaves the text already
 shown in place and editable; text this window saved, with no readable source
 left, stays readable to copy but takes no typing. Starting to type source text deliberately turns that draft into
-a whole-file edit. A failed field edit stays held for explicit retry or discard;
-source repair first requires copying or discarding that intent. Recovery shows
+a whole-file edit. A failed structured edit stays held for another save attempt or discard. Applicable
+changes can continue in Files; source repair requires copying or discarding intent
+that cannot currently be represented. Recovery shows
 the field patch separately from the current source, without keeping a stale
 whole-file preview. Hiding sends pending work. Closing checks the Folder's save
 status and asks whether to close anyway if accepted work is pending. Unsaved

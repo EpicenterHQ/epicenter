@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createRowEdit } from '@epicenter/svelte/edits';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 	import type { FolderContext } from '@epicenter/svelte/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -18,7 +18,7 @@
 	/**
 	 * One AI connection: its row in `so.epicenter`, whose title and model are
 	 * edited in place through the folder's edit of the row
-	 * (`createRowEdit(folder.tables.connections, id)`): what is typed shows at
+	 * (`createFileEdit(folder.tables.connections.edit(id))`): what is typed shows at
 	 * once and saves a second after the last keystroke, when the field loses
 	 * focus, and when the editor goes away, merged with whatever was saved
 	 * meanwhile (ADR-0576). For an `openai-compatible` connection, the
@@ -40,16 +40,15 @@
 	// The list keys each editor by its id, in one opened folder. The list's
 	// read answered the edit's document.
 	// svelte-ignore state_referenced_locally
-	const rowEdit = createRowEdit(local.folder.tables.connections, id);
-	const shown = $derived(rowEdit.row);
+	const fileEdit = createFileEdit(local.folder.tables.connections.edit(id));
 	/** The connection with what is typed over it, or as the list read it while that is not known. */
-	const fields = $derived(shown?.issues === null ? shown.fields : row.fields);
-	const pending = $derived(rowEdit.pending);
+	const fields = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown.fields : row.fields);
+	const pending = $derived(fileEdit.pending);
 	const failure = $derived(pending?.saving ? undefined : pending?.error);
 	const client = useQueryClient();
 
 	// The input outlives the editor; send what is typed now.
-	onDestroy(() => void rowEdit.save());
+	onDestroy(() => void fileEdit.save());
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -71,7 +70,7 @@
 	let savingKey = $state(false);
 
 	function type(field: 'title' | 'model', text: string) {
-		rowEdit.change({ fields: { [field]: text } });
+		fileEdit.change({ fields: { [field]: text } });
 	}
 
 	async function saveKey() {
@@ -107,7 +106,7 @@
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;
 			return;
 		}
-		const removed = await rowEdit.delete();
+		const removed = await fileEdit.delete();
 		if (removed.error !== null) deleteProblem = saveFailureText(removed.error);
 		else if (!removed.data.deleted)
 			deleteProblem = 'The connection changed while it was being deleted, so it was kept.';
@@ -124,10 +123,10 @@
 			<span class="text-muted-foreground">Title</span>
 			<Input
 				value={fields.title}
-				disabled={rowEdit.locked}
+				disabled={fileEdit.locked}
 				aria-invalid={pending?.error !== undefined}
 				oninput={(event) => type('title', event.currentTarget.value)}
-				onblur={() => void rowEdit.save()}
+				onblur={() => void fileEdit.save()}
 			/>
 		</label>
 		<label class="grid gap-1">
@@ -135,17 +134,17 @@
 			<Input
 				value={fields.model}
 				placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
-				disabled={rowEdit.locked}
+				disabled={fileEdit.locked}
 				aria-invalid={pending?.error !== undefined}
 				oninput={(event) => type('model', event.currentTarget.value)}
-				onblur={() => void rowEdit.save()}
+				onblur={() => void fileEdit.save()}
 			/>
 		</label>
 	</div>
 	{#if failure !== undefined}
 		<p role="alert" class="text-destructive">
 			Not saved: {saveFailureText(failure)}
-			<button type="button" class="underline" onclick={() => void rowEdit.save()}>Try again</button>
+			<button type="button" class="underline" onclick={() => void fileEdit.save()}>Try again</button>
 		</p>
 	{/if}
 
@@ -186,6 +185,6 @@
 	{#if keyProblem}<p role="alert" class="text-destructive">{keyProblem}</p>{/if}
 	{#if deleteProblem}<p role="alert" class="text-destructive">{deleteProblem}</p>{/if}
 	<div>
-		<Button variant="ghost" size="sm" disabled={rowEdit.locked} onclick={() => void removeConnection()}>Delete connection</Button>
+		<Button variant="ghost" size="sm" disabled={fileEdit.locked} onclick={() => void removeConnection()}>Delete connection</Button>
 	</div>
 </li>

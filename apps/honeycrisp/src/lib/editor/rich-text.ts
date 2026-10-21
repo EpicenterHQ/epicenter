@@ -2,7 +2,7 @@
  * The rich-text view's editing: its commands and plugins, and the two rules
  * that keep its ProseMirror state the note's body.
  *
- * The note's body is the one `NoteBody.getRow()` shows: the folder's edit
+ * The note's body is the one `NoteBody.getMarkdown()` shows: the folder's edit
  * of the note, what is typed over it included (ADR-0548). The
  * view's `EditorState` adds only what the note has no place for: the
  * cursor, pending formatting, undo history, and an empty paragraph Markdown
@@ -56,7 +56,7 @@ import {
 	type Plugin,
 	type Transaction,
 } from 'prosemirror-state';
-import type { NoteEntry } from '../data.js';
+import type { NoteMarkdown } from '../data.js';
 import { bodyCodec, equivalentNoteDocs } from './markdown.js';
 import { noteSchema } from './schema.js';
 
@@ -167,7 +167,7 @@ export type NoteBody = {
 	 * `undefined` while it is not known, once it is gone, or when it does not
 	 * read as a note.
 	 */
-	getRow(): NoteEntry | undefined;
+	getMarkdown(): NoteMarkdown | undefined;
 	/** Whether the note takes no edit now. */
 	isLocked(): boolean;
 	/** Type `body` as the note's body, which saves it. Answers whether it was taken. */
@@ -200,7 +200,7 @@ export function stateAfter(
 	// changes its file.
 	if (!transaction.docChanged) return state.apply(transaction);
 	if (note.isLocked()) return undefined;
-	const row = note.getRow();
+	const row = note.getMarkdown();
 	if (row === undefined) return undefined;
 	const { body } = row;
 	const current = bodyCodec.decode(body);

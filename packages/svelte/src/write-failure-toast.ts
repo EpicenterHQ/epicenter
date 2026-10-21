@@ -33,10 +33,10 @@ export function toastWriteFailure(failure: WriteFailure) {
  * at once.
  */
 function show(failure: WriteFailure, copyRefused = false) {
-	const { path, error, unsaved, retry, discard } = failure;
+	const { path, error, unsaved, save, discard } = failure;
 	const title = `Could not save ${path}`;
 	const said =
-		retry === undefined
+		save === undefined
 			? describeWriteError(error)
 			: `${describeWriteError(error)} Your edit is still on screen.`;
 	const copyable = unsaved !== '';
@@ -62,7 +62,7 @@ function show(failure: WriteFailure, copyRefused = false) {
 	};
 	/** Start the save again; when none starts, show the failure again without Save again. */
 	const saveAgain = () => {
-		if (!retry?.()) show({ path, error, unsaved }, copyRefused);
+		if (!save?.()) show({ path, error, unsaved }, copyRefused);
 	};
 	/**
 	 * Let go of the edit; the toast stays with only the text to copy: the
@@ -82,14 +82,14 @@ function show(failure: WriteFailure, copyRefused = false) {
 	const shown = toast.error(title, {
 		...(copyRefused ||
 		discarded !== undefined ||
-		(copyable && retry === undefined)
+		(copyable && save === undefined)
 			? {
 					description: UnsavedText,
 					componentProps: {
 						message: copyRefused
 							? `${said} Copying did not work: select your text below and copy it.`
 							: said,
-						text: copyRefused || retry === undefined ? unsaved : undefined,
+						text: copyRefused || save === undefined ? unsaved : undefined,
 						discard: discarded,
 					},
 				}
@@ -97,13 +97,13 @@ function show(failure: WriteFailure, copyRefused = false) {
 		duration: copyable ? Number.POSITIVE_INFINITY : undefined,
 		action: copyable
 			? copy
-			: retry !== undefined
+			: save !== undefined
 				? { label: 'Save again', onClick: saveAgain }
 				: undefined,
 		// Save again closes its toast, and shows it again, with only what is
 		// left to offer, when no save started.
 		cancel:
-			copyable && retry !== undefined
+			copyable && save !== undefined
 				? { label: 'Save again', onClick: saveAgain }
 				: undefined,
 	});

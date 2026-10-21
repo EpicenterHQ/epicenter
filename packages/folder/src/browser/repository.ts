@@ -9,6 +9,7 @@ import {
 import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
+import { readDocument } from '../shared/document.js';
 import { changeSnapshot } from './git/snapshot.js';
 import {
 	openStorage,
@@ -158,7 +159,7 @@ export async function openRepository<
 				}
 				const current = snapshotContent(snapshot, path);
 				if (rowFields && current !== null) {
-					const row = readRow('', current, {});
+					const row = readDocument(path, current);
 					const problem = row.issues?.[0];
 					if (problem?.kind === 'not-text') return SaveError.NotText();
 					if (problem?.kind === 'frontmatter')
@@ -304,9 +305,10 @@ export async function openRepository<
 				path: string,
 				from: FileContent | null,
 				content: FileContent,
+				fields?: boolean,
 			): Promise<Result<{ stored: FileContent | null }, SaveError>> {
 				assertOpen();
-				const result = await saveFile(path, from, content);
+				const result = await saveFile(path, from, content, fields ?? false);
 				return result.error !== null
 					? Err(result.error)
 					: Ok({ stored: result.data.stored });

@@ -47,37 +47,34 @@
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	// The library's timers outlive the view; send what is typed now instead.
-	onDestroy(() => void textEdit.save());
+	onDestroy(() => void fileEdit.save());
 	const table = $derived(rowTableOf(path));
 	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
 	const asText = $derived(!audio && library.showsText(path));
 	/**
-	 * This view's transcript row and its text: the folder's edits of the
-	 * file, each as stored with what is typed over it.
+	 * One file edit supplies the transcript body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
-	const rowEdit = library.rowEdit(TRANSCRIPTIONS, own);
+	const fileEdit = library.edit(own);
 	const context = getFolder();
 	/** What the file is while it shows as text; its reads keep the text edit current. */
 	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
-	// svelte-ignore state_referenced_locally
-	const textEdit = library.textEdit(own);
 	/** A transcript that reads: its body is edited here, its fields kept. */
 	const transcript = $derived.by(() => {
 		if (table !== TRANSCRIPTIONS || asText) return undefined;
-		const shown = rowEdit.row;
+		const shown = fileEdit.markdown;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** The file's text as typed while an edit is unsaved, else as stored. */
 	const text = $derived(
-		textEdit.pending !== undefined || opened.data?.kind === 'text' ? textEdit.text : undefined,
+		fileEdit.pending !== undefined || opened.data?.kind === 'text' ? fileEdit.text : undefined,
 	);
 	/** Why the current source does not read as a row, including unsaved input. */
 	const issues = $derived(
-		table === undefined || text === undefined ? undefined : (library.rowEdit(table, path).row?.issues ?? undefined),
+		table === undefined || text === undefined ? undefined : (fileEdit.markdown?.issues ?? undefined),
 	);
 	const locked = $derived(library.locked(path));
-	const pending = $derived(library.heldAt(path));
+	const pending = $derived(fileEdit.pending);
 
 	async function show(source: boolean) {
 		const problem = source ? await library.editSource(path) : await library.useForm(path);
@@ -160,9 +157,9 @@
 				class="min-h-40 flex-1 resize-none font-sans"
 				bind:value={
 					() => row.body,
-					(value) => library.editBody(rowEdit, value)
+					(value) => library.editBody(fileEdit, value)
 				}
-				onblur={() => void rowEdit.save()}
+				onblur={() => void fileEdit.save()}
 				disabled={locked}
 				aria-label="Contents of {name}"
 			/>
@@ -196,8 +193,8 @@
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(shown), (value) => library.editText(textEdit, withFileNewlines(value, shown))}
-				onblur={() => void textEdit.save()}
+				bind:value={() => lf(shown), (value) => library.editText(fileEdit, withFileNewlines(value, shown))}
+				onblur={() => void fileEdit.save()}
 				disabled={locked}
 				aria-label="Contents of {name}"
 				spellcheck={false}

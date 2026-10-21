@@ -23,9 +23,9 @@
  * storage failure. Held input stays readable through `status` and `edit`. Failures that storage reports come back as `ReadError` and
  * `SaveError` results; a failed save leaves earlier storage unchanged.
  */
-import type { TSchema as Schema } from 'typebox';
+import type { TSchema as Schema, TRecord, TUnknown } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { Pending, RowEdit, TextEdit } from './edit-owner.js';
+import type { Pending, FileEdit } from './edit-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
@@ -88,7 +88,10 @@ export type FolderFiles = FolderFileOperations & {
 	 * the fields typed into it and not saved yet, shared by every caller of
 	 * this handle. Answering it reads and holds nothing.
 	 */
-	edit(path: string): TextEdit;
+	edit<TSchema extends Schema = TRecord<string, TUnknown>>(
+		path: string,
+		schema?: TSchema,
+	): FileEdit<TSchema>;
 };
 
 /** What every engine stores a table's rows through; `FolderTable` adds input held over them. */
@@ -120,7 +123,7 @@ export type FolderTable<TSchema extends Schema = Schema> =
 		 * and not saved yet, shared by every caller of this handle. Answering
 		 * it reads and holds nothing.
 		 */
-		edit(id: string): RowEdit<TSchema>;
+		edit(id: string): FileEdit<TSchema>;
 	};
 
 /**
@@ -146,21 +149,21 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	/** Called when save status changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
 	/**
-	 * Send new input once, after running exclusive changes and deletes. Failed
-	 * input waits for retry or new input. Answers what did not save; editing stays open.
+	 * Attempt held input once, including previous failures, after running
+	 * exclusive changes and deletes. Answers what did not save; editing stays open.
 	 */
 	settle(): Promise<Pending[]>;
 	/**
 	 * Close the handle. At once, new input is refused and every storage
 	 * call (reads, saves, deletes, listeners, `settle`) throws; running
-	 * deletes and exclusive changes finish; new input is sent once; failures stay
+	 * deletes and exclusive changes finish; held input is attempted once; failures stay
 	 * held for recovery; saves
 	 * already started finish and report their real outcome; then listeners
 	 * and storage are released. Reads that are still running are not waited
 	 * for. What stays is reading what is held: `getStatus()`, and `edit(...)`
-	 * handles, whose `getRow()`, `getText()`, `getPending()` and `discard()`
-	 * still answer, whose `read()` rejects, and whose `save()` and `retry()`
-	 * join the close. Answers the input that did not save. Closing again
+	 * handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()`
+	 * still answer, whose `read()` rejects, and whose `save()`
+	 * joins the close. Answers the input that did not save. Closing again
 	 * returns the same promise.
 	 */
 	close(): Promise<Pending[]>;

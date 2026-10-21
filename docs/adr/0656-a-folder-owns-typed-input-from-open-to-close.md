@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
+- **Amended by:** [ADR-0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md), the common editor interface, implemented; its decision remains Proposed.
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) and [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md), where an editor's input lives: input not yet saved is held by the folder, not by a page draft or a queue in each app. A field edit still sets fields on the file as it is now, a body or text still merges by line, and one write path and one channel of change remain.
 - **Relates:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge each save uses), [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) (folder queries), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (the app's folder context), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) (a control binds one part of a row)
 - **Built:** `createEditOwner` (`packages/folder/src/edit-owner.ts`) inside every folder handle; `folder.tables.<t>.edit(id)` and `folder.files.edit(path)`; `folder.getStatus()` with `unsaved`, `failures` and `closing`; `folder.settle()` and `folder.close()` answering `Pending[]`; the `saveAfterMs` open option on every opener; read notes (`shared/observation.ts`); `createRowEdit` and `createTextEdit` in `@epicenter/svelte/edits`; `useRowEdit` and `useTextEdit` in `@epicenter/react/edits`; the context's `getStatus()`, `folder.getStatus()` read reactively, with no summary of it beside; Todos, Capture, Honeycrisp, Vocab, Whispering and the generic editor on them; and the deletions below.
@@ -147,17 +148,19 @@ outside what close waits for and what `getStatus()` reports.
   `SAVE_AFTER_MS`); a negative or non-finite value throws `RangeError` at
   open.
 - `folder.getStatus()` is `{ saving, storageFailure, unsaved, failures, closing }`.
-- `folder.settle()` sends new input once and answers what is still held.
-- Every row, text and field edit has `save()` and `retry()`. `save()` sends
-  new input or joins its running attempt. A failed or refused revision stays
-  held until explicit `retry()` or accepted new input. Incidental triggers
-  never retry failures, including storage failures. Both commands resolve
-  after the attempt; the retained `pending` value reports failure.
+- `folder.settle()` attempts held input once and answers what is still held.
+- Every row, text and field edit has `save()`: attempt held input, including a
+  previous failure, or join its running attempt. Blur, unmount, settlement,
+  delete, exclusive actions and close use the same save policy. Failure keeps
+  the input and its error; the same failed input does not loop on its own.
+  Another attempt or accepted new input clears the error. The promise resolves
+  after the attempt; retained `pending` reports failure. The separate `retry()`
+  command and error-clearing authorization transition were removed: an error
+  describes an outcome, not permission to save.
 - `folder.close()` refuses new input and makes every storage call throw at
-  once, sends new input once, waits for saves but not reads, and answers
-  what is still held. Failed input is returned without another attempt. What is held stays readable: `status`, and `edit(...)`
-  handles, whose `pending`, `shown` and `discard` answer and whose `save()`
-  and `retry()` join the close.
+  once, attempts held input once, waits for saves but not reads, and answers
+  what is still held. Held input stays readable through status and edit read
+  methods; `discard()` still answers and `save()` joins the close.
 - `delete()` and `exclusive(action)` take the path, send held input once, and
   refuse with `ActionError.NotStarted` (`DELETING`, `BUSY`, `UNSAVED`,
   `CLOSING`) otherwise. `exclusive` hands the action an `ExclusiveFile` that
@@ -196,12 +199,12 @@ stored format changes; nothing migrates.
 
 ## Considered
 
-- **Retrying storage failures during close.** It gave disposal a different
-  authorization rule from blur and settlement. Disposal returns copyable
-  input, and the UI decides how to warn before departure. One rule for every
-  edit and trigger removes the special shutdown retry without silently losing
-  failed input. After storage recovers,
-  the person chooses Try again or types a new change.
+- **Separate authorization to retry failed input.** Earlier, blur, settlement
+  and close left failed revisions alone while `retry()` authorized another
+  attempt. This made an error both an outcome and a write gate. The shared
+  `save()` policy replaces that distinction: every save trigger can attempt
+  held input once, and a failed attempt retains copyable input without looping.
+
 
 - **An owner attached after open.** Close could not tell whether one was still
   coming, and plain scripts had none.

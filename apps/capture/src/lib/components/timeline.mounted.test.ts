@@ -232,7 +232,7 @@ test('a draft an earlier version saved is listed apart, autosaves, and Add captu
 	expect(t.captures.opened).toEqual({ stem: 'draft', mode: 'text' });
 	expect(box.value).toBe(draftFile(''));
 	type(box, draftFile('Written in the draft'));
-	expect(edit.getRow()?.body).toBe('Written in the draft');
+	expect(edit.getMarkdown()?.body).toBe('Written in the draft');
 	await t.quiet();
 	expect(await t.text(DRAFT)).toBe(draftFile('Written in the draft'));
 
@@ -251,12 +251,12 @@ test('a draft an earlier version saved is listed apart, autosaves, and Add captu
 test('the draft text box writes nothing after its view is gone', async () => {
 	const { t, box, edit } = await openDraft();
 	type(box, draftFile('typed in the draft'));
-	expect(edit.getRow()?.body).toBe('typed in the draft');
+	expect(edit.getMarkdown()?.body).toBe('typed in the draft');
 
 	t.close();
 	flushSync();
 	type(box, draftFile('delivered after the view went'));
-	expect(edit.getRow()?.body).toBe('typed in the draft');
+	expect(edit.getMarkdown()?.body).toBe('typed in the draft');
 	expect(t.captures.fenced).toBe(false);
 });
 
@@ -375,7 +375,7 @@ test('Finish saves pending whole-file edits before composing, keeping unknown fr
 	const typed = original.replace('draft: true', 'draft: true\r\nunknown: kept').replace('Before', 'New\r\nbody');
 	type(box, typed);
 	const edit = t.folder.tables.captures.edit('draft');
-	expect(t.folder.files.edit(DRAFT).getText()).toBe(typed);
+	expect(edit.getText()).toBe(typed);
 	click(document, 'Add capture');
 	await until(() => { flushSync(); return field('new-thought') !== null; }, 'the finished capture');
 	await t.quiet();
@@ -420,7 +420,7 @@ test('a failed draft save reopens from the failure list in the full-file editor'
 	const edit = t.folder.tables.captures.edit('draft');
 	expectOk(await edit.read());
 	const restore = t.failSaves();
-	expectOk(t.folder.files.edit(DRAFT).change(draftFile('Held here')));
+	expectOk(edit.replaceText(draftFile('Held here')));
 	await edit.save();
 	flushSync();
 	click(document, 'Open');
@@ -442,7 +442,7 @@ test('a capture that becomes a draft offers an explicit text editor that stays m
 	await t.writeElsewhere(DRAFT, draftFile('Before'));
 	expectOk(await t.folder.tables.captures.edit('draft').read());
 	type(oldCaptureText, 'Stale structured input');
-	expect(t.folder.tables.captures.edit('draft').getRow()?.body).toBe('Before');
+	expect(t.folder.tables.captures.edit('draft').getMarkdown()?.body).toBe('Before');
 	await until(() => { flushSync(); return document.body.textContent?.includes('This file is a draft') ?? false; }, 'the draft notice');
 	expect(document.querySelector<HTMLTextAreaElement>('[aria-label="Thought not added"]')?.value).toBe('Not added yet');
 	expect(fileField()).toBeNull();

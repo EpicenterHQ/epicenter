@@ -21,8 +21,8 @@
  */
 
 import type { ReadError, SaveError } from '@epicenter/folder';
-import { ActionError, type RowPending } from '@epicenter/folder/edits';
-import { createRowEdit } from '@epicenter/svelte/edits';
+import { ActionError, type Pending } from '@epicenter/folder/edits';
+import { createFileEdit } from '@epicenter/svelte/edits';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -88,7 +88,6 @@ export function repairsOf(rows: EntryRows): UnreadableFile[] {
 
 export function createEntries(local: VocabContext) {
 	const { folder, queries, queryClient, refresh, run } = local;
-	const table = folder.tables.entries;
 	const rowsKey = queries.rows('entries').queryKey;
 	const repair = createRepair(folder);
 	const cachedRows = () => queryClient.getQueryData<EntryRows>(rowsKey) ?? [];
@@ -97,7 +96,7 @@ export function createEntries(local: VocabContext) {
 
 	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
 	function canEdit(id: string) {
-		return repair.open !== id && !table.edit(id).isLocked();
+		return repair.open !== id && !folder.tables.entries.edit(id).isLocked();
 	}
 
 	async function addWord(
@@ -108,14 +107,14 @@ export function createEntries(local: VocabContext) {
 		for (const listed of wordsOf(cachedRows()).filter(
 			(entry) => entry.text === exact,
 		)) {
-			const { data: current } = await table.get(listed.id);
+			const { data: current } = await folder.tables.entries.get(listed.id);
 			if (current?.issues === null && current.fields.text === exact) {
 				await reread();
 				return Ok('present');
 			}
 		}
 		const id = await wordId(exact);
-		const { data: current, error: readError } = await table.get(id);
+		const { data: current, error: readError } = await folder.tables.entries.get(id);
 		if (readError !== null) return EntryError.NotSaved({ cause: readError });
 		// Another add, another tab, or an earlier attempt whose answer was
 		// lost may have made it: it is this word only if it holds this text.
@@ -125,7 +124,7 @@ export function createEntries(local: VocabContext) {
 			await reread();
 			return Ok('present');
 		}
-		const { error } = await table.set(id, null, {
+		const { error } = await folder.tables.entries.set(id, null, {
 			fields: {
 				text: exact,
 				note: '',
@@ -142,24 +141,24 @@ export function createEntries(local: VocabContext) {
 
 	/** The folder's edit of the word at `id`, read reactively, with the learner's two edits. */
 	function edit(id: string) {
-		const rowEdit = createRowEdit(table, id);
-		return Object.assign(rowEdit, {
+		const fileEdit = createFileEdit(folder.tables.entries.edit(id));
+		return Object.assign(fileEdit, {
 			/**
 			 * Type the note; it is saved a second after the last change. Half of
 			 * a surrogate pair is kept as U+FFFD, which the folder can save.
 			 */
 			setNote: (note: string): boolean =>
 				canEdit(id) &&
-				rowEdit.change({ fields: { note: note.toWellFormed() } }).error ===
+				fileEdit.change({ fields: { note: note.toWellFormed() } }).error ===
 					null,
 			/** Press a stage; it is saved at once. */
 			setStage(stage: Stage): boolean {
 				if (
 					!canEdit(id) ||
-					rowEdit.change({ fields: { stage } }).error !== null
+					fileEdit.change({ fields: { stage } }).error !== null
 				)
 					return false;
-				void rowEdit.save();
+				void fileEdit.save();
 				return true;
 			},
 		});
@@ -181,7 +180,7 @@ export function createEntries(local: VocabContext) {
 		isLocked: (id: string) =>
 			local.closing ||
 			repair.open === id ||
-			createRowEdit(table, id).locked,
+			createFileEdit(folder.tables.entries.edit(id)).locked,
 
 		/**
 		 * Save a word or a captured phrase, and answer once the list holds it.
@@ -223,20 +222,19 @@ export function createEntries(local: VocabContext) {
 		): Promise<
 			Result<{ deleted: boolean }, SaveError | ReadError | ActionError>
 		> {
-			const removed = await table.edit(entry.id).delete();
+			const removed = await folder.tables.entries.edit(entry.id).delete();
 			if (removed.error !== null || removed.data.deleted) return removed;
 			const { data: current, error } = await untilClosed(
-				() => table.get(entry.id),
+				() => folder.tables.entries.get(entry.id),
 				() => Ok(entry.row),
 			);
 			return Ok({ deleted: error === null && current === undefined });
 		},
 
 		/** The words whose last save failed, with what was typed; read reactively. */
-		get failures(): RowPending[] {
+		get failures(): Pending[] {
 			return local.getStatus().failures.filter(
-				(pending): pending is RowPending =>
-					pending.kind === 'row' && pending.table === 'entries',
+				(pending) => /^entries\/[^/]+\.md$/.test(pending.path),
 			);
 		},
 

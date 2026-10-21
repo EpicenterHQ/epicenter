@@ -59,7 +59,7 @@ export function observe(vocab: Vocab) {
 export async function quiet(vocab: Vocab) {
 	const idle = () =>
 		!vocab.folder.getStatus().saving &&
-		!vocab.entries.repair.saving &&
+		!vocab.entries.repair.view()?.pending?.saving &&
 		vocab.queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 400; tries++) {
 		if (idle()) {

@@ -7,10 +7,10 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import { CopyButton } from '@epicenter/ui/copy-button';
-	import type { RowPending } from '@epicenter/folder/edits';
+	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { type Entry, type FocusItem, rowPath, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { type Entries, repairsOf, wordsOf } from '$lib/entries.svelte.js';
+	import { type Entries, type EntryRows, repairsOf, wordsOf } from '$lib/entries.svelte.js';
 	import { describeFailure } from '$lib/failure.js';
 	import { reviewImport, STARTER_LIST } from '$lib/import.js';
 	import EntryCard from './EntryCard.svelte';
@@ -32,17 +32,22 @@
 	let selected = $state<string[]>([]);
 	let focusIds = $state<string[]>([]);
 	const listing = createQuery(() => entries.entriesQuery());
-	const words = $derived(listing.data ? wordsOf(listing.data) : []);
-	const repairs = $derived(listing.data ? repairsOf(listing.data) : []);
+	// Membership comes from the listing; interpretation follows each path's current edit.
+	const currentRows = $derived((listing.data ?? []).map((listed): EntryRows[number] => {
+		const markdown = entries.edit(listed.id).markdown;
+		if (markdown === undefined) return listed;
+		return markdown.issues === null
+			? { id: listed.id, ...markdown }
+			: { id: listed.id, ...markdown, issues: [...markdown.issues] };
+	}));
+	const words = $derived(wordsOf(currentRows));
+	const repairs = $derived(repairsOf(currentRows));
 	/** Words whose note or stage did not save and that the list no longer shows as words. */
 	const orphaned = $derived(
 		listing.data === undefined
 			? []
-			: entries.failures.filter((draft) => !words.some((entry) => entry.id === draft.id)),
+			: entries.failures.filter((draft) => !words.some((entry) => rowPath('entries', entry.id) === draft.path)),
 	);
-	/** What was typed and not saved, to copy. */
-	const unsavedText = (draft: RowPending) =>
-		Object.entries(draft.fields).map(([field, value]) => `${field}: ${String(value)}`).join('\n');
 	const selectedFocus = $derived(focusIds.map((id) => words.find((entry) => entry.id === id)).filter((entry): entry is Entry => !!entry));
 	const shown = $derived(words.filter((entry) =>
 		(stage === 'all' || entry.stage === stage) && `${entry.text} ${entry.note}`.toLowerCase().includes(search.trim().toLowerCase()),
@@ -132,14 +137,14 @@
 		{#if orphaned.length > 0}
 			<!-- Typing that did not save for a word no longer listed as one: kept to copy until the learner lets it go. -->
 			<section class="space-y-3 rounded-lg border border-destructive/50 p-3 text-xs" aria-label="Unsaved changes">
-				{#each orphaned as draft (draft.id)}
-					{@const held = entries.edit(draft.id)}
+				{#each orphaned as draft (draft.path)}
+					{@const held = entries.edit(draft.path.slice('entries/'.length, -'.md'.length))}
 					{@const saving = held.pending?.saving ?? false}
 					<div class="space-y-1" role="alert">
-						<p>A change to <code>{rowPath('entries', draft.id)}</code> was not saved, and the file is no longer a word here.{draft.error ? ` ${describeFailure(draft.error)}` : ''}</p>
+						<p>A change to <code>{draft.path}</code> was not saved, and the file is no longer a word here.{draft.error ? ` ${describeFailure(draft.error)}` : ''}</p>
 						<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{unsavedText(draft)}</pre>
 						<div class="flex gap-1">
-							<Button size="xs" variant="outline" disabled={saving} onclick={() => void held.retry()}>Save again</Button>
+							<Button size="xs" variant="outline" disabled={saving} onclick={() => void held.save()}>Save again</Button>
 							<CopyButton size="xs" variant="ghost" text={unsavedText(draft)}>Copy</CopyButton>
 							<Button size="xs" variant="ghost-destructive" disabled={saving} onclick={() => held.discard()}>Discard</Button>
 						</div>
@@ -156,7 +161,7 @@
 							<span class="min-w-0 flex-1"><code>{repair.path}</code>: {repair.reason}</span>
 							{#if repair.id !== undefined && entries.repair.open !== repair.id}
 								{@const id = repair.id}
-								<Button size="xs" variant="outline" disabled={entries.repair.busy} onclick={() => entries.repair.start(id)}>Repair as text</Button>
+								<Button size="xs" variant="outline" onclick={() => entries.repair.start(id)}>Repair as text</Button>
 							{/if}
 						</li>
 					{/each}

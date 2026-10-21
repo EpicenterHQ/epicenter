@@ -682,7 +682,7 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 	// Opening the file from Files edits the same row.
 	expect(await library.open(TRANSCRIPT)).toBeUndefined();
 	expect(library.selection).toMatchObject({ kind: 'file', path: TRANSCRIPT });
-	expect(library.rowEdit('transcriptions', TRANSCRIPT).row?.body).toBe(
+	expect(library.edit('transcriptions', TRANSCRIPT).markdown?.body).toBe(
 		'Yesterday I finished the importer. Today: the exporter.\n',
 	);
 });

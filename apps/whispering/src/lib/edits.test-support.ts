@@ -29,9 +29,9 @@ function rowEditor<T extends RowTable>(
 	if (rowIdOf(table, path) === undefined)
 		throw new Error(`${path} is not a ${table} row`);
 	// One view of the row, kept as a mounted view keeps it.
-	const view = library.rowEdit(table, path);
+	const view = library.edit(table, path);
 	const shown = (): Shown<T> | undefined => {
-		const row = view.row;
+		const row = view.markdown;
 		return row && { fields: row.fields as Shown<T>['fields'], body: row.body };
 	};
 	return {
@@ -79,7 +79,7 @@ export const transcriptEditor = (library: Library, path: string) =>
 /** The text of `path`, as a text view edits it; the file must be open as text. */
 export function textEditor(library: Library, path: string) {
 	// One view of the text, as a mounted view keeps it.
-	const view = library.textEdit(path);
+	const view = library.edit(path);
 	return {
 		view,
 		get draft(): string {

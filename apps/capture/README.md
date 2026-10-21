@@ -167,13 +167,14 @@ the folder when the page goes away: the context refuses app input, lets
 started actions finish, then the folder closes, which sends what is held
 once and waits for the saves.
 
-The folder owns one edit per capture path. The capture view uses
-`createRowEdit(folder.tables.captures, stem)` and reads its tracked `row`;
-Edit as text uses `createTextEdit(folder.files, path)` and reads its tracked
-`text`. Both come from `@epicenter/svelte/edits` and show the same Folder-owned
-input and any save failure. Structured controls call `change({ fields, body })`;
-the file editor calls `change(text)`. Switching valid views saves and refreshes
-nothing. The current edit determines whether it can be shown as a capture.
+The folder owns one edit per capture path. Both the capture view and Edit as
+text use `createFileEdit(folder.tables.captures.edit(stem))` from
+`@epicenter/svelte/edits`. The adapter's `markdown` provides the current fields,
+body, and diagnostics; `text` provides its exact source. Structured controls
+call `change({ fields, body })`; Edit as text calls `replaceText(text)`.
+Switching between valid views saves and refreshes nothing: both show the same
+unsaved input and any save failure. The current editable document determines
+whether it can be shown as a capture.
 
 `hostAppViteConfig` (from `@epicenter/vite-config`) points the bare
 `@epicenter/folder` specifier at one entry per build, so each build emits

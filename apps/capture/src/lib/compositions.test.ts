@@ -134,8 +134,8 @@ test('a blank draft is refused by Add and remains', async () => {
 	const { edit } = await typeInto(t, 'one', '   ');
 	const refusal = expectErr(await t.captures.finishDraft('one'));
 	expect(refusal.message).toBe('Write something first.');
-	expect(edit.getRow()?.body).toBe('   ');
-	expect(edit.getRow()?.fields.draft).toBe(true);
+	expect(edit.getMarkdown()?.body).toBe('   ');
+	expect(edit.getMarkdown()?.fields.draft).toBe(true);
 });
 
 test('failed autosave and blocked discard keep raw input until another save attempt; successful discard survives restart', async () => {
@@ -144,15 +144,15 @@ test('failed autosave and blocked discard keep raw input until another save atte
 	const restore = t.failSaves();
 	await edit.save();
 	expect(edit.getPending()?.error?.name).toBe('StorageFailed');
-	expect(edit.getRow()?.body).toBe('unfinished ```\n');
+	expect(edit.getMarkdown()?.body).toBe('unfinished ```\n');
 	expect(t.captures.failures.map((failure) => failure.path)).toContain(path);
 	const refused = expectErr(
 		await t.captures.delete(t.captures.deletionFor(stem)),
 	);
 	expect(describeFailure(refused)).toContain('Use Save again');
-	expect(edit.getRow()?.body).toBe('unfinished ```\n');
+	expect(edit.getMarkdown()?.body).toBe('unfinished ```\n');
 	restore();
-	await edit.retry();
+	await edit.save();
 	expect(edit.getPending()).toBeUndefined();
 	expect(await t.text(path)).toBe(draftFile('unfinished ```\n'));
 	expect(
@@ -171,8 +171,8 @@ test('a failed promotion leaves the stored and editable raw draft; retry appends
 		'StorageFailed',
 	);
 	expect(edit.getPending()).toBeUndefined();
-	expect(edit.getRow()?.body).toBe('Still composing\n');
-	expect(edit.getRow()?.fields.draft).toBe(true);
+	expect(edit.getMarkdown()?.body).toBe('Still composing\n');
+	expect(edit.getMarkdown()?.fields.draft).toBe(true);
 	restore();
 	const resumed = await restart(t);
 	expect(expectOk(await resumed.folder.tables.captures.get('one'))?.body).toBe(
@@ -239,7 +239,7 @@ test("another tab's finish keeps full-file edits already typed here through the 
 	const otherContext = createFolderContext(other);
 	cleanup.push(() => otherContext.close());
 	const otherCaptures = createCaptures(otherContext);
-	expectOk(t.folder.files.edit('captures/one.md').change(draftFile('Typed here')));
+	expectOk(edit.replaceText(draftFile('Typed here')));
 	expectOk(await otherCaptures.finishDraft('one'));
 	await edit.read();
 	await edit.save();

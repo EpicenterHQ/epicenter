@@ -173,14 +173,14 @@ test('saved file text stays shown when the reread fails, and typing on keeps it'
 	});
 	type(input(), 'Committed words');
 	flushSync();
-	await library.textEdit(path).save();
+	await library.edit(path).save();
 	await reportChanged(library);
 	expect(await readFile(join(root, path), 'utf8')).toBe('Committed words');
 	expect(input()?.value).toBe('Committed words');
 
 	type(input(), 'Committed words, and more');
 	flushSync();
-	await library.textEdit(path).save();
+	await library.edit(path).save();
 	await reportChanged(library);
 	expect(await readFile(join(root, path), 'utf8')).toBe(
 		'Committed words, and more',
@@ -205,7 +205,7 @@ test('a saved transcript stays shown when the reread fails, and typing on keeps 
 	});
 	type(body(), 'Alpha, saved.\n');
 	flushSync();
-	await library.textEdit(A).save();
+	await library.edit(A).save();
 	await reportChanged(library);
 	expect(await readFile(join(root, A), 'utf8')).toBe(
 		transcript('Alpha, saved.\n'),
@@ -214,7 +214,7 @@ test('a saved transcript stays shown when the reread fails, and typing on keeps 
 
 	type(body(), 'Alpha, saved.\nMore.\n');
 	flushSync();
-	await library.textEdit(A).save();
+	await library.edit(A).save();
 	expect(await readFile(join(root, A), 'utf8')).toBe(
 		transcript('Alpha, saved.\nMore.\n'),
 	);
@@ -230,7 +230,7 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 		target.querySelector('[data-testid="transcript-text"]'),
 	).not.toBeNull();
 	expect(await library.editSource(A)).toBeUndefined();
-	library.editText(library.textEdit(A), transcript('Typed in Source.\n'));
+	library.editText(library.edit(A), transcript('Typed in Source.\n'));
 	flushSync();
 	expect(
 		target.querySelector('[data-testid="transcript-text-readonly"]')
@@ -238,7 +238,7 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 	).toBe('Typed in Source.\n');
 
 	disk.refusing = true;
-	await library.textEdit(A).save();
+	await library.edit(A).save();
 	flushSync();
 	expect(
 		target.querySelector('[data-testid="transcript-text-readonly"]')
@@ -250,7 +250,7 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 		target.querySelector<HTMLTextAreaElement>('[data-testid="transcript-text"]')
 			?.value,
 	).toBe('Typed in Source.\n');
-	expect(library.heldAt(A)?.error).toBeDefined();
+	expect(library.local.folder.files.edit(A).getPending()?.error).toBeDefined();
 	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha.\n'));
 });
 
@@ -359,7 +359,7 @@ test('a transformation opens in Source when invalid and clears repaired diagnost
 	flushSync();
 	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
 	expect(instructions()?.disabled).toBe(false);
-	expect(library.heldAt(RECIPE)).toBeDefined();
+	expect(library.local.folder.files.edit(RECIPE).getPending()).toBeDefined();
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(broken);
 	leave(source());
 	await settle(library);
@@ -483,7 +483,7 @@ test('failed file text stays visible when polling finds a binary replacement', a
 	type(input(), 'Keep this unsaved text');
 	flushSync();
 	disk.refusing = true;
-	await library.textEdit(path).save();
+	await library.edit(path).save();
 	flushSync();
 	disk.refusing = false;
 	await writeFile(join(root, path), new Uint8Array([0, 1, 2]));
@@ -525,7 +525,7 @@ for (const item of [
 			type(source(), 'Keep this failed source');
 			flushSync();
 			disk.refusing = true;
-			await library.textEdit(item.path).save();
+			await library.edit(item.path).save();
 			disk.refusing = false;
 			flushSync();
 			const read = library.local.folder.files.read;
@@ -636,8 +636,8 @@ for (const item of [
 			);
 			await show(library, item.path);
 			disk.refusing = true;
-			const view = library.rowEdit(item.table, item.path);
-			expect(view.row).toBeDefined();
+			const view = library.edit(item.table, item.path);
+			expect(view.markdown).toBeDefined();
 			expectOk(
 				view.change({
 					fields: { title: 'Keep my title', [item.remove]: undefined },
@@ -695,7 +695,7 @@ for (const item of [
 			type(source(), 'Keep my automatic Source draft');
 			flushSync();
 			disk.refusing = true;
-			await library.textEdit(item.path).save();
+			await library.edit(item.path).save();
 			disk.refusing = false;
 			if (replacement === 'missing') await rm(join(root, item.path));
 			else await writeFile(join(root, item.path), item.repaired);
@@ -721,7 +721,7 @@ for (const replacement of ['missing', 'binary'] as const) {
 			'Keep my transcript',
 		);
 		flushSync();
-		await library.textEdit(A).save();
+		await library.edit(A).save();
 		disk.refusing = false;
 		if (replacement === 'missing') await rm(join(root, A));
 		else await writeFile(join(root, A), new Uint8Array([0, 1, 2]));

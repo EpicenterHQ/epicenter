@@ -22,7 +22,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { createRowEdit } from '@epicenter/svelte/edits';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { createCaptureActions } from '$lib/capture-actions.svelte.js';
@@ -42,21 +42,19 @@
 	// The view is keyed by the capture, so neither changes for this view.
 	const path = untrack(() => capturePath(stem));
 	/** The capture's commands, typing into the folder's edit of it, which every view shows. */
-	const rowEdit = untrack(() => createRowEdit(captures.folder.tables.captures, stem));
-	const actions = untrack(() => createCaptureActions(rowEdit));
+	const fileEdit = untrack(() => createFileEdit(captures.folder.tables.captures.edit(stem)));
+	const actions = untrack(() => createCaptureActions(fileEdit));
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
 	// The folder watches no directory: this read, polled while the view
 	// shows, is how an edit made outside this page reaches it.
-	createQuery(() => captures.readQuery(rowEdit));
-	/** The capture as stored, its body the edit not saved yet, or the file's. */
-	const row = $derived(rowEdit.row);
-	const status = $derived(rowEdit.readStatus);
-	const stored = $derived(row?.issues === null ? row : undefined);
-	const pending = $derived(rowEdit.pending);
+	createQuery(() => captures.readQuery(fileEdit));
+	const status = $derived(fileEdit.readStatus);
+	const stored = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown : undefined);
+	const pending = $derived(fileEdit.pending);
 	// The capture text typed saves after a pause, and when the person leaves
 	// it; the edit outlives the view, so send it now.
-	onDestroy(() => void rowEdit.save());
+	onDestroy(() => void fileEdit.save());
 	/** The body as text and thoughts, or why it cannot be edited here. */
 	const reading = $derived(stored === undefined ? undefined : readCaptureBody(stored));
 	const text = $derived(reading?.data?.text ?? '');
@@ -108,8 +106,8 @@
 
 	/** Download the file as saved, once the edit held here is saved. */
 	async function download() {
-		await rowEdit.save();
-		if (rowEdit.pending !== undefined) {
+		await fileEdit.save();
+		if (fileEdit.pending !== undefined) {
 			toast.error('Could not download this capture', { description: 'Your edit is not saved yet. Save it again, then download.' });
 			return;
 		}
@@ -124,15 +122,15 @@
 			title: 'Discard your edit?',
 			description: `Copy anything you need first. ${path} keeps what was last saved.`,
 			confirm: { text: 'Discard edit', variant: 'destructive' },
-			onConfirm: () => void rowEdit.discard(),
+			onConfirm: () => void fileEdit.discard(),
 		});
 	}
 
 	/** Copy pending input exactly, even when a deleted file no longer has a readable row. */
 	const unsavedText = $derived.by(() => {
 		if (pending?.kind === 'text') return pending.text;
-		if (pending?.kind === 'row' && pending.body !== undefined) return pending.body;
-		return row?.body ?? '';
+		if (pending?.kind === 'document' && pending.body !== undefined) return pending.body;
+		return fileEdit.markdown?.body ?? '';
 	});
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
@@ -153,7 +151,7 @@
 			<Alert.Title>Your edit is not saved</Alert.Title>
 			<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-				<Button size="sm" variant="outline" onclick={() => void rowEdit.retry()}>Save again</Button>
+				<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
 				<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
 				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 			</div>
@@ -176,12 +174,12 @@
 		<div>
 			<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		</div>
-		{#if row?.issues}
+		{#if fileEdit.markdown?.issues}
 			{@const unreadable = status.known === 'not-text'}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>{unreadable ? 'This capture could not be read' : 'This file does not read as a capture'}</Empty.Title>
-					<Empty.Description>{row.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
+					<Empty.Description>{fileEdit.markdown.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
 				{#if !unreadable}
 					<Empty.Content>
@@ -199,7 +197,7 @@
 						<p>Saving your edit brings the capture back with it. Copy it, or discard it to let the capture go.</p>
 					</Alert.Description>
 					<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-						<Button size="sm" variant="outline" onclick={() => void rowEdit.retry()}>Save again</Button>
+						<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
 						<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
 						<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 					</div>
@@ -219,7 +217,7 @@
 					<Empty.Description>{status.error.message}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content>
-					<Button variant="outline" size="sm" onclick={() => void rowEdit.read()}>Try again</Button>
+					<Button variant="outline" size="sm" onclick={() => void fileEdit.read()}>Try again</Button>
 				</Empty.Content>
 			</Empty.Root>
 		{:else}
@@ -292,7 +290,7 @@
 					id="capture-text"
 					readonly={locked}
 					bind:value={() => text, (typed) => actions.inputText(typed)}
-					onblur={() => void rowEdit.save()}
+					onblur={() => void fileEdit.save()}
 					rows={rowsFor(text)}
 					class="max-h-96 resize-y leading-relaxed"
 					placeholder="Write here…"

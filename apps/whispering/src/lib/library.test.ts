@@ -383,7 +383,7 @@ test('a title typed while recording is kept when the recording stops and gets it
 	await library.startRecording();
 	await quiet(library);
 	const entry = library.entries[0]!;
-	const edit = library.rowEdit('recordings', entry.path);
+	const edit = library.edit('recordings', entry.path);
 
 	edit.change({ fields: { title: 'Standup notes' } });
 	await library.stopRecording();
@@ -591,8 +591,8 @@ test('files in an ordinary directory read as they are, extra fields included', a
 	).toEqual(toneWav());
 
 	// Editing the notes keeps the field this version does not know.
-	const view = library.rowEdit('recordings', entry.path);
-	expect(view.row?.body).toBeDefined();
+	const view = library.edit('recordings', entry.path);
+	expect(view.markdown?.body).toBeDefined();
 	library.editBody(view, 'My notes, edited\n');
 	await view.save();
 	await settle(library);
@@ -1144,7 +1144,7 @@ test('recording and transformation files keep their names, and a transcript keep
 	expect(await library.rename(result.path, 'renamed.md')).toBeUndefined();
 	await settle(library);
 	expect(
-		library.rowEdit('transcriptions', 'transcriptions/renamed.md').row,
+		library.edit('transcriptions', 'transcriptions/renamed.md').markdown,
 	).toBeDefined();
 	expect(library.resultsFor(entry.stem).map((item) => item.path)).toEqual([
 		'transcriptions/renamed.md',

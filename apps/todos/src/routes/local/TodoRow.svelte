@@ -7,7 +7,7 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
-	import { createRowEdit } from '@epicenter/svelte/edits';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { getFolder } from '$lib/folder.js';
 	import { labelOf, type Todo, todoPath } from '$lib/local-todos.js';
 
@@ -26,9 +26,8 @@
 
 	const id = $derived(todo.id);
 	// The list's read answered this row's document, so showing it reads nothing.
-	const rowEdit = $derived(createRowEdit(folder.tables.todos, id));
-	const shown = $derived(rowEdit.row);
-	const done = $derived(shown?.issues === null ? shown.fields.done : todo.fields.done);
+	const fileEdit = $derived(createFileEdit(folder.tables.todos.edit(id)));
+	const done = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown.fields.done : todo.fields.done);
 	const label = $derived(labelOf(todo));
 </script>
 
@@ -41,10 +40,10 @@
 		bind:checked={
 			() => done,
 			(next) => {
-				if (rowEdit.change({ fields: { done: next } }).error === null) void rowEdit.save();
+				if (fileEdit.change({ fields: { done: next } }).error === null) void fileEdit.save();
 			}
 		}
-		disabled={rowEdit.locked}
+		disabled={fileEdit.locked}
 		aria-label="{done ? 'Reopen' : 'Complete'} {label}"
 	/>
 	<Button

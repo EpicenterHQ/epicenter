@@ -22,13 +22,13 @@ import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import type { FolderTable } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
-import type { Pending, RowEdit } from '@epicenter/folder/edits';
+import type { FileEdit, Pending } from '@epicenter/folder/edits';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Window } from 'happy-dom';
 import { act, type ReactNode } from 'react';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
-import { useRowEdit, useTextEdit } from './edits.js';
+import { useFileEdit } from './edits.js';
 
 const window = new Window({ url: 'http://localhost/' });
 Object.assign(globalThis, {
@@ -119,7 +119,7 @@ async function until(done: () => boolean) {
 function recorded(table: Notes) {
 	const live: Record<string, number> = {};
 	const reads: Record<string, number> = {};
-	const edits = new Map<string, RowEdit<typeof notes>>();
+	const edits = new Map<string, FileEdit<typeof notes>>();
 	const wrapped: Notes = {
 		...table,
 		edit(id) {
@@ -150,8 +150,8 @@ function recorded(table: Notes) {
 
 /** A title input over one row, as an app's detail view types it. */
 function Title({ table, id }: { table: Notes; id: string }) {
-	const note = useRowEdit(table, id);
-	const row = note.getRow();
+	const note = useFileEdit(table.edit(id));
+	const row = note.getMarkdown();
 	const { known, error } = note.getReadStatus();
 	if (error !== undefined) return <p>{error.message}</p>;
 	if (known === 'nothing') return <p>Loading</p>;
@@ -212,7 +212,7 @@ test('a view that shows only held input or the fence reads nothing', async () =>
 	const { folder } = await setup();
 	const notesTable = recorded(folder.tables.notes);
 	function Status() {
-		const note = useRowEdit(notesTable.table, 'milk');
+		const note = useFileEdit(notesTable.table.edit('milk'));
 		return (
 			<p>
 				{note.getPending() === undefined && !note.isLocked() ? 'Saved' : 'Held'}
@@ -245,7 +245,7 @@ test('an own save shows without a reread, an outside change is read for the view
 		}),
 	);
 	await until(
-		() => folder.tables.notes.edit('milk').getRow()?.fields.done === true,
+		() => folder.tables.notes.edit('milk').getMarkdown()?.fields.done === true,
 	);
 	await act(async () => type(view.input(), 'Mine!'));
 	expect(view.input().value).toBe('Mine!');
@@ -257,7 +257,7 @@ test('a body typed in the committed render keeps a change the same event made th
 	const { folder, read } = await setup();
 	expectOk(await folder.tables.notes.list());
 	function Body() {
-		const note = useRowEdit(folder.tables.notes, 'milk');
+		const note = useFileEdit(folder.tables.notes.edit('milk'));
 		return (
 			<section
 				onChangeCapture={() =>
@@ -266,7 +266,7 @@ test('a body typed in the committed render keeps a change the same event made th
 				}
 			>
 				<textarea
-					value={note.getRow()?.body ?? ''}
+					value={note.getMarkdown()?.body ?? ''}
 					onChange={(event) => note.change({ body: event.currentTarget.value })}
 				/>
 			</section>
@@ -351,11 +351,11 @@ test('the text binding shows held text over the stored file, BOM kept', async ()
 		await folder.files.write(path, null, new TextEncoder().encode('﻿one\r\n')),
 	);
 	function Source({ folder }: { folder: Folder }) {
-		const text = useTextEdit(folder.files, path);
+		const text = useFileEdit(folder.files.edit(path));
 		return (
 			<textarea
 				value={text.getText() ?? ''}
-				onChange={(event) => text.change(event.currentTarget.value)}
+				onChange={(event) => text.replaceText(event.currentTarget.value)}
 			/>
 		);
 	}
@@ -371,4 +371,63 @@ test('the text binding shows held text over the stored file, BOM kept', async ()
 	);
 	// The view did not read again and shows its own save.
 	expect(view.input().value).toBe('﻿one!\r\n');
+});
+
+test('source typed in one handler keeps a field changed by another handler of the same event', async () => {
+	const { folder, read } = await setup();
+	expectOk(await folder.tables.notes.list());
+	function Source() {
+		const fileEdit = useFileEdit(folder.tables.notes.edit('milk'));
+		return (
+			<section
+				onChangeCapture={() =>
+					folder.tables.notes.edit('milk').change({ fields: { done: true } })
+				}
+			>
+				<textarea
+					value={fileEdit.getText() ?? ''}
+					onChange={(event) => fileEdit.replaceText(event.currentTarget.value)}
+				/>
+			</section>
+		);
+	}
+	const view = await mount(<Source />);
+	await act(async () =>
+		type(view.input(), view.input().value.replace('two', 'TWO')),
+	);
+	expect(view.input().value).toContain('done: true');
+	expect(view.input().value).toContain('one\nTWO\n');
+	await act(async () => folder.tables.notes.edit('milk').save());
+	expect((await read('milk')).fields.done).toBe(true);
+	expect((await read('milk')).body).toBe('one\nTWO\n');
+});
+
+test('independent frontmatter additions in one event preserve both fields in one header', async () => {
+	const { folder } = await setup();
+	const path = 'plain.md';
+	expectOk(await folder.files.write(path, null, 'body\n'));
+	expectOk(await folder.files.edit(path).read());
+	function Source() {
+		const fileEdit = useFileEdit(folder.files.edit(path));
+		return (
+			<section
+				onChangeCapture={() =>
+					folder.files.edit(path).change({ fields: { a: 1 } })
+				}
+			>
+				<textarea
+					value={fileEdit.getText() ?? ''}
+					onChange={(event) => fileEdit.replaceText(event.currentTarget.value)}
+				/>
+			</section>
+		);
+	}
+	const view = await mount(<Source />);
+	await act(async () => type(view.input(), '---\nb: 2\n---\nbody\n'));
+	const markdown = folder.files.edit(path).getMarkdown();
+	expect(markdown?.fields).toEqual({ a: 1, b: 2 });
+	expect(markdown?.body).toBe('body\n');
+	expect(markdown?.issues).toBeNull();
+	await act(async () => folder.files.edit(path).save());
+	expect(folder.files.edit(path).getMarkdown()?.fields).toEqual({ a: 1, b: 2 });
 });

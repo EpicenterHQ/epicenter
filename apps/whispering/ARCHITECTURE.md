@@ -552,21 +552,21 @@ the Svelte edits expose tracked properties over its read methods. A read never r
 - **Reads** use the context's generated queries. One Folder change listener
   invalidates affected representations, and visible queries poll for outside
   edits. Save completion and closing do not wait for display refresh.
-- **Row typing** uses `folder.tables[table].edit(id)`. `getRow()` answers the
-  document with pending fields and body; `change({ fields?, body? })` types
-  over it. `createRowEdit(table, id)` exposes that row as a reactive `.row`
-  property for Svelte and shares the core commands. Callers supply no source or observation. Autosave policy
-  is configured when opening Folder.
-- **Whole-file text** uses `folder.files.edit(path)`: `getText()` reads the
-  editable text, and `change(text)` supplies its replacement. Row and text edits share one owner
-  per physical path, including input, save ordering, and failures. Whispering
-  has no separate text queue. Fields and Source read and change the same path's
-  input, so switching requires no save or refresh. A structured view uses the
-  current editable text, while failed input and its recovery remain shared.
+- **One file editor** uses `folder.tables.recordings.edit(id)` for a typed
+  collection or `folder.files.edit(path)` for a path. Both return `FileEdit`:
+  `getMarkdown()` reads fields, body, exact text and issues; `getText()` reads
+  text without parsing. `change({ fields?, body? })` combines structured changes;
+  `replaceText(text)` replaces the whole file. `createFileEdit(handle)` exposes
+  tracked `.markdown` and `.text` properties and shares the core commands.
+  Each view keeps one adapter for its address, including when it switches
+  between fields and Source. Autosave policy is configured when opening Folder.
+  Folder owns one document, input, save ordering, and failure per physical path.
+  Switching views requires no save or refresh. Failed input and recovery remain
+  available even if the saved file can no longer be interpreted.
 - **A failed save** keeps the typing. The file's status line says **Not
   saved** with **Try again** and **Discard** (`SaveStatus.svelte`). Try again retries
   it; accepted new typing clears the error and may autosave. A run, rename,
-  deletion or close sends new input but leaves failed input held for recovery.
+  deletion or close attempts current input, including previously failed input.
   Discard leaves the file as it is and offers
   what was typed to copy. A failed save of a file's whole text is also told
   with the shared failure toast. The library emits the shared `WriteFailure`

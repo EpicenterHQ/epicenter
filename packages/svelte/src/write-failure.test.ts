@@ -8,13 +8,14 @@
  * - Whole text is copied exactly as typed
  */
 import { expect, test } from 'bun:test';
-import type { FieldsPending, RowPending } from '@epicenter/folder/edits';
+import type { DocumentPending } from '@epicenter/folder/edits';
 import { pendingFailure, unsavedText } from './write-failure.js';
 
-const fields = (values: Record<string, unknown>): FieldsPending => ({
-	kind: 'fields',
+const fields = (values: Record<string, unknown>): DocumentPending => ({
+	kind: 'document',
 	path: 'notes/a.md',
 	fields: values,
+	body: undefined,
 	saving: false,
 	error: undefined,
 });
@@ -44,11 +45,9 @@ test('removing a field and setting it to marker-like text copy differently', () 
 });
 
 test('a row copies its fields and body; whole text copies exactly', () => {
-	const row: RowPending = {
-		kind: 'row',
+	const row: DocumentPending = {
+		kind: 'document',
 		path: 'notes/a.md',
-		table: 'notes',
-		id: 'a',
 		fields: { title: 'Milk', done: undefined },
 		body: 'Two litres\n',
 		saving: false,

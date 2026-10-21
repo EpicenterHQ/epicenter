@@ -17,7 +17,7 @@
  * and a field a person changed meanwhile is kept. A row that is gone was
  * discarded, and is not written.
  */
-import type { FolderTable, Row } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
@@ -158,8 +158,6 @@ export function createRuns({
 	 */
 	track: <T>(work: () => Promise<T>, scope?: string) => Promise<T>;
 }) {
-	/** A result table, read and written as rows whatever its fields. */
-	const tableOf = (name: ResultTable): FolderTable => folder.tables[name];
 	/** Transcribe presses, by recording ID: one under way, or why one sent nothing. */
 	const transcriptions = new SvelteMap<string, TranscriptionRun>();
 	/** Result rows with something happening in this window, by path. */
@@ -223,7 +221,7 @@ export function createRuns({
 					if (late !== undefined) return Err(late);
 					if (target.recording !== undefined && deleting.has(target.recording))
 						return Err(BEING_DELETED);
-					const { data, error } = await tableOf(target.table).set(
+					const { data, error } = await folder.tables[target.table].set(
 						target.stem,
 						null,
 						{ fields, body: '' },
@@ -278,12 +276,11 @@ export function createRuns({
 	 * deleted meanwhile stays deleted: nothing is written.
 	 */
 	async function fill(target: Target, from: Row, body: string) {
-		const table = tableOf(target.table);
 		try {
-			const { data: stored, error } = await table.get(target.stem);
+			const { data: stored, error } = await folder.tables[target.table].get(target.stem);
 			if (error !== null) return describeError(error);
 			if (stored === undefined) return undefined;
-			const { error: writeError } = await table.set(target.stem, from, {
+			const { error: writeError } = await folder.tables[target.table].set(target.stem, from, {
 				body,
 			});
 			return writeError === null ? undefined : describeError(writeError);
@@ -500,7 +497,7 @@ export function createRuns({
 			return Err(
 				'This result has unsaved changes. Try again or discard them before running it again.',
 			);
-		const { data: stored, error } = await tableOf(table).get(stem);
+		const { data: stored, error } = await folder.tables[table].get(stem);
 		if (error !== null) return Err(describeError(error));
 		if (stored === undefined) return Err(`${path} is no longer in the folder.`);
 		if (stored.issues !== null)

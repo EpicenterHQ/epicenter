@@ -29,11 +29,7 @@ import type { TSchema as Schema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileRead, FolderStorage } from '../boundary.js';
 import type { FileError } from '../errors.js';
-import type {
-	EditOptions,
-	Folder,
-	FolderChange,
-} from '../folder.js';
+import type { EditOptions, Folder, FolderChange } from '../folder.js';
 import { type EngineFiles, type EngineTable, folderHandle } from '../handle.js';
 import { hashBytes } from '../hash.js';
 import { callObserver } from '../observer.js';
@@ -46,6 +42,7 @@ import {
 import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
+import { readDocument } from '../shared/document.js';
 
 const encoder = new TextEncoder();
 
@@ -261,7 +258,7 @@ export function createNativeFolder<
 			}
 			const stored = found?.bytes ?? null;
 			if (rowFields && stored !== null) {
-				const row = readRow('', stored, {});
+				const row = readDocument(path, stored);
 				const problem = row.issues?.[0];
 				if (problem?.kind === 'not-text') return SaveError.NotText();
 				if (problem?.kind === 'frontmatter')
@@ -413,9 +410,9 @@ export function createNativeFolder<
 					return Ok({ path, content: new Blob([new Uint8Array(found.bytes)]) });
 				});
 			},
-			async write(path, from, content) {
+			async write(path, from, content, fields) {
 				if (!structural(path)) return SaveError.InvalidPath({ path });
-				const saved = await saveFile(path, from, content);
+				const saved = await saveFile(path, from, content, fields ?? false);
 				return saved.error !== null
 					? Err(saved.error)
 					: Ok({ stored: saved.data.stored });

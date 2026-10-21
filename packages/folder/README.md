@@ -32,12 +32,12 @@ const stop = folder.onChange((change) => refresh(change.paths)); // subscribe, t
 const saved = await folder.tables.notes.set('milk', null, { fields: { title: 'Milk' } });
 if (saved.error !== null) return show(saved.error.message);      // nothing was saved
 
-// The folder's edit of a row: its document and typed input, saved a pause after the last change.
-const rowEdit = folder.tables.notes.edit('milk');
-const read = await rowEdit.read();                                // the row, undefined when absent
+// One path-owned edit, interpreted through the notes schema.
+const fileEdit = folder.tables.notes.edit('milk');
+const read = await fileEdit.read();                                // refresh; inspect the getters afterwards
 if (read.error !== null) return show(read.error.message);
-rowEdit.change({ fields: { done: true }, body: 'Two litres\n' }); // over what getRow() shows
-rowEdit.getRow();                         // the stored row with held input over it
+fileEdit.change({ fields: { done: true }, body: 'Two litres\n' }); // over what getMarkdown() shows
+fileEdit.getMarkdown();                         // current Markdown content, including applicable unsaved input
 folder.getStatus();                       // { saving, storageFailure, unsaved, failures, closing }
 await folder.settle();               // send held input now; answers what did not save
 const unsaved = await folder.close(); // sends held input once; answers what did not save
@@ -54,7 +54,7 @@ const unsaved = await folder.close(); // sends held input once; answers what did
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
 | `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, and saved-view types. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
 | `@epicenter/folder/documents` | Saved Markdown documents with optional schema diagnostics, including root and nested paths. | Generic file, grid, board, or SQL interpretation. |
-| `@epicenter/folder/edits` | The vocabulary of a path's editable document and typed input (`RowEdit`, `TextEdit`, `RowEditChange`, `Pending`, `ExclusiveFile`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)), `ReadStatus`, and `mergeText`, the folder's line merge of whole texts. Opens nothing. | Code that names those types. |
+| `@epicenter/folder/edits` | The vocabulary of a path's editable document and typed input (`FileEdit`, `MarkdownContent`, `DocumentChange`, `Pending`, `ExclusiveFile`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)), `ReadStatus`, and `mergeText`/`mergeFileText`, the shared body/source merge helpers. Opens nothing. | Code that names those types. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
 type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
@@ -89,8 +89,8 @@ the saved files.
 | `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, from, change)`, `delete(id, from)`, and `edit(id)`, the row's editable document and typed input. Adjacent files are available through `folder.files`. |
 | `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A save of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
 | `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or exclusive change running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
-| `settle()` | Sends new input once, leaving failed input held for retry or a change, after running deletes and exclusive changes, and waits for saves already started, direct ones included, never for reads. Answers the input that did not save. |
-| `close()` | At once, new input is refused and every storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; running deletes and exclusive changes finish; new input is sent once and failed input stays held for recovery; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getRow()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` and `retry()` join the close. Answers the input that did not save. Calling it again returns the same promise. |
+| `settle()` | Attempts held input once, including previous failures, after running deletes and exclusive changes, and waits for saves already started, direct ones included, never for reads. Answers the input that did not save. |
+| `close()` | At once, new input is refused and every storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; running deletes and exclusive changes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` joins the close. Answers the input that did not save. Calling it again returns the same promise. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
 saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
@@ -180,125 +180,94 @@ commit or refusal. Structural refusals are the caller's to show, not status.
 
 ### Unsaved input
 
-The folder holds each path's editable document and what a person typed and
-has not saved, for its whole life (`edit-owner.ts`,
-[ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
-`folder.tables.<name>.edit(id)` answers a `RowEdit` and
-`folder.files.edit(path)` a `TextEdit`: objects over one document,
-one input and one save queue per path, shared by every caller of the
-handle. Making one reads and holds nothing. There is no other owner to
-attach, and no UI framework or cache.
+The opened folder owns one source, pending input, save queue and fence per path
+([ADR-0662](../../docs/adr/0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md)). Both `folder.files.edit(path, schema?)` and
+`folder.tables.notes.edit(id)` return `FileEdit`. Table accessors bind their
+schema and strict row framing; a file accessor accepts Markdown without
+frontmatter and can bind an optional read schema. Making a handle reads nothing.
 
 ```ts
-const rowEdit = folder.tables.notes.edit(id);
-const { data: row, error } = await rowEdit.read(); // the row, or undefined when absent
-rowEdit.getRow();         // what is stored, with held input in it; reads nothing
-rowEdit.getReadStatus();  // { known: 'nothing' | 'missing' | 'file' | 'not-text', reading, error }
-rowEdit.change({ fields: { done: true }, body: 'Two litres\n' }); // one change, over getRow()
-rowEdit.getPending();     // the held input, or undefined
-rowEdit.isLocked();       // whether input is refused
-await rowEdit.save();     // or wait `saveAfterMs`
+const edit = folder.tables.notes.edit(id);
+const read = await edit.read();
+if (read.error !== null) return show(read.error.message);
+edit.getMarkdown(); // { text, body, fields, issues }, or undefined
+edit.getText();     // exact editable source, without Markdown interpretation
+edit.change({ fields: { done: true }, body: 'Two litres\n' });
+edit.getPending();  // document patch or whole text, or undefined
+edit.getReadStatus(); // { known, reading, error }
+edit.isLocked();
+await edit.save(); // or wait saveAfterMs
 
-const textEdit = folder.files.edit('notes/a.md');
-await textEdit.read();
-textEdit.getText();                     // the held text, held fields over the file, or the file
-textEdit.change(editedText);            // the whole exact text
-textEdit.changeFields({ title: 'x' });  // fields of any Markdown file
-await textEdit.exclusive(async (file) => file.write(before, next)); // the file alone
+const file = folder.files.edit('notes/a.md');
+await file.read();
+file.change({ fields: { title: 'x' } });
+file.replaceText(editedText);
+await file.exclusive(async (file) => file.write(before, next));
 ```
 
-`change` and `changeFields` synchronously return `Result<void, ChangeError>`.
-`Ok(undefined)` means the input was accepted into memory, not saved. `Err`
-explains why it was refused: an operation lock, nothing known to type over (`NoSource`: not read yet, or no file), a file
-that is not text (`NotText`), or fields that cannot be applied. A refusal leaves earlier input intact. `save()` and
-`retry()` resolve after their attempt; `getPending().error` and folder
-status report persistence failures.
+`change(patch)` and `replaceText(text)` synchronously return
+`Result<void, ChangeError>`: acceptance into memory, not persistence.
+Structured input needs known source. Table lists, gets and ordinary text file
+reads seed that source through the folder's ordered read integration, so a grid
+can type over the source it already read without another load. An unread,
+absent or binary source refuses new structured input. Unheld binary file reads
+retain no bytes in the owner.
 
-The Svelte adapter exposes tracked getters (`.row`, `.text`, `.pending`,
-`.readStatus`, `.locked`) over the core read methods. The React hooks keep the
-explicit methods over render snapshots. Both share the core commands and read
-the file the first time a view asks for its document with nothing known and
-no failed read. See `@epicenter/svelte/edits` and `@epicenter/react/edits`.
+`getMarkdown()` contains exactly text, body, fields and issues. Fields narrow
+to the bound schema only when `issues === null`; invalid values retain raw
+fields and diagnostics. Its text always matches `getText()`. Applicable
+pending fields and body enter source before interpretation. Fields that cannot
+apply to malformed source stay recoverable in `getPending()`, without appearing
+as phantom document fields. Retry after outside repair, or copy/discard that
+patch before replacing its source. Schema diagnostics alone do not refuse
+editing. Missing frontmatter is valid in a generic document and diagnosed by a
+strict table interpretation.
 
-- **The document.** Each path holds what is stored there as last known: its
-  exact content, no file, or nothing known yet. `getRow()` answers the
-  stored row with held input put into its source and read again, so its
-  fields, body, text and issues agree; over a source whose frontmatter does
-  not parse, the held input shows over it with the source's issues.
-  `getText()` answers held text, held fields over the file, or the file as
-  text with any byte-order mark kept. Both are `undefined` while nothing is
-  known, when no file is there, and `getText()` when it is not text (strict
-  UTF-8 without NUL); `getReadStatus()` says which, whether a read runs, and
-  why the last read failed. Every answer keeps its identity until what it
-  answers changes, the row's beside the text's. `read()` answers `Ok` with
-  what the edit shows afterwards, or the `ReadError`, which every read
-  joining it shares; a failed read keeps what is shown, held input
-  included. It rejects once the folder closes.
-- **What keeps it current.** `read()`; the handle's own row `list()` and
-  `get(id)`, which answer the documents of their rows; its file `read(path)`
-  of a path an edit holds; and each save of the handle, which hands over the
-  exact content storage kept, merged with what landed meanwhile, before the
-  save resolves. So a landed save shows at once without a reread, and a
-  failed reread never shows older text. A read that started before newer
-  knowledge of the path arrived, such as a save that committed meanwhile,
-  changes nothing; one that started after a save's commit is newer than it.
-  A change another handle or a sync reported is read again for a path
-  someone subscribes to, holds input for, or reads; any other document stays,
-  as older than the change, so a list action typed over it still merges
-  with storage, and is read again once someone subscribes. A document no one
-  subscribes to any more is let go. An action (`exclusive`), a direct save or
-  a status subscription alone holds no document, so an audio file is never
-  kept. The folder watches no directory: a view polling its lists, or its
-  own read (`@epicenter/svelte`'s `queries.read(edit)`), keeps it current.
-- **Bases.** A change types over what the edit shows now: a held unit is
-  replaced, a revert included. Each typed field, and the body, keeps a base:
-  its value in the document when first typed, or what the last landed save
-  sent for it. So a value typed back to what is stored still saves, and an
-  outside change read while a save runs survives beside a revert typed over
-  it. Whole text keeps the content it was first typed over, or the text the
-  last landed save sent. A row save starts from the latest document typed
-  over whose frontmatter parses, with every base put in; a field typed over
-  a header another writer broke is refused (`Unparseable`) and the raw text
-  stays repairable through `folder.files.edit(path)`.
-- **Line merge.** `mergeText(base, current, change)` is the rule a save
-  applies to a body or text: what `change` did to `base`, merged by line
-  into `current`, `change` winning a region both changed. The React hooks
-  use it so a handler of the committed render keeps a change the same event
-  already made through another handler.
-- **Fields of any file.** `changeFields` holds a patch that a save applies to
-  the file as stored then, so it needs nothing read; a file known missing or
-  not text refuses it. Removal (`undefined`) stays apart from `null`. A
-  failed patch stays held like every other kind of input; an ordinary save
-  never reapplies it to a file repaired or recreated since its refusal.
-  Text typed over held fields keeps them and takes the patch's place.
-- **Views of one edit.** Row and text handles expose the same path's pending
-  input, save queue and fence. `getRow()` parses the current editable text,
-  including unsaved whole-file input; `getText()` includes applicable row and
-  field changes. Row changes patch held text. Whole-file typing takes over
-  applicable row or field input, retaining its merge base, including when a
-  save is running. Neither a view switch nor a read saves or retries input.
-  Unapplied fields stay copyable in `getPending()` and refuse conversion to
-  whole text until repaired or explicitly discarded. Both handles can save,
-  retry or discard whichever representation is held.
-- **Saving and retry.** `save()` sends new input now or joins its running
-  attempt. An accepted input whose save fails stays held with its `SaveError`:
-  autosave, blur, `settle()`, delete, exclusive actions and close do not retry
-  it. `retry()` explicitly authorizes one more attempt, while accepted new
-  input clears the older error and may autosave. Retry during a running
-  attempt joins it rather than scheduling another attempt after failure.
-  Both commands resolve when the attempt finishes, including failure; inspect
-  `getPending()` for the outcome. `discard()` explicitly releases held input.
-- **Fence.** `delete()` and `exclusive(action)` take the path at once, send
-  new input once, and refuse with `ActionError.NotStarted` (`DELETING`,
-  `BUSY`, `UNSAVED`, `CLOSING`) if another action holds it, the folder closes,
-  or input did not save. `action` reads and saves through its `file`, which
-  works while the folder closes and ends with the action.
-- **Close.** From `close()` on, `save()` and `retry()` join the close and send
-  nothing new.
-- Every answer of `getRow()`, `getText()` and `getPending()` is immutable and
-  kept until the path changes. `subscribe(listener)` calls `listener()` after
-  anything the edit answers may have changed, which suits
-  `useSyncExternalStore`.
+`getText()` answers held whole text, applicable structured changes over stored
+source, or stored text, including a byte-order mark. With no held whole text,
+source and document getters answer `undefined` for unread, missing or binary
+files; `getReadStatus().known` distinguishes them. Held whole text stays readable
+after external deletion or replacement with binary bytes. A failed read keeps
+what was already shown. `read()` returns completion or a `ReadError`; getters
+answer the resulting snapshots and perform no I/O. Snapshots keep their identity
+across handles with the same schema and framing until their inputs change.
+
+Each typed field and body retains its first observed value, or what its last
+landed save submitted. Whole text retains its source witness. This preserves
+explicit reverts and newer typing while saves run. Structured saves reserve the
+path before reading fresh presentation, apply their held units with these
+bases, and keep the latest-header check inside storage's guarded write loop.
+Unchanged fields and independent outside body edits survive.
+
+`mergeFileText(path, base, current, change)` applies these same storage rules
+synchronously to whole source, including Markdown fields.
+`mergeText(base, current, change)` merges body controls by line. A deletion cannot
+silently erase accepted input: saving held text or a structured patch with its
+retained source can recreate the file.
+
+`save()` attempts held input now, including a previous failure, or joins its
+running attempt. A failed attempt keeps its input and error without looping;
+new input or another attempt clears the older error. Blur, unmount, `settle()`,
+delete, exclusive actions and close use this same policy. `save()` resolves
+when the attempt finishes, including failure; pending input and folder status
+report the outcome. `discard()` explicitly releases input and returns it for
+recovery; it refuses while a save or action runs.
+
+`delete()` and `exclusive(action)` fence the path immediately, save held input,
+and refuse with `ActionError.NotStarted` if it cannot save or another fence holds
+it. An exclusive action reads and writes through its bound `file`, which remains
+usable during folder close and expires with the action. Close refuses new input
+immediately, waits for started saves and actions, then attempts remaining input
+once. Later `save()` calls join close.
+
+`subscribe(listener)` reports source, read status, input and lock changes.
+Reported outside changes refresh held/subscribed sources; native queries poll
+for changes no watcher reports. The last subscriber leaving releases source
+when no input or save holds it. Svelte's `createFileEdit(edit)` exposes tracked
+`.markdown`, `.text`, `.pending`, `.readStatus` and `.locked`; React's
+`useFileEdit(edit)` retains explicit methods over render snapshots. Both start
+the first read when a view asks for a document with nothing known and no read
+failure.
 
 ## Browser storage
 

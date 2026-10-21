@@ -8,11 +8,9 @@
  * rows and files it names stale, and the ones shown are read again. Rows that
  * read are listed to edit; the rest are named, with why, for repair as text.
  *
- * Typing is never lost to a reread. A row's fields and body typed in a view
- * go through the row's edit handle (`folder.tables.<table>.edit(stem)`); a
- * file's whole text typed in Source or Files goes through its text edit
- * handle (`folder.files.edit(path)`), and each of its failed saves is
- * reported. The folder holds both: each saves a second after the last
+ * Typing is never lost to a reread. Fields, body and whole text use one
+ * FileEdit interface, selected through a typed table or file path. Each
+ * failed save is reported. Folder saves a second after the last
  * change, or when the view leaves it, as a change from what it started
  * from, and the folder merges it with whatever was saved meanwhile
  * (ADR-0632). A save that fails keeps what is typed and is reported.
@@ -31,15 +29,13 @@
  */
 
 import { InstantString } from '@epicenter/definition';
-import type { FolderTable, Row } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder';
 import type { Pending } from '@epicenter/folder/edits';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import type { RecordingFolder } from '@epicenter/recorder';
 import {
-	createRowEdit,
-	createTextEdit,
-	type RowEdit,
-	type TextEdit,
+	createFileEdit,
+	type FileEdit,
 } from '@epicenter/svelte/edits';
 import {
 	unsavedText,
@@ -52,6 +48,7 @@ import {
 } from '@tanstack/query-core';
 import { customAlphabet } from 'nanoid';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
+import type { TSchema } from 'typebox';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ActiveCapture, CaptureError } from './capture.js';
@@ -410,16 +407,26 @@ export function createLibrary(
 			?.find((row) => row.id === stem);
 	}
 
-	// --- drafts ----------------------------------------------------------------
+	// --- editing ---------------------------------------------------------------
 
-	/**
-	 * The folder's edit of `path` as whole text, read reactively. The folder
-	 * holds the file and the text typed, saves it, and sends it when it
-	 * settles or closes. Reading its input reads no file.
-	 */
-	const textAt = (path: string) => createTextEdit(folder.files, path);
+	/** One tracked file edit; table access also binds its read schema. */
+	function editAt(path: string): FileEdit;
+	function editAt<T extends RowTable>(
+		table: T,
+		path: string,
+	): FileEdit<WhisperingTables[T]>;
+	function editAt(tableOrPath: string, path?: string): FileEdit {
+		const target = path ?? tableOrPath;
+		const table =
+			path === undefined ? rowTableOf(target) : (tableOrPath as RowTable);
+		if (table === undefined) return createFileEdit(folder.files.edit(target));
+		const id = rowIdOf(table, target);
+		if (id === undefined)
+			throw new Error(`${target} is not a file in the ${table} table.`);
+		return createFileEdit<WhisperingTables[RowTable]>(folder.tables[table].edit(id));
+	}
 	// Each save of a file's text that fails is told once, with the text to
-	// copy, a retry and a discard: a failure the folder reports that was not
+	// copy, a save and a discard: a failure the folder reports that was not
 	// reported before. Typing over failed text clears it and tells nothing.
 	let told = new Set<Pending>();
 	const stopTelling = folder.onStatusChange(({ failures }) => {
@@ -433,9 +440,9 @@ export function createLibrary(
 				path,
 				error: pending.error,
 				unsaved: pending.text,
-				retry: () => {
+				save: () => {
 					if (fenced) return false;
-					void folder.files.edit(path).retry();
+					void folder.files.edit(path).save();
 					return true;
 				},
 				discard: () => {
@@ -446,21 +453,6 @@ export function createLibrary(
 		}
 		told = failed;
 	});
-
-	/** The folder's edit of row `stem` of `table`, read reactively. */
-	const rowEditOf = <T extends RowTable>(table: T, stem: string) =>
-		createRowEdit(
-			folder.tables[table] as unknown as FolderTable<WhisperingTables[T]>,
-			stem,
-		);
-	/** The typing of `path`, read reactively, if it is a row this window edits; reading it reads no file. */
-	function rowEditAt(path: string) {
-		const table = rowTableOf(path);
-		const stem = table === undefined ? undefined : rowIdOf(table, path);
-		return table === undefined || stem === undefined
-			? undefined
-			: rowEditOf(table, stem);
-	}
 
 	/** Row files the person chose to edit as their exact text. */
 	const asText = new SvelteSet<string>();
@@ -475,15 +467,16 @@ export function createLibrary(
 		if (asText.has(path)) return true;
 		const stem = rowIdOf(table, path) as string;
 		const row =
-			rowEditOf(table, stem).row ??
+			editAt(table, path).markdown ??
 			listed(table)?.find((item) => item.id === stem);
 		return row !== undefined && row.issues !== null;
 	}
 
 	/** Send the typing held for `path`, row or text; answers whether some still did not save. */
 	async function settlePath(path: string): Promise<boolean> {
-		await folder.files.edit(path).save();
-		return textAt(path).pending !== undefined;
+		const fileEdit = folder.files.edit(path);
+		await fileEdit.save();
+		return fileEdit.getPending() !== undefined;
 	}
 
 	/** After a rename: the caches and the selection follow the file. */
@@ -660,13 +653,12 @@ export function createLibrary(
 			const { error: rowError } = await rowSave;
 			if (rowError !== null)
 				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
-			const recordings = folder.tables.recordings;
-			const { data: stored, error } = await recordings.get(id);
+			const { data: stored, error } = await folder.tables.recordings.get(id);
 			if (error !== null)
 				return `The recording is saved, but its length could not be written: ${describeError(error)}`;
 			// A row deleted meanwhile stays deleted.
 			if (stored === undefined) return undefined;
-			const { error: saveError } = await recordings.set(id, stored, {
+			const { error: saveError } = await folder.tables.recordings.set(id, stored, {
 				fields: { durationMs: stopped.durationMs },
 			});
 			return saveError === null
@@ -866,7 +858,7 @@ export function createLibrary(
 			if (
 				read !== undefined &&
 				!read.paths.has(path) &&
-				textAt(path).pending === undefined
+				!local.getStatus().unsaved.includes(path)
 			)
 				return undefined;
 			return {
@@ -887,7 +879,7 @@ export function createLibrary(
 			if (
 				read !== undefined &&
 				!read.paths.has(path) &&
-				textAt(path).pending === undefined
+				!local.getStatus().unsaved.includes(path)
 			)
 				return undefined;
 			return {
@@ -904,57 +896,41 @@ export function createLibrary(
 		// Edits
 		// ------------------------------------------------------------------
 
-		/**
-		 * The row of `table` at `path` as views show and type into it: the
-		 * folder's edit of it, read reactively, its row as stored with what is
-		 * typed over it (`.row`), which the library's row reads keep
-		 * current. `change` types over the row it shows now.
-		 */
-		rowEdit<T extends RowTable>(table: T, path: string) {
-			return rowEditOf(table, rowIdOf(table, path) ?? '');
-		},
-		/** The input held for this path, from either view, read reactively. */
-		heldAt: (path: string) => textAt(path).pending,
+		/** The current file edit; a table argument binds typed fields and diagnostics. */
+		edit: editAt,
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText(path: string) {
 			return showsText(path);
 		},
 		/** Whether the row file at `path` takes an edit now: not closing, renamed, or deleted. */
 		canEdit: (path: string) =>
-			!fenced && !busyPaths.has(path) && !(rowEditAt(path)?.locked ?? false),
+			!fenced && !busyPaths.has(path) && !editAt(path).locked,
 		/**
 		 * Set fields of the row a view shows at once, over what it last
 		 * showed, merged with whatever was saved meanwhile. Refused, changing
 		 * nothing, while closing, and while a rename or delete of the file
-		 * runs. Inputs commit only values the schema accepts.
+		 * runs. Controls supply schema-typed values; source can retain invalid values.
 		 */
 		setFields<T extends RowTable>(
-			rowEdit: RowEdit<WhisperingTables[T]>,
+			fileEdit: FileEdit<WhisperingTables[T]>,
 			set: Partial<ReadRow<T>['fields']>,
 		): void {
-			if (fenced || busyPaths.has(rowEdit.path)) return;
-			if (rowEdit.change({ fields: set }).error === null) void rowEdit.save();
+			if (fenced || busyPaths.has(fileEdit.path)) return;
+			if (fileEdit.change({ fields: set }).error === null) void fileEdit.save();
 		},
 		/**
 		 * Type `body` as the body of the row a view shows, over what it last
 		 * showed; it saves a second after the last change, or at once with
-		 * `rowEdit.save()`, merged with whatever changed since.
+		 * `fileEdit.save()`, merged with whatever changed since.
 		 */
-		editBody(rowEdit: RowEdit, body: string): void {
-			if (fenced || busyPaths.has(rowEdit.path)) return;
-			rowEdit.change({ body });
+		editBody<TDocumentSchema extends TSchema>(fileEdit: FileEdit<TDocumentSchema>, body: string): void {
+			if (fenced || busyPaths.has(fileEdit.path)) return;
+			fileEdit.change({ body });
 		},
-		/**
-		 * The exact text of `path` as views show and type it: the folder's edit
-		 * of the file, held text, else the file as stored (`.text`).
-		 * Typing (`editText`) types over the text it shows now and saves a
-		 * second after the last change, or at once with `textEdit.save()`.
-		 */
-		textEdit: textAt,
 		/** Type `text` as the whole text a view shows, over what it last showed. */
-		editText(textEdit: TextEdit, text: string): void {
-			if (fenced || busyPaths.has(textEdit.path)) return;
-			if (textEdit.change(text).error === null) asText.add(textEdit.path);
+		editText<TDocumentSchema extends TSchema>(fileEdit: FileEdit<TDocumentSchema>, text: string): void {
+			if (fenced || busyPaths.has(fileEdit.path)) return;
+			if (fileEdit.replaceText(text).error === null) asText.add(fileEdit.path);
 		},
 		/** Hear each save of a file's text that failed, which the person is told. */
 		onWriteFailure(listener: (notice: WriteFailure) => void): () => void {
@@ -963,7 +939,7 @@ export function createLibrary(
 		},
 		/** Whether a save of `path` runs or waits, or typing there waits to be sent; read reactively. */
 		isSaving(path: string) {
-			const pending = textAt(path).pending;
+			const pending = editAt(path).pending;
 			return (
 				busyPaths.has(path) ||
 				(pending !== undefined &&
@@ -972,11 +948,9 @@ export function createLibrary(
 		},
 		/** Whether typing at `path` did not save, with no save running; read reactively. */
 		isUnsaved(path: string) {
-			const pending = textAt(path).pending;
+			const pending = editAt(path).pending;
 			return pending?.error !== undefined && !pending.saving;
 		},
-		/** Retry the one path-owned input, whichever view created it. */
-		retry: (path: string) => folder.files.edit(path).retry(),
 
 		/**
 		 * Let go of what is typed into `path` and did not save, leaving the file
@@ -988,7 +962,7 @@ export function createLibrary(
 			if (discarded === undefined) return undefined;
 			// A body alone stays plain text for copying back into its control.
 			if (
-				discarded.kind === 'row' &&
+				discarded.kind === 'document' &&
 				Object.keys(discarded.fields).length === 0
 			)
 				return discarded.body;
@@ -1013,7 +987,7 @@ export function createLibrary(
 		locked: (path?: string) =>
 			path === undefined
 				? fenced
-				: fenced || busyPaths.has(path) || (rowEditAt(path)?.locked ?? false),
+				: fenced || busyPaths.has(path) || editAt(path).locked,
 		/** Show the same path-owned edit as whole text; no save or reread is required. */
 		async editSource(path: string): Promise<string | undefined> {
 			const why = refused();
@@ -1025,8 +999,8 @@ export function createLibrary(
 		async useForm(path: string): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
-			const rowEdit = rowEditAt(path);
-			if (rowEdit !== undefined && rowEdit.row?.issues !== null)
+			const fileEdit = editAt(path);
+			if (fileEdit.markdown?.issues !== null)
 				return STILL_TEXT;
 			asText.delete(path);
 			return undefined;

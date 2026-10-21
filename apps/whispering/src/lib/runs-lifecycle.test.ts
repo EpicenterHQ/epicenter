@@ -108,7 +108,7 @@ test('recording notes that cannot save prevent transcription', async () => {
 		});
 	} finally {
 		chmodSync(join(root, 'recordings'), 0o755);
-		await edit.retry();
+		await edit.save();
 	}
 });
 
