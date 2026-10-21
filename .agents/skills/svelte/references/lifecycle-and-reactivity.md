@@ -158,10 +158,15 @@ narrowing inside a deferred callback, or when a useful computation needs a
 name. An already-narrowed local needs no extra alias. A reactive local is not
 a second draft or a mount-time snapshot.
 
+Place `{@const}` in the nearest template block containing the controls that
+need it. Capture the optional value, narrow that local, then create the binding
+callbacks. Several controls in that scope share one local; nested property
+access alone does not justify another alias.
+
 ```svelte
 {#each rowEdits as rowEdit (rowEdit.path)}
-	{#if rowEdit.row?.issues === null}
-		{@const row = rowEdit.row}
+	{@const row = rowEdit.row}
+	{#if row && row.issues === null}
 		<Input bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })} />
 		<Textarea bind:value={() => row.body, body => rowEdit.change({ body })} />
 	{/if}

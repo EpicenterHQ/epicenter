@@ -102,6 +102,39 @@ bindable just so a child can edit their fields. Domain actions such as archive,
 delete, select, save, or rename should usually be callback props or mutations,
 not two-way bound booleans.
 
+## Render optional unions presence first
+
+When several branches render variants of an optional discriminated union,
+separate presence from variant selection. Use an outer
+[`{#if}`](https://svelte.dev/docs/svelte/if) for presence, then read the
+discriminant directly inside. Keep the owner visible instead of introducing a
+`$derived` alias solely to shorten these immediate reads.
+
+For illustration, given a `fileEdit.pending` union with `conflict`, `failed`,
+`saving`, and `dirty` statuses (not a declaration of the current editor API):
+
+```svelte
+{#if fileEdit.pending}
+	{#if fileEdit.pending.status === 'conflict'}
+		<ConflictResolver conflict={fileEdit.pending} />
+	{:else if fileEdit.pending.status === 'failed'}
+		<p>Not saved: {fileEdit.pending.error.message}</p>
+	{:else if fileEdit.pending.status === 'saving'}
+		<p><Spinner class="size-3.5" /> Saving...</p>
+	{:else}
+		<p>Unsaved</p>
+	{/if}
+{:else}
+	<p>Saved</p>
+{/if}
+```
+
+This makes absence one explicit branch instead of repeating
+`fileEdit.pending?.status` in every condition. Optional chaining is still useful
+for an isolated optional read. A local still earns its place when a deferred
+callback needs narrowing or an operation must retain the exact value shown;
+see the binding guidance below.
+
 ## Function bindings for transformed values
 
 For a controlled input wrapper, expose a `$bindable` value and use Svelte's
@@ -124,15 +157,18 @@ props and preserve real draft ownership.
 A callback can run after the check that created it. TypeScript may therefore
 lose narrowing for a repeated optional property access inside the binding
 getter. This occurs with ordinary properties as well as JavaScript getters.
-In that case, read and narrow a reactive local:
+In that case, capture the optional value with `{@const}` in the nearest
+template block containing the controls that need it, then narrow that local
+before creating the callbacks:
 
 ```svelte
 {#each rowEdits as rowEdit (rowEdit.path)}
-	{#if rowEdit.row?.issues === null}
-		{@const row = rowEdit.row}
+	{@const row = rowEdit.row}
+	{#if row && row.issues === null}
 		<Input
 			bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })}
 		/>
+		<Textarea bind:value={() => row.body, body => rowEdit.change({ body })} />
 	{/if}
 {/each}
 ```
@@ -144,11 +180,25 @@ control instead of putting `?.` and an empty fallback into every binding.
 Use the source's actual sentinel (`undefined` or `null`); a Folder row is valid
 when present and `issues === null`.
 
+Share one local across the controls that use it instead of creating one per
+input. If only one control needs it, place the declaration beside that control
+in its enclosing block. `{@const}` must be an immediate child of a supported
+template block or component, not an arbitrary HTML element.
+
+For optional text whose binding getter needs narrowing, capture
+`{@const source = fileEdit.text}` in the nearest supported scope, then gate
+the control with `source !== undefined`. An empty string is valid source, so a
+truthy `{#if source}` would hide an empty file. Use `?? ''` only when absence
+really means an empty editable value; it must not turn unread, missing, or
+non-text content into an editable blank control.
+
 Do not add this local mechanically. If an `{#each}` variable or a value already
 held in a `const` is narrowed for the callback, use it directly. A simple
 display can also read the property directly when its guard suffices. The local
 earns its place by preserving narrowing or sharing a useful computation, not
-by the mere presence of a getter or `bind:value`.
+by the mere presence of a getter or `bind:value`. Nested access alone, such as
+`() => editor.settings.title`, needs no alias when the accessed values are
+always available.
 
 The setter sends a field patch or body through `edit.change`; it does not mutate
 the snapshot or send the whole row back. If a command composes a replacement
