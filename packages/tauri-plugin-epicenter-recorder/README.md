@@ -7,8 +7,9 @@ A recording is a WAV in the folder
 the shell bound to the recording window, written from the first sample
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
 `start` creates `<path>.wav` and appends 16 kHz mono PCM16 as the microphone
-captures, `stop` finalizes its header, and `cancel` deletes it. A quit, a
-crash, or a closed window keeps the audio up to the cut.
+captures, and `stop` finalizes its header. Nothing deletes it. A quit, a
+crash, or a closed window keeps the audio up to the cut; a shell asks
+`recording_owner` before a window closes or the app quits.
 
 A microphone is opened at the rate it already runs at, never another: on
 macOS a stream at another rate changes the device's rate for every app using
@@ -25,7 +26,7 @@ A page reaches it through `@epicenter/recorder/tauri`.
 | `src/wav.rs` | `repair` and `recover`: rewrite a WAV header whose sizes disagree with the file's length. |
 | `src/meter.rs` | A microphone opened for its level only, closed by its page or with it, or on its own when its stream dies or its page stops hearing it. |
 | `src/permission.rs` | Microphone access through AVFoundation, asked before any microphone opens. |
-| `src/commands.rs` | `inputs`, `open_meter`, `close_meter`, `start`, `stop`, `cancel`, and `recover`. |
+| `src/commands.rs` | `inputs`, `open_meter`, `close_meter`, `start`, `stop`, and `recover`. |
 | `src/ended.rs`, `src/error.rs` | Why a capture ended on its own, and the refusals a page switches on by `name`. |
 | `../recorder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/recorder`. Do not edit. |
 
@@ -69,7 +70,6 @@ calling window, read once when the command arrives.
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
 | `start(path, device, signals)` | Records into `<path>.wav` in the folder bound to this window, from the microphone with id `device` or the system default. Answers the recording's `id`, its path, and the microphone's name. |
 | `stop(id)` | Finalizes the WAV and answers its path and length. Only the window that started it may stop it. |
-| `cancel(id)` | Deletes the WAV. Only the window that started it may cancel it. |
 | `recover(under)` | Rewrites the header of every `.wav` under `under` whose sizes disagree with its length, leaving the recording still being written alone. Answers the paths it rewrote; a second run rewrites none. |
 
 `start` refuses before it opens anything:
@@ -85,8 +85,7 @@ calling window, read once when the command arrives.
 `signals` carries `{ kind: 'level', level }` at most twenty times a second, and
 `{ kind: 'ended', reason }` once if the capture ends on its own: the
 microphone went away, permission was withdrawn, the stream failed, or the
-file could not be written. What was captured stays the owner's to `stop` or
-`cancel`.
+file could not be written. What was captured stays the owner's to `stop`.
 
 ## The file in the folder
 

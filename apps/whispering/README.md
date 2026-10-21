@@ -439,16 +439,16 @@ recording: the window knows that, and only while it runs.
 
 - In Epicenter the shell writes the audio as it is captured, to
   `recordings/<id>.wav`, and brings its header up to date about once a
-  second. Stop finishes the file. Reloading or closing the window finishes it
-  too. A quit, a crash, or power loss keeps the audio up to that moment; when
+  second. Stop finishes the file and writes its length. Reloading or closing
+  the window finishes the file too, without a length. A quit, a crash, or
+  power loss keeps the audio up to that moment; when
   the folder next opens, the app rewrites the header of any recording that
   was cut off so it plays to its end. Its row then has no length.
 - In a browser tab the audio is held in the page and written on stop, as
   `recordings/<id>.webm` (or `.mp4` or `.ogg`, as the browser records).
   Reloading or closing the tab loses it, and the row stays without its audio.
-- Cancel deletes the audio and then its row. If cancellation fails or its
-  outcome cannot be confirmed, the row stays and the error is shown; Stop or
-  Cancel can be requested again.
+  A recording does not hold the tab open.
+- The app never deletes a recording's audio; deleting a recording keeps it.
 
 If the microphone disconnects, access is revoked, or capture fails, recording
 stops and the app reports why. It finishes the captured audio through the same
@@ -472,15 +472,16 @@ row and audio and says so.
 
 ### Closing and quitting
 
-Closing a desktop window checks whether its Folder has an unfinished save.
-If so, it asks whether to close anyway. An unfinished settings form or pasted
-text does not prompt. When the page unmounts, Whispering finishes its
-recording and final metadata writes before Folder closes storage.
+Closing a desktop window, or quitting Epicenter, asks once if a window is
+recording or its Folder has an unfinished save. Cancel keeps the window, its
+input, and the recording going. Close Anyway or Quit Anyway leaves at once:
+the recording's audio is finished and kept, without its length, and the
+window waits for nothing in the page. An unfinished settings form or pasted
+text does not prompt.
 
-Application Quit, Force Quit, a crash, and power loss cannot wait for that
-asynchronous cleanup. A recording is in the desktop folder from its start;
-a transcription or transformation writes its result file before sending a
-request.
+Force Quit, a crash, and power loss cannot ask. A recording is in the desktop
+folder from its start; a transcription or transformation writes its result
+file before sending a request.
 
 - In Epicenter a recording keeps its audio up to the moment the app
   closed, and the next time the folder opens its header is repaired so it

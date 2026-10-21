@@ -7,8 +7,7 @@
  *   the container's extension
  * - A chosen microphone that cannot be opened exactly is refused, never
  *   replaced, and anything opened is released
- * - Cancel writes nothing and releases the microphone; a second stop or
- *   cancel is `NotRecording`
+ * - Stop releases the microphone; a second stop is `NotRecording`
  * - A start withdrawn while the browser answers releases what arrives late
  * - Levels are heard while recording, and recovery has nothing to repair
  */
@@ -203,17 +202,15 @@ test('a denied permission is its own refusal', async () => {
 	);
 });
 
-test('cancel writes nothing and releases the microphone', async () => {
-	const { folder, written } = fakeFolder();
+test('stop releases the microphone, and a second stop is NotRecording', async () => {
+	const { folder } = fakeFolder();
 	const { stream, track } = fakeStream('default');
 	const { startRecording } = createBrowserRecorder(
 		environment({ getUserMedia: async () => stream }),
 	);
 	const recording = expectOk(await startRecording({ folder, path: 'a' }));
-	expectOk(await recording.cancel());
+	await recording.stop();
 	expect(track.stopped).toBe(true);
-	expect(written).toEqual([]);
-	expect(expectErr(await recording.cancel()).name).toBe('NotRecording');
 	expect(expectErr(await recording.stop()).name).toBe('NotRecording');
 });
 

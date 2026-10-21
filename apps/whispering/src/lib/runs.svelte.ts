@@ -151,12 +151,12 @@ export function createRuns({
 	/** The recording still being captured. Its audio is not finished, so it is not transcribed. */
 	isCapturing: (id: string) => boolean;
 	/**
-	 * Run folder work as a mutation, so closing waits for it; what it saves
-	 * reaches the views on the folder's change channel. `scope` names the
-	 * recording or file it is for.
+	 * Run folder work as a mutation, so a view of `scope` knows it is running;
+	 * what it saves reaches the views on the folder's change channel. `scope`
+	 * names the recording or file it is for.
 	 * Waiting on an endpoint is not tracked.
 	 */
-	track: <T>(work: () => Promise<T>, scope?: string) => Promise<T>;
+	track: <T>(work: () => Promise<T>, scope: string) => Promise<T>;
 }) {
 	/** Transcribe presses, by recording ID: one under way, or why one sent nothing. */
 	const transcriptions = new SvelteMap<string, TranscriptionRun>();
@@ -172,7 +172,6 @@ export function createRuns({
 	/** Result rows whose run again is reading what it sends. */
 	const again = new SvelteSet<string>();
 	const retries = new Map<string, ReturnType<typeof setTimeout>>();
-	let stopped = false;
 
 	const setLive = (target: Target, state: LiveResult) =>
 		live.set(pathOf(target), { state, recording: target.recording });
@@ -315,7 +314,7 @@ export function createRuns({
 			return;
 		}
 		setLive(target, { kind: 'writing', text, message: error });
-		if (stopped) return;
+		if (refused() !== undefined) return;
 		const wait = Math.min(RETRY_FIRST_MS * 2 ** attempt, RETRY_LAST_MS);
 		retries.set(
 			path,
@@ -453,8 +452,7 @@ export function createRuns({
 	): Promise<string | undefined> {
 		applying.set(key, run);
 		try {
-			// The reads are folder work that closing waits for; the request is not.
-			const prepared = await track(prepare);
+			const prepared = await prepare();
 			if (typeof prepared === 'string') return prepared;
 			const { target, fields } = prepared;
 			const { data: from, error: problem } = await begin(target, fields);
@@ -593,9 +591,8 @@ export function createRuns({
 			for (const [path, { state, recording }] of live)
 				if (recording === id && state.kind === 'failed') live.delete(path);
 		},
-		/** Stop writing answers again: the window is closing. */
+		/** Cancel the waits before answers are written again; once refused, none is set. */
 		stop() {
-			stopped = true;
 			for (const timer of retries.values()) clearTimeout(timer);
 			retries.clear();
 		},
@@ -625,9 +622,7 @@ export function createRuns({
 			const running: TranscriptionRun = { kind: 'running' };
 			transcriptions.set(id, running);
 			try {
-				const { data: audioPath, error: audioError } = await track(() =>
-					audioAt(id),
-				);
+				const { data: audioPath, error: audioError } = await audioAt(id);
 				if (audioError !== null) return fail(audioError);
 				const at = new Date();
 				const target: Target = {
@@ -773,7 +768,7 @@ export function createRuns({
 				return 'This is already running.';
 			again.add(path);
 			try {
-				const { data: prepared, error } = await track(() => againOf(path));
+				const { data: prepared, error } = await againOf(path);
 				if (error !== null) return error;
 				const late = refused();
 				if (late !== undefined) return late;

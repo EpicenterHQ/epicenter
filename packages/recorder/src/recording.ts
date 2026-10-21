@@ -46,7 +46,11 @@ export type StartRecordingOptions = {
 	readonly path: string;
 	/** Undefined is the system default. A chosen input that is not connected is refused, never replaced. */
 	readonly input?: RecordingInput;
-	/** Withdraws the start. A microphone that opens afterward is released and nothing is kept. */
+	/**
+	 * Withdraws the start. A microphone that opens afterward is released. A
+	 * browser has written nothing yet; on the desktop what the shell already
+	 * wrote is finalized and kept, never deleted.
+	 */
 	readonly signal?: AbortSignal;
 };
 
@@ -77,12 +81,14 @@ export type Recording = {
 	readonly device: string;
 	/** Hear how loud the input is, from 0 to 1, about twenty times a second. Returns the unsubscribe. */
 	onLevel(listener: (level: number) => void): () => void;
-	/** Hear that capture ended on its own, including an ending before subscription. `stop` keeps what was captured. Retired by stop or cancel. */
+	/** Hear that capture ended on its own, including an ending before subscription. `stop` keeps what was captured. Retired by stop. */
 	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
-	/** Finish the file and release the microphone. */
+	/**
+	 * Finish the file and release the microphone. Nothing deletes a recording:
+	 * one its page leaves without stopping is finalized by the shell on the
+	 * desktop and lost with the page in a browser.
+	 */
 	stop(): Promise<Result<StoppedRecording, RecorderError>>;
-	/** Release the microphone and delete the file. */
-	cancel(): Promise<Result<undefined, RecorderError>>;
 };
 
 export type RecoverRecordingsOptions = {
@@ -125,7 +131,7 @@ export const RecorderError = defineErrors({
 		message: `Another recording is in progress: ${reason}`,
 		reason,
 	}),
-	/** The recording was already stopped or cancelled, or is not this page's. */
+	/** The recording was already stopped, or is not this page's. */
 	NotRecording: ({ reason }: { reason: string }) => ({
 		message: `There is no such recording to end: ${reason}`,
 		reason,
@@ -135,9 +141,12 @@ export const RecorderError = defineErrors({
 		message: `The recording could not be saved there: ${reason}`,
 		reason,
 	}),
-	/** The start was withdrawn. Anything that opened late was released. */
+	/**
+	 * The request was withdrawn. A microphone that answered late was released;
+	 * on the desktop what a late recording had written was kept.
+	 */
 	Cancelled: () => ({
-		message: 'The microphone was not opened: the request was cancelled.',
+		message: 'The request was withdrawn before it finished.',
 	}),
 	/** The recording captured no audio, so no file was written. */
 	Empty: () => ({

@@ -115,7 +115,9 @@ What Whispering adds on top:
   every app from one fixed loopback origin, so it lasts between launches.
 
 Every file action, including settings saves, file creation, rename, and
-deletion, is tracked work, and product teardown waits for it. A request to
+deletion, is ordinary work refused once closing begins. Closing waits for
+the saves the Folder already admitted, never for a workflow still on its way
+to the Folder, and product teardown itself waits for nothing. A request to
 an endpoint is not waited for: its result row is in the folder before it goes
 out (ADR-0542), and an answer that has not arrived when the app quits is lost.
 
@@ -301,10 +303,11 @@ the folder and device settings. A thrown startup error stops the library and
 shows its original message under "Whispering could not start". The folder
 remains owned by FolderApp until unmount.
 
-On destruction, WhisperingApp calls `stop()` synchronously. It registers
-teardown through `context.run`, so FolderApp's close waits for it, including
-the recorder's final row write, before releasing the folder. Product teardown
-stops workflows and listeners; it never closes the folder or its context.
+On destruction, WhisperingApp calls `library.stop()`, which returns at once:
+it refuses new work and late answers, releases a microphone test, and stops
+observers and listeners. It finishes no recording and waits for no write; a
+recording under way ends with the page (ADR-0663). It never closes the folder
+or its context.
 
 Settings keep one replace-only draft of explicit input, separate from saved
 connection values. Untouched fields follow saved values and defaults; a
@@ -319,8 +322,8 @@ repeats startup.
 Leaving is guarded in one place, the shell. `beforeNavigate` holds a navigation
 only when it unloads the document while a change is still being written; a navigation between
 routes is never held. In a browser tab that raises the browser's own leave
-warning. The desktop window prompts when accepted Folder work is still pending;
-see "Closing".
+warning; a recording does not hold it. The desktop window prompts when accepted
+Folder work is still pending or it is recording; see "Closing".
 
 Every page is prerendered in Epicenter's build, and Epicenter serves the app's
 document for any other path below it; a browser build serves a fallback page.
@@ -329,10 +332,9 @@ So `/recordings` and `/transformations` open directly and survive a refresh.
 ## Recording
 
 The library holds one capture state: idle, starting with its abort controller,
-or recording/stopping with its handle and initial row save. The recorder UI
-and transcription guard derive from that state. Stop stays tracked through
-both audio finalization and the duration write, including when closing begins
-after the microphone has been released.
+recording with its handle and initial row save, or stopping with that Stop's
+completion, which a repeated Stop joins. The recorder UI and transcription
+guard derive from that state.
 
 A recording is in the folder from the moment it starts (ADR-0543). The
 library names it and writes its row first: `startRecording` makes the ID from
@@ -340,24 +342,24 @@ the start time, asks the capture device to record into
 `recordings/<id>` (`recordingAudioStem`), and writes the row with the start
 time and capture source. The device adds its format extension; the row stores no path. `stopRecording` stops the
 device and writes the length (`durationMs`) onto the row it reads again, so a
-title typed meanwhile is kept. `cancelRecording` holds the microphone until
-its cancellation answers and deletes the row only after cancellation succeeds.
-The operation stays tracked through row deletion during product teardown. A
-refused or unknown cancellation keeps the row and handle for an explicit Stop
-or Cancel; a delayed initial row-save failure cannot claim a cancelled capture
-is still running. Stop reports separately when audio was saved but its row
-could not be created. Closing the library stops a running
-recording, never cancels it. Nothing in a row says whether a recording is
+title typed meanwhile is kept. Stop reports separately when audio was saved
+but its row could not be created. Nothing in the page deletes a recording.
+Closing the library neither stops nor deletes a running recording: leaving
+the page ends it. On the desktop the shell finalizes its WAV and frees the
+recorder; in a browser the recording held in the page is lost. Its row,
+written at start, gets no length. A Stop already under way when the library
+closes writes no length either. Nothing in a row says whether a recording is
 running: the library's live capture says that, and a running recording is
 refused transcription.
 
 The capture forwards the recorder's first unexpected ending, including one
 received before subscription. The active capture alone handles it, through
-`finishRecording`, while a tracked operation keeps teardown behind audio and
-row finalization. Repeated or stale endings cannot stop another capture. Stop
-or Cancel retires the recorder's listeners; interruption adds no persisted
-status or second save queue. The browser listens for final encoder output
-from startup, so an encoder that already stopped can still save its bytes.
+`finishRecording`, so it is finalized like an explicit Stop. Repeated or
+stale endings cannot stop another capture, and an ending heard after the
+library closed finishes nothing. Stop retires the recorder's listeners;
+interruption adds no persisted status or second save queue. The browser
+listens for final encoder output from startup, so an encoder that already
+stopped can still save its bytes.
 
 There are two capture devices, and each mounted product has exactly one, chosen at construction; neither falls back to the other.
 
@@ -424,10 +426,12 @@ closing the library all call it, so nothing they leave behind holds a stream.
 The recorder and that request never hold a microphone together.
 `startRecording` releases before it asks for its own microphone and passes the
 choice it read at that moment; the choice, a test, and `allow` are refused
-while a recording is starting, running, or finishing. A recording cancelled or
-closed while its microphone is opening aborts that request. Closing the
-library releases the microphone first, before it waits for file commands it
-had accepted, and stops listening for `devicechange` (a browser announces
+while a recording is starting, running, or finishing. A recording closed while
+its microphone is opening aborts that request: a browser releases the
+microphone when it answers, and on the desktop the shell stops what it
+started, keeping its audio. Closing the library releases a test's microphone
+at once, waits for no save of the choice, and stops listening for
+`devicechange` (a browser announces
 connected inputs; the shell does not, so there the person lists again).
 
 Nothing here runs at launch. The app reads the saved choice through
@@ -602,24 +606,26 @@ file edits. Renaming a file saves its typing, saves its exact
 bytes under the new name, then deletes the old name as read; the selection
 follows it. Recording and transformation files keep their names. Once the
 library stops, it calls `folder.stopEditing()` so all core and Svelte handles
-refuse new input. Teardown still waits for tracked work and the folder’s held
-input. Accepted scoped file actions can finish during close. This differs from the
+refuse new input. It does not drain workflows. The Folder preserves accepted
+input and admitted storage actions, which can finish during close. This differs from the
 person confirming immediate departure.
 
 ## Closing
 
-Closing the desktop window checks whether accepted Folder work is saving or
-unsaved. Pending work prompts: Cancel keeps the window and input; Close Anyway
-destroys it without waiting for a save. Unsubmitted settings and pasted text
-do not prompt. Normal page teardown still waits for tracked app actions before
-closing the Folder. Recorded audio and started requests have their own lifetimes:
+Closing the desktop window sends Epicenter whether accepted Folder work is
+saving or unsaved; Epicenter adds whether the window is recording, from its
+recorder, and asks once, sharing that one question with application Quit
+([ADR-0663](../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md)).
+Cancel keeps the window, its input, and its recording; Close Anyway destroys
+the window without waiting for the page. Unsubmitted settings and pasted text
+do not prompt. Recorded audio and started requests have their own lifetimes:
 
 - A recording is in the folder from its start
   ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
   On the desktop the recorder plugin appends its audio as it captures and
-  finalizes the file when the window reloads or closes; a WAV cut off by a
-  crash has its header rewritten (`recoverRecordings`) when the folder next
-  opens.
+  finalizes the file when the window reloads or closes, freeing the recorder;
+  only Stop writes its length. A WAV cut off by a crash has its header
+  rewritten (`recoverRecordings`) when the folder next opens.
 - A transcription or recipe run writes its result row before the request goes
   out. An answer that has not arrived when the app quits is lost, and the row
   stays unfinished, to run again.

@@ -1,6 +1,5 @@
 /** Product state for one mounted Whispering app, beside FolderApp's context. */
 import { createContext } from 'svelte';
-import { createLogger } from 'wellcrafted/logger';
 import { maintainExclusions } from './exclusions.js';
 import { describeError } from './files.js';
 import type { WhisperingContext } from './folder.js';
@@ -9,7 +8,6 @@ import type { PostProcessingChoice } from './post-processing.js';
 import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
 import { createSettingsDraft } from './settings-draft.svelte.js';
 import { createServices } from '#platform/services';
-const log = createLogger('whispering');
 
 /** Construct without reading; start maintains exclusions before the first product reads. */
 export function createWhispering(context: WhisperingContext) {
@@ -67,7 +65,8 @@ export function createWhispering(context: WhisperingContext) {
 		postProcessing: undefined as string | undefined,
 	});
 	const settings = createSettingsDraft(library);
-	const unlist = library.onRecordingsListed((present) => {
+	// Heard until the library stops, which lets go of its listeners.
+	library.onRecordingsListed((present) => {
 		if (view.recordingSelected.some((path) => !present.has(path)))
 			view.recordingSelected = view.recordingSelected.filter((path) =>
 				present.has(path),
@@ -75,7 +74,6 @@ export function createWhispering(context: WhisperingContext) {
 	});
 	let exclusionNotice = $state<string | undefined>();
 	let starting: Promise<void> | undefined;
-	let stopping: Promise<void> | undefined;
 	return {
 		library,
 		view,
@@ -100,49 +98,23 @@ export function createWhispering(context: WhisperingContext) {
 				: { kind: 'repair', entry, reason: resolved.reason };
 		},
 		/**
-		 * Whether a navigation must be held back. A navigation between this app's
-		 * routes unloads nothing and is never held. One that unloads the document
-		 * is held while typing is not in its file yet, or a save or action runs;
-		 * in a browser tab that raises the browser's own leave warning.
+		 * Maintain exclusions before reads. A failed start stops the library and
+		 * preserves its cause; one stopped meanwhile rejects as stopped, even if
+		 * the folder closed under it.
 		 */
-		blocksNavigation(navigation: { readonly willUnload: boolean }): boolean {
-			return navigation.willUnload && (context.getStatus().saving || context.getStatus().unsaved.length > 0);
-		},
-		/** Maintain exclusions before reads. A failed start stops the library and preserves its cause. */
 		start(): Promise<void> {
 			return (starting ??= (async () => {
 				try {
-					const { error } = await context.run(() =>
-						maintainExclusions(context.folder.files),
-					);
+					const { error } = await maintainExclusions(context.folder.files);
 					if (library.closing) throw new Error(STOPPED);
 					exclusionNotice = error === null ? undefined : describeError(error);
 					await library.start();
 					if (library.closing) throw new Error(STOPPED);
 				} catch (cause) {
-					try {
-						await library.stop();
-					} catch (stopCause) {
-						log.error(
-							new Error('Whispering did not stop after startup failed', {
-								cause: stopCause,
-							}),
-						);
-					}
-					throw cause;
+					const stopped = library.closing;
+					library.stop();
+					throw stopped ? new Error(STOPPED) : cause;
 				}
-			})());
-		},
-		/**
-		 * Register teardown synchronously. Root close waits for the recorder's
-		 * final writes, accepted actions, exclusion maintenance, and recording
-		 * recovery through context.run, never for startup display reads.
-		 */
-		stop(): Promise<void> {
-			return (stopping ??= (() => {
-				unlist();
-				const stopped = library.stop();
-				return context.run(() => stopped);
 			})());
 		},
 	};

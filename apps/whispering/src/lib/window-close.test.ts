@@ -8,8 +8,9 @@
  * Key behaviors:
  * - Text held by the Folder prompts; Cancel retains it
  * - An explicit save can finish, then the window closes without prompting
- * - A recording under way holds nothing: the window goes, and destroying it
- *   is what finishes the recording
+ * - A recording under way holds nothing in the page: the window goes, and
+ *   destroying it is what finishes the recording. Inside Epicenter the
+ *   shell, which owns the recorder, asks about it (ADR-0663)
  * - A closed whispering no longer holds the window's close
  */
 import {

@@ -1,7 +1,16 @@
 /**
- * Capture cancellation and interruption keep the microphone, row, and folder
- * lifetimes aligned. Ends arriving during startup or closing finalize once;
- * failures retain the row and report what could not be saved.
+ * Capture Stop, interruption, and departure keep the microphone, row, and
+ * folder lifetimes aligned without the page finishing work as it goes.
+ *
+ * Key behaviors:
+ * - Stop finalizes once; a Stop pressed again joins the first, which ends
+ *   after the row's length is written
+ * - An interruption finishes the captured audio once and keeps its row;
+ *   a failed final save keeps the row and says why
+ * - Closing waits for no Stop and starts none: a recording under way is
+ *   neither stopped nor deleted by the page, gets no length, and an ending
+ *   heard afterward finishes nothing
+ * - A recording that answers after closing writes no row
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -13,7 +22,7 @@ import {
 	type RecordingEndedReason,
 } from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
-import { expectErr, expectOk } from 'wellcrafted/testing';
+import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import { closeTestLibrary, openTestLibrary } from './library.test-support.js';
 import { createMicrophoneDevice } from './microphone.js';
@@ -24,22 +33,20 @@ import {
 	withObstructedCreates,
 } from './services.test-support.js';
 
-const cleanups: (() => Promise<void>)[] = [];
+const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
 async function open({
-	cancel,
 	stop,
 	beforeStart,
 	earlyEnding,
 }: {
-	cancel: Recording['cancel'];
 	stop?: (path: string) => ReturnType<Recording['stop']>;
 	beforeStart?: Promise<void>;
 	earlyEnding?: RecordingEndedReason;
-}) {
+} = {}) {
 	const test = await openTestServices();
 	let starts = 0;
 	let stops = 0;
@@ -73,7 +80,6 @@ async function open({
 					if (stop !== undefined) return stop(`${path}.wav`);
 					return Ok({ path: `${path}.wav`, durationMs: 1000 });
 				},
-				cancel,
 			});
 		},
 	});
@@ -97,209 +103,61 @@ async function open({
 	};
 }
 
-test('a cancellation is registered before closing, including its row deletion', async () => {
-	const release = Promise.withResolvers<void>();
-	const { library, test } = await open({
-		cancel: async () => {
-			await release.promise;
-			return Ok(undefined);
-		},
-	});
-	await library.startRecording();
-	// The row is on disk even if the listing has not refreshed yet.
-	const rows = expectOk(await test.folder.tables.recordings.list());
-	expect(rows).toHaveLength(1);
-	const cancelling = library.cancelRecording();
-	let closed = false;
-	const closing = closeTestLibrary(library).then(() => {
-		closed = true;
-	});
-	try {
-		await new Promise((resolve) => setTimeout(resolve, 30));
-		expect(closed).toBe(false);
-		expect(test.closes).toBe(0);
-	} finally {
-		release.resolve();
-		await cancelling;
-		await closing;
-	}
-	expect(await readdir(join(test.root, 'recordings'))).toEqual([]);
-	expect(closed).toBe(true);
-});
-
-test('a cancellation releases its microphone before another recording starts', async () => {
-	const release = Promise.withResolvers<void>();
-	const { library, starts } = await open({
-		cancel: async () => {
-			await release.promise;
-			return Ok(undefined);
-		},
-	});
-	await library.startRecording();
-	const cancelling = library.cancelRecording();
-	try {
-		expect(library.recorder.phase).toBe('stopping');
-		await library.cancelRecording();
-		expect(library.recorder.phase).toBe('stopping');
-		await library.startRecording();
-		expect(starts()).toBe(1);
-	} finally {
-		release.resolve();
-		await cancelling;
-	}
-	expect(library.recorder.phase).toBe('idle');
-	await library.startRecording();
-	expect(starts()).toBe(2);
-});
-
-test('an unconfirmed cancellation keeps the row and permits an explicit stop', async () => {
-	const { library, test, stops } = await open({
-		cancel: async () =>
-			RecorderError.Failed({ cause: 'The native reply was lost' }),
-	});
-	await library.startRecording();
-	await library.cancelRecording();
-	expect(expectOk(await test.folder.tables.recordings.list())).toHaveLength(1);
-	expect(library.recorderError).toContain('could not be confirmed');
-	expect(library.recorder.phase).toBe('recording');
-	await library.stopRecording();
-	expect(stops()).toBe(1);
-	expect(library.recorder.phase).toBe('idle');
-	expect(expectOk(await test.folder.tables.recordings.list())).toHaveLength(1);
-});
-
-test('the capture adapter reports a native cancellation failure', async () => {
-	const { capture } = await open({
-		cancel: async () =>
-			RecorderError.Failed({ cause: 'The native reply was lost' }),
-	});
-	const active = expectOk(
-		await capture.start({
-			folder: { write: async () => Ok(undefined) },
-			path: 'recordings/test',
-		}),
+/** The recording rows under `root`, by name. */
+async function rows(root: string) {
+	return (await readdir(join(root, 'recordings'))).filter((name) =>
+		name.endsWith('.md'),
 	);
-	const result = await active.cancel();
-	expect(result).toBeDefined();
-	expect(expectErr(result)).toMatchObject({ name: 'Failed' });
-});
+}
 
-test('Stop resolves an unknown cancellation even when the host already cancelled it', async () => {
-	const { library, test } = await open({
-		cancel: async () =>
-			RecorderError.Failed({ cause: 'The native reply was lost' }),
-		stop: async () =>
-			RecorderError.NotRecording({ reason: 'already cancelled' }),
-	});
-	await library.startRecording();
-	await library.cancelRecording();
-	await library.stopRecording();
-	expect(library.recorder.phase).toBe('idle');
-	expect(expectOk(await test.folder.tables.recordings.list())).toHaveLength(1);
-});
-
-test('closing after an unconfirmed cancellation finishes the held recording and keeps its row', async () => {
+test('a delayed failed initial row save reports the recording after Stop truthfully', async () => {
+	const test = await openTestServices();
+	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
-	const { library, test, stops } = await open({
-		cancel: async () => {
-			await release.promise;
-			return RecorderError.Failed({ cause: 'The native reply was lost' });
+	const recordings = withObstructedCreates(
+		test.folder.tables.recordings,
+		join(test.root, 'recordings'),
+		{ creates: 1 },
+	);
+	replaceTables(test.folder, {
+		recordings: {
+			...recordings,
+			async set(id, from, change) {
+				if (from === null) {
+					reached.resolve();
+					await release.promise;
+				}
+				return recordings.set(id, from, change);
+			},
 		},
 	});
-	await library.startRecording();
-	const cancelling = library.cancelRecording();
-	const closing = closeTestLibrary(library);
-	release.resolve();
-	await Promise.all([cancelling, closing]);
-	expect(stops()).toBe(1);
-	expect(await readdir(join(test.root, 'recordings'))).toHaveLength(1);
-});
-
-test('a thrown cancellation keeps its row and remains explicitly stoppable', async () => {
-	const { library, test, stops } = await open({
-		cancel: async () => {
-			throw new Error('The cancellation transport threw');
-		},
-	});
-	await library.startRecording();
-	await library.cancelRecording();
-	expect(expectOk(await test.folder.tables.recordings.list())).toHaveLength(1);
-	expect(library.recorderError).toContain('could not be confirmed');
-	await library.stopRecording();
-	expect(stops()).toBe(1);
-});
-
-test('a capture opening after cancellation handles a cleanup rejection', async () => {
-	const release = Promise.withResolvers<void>();
-	const { library } = await open({
-		beforeStart: release.promise,
-		cancel: async () => {
-			throw new Error('The late cancellation transport threw');
-		},
+	const library = await openTestLibrary(test);
+	cleanups.push(async () => {
+		await closeTestLibrary(library);
+		await test.remove();
 	});
 	const starting = library.startRecording();
-	await library.cancelRecording();
-	release.resolve();
-	await starting;
+	await reached.promise;
+	const ending = library.stopRecording();
+	try {
+		// Finish audio first while the initial row write is still held.
+		await eventually(() => library.recorder.phase === 'idle');
+	} finally {
+		release.resolve();
+		await Promise.all([starting, ending]);
+	}
 	expect(library.recorder.phase).toBe('idle');
-	expect(library.recorderError).toContain('late recording');
+	expect(
+		(await readdir(join(test.root, 'recordings'))).filter((path) =>
+			path.endsWith('.wav'),
+		),
+	).toHaveLength(1);
+	expect(library.recorderError).toContain('audio is saved');
+	expect(library.recorderError).toContain(
+		'recording file could not be written',
+	);
+	expect(library.recorderError).not.toContain('recording is running');
 });
-
-for (const action of ['stop', 'cancel'] as const) {
-	test(`a delayed failed initial row save reports the recording after ${action} truthfully`, async () => {
-		const test = await openTestServices();
-		const reached = Promise.withResolvers<void>();
-		const release = Promise.withResolvers<void>();
-		const recordings = withObstructedCreates(
-			test.folder.tables.recordings,
-			join(test.root, 'recordings'),
-			{ creates: 1 },
-		);
-		replaceTables(test.folder, {
-			recordings: {
-				...recordings,
-				async set(id, from, change) {
-					if (from === null) {
-						reached.resolve();
-						await release.promise;
-					}
-					return recordings.set(id, from, change);
-				},
-			},
-		});
-		const library = await openTestLibrary(test);
-		cleanups.push(async () => {
-			await closeTestLibrary(library);
-			await test.remove();
-		});
-		const starting = library.startRecording();
-		await reached.promise;
-		const ending =
-			action === 'stop' ? library.stopRecording() : library.cancelRecording();
-		try {
-			// Finish audio first while the initial row write is still held.
-			await eventually(() => library.recorder.phase === 'idle');
-		} finally {
-			release.resolve();
-			await Promise.all([starting, ending]);
-		}
-		expect(library.recorder.phase).toBe('idle');
-		if (action === 'cancel') {
-			expect(library.recorderError).toBeUndefined();
-		} else {
-			expect(
-				(await readdir(join(test.root, 'recordings'))).filter((path) =>
-					path.endsWith('.wav'),
-				),
-			).toHaveLength(1);
-			expect(library.recorderError).toContain('audio is saved');
-			expect(library.recorderError).toContain(
-				'recording file could not be written',
-			);
-			expect(library.recorderError).not.toContain('recording is running');
-		}
-	});
-}
 
 for (const reason of [
 	'deviceDisconnected',
@@ -311,7 +169,6 @@ for (const reason of [
 		let test: Awaited<ReturnType<typeof open>>['test'];
 		let audioPath = '';
 		const opened = await open({
-			cancel: async () => Ok(undefined),
 			stop: async (path) => {
 				audioPath = path;
 				expectOk(await test.folder.files.write(path, null, toneWav()));
@@ -322,11 +179,11 @@ for (const reason of [
 		await opened.library.startRecording();
 		opened.end(reason);
 		await eventually(() => opened.library.recorder.phase === 'idle');
+		// The length is written by the Stop the ending started, before closing.
+		await opened.library.stopRecording();
 		await closeTestLibrary(opened.library);
 		expect(opened.stops()).toBe(1);
-		const [name] = (await readdir(join(test.root, 'recordings'))).filter(
-			(name) => name.endsWith('.md'),
-		);
+		const [name] = await rows(test.root);
 		const saved = await readFile(join(test.root, 'recordings', name!), 'utf8');
 		expect(saved).toContain('durationMs: 1000');
 		expect(new Uint8Array(await readFile(join(test.root, audioPath)))).toEqual(
@@ -337,50 +194,17 @@ for (const reason of [
 }
 
 test('an interruption already reported at startup finishes the capture once', async () => {
-	const { library, stops } = await open({
-		cancel: async () => Ok(undefined),
-		earlyEnding: 'permissionRevoked',
-	});
+	const { library, stops } = await open({ earlyEnding: 'permissionRevoked' });
 	await library.startRecording();
 	await eventually(() => library.recorder.phase === 'idle');
 	expect(stops()).toBe(1);
 	expect(library.recorderError).toContain('permission');
 });
 
-test('closing waits for an interrupted capture and does not stop it twice', async () => {
-	const release = Promise.withResolvers<void>();
-	const { library, test, end, stops } = await open({
-		cancel: async () => Ok(undefined),
-		stop: async () => {
-			await release.promise;
-			return Ok({ path: 'recordings/interrupted.wav', durationMs: 1000 });
-		},
-	});
-	await library.startRecording();
-	end('deviceDisconnected');
-	end('streamFailed');
-	expect(library.recorder.phase).toBe('stopping');
-	expect(stops()).toBe(1);
-	let closed = false;
-	const closing = closeTestLibrary(library).then(() => {
-		closed = true;
-	});
-	try {
-		await new Promise((r) => setTimeout(r, 20));
-		expect(closed).toBe(false);
-		expect(stops()).toBe(1);
-	} finally {
-		release.resolve();
-		await closing;
-	}
-	expect(test.closes).toBe(1);
-});
-
 test.each(['refused', 'thrown'] as const)(
 	'an interrupted capture whose final save is %s keeps its row and reports the failure',
 	async (failure) => {
 		const { library, test, end } = await open({
-			cancel: async () => Ok(undefined),
 			stop: async () => {
 				if (failure === 'thrown') throw new Error('disk is full');
 				return RecorderError.Refused({ reason: 'disk is full' });
@@ -397,8 +221,8 @@ test.each(['refused', 'thrown'] as const)(
 	},
 );
 
-test('closing during explicit Stop waits for its subsequent duration write', async () => {
-	const { library, test } = await open({ cancel: async () => Ok(undefined) });
+test('a Stop pressed again joins the first, which ends once the length is written', async () => {
+	const { library, test, end, stops } = await open();
 	await library.startRecording();
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
@@ -413,36 +237,116 @@ test('closing during explicit Stop waits for its subsequent duration write', asy
 			},
 		},
 	});
-	let closing: ReturnType<typeof closeTestLibrary> | undefined;
-	const off = library.local.queryClient
-		.getMutationCache()
-		.subscribe((event) => {
-			if (
-				closing === undefined &&
-				event.type === 'updated' &&
-				event.mutation.state.status === 'success' &&
-				library.recorder.phase === 'stopping'
-			)
-				closing = closeTestLibrary(library);
-		});
-	const stopping = library.stopRecording().catch((error: unknown) => error);
+	const first = library.stopRecording();
+	// Pressed again, and an ending heard meanwhile: neither stops twice.
+	expect(library.stopRecording()).toBe(first);
+	end('deviceDisconnected');
+	await reached.promise;
+	// The microphone is free and the recorder idle while the length is
+	// written; a Stop pressed now still joins the one writing it.
+	expect(library.recorder.phase).toBe('idle');
+	const again = library.stopRecording();
+	expect(again).toBe(first);
+	let joined = false;
+	void again.then(() => {
+		joined = true;
+	});
+	await Bun.sleep(10);
+	expect(joined).toBe(false);
+	release.resolve();
+	await again;
+	expect(stops()).toBe(1);
+	const [name] = await rows(test.root);
+	expect(
+		await readFile(join(test.root, 'recordings', name!), 'utf8'),
+	).toContain('durationMs: 1000');
+});
+
+test('closing leaves a recording under way to the page’s departure: nothing is stopped, deleted, or written', async () => {
+	const { library, test, end, stops } = await open();
+	// Answers once the row written at start is saved.
+	await library.startRecording();
+	expect(await rows(test.root)).toHaveLength(1);
+
+	await closeTestLibrary(library);
+	// An ending heard after closing finishes nothing either.
+	end('deviceDisconnected');
+	await library.stopRecording();
+
+	expect(stops()).toBe(0);
+	expect(test.closes).toBe(1);
+	const files = await readdir(join(test.root, 'recordings'));
+	expect(files).toHaveLength(1);
+	expect(
+		await readFile(join(test.root, 'recordings', files[0]!), 'utf8'),
+	).not.toContain('durationMs');
+});
+
+test('closing during an interrupted capture’s Stop waits for neither the Stop nor its length', async () => {
+	const release = Promise.withResolvers<void>();
+	const { library, test, end, stops } = await open({
+		stop: async () => {
+			await release.promise;
+			return Ok({ path: 'recordings/interrupted.wav', durationMs: 1000 });
+		},
+	});
+	await library.startRecording();
+	end('deviceDisconnected');
+	end('streamFailed');
+	expect(library.recorder.phase).toBe('stopping');
+	expect(stops()).toBe(1);
+
+	await closeTestLibrary(library);
+
+	expect(test.closes).toBe(1);
+	expect(stops()).toBe(1);
+	release.resolve();
+	await eventually(() => library.recorder.phase === 'idle');
+	// The Stop answered after closing, so its length is never written.
+	const [name] = await rows(test.root);
+	expect(
+		await readFile(join(test.root, 'recordings', name!), 'utf8'),
+	).not.toContain('durationMs');
+	expect(library.recorderError).toContain('Recording stopped');
+});
+
+test('a recording that answers after closing writes no row', async () => {
+	const answer = Promise.withResolvers<void>();
+	const { library, test, starts, stops } = await open({
+		beforeStart: answer.promise,
+	});
+	const starting = library.startRecording();
+	await eventually(() => starts() === 1);
+	await closeTestLibrary(library);
+	answer.resolve();
+	await starting;
+	expect(stops()).toBe(0);
+	expect(library.recorder.phase).toBe('idle');
+	expect(
+		await readdir(join(test.root, 'recordings')).catch(() => [] as string[]),
+	).toEqual([]);
+});
+
+
+test('the current audio path stays known until Stop finishes its bytes', async () => {
+	const release = Promise.withResolvers<void>();
+	const { library } = await open({
+		stop: async (path) => {
+			await release.promise;
+			return Ok({ path, durationMs: 1000 });
+		},
+	});
+	await library.startRecording();
+	await eventually(() => library.entries.length === 1);
+	const entry = library.entries[0]!;
+	const expected = library.audioOf(entry);
+	expect(expected.kind).toBe('here');
+	const stopping = library.stopRecording();
 	try {
-		await reached.promise;
-		expect(closing).toBeDefined();
-		await new Promise((r) => setTimeout(r, 20));
-		expect(test.closes).toBe(0);
+		expect(library.capturePhase(expected.kind === 'here' ? expected.path : '')).toBe('stopping');
+		expect(library.audioOf(entry)).toEqual(expected);
 	} finally {
 		release.resolve();
-		off();
 		await stopping;
-		await closing;
 	}
-	expect(await stopping).toBeUndefined();
-	expect(test.closes).toBe(1);
-	const rows = (await readdir(join(test.root, 'recordings'))).filter((name) =>
-		name.endsWith('.md'),
-	);
-	expect(
-		await readFile(join(test.root, 'recordings', rows[0]!), 'utf8'),
-	).toContain('durationMs: 1000');
 });

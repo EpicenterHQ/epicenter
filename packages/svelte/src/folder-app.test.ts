@@ -111,3 +111,37 @@ test('a folder returned after unmount is closed without mounting its children', 
 	expect(childrenMounted).toBe(false);
 	expect(() => folder.files.list()).toThrow('closed');
 });
+
+
+test('document departure warns for accepted input until its save lands', async () => {
+	globalThis.indexedDB = new IDBFactory();
+	const folder = expectOk(await openFolder({ tables, saveAfterMs: 60_000 }));
+	expectOk(await folder.tables.notes.set('milk', null, {
+		fields: { title: 'Milk' }, body: 'Before',
+	}));
+	cleanup.push(() => folder.close());
+	const target = document.createElement('div');
+	document.body.append(target);
+	cleanup.push(() => target.remove());
+	let context: FolderContext | undefined;
+	const view = mount(FolderAppHost, {
+		target,
+		props: { open: async () => Ok(folder), onContext: (opened: FolderContext) => { context = opened; } },
+	});
+	cleanup.push(() => unmount(view));
+	await until(() => context !== undefined);
+
+	const leaves = () => {
+		const event = new window.Event('beforeunload', { cancelable: true });
+		window.dispatchEvent(event);
+		return !event.defaultPrevented;
+	};
+	expect(leaves()).toBe(true);
+	const edit = folder.tables.notes.edit('milk');
+	expectOk(await edit.read());
+	expectOk(edit.change({ body: 'Accepted, not published yet' }));
+	expect(folder.getStatus().unsaved).toContain('notes/milk.md');
+	expect(leaves()).toBe(false);
+	await folder.settle();
+	expect(leaves()).toBe(true);
+});

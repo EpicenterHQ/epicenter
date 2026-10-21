@@ -3,9 +3,8 @@
  *
  * The shell's recorder writes `<path>.wav` into the folder the shell bound
  * to this window, from the first sample, so the file exists and grows while the
- * recording runs. `stop` finalizes its header and `cancel` deletes it. When
- * the page reloads or its window closes, the shell finalizes the recording
- * itself: the file is kept and its row, written at start, already names it.
+ * recording runs. `stop` finalizes its header. When the page reloads or its
+ * window closes, the shell finalizes the recording itself: the file is kept.
  *
  * Levels and an ending nobody asked for arrive on a channel this page alone
  * hears.
@@ -116,9 +115,11 @@ export const startRecording: StartRecording = async ({
 	}
 	if (answer.error !== null) return fromNative(answer.error, input?.label);
 	const { id, path: file, device } = answer.data;
-	// Withdrawn while the shell was opening the microphone: nothing is kept.
+	// Withdrawn while the shell was opening the microphone: it is released,
+	// and what the shell already wrote is finalized and kept, never deleted.
 	if (signal?.aborted) {
-		await commands.cancel(id).catch(() => {});
+		signals.retire();
+		await commands.stop(id).catch(() => {});
 		return RecorderError.Cancelled();
 	}
 	const startedAt = Date.now();
@@ -135,16 +136,6 @@ export const startRecording: StartRecording = async ({
 				const { data, error } = await commands.stop(id);
 				if (error !== null) return fromNative(error);
 				return Ok(data);
-			} catch (cause) {
-				return RecorderError.Failed({ cause });
-			}
-		},
-		async cancel() {
-			signals.retire();
-			try {
-				const { error } = await commands.cancel(id);
-				if (error !== null) return fromNative(error);
-				return Ok(undefined);
 			} catch (cause) {
 				return RecorderError.Failed({ cause });
 			}

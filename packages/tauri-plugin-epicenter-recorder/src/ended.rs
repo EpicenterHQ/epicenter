@@ -8,8 +8,7 @@
 //!
 //! What ends is the capture, not the recording. The reason below travels to the
 //! owner so it can say something true about what happened; the audio captured up
-//! to that moment is already in its file, and stays the owner's to stop or
-//! cancel.
+//! to that moment is already in its file, and stays the owner's to stop.
 //!
 //! # The taxonomy is exactly as fine as cpal's evidence
 //!
@@ -33,7 +32,7 @@ use serde::{Deserialize, Serialize};
 
 /// Why the host ended a recording's capture on its own.
 ///
-/// This never describes a stop, a cancel, or an owner window being destroyed.
+/// This never describes a stop or an owner window being destroyed.
 /// Those are endings someone asked for, and the caller already knows about them
 /// from its own call returning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]

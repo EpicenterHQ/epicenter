@@ -1,4 +1,4 @@
-/** The real FolderApp and WhisperingApp root: route continuity and writes before folder release. */
+/** The real FolderApp and WhisperingApp root: route continuity, an unmount that waits for no workflow, and a recording left to the page's departure. */
 import '../svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
@@ -80,34 +80,33 @@ test('route changes share one opened folder and keep recording', async () => {
 	);
 	expect(app.seen[1]?.whispering).toBe(first.whispering);
 	expect(first.whispering.library.recorder.phase).toBe('recording');
+	await first.context.folder.settle();
+	// Recording alone adds no browser departure warning. FolderApp still
+	// guards accepted edits, covered by its mounted beforeunload test.
+	const departure = new window.Event('beforeunload', { cancelable: true });
+	expect(window.dispatchEvent(departure)).toBe(true);
 	expect(app.test.opens).toBe(1);
 });
 
-test('unmount finishes the recording row before closing the folder exactly once', async () => {
-	let atClose = '';
-	let recordingPath = '';
-	const app = await render({
-		change(folder) {
-			const close = folder.close;
-			folder.close = async () => {
-				atClose = await Bun.file(`${app.test.root}/${recordingPath}`).text();
-				return await close();
-			};
-		},
-	});
+test('unmount leaves a recording to the page’s departure and closes the folder exactly once', async () => {
+	const app = await render();
 	const { whispering } = await app.ready();
 	await whispering.library.startRecording();
 	// Save completion no longer waits for the display queries to catch up.
 	const rows = await readdir(`${app.test.root}/recordings`);
 	expect(rows).toHaveLength(1);
-	recordingPath = `recordings/${rows[0]}`;
 	await app.destroy();
 	await eventually(() => app.test.closes === 1);
-	expect(atClose).toContain('durationMs:');
+	// Nothing was stopped or written: the fixture writes its audio only on
+	// Stop, and the row written at start has no length.
+	expect(await readdir(`${app.test.root}/recordings`)).toEqual(rows);
+	expect(
+		await Bun.file(`${app.test.root}/recordings/${rows[0]}`).text(),
+	).not.toContain('durationMs:');
 	expect(app.test.closes).toBe(1);
 });
 
-test('unmount waits for an accepted file write before closing', async () => {
+test('unmount waits for no file command held before the Folder', async () => {
 	const gate = deferred<void>();
 	const begun = deferred<void>();
 	const app = await render({
@@ -126,11 +125,10 @@ test('unmount waits for an accepted file write before closing', async () => {
 	const creating = whispering.library.createFile('', 'kept.md');
 	await begun.promise;
 	await app.destroy();
-	expect(app.test.closes).toBe(0);
-	gate.resolve();
-	expect(await creating).toBeUndefined();
 	await eventually(() => app.test.closes === 1);
-	expect(await Bun.file(`${app.test.root}/kept.md`).exists()).toBe(true);
+	gate.resolve();
+	await creating;
+	expect(app.test.closes).toBe(1);
 });
 
 test('unmount during opening closes once without starting the product', async () => {
@@ -189,7 +187,7 @@ test('unmount closes during a held first listing and starts no later reads', asy
 	expect(app.test.closes).toBe(1);
 });
 
-test('unmount waits for exclusion maintenance before closing', async () => {
+test('unmount during exclusion maintenance closes without waiting for it', async () => {
 	const gate = deferred<void>();
 	const begun = deferred<void>();
 	const app = await render({
@@ -206,11 +204,11 @@ test('unmount waits for exclusion maintenance before closing', async () => {
 	});
 	await begun.promise;
 	await app.destroy();
-	await new Promise((resolve) => setTimeout(resolve, 100));
-	expect(app.test.closes).toBe(0);
-	gate.resolve();
+	// Held above the Folder, so the Folder never admitted it.
 	await eventually(() => app.test.closes === 1);
-	expect(await readdir(app.test.root)).toEqual(['.gitignore']);
+	gate.resolve();
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(app.test.closes).toBe(1);
 	expect(app.seen).toHaveLength(0);
 });
 

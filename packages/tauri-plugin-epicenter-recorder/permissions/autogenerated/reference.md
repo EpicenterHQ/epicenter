@@ -1,6 +1,6 @@
 ## Default Permission
 
-List the microphones and read one's level, record from a microphone into the folder bound to this window, stop or cancel that recording, and repair recordings a quit cut off.
+List the microphones and read one's level, record from a microphone into the folder bound to this window, stop that recording, and repair recordings a quit cut off.
 
 #### This default permission set includes the following:
 
@@ -9,7 +9,6 @@ List the microphones and read one's level, record from a microphone into the fol
 - `allow-close-meter`
 - `allow-start`
 - `allow-stop`
-- `allow-cancel`
 - `allow-recover`
 
 ## Permission Table
@@ -20,32 +19,6 @@ List the microphones and read one's level, record from a microphone into the fol
 <th>Description</th>
 </tr>
 
-
-<tr>
-<td>
-
-`epicenter-recorder:allow-cancel`
-
-</td>
-<td>
-
-Enables the cancel command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-recorder:deny-cancel`
-
-</td>
-<td>
-
-Denies the cancel command without any pre-configured scope.
-
-</td>
-</tr>
 
 <tr>
 <td>

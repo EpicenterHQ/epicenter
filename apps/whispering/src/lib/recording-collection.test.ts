@@ -713,7 +713,7 @@ test('typing over a transcript changed outside, before the window read it again,
 });
 
 test('closing the details and changing page lose no typing: the draft belongs to the app and saves as typed', async () => {
-	const { whispering, library, view, root } = await history();
+	const { library, view, root } = await history();
 	await library.open(path('standup'));
 	view.showingDetail = true;
 	const draft = transcriptEditor(library, TRANSCRIPT);
@@ -724,10 +724,7 @@ test('closing the details and changing page lose no typing: the draft belongs to
 
 	// Closing the pane, then a change of page: neither unloads the document.
 	view.showingDetail = false;
-	expect(whispering.blocksNavigation({ willUnload: false })).toBe(false);
 	expect(library.selectedPath).toBe(path('standup'));
-	// Leaving the app is what is held back while the save runs.
-	expect(whispering.blocksNavigation({ willUnload: true })).toBe(true);
 
 	await settle(library);
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(

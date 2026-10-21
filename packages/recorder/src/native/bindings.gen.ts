@@ -30,8 +30,6 @@ export const commands = {
 	start: (path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { path, device, signals })),
 	/**  Stop the recording `id` this window started and finalize its file. */
 	stop: (id: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id })),
-	/**  Cancel the recording `id` this window started, deleting its file. */
-	cancel: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|cancel", { id })),
 	/**
 	 *  Rewrite the header of every WAV under `under` in the folder bound to this
 	 *  window whose sizes disagree with its length, and return their
@@ -45,7 +43,7 @@ export const commands = {
 /**
  *  Why the host ended a recording's capture on its own.
  *
- *  This never describes a stop, a cancel, or an owner window being destroyed.
+ *  This never describes a stop or an owner window being destroyed.
  *  Those are endings someone asked for, and the caller already knows about them
  *  from its own call returning.
  */
@@ -164,7 +162,7 @@ export type RecordingSignal =
 { kind: "ended"; reason: EndedReason };
 
 /**
- *  What `start` answers: the id to stop or cancel the recording by, the file
+ *  What `start` answers: the id to stop the recording by, the file
  *  it is writing, and the microphone it opened.
  */
 export type StartedRecording = {

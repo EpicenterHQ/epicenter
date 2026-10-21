@@ -15,10 +15,11 @@
  * from, and the folder merges it with whatever was saved meanwhile
  * (ADR-0632). A save that fails keeps what is typed and is reported.
  *
- * Every other action is tracked work closing waits for: a recording's row and
- * its length, a transcript or a result, create, rename, delete, and
- * settings. The library stops product work and finishes its final writes
- * before FolderApp closes Folder and its accepted file edits.
+ * Closing waits for nothing here: `stop` refuses new work and late answers
+ * and returns. FolderApp's close waits for the saves the Folder already
+ * admitted, never for a workflow (create, rename, delete, a connection, a
+ * Stop's length) still on its way to the Folder. A recording under way ends
+ * with the page (ADR-0663).
  *
  * A recording is in the folder from the moment it starts (ADR-0543): its row
  * is written then, naming its audio, and on the desktop the audio is written
@@ -173,7 +174,6 @@ export const whisperingKeys = defineKeys({
 	all: ['whispering'],
 	/** A recording's lifecycle: its row and length, and saving its transcripts and results. */
 	recording: (path: string) => ['whispering', 'recording', path] as const,
-	action: (name: string) => ['whispering', 'action', name] as const,
 });
 
 /** A sortable id from a time: `20260102-030405-k3f9`. */
@@ -275,20 +275,11 @@ export function createLibrary(
 		for (const listener of noticeListeners) listener(notice);
 	}
 
-	/** Set by `stop`: nothing new starts from then on. Work accepted before finishes. */
+	/** Set by `stop`: nothing new starts from then on, and no late answer lands. */
 	let fenced = $state(false);
-	let stopping: Promise<void> | undefined;
 	let captureNotice = $state<string | undefined>();
 	/** Why nothing new starts now, if it does not. */
 	const refused = () => (fenced ? CLOSING : undefined);
-	/** Work closing waits for. */
-	const pending = new Set<Promise<unknown>>();
-	function hold<T>(work: Promise<T>): Promise<T> {
-		pending.add(work);
-		const done = () => pending.delete(work);
-		work.then(done, done);
-		return work;
-	}
 
 	const trackQueries = createSubscriber((update) =>
 		queryClient.getQueryCache().subscribe((event) => {
@@ -495,19 +486,16 @@ export function createLibrary(
 	}
 
 	/**
-	 * Run `work` as a mutation, so closing waits for it. `scope` names the
-	 * recording or file it is for; work with no scope only reads. What it
-	 * saves reaches the views on the folder's change channel, so it ends
-	 * when its own work does, never after a reread.
+	 * Run `work` as a mutation, so a view of `scope` knows it is running.
+	 * `scope` names the recording or file it is for. Saves reach the views
+	 * on the folder's change channel,
+	 * so it ends when its own work does, never after a reread.
 	 */
-	async function track<T>(work: () => Promise<T>, scope?: string): Promise<T> {
-		const ran = await hold(
-			defineMutation({
-				mutationKey:
-					scope === undefined ? keys.action('read') : keys.recording(scope),
-				mutationFn: async () => Ok(await work()),
-			})(),
-		);
+	async function track<T>(work: () => Promise<T>, scope: string): Promise<T> {
+		const ran = await defineMutation({
+			mutationKey: keys.recording(scope),
+			mutationFn: async () => Ok(await work()),
+		})();
 		if (ran.error !== null) throw ran.error;
 		return ran.data as T;
 	}
@@ -542,15 +530,21 @@ export function createLibrary(
 		| { phase: 'idle' }
 		| { phase: 'starting'; attempt: AbortController }
 		| {
-				phase: 'recording' | 'stopping';
+				phase: 'recording';
 				id: string;
 				capture: ActiveCapture;
-				/** Its initial row save, awaited before Stop or Cancel changes the row. */
+				/** Its initial row save, awaited before Stop writes the row's length. */
 				rowSave: ReturnType<typeof folder.tables.recordings.set>;
-		  };
+		  }
+		| { phase: 'stopping'; id: string; capture: ActiveCapture };
 	let captureState = $state.raw<CaptureState>({ phase: 'idle' });
+	/**
+	 * The last Stop until it has finished, its row's length included, though
+	 * the microphone is free sooner. A Stop pressed again meanwhile joins it.
+	 */
+	let finishing: Promise<void> | undefined;
 	let recorderError = $state<string | undefined>();
-	/** A recording owns its microphone until Stop or Cancel answers. */
+	/** A recording owns its microphone until Stop answers. */
 	function isCapturing(id: string) {
 		return (
 			(captureState.phase === 'recording' ||
@@ -610,57 +604,76 @@ export function createLibrary(
 	// --- recording ----------------------------------------------------------
 
 	/**
-	 * Finish the recording being captured: its audio file is finalized and its
-	 * length written to its row, which was written when it started. A row
-	 * that cannot take its length keeps everything else, and says why.
+	 * Stop: finish the recording being captured. Its audio file is finalized
+	 * and its length written to its row, which was written when it started. A
+	 * row that cannot take its length keeps everything else, and says why. A
+	 * Stop pressed again joins the first until it has finished. Once closed,
+	 * nothing is finished here: leaving the page ends the capture.
 	 */
 	function finishRecording(): Promise<void> {
-		return hold(
-			(async () => {
-				const current = captureState;
-				if (current.phase !== 'recording') return;
-				const { id, capture, rowSave } = current;
-				captureState = { ...current, phase: 'stopping' };
-				const path = rowPath(RECORDINGS, id);
-				const selectionBefore = selectedPath;
-				// In a browser, and for fixture audio, the audio file is written now; on
-				// the desktop it was written as it was captured, and stop finishes it.
-				// Started here, not when the mutation runs, so the microphone is let go
-				// at once.
-				const stopping = capture
-					.stop()
-					.catch((cause) => CaptureError.Failed({ cause }));
-				const { data: stopped, error: stopError } = await track(() => stopping);
-				if (stopError === null)
-					finishedOver.set(id, {
-						count: queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0,
-						path: capture.audioPath,
-					});
-				captureState = { phase: 'idle' };
-				if (stopError !== null) {
-					recorderError = stopError.message;
-					return;
-				}
-				const saveWarning = await track(async () => {
-					const { error: rowError } = await rowSave;
-					if (rowError !== null)
-						return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
-					const { data: stored, error } = await folder.tables.recordings.get(id);
-					if (error !== null)
-						return `The recording is saved, but its length could not be written: ${describeError(error)}`;
-					// A row deleted meanwhile stays deleted.
-					if (stored === undefined) return undefined;
-					const { error: saveError } = await folder.tables.recordings.set(id, stored, {
-						fields: { durationMs: stopped.durationMs },
-					});
-					return saveError === null
-						? undefined
-						: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
-				}, path);
-				if (saveWarning !== undefined) recorderError = saveWarning;
-				if (selectedPath === selectionBefore) open(path);
-			})(),
+		const current = captureState;
+		if (current.phase !== 'recording' || fenced)
+			return finishing ?? Promise.resolve();
+		captureState = { phase: 'stopping', id: current.id, capture: current.capture };
+		const finished = finish(current);
+		finishing = finished;
+		const forget = () => {
+			if (finishing === finished) finishing = undefined;
+		};
+		finished.then(forget, forget);
+		return finished;
+	}
+
+	async function finish({
+		id,
+		capture,
+		rowSave,
+	}: Extract<CaptureState, { phase: 'recording' }>) {
+		const path = rowPath(RECORDINGS, id);
+		const selectionBefore = selectedPath;
+		// In a browser, and for fixture audio, the audio file is written now; on
+		// the desktop it was written as it was captured, and stop finishes it.
+		// Started here, not when the mutation runs, so the microphone is let go
+		// at once.
+		const stopping = capture
+			.stop()
+			.catch((cause) => CaptureError.Failed({ cause }));
+		const { data: stopped, error: stopError } = await stopping;
+		if (stopError === null)
+			finishedOver.set(id, {
+				count: queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0,
+				path: capture.audioPath,
+			});
+		captureState = { phase: 'idle' };
+		// Closed meanwhile: the folder is closing, so the length is not written.
+		if (fenced) return;
+		if (stopError !== null) {
+			recorderError = stopError.message;
+			return;
+		}
+		const saveWarning = await track(async () => {
+			const { error: rowError } = await rowSave;
+			if (rowError !== null)
+				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
+			const { data: stored, error } = await folder.tables.recordings.get(id);
+			if (error !== null)
+				return `The recording is saved, but its length could not be written: ${describeError(error)}`;
+			// A row deleted meanwhile stays deleted.
+			if (stored === undefined) return undefined;
+			const { error: saveError } = await folder.tables.recordings.set(id, stored, {
+				fields: { durationMs: stopped.durationMs },
+			});
+			return saveError === null
+				? undefined
+				: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
+		}, path).catch((cause: unknown) =>
+			// A folder closed under the write: the page is going.
+			fenced
+				? undefined
+				: `The recording is saved, but its length could not be written: ${describe(cause)}`,
 		);
+		if (saveWarning !== undefined) recorderError = saveWarning;
+		if (selectedPath === selectionBefore) open(path);
 	}
 
 	function audioOf(entry: RecordingEntry): RecordingAudio {
@@ -674,7 +687,8 @@ export function createLibrary(
 		if (!unlisted) finishedOver.delete(entry.stem);
 		return recordingAudio(entry.stem, {
 			capturePath:
-				captureState.phase === 'recording' && captureState.id === entry.stem
+				(captureState.phase === 'recording' || captureState.phase === 'stopping') &&
+				captureState.id === entry.stem
 					? captureState.capture.audioPath
 					: finishedOver.get(entry.stem)?.path,
 			listing: files,
@@ -703,25 +717,18 @@ export function createLibrary(
 		},
 	});
 
-	/**
-	 * An action that does not start while closing; answers what the person
-	 * is told. What it saves reaches the views on the folder's change
-	 * channel; closing waits for its work, never for a reread.
-	 */
+	/** Refuse new work after disposal and present failures at the action boundary. */
 	function action<TArgs extends unknown[]>(
-		name: string,
 		work: (...args: TArgs) => Promise<string | undefined>,
 	) {
-		const mutation = defineMutation({
-			mutationKey: keys.action(name),
-			mutationFn: async (args: TArgs) => Ok(await work(...args)),
-		});
 		return async (...args: TArgs): Promise<string | undefined> => {
-			// Refused when asked; once accepted, it runs, and closing waits for it.
 			const why = refused();
 			if (why !== undefined) return why;
-			const ran = await hold(local.run(() => mutation(args)));
-			return ran.error === null ? (ran.data ?? undefined) : describe(ran.error);
+			try {
+				return await work(...args);
+			} catch (cause) {
+				return describe(cause);
+			}
 		};
 	}
 
@@ -735,7 +742,6 @@ export function createLibrary(
 	}
 
 	const saveConnection = action(
-		'save-connection',
 		async (operation: Operation, change: ConnectionChange) => {
 			const { data: saved, error } = await services.connections.set(
 				operation,
@@ -750,7 +756,6 @@ export function createLibrary(
 
 	/** Save a new recipe file `id`; it names no model of its own. */
 	const createTransformation = action(
-		'create-transformation',
 		async (
 			id: string,
 			{ title, prompt }: { title: string; prompt: string },
@@ -994,7 +999,7 @@ export function createLibrary(
 		/** Repair interrupted recordings before the first folder and device reads. */
 		async start() {
 			if (fenced) throw new Error(STOPPED);
-			const notice = await local.run(() => services.recoverRecordings());
+			const notice = await services.recoverRecordings();
 			if (fenced) throw new Error(STOPPED);
 			captureNotice = notice;
 			// A read that answers with an error is shown as that listing's
@@ -1155,20 +1160,10 @@ export function createLibrary(
 					signal: attempt.signal,
 				},
 			);
-			// Cancelled or closed while the microphone was opening: it is not kept.
-			if (
-				captureState.phase !== 'starting' ||
-				captureState.attempt !== attempt
-			) {
-				if (startError === null) {
-					const { error } = await capture
-						.cancel()
-						.catch((cause) => CaptureError.Failed({ cause }));
-					if (error !== null && !fenced)
-						recorderError = `The late recording's cancellation could not be confirmed: ${error.message}`;
-				}
-				return;
-			}
+			// Closed while the microphone was opening. The recorder released a
+			// microphone that answered after that; one that answered first ends
+			// with the page, as a recording under way does. No row is written.
+			if (attempt.signal.aborted) return;
 			if (startError !== null) {
 				captureState = { phase: 'idle' };
 				recorderError = startError.message;
@@ -1186,7 +1181,7 @@ export function createLibrary(
 				() => folder.tables.recordings.set(id, null, { fields, body: '' }),
 				rowPath(RECORDINGS, id),
 			);
-			// Stop and Cancel await this capture's own initial row save.
+			// Stop awaits this capture's own initial row save.
 			captureState = { phase: 'recording', id, capture, rowSave: creating };
 			capture.onEnded((reason) => {
 				if (
@@ -1216,43 +1211,6 @@ export function createLibrary(
 		},
 		/** Stop: the audio file is finished and the row gets its length. */
 		stopRecording: finishRecording,
-		/** Stop and delete: the audio file and the row written at start both go. */
-		async cancelRecording() {
-			const cancelled = captureState;
-			if (cancelled.phase === 'starting') {
-				captureState = { phase: 'idle' };
-				cancelled.attempt.abort();
-				return;
-			}
-			if (cancelled.phase !== 'recording') return;
-			captureState = { ...cancelled, phase: 'stopping' };
-			await hold(
-				(async () => {
-					const { id, capture, rowSave } = cancelled;
-					const { error: cancelError } = await capture
-						.cancel()
-						.catch((cause) => CaptureError.Failed({ cause }));
-					if (cancelError !== null) {
-						// An unknown outcome keeps the handle for an explicit Stop or Cancel.
-						captureState = cancelled;
-						recorderError = `The recording's cancellation could not be confirmed. Its row was kept: ${cancelError.message}`;
-						// Closing keeps the recording and releases its microphone through Stop.
-						if (fenced) await finishRecording();
-						return;
-					}
-					captureState = { phase: 'idle' };
-					await rowSave;
-					const path = rowPath(RECORDINGS, id);
-					const { error } = await track(
-						() => folder.tables.recordings.edit(id).delete(),
-						path,
-					);
-					if (error !== null)
-						recorderError = `The recording was stopped, but its file was not deleted: ${describeError(error)}`;
-					else deleted(path);
-				})(),
-			);
-		},
 
 		// ------------------------------------------------------------------
 		// Requests and their results
@@ -1294,10 +1252,9 @@ export function createLibrary(
 			return undefined;
 		},
 		deleteTransformationResult: action(
-			'delete-result',
 			deleteResult(TRANSFORMATION_RUNS),
 		),
-		deleteTextResult: action('delete-text-result', deleteResult(TEXT_RUNS)),
+		deleteTextResult: action(deleteResult(TEXT_RUNS)),
 
 		/**
 		 * Save one connection on this device. Nothing is sent to the endpoint
@@ -1355,7 +1312,6 @@ export function createLibrary(
 		},
 		/** A new empty text file, shown; it is never made where a file is listed. */
 		createFile: action(
-			'create-file',
 			async (directory: string, name: string) => {
 				const problem = nameProblem(directory, name);
 				if (problem !== undefined) return problem;
@@ -1419,34 +1375,30 @@ export function createLibrary(
 			}
 		},
 		/**
-		 * Stop new work, finish a recording that is running, wait for accepted
-		 * workflow work, then stop observers. Folder settles accepted file edits
-		 * and closes storage after this finishes. An
+		 * Stop new work and late answers, release the microphone this page
+		 * opened for a test, and stop observing; waits for nothing. A
+		 * recording opening now is released when it answers. A recording
+		 * under way is left to the page's departure: the shell finalizes and
+		 * keeps a desktop recording, and a browser loses one in memory
+		 * (ADR-0663). Its row was written at start; it gets no length. An
 		 * answer whose file could not be written ends with the page, and its
 		 * row stays unfinished.
 		 */
-		stop(): Promise<void> {
-			stopping ??= (async () => {
-				fenced = true;
-				folder.stopEditing();
-				runs.stop();
-				// The microphone first: nothing still being written may keep it open.
-				input.close();
-				if (captureState.phase === 'starting') {
-					captureState.attempt.abort();
-					captureState = { phase: 'idle' };
-				}
-				// Kept, never deleted: a recording is in the folder from its start.
-				await finishRecording();
-				await Promise.allSettled([...pending]);
-				await input.saved();
-				for (const stop of stopObserving) stop();
-				stopListening();
-				stopTelling();
-				recordingsListed.clear();
-				noticeListeners.clear();
-			})();
-			return stopping;
+		stop(): void {
+			if (fenced) return;
+			fenced = true;
+			folder.stopEditing();
+			runs.stop();
+			input.close();
+			if (captureState.phase === 'starting') {
+				captureState.attempt.abort();
+				captureState = { phase: 'idle' };
+			}
+			for (const stop of stopObserving) stop();
+			stopListening();
+			stopTelling();
+			recordingsListed.clear();
+			noticeListeners.clear();
 		},
 	};
 }

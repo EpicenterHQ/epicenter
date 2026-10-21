@@ -7,10 +7,9 @@
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { setQueryClientContext } from '@tanstack/svelte-query';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { createLogger } from 'wellcrafted/logger';
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { beforeNavigate, goto } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { setFolder, type WhisperingContext } from '$lib/folder.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
@@ -20,7 +19,7 @@
 	import VerticalNav from './VerticalNav.svelte';
 	import { toastWriteFailure } from '@epicenter/svelte/write-failure-toast';
 
-	/** Product state over FolderApp's context; stops workflows before the folder closes. */
+	/** Product state over FolderApp's context; stops taking work before the folder closes. */
 	let {
 		context,
 		children,
@@ -36,25 +35,11 @@
 	setWhispering(whispering);
 	const { library, view } = whispering;
 	const starting = whispering.start();
-	const log = createLogger('whispering/app');
-	onDestroy(() => {
-		void whispering.stop().catch((cause) =>
-			log.error(new Error('Whispering did not stop', { cause })),
-		);
-	});
+	// Leaving waits for nothing; a recording under way ends with the page.
+	onDestroy(() => library.stop());
 
 	// A save of a file's text that failed is told, with the text to copy.
 	$effect(() => library.onWriteFailure(toastWriteFailure));
-
-	// Edits not yet saved live only in this window until they land.
-	// Moving between this app's pages keeps them, so that is never held back.
-	// Leaving the document is: in a browser tab the cancel becomes the
-	// browser's leave warning. Closing the desktop window first sends what
-	// is typed through the folder context's close guard.
-	beforeNavigate((navigation) => {
-		// svelte-ignore state_referenced_locally
-		if (whispering.blocksNavigation(navigation)) navigation.cancel();
-	});
 
 	/** Below this width the sidebar becomes a bottom bar and panes take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');

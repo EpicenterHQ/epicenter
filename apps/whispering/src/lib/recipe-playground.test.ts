@@ -507,10 +507,7 @@ test('pasted text stays across pages without holding departure', async () => {
 	expect(view.pastedText).toBe(PASTED);
 	await quiet(library);
 	expect(library.textOutputsOf(stem)).toHaveLength(1);
-	expect(whispering.blocksNavigation({ willUnload: false })).toBe(false);
-	expect(whispering.blocksNavigation({ willUnload: true })).toBe(false);
 	view.pastedText = '';
-	expect(whispering.blocksNavigation({ willUnload: true })).toBe(false);
 });
 
 test('a text_runs/ file that does not read never holds up a recording’s deletion, and a failed listing is reported, not shown empty', async () => {

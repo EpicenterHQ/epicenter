@@ -39,13 +39,10 @@ export async function openTestLibrary(
 	return library;
 }
 
-/** Root teardown: register product work before the folder owner closes. */
-export async function closeTestLibrary(library: Library) {
-	if (library.local.closing) return library.local.close();
-	const stopping = library.local.run(() => library.stop());
-	const unsaved = await library.local.close();
-	await stopping;
-	return unsaved;
+/** Root teardown, as the components run it: the library stops, then the folder closes. */
+export function closeTestLibrary(library: Library) {
+	library.stop();
+	return library.local.close();
 }
 
 /** Construct product state as FolderApp's child does, after the close guard. */
@@ -73,11 +70,8 @@ export async function openTestWhispering(
 	await whispering.start();
 	return whispering;
 }
-export async function closeTestWhispering(
+export function closeTestWhispering(
 	whispering: import('./whispering.svelte.js').Whispering,
 ) {
-	const stopping = whispering.stop();
-	const unsaved = await whispering.library.local.close();
-	await stopping;
-	return unsaved;
+	return closeTestLibrary(whispering.library);
 }

@@ -347,18 +347,14 @@ export function createMicrophoneInput({
 		},
 		/**
 		 * Release the microphone and stop hearing about inputs. Nothing opens
-		 * and no choice is accepted afterward. Saves already accepted go on:
-		 * `saved` says when they have ended.
+		 * and no choice is accepted afterward. Saves already accepted go on
+		 * by themselves; nothing waits for them.
 		 */
 		close() {
 			closed = true;
 			release();
 			unwatch?.();
 			unwatch = undefined;
-		},
-		/** Settles when every save of the choice accepted so far has answered. */
-		saved(): Promise<void> {
-			return saves;
 		},
 	};
 }

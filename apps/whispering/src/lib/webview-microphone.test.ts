@@ -185,8 +185,8 @@ test('a chosen microphone is asked for by its exact ID, and the system default o
 	const view = webView();
 	const device = createWebViewMicrophone(view.environment);
 
-	await expectOk(await device.start({ ...INTO, input: USB })).cancel();
-	await expectOk(await device.start(INTO)).cancel();
+	await expectOk(await device.start({ ...INTO, input: USB })).stop();
+	await expectOk(await device.start(INTO)).stop();
 
 	expect(view.requests).toEqual([
 		{ audio: { deviceId: { exact: 'usb-id' } } },

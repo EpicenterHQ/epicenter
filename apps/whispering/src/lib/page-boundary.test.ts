@@ -177,7 +177,7 @@ test('FolderApp owns the folder and WhisperingApp owns product state', () => {
 	]);
 });
 
-test('every page takes product state from context, and only the app root guards navigation', () => {
+test('every page takes product state from context, installed by the app root', () => {
 	const pages = files.filter((file) => /\+page\.svelte$/.test(file.path));
 	expect(pages.map((file) => file.path).sort()).toEqual([
 		'routes/+page.svelte',
@@ -189,9 +189,6 @@ test('every page takes product state from context, and only the app root guards 
 		'routes/components/WhisperingApp.svelte',
 		'routes/components/test-fixtures/AudioPlaybackHost.svelte',
 		'routes/components/test-fixtures/SelectionHost.svelte',
-	]);
-	expect(callers('beforeNavigate')).toEqual([
-		'routes/components/WhisperingApp.svelte',
 	]);
 });
 

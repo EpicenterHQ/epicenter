@@ -77,12 +77,6 @@ export function createMicrophoneDevice({
 					if (stopError !== null) return Err(captureErrorOf(stopError));
 					return Ok({ durationMs: stopped.durationMs });
 				},
-				async cancel() {
-					const { error: cancelError } = await recording.cancel();
-					return cancelError === null
-						? Ok(undefined)
-						: Err(captureErrorOf(cancelError));
-				},
 			});
 		},
 	};

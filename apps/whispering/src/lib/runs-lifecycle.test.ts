@@ -13,6 +13,7 @@ import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { quiet } from './query.test-support.js';
+import { RECORDINGS } from './definition.js';
 import {
 	deferred,
 	openTestServices,
@@ -167,9 +168,9 @@ test('closing while the recording is being read prevents its transcription reque
 	});
 	const transcribing = library.transcribe(entry);
 	await entered.promise;
-	const stopping = library.stop();
+	library.stop();
 	release.resolve();
-	await Promise.all([transcribing, stopping]);
+	await transcribing;
 	expect(transcribed).toEqual([]);
 	expect(expectOk(await folder.tables.transcriptions.list())).toEqual([]);
 });
@@ -222,9 +223,9 @@ test('closing while the initial result is saving prevents a later provider reque
 	});
 	const transcribing = library.transcribe(entry);
 	await entered.promise;
-	const stopping = library.stop();
+	library.stop();
 	release.resolve();
-	await Promise.all([transcribing, stopping]);
+	await transcribing;
 	expect(transcribed).toEqual([]);
 	const rows = expectOk(await folder.tables.transcriptions.list());
 	expect(rows).toHaveLength(1);
@@ -251,7 +252,7 @@ test('running a failed result again first saves an answer typed into its file', 
 	).toBe('An answer supplied by the person.\n');
 });
 
-test('a deletion reserved after run-again preparation prevents its provider request', async () => {
+test('a deletion reserved during the final preparation read prevents its provider request', async () => {
 	const { library, folder, entry, transcribed } = await open({
 		transcribe: async () =>
 			TranscriptionError.HostUnavailable({ reason: 'reply lost' }),
@@ -264,6 +265,8 @@ test('a deletion reserved after run-again preparation prevents its provider requ
 	const release = deferred<void>();
 	const transcripts = folder.tables.transcriptions;
 	let listArmed = true;
+	const files = folder.files;
+	let removing: Promise<string | undefined> | undefined;
 	replaceTables(folder, {
 		transcriptions: {
 			...transcripts,
@@ -277,29 +280,23 @@ test('a deletion reserved after run-again preparation prevents its provider requ
 				return rows;
 			},
 		},
+	}, {
+		...files,
+		async list(prefix) {
+			const listed = await files.list(prefix);
+			if (prefix === RECORDINGS && removing === undefined) {
+				removing = library.delete(deletion);
+				await entered.promise;
+			}
+			return listed;
+		},
 	});
-	let removing: Promise<string | undefined> | undefined;
-	const unsubscribe = library.local.queryClient
-		.getMutationCache()
-		.subscribe((event) => {
-			if (
-				event.type !== 'updated' ||
-				event.action.type !== 'success' ||
-				JSON.stringify(event.mutation.options.mutationKey) !==
-					JSON.stringify(['whispering', 'action', 'read']) ||
-				removing !== undefined
-			)
-				return;
-			// Preparation is complete; reserve deletion before its caller resumes.
-			removing = library.delete(deletion);
-		});
 	try {
 		await library.runAgain(transcript.path);
 		await entered.promise;
 		expect(removing).toBeDefined();
 		expect(transcribed).toHaveLength(1);
 	} finally {
-		unsubscribe();
 		release.resolve();
 		await removing;
 	}

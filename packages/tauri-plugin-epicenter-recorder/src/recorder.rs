@@ -31,8 +31,8 @@
 //! exactly when `stop` finalizes it, so a process that ends mid-recording
 //! leaves every sample that reached the file behind a header that undercounts
 //! at most the last second; `wav::recover` rewrites such a header from the
-//! file's length the next time the folder opens. Nothing deletes the file but
-//! `cancel`.
+//! file's length the next time the folder opens. Once capture has begun,
+//! nothing here deletes the file.
 //!
 //! # The microphone keeps its rate; the file is 16 kHz
 //!
@@ -50,8 +50,8 @@
 //! There is exactly one recorder for the whole host, and at most one
 //! recording in flight. A recording is addressed by the id the host minted
 //! for it and is owned by the window label that started it. Every lifecycle
-//! method takes both, so an application can only ever stop or cancel the
-//! recording it actually started: a competing `start` is refused with
+//! method takes both, so an application can only ever stop the recording it
+//! actually started: a competing `start` is refused with
 //! [`RecorderError::Busy`] rather than silently displacing the live one.
 //!
 //! A window whose page reloads or closes can no longer stop its recording, so
@@ -68,9 +68,9 @@
 //!
 //! That is the whole interruption design. There is no pending-interruption
 //! inbox, no acknowledgement, no restore call, and no second channel that pushes
-//! audio at the owner. `stop` remains the one path that finalizes a file and
-//! `cancel` remains the one path that deletes it, whether or not capture is
-//! still running when they are called. A competing `start` stays [`Busy`] until
+//! audio at the owner. `stop` remains the one path that finalizes a file,
+//! whether or not capture is still running when it is called; nothing deletes
+//! a captured one. A competing `start` stays [`Busy`] until
 //! the owner resolves it, or until the owning window's page is gone.
 //!
 //! [`Busy`]: RecorderError::Busy
@@ -221,14 +221,13 @@ impl Level {
 
 /// Worker-thread command channel.
 ///
-/// `Stop` asks the worker to finalize the file and `Cancel` deletes it; both
-/// end the worker. `EndCapture` ends neither: it tells the worker its capture
-/// is over so it can release the microphone and wait, still holding the file,
-/// for the owner to stop or cancel it.
+/// `Stop` asks the worker to finalize the file, which ends the worker.
+/// `EndCapture` does not: it tells the worker its capture is over so it can
+/// release the microphone and wait, still holding the file, for the owner to
+/// stop it.
 #[derive(Debug)]
 enum RecorderCmd {
     Stop(mpsc::Sender<Result<FinishedRecording>>),
-    Cancel(mpsc::Sender<Result<()>>),
     EndCapture,
 }
 
@@ -452,7 +451,7 @@ impl CaptureFile {
         Ok(sample_count)
     }
 
-    /// Delete the recording without finalizing it.
+    /// Delete a file whose stream never started, without finalizing it.
     ///
     /// Drop the encoder first so it cannot patch a WAV after the file is gone.
     fn discard(mut self) -> Result<()> {
@@ -461,8 +460,8 @@ impl CaptureFile {
     }
 }
 
-/// Remove a recording's file, which only `cancel` and a capture that never
-/// started do. A file already gone is not a failure.
+/// Remove a recording's file, which only a capture that never started does.
+/// A file already gone is not a failure.
 fn remove_recording(path: &Path) -> Result<()> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -484,7 +483,7 @@ pub struct FinishedRecording {
     pub duration_ms: u32,
 }
 
-/// What `start` answers: the id to stop or cancel the recording by, the file
+/// What `start` answers: the id to stop the recording by, the file
 /// it is writing, and the microphone it opened.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -645,8 +644,8 @@ impl Recorder {
     /// Returns [`RecorderError::Busy`] when the slot is occupied, so a competing
     /// start is refused instead of displacing a recording some other window is
     /// relying on. A recording whose capture already ended still occupies it:
-    /// its audio is the owner's until it stops or cancels it, and quietly
-    /// finalizing it to make room would take that decision away.
+    /// its audio is the owner's until it stops it or its page ends, and
+    /// quietly finalizing it to make room would take that from the owner.
     ///
     /// The device is resolved here rather than by the caller. `requested_device`
     /// is the id of the microphone the person chose; when none with that id
@@ -812,8 +811,7 @@ impl Recorder {
     ///
     /// This ends the *capture*, not the recording. The worker releases the
     /// microphone and keeps everything it captured, and the slot stays
-    /// occupied. Only the owner decides what happens to the audio, through
-    /// `stop` or `cancel`.
+    /// occupied. The owner finalizes it with `stop`, or its page's end does.
     ///
     /// Matched on the id, not just the owner: a stream error can arrive after
     /// the owner already started a second recording, and killing that one
@@ -854,18 +852,6 @@ impl Recorder {
             path: relative,
             duration_ms: finished.duration_ms,
         })
-    }
-
-    /// Cancel the recording named by `id`, deleting its file.
-    ///
-    /// Restricted to the owner window, for the same reason `stop` is: a
-    /// recording another window is relying on must not vanish under it.
-    /// Removal failures are reported after the microphone and recorder slot
-    /// are released; a file already gone counts as removed.
-    pub fn cancel(&mut self, id: &str, caller_label: &str) -> Result<()> {
-        self.require_owned(id, caller_label)?;
-        let active = self.active.take().expect("ownership was just verified");
-        discard(active)
     }
 
     /// Finalize the held recording if `owner_label` owns it. The host's own
@@ -929,8 +915,8 @@ impl Recorder {
     ///
     /// A recording whose capture already ended still occupies it. Reporting that
     /// distinctly matters because the two look identical from outside and have
-    /// different remedies: waiting out a live recording, versus stopping or
-    /// cancelling one that is over.
+    /// different remedies: waiting out a live recording, versus stopping one
+    /// that is over.
     ///
     /// Sits beside [`Recorder::require_owned`] rather than inline in `start`,
     /// because these are the recorder's two access rules and reading them
@@ -941,7 +927,7 @@ impl Recorder {
         };
         let state = match active.ended_reason {
             None => "is already in flight",
-            Some(_) => "has ended and is waiting to be stopped or cancelled",
+            Some(_) => "has ended and is waiting to be stopped",
         };
         Err(RecorderError::busy(format!(
             "a recording ({}) started by window '{}' {state}",
@@ -959,7 +945,7 @@ impl Recorder {
     fn require_owned(&self, id: &str, caller_label: &str) -> Result<()> {
         let Some(active) = &self.active else {
             return Err(RecorderError::not_recording(format!(
-                "no recording is held; '{id}' has already been stopped or cancelled"
+                "no recording is held; '{id}' has already been stopped"
             )));
         };
         if active.id != id {
@@ -1009,32 +995,6 @@ fn finish(active: HeldRecording) -> Result<FinishedRecording> {
     finished
 }
 
-/// Tell the worker to remove the recording, then join it so the cpal stream
-/// is released before returning, whether or not the removal succeeded.
-fn discard(active: HeldRecording) -> Result<()> {
-    let (reply_tx, reply_rx) = mpsc::channel();
-    let cancelled = match active.cmd_tx.send(RecorderCmd::Cancel(reply_tx)) {
-        Ok(()) => reply_rx
-            .recv()
-            .map_err(|error| {
-                RecorderError::failed(format!(
-                    "Worker dropped the cancel reply for {}: {error}",
-                    active.id
-                ))
-            })
-            .and_then(|result| result),
-        Err(error) => Err(RecorderError::failed(format!(
-            "Failed to send cancel command: {error}"
-        ))),
-    };
-    // Release the microphone and the worker even when deleting the file failed.
-    let _ = active.worker.join();
-    if cancelled.is_ok() {
-        debug!("Recording {} cancelled", active.id);
-    }
-    cancelled
-}
-
 /// A recorder going away keeps what it holds: the file is finalized, never
 /// deleted.
 impl Drop for Recorder {
@@ -1057,11 +1017,11 @@ struct CaptureContext<'a> {
 
 /// What the capture phase left behind.
 enum CaptureOutcome {
-    /// The owner already resolved the recording: a `Stop` finalized the file,
-    /// or a `Cancel` answered its removal. Nothing is left to wait for.
+    /// The recording is resolved: a `Stop` finalized the file. Nothing is
+    /// left to wait for.
     Resolved,
     /// Capture ended with the recording still unclaimed. The file is as
-    /// capture left it and its owner may still stop or cancel it.
+    /// capture left it and its owner may still stop it.
     Unclaimed(CaptureFile),
 }
 
@@ -1070,8 +1030,8 @@ enum CaptureOutcome {
 /// live mic activity.
 ///
 /// The capture file is passed by value because whichever way this ends, it
-/// ends here: a `Stop` finalizes it, a `Cancel` deletes it, and anything else
-/// hands it back to be waited on.
+/// ends here: a `Stop` finalizes it, and anything else hands it back to be
+/// waited on.
 ///
 /// The cpal stream is passed by value for the same reason, and closed here
 /// rather than by the caller. Closing it is what makes the final drain complete
@@ -1107,20 +1067,15 @@ fn run_capture<S>(
                 let _ = reply.send(capture.finish());
                 return CaptureOutcome::Resolved;
             }
-            Ok(RecorderCmd::Cancel(reply)) => {
-                drop(stream);
-                let _ = reply.send(capture.discard());
-                return CaptureOutcome::Resolved;
-            }
             // Capture is over but the recording is not: hand the file up so it
-            // can wait for the owner to stop or cancel it.
+            // can wait for the owner to stop it.
             Ok(RecorderCmd::EndCapture) => {
                 close_capture_and_drain(stream, &mut capture, &sample_rx);
                 report_dropped_chunks(dropped_chunks, id);
                 return CaptureOutcome::Unclaimed(capture);
             }
-            // The command sender is gone without a stop or a cancel, so nobody
-            // is left to claim this recording. It is kept, finalized.
+            // The command sender is gone without a stop, so nobody is left to
+            // claim this recording. It is kept, finalized.
             Err(mpsc::TryRecvError::Disconnected) => {
                 close_capture_and_drain(stream, &mut capture, &sample_rx);
                 let _ = capture.finish();
@@ -1287,10 +1242,6 @@ fn await_resolution(capture: CaptureFile, cmd_rx: &mpsc::Receiver<RecorderCmd>) 
             }
             Ok(RecorderCmd::Stop(reply)) => {
                 let _ = reply.send(capture.finish());
-                return;
-            }
-            Ok(RecorderCmd::Cancel(reply)) => {
-                let _ = reply.send(capture.discard());
                 return;
             }
             // `end_capture` refuses to signal an already-ended recording, so
@@ -1657,8 +1608,8 @@ pub(crate) mod tests {
     /// The stand-in worker is the real [`await_resolution`], parked on a real
     /// capture in a temporary folder. That is exactly the state a worker is in
     /// once its capture has ended, so `stop` here finalizes an actual WAV
-    /// rather than a mock of one, and `discard`'s `Cancel`-then-join cannot
-    /// hang: `await_resolution` returns on `Cancel` and on a dropped channel.
+    /// rather than a mock of one, and a dropped recorder cannot hang its join:
+    /// `await_resolution` returns on `Stop` and on a dropped channel.
     fn recording_owned_by(recorder: &mut Recorder, root: &TempDir, id: &str, owner_label: &str) {
         let name = format!("{id}.wav");
         hold_recording(
@@ -1793,7 +1744,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_non_owner_cannot_stop_or_cancel_and_the_recording_survives() {
+    fn a_non_owner_cannot_stop_and_the_recording_survives() {
         let root = folder_root();
         let mut recorder = Recorder::new();
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
@@ -1803,12 +1754,7 @@ pub(crate) mod tests {
             .expect_err("a non-owner must not stop another window's recording");
         assert_eq!(error_name(&stop), "NotRecording");
 
-        let cancel = recorder
-            .cancel("1", "whispering")
-            .expect_err("a non-owner must not cancel another window's recording");
-        assert_eq!(error_name(&cancel), "NotRecording");
-
-        // The refusals left the owner's recording completely untouched.
+        // The refusal left the owner's recording completely untouched.
         assert!(recorder.is_capturing());
         assert!(root.path().join("1.wav").exists());
     }
@@ -1824,112 +1770,6 @@ pub(crate) mod tests {
             .expect_err("a stale id must not stop whatever happens to be live");
         assert_eq!(error_name(&error), "NotRecording");
         assert!(recorder.is_capturing());
-    }
-
-    /// Cancel is the one path that deletes a recording.
-    #[test]
-    fn the_owner_can_cancel_and_the_file_is_gone() {
-        let root = folder_root();
-        let mut recorder = Recorder::new();
-        recording_owned_by(&mut recorder, &root, "1", "app-notes");
-
-        recorder
-            .cancel("1", "app-notes")
-            .expect("the owner may cancel its own recording");
-
-        assert!(!recorder.is_capturing());
-        assert!(!root.path().join("1.wav").exists());
-        recorder.require_free_slot().unwrap();
-    }
-
-    #[test]
-    fn cancel_reports_a_failed_removal_and_releases_the_recorder() {
-        for ended in [false, true] {
-            let root = folder_root();
-            let mut recorder = Recorder::new();
-            recording_owned_by(&mut recorder, &root, "1", "app-notes");
-            if ended {
-                recorder.end_capture("1", EndedReason::StreamFailed);
-            }
-
-            // A directory cannot be removed as a file on any test user's permissions.
-            // Keep the actual audio beside it, rather than deleting the fixture's input.
-            let path = root.path().join("1.wav");
-            let preserved = root.path().join("preserved.wav");
-            std::fs::rename(&path, &preserved).unwrap();
-            std::fs::create_dir(&path).unwrap();
-
-            let error = recorder
-                .cancel("1", "app-notes")
-                .expect_err("cancel must report that its file could not be removed");
-            assert_eq!(error_name(&error), "Failed");
-            assert!(
-                error.to_string().contains("remove the recording"),
-                "{error}"
-            );
-            assert!(error.to_string().contains("1.wav"), "{error}");
-            assert!(path.is_dir(), "a refused removal leaves the path untouched");
-            assert!(preserved.is_file(), "the audio is not lost");
-            assert!(!recorder.is_capturing());
-            assert!(recorder.held_path().is_none());
-            recorder
-                .require_free_slot()
-                .expect("a failed removal releases the slot");
-
-            recording_owned_by(&mut recorder, &root, "2", "app-notes");
-            recorder.cancel("2", "app-notes").unwrap();
-        }
-    }
-
-    #[test]
-    fn a_live_capture_reports_failed_cancel_after_releasing_its_stream() {
-        let root = folder_root();
-        let capture = capture_holding(&root, "1.wav", &tone(TEST_RATE, 1));
-        let path = root.path().join("1.wav");
-        std::fs::rename(&path, root.path().join("preserved.wav")).unwrap();
-        std::fs::create_dir(&path).unwrap();
-        let (_sample_tx, sample_rx) = mpsc::sync_channel(CAPTURE_QUEUE_CHUNKS);
-        let (cmd_tx, cmd_rx) = mpsc::channel();
-        let (reply_tx, reply_rx) = mpsc::channel();
-        cmd_tx.send(RecorderCmd::Cancel(reply_tx)).unwrap();
-        let stream = Arc::new(());
-        let dropped = AtomicU32::new(0);
-
-        let outcome = run_capture(
-            sample_rx,
-            &cmd_rx,
-            capture,
-            stream.clone(),
-            CaptureContext {
-                id: "1",
-                dropped_chunks: &dropped,
-                signals: no_page(),
-                on_ended: Arc::new(|_, _| panic!("an explicit cancel is not an interruption")),
-            },
-        );
-
-        assert!(matches!(outcome, CaptureOutcome::Resolved));
-        assert_eq!(Arc::strong_count(&stream), 1, "the stream was released");
-        let error = reply_rx.recv().unwrap().expect_err("removal failed");
-        assert_eq!(error_name(&error), "Failed");
-    }
-
-    #[test]
-    fn cancel_accepts_a_recording_file_that_is_already_gone() {
-        for ended in [false, true] {
-            let root = folder_root();
-            let mut recorder = Recorder::new();
-            recording_owned_by(&mut recorder, &root, "1", "app-notes");
-            if ended {
-                recorder.end_capture("1", EndedReason::StreamFailed);
-            }
-            std::fs::remove_file(root.path().join("1.wav")).unwrap();
-            recorder
-                .cancel("1", "app-notes")
-                .expect("already removed is cancelled");
-            assert!(recorder.held_path().is_none());
-            recorder.require_free_slot().unwrap();
-        }
     }
 
     #[test]
@@ -1983,7 +1823,8 @@ pub(crate) mod tests {
             "ending a capture must hand back the owner's channel so the host can tell it"
         );
 
-        // The microphone is closed, so the tray must stop claiming otherwise.
+        // The microphone is closed, so the tray must stop claiming otherwise,
+        // and leaving its window no longer cuts a recording off.
         assert!(!recorder.is_capturing());
         assert_eq!(recorder.capturing_owner(), None);
 
@@ -2048,20 +1889,6 @@ pub(crate) mod tests {
         recorder
             .require_free_slot()
             .expect("a stopped recording releases the slot");
-    }
-
-    #[test]
-    fn cancelling_an_ended_recording_deletes_it() {
-        let root = folder_root();
-        let mut recorder = Recorder::new();
-        recording_owned_by(&mut recorder, &root, "1", "app-notes");
-        recorder.end_capture("1", EndedReason::StreamFailed);
-
-        recorder
-            .cancel("1", "app-notes")
-            .expect("the owner may cancel an ended recording");
-        assert!(recorder.active.is_none());
-        assert!(!root.path().join("1.wav").exists());
     }
 
     /// A non-owner must not be able to reach an ended recording either. The
@@ -2142,7 +1969,7 @@ pub(crate) mod tests {
     }
 
     /// A capture whose writes never reached the file has nothing to repair.
-    /// Stop says so, and the file is still not deleted: only `cancel` does that.
+    /// Stop says so, and the file is still not deleted.
     #[test]
     fn a_capture_that_wrote_nothing_fails_its_stop_and_leaves_the_file() {
         let root = folder_root();

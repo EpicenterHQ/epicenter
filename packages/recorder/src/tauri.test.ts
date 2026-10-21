@@ -8,10 +8,11 @@
  * - `listInputs` answers the shell's inputs; `openMeter` opens one by ID,
  *   hears its levels, and closes it, and a meter withdrawn while opening is
  *   closed
- * - `stop` and `cancel` name the recording the shell minted, and stop hearing
- *   the channel
+ * - `stop` names the recording the shell minted, and stops hearing the
+ *   channel
  * - The shell's refusals arrive as this package's errors, by name
- * - A start withdrawn while the shell opened the microphone is cancelled
+ * - A start withdrawn while the shell opened the microphone is stopped:
+ *   released, with what the shell wrote kept
  * - `recover` names the directory, and no folder
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
@@ -107,16 +108,10 @@ test('the system default is asked for by naming no microphone', async () => {
 	expect(calls[0]?.args.device).toBeNull();
 });
 
-test('cancel names the recording, and refusals arrive by name', async () => {
+test('a stop the shell refuses arrives by name', async () => {
 	const recording = expectOk(
 		await startRecording({ folder, path: 'recordings/a' }),
 	);
-	expectOk(await recording.cancel());
-	expect(calls.at(-1)).toEqual({
-		cmd: 'plugin:epicenter-recorder|cancel',
-		args: { id: '7' },
-	});
-
 	answer = () => {
 		throw { name: 'NotRecording', message: 'already stopped' };
 	};
@@ -149,7 +144,7 @@ test('the shell refusing a start is the matching error, with the chosen label', 
 	}
 });
 
-test('a start withdrawn while the shell opened the microphone is cancelled', async () => {
+test('a start withdrawn while the shell opened the microphone is finalized, never deleted', async () => {
 	const controller = new AbortController();
 	answer = ({ cmd }) => {
 		if (cmd === 'plugin:epicenter-recorder|start') {
@@ -169,8 +164,9 @@ test('a start withdrawn while the shell opened the microphone is cancelled', asy
 	).toBe('Cancelled');
 	expect(calls.map(({ cmd }) => cmd)).toEqual([
 		'plugin:epicenter-recorder|start',
-		'plugin:epicenter-recorder|cancel',
+		'plugin:epicenter-recorder|stop',
 	]);
+	expect(calls[1]?.args).toEqual({ id: '7' });
 });
 
 test('recover names the directory and no folder, and answers what it repaired', async () => {

@@ -1,5 +1,5 @@
-//! The IPC surface: list the microphones, read one's level, start, stop, and
-//! cancel one recording, and recover cut-off ones.
+//! The IPC surface: list the microphones, read one's level, start and stop
+//! one recording, and recover cut-off ones.
 //!
 //! A microphone is named by the id `inputs` answers, never by the name a
 //! WebView gives it: on the desktop the page opens no microphone of its own.
@@ -174,19 +174,6 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
     result
 }
 
-/// Cancel the recording `id` this window started, deleting its file.
-#[tauri::command]
-#[specta::specta]
-pub async fn cancel<R: Runtime>(webview: Webview<R>, id: String) -> Result<()> {
-    let app = webview.app_handle().clone();
-    let result = app
-        .state::<Recorders<R>>()
-        .lock()
-        .cancel(&id, webview.label());
-    refresh_capturing(&app);
-    result
-}
-
 /// Rewrite the header of every WAV under `under` in the folder bound to this
 /// window whose sizes disagree with its length, and return their
 /// folder-relative paths. The recording still being written is left alone.
@@ -207,15 +194,15 @@ pub async fn recover<R: Runtime>(webview: Webview<R>, under: String) -> Result<V
 ///
 /// Not a command: the recorder calls this from a thread of its own when the
 /// cpal error callback or a failed write ends capture. Nobody asked for this
-/// ending, so unlike `stop` and `cancel` there is no call to return through,
+/// ending, so unlike `stop` there is no call to return through,
 /// which is the entire reason the signal exists at all.
 ///
 /// # The captured audio survives, and the signal does not carry it
 ///
 /// The microphone is released and the recording stays exactly where it was:
 /// holding the one recorder slot, owned by the same window, with its file
-/// intact. The owner finalizes it by calling `stop` or deletes it by calling
-/// `cancel`; if its page leaves first, it is finalized for it.
+/// intact. The owner finalizes it by calling `stop`; if its page leaves
+/// first, it is finalized for it.
 fn end_recording_capture<R: Runtime>(app: &AppHandle<R>, id: &str, reason: EndedReason) {
     let Some(recorders) = app.try_state::<Recorders<R>>() else {
         return;

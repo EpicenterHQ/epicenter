@@ -261,7 +261,7 @@ export function createBrowserRecorder(
 			async stop() {
 				if (settled)
 					return RecorderError.NotRecording({
-						reason: 'it was already stopped or cancelled',
+						reason: 'it was already stopped',
 					});
 				end();
 				const durationMs = Math.round(
@@ -275,20 +275,6 @@ export function createBrowserRecorder(
 				if (writeError !== null)
 					return RecorderError.Refused({ reason: writeError.message });
 				return Ok({ path: file, durationMs });
-			},
-			async cancel() {
-				if (settled)
-					return RecorderError.NotRecording({
-						reason: 'it was already stopped or cancelled',
-					});
-				end();
-				try {
-					recorder.stop();
-				} catch {
-					// Already inactive; the tracks are released either way.
-				}
-				release(stream);
-				return Ok(undefined);
 			},
 		});
 	};

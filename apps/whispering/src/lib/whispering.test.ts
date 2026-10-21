@@ -92,34 +92,6 @@ test('a refused exclusion write stays visible and files remain writable', async 
 	expect(await readdir(test.root)).toEqual(['note.md']);
 });
 
-test('internal navigation is allowed; unload waits for a write, not recording or transcription', async () => {
-	const answer =
-		deferred<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
-	const test = await openTestServices({ transcribe: () => answer.promise });
-	cleanups.push(test.remove);
-	const whispering = await openTestWhispering(test);
-	cleanups.push(() => closeTestWhispering(whispering));
-	const { library } = whispering;
-	expect(whispering.blocksNavigation({ willUnload: true })).toBe(false);
-	await library.startRecording();
-	expect(whispering.blocksNavigation({ willUnload: true })).toBe(false);
-	await library.stopRecording();
-	const transcribing = library.transcribe(library.entries[0]!);
-	await eventually(
-		() => library.resultsFor(library.entries[0]!.stem).length > 0,
-	);
-	expect(whispering.blocksNavigation({ willUnload: true })).toBe(false);
-	answer.resolve(Ok({ text: 'a steady tone' }));
-	await transcribing;
-	recordingEditor(library).edit((row) => {
-		row.fields.title = 'Typed just now';
-	});
-	expect(whispering.blocksNavigation({ willUnload: false })).toBe(false);
-	expect(whispering.blocksNavigation({ willUnload: true })).toBe(true);
-	await settle(library);
-	expect(whispering.blocksNavigation({ willUnload: true })).toBe(false);
-});
-
 test('a first-read failure rejects with its own error and leaves the library stopped', async () => {
 	const lost = new Error('the folder host went away');
 	const { whispering, library } = await fixture((folder) => {
@@ -137,7 +109,7 @@ test('a first-read failure rejects with its own error and leaves the library sto
 	expect(library.closing).toBe(true);
 });
 
-test('stop during exclusion maintenance waits for its save and starts no listings', async () => {
+test('stop during exclusion maintenance waits for no workflow, rejects start as stopped, and starts no listings', async () => {
 	const begun = deferred<void>();
 	const gate = deferred<void>();
 	let listings = 0;
@@ -163,16 +135,12 @@ test('stop during exclusion maintenance waits for its save and starts no listing
 	const starting = whispering.start();
 	const rejected = starting.catch((cause: unknown) => cause);
 	await begun.promise;
-	const stopping = closeTestWhispering(whispering);
-	await new Promise((resolve) => setTimeout(resolve, 100));
-	expect(test.closes).toBe(0);
+	// The write is held above the Folder, so the Folder never admitted it.
+	await closeTestWhispering(whispering);
+	expect(test.closes).toBe(1);
 	gate.resolve();
-	expect(await rejected).toMatchObject({
-		message: expect.stringContaining('stopped'),
-	});
-	await stopping;
+	expect(await rejected).toMatchObject({ message: STOPPED });
 	expect(listings).toBe(0);
-	expect(await readdir(test.root)).toEqual(['.gitignore']);
 });
 
 test('stop and folder close finish while the first listing is held and start rejects as stopped', async () => {
@@ -214,7 +182,7 @@ test('stop and folder close finish while the first listing is held and start rej
 	expect(await readdir(test.root)).toEqual(['.gitignore']);
 });
 
-test('folder close waits for recording recovery and starts no listings after stop', async () => {
+test('folder close does not wait for recording recovery, and no listing starts after stop', async () => {
 	const begun = deferred<void>();
 	const gate = deferred<void>();
 	let listings = 0;
@@ -240,13 +208,10 @@ test('folder close waits for recording recovery and starts no listings after sto
 	};
 	const rejected = whispering.start().catch((cause: unknown) => cause);
 	await begun.promise;
-	const stopping = closeTestWhispering(whispering);
-	await new Promise((resolve) => setTimeout(resolve, 100));
-	expect(test.closes).toBe(0);
-	gate.resolve();
-	await stopping;
-	expect(await rejected).toMatchObject({ message: STOPPED });
+	await closeTestWhispering(whispering);
 	expect(test.closes).toBe(1);
+	gate.resolve();
+	expect(await rejected).toMatchObject({ message: STOPPED });
 	expect(listings).toBe(0);
 });
 

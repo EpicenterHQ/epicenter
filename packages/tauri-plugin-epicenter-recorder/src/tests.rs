@@ -16,7 +16,8 @@
 //! - `start` records only into the folder bound to the calling window, at a
 //!   data path the shared path rule accepts, with nothing at it yet. A page
 //!   names no folder; a window with no binding, or a page whose folders have shut down, is refused.
-//! - `stop` and `cancel` reach only a recording the window started.
+//! - `stop` reaches only a recording the window started; no command deletes
+//!   one.
 //! - `recover` repairs cut-off WAVs in the bound folder and is idempotent.
 //! - A destroyed window's recording is finalized, never deleted.
 //! - A window without the plugin's permission cannot call it.
@@ -410,14 +411,12 @@ fn start_never_records_through_a_link() {
 }
 
 #[test]
-fn stop_and_cancel_reach_only_a_recording_this_window_started() {
+fn stop_reaches_only_a_recording_this_window_started() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
     let other = window(&fixture.app, "other");
-    for command in ["stop", "cancel"] {
-        let refused = invoke(&main, command, json!({ "id": "1" })).unwrap_err();
-        assert_eq!(name(&refused), "NotRecording", "{command}: {refused}");
-    }
+    let refused = invoke(&main, "stop", json!({ "id": "1" })).unwrap_err();
+    assert_eq!(name(&refused), "NotRecording", "{refused}");
 
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
     let path = fixture.root.join("recordings/a.wav");
@@ -428,10 +427,8 @@ fn stop_and_cancel_reach_only_a_recording_this_window_started() {
         "7",
         "main",
     );
-    for command in ["stop", "cancel"] {
-        let refused = invoke(&other, command, json!({ "id": "7" })).unwrap_err();
-        assert_eq!(name(&refused), "NotRecording", "{command}: {refused}");
-    }
+    let refused = invoke(&other, "stop", json!({ "id": "7" })).unwrap_err();
+    assert_eq!(name(&refused), "NotRecording", "{refused}");
     let stopped = invoke(&main, "stop", json!({ "id": "7" })).unwrap();
     assert_eq!(
         stopped,
@@ -441,52 +438,6 @@ fn stop_and_cancel_reach_only_a_recording_this_window_started() {
         hound::WavReader::open(&path).unwrap().duration(),
         crate::recorder::RECORDING_RATE
     );
-}
-
-#[test]
-fn cancel_deletes_the_recording() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    let path = fixture.root.join("a.wav");
-    crate::recorder::tests::hold_recording(
-        &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),
-        &path,
-        "a.wav",
-        "7",
-        "main",
-    );
-    assert_eq!(
-        invoke(&main, "cancel", json!({ "id": "7" })).unwrap(),
-        Value::Null
-    );
-    assert!(!path.exists());
-}
-
-#[test]
-fn cancel_reports_a_file_that_could_not_be_removed() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    let path = fixture.root.join("a.wav");
-    crate::recorder::tests::hold_recording(
-        &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),
-        &path,
-        "a.wav",
-        "7",
-        "main",
-    );
-    std::fs::rename(&path, fixture.root.join("preserved.wav")).unwrap();
-    std::fs::create_dir(&path).unwrap();
-
-    let refused = invoke(&main, "cancel", json!({ "id": "7" })).unwrap_err();
-    assert_eq!(name(&refused), "Failed", "{refused}");
-    assert!(refused["message"].as_str().unwrap().contains("a.wav"));
-    assert!(path.is_dir());
-    assert!(fixture
-        .app
-        .state::<Recorders<MockRuntime>>()
-        .lock()
-        .held_path()
-        .is_none());
 }
 
 /// What the plugin does when a window is destroyed: its page can no longer
@@ -502,6 +453,10 @@ fn a_destroyed_window_finalizes_its_recording() {
         "7",
         "main",
     );
+    assert_eq!(
+        crate::recording_owner(fixture.app.handle()).as_deref(),
+        Some("main")
+    );
     crate::page_ended(fixture.app.handle(), "other");
     assert!(fixture
         .app
@@ -509,8 +464,14 @@ fn a_destroyed_window_finalizes_its_recording() {
         .lock()
         .held_path()
         .is_some());
+    // Another window going leaves this one recording.
+    assert_eq!(
+        crate::recording_owner(fixture.app.handle()).as_deref(),
+        Some("main")
+    );
 
     crate::page_ended(fixture.app.handle(), "main");
+    assert_eq!(crate::recording_owner(fixture.app.handle()), None);
     assert!(fixture
         .app
         .state::<Recorders<MockRuntime>>()

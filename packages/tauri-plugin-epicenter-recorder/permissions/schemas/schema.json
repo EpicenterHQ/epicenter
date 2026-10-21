@@ -295,18 +295,6 @@
       "type": "string",
       "oneOf": [
         {
-          "description": "Enables the cancel command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-cancel",
-          "markdownDescription": "Enables the cancel command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the cancel command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-cancel",
-          "markdownDescription": "Denies the cancel command without any pre-configured scope."
-        },
-        {
           "description": "Enables the close_meter command without any pre-configured scope.",
           "type": "string",
           "const": "allow-close-meter",
@@ -379,10 +367,10 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "List the microphones and read one's level, record from a microphone into the folder bound to this window, stop or cancel that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-cancel`\n- `allow-recover`",
+          "description": "List the microphones and read one's level, record from a microphone into the folder bound to this window, stop that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-recover`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "List the microphones and read one's level, record from a microphone into the folder bound to this window, stop or cancel that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-cancel`\n- `allow-recover`"
+          "markdownDescription": "List the microphones and read one's level, record from a microphone into the folder bound to this window, stop that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-recover`"
         }
       ]
     }

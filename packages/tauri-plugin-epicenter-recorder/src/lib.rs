@@ -18,9 +18,12 @@
 //!
 //! To record, a page names a folder-relative path in the folder the shell
 //! bound to its window, and no folder. `start` creates `<path>.wav` there and appends mono
-//! PCM16 to it as the microphone captures; `stop` finalizes its header; `cancel` deletes it.
-//! When the page that started a recording reloads, or its window is destroyed,
-//! the recording is finalized for it, never deleted. `recover` rewrites the
+//! PCM16 to it as the microphone captures; `stop` finalizes its header. Nothing
+//! deletes a recording once capture has begun. When the page that started a
+//! recording reloads, or its window is destroyed, the recording is finalized
+//! for it; a shell asks
+//! `recording_owner` before closing a window or quitting, since leaving ends
+//! that recording. `recover` rewrites the
 //! header of any WAV a quit or crash cut off, which a page calls when it opens
 //! its folder.
 //!
@@ -91,7 +94,7 @@ impl<R: Runtime> Builder<R> {
         Self::default()
     }
 
-    /// Hear whether a microphone is open after every start, stop, cancel,
+    /// Hear whether a microphone is open after every start, stop,
     /// finalized departure, capture that ended on its own, and meter that
     /// opened or closed.
     pub fn on_capturing(
@@ -173,7 +176,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::close_meter::<tauri::Wry>,
             commands::start::<tauri::Wry>,
             commands::stop::<tauri::Wry>,
-            commands::cancel::<tauri::Wry>,
             commands::recover::<tauri::Wry>,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)

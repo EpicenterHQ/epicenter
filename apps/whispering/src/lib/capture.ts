@@ -35,9 +35,12 @@ export const CaptureError = defineErrors({
 		message: `${label === '' ? 'The chosen microphone' : `“${label}”`} is not available, and no other microphone was used in its place. Connect it, or choose another input.`,
 		label,
 	}),
-	/** The request was withdrawn before the microphone answered. Anything that answered late was released. */
+	/**
+	 * The request was withdrawn. A microphone that answered late was released;
+	 * on the desktop what a late recording had written was kept.
+	 */
 	Cancelled: () => ({
-		message: 'The microphone was not opened: the request was cancelled.',
+		message: 'The request was withdrawn before it finished.',
 	}),
 	Failed: ({ cause }: { cause: unknown }) => ({
 		message: `The recording could not be captured: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -63,12 +66,13 @@ export type ActiveCapture = {
 	readonly audioPath: string;
 	/** `performance.now()` when capture began, for the elapsed-time display. */
 	readonly startedAt: number;
-	/** Hear capture end unexpectedly; stop still keeps its audio. Retired by stop or cancel. */
+	/** Hear capture end unexpectedly; stop still keeps its audio. Retired by stop. */
 	onEnded: Recording['onEnded'];
-	/** Finish the audio file and release the microphone. */
+	/**
+	 * Finish the audio file and release the microphone. Nothing here deletes
+	 * a capture: one the page leaves without stopping ends with the page.
+	 */
 	stop(): Promise<Result<{ readonly durationMs: number }, CaptureError>>;
-	/** Release the microphone and delete the audio file. */
-	cancel(): Promise<Result<undefined, CaptureError>>;
 };
 
 /** A microphone the person chose by name. Kept on this device, never in the folder. */
@@ -143,7 +147,10 @@ export type CaptureStart = {
 	readonly path: string;
 	/** The microphone to record from. Undefined is the system default. */
 	readonly input?: MicrophonePreference;
-	/** Withdraws the start. A microphone that opens afterward is released. */
+	/**
+	 * Withdraws the start. A microphone that opens afterward is released; on
+	 * the desktop what the shell already wrote is kept, never deleted.
+	 */
 	readonly signal?: AbortSignal;
 };
 
@@ -207,10 +214,6 @@ export function createFixtureDevice({
 							wavDurationMs(fixture.bytes) ??
 							Math.round(performance.now() - startedAt),
 					});
-				},
-				async cancel() {
-					settled = true;
-					return Ok(undefined);
 				},
 			});
 		},

@@ -30,8 +30,9 @@
  *   a reload its row is unfinished
  * - Renaming a file saves its typing first and moves its exact bytes;
  *   recording and transformation files keep their names
- * - Stop and Cancel wait for their own initial row save across overlapping captures
- * - Closing waits for accepted work
+ * - Stop waits for its own initial row save across overlapping captures
+ * - Closing refuses new work; an accepted action finishes before the folder
+ *   closes
  */
 import { closeTestLibrary, openTestLibrary } from './library.test-support.js';
 
@@ -432,101 +433,56 @@ test('Stop pressed while the row’s first save runs writes the length once the 
 	);
 });
 
-test('Cancel pressed while the row’s first save runs deletes the row once it is there', async () => {
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
+test('a first capture’s Stop waits for its own row while a second capture starts', async () => {
+	const first = Promise.withResolvers<void>();
+	const second = Promise.withResolvers<void>();
+	const firstReached = Promise.withResolvers<void>();
+	const secondReached = Promise.withResolvers<void>();
+	let creates = 0;
 	const { library, root } = await open({
 		beforeRowCreate: async () => {
-			reached.resolve();
-			await release.promise;
+			if (++creates === 1) {
+				firstReached.resolve();
+				await first.promise;
+			} else {
+				secondReached.resolve();
+				await second.promise;
+			}
 		},
 	});
-
-	const starting = library.startRecording();
-	await reached.promise;
-	const cancelling = library.cancelRecording();
-	await Bun.sleep(10);
-	release.resolve();
-	await Promise.all([starting, cancelling]);
-	await settle(library);
-
-	expect(library.entries).toEqual([]);
-	expect(await recordingFiles(root)).toEqual([]);
-});
-
-for (const action of ['stop', 'cancel'] as const) {
-	test(`a first capture's ${action} waits for its own row while a second capture starts`, async () => {
-		const first = Promise.withResolvers<void>();
-		const second = Promise.withResolvers<void>();
-		const firstReached = Promise.withResolvers<void>();
-		const secondReached = Promise.withResolvers<void>();
-		let creates = 0;
-		const { library, root } = await open({
-			beforeRowCreate: async () => {
-				if (++creates === 1) {
-					firstReached.resolve();
-					await first.promise;
-				} else {
-					secondReached.resolve();
-					await second.promise;
-				}
-			},
-		});
-		const firstStart = library.startRecording();
-		await firstReached.promise;
-		const finishing =
-			action === 'stop' ? library.stopRecording() : library.cancelRecording();
-		let finished = false;
-		void finishing.then(() => {
-			finished = true;
-		});
-		let secondStart: Promise<void> | undefined;
-		try {
-			await eventually(() => library.recorder.phase === 'idle');
-			secondStart = library.startRecording();
-			await secondReached.promise;
-			first.resolve();
-			await eventually(() => finished);
-			expect(library.recorder.phase).toBe('recording');
-			const saved = await readdir(join(root, 'recordings'));
-			expect(saved.filter((path) => path.endsWith('.md'))).toHaveLength(
-				action === 'stop' ? 1 : 0,
-			);
-			if (action === 'stop')
-				expect(
-					await readFile(
-						join(
-							root,
-							'recordings',
-							saved.find((path) => path.endsWith('.md'))!,
-						),
-						'utf8',
-					),
-				).toContain('durationMs: 1000');
-		} finally {
-			first.resolve();
-			second.resolve();
-			await Promise.all([firstStart, secondStart, finishing]);
-		}
-		await library.stopRecording();
-		await settle(library);
-		expect(library.entries).toHaveLength(action === 'stop' ? 2 : 1);
-		for (const entry of library.entries)
-			expect(entry.row.fields.durationMs).toBe(1000);
+	const firstStart = library.startRecording();
+	await firstReached.promise;
+	const finishing = library.stopRecording();
+	let finished = false;
+	void finishing.then(() => {
+		finished = true;
 	});
-}
-
-test('cancel deletes the recording’s row', async () => {
-	const { library, root } = await open();
-
-	await library.startRecording();
-	await quiet(library);
-	expect(library.entries).toHaveLength(1);
-	await library.cancelRecording();
-
-	expect(library.recorder).toEqual({ phase: 'idle' });
-	expect(library.entries).toEqual([]);
-	expect(await recordingFiles(root)).toEqual([]);
+	let secondStart: Promise<void> | undefined;
+	try {
+		await eventually(() => library.recorder.phase === 'idle');
+		secondStart = library.startRecording();
+		await secondReached.promise;
+		first.resolve();
+		await eventually(() => finished);
+		expect(library.recorder.phase).toBe('recording');
+		const saved = await readdir(join(root, 'recordings'));
+		expect(saved.filter((path) => path.endsWith('.md'))).toHaveLength(1);
+		expect(
+			await readFile(
+				join(root, 'recordings', saved.find((path) => path.endsWith('.md'))!),
+				'utf8',
+			),
+		).toContain('durationMs: 1000');
+	} finally {
+		first.resolve();
+		second.resolve();
+		await Promise.all([firstStart, secondStart, finishing]);
+	}
+	await library.stopRecording();
+	await settle(library);
+	expect(library.entries).toHaveLength(2);
+	for (const entry of library.entries)
+		expect(entry.row.fields.durationMs).toBe(1000);
 });
 
 test('a recording still recording is not transcribed', async () => {
@@ -1161,62 +1117,57 @@ test('recording and transformation files keep their names, and a transcript keep
 // Closing
 // ============================================================================
 
-test('close drains accepted work and refuses new work', async () => {
+test('closing refuses new work and waits for no workflow still on its way to the Folder', async () => {
+	const { library, root } = await open();
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
-	const { library, root } = await open({
-		beforeFileWrite: async (path) => {
-			if (path !== 'first.txt') return;
-			reached.resolve();
-			await release.promise;
-		},
+	const set = library.services.connections.set;
+	library.services.connections.set = async (...args) => {
+		reached.resolve();
+		await release.promise;
+		return set(...args);
+	};
+	const saving = library.saveConnection('transcription', {
+		baseUrl: TEST_BASE_URL,
+		model: 'held',
+		key: { action: 'keep' },
 	});
-	const first = library.createFile('', 'first.txt');
 	await reached.promise;
-	let closed = false;
-	const closing = closeTestLibrary(library).then(() => {
-		closed = true;
-	});
-	await Promise.resolve();
-	expect(await library.createFile('', 'late.txt')).toContain('closing');
-	await Bun.sleep(10);
-	expect(closed).toBe(false);
-	release.resolve();
-	expect(await first).toBeUndefined();
-	await closing;
+
+	// Held before it reaches the Folder: the folder closes without it.
 	opened.splice(opened.indexOf(library), 1);
-	expect(await readFile(join(root, 'first.txt'), 'utf8')).toBe('');
+	await closeTestLibrary(library);
+	expect(await library.createFile('', 'late.txt')).toContain('closing');
+
+	release.resolve();
+	await saving;
 	expect(await Bun.file(join(root, 'late.txt')).exists()).toBe(false);
 });
 
-test('close waits for a rename still copying, and the rename finishes before the folder closes', async () => {
+test('closing waits for a save the Folder already admitted', async () => {
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const { library, root } = await open({
 		beforeDiskWrite: async (path) => {
-			if (path !== 'renamed.md') return;
+			if (!path.endsWith('kept.txt')) return;
 			reached.resolve();
 			await release.promise;
 		},
 	});
-	await writeFile(join(root, 'notes.md'), 'original\n');
-	await settle(library);
-
-	const renaming = library.rename('notes.md', 'renamed.md');
+	const creating = library.createFile('', 'kept.txt');
 	await reached.promise;
 	let closed = false;
+	opened.splice(opened.indexOf(library), 1);
 	const closing = closeTestLibrary(library).then(() => {
 		closed = true;
 	});
-	await Bun.sleep(10);
+	await Bun.sleep(20);
 	expect(closed).toBe(false);
 
 	release.resolve();
-	expect(await renaming).toBeUndefined();
+	expect(await creating).toBeUndefined();
 	await closing;
-	opened.splice(opened.indexOf(library), 1);
-	expect(await readFile(join(root, 'renamed.md'), 'utf8')).toBe('original\n');
-	expect(await Bun.file(join(root, 'notes.md')).exists()).toBe(false);
+	expect(await readFile(join(root, 'kept.txt'), 'utf8')).toBe('');
 });
 
 

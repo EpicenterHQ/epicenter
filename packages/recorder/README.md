@@ -32,12 +32,12 @@ const { data: recording, error } = await startRecording({
 	input: { deviceId, label }, // optional; undefined is the system default
 });
 const unsubscribe = recording.onLevel((level) => meter.set(level));
-const { data: stopped } = await recording.stop(); // { path, durationMs }, or recording.cancel()
+const { data: stopped } = await recording.stop(); // { path, durationMs }
 ```
 
 `onEnded` reports the first unexpected ending, including one received before
-subscription. Stop still claims what was captured; stop or cancel retires the
-listeners. In a browser, final encoder output is collected even if the browser
+subscription. Stop still claims what was captured and retires the listeners.
+Nothing deletes a recording. In a browser, final encoder output is collected even if the browser
 already stopped after its microphone tracks ended.
 
 `folder` is the `write` a browser writes the recording through; a handle
@@ -49,7 +49,7 @@ the folder it bound to the recording window, and no call names a folder.
 | `recording.path` | `<path>.wav`, already in the folder | `<path>.webm`, or `.mp4` or `.ogg` where the browser records those, written on stop |
 | Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
 | `stop` | Finalizes the WAV | Writes the file with `write`, from no file |
-| `cancel` | Deletes the WAV | Writes nothing |
+| `signal` aborted after the microphone opened | Stopped: the WAV is finalized and kept | Released; nothing was written |
 | Quit, crash, closed window | Audio kept up to the cut | Lost |
 | `recoverRecordings` | Rewrites the header of any WAV a quit cut off | Answers `[]` |
 

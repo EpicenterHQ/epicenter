@@ -6,6 +6,5 @@ pub const COMMANDS: &[&str] = &[
     "close_meter",
     "start",
     "stop",
-    "cancel",
     "recover",
 ];
