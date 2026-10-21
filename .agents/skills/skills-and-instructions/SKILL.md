@@ -66,9 +66,10 @@ repository root, and update or remove it with the skill:
 ln -s ../../.agents/skills/<name> .claude/skills/<name>
 ```
 
-Codex-only skills deliberately have no Claude link. CLAUDE.md files are shims
-importing the sibling AGENTS.md. Durable personal guidance belongs in the
-tracked dotfiles repository, not a host-managed system-skill installation.
+Codex-only skills deliberately have no Claude link.
+
+Durable personal guidance belongs in the tracked dotfiles repository, not a
+host-managed system-skill installation.
 
 When importing guidance, inspect its scripts, dependencies, external actions,
 and assumptions before using them. Adapt to local conventions and state the
