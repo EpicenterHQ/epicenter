@@ -9,9 +9,8 @@
 	import { createNotes } from '$lib/notes.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
-	import FileView from './FileView.svelte';
+	import FileDetail from './FileDetail.svelte';
 	import FolderNav from './FolderNav.svelte';
-	import NoteDetail from './NoteDetail.svelte';
 	import NoteList from './NoteList.svelte';
 
 	// The notes over the folder `<FolderApp>` opened. The note and
@@ -75,14 +74,10 @@
 		<Resizable.Handle />
 		<Resizable.Pane id="detail" order={3} defaultSize={filesOpen ? 40 : 60} minSize={30}>
 			{@const shown = notes.selected}
-			{#if shown?.as === 'note'}
-				<!-- One mount per opening, so the rich-text undo history lasts while the note is open. -->
-				{#key shown.id}
-					<NoteDetail {notes} path={shown.path} />
-				{/key}
-			{:else if shown !== undefined}
-				{#key shown.id}
-					<FileView {notes} path={shown.path} />
+			{#if shown !== undefined}
+				<!-- Changing presentation keeps this file's editors and their undo history alive. -->
+				{#key shown.path}
+					<FileDetail {notes} path={shown.path} as={shown.as} />
 				{/key}
 			{:else}
 				<Empty.Root class="h-full">

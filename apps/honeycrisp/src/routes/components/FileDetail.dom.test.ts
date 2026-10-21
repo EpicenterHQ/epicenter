@@ -1,7 +1,7 @@
 /**
- * Note View Tests
+ * Continuous File Detail Tests
  *
- * Mounts the real note view, `NoteDetail`, with its rich-text editor and UI
+ * Mounts `FileDetail`, with its note and whole-file presentations and UI
  * library, inside the query client the layout provides, over the real notes
  * state on this browser's local folder (an in-memory IndexedDB). Events are
  * delivered to the DOM the view renders; jsdom has no layout, focus,
@@ -9,7 +9,7 @@
  * person can type there.
  *
  * Key behaviors:
- * - A title typed is saved when the person leaves it, and switching between
+ * - A title typed autosaves after its pause, and switching between
  *   rich text and Source or typing a title keeps the one rich-text view
  * - Rich-text typing reaches the note's draft through ProseMirror's own DOM
  *   reading, saves after its pause, and stays undoable after the save lands
@@ -18,6 +18,9 @@
  *   title
  * - A change another tab saved shows in the open note
  * - A save that fails says so and offers Save again, which saves it
+ * - Switching presentations keeps one recovery surface and the held input
+ * - Blurring title, body source, or whole-file source and leaving the view
+ *   preserves the owner's autosave without forcing an early attempt
  * - Once the notes are closing, the controls take no input, and the
  *   rich-text view stays mounted
  */
@@ -44,7 +47,7 @@ const { flushSync, mount, unmount } = await import('svelte');
 const { openNotes, noteText, quiet, until } = await import(
 	'../../lib/local.test-support.ts'
 );
-const { default: NoteDetail } = await import('./NoteDetail.svelte');
+const { default: FileDetail } = await import('./FileDetail.svelte');
 const { default: Host } = await import('../../lib/ui-host.test-support.svelte');
 
 const PATH = 'notes/a.md';
@@ -53,7 +56,7 @@ afterEach(async () => {
 	for (const stop of cleanup.splice(0).reverse()) await stop();
 });
 
-test('Edit as file keeps a note whose body changes failed to save', async () => {
+test('failed changes share one recovery surface across note and whole-file presentations', async () => {
 	const { notes, target, failSaves } = await view({ saveAfterMs: 60_000 });
 	const body = 'Keep this body\n';
 	notes.folder.tables.notes.edit('a').change({ body });
@@ -61,10 +64,36 @@ test('Edit as file keeps a note whose body changes failed to save', async () => 
 	await notes.folder.files.edit(PATH).save();
 	expect(notes.isUnsaved(PATH)).toBe(true);
 	click(target, 'Edit as file');
+	await until(() => {
+		flushSync();
+		return (
+			target.querySelector('textarea[aria-label="Contents of a.md"]') !== null
+		);
+	}, 'the whole-file editor');
 	expect(notes.selected?.as).toBe('text');
 	expect(notes.folder.files.edit(PATH).getText()).toContain(body);
 	expect(notes.folder.files.edit(PATH).getPending()?.error).toBeDefined();
 	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(body);
+	expect(
+		target.querySelector('[aria-label="Unsaved note changes"]'),
+	).toBeNull();
+	expect(target.querySelectorAll('[data-testid="write-status"]')).toHaveLength(
+		1,
+	);
+	expect(
+		[...target.querySelectorAll('button')].filter(
+			(button) => button.textContent?.trim() === 'Save again',
+		),
+	).toHaveLength(1);
+	expect(
+		[...target.querySelectorAll('button')].filter(
+			(button) => button.textContent?.trim() === 'Discard changes',
+		),
+	).toHaveLength(1);
+	click(target, 'Open as note');
+	flushSync();
+	expect(richOf(target).textContent).toContain('Keep this body');
+	expect(statusOf(target)).toContain('Not saved');
 	failSaves(false);
 	click(target, 'Save again');
 	await until(() => !notes.isUnsaved(PATH), 'the explicit retry');
@@ -101,15 +130,26 @@ async function view({ saveAfterMs = 10 } = {}) {
 		target,
 		props: {
 			client: notes.queryClient,
-			component: NoteDetail as never,
-			props: { notes, path: PATH },
+			component: FileDetail as never,
+			props: {
+				notes,
+				path: PATH,
+				get as() {
+					return notes.selected?.as ?? 'note';
+				},
+			},
 		},
 	});
-	cleanup.push(() => {
-		unmount(host);
+	let mounted = true;
+	function leave() {
+		if (!mounted) return;
+		mounted = false;
+		const leaving = unmount(host);
 		flushSync();
 		target.remove();
-	});
+		return leaving;
+	}
+	cleanup.push(leave);
 	await settle();
 	/** Let every save and the reads after them land, then render. */
 	async function settle() {
@@ -117,7 +157,7 @@ async function view({ saveAfterMs = 10 } = {}) {
 		flushSync();
 		await tick();
 	}
-	return { ...fixture, target, settle };
+	return { ...fixture, target, settle, leave };
 }
 
 function only<T extends Element>(target: ParentNode, selector: string): T {
@@ -151,6 +191,52 @@ const undoButton = (target: ParentNode) =>
 	only<HTMLButtonElement>(target, 'button[aria-label="Undo"]');
 const statusOf = (target: ParentNode) =>
 	only<HTMLElement>(target, '[data-testid="write-status"]').textContent ?? '';
+
+test.each(['title', 'body source', 'whole-file source'] as const)(
+	'%s autosaves after blur and view departure without an early save',
+	async (kind) => {
+		const { target, folder, leave, text } = await view({ saveAfterMs: 25 });
+		let input: HTMLInputElement | HTMLTextAreaElement;
+		if (kind === 'title') {
+			input = titleOf(target);
+			type(input, 'Saved after leaving');
+		} else if (kind === 'body source') {
+			click(target, 'Source');
+			flushSync();
+			input = only<HTMLTextAreaElement>(
+				target,
+				'textarea[aria-label="Markdown source"]',
+			);
+			type(input, 'Saved after leaving\n');
+		} else {
+			click(target, 'Edit as file');
+			await until(() => {
+				flushSync();
+				return (
+					target.querySelector('textarea[aria-label="Contents of a.md"]') !==
+					null
+				);
+			}, 'the whole-file editor');
+			input = only<HTMLTextAreaElement>(
+				target,
+				'textarea[aria-label="Contents of a.md"]',
+			);
+			type(input, input.value.replace('Body.', 'Saved after leaving'));
+		}
+		blur(input);
+		flushSync();
+		const edit = folder.files.edit(PATH);
+		expect(edit.getPending()?.saving).toBe(false);
+		const leaving = leave();
+		expect(edit.getPending()?.saving).toBe(false);
+		await leaving;
+		await until(
+			() => edit.getPending() === undefined,
+			'autosave after the view leaves',
+		);
+		expect(await text(PATH)).toContain('Saved after leaving');
+	},
+);
 
 test('typing a title saves it, and switching tabs or typing keeps the one rich-text view', async () => {
 	const { target, text, settle } = await view();
@@ -192,7 +278,9 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 	const { notes, target, text, settle } = await view();
 	const rich = richOf(target);
 	await typeRich(rich, ' Typed');
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Body. Typed\n');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+		'Body. Typed\n',
+	);
 	await settle();
 	expect(await text(PATH)).toContain('Body. Typed\n');
 	// A save never changes what is on screen: the same view and its history stay.
@@ -204,7 +292,9 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 		);
 		flushSync();
 	}
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Body.\n');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+		'Body.\n',
+	);
 	expect(rich.textContent).toBe('Body.');
 	await settle();
 	expect(await text(PATH)).toContain('---\nBody.\n');
@@ -221,17 +311,70 @@ test('different Source text replaces the rich-text document, and typing goes on 
 		'Different\n',
 	);
 	await tick();
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Different\n');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+		'Different\n',
+	);
 	click(target, 'Rich text');
 	flushSync();
 	expect(rich.textContent).toBe('Different');
 	expect(undoButton(target).disabled).toBe(true);
 	await typeRich(rich, ' again');
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Different again\n');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+		'Different again\n',
+	);
+});
+
+test('changing presentation keeps rich-text input pending without requesting a save', async () => {
+	const { notes, target, text } = await view({ saveAfterMs: 60_000 });
+	const rich = richOf(target);
+	await typeRich(rich, ' Typed');
+	click(target, 'Edit as file');
+	await until(() => {
+		flushSync();
+		return (
+			target.querySelector('textarea[aria-label="Contents of a.md"]') !== null
+		);
+	}, 'the whole-file source');
+	click(target, 'Open as note');
+	flushSync();
+	expect(richOf(target)).toBe(rich);
+	expect(undoButton(target).disabled).toBe(false);
+	expect(notes.folder.files.edit(PATH).getPending()).toBeDefined();
+	expect(await text(PATH)).not.toContain('Typed');
+});
+
+test('changing the whole-file body replaces rich text without retaining stale Undo', async () => {
+	const { notes, target } = await view({ saveAfterMs: 60_000 });
+	const rich = richOf(target);
+	await typeRich(rich, ' Typed');
+	click(target, 'Edit as file');
+	const contents = () =>
+		target.querySelector<HTMLTextAreaElement>(
+			'textarea[aria-label="Contents of a.md"]',
+		);
+	await until(() => {
+		flushSync();
+		return contents() !== null;
+	}, 'the whole-file source');
+	const input = only<HTMLTextAreaElement>(
+		target,
+		'textarea[aria-label="Contents of a.md"]',
+	);
+	type(input, input.value.replace('Body. Typed', 'Different'));
+	await tick();
+	click(target, 'Open as note');
+	flushSync();
+	expect(richOf(target)).toBe(rich);
+	expect(rich.textContent).toBe('Different');
+	expect(undoButton(target).disabled).toBe(true);
+	await typeRich(rich, ' again');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+		'Different again\n',
+	);
 });
 
 test('a title typed before another tab saved keeps their body and wins the title', async () => {
-	const { target, otherTab, text, local, settle } = await view({
+	const { target, otherTab, text, local, folder, settle } = await view({
 		saveAfterMs: 60_000,
 	});
 	type(titleOf(target), 'Mine');
@@ -244,8 +387,7 @@ test('a title typed before another tab saved keeps their body and wins the title
 			body: 'Their body.\n',
 		}),
 	);
-	blur(titleOf(target));
-	await tick();
+	await folder.tables.notes.edit('a').save();
 	await settle();
 	expect(local.getStatus().failures).toEqual([]);
 	const saved = (await text(PATH)) ?? '';
@@ -303,7 +445,9 @@ test('once the notes are closing, the controls take no input', async () => {
 	expect(rich.getAttribute('contenteditable')).toBe('false');
 	type(titleOf(target), 'Typed while closing');
 	flushSync();
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.fields?.title).toBe('Alpha');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.fields?.title).toBe(
+		'Alpha',
+	);
 	// The editor stays mounted while the last saves land.
 	expect(richOf(target)).toBe(rich);
 	await closed;

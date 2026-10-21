@@ -56,11 +56,10 @@ export type NotesFolder = FolderContext<HoneycrispTables>;
 /** How a path opens: as the note it is, or as its exact text. */
 export type OpenAs = 'note' | 'text';
 
-/** What the detail shows. `id` names one opening, so the view mounts once per opening. */
+/** The selected path and its presentation. The path owns the detail view's lifetime. */
 export type Selection = {
 	readonly path: string;
 	readonly as: OpenAs;
-	readonly id: number;
 };
 
 /** A listed row file the lists cannot show as a row, and why. */
@@ -154,7 +153,6 @@ export function createNotes(local: NotesFolder) {
 	const expanded = new SvelteSet<string>([NOTES]);
 	/** What the detail shows. */
 	let selected = $state.raw<Selection | undefined>();
-	let openings = 0;
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
 
@@ -253,7 +251,7 @@ export function createNotes(local: NotesFolder) {
 		if (as === 'note') focusRequest += 1;
 		for (const ancestor of ancestors(path)) expanded.add(ancestor);
 		if (selected?.path === path && selected.as === as) return;
-		selected = { path, as, id: ++openings };
+		selected = { path, as };
 	}
 
 	/** After a delete: the open item lets the file go. */

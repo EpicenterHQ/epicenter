@@ -343,7 +343,6 @@ test('a new file is made where none is, and a name some disk reads as another fi
 	expect(notes.selected).toEqual({
 		path: '.gitignore',
 		as: 'text',
-		id: expect.any(Number),
 	});
 });
 

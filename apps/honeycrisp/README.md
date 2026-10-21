@@ -64,28 +64,37 @@ saves exactly what you type.
 
 ## Editing
 
-A note's title, folder, pin, and text are saved as you change them: a second
-after you stop typing, when you leave the title or Source, and at once for a
-folder, a pin, or a list action (pin, move to a folder, move to Recently
+A note's title and text autosave a second after you stop typing. Folder
+changes, pinning, and list actions save at once (move to a folder, move to Recently
 Deleted, restore, rename a folder). Each save merges with whatever another tab
 saved meanwhile: a field you did not change keeps their value, text merges by
 line, and where you both changed the same field or lines, yours win, with no
 message. What you type always stays on screen; a read never replaces it.
 
-A note has two views of its body, **Rich text** and **Source**. Switching
-between them saves nothing and discards nothing. **Edit as file** opens the
-note's whole text instead. Both views and list actions change the same current
-document.
+A note has two views of its body, **Rich text** and **Source**. **Edit as file**
+shows its whole text, including frontmatter. These presentations share one
+detail view for the selected file. Inspecting source, or changing only the
+header in the whole-file editor, keeps rich-text Undo. Changing the body in
+either source editor restarts the rich-text history on that body.
+
+Blurring a title or source input, changing presentation, and selecting another
+file leave autosave with the Folder owner. These transitions neither discard input nor
+request an early save, and they never wait for a save or a refresh. The shared
+page lifecycle flushes pending changes when the page is hidden or closes.
+
+The detail view has one save status and one set of retry and discard controls
+across all presentations. Unsaved changes stay in the editor. If some held
+changes cannot be applied to the current source, or the file was deleted, a
+copyable recovery payload appears in that same area.
 
 Structured and whole-file editing use one `FileEdit` per file path. Its
 `change({ fields?, body? })` combines structured changes; `replaceText(text)`
 replaces the whole file. `getMarkdown()` interprets current text and `getText()`
-reads it directly. Each observing Svelte component uses `createFileEdit(handle)`
-with tracked `.markdown` and `.text` properties. The rich-text view passes the
-same core `FileEdit` to its transaction rule; it has no separate note-body
-editing API. A pure presentation helper validates the note and shows its body
-with line feeds, without changing the exact Markdown snapshot or source.
-Switching views requires no save or refresh.
+reads it directly. Each observing Svelte component uses `createFileEdit(handle)` with tracked
+`.markdown` and `.text` properties. The rich-text view passes the same core
+`FileEdit` to its transaction rule; it has no separate note-body editing API.
+A pure presentation helper validates the note and shows its body with line feeds,
+without changing the exact Markdown snapshot or source. Switching views requires no save or refresh.
 A failed edit remains available when selecting the note again, including if
 another writer deletes or replaces its saved file. It can be saved again,
 copied, or explicitly discarded.

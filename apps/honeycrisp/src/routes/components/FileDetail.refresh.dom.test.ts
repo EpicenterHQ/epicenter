@@ -9,12 +9,16 @@ import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { ReadError } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
-import { click, type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import {
+	click,
+	type,
+} from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+
 const { flushSync, mount, unmount } = await import('svelte');
 const { openNotes, noteText, quiet, until } = await import(
 	'../../lib/local.test-support.ts'
 );
-const FileView = (await import('./FileView.svelte')).default;
+const FileDetail = (await import('./FileDetail.svelte')).default;
 const Host = (await import('../../lib/ui-host.test-support.svelte')).default;
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -32,8 +36,8 @@ async function open(path = 'draft.txt', content = 'Original text') {
 		target,
 		props: {
 			client: fixture.notes.queryClient,
-			component: FileView as never,
-			props: { notes: fixture.notes, path },
+			component: FileDetail as never,
+			props: { notes: fixture.notes, path, as: 'text' },
 		},
 	});
 	cleanups.push(async () => {
@@ -120,7 +124,8 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	expect(input()?.value).toBe('Keep this unsaved text');
 	failSaves(false);
 	const other = await otherTab();
-	const before = expectOk(await other.files.read('draft.txt'))!;
+	const before = expectOk(await other.files.read('draft.txt'));
+	if (before === undefined) throw new Error('The test file disappeared');
 	expectOk(
 		await other.files.write(
 			'draft.txt',
@@ -131,28 +136,89 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	await local.refresh(['draft.txt']);
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
-	expect(notes.folder.files.edit('draft.txt').getPending()).toMatchObject({ kind: 'text', text: 'Keep this unsaved text' });
+	expect(notes.folder.files.edit('draft.txt').getPending()).toMatchObject({
+		kind: 'text',
+		text: 'Keep this unsaved text',
+	});
 });
 
 test('failed row changes remain available in Files after another tab deletes the note, and retry restores them', async () => {
 	const path = 'notes/a.md';
-	const { notes, folder, otherTab, failSaves, local, target, text } = await open(path, noteText());
-	notes.folder.tables.notes.edit(path.slice('notes/'.length, -3)).change({ body: 'Keep my row changes\n' });
+	const { notes, folder, otherTab, failSaves, local, target, text } =
+		await open(path, noteText());
+	notes.folder.tables.notes
+		.edit(path.slice('notes/'.length, -3))
+		.change({ body: 'Keep my row changes\n' });
 	failSaves();
 	await folder.files.edit(path).save();
 	failSaves(false);
 	const other = await otherTab();
-	const stored = expectOk(await other.files.read(path))!;
-	expectOk(await other.files.delete(path, new Uint8Array(await stored.content.arrayBuffer())));
+	const stored = expectOk(await other.files.read(path));
+	if (stored === undefined) throw new Error('The test note disappeared');
+	expectOk(
+		await other.files.delete(
+			path,
+			new Uint8Array(await stored.content.arrayBuffer()),
+		),
+	);
 	await local.refresh([path]);
 	await until(() => {
 		flushSync();
 		return folder.files.edit(path).getReadStatus().known === 'missing';
 	}, 'the missing note');
-	expect(target.querySelector('[aria-label="Unsaved note changes"]')?.textContent).toContain('Keep my row changes');
+	expect(
+		target.querySelector('[aria-label="Unsaved note changes"]')?.textContent,
+	).toContain('Keep my row changes');
 	expect(target.textContent).toContain('Save again');
 	expect(target.textContent).toContain('Discard changes');
 	click(target, 'Save again');
-	await until(() => folder.files.edit(path).getPending() === undefined, 'the explicit retry');
+	await until(
+		() => folder.files.edit(path).getPending() === undefined,
+		'the explicit retry',
+	);
 	expect(await text(path)).toContain('Keep my row changes');
+});
+
+test('unapplied fields remain copyable beside broken source, and save after the header is repaired', async () => {
+	const path = 'notes/a.md';
+	const { notes, folder, otherTab, failSaves, local, target, input, text } =
+		await open(path, noteText());
+	notes.folder.tables.notes
+		.edit(path.slice('notes/'.length, -3))
+		.change({ fields: { title: 'Keep this title' } });
+	failSaves();
+	await folder.files.edit(path).save();
+	failSaves(false);
+	const other = await otherTab();
+	const before = await text(path);
+	if (before === undefined) throw new Error('The test note disappeared');
+	const broken = before.replace('\n---\n', '\n');
+	expectOk(await other.files.write(path, before, broken));
+	await local.refresh([path]);
+	flushSync();
+	expect(input()?.value).toBe(broken);
+	expect(
+		target.querySelector('[aria-label="Unsaved note changes"]')?.textContent,
+	).toContain('Keep this title');
+	expect(target.querySelectorAll('[data-testid="write-status"]')).toHaveLength(
+		1,
+	);
+	expect(
+		[...target.querySelectorAll('button')].filter(
+			(button) => button.textContent?.trim() === 'Save again',
+		),
+	).toHaveLength(1);
+	expectOk(await other.files.write(path, broken, before));
+	await local.refresh([path]);
+	flushSync();
+	expect(input()?.value).toContain('Keep this title');
+	expect(
+		target.querySelector('[aria-label="Unsaved note changes"]'),
+	).toBeNull();
+	click(target, 'Save again');
+	await until(
+		() => folder.files.edit(path).getPending() === undefined,
+		'the repaired field save',
+	);
+	expect(await text(path)).toContain('Keep this title');
 });

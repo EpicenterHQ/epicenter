@@ -15,6 +15,9 @@
  *   file, and opens as a note
  * - The header says where notes are kept and offers no Save version, Sync,
  *   or Connect
+ * - Inspecting whole-file source or editing only its header keeps rich-text Undo
+ * - Autosave continues after selecting another file; a failed attempt remains
+ *   recoverable when the original file is selected again
  */
 // Before the DOM: once a `window` exists, `fake-indexeddb/auto` installs
 // IndexedDB on it rather than on the global the folder reads.
@@ -169,6 +172,104 @@ test('a new note, its title, and its text persist across close and reopen', asyn
 	expect(second.text(LIST)).toContain('Milk');
 });
 
+test('autosave survives switching files, and a failed source save remains retryable after returning', async () => {
+	globalThis.indexedDB = new IDBFactory();
+	const tab = await otherTab();
+	const source =
+		'---\ntitle: Alpha\nfolderId: null\npinned: false\ncreatedAt: "2026-10-01T00:00:00.000Z"\ndeletedAt: null\n---\nBody\n';
+	expectOk(await tab.files.write('notes/a.md', null, source));
+	expectOk(
+		await tab.files.write('notes/b.md', null, source.replace('Alpha', 'Beta')),
+	);
+	const page = await openPage();
+	page
+		.get('[data-note="notes/a.md"]')
+		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	await until(
+		() => page.target.querySelector(TITLE) !== null,
+		'the first note',
+	);
+	type(page.get(TITLE), 'Autosaved after switching');
+	blur(page.get(TITLE));
+	page
+		.get('[data-note="notes/b.md"]')
+		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	await until(
+		() => page.get<HTMLInputElement>(TITLE).value === 'Beta',
+		'the other note',
+	);
+	await until(
+		() => page.text(LIST).includes('Autosaved after switching'),
+		'the departed note to autosave',
+	);
+	expect(expectOk(await tab.tables.notes.get('a'))?.fields?.title).toBe(
+		'Autosaved after switching',
+	);
+	page
+		.get('[data-note="notes/a.md"]')
+		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	await until(
+		() =>
+			page.get<HTMLInputElement>(TITLE).value === 'Autosaved after switching',
+		'the saved note',
+	);
+	button(page.target, 'Edit as file').click();
+	const contents = 'textarea[aria-label="Contents of a.md"]';
+	await until(
+		() => page.target.querySelector(contents) !== null,
+		'the whole-file editor',
+	);
+	const put = IDBObjectStore.prototype.put;
+	cleanup.push(() => {
+		IDBObjectStore.prototype.put = put;
+	});
+	IDBObjectStore.prototype.put = () => {
+		throw new DOMException('Full', 'QuotaExceededError');
+	};
+	const changed = page
+		.get<HTMLTextAreaElement>(contents)
+		.value.replace('Body', 'Kept after switching');
+	type(page.get(contents), changed);
+	blur(page.get(contents));
+	page
+		.get('[data-note="notes/b.md"]')
+		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	await until(
+		() => page.get<HTMLInputElement>(TITLE).value === 'Beta',
+		'the other note during the failed save',
+	);
+	await until(
+		() =>
+			page
+				.get('[data-testid="status-summary"]')
+				.getAttribute('aria-label')
+				?.includes('Not saved') === true,
+		'the background autosave failure',
+	);
+	page
+		.get('[data-note="notes/a.md"]')
+		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	await until(
+		() => page.text('[data-testid="write-status"]').includes('Not saved'),
+		'the retained failure',
+	);
+	expect(page.get('[aria-label="Note text"]').textContent).toContain(
+		'Kept after switching',
+	);
+	expect(
+		[...page.target.querySelectorAll('button')].filter(
+			(candidate) => candidate.textContent?.trim() === 'Save again',
+		),
+	).toHaveLength(1);
+	IDBObjectStore.prototype.put = put;
+	button(page.target, 'Save again').click();
+	await until(
+		() => /Saved to/.test(page.text('[data-testid="write-status"]')),
+		'the explicit retry',
+	);
+	expect(await stored('notes/a.md')).toBe(changed);
+});
+
 test('a note that does not read as one is repaired as its file and opens as a note', async () => {
 	globalThis.indexedDB = new IDBFactory();
 	const tab = await otherTab();
@@ -197,7 +298,10 @@ test('a note that does not read as one is repaired as its file and opens as a no
 		() => page.target.querySelector('[data-testid="row-issues"]') === null,
 		'the repair',
 	);
-	await until(() => page.text('[data-testid="write-status"]').trim() === 'Saved', 'the repaired file to save');
+	await until(
+		() => page.text('[data-testid="write-status"]').trim() === 'Saved',
+		'the repaired file to save',
+	);
 	expect(await stored('notes/broken.md')).toBe(
 		broken.replace('maybe', 'false'),
 	);
@@ -207,6 +311,68 @@ test('a note that does not read as one is repaired as its file and opens as a no
 	);
 	await until(() => page.get(TITLE).value === 'Broken', 'the note');
 	expect(page.text(LIST)).not.toContain('Needs repair');
+});
+
+test('rich-text Undo survives inspecting the whole file and changing only its title', async () => {
+	globalThis.indexedDB = new IDBFactory();
+	const tab = await otherTab();
+	const source =
+		'---\ntitle: Alpha\nfolderId: null\npinned: false\ncreatedAt: "2026-10-01T00:00:00.000Z"\ndeletedAt: null\n---\nBody\n';
+	expectOk(await tab.files.write('notes/a.md', null, source));
+	const page = await openPage();
+	page
+		.get('[data-note="notes/a.md"]')
+		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	await until(() => page.target.querySelector(TITLE) !== null, 'the note');
+	const rich = page.get<HTMLElement>('[aria-label="Note text"]');
+	const line = rich.querySelector('p')?.firstChild;
+	if (!(line instanceof Text)) throw new Error('The note has no paragraph');
+	line.data += ' typed';
+	await until(
+		() => !page.get<HTMLButtonElement>('button[aria-label="Undo"]').disabled,
+		'the rich-text edit',
+	);
+	button(page.target, 'Edit as file').click();
+	const contents = 'textarea[aria-label="Contents of a.md"]';
+	await until(
+		() => page.target.querySelector(contents) !== null,
+		'the whole file',
+	);
+	expect(page.get<HTMLTextAreaElement>(contents).value).toContain('Body typed');
+	button(page.target, 'Open as note').click();
+	flushSync();
+	expect(page.get('[aria-label="Note text"]')).toBe(rich);
+	expect(
+		page.get<HTMLButtonElement>('button[aria-label="Undo"]').disabled,
+	).toBe(false);
+	button(page.target, 'Edit as file').click();
+	await until(
+		() => page.target.querySelector(contents) !== null,
+		'the file again',
+	);
+	const current = page.get<HTMLTextAreaElement>(contents).value;
+	type(page.get(contents), current.replace('title: Alpha', 'title: Beta'));
+	button(page.target, 'Open as note').click();
+	flushSync();
+	expect(page.get('[aria-label="Note text"]')).toBe(rich);
+	expect(page.get<HTMLInputElement>(TITLE).value).toBe('Beta');
+	expect(
+		page.get<HTMLButtonElement>('button[aria-label="Undo"]').disabled,
+	).toBe(false);
+	page.get<HTMLButtonElement>('button[aria-label="Undo"]').click();
+	await until(
+		() => rich.textContent === 'Body',
+		'Undo after returning from file source',
+	);
+	expect(page.get<HTMLInputElement>(TITLE).value).toBe('Beta');
+	blur(page.get(TITLE));
+	await until(
+		() => /Saved to/.test(page.text('[data-testid="write-status"]')),
+		'the undone body to save',
+	);
+	const saved = await stored('notes/a.md');
+	expect(saved).toContain('title: Beta');
+	expect(saved).toContain('---\nBody\n');
 });
 
 test('failed whole-file input survives Open as note and another tab deleting the file', async () => {
@@ -243,7 +409,9 @@ test('failed whole-file input survives Open as note and another tab deleting the
 		'the shared failure after switching',
 	);
 	expect(page.target.querySelector(TITLE)).not.toBeNull();
- expect(page.target.querySelector('[aria-label="Note text"]')?.textContent).toContain('Keep this text');
+	expect(
+		page.target.querySelector('[aria-label="Note text"]')?.textContent,
+	).toContain('Keep this text');
 	IDBObjectStore.prototype.put = put;
 	expect(expectOk(await tab.files.delete('notes/a.md', source)).deleted).toBe(
 		true,
@@ -252,11 +420,19 @@ test('failed whole-file input survives Open as note and another tab deleting the
 		() => !page.text(LIST).includes('Alpha'),
 		'the external deletion',
 	);
-	await until(() => page.target.querySelector('[aria-label="Unsaved text"]') !== null, 'copyable failed input after deletion');
- expect(page.target.querySelector('[aria-label="Unsaved text"]')?.textContent).toBe(changed);
- button(page.target, 'Discard it').click();
- await until(() => document.querySelector('[role="alertdialog"]') !== null, 'the discard confirmation');
- button(document.body, 'Discard changes').click();
+	await until(
+		() => page.target.querySelector('[aria-label="Unsaved text"]') !== null,
+		'copyable failed input after deletion',
+	);
+	expect(
+		page.target.querySelector('[aria-label="Unsaved text"]')?.textContent,
+	).toBe(changed);
+	button(page.target, 'Discard it').click();
+	await until(
+		() => document.querySelector('[role="alertdialog"]') !== null,
+		'the discard confirmation',
+	);
+	button(document.body, 'Discard changes').click();
 	await until(
 		() => page.target.querySelector('[aria-label="Unsaved text"]') === null,
 		'discarding the failed text',
