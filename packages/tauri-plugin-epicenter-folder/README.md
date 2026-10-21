@@ -40,8 +40,8 @@ use tauri_plugin_epicenter_folder::{Directory, FolderExt};
 tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
-        // A fixed default the shell computes: made when it is missing.
-        let directory = Directory::create(&app.path().app_data_dir()?)?;
+        // A fixed authored default the shell computes: made when missing.
+        let directory = Directory::create(&app.path().home_dir()?.join("Epicenter/Todos"))?;
         app.open_folder_window("todos", directory, WebviewUrl::default(), |builder| {
             Ok(builder.title("Todos"))
         })?;
