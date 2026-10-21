@@ -295,7 +295,7 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   export function createBrowserDocCache<
     TId extends string,
     TDocument extends BrowserDocInstance,
-  >(source: BrowserDocSource<TId, TDocument>) {
+  >({ source }: { source: BrowserDocSource<TId, TDocument> }) {
     return {
       open(id: TId): TDocument & Disposable {
         return source.create(id);
@@ -314,7 +314,7 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   };
 
   export function createBrowserDocCache<TId extends string, TDocument>(
-    source: BrowserDocSource<TId, TDocument>,
+    { source }: { source: BrowserDocSource<TId, TDocument> },
   ): BrowserDocCache<TId, TDocument> {
     return {
       open(id) {

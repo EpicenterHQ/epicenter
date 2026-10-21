@@ -3,6 +3,59 @@
 ## When to Read This
 Read this when designing or refactoring factory functions and closure-managed state.
 
+## Inject dependencies once through a named object
+
+Dependencies describe what a capability works with; operation inputs describe
+what a particular call asks it to do. Pass dependencies through a destructured
+object, even when there is only one. Group related operations in a factory
+whose returned methods close over those dependencies.
+
+```typescript
+// Avoid positional dependency injection and repeated dependency passing.
+const mailbox = createMailbox(db);
+await searchMessages(db, { text: 'hello' });
+await getMessage(db, { id: 'message-1' });
+
+// Prefer named dependencies supplied once, then operation inputs per call.
+const mailbox = createMailbox({ db });
+await mailbox.search({ text: 'hello' });
+await mailbox.get({ id: 'message-1' });
+```
+
+Put the implementation directly in the returned methods. In this illustrative
+example, `Database` is the database's owning type, imported from its module:
+
+```typescript
+export function createMailbox({ db }: { db: Database }) {
+  return {
+    search({ text }: { text: string }) {
+      return db.query({
+        sql: 'SELECT * FROM messages WHERE body LIKE ?',
+        params: [`%${text}%`],
+      });
+    },
+    get({ id }: { id: string }) {
+      return db.query({
+        sql: 'SELECT * FROM messages WHERE id = ?',
+        params: [id],
+      });
+    },
+  };
+}
+```
+
+Avoid a factory whose methods merely forward to standalone helpers such as
+`searchMessages({ db }, input)`. The factory already has `db`; its methods can
+use it directly. Extract helpers when they own independently useful behavior
+or meaningful shared logic, rather than to move a method's body elsewhere.
+Pure functions transforming domain data can remain standalone. When a
+standalone dependency-taking function is warranted, put its destructured
+dependency object first and keep operation input separate.
+
+This convention also applies to function-valued dependencies:
+`createSession({ signOut })`, rather than `createSession(signOut)`. It does not
+require replacing a useful capability function with an entire service object.
+
 # Parameter Destructuring for Factory Functions
 
 ## Prefer Parameter Destructuring Over Body Destructuring
