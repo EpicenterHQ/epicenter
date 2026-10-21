@@ -1,12 +1,12 @@
 /**
  * The close guard's async boundary, without a Folder or mounted app.
- * A retired guard cannot destroy its window after a late dialog answer;
+ * A retired guard cannot destroy its window or post a late failure notice;
  * status, dialog or registration failures leave another close possible.
  * Repeated requests share a pending prompt, and a dispatched destruction
  * leaves the page inert and refuses further requests until it is gone.
  */
 import './svelte-dom.test-support.js';
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, mock, test } from 'bun:test';
 import {
 	desktop,
 	nativeDialog,
@@ -14,11 +14,15 @@ import {
 	requestClose,
 } from './tauri-window.test-support.js';
 
+const warning = mock(() => {});
+mock.module('@epicenter/ui/sonner', () => ({ toast: { warning } }));
+
 const { holdWindowClose } = await import('./window-close.js');
 const cleanup: (() => void)[] = [];
 afterEach(() => {
 	for (const stop of cleanup.splice(0).reverse()) stop();
 	nativeWindow.reset();
+	warning.mockClear();
 });
 
 test('a late confirmation from a stopped guard cannot destroy the replacement page', async () => {
@@ -68,6 +72,30 @@ test('a retired dialog failure cannot restore input while the replacement window
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
+test('a failure notice waiting for focus cannot reach a replacement guard', async () => {
+	desktop(true);
+	const focus = Promise.withResolvers<void>();
+	const checked = Promise.withResolvers<void>();
+	nativeWindow.focus = focus.promise;
+	const stop = await holdWindowClose(() => {
+		checked.resolve();
+		throw new Error('Save status is unavailable');
+	});
+	cleanup.push(stop);
+	const oldClose = requestClose();
+	await checked.promise;
+	stop();
+	cleanup.push(await holdWindowClose(() => false));
+	focus.resolve();
+	await oldClose;
+
+	expect(warning).not.toHaveBeenCalled();
+	expect(document.documentElement.inert).toBe(false);
+	expect(nativeWindow.listeners).toBe(1);
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(1);
+});
+
 test('close uses one save-status snapshot even when saving finishes during focus', async () => {
 	desktop(true);
 	let pending = true;
@@ -101,6 +129,7 @@ test('a status check that throws keeps the window and allows another attempt', a
 	);
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
+	expect(warning).toHaveBeenCalledTimes(1);
 	refuse = false;
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);

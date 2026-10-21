@@ -108,8 +108,16 @@ export async function untilListening() {
 	if (handlers.size === 0) throw new Error('No close listener was registered');
 }
 
-/** Count the page as running in the desktop app, or not. */
+/** Count the page as desktop, supplying its inert root in headless tests. */
 export function desktop(on: boolean) {
+	if (on) {
+		if (!globalThis.document)
+			Object.assign(globalThis, {
+				document: { documentElement: { inert: false } },
+			});
+		// jsdom does not implement inert's initial value.
+		document.documentElement.inert ??= false;
+	}
 	(globalThis as { isTauri?: boolean }).isTauri = on;
 }
 

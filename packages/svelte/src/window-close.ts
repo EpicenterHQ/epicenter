@@ -42,10 +42,11 @@ async function focusWindow(current: Window) {
 }
 
 /** Explain a failed close while keeping the window available to retry. */
-async function notifyCloseFailure(current: Window) {
+async function notifyCloseFailure(current: Window, guard: symbol) {
 	await focusWindow(current);
 	try {
 		const { toast } = await import('@epicenter/ui/sonner');
+		if (activeGuard !== guard) return;
 		toast.warning('The window stayed open', {
 			description: 'The window could not close. Try again.',
 		});
@@ -77,8 +78,8 @@ export async function holdWindowClose(
 			event.preventDefault();
 			if (closing || activeGuard !== guard) return;
 			closing = true;
-			const page = globalThis.document?.documentElement;
-			const wasInert = page?.inert ?? false;
+			const page = document.documentElement;
+			const wasInert = page.inert;
 			try {
 				if (pendingSave()) {
 					await focusWindow(current);
@@ -99,13 +100,13 @@ export async function holdWindowClose(
 					}
 				}
 				if (activeGuard !== guard) return;
-				if (page) page.inert = true;
+				page.inert = true;
 				await current.destroy();
 			} catch (cause) {
 				if (activeGuard !== guard) return;
-				if (page) page.inert = wasInert;
+				page.inert = wasInert;
 				log.error(new Error('The window could not close', { cause }));
-				await notifyCloseFailure(current);
+				await notifyCloseFailure(current, guard);
 				closing = false;
 			}
 		});
