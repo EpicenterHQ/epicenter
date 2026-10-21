@@ -58,6 +58,24 @@ const RECORDING = 'recordings/take.md';
 const recording = (title: string, body: string) =>
 	`---\ntitle: ${title}\nrecordedAt: 2026-10-01T00:00:00.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: audio/take.wav\n---\n${body}`;
 
+test('new captures play their sibling without audioPath and conflicting formats disable transcription', async () => {
+	const { library, target, root } = await open({});
+	await library.startRecording();
+	await library.stopRecording();
+	await settle(library);
+	const entry = library.entries[0]!;
+	expect(entry.row.fields.audioPath).toBeUndefined();
+	await show(library, entry.path);
+	expect(target.querySelector('[data-testid="audio-player"]')).not.toBeNull();
+	expect(field<HTMLButtonElement>(target, '[data-testid="transcribe"]')?.disabled).toBe(false);
+	await writeFile(join(root, entry.path.replace(/\.md$/, '.webm')), new Uint8Array([1, 2]));
+	await reportChanged(library);
+	flushSync();
+	expect(target.querySelector('[data-testid="audio-player"]')).toBeNull();
+	expect(target.textContent).toContain('More than one audio file matches this recording');
+	expect(field<HTMLButtonElement>(target, '[data-testid="transcribe"]')?.disabled).toBe(true);
+});
+
 /**
  * A library over files on disk, mounted in the fixture with `tab` showing.
  * While `disk.refusing`, the disk refuses every write, whoever saves.

@@ -1,20 +1,13 @@
-import {
-	type CreateRowOf,
-	defineTable,
-	field,
-} from '@epicenter/definition';
+import { type CreateRowOf, defineTable, field } from '@epicenter/definition';
 import { Type } from 'typebox';
-
-/** Where recordings' audio is written: ordinary files a row names. */
-export const AUDIO = 'audio';
 
 /**
  * Whispering's tables: each recording is `recordings/<id>.md` with its
- * metadata in frontmatter and notes in the Markdown body. The row names its
- * audio in `audioPath`, a file under `audio/`; the audio is an ordinary file
- * the table does not own, so nothing is inferred from a file that happens to
- * share the row's stem. The row is written when the recording starts and
- * holds facts only: when it started, where its audio is, and, once it stops,
+ * metadata in frontmatter and notes in the Markdown body. Its audio is the
+ * unique supported sibling `recordings/<id>.<extension>`; new rows store no
+ * path. Existing audioPath links remain readable without moving old files.
+ * The row is written when the recording starts and
+ * holds facts only: when it started and, once it stops,
  * how long it is. Whether a recording is running is never written
  * (ADR-0542). Each transcription result is its own row in `transcriptions/`,
  * naming the recording it was made from, with the transcript as its body.
@@ -52,11 +45,10 @@ const recordings = defineTable({
 		/** Where the audio came from, so fixture audio is never mistaken for a microphone take. */
 		capture: field.select(['microphone', 'fixture']),
 		/**
-		 * The folder-relative path of the audio file, such as
-		 * `audio/20260102-030405-k3f9.wav`. A row without it has no audio the
-		 * app will play, transcribe, or name.
+		 * Legacy explicit link, preserved for existing recordings. New captures
+		 * omit it and resolve a supported sibling by the recording's stem.
 		 */
-		audioPath: field.string(),
+		audioPath: field.optional(field.string()),
 	},
 });
 
@@ -165,17 +157,15 @@ export const DEFAULT_TRANSCRIPTION_CONNECTION = {
 
 /**
  * Where a new recording's audio is written, without its extension: the
- * capture adds the one its bytes call for. An existing row's audio is
- * whatever its `audioPath` says.
+ * capture adds the one its bytes call for, beside the Markdown row.
  */
 export function recordingAudioStem(id: string): string {
-	return `${AUDIO}/${id}`;
+	return `${RECORDINGS}/${id}`;
 }
 
 /**
- * The audio a recording row names, or undefined when it names none. A row
- * written before `audioPath` existed names none: it is listed as needing
- * repair, and no file is guessed from its stem.
+ * An existing recording's explicit audio link. New rows omit it; their audio
+ * is resolved from supported same-stem siblings by recordingAudio.
  */
 export function audioPathIn(
 	fields: Readonly<Partial<RecordingFields>>,

@@ -5,7 +5,10 @@
 import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../../audio-format.js';
-import { AUDIO, DEFAULT_TRANSCRIPTION_CONNECTION } from '../../definition.js';
+import {
+	DEFAULT_TRANSCRIPTION_CONNECTION,
+	RECORDINGS,
+} from '../../definition.js';
 import { readBytes } from '../../files.js';
 import type { WhisperingFolder } from '../../folder.js';
 import { localPreferences } from '../../microphone-preference.js';
@@ -66,10 +69,12 @@ export function createServices(
 		location: 'The folder opened in Epicenter',
 		capture: createDesktopMicrophone(),
 		async recoverRecordings() {
-			const { error } = await recoverRecordings({ under: AUDIO });
-			return error === null
-				? undefined
-				: `Recordings a quit cut off could not be checked: ${error.message}`;
+			for (const under of [RECORDINGS, 'audio']) {
+				const { error } = await recoverRecordings({ under });
+				if (error !== null)
+					return `Recordings a quit cut off could not be checked: ${error.message}`;
+			}
+			return undefined;
 		},
 		async transcribe(request) {
 			let route: Route;

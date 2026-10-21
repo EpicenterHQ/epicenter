@@ -18,6 +18,9 @@ const BY_EXTENSION = new Map([
 	['aac', 'audio/aac'],
 ]);
 
+/** Audio formats recognized by Whispering and excluded from recording-file Git history. */
+export const AUDIO_EXTENSIONS = [...BY_EXTENSION.keys()];
+
 const ascii = (bytes: Uint8Array, offset: number, length: number) =>
 	String.fromCharCode(...bytes.subarray(offset, offset + length));
 

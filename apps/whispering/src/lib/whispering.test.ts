@@ -6,12 +6,12 @@ import { SaveError } from '@epicenter/folder';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { recordingEditor, settle } from './edits.test-support.js';
+import type { WhisperingFolder } from './folder.js';
 import {
+	closeTestWhispering,
 	createTestWhispering,
 	openTestWhispering,
-	closeTestWhispering,
 } from './library.test-support.js';
-import type { WhisperingFolder } from './folder.js';
 import type { WhisperingServices } from './platform/types.js';
 import {
 	deferred,
@@ -60,7 +60,9 @@ test('startup reads connections and maintains exclusions before any listing', as
 	expect(checked).toBe(true);
 	expect(library.connections?.transcription?.model).toBe('verification-model');
 	expect(await readdir(test.root)).toEqual(['.gitignore']);
-	expect(await Bun.file(`${test.root}/.gitignore`).text()).toBe('/audio/\n');
+	expect(await Bun.file(`${test.root}/.gitignore`).text()).toContain(
+		'/recordings/*.[wW][aA][vV]\n',
+	);
 });
 
 test('a refused exclusion write stays visible and files remain writable', async () => {
@@ -91,7 +93,8 @@ test('a refused exclusion write stays visible and files remain writable', async 
 });
 
 test('internal navigation is allowed; unload waits for a write, not recording or transcription', async () => {
-	const answer = deferred<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
+	const answer =
+		deferred<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
 	const test = await openTestServices({ transcribe: () => answer.promise });
 	cleanups.push(test.remove);
 	const whispering = await openTestWhispering(test);
@@ -217,13 +220,17 @@ test('folder close waits for recording recovery and starts no listings after sto
 	let listings = 0;
 	const { test, whispering } = await fixture((folder) => {
 		const files = folder.files;
-		return replaceTables(folder, {}, {
-			...files,
-			list() {
-				listings++;
-				return files.list();
+		return replaceTables(
+			folder,
+			{},
+			{
+				...files,
+				list() {
+					listings++;
+					return files.list();
+				},
 			},
-		});
+		);
 	});
 	const recover = test.services.recoverRecordings;
 	test.services.recoverRecordings = async () => {

@@ -24,7 +24,7 @@
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { audioPathIn, RECORDINGS, rowIdOf } from '$lib/definition.js';
+	import { RECORDINGS, rowIdOf } from '$lib/definition.js';
 	import type { Library, RecordingEntry } from '$lib/library.svelte.js';
 	import AudioAbsent from './AudioAbsent.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
@@ -95,10 +95,11 @@
 	onDestroy(() => void rowEdit.save());
 	const results = $derived(library.resultsFor(id));
 	const run = $derived(library.transcriptionRun(id));
-	/** The audio the row names. Nothing is guessed from another file's name. */
-	const audioPath = $derived(entry ? audioPathIn(entry.row.fields) : undefined);
+	/** Playback requires one unambiguous audio file. */
+	const audio = $derived(entry ? library.audioOf(entry) : undefined);
+	const audioPath = $derived(audio?.kind === 'here' ? audio.path : undefined);
 	/** Whether the audio the row names is missing from this device's folder. */
-	const absent = $derived(entry !== undefined && library.audioOf(entry).kind === 'absent');
+	const absent = $derived(audio?.kind === 'absent');
 
 	function when(value: string) {
 		const date = new Date(value);
@@ -178,6 +179,8 @@
 			<div class="flex flex-col gap-4 py-1">
 				{#if absent}
 					<AudioAbsent />
+				{:else if audio?.kind === 'ambiguous'}
+					<p class="text-sm text-destructive" role="alert">More than one audio file matches this recording: {audio.paths.join(', ')}. Keep one matching file.</p>
 				{:else if audioPath}
 					<AudioPlayer
 						source={{ kind: 'file', query: context.queries.file(audioPath, audioRead) }}
@@ -185,8 +188,7 @@
 					/>
 				{:else}
 					<p class="text-sm text-muted-foreground" data-testid="no-audio">
-						This recording’s file names no audio: it has no <code class="font-mono">audioPath</code>. Add the audio
-						file’s path in Source.
+						Checking this recording’s audio beside its Markdown file.
 					</p>
 				{/if}
 

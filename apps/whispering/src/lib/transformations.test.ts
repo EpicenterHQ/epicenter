@@ -57,7 +57,6 @@ import {
 } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
 import { quiet } from './query.test-support.js';
-import { TransformationError } from './transformation.js';
 import {
 	deferred,
 	eventually,
@@ -65,6 +64,7 @@ import {
 	replaceTables,
 	type TestServicesOptions,
 } from './services.test-support.js';
+import { TransformationError } from './transformation.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -386,7 +386,7 @@ test('a transcript whose recording was deleted outside refuses', async () => {
 	const editor = await cleanupProfile(library);
 	await settle(library);
 	await rm(join(root, recording.path));
-	await rm(join(root, recording.row.fields.audioPath));
+	await rm(join(root, recording.path.replace(/\.md$/, '.wav')));
 	// The list still shows the recording: nothing has refreshed it.
 	expect(library.entries).toHaveLength(1);
 
@@ -514,8 +514,10 @@ test('a recording cannot be deleted while a transformation of it runs, including
 	expect(again).toMatchObject({ kind: 'recording' });
 	expect(await library.delete(again!)).toBeUndefined();
 	// The row and the results are gone. The audio is an ordinary file and stays.
-	expect(await names(root, 'recordings')).toEqual([]);
-	expect(await names(root, 'audio')).toEqual([`${recording.stem}.wav`]);
+	expect(
+		(await names(root, 'recordings')).filter((path) => path.endsWith('.md')),
+	).toEqual([]);
+	expect(await names(root, 'recordings')).toEqual([`${recording.stem}.wav`]);
 	expect(await names(root, RUNS)).toEqual([]);
 });
 

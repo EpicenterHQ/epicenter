@@ -11,15 +11,14 @@
  * Key behaviors:
  * - A first launch creates no files, and saving a connection writes nothing
  *   to the folder
- * - Record and stop leave a row that names its audio, and the audio's exact
+ * - Record and stop leave same-stem Markdown and audio with its exact
  *   bytes; reopening reads both, and a recording being captured never reads
  *   as absent
  * - Files an earlier version left in a directory read as they are: rows,
  *   transcripts, results, and audio, with every field kept
  * - Captured audio survives a row write that fails at start
- * - A row that does not read, such as one with no audioPath, is named for
- *   repair, repaired as text, and then used; nothing is guessed from a file's
- *   name
+ * - Pathless rows resolve supported siblings; old explicit paths still read
+ *   without moving files, and malformed rows remain repairable
  * - Deleting a recording deletes its row and its results and keeps its audio.
  *   It is refused while work for it runs or a result cannot say whose it is
  * - A transcription result is its own row naming the recording, written with
@@ -279,7 +278,7 @@ test('with no transcription connection, transcribing sends nothing and says to s
 // Recording
 // ============================================================================
 
-test('record and stop leave a row naming the audio’s exact bytes, and reopening reads both', async () => {
+test('record and stop leave adjacent Markdown and exact audio without a stored path, and reopening reads both', async () => {
 	const { library, root } = await open();
 
 	await record(library);
@@ -287,17 +286,18 @@ test('record and stop leave a row naming the audio’s exact bytes, and reopenin
 	expect(library.entries).toHaveLength(1);
 	const entry = library.entries[0]!;
 	const { fields } = entry.row;
+	const audioPath = entry.path.replace(/\.md$/, '.wav');
 	expect(fields.capture).toBe('fixture');
 	expect(fields.durationMs).toBe(1000);
-	expect(fields.audioPath).toBe(`audio/${entry.stem}.wav`);
+	expect(fields.audioPath).toBeUndefined();
 	expect(library.selectedPath).toBe(entry.path);
 	expect(library.selection?.entry?.path).toBe(entry.path);
 	expect(library.showsText(entry.path)).toBe(false);
 	expect<Uint8Array>(
-		new Uint8Array(await readFile(join(root, fields.audioPath))),
+		new Uint8Array(await readFile(join(root, audioPath))),
 	).toEqual(toneWav());
 	const row = await readFile(join(root, entry.path), 'utf8');
-	expect(row).toContain(`audioPath: audio/${entry.stem}.wav`);
+	expect(row).not.toContain('audioPath:');
 	expect(row).toContain('durationMs: 1000');
 
 	const second = await reopen(library, root);
@@ -306,10 +306,10 @@ test('record and stop leave a row naming the audio’s exact bytes, and reopenin
 		fields,
 	]);
 	expect(
-		expectOk(await readBytes(second.library.local.folder, fields.audioPath)),
+		expectOk(await readBytes(second.library.local.folder, audioPath)),
 	).toEqual(toneWav());
 	// The player reads the same bytes, typed as the container they are.
-	const audio = await readAudio(second.library, fields.audioPath);
+	const audio = await readAudio(second.library, audioPath);
 	expect(audio.blob.type).toBe('audio/wav');
 	expect<Uint8Array>(new Uint8Array(await audio.blob.arrayBuffer())).toEqual(
 		toneWav(),
@@ -337,7 +337,7 @@ test('a completed recording leaves settling after an unchanged listing reread', 
 	const write = library.local.folder.files.write;
 	// A capture reports completion but leaves no audio file. The paths do not change.
 	library.local.folder.files.write = (path, from, content) =>
-		path.startsWith('audio/')
+		path.startsWith('recordings/') && !path.endsWith('.md')
 			? Promise.resolve(Ok(undefined))
 			: write(path, from, content);
 	try {
@@ -364,7 +364,6 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 	const [entry] = library.entries;
 	expect(entry?.row.fields).toMatchObject({
 		capture: 'fixture',
-		audioPath: `audio/${entry?.stem}.wav`,
 	});
 	expect(entry?.row.fields.durationMs).toBeUndefined();
 
@@ -378,7 +377,9 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 		`${entry?.stem}.md`,
 		`${entry?.stem}.wav`,
 	]);
-	expect(await readdir(join(root, 'audio'))).toEqual([`${entry?.stem}.wav`]);
+	expect(await readdir(join(root, 'recordings'))).toEqual(
+		expect.arrayContaining([`${entry?.stem}.wav`, `${entry?.stem}.md`]),
+	);
 });
 
 test('a title typed while recording is kept when the recording stops and gets its length', async () => {
@@ -472,9 +473,7 @@ for (const action of ['stop', 'cancel'] as const) {
 		const firstStart = library.startRecording();
 		await firstReached.promise;
 		const finishing =
-			action === 'stop'
-				? library.stopRecording()
-				: library.cancelRecording();
+			action === 'stop' ? library.stopRecording() : library.cancelRecording();
 		let finished = false;
 		void finishing.then(() => {
 			finished = true;
@@ -488,10 +487,19 @@ for (const action of ['stop', 'cancel'] as const) {
 			await eventually(() => finished);
 			expect(library.recorder.phase).toBe('recording');
 			const saved = await readdir(join(root, 'recordings'));
-			expect(saved).toHaveLength(action === 'stop' ? 1 : 0);
+			expect(saved.filter((path) => path.endsWith('.md'))).toHaveLength(
+				action === 'stop' ? 1 : 0,
+			);
 			if (action === 'stop')
 				expect(
-					await readFile(join(root, 'recordings', saved[0]!), 'utf8'),
+					await readFile(
+						join(
+							root,
+							'recordings',
+							saved.find((path) => path.endsWith('.md'))!,
+						),
+						'utf8',
+					),
 				).toContain('durationMs: 1000');
 		} finally {
 			first.resolve();
@@ -550,7 +558,7 @@ test('a row write that fails at start leaves the recording running, says so, and
 	expect(files).toHaveLength(1);
 	expect(files[0]).toEndWith('.wav');
 	expect<Uint8Array>(
-		new Uint8Array(await readFile(join(root, 'audio', files[0]!))),
+		new Uint8Array(await readFile(join(root, 'recordings', files[0]!))),
 	).toEqual(toneWav());
 });
 
@@ -602,7 +610,7 @@ test('files an earlier version left in an ordinary directory read as they are, e
 	);
 });
 
-test('a row written before audioPath does not read: it is named for repair, and no same-stem file is used', async () => {
+test('a pathless recording reads without guessing an old audio directory, and a legacy link remains readable', async () => {
 	const { library, root, transcribed } = await open();
 	await mkdir(join(root, 'recordings'), { recursive: true });
 	await mkdir(join(root, 'audio'), { recursive: true });
@@ -612,20 +620,14 @@ test('a row written before audioPath does not read: it is named for repair, and 
 	await writeFile(join(root, 'audio', 'old.wav'), toneWav());
 	await settle(library);
 
-	expect(library.entries).toEqual([]);
-	expect(library.repairs).toEqual([
-		{
-			path: 'recordings/old.md',
-			stem: 'old',
-			reason: expect.stringContaining('audioPath'),
-		},
-	]);
+	expect(library.entries).toHaveLength(1);
+	expect(library.repairs).toEqual([]);
+	expect(library.audioOf(library.entries[0]!).kind).toBe('absent');
 	expect(library.isRecording('recordings/old.md')).toBe(true);
 	expect(library.recordingNaming('audio/old.wav')).toBeUndefined();
 
 	// The person repairs it as text by naming the audio.
 	expect(await library.open('recordings/old.md')).toBeUndefined();
-	expect(library.showsText('recordings/old.md')).toBe(true);
 	const text = await openText(library, 'recordings/old.md');
 	expect(text.draft).toBe(old);
 	text.input(
@@ -650,7 +652,7 @@ test('a row written before audioPath does not read: it is named for repair, and 
 test('audio replaced by bytes of the same length is noticed by its content', async () => {
 	const { library, root } = await open();
 	await record(library);
-	const path = library.entries[0]!.row.fields.audioPath;
+	const path = library.entries[0]!.path.replace(/\.md$/, '.wav');
 	const observer = new QueryObserver(
 		library.local.queryClient,
 		library.local.queries.file(path, audioRead),
@@ -685,7 +687,7 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	const { library, root, transcribed } = await open();
 	await record(library);
 	const entry = library.entries[0]!;
-	const { audioPath } = entry.row.fields;
+	const audioPath = entry.path.replace(/\.md$/, '.wav');
 
 	await library.transcribe(entry);
 	await quiet(library);
@@ -939,7 +941,7 @@ test('deleting a recording removes its row and results, keeps its audio, and say
 	const { library, root } = await open();
 	await record(library);
 	const entry = library.entries[0]!;
-	const { audioPath } = entry.row.fields;
+	const audioPath = entry.path.replace(/\.md$/, '.wav');
 	await library.transcribe(entry);
 	await settle(library);
 
@@ -974,9 +976,9 @@ test('deleting the audio a recording names keeps the recording, and the missing 
 	const { library, root } = await open();
 	await record(library);
 	const entry = library.entries[0]!;
-	const { audioPath } = entry.row.fields;
+	const audioPath = entry.path.replace(/\.md$/, '.wav');
 	expect(await library.rename(audioPath, 'other.wav')).toContain(
-		'names this audio file',
+		'belongs to a recording',
 	);
 
 	const deletion = expectOk(await library.deletionFor(audioPath));
@@ -987,7 +989,7 @@ test('deleting the audio a recording names keeps the recording, and the missing 
 	await settle(library);
 
 	expect(await recordingFiles(root)).toEqual([`${entry.stem}.md`]);
-	expect(library.entries[0]!.row.fields.audioPath).toBe(audioPath);
+	expect(library.entries[0]!.path.replace(/\.md$/, '.wav')).toBe(audioPath);
 	expect(library.audioOf(library.entries[0]!).kind).toBe('absent');
 	await expect(readAudio(library, audioPath)).rejects.toThrow('No file exists');
 });

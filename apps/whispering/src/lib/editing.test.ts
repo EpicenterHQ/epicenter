@@ -179,7 +179,7 @@ const recordingText = (title: string, audioPath: string) =>
 test('a field typed is saved; the listing takes the saved row, and the audio link is untouched', async () => {
 	const { library, root } = await open();
 	const editor = await record(library);
-	const audioPath = editor.draft.fields.audioPath;
+	const audioPath = editor.path.replace(/\.md$/, '.wav');
 
 	editor.edit((row) => {
 		row.fields.title = 'Morning notes';
@@ -189,7 +189,7 @@ test('a field typed is saved; the listing takes the saved row, and the audio lin
 
 	const written = await text(root, editor.path);
 	expect(written).toContain('title: Morning notes');
-	expect(written).toContain(`audioPath: ${audioPath}`);
+	expect(written).not.toContain('audioPath:');
 	expect(listed(library, editor.path)?.row.fields.title).toBe('Morning notes');
 	expect(library.isSaving(editor.path)).toBe(false);
 	expect(library.unsaved).toBe(false);
@@ -231,7 +231,7 @@ test('notes typed while a save runs are saved next, from the row that save sent'
 test('a read never touches notes typed, and their save merges with the change it read', async () => {
 	const { library, root, failNextWrite } = await open();
 	const editor = await record(library);
-	const audioPath = editor.draft.fields.audioPath;
+	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	// A save that fails keeps the notes unsaved, and says so.
 	failNextWrite(editor.path);
 	editor.edit((row) => {
@@ -260,7 +260,7 @@ test('a read never touches notes typed, and their save merges with the change it
 test('a field typed over a change made elsewhere sets its field and keeps theirs', async () => {
 	const { library, root } = await open();
 	const editor = await record(library);
-	const audioPath = editor.draft.fields.audioPath;
+	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	await writeElsewhere(
 		root,
 		editor.path,
@@ -280,7 +280,7 @@ test('a field typed over a change made elsewhere sets its field and keeps theirs
 test('a field another program added survives every edit of the row', async () => {
 	const { library, root } = await open();
 	const editor = await record(library);
-	const audioPath = editor.draft.fields.audioPath;
+	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	await writeElsewhere(
 		root,
 		editor.path,
@@ -367,7 +367,7 @@ test('typing into a recording deleted elsewhere brings its row back: an unseen d
 	const { library, root } = await open();
 	const editor = await record(library);
 	const { path } = editor;
-	const audioPath = editor.draft.fields.audioPath;
+	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	await deleteElsewhere(root, path);
 
 	editor.edit((row) => {
@@ -376,7 +376,7 @@ test('typing into a recording deleted elsewhere brings its row back: an unseen d
 	await settle(library);
 
 	const written = await text(root, path);
-	expect(written).toContain(`audioPath: ${audioPath}`);
+	expect(written).not.toContain('audioPath:');
 	expect(written).toEndWith('Typed after it was deleted.\n');
 	expect(listed(library, path)?.row.body).toBe('Typed after it was deleted.\n');
 	expect(library.unsaved).toBe(false);
@@ -386,7 +386,7 @@ test('a recording deleted elsewhere with nothing typed stays deleted, and its au
 	const { library, root } = await open();
 	const editor = await record(library);
 	const { path } = editor;
-	const audioPath = editor.draft.fields.audioPath;
+	const audioPath = editor.path.replace(/\.md$/, '.wav');
 
 	await deleteElsewhere(root, path);
 	await settle(library);
@@ -407,7 +407,7 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	const { library, root } = await open();
 	const editor = await record(library);
 	const { path } = editor;
-	const audioPath = editor.draft.fields.audioPath;
+	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	const broken = `---\ntitle: Broken\naudioPath: ${audioPath}\n---\n`;
 	await writeElsewhere(root, path, broken);
 	await settle(library);
@@ -432,7 +432,7 @@ test('text typed over a file changed elsewhere merges with it, and the typing wi
 	const { library, root } = await open();
 	const editor = await record(library);
 	const { path } = editor;
-	const audioPath = editor.draft.fields.audioPath;
+	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	expect(await library.editSource(path)).toBeUndefined();
 	const source = await openText(library, path);
 	await writeElsewhere(root, path, recordingText('Theirs', audioPath));
@@ -535,7 +535,7 @@ test('a deletion saves the typing first, then removes the recording and its resu
 	const { library, root, holdNextMarkdownWrite } = await open();
 	const editor = await record(library);
 	const { path } = editor;
-	const audioPath = editor.draft.fields.audioPath;
+	const audioPath = editor.path.replace(/\.md$/, '.wav');
 	const result = await transcript(library);
 	const { held, release } = holdNextMarkdownWrite();
 	editor.edit((row) => {
@@ -574,7 +574,7 @@ test('a deletion removes the recording as it is when it runs, whatever changed s
 	await writeElsewhere(
 		root,
 		path,
-		recordingText('Changed', editor.draft.fields.audioPath),
+		recordingText('Changed', editor.path.replace(/\.md$/, '.wav')),
 	);
 
 	expect(await library.delete(deletion)).toBeUndefined();

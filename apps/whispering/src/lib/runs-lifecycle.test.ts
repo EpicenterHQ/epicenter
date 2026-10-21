@@ -9,7 +9,7 @@ import { closeTestLibrary, openTestLibrary } from './library.test-support.js';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { chmodSync } from 'node:fs';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { quiet } from './query.test-support.js';
@@ -39,20 +39,27 @@ async function open(options: TestServicesOptions = {}) {
 	return { ...services, library, entry: library.entries[0]! };
 }
 
-test('transcribing reads the recording’s current audio path without waiting for a listing refresh', async () => {
+test('transcribing discovers the current sibling format without waiting for a listing refresh', async () => {
 	const { library, root, entry, transcribed } = await open();
-	const path = join(root, entry.path);
+	const wav = entry.path.replace(/\.md$/, '.wav');
+	const webm = entry.path.replace(/\.md$/, '.webm');
+	await rename(join(root, wav), join(root, webm));
+	await library.transcribe(entry);
+	expect(transcribed.map((request) => request.audioPath)).toEqual([webm]);
+});
+
+test('ambiguous sibling audio refuses transcription without sending a provider request', async () => {
+	const { library, root, entry, transcribed } = await open();
 	await writeFile(
-		path,
-		(await readFile(path, 'utf8')).replace(
-			entry.row.fields.audioPath,
-			'audio/replacement.wav',
-		),
+		join(root, entry.path.replace(/\.md$/, '.webm')),
+		new Uint8Array([1, 2]),
 	);
 	await library.transcribe(entry);
-	expect(transcribed.map((request) => request.audioPath)).toEqual([
-		'audio/replacement.wav',
-	]);
+	expect(transcribed).toEqual([]);
+	expect(library.transcriptionRun(entry.stem)).toMatchObject({
+		kind: 'failed',
+		message: expect.stringContaining('More than one audio file'),
+	});
 });
 
 test('transcribing saves an accepted audio path change before preparing its request', async () => {

@@ -10,7 +10,6 @@
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { audioPathIn } from '$lib/definition.js';
 	import { transformationName } from '$lib/post-processing.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './components/AudioAbsent.svelte';
@@ -26,10 +25,11 @@
 
 	/** The newest saved recording. A capture still being saved is in the notice under the header. */
 	const latest = $derived(library.entries[0]);
-	/** The audio the newest row names. Nothing is guessed from another file's name. */
-	const audioPath = $derived(latest ? audioPathIn(latest.row.fields) : undefined);
+	/** Playback and transcription use the same sibling resolution as recording details. */
+	const audio = $derived(latest ? library.audioOf(latest) : undefined);
+	const audioPath = $derived(audio?.kind === 'here' ? audio.path : undefined);
 	/** Whether the audio the newest recording names is missing from this device's folder. */
-	const absent = $derived(latest !== undefined && library.audioOf(latest).kind === 'absent');
+	const absent = $derived(audio?.kind === 'absent');
 	const transcript = $derived(latest ? library.resultsFor(latest.stem)[0] : undefined);
 	const run = $derived(latest ? library.transcriptionRun(latest.stem) : undefined);
 	/** Whether the newest transcript has its answer, or what is happening to it. */
@@ -158,6 +158,8 @@
 				<div class="flex flex-wrap items-center gap-2">
 					{#if absent}
 						<div class="flex-1 basis-full sm:basis-0"><AudioAbsent /></div>
+					{:else if audio?.kind === 'ambiguous'}
+						<p class="flex-1 text-sm text-destructive" role="alert">More than one audio file matches this recording. Open it to keep one matching file.</p>
 					{:else if audioPath}
 						<div class="min-w-0 flex-1 basis-full sm:basis-0">
 							<AudioPlayer
@@ -166,7 +168,7 @@
 							/>
 						</div>
 					{:else}
-						<p class="flex-1 basis-full text-sm text-muted-foreground sm:basis-0">This recording’s file names no audio, so it cannot be played or transcribed. Open it to add the path.</p>
+						<p class="flex-1 basis-full text-sm text-muted-foreground sm:basis-0">Checking this recording’s audio beside its Markdown file.</p>
 					{/if}
 					{#if !transcript}
 						<Button

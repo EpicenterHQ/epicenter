@@ -423,7 +423,7 @@ test('recovery repairs recordings a quit cut off and reports a repair failure', 
 	// The recorder repairs the window's folder; the page names none.
 	expect(asked).toEqual([]);
 	const notice = await repaired.recoverRecordings();
-	expect(asked).toEqual([{ under: 'audio' }]);
+	expect(asked).toEqual([{ under: 'recordings' }, { under: 'audio' }]);
 	expect(notice).toBeUndefined();
 	await repairedFolder.close();
 

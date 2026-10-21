@@ -33,20 +33,22 @@
  *   waiting its turn to be transcribed is not sent
  */
 import {
-	openTestWhispering,
 	closeTestWhispering,
+	openTestWhispering,
 } from './library.test-support.js';
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import type { RecordingFields, TranscriptionFields } from './definition.js';
 import { settle, transcriptEditor } from './edits.test-support.js';
-import type { WriteFailure } from '@epicenter/svelte/write-failure';
+import type { WhisperingFolder } from './folder.js';
+import type { WhisperingServices } from './platform/types.js';
 import {
 	captureDeletions,
 	DEFAULT_SORT,
@@ -61,15 +63,13 @@ import {
 	transcriptExcerpt,
 	transcriptsToCopy,
 } from './recording-collection.js';
-import type { Whispering } from './whispering.svelte.js';
-import type { WhisperingFolder } from './folder.js';
-import type { WhisperingServices } from './platform/types.js';
 import {
 	deferred,
 	eventually,
 	openTestServices,
 	replaceTables,
 } from './services.test-support.js';
+import type { Whispering } from './whispering.svelte.js';
 
 /** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
 const recordingFiles = async (root: string) =>
@@ -94,7 +94,7 @@ type Transcribe = WhisperingServices['transcribe'];
  * | dentist | Dentist reminder | 2026-03-05 | 0:30   | none; notes mention the garage |
  * | walk    | Walk ideas       | 2026-03-04 | 5:00   | an older and a newer one       |
  * | lecture | Lecture notes    | 2026-03-01 | 50:00  | none                           |
- * | orphan  | Lost audio       | 2026-03-03 | 1:00   | none, and no `audioPath`       |
+ * | orphan  | Lost audio       | 2026-03-03 | 1:00   | none, and no capture source    |
  * | broken  | (does not read)  |            |        |                                |
  */
 async function history(
@@ -159,7 +159,7 @@ async function history(
 		await folder.files.write(
 			'recordings/orphan.md',
 			null,
-			'---\ntitle: Lost audio\nrecordedAt: 2026-03-03T09:00:00.000Z\ndurationMs: 60000\ncapture: microphone\n---\n',
+			'---\ntitle: Lost audio\nrecordedAt: 2026-03-03T09:00:00.000Z\ndurationMs: 60000\n---\n',
 		),
 	);
 	expectOk(
@@ -265,7 +265,7 @@ test('a search also reads notes, titles, and IDs, and says nothing for a recordi
 		'broken',
 		'orphan',
 	]);
-	expect(library.repairs[1]!.reason).toContain('audioPath');
+	expect(library.repairs[1]!.reason).toContain('capture');
 });
 
 // ============================================================================

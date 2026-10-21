@@ -10,7 +10,7 @@
  * - The tables are the five directories, with the fields in their order
  * - A recipe names its model, `null` reads as "use the connection", and a
  *   field left out is an issue, never a refusal
- * - A recording row declares `audioPath`, and reading it infers nothing
+ * - A recording needs no audioPath; old explicit links remain readable
  * - A field the schema does not name is kept with the row
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -79,7 +79,7 @@ test('the tables are the five directories, with their fields in order', () => {
 	// The length is written when a recording stops, so it may be absent.
 	expect(
 		(whisperingTables.recordings as unknown as { required: string[] }).required,
-	).toEqual(['title', 'recordedAt', 'capture', 'audioPath']);
+	).toEqual(['title', 'recordedAt', 'capture']);
 });
 
 test('a recipe names its model, or says “use the connection” with null; a field left out is an issue', async () => {
@@ -106,12 +106,12 @@ test('a recipe names its model, or says “use the connection” with null; a fi
 	expect(silent?.body).toBe('Fix it.\n');
 });
 
-test('a recording’s audio is only what its row names, and a field the schema does not name is kept', async () => {
+test('new audio lives beside its row, optional legacy paths read, and unknown fields survive', async () => {
 	expect(recordingAudioStem('20260102-030405-abcd')).toBe(
-		'audio/20260102-030405-abcd',
+		'recordings/20260102-030405-abcd',
 	);
 	expect(audioPathIn({ audioPath: 'audio/take.wav' })).toBe('audio/take.wav');
-	// A row with no path, or an empty one, names no audio. Nothing is guessed.
+	// Only legacy explicit links are read here; sibling resolution is tested separately.
 	expect(audioPathIn({})).toBeUndefined();
 	expect(audioPathIn({ audioPath: '' })).toBeUndefined();
 
@@ -130,7 +130,7 @@ test('a recording’s audio is only what its row names, and a field the schema d
 		audioPath: 'audio/take.wav',
 		mood: 'calm',
 	});
-	expect(expectOk(await recordings.get('nameless'))?.issues).not.toBeNull();
+	expect(expectOk(await recordings.get('nameless'))?.issues).toBeNull();
 	// An instant is a fixed-width UTC time, so its text sorts as time does.
 	expect(expectOk(await recordings.get('bad-time'))?.issues).not.toBeNull();
 });

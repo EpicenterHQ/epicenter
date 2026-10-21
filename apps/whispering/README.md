@@ -33,11 +33,10 @@ before FolderApp closes storage. Route changes retain the same product state.
 
 ```text
 ~/Epicenter/Whispering/
-├── .gitignore                     app-maintained exclusions, initially /audio/
+├── .gitignore                     app-maintained exclusions for recording audio
 ├── recordings/
-│   └── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
-├── audio/
-│   └── <recording-id>.<extension>   the audio a row names, with the extension its bytes call for
+│   ├── <recording-id>.md            title, time, length; notes in the body
+│   └── <recording-id>.<extension>   matching audio beside its Markdown file
 ├── transcriptions/
 │   └── <result-id>.md               names its recording in frontmatter; transcript in the body
 ├── transformations/
@@ -48,7 +47,7 @@ before FolderApp closes storage. Route changes retain the same product state.
     └── <run-id>.md                  a result on pasted text you saved: what was sent and with what; the result in the body
 ```
 
-Startup maintains `.gitignore` to exclude untracked audio from Git. Where
+Startup maintains `.gitignore` to exclude untracked recording audio from Git. Where
 requests go is set up per device in Settings and is never in the folder;
 until you set it up, nothing is sent to a provider. Recording, transcript,
 transformation, and result files are created by explicit actions. A folder has no
@@ -66,23 +65,23 @@ use another root, such as a disposable one for a test.
 
 A recording's ID is its file stem, set when the recording starts
 (`20260102-030405-k3f9`). Its title is a field, so renaming a recording changes
-frontmatter and never moves a file. Audio is an ordinary file under `audio/`,
+frontmatter and never moves a file. Audio is an ordinary same-stem file under `recordings/`,
 saved as its exact bytes. Whispering keeps no history and copies the folder
 nowhere, and a fresh folder has no `epicenter.json`: opening and recording
-declare nothing. Whispering maintains `/audio/` in `.gitignore`. A copy of the
-folder that leaves `audio/` out has each recording's row, notes, and
+declare nothing. Whispering maintains audio-extension rules scoped to `/recordings/` in `.gitignore`. A copy of the
+folder that leaves recording audio out has each recording's row, notes, and
 transcripts, and no audio. There a recording says "This recording's audio
 isn't on this device", and it cannot be played or transcribed.
 
 The `epicenter` CLI's `save-version` and `sync` use Git's tracked-file
 and ignore rules, without requiring `epicenter.json`. The root `.gitignore`
-excludes untracked recordings after Whispering confirms its startup update.
+excludes untracked recording audio after Whispering confirms its startup update. Markdown and unrelated attachments remain eligible.
 Already-tracked audio remains tracked. Removing the rule can make untracked
 audio eligible; there is no extra binary refusal or declaration privacy policy.
 
 Whispering reads `.gitignore` before starting its first product reads. If its rules
-already exclude the root `audio/` directory, startup writes nothing. Otherwise
-it preserves the existing text and appends `/audio/` through `folder.files.write`,
+already exclude supported recording audio formats, startup writes nothing. Otherwise
+it preserves the existing text and appends missing case-insensitive extension patterns under `/recordings/` through `folder.files.write`,
 using the exact bytes read as the merge base. This also restores an exclusion
 overridden by a later exception. Comments, unrelated rules, a UTF-8 BOM, and
 existing line endings survive. App upgrades can add further exclusions through
@@ -99,19 +98,17 @@ A successful save is local; later commit or sync records it. Whispering creates
 no `epicenter.json`, initializes no Git repository, and sends no Git requests at
 startup. The folder opener and clone do not perform app maintenance themselves.
 
-A recording's file names its audio in `audioPath`, such as
-`audioPath: audio/20260102-030405-k3f9.wav`. That line is the only link
-between the two files:
+A new recording pairs `recordings/<id>.md` with one supported audio file
+`recordings/<id>.<extension>`. Desktop capture writes WAV; browser capture
+keeps its supported container. The filename supplies the link, so new rows
+store no `audioPath` field.
 
-- The app plays, transcribes, and lists only the file `audioPath` names. A file
-  that merely has the same name with another extension is an ordinary file and
-  is not treated as the recording's audio.
-- A recording file with no `audioPath` does not read as a recording. It is
-  listed under "Needs repair" and has no audio to play or transcribe. This
-  includes any recording file written before the field existed. The app does
-  not fill the path in for you: add the line in its text, or with any editor.
-- The audio file cannot be renamed from the app while a recording names it,
-  since nothing would update the recording.
+- No matching audio means the recording is readable but cannot play or transcribe on this device.
+- Multiple matching audio files need repair. Whispering lists the candidates and never chooses by extension order.
+- Existing explicit `audioPath` links remain readable; startup moves and rewrites no old recordings.
+- Renaming a linked audio file from the app is refused. Deleting the recording still keeps its audio as an ordinary file.
+
+See [ADR-0659](../../docs/adr/0659-whispering-audio-lives-beside-its-markdown.md).
 
 ## Run it
 
@@ -409,24 +406,24 @@ in this build.
   terminal. A save over a file that changed since your edit started merges with the
   change (see [Editing](#editing)).
 - If the folder is a Git repository you manage, `git` works on it as on any
-  directory. Whispering commits nothing, and nothing keeps `audio/` out of
-  that repository unless your `.gitignore` names it.
+  directory. Whispering commits nothing, and recording audio stays out of
+  that repository only according to its tracked-file and `.gitignore` rules.
 
 ### Where a recording is while it runs
 
 A recording is in the folder from the moment it starts. Its row is written
-then, naming its audio in `audioPath`, with the time it started; its length
+then, with the time it started and its capture source; its length
 is written when it stops. Nothing in the row says whether it is still
 recording: the window knows that, and only while it runs.
 
 - In Epicenter the shell writes the audio as it is captured, to
-  `audio/<id>.wav`, and brings its header up to date about once a
+  `recordings/<id>.wav`, and brings its header up to date about once a
   second. Stop finishes the file. Reloading or closing the window finishes it
   too. A quit, a crash, or power loss keeps the audio up to that moment; when
   the folder next opens, the app rewrites the header of any recording that
   was cut off so it plays to its end. Its row then has no length.
 - In a browser tab the audio is held in the page and written on stop, as
-  `audio/<id>.webm` (or `.mp4` or `.ogg`, as the browser records).
+  `recordings/<id>.webm` (or `.mp4` or `.ogg`, as the browser records).
   Reloading or closing the tab loses it, and the row stays without its audio.
 - Cancel deletes the audio and then its row. If cancellation fails or its
   outcome cannot be confirmed, the row stays and the error is shown; Stop or
@@ -614,10 +611,8 @@ These are absent, not hidden behind a setting:
   (ADR-0493); on the desktop it runs only in Epicenter.
 - Opening the desktop folder from a browser tab. The shell binds the folder
   to Whispering's window alone.
-- Moving a recording's audio and having the recording follow. Nothing repairs
-  `audioPath`, and nothing collects audio files that no recording names.
-- Recordings saved by an earlier build of this app, whose files have no
-  `audioPath`. They are listed as needing repair until the line is added.
+- Moving audio away from its recording or renaming its stem and having the recording follow.
+  Nothing collects orphan audio automatically. Old explicit `audioPath` links remain readable.
 
 The earlier Whispering stored recordings and transformations in a Yjs store.
 Nothing reads that data. There is no migration. The pages, sidebar, and

@@ -14,7 +14,7 @@
  * cannot say which recording it belongs to. A result on pasted text names no
  * recording and is never part of one.
  */
-import type { Row, ReadError, SaveError } from '@epicenter/folder';
+import type { ReadError, Row, SaveError } from '@epicenter/folder';
 import { basename } from '@epicenter/folder/file-browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -28,8 +28,9 @@ import {
 	TRANSFORMATIONS,
 	type TransformationFields,
 } from './definition.js';
-import { describeError, readBytes } from './files.js';
+import { describeError, listingOf, readBytes } from './files.js';
 import type { WhisperingFolder } from './folder.js';
+import { recordingAudio } from './recording-audio.js';
 
 /** What a confirmed deletion removes, captured when the person was asked. */
 export type Deletion =
@@ -185,6 +186,12 @@ export async function captureDeletion(
 			recordingId,
 		);
 		if (resultsError !== null) return Err(resultsError);
+		const listed = await folder.files.list(audioPathIn(fields) ?? RECORDINGS);
+		if (listed.error !== null) return Err(listed.error.message);
+		const audio = recordingAudio(recordingId, fields, {
+			listing: listingOf(listed.data),
+			settling: false,
+		});
 		return Ok({
 			kind: 'recording',
 			id: recordingId,
@@ -194,7 +201,10 @@ export async function captureDeletion(
 				row: { fields },
 			}),
 			path,
-			audioPath: audioPathIn(fields),
+			audioPath:
+				audio.kind === 'here' || audio.kind === 'absent'
+					? audio.path
+					: undefined,
 			results,
 		});
 	}

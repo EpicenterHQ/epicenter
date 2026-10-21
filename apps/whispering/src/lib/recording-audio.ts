@@ -1,26 +1,30 @@
 /**
  * Whether a recording's audio is in this device's folder.
  *
- * A row's `audioPath` can name a file the folder does not hold: the
- * recording may have been made on another device, its capture may have
- * failed, or its file may have been deleted here. Nothing that needs the
- * audio (playing it, transcribing it) can run. A missing file is told apart
- * from a row that names no audio at all, which the person repairs in its
- * Source.
+ * New recordings resolve one supported audio file beside the Markdown file
+ * with the same stem. Multiple matches need repair instead of an arbitrary
+ * extension preference. Old explicit audioPath links remain readable.
  */
-import { audioPathIn, type RecordingFields } from './definition.js';
+import { audioMimeTypeOf } from './audio-format.js';
+import {
+	audioPathIn,
+	type RecordingFields,
+	recordingAudioStem,
+} from './definition.js';
 import type { Listing } from './files.js';
 
 export type RecordingAudio =
-	/** The row names no audio. */
+	/** The listing has not established an audio path yet. */
 	| { readonly kind: 'none' }
 	/** The audio is in the folder, or may be: nothing says it is missing. */
 	| { readonly kind: 'here'; readonly path: string }
 	/** The folder listing does not hold the audio the row names. */
-	| { readonly kind: 'absent'; readonly path: string };
+	| { readonly kind: 'absent'; readonly path: string }
+	/** More than one supported audio file shares the recording's stem. */
+	| { readonly kind: 'ambiguous'; readonly paths: readonly string[] };
 
 /**
- * Where the audio `fields` names is. `listing` is the folder's last file
+ * Where a recording's audio is. `listing` is the folder's last file
  * listing, undefined before one is read. `settling` is whether this window is
  * still capturing the recording or writing its row, when its audio may be on
  * disk before a listing shows it. Neither an unread listing nor a settling
@@ -28,15 +32,34 @@ export type RecordingAudio =
  * settled can say the audio is not here.
  */
 export function recordingAudio(
+	stem: string,
 	fields: Readonly<Partial<RecordingFields>>,
 	{
 		listing,
 		settling,
-	}: { listing: Pick<Listing, 'paths'> | undefined; settling: boolean },
+		capturePath,
+	}: {
+		listing: Pick<Listing, 'paths' | 'byStem'> | undefined;
+		settling: boolean;
+		capturePath?: string;
+	},
 ): RecordingAudio {
-	const path = audioPathIn(fields);
-	if (path === undefined) return { kind: 'none' };
-	if (settling || listing === undefined || listing.paths.has(path))
-		return { kind: 'here', path };
-	return { kind: 'absent', path };
+	// Existing recordings keep their explicit link; new rows omit this field.
+	const legacy = audioPathIn(fields);
+	if (legacy !== undefined) {
+		return settling || listing === undefined || listing.paths.has(legacy)
+			? { kind: 'here', path: legacy }
+			: { kind: 'absent', path: legacy };
+	}
+	if (settling && capturePath !== undefined)
+		return { kind: 'here', path: capturePath };
+	if (listing === undefined) return { kind: 'none' };
+	const base = recordingAudioStem(stem);
+	const paths = (listing.byStem.get(base) ?? [])
+		.filter((path) => audioMimeTypeOf(path) !== undefined)
+		.sort();
+	if (paths.length > 1) return { kind: 'ambiguous', paths };
+	if (paths[0] !== undefined) return { kind: 'here', path: paths[0] };
+	if (settling) return { kind: 'none' };
+	return { kind: 'absent', path: `${base}.*` };
 }

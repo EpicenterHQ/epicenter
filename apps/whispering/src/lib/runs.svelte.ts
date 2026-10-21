@@ -23,6 +23,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
 import {
 	audioPathIn,
+	RECORDINGS,
 	rowIdOf,
 	rowPath,
 	TEXT_RUNS,
@@ -33,10 +34,11 @@ import {
 	type TranscriptionFields,
 	type TransformationRunFields,
 } from './definition.js';
-import { describeError } from './files.js';
-import type { RecipeRow, ResolvedRecipe } from './recipe.js';
+import { describeError, listingOf } from './files.js';
 import type { WhisperingFolder } from './folder.js';
 import type { WhisperingServices } from './platform/types.js';
+import type { RecipeRow, ResolvedRecipe } from './recipe.js';
+import { recordingAudio } from './recording-audio.js';
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -105,7 +107,7 @@ const BEING_DELETED = 'This recording is being deleted.';
 const STILL_RECORDING =
 	'This recording is still recording. Stop it, then transcribe it.';
 const NO_AUDIO =
-	'This recording’s file names no audio, so there is nothing to transcribe. Add the audio file’s path in Source.';
+	'This recording’s audio is not on this device. Put one supported audio file beside its Markdown file with the same stem.';
 /** The first wait before an answer is written again, doubled each time up to the last. */
 const RETRY_FIRST_MS = 500;
 const RETRY_LAST_MS = 30_000;
@@ -257,8 +259,19 @@ export function createRuns({
 		if (late !== undefined) return Err(late);
 		if (deleting.has(recording)) return Err(BEING_DELETED);
 		if (capturing.has(recording)) return Err(STILL_RECORDING);
-		const audioPath = audioPathIn(entry.fields);
-		return audioPath === undefined ? Err(NO_AUDIO) : Ok(audioPath);
+		const legacy = audioPathIn(entry.fields);
+		if (legacy !== undefined) return Ok(legacy);
+		const listed = await folder.files.list(RECORDINGS);
+		if (listed.error !== null) return Err(describeError(listed.error));
+		const audio = recordingAudio(recording, entry.fields, {
+			listing: listingOf(listed.data),
+			settling: false,
+		});
+		if (audio.kind === 'ambiguous')
+			return Err(
+				`More than one audio file matches this recording: ${audio.paths.join(', ')}. Keep one matching file before transcribing.`,
+			);
+		return audio.kind === 'here' ? Ok(audio.path) : Err(NO_AUDIO);
 	}
 
 	/**

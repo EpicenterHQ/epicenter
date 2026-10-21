@@ -57,8 +57,8 @@ export type CaptureError = InferErrors<typeof CaptureError>;
 export type ActiveCapture = {
 	/**
 	 * The audio file this recording is, folder-relative, such as
-	 * `audio/20260102-030405-k3f9.wav`. Named before anything is
-	 * captured, so the row can name it from the start.
+	 * `recordings/20260102-030405-k3f9.wav`. Named before anything is
+	 * captured, so playback can find it before the next folder listing.
 	 */
 	readonly audioPath: string;
 	/** `performance.now()` when capture began, for the elapsed-time display. */

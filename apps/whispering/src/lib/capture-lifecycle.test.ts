@@ -287,7 +287,11 @@ for (const action of ['stop', 'cancel'] as const) {
 		if (action === 'cancel') {
 			expect(library.recorderError).toBeUndefined();
 		} else {
-			expect(await readdir(join(test.root, 'audio'))).toHaveLength(1);
+			expect(
+				(await readdir(join(test.root, 'recordings'))).filter((path) =>
+					path.endsWith('.wav'),
+				),
+			).toHaveLength(1);
 			expect(library.recorderError).toContain('audio is saved');
 			expect(library.recorderError).toContain(
 				'recording file could not be written',

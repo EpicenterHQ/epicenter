@@ -14,7 +14,7 @@
  * each row that needs one and never asked again here; a deletion is captured
  * for each row first, as a single deletion is, and removed only as captured.
  */
-import { audioPathIn, TRANSCRIPTIONS } from './definition.js';
+import { TRANSCRIPTIONS } from './definition.js';
 import { recordingTitle } from './deletion.js';
 import type {
 	Deletion,
@@ -352,10 +352,10 @@ export async function transcribeRows(
 		else if (before === 'answered') skip('It already has a transcript.');
 		else if (before !== undefined)
 			skip('Its transcription did not finish. Open it to run it again.');
-		else if (audioPathIn(entry.row.fields) === undefined)
-			skip('Its file names no audio.');
 		else if (library.audioOf(entry).kind === 'absent')
 			skip('Its audio isn’t on this device.');
+		else if (library.audioOf(entry).kind === 'ambiguous')
+			skip('More than one audio file matches it. Keep one matching file.');
 		else {
 			await library.transcribe(entry);
 			// Counted by what the folder lists now, not by the call having returned:

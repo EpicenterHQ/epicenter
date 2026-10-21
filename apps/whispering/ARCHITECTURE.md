@@ -78,13 +78,11 @@ What Whispering adds on top:
 
 - A recording's identity is its stem. Results refer to it by `recordingId`, so
   the app never renames a recording's row; the title is a field.
-- A recording names its audio in `audioPath`, a folder-relative path such as
-  `audio/<id>.wav`. That field is the only link between the two files.
-  Nothing is inferred from a file that shares the row's stem. A row with no
-  `audioPath`, including one written before the field existed, is listed as
-  needing repair and has no audio the app will play or send; the app does not
-  fill the field in. Deleting a recording deletes its row and keeps the audio,
-  which is deleted from Files like any other file.
+- A new recording resolves its audio from the unique supported same-stem file
+  beside its Markdown row in `recordings/`. No matching file is absent; several
+  matching files are ambiguous and cannot play or transcribe. New rows store
+  no path. Existing explicit `audioPath` links stay readable without moving
+  files. Deleting a recording keeps the audio as an ordinary file.
 - A transcription is a separate row, so a recording can have several and each is
   a readable file.
 - A transformation (a recipe) is a row in `transformations/`: title in
@@ -289,7 +287,7 @@ There is no module-level mutable state.
 Product construction is synchronous and reads nothing. Its `start()` first
 calls `maintainExclusions` (`src/lib/exclusions.ts`), before any product read.
 It reads the root `.gitignore`, evaluates its ordered rules with `ignore`, and
-appends `/audio/` only if needed. The exact bytes read are the base of an
+appends missing case-insensitive audio-extension patterns under `/recordings/` only if needed. The exact bytes read are the base of an
 ordinary `files.write`, preserving unrelated source. A write is followed by a
 read to check the merged rules. A refusal becomes `exclusionNotice`, shown by
 the shell while Files and other work remain available. Reload checks a repair.
@@ -330,8 +328,8 @@ So `/recordings` and `/transformations` open directly and survive a refresh.
 A recording is in the folder from the moment it starts (ADR-0543). The
 library names it and writes its row first: `startRecording` makes the ID from
 the start time, asks the capture device to record into
-`audio/<id>` (`recordingAudioStem`), and writes the row with the start
-time and the `audioPath` the device answered. `stopRecording` stops the
+`recordings/<id>` (`recordingAudioStem`), and writes the row with the start
+time and capture source. The device adds its format extension; the row stores no path. `stopRecording` stops the
 device and writes the length (`durationMs`) onto the row it reads again, so a
 title typed meanwhile is kept. `cancelRecording` holds the microphone until
 its cancellation answers and deletes the row only after cancellation succeeds.
@@ -370,7 +368,7 @@ There are two capture devices, and each mounted product has exactly one, chosen 
 - The fixture device (`src/lib/capture.ts`) writes fixed bytes on stop, under
   the fixture's own extension, and marks the row `fixture`.
 
-When the library starts it calls `recoverRecordings` over `audio/`: on
+When the library starts it calls `recoverRecordings` over `recordings/` and the legacy `audio/` directory: on
 the desktop the shell rewrites the header of any WAV a quit or a crash cut
 off, so it plays to its end; a browser has none. The row of such a recording
 has no length.

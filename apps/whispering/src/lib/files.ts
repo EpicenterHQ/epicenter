@@ -51,12 +51,22 @@ export function describeError(
 export type Listing = {
 	readonly files: readonly string[];
 	readonly paths: ReadonlySet<string>;
+	/** Same-stem siblings, indexed once per listing rather than scanned per recording. */
+	byStem: ReadonlyMap<string, readonly string[]>;
 	readonly directories: readonly string[];
 };
 
 export function listingOf(files: readonly string[]): Listing {
 	const directories = new Set<string>();
+	const byStem = new Map<string, string[]>();
 	for (const path of files) {
+		const dot = path.lastIndexOf('.');
+		if (dot > path.lastIndexOf('/') + 1) {
+			const stem = path.slice(0, dot);
+			const siblings = byStem.get(stem) ?? [];
+			siblings.push(path);
+			byStem.set(stem, siblings);
+		}
 		const parts = path.split('/');
 		for (let end = 1; end < parts.length; end++)
 			directories.add(parts.slice(0, end).join('/'));
@@ -64,6 +74,7 @@ export function listingOf(files: readonly string[]): Listing {
 	return {
 		files,
 		paths: new Set(files),
+		byStem,
 		directories: [...directories].sort(),
 	};
 }

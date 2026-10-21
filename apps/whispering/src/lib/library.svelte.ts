@@ -61,7 +61,6 @@ import type {
 	Operation,
 } from './connections.js';
 import {
-	audioPathIn,
 	RECORDINGS,
 	type RecordingFields,
 	recordingAudioStem,
@@ -162,7 +161,7 @@ const UNSAVED =
 const RECORDING_NAME =
 	'A recording’s file is named by its ID, which its transcription results refer to. Change the title instead.';
 const RECORDING_AUDIO_NAME =
-	'A recording names this audio file in its audioPath field, so renaming it here would leave that recording without audio. Change the recording’s title instead.';
+	'This audio file belongs to a recording, so renaming it would break the link. Change the recording’s title instead.';
 const TRANSFORMATION_NAME =
 	'A transformation’s file is named by its ID, which its saved results refer to. Change the title instead.';
 const TRANSCRIPT_NAME = 'A transcript file keeps its .md extension.';
@@ -570,7 +569,7 @@ export function createLibrary(
 	 * read when its capture ended. Until the folder is listed again, that
 	 * listing may predate its audio, so the audio is not reported absent.
 	 */
-	const finishedOver = new Map<string, number>();
+	const finishedOver = new Map<string, { count: number; path: string }>();
 	/** The start that has not answered yet. Aborting it releases a microphone that opens late. */
 	let starting: AbortController | undefined;
 	/** Folders open in the file browser; kept while the browser is hidden. */
@@ -647,10 +646,10 @@ export function createLibrary(
 			.catch((cause) => CaptureError.Failed({ cause }));
 		const { data: stopped, error: stopError } = await track(() => stopping);
 		if (stopError === null)
-			finishedOver.set(
-				id,
-				queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0,
-			);
+			finishedOver.set(id, {
+				count: queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0,
+				path: capture.audioPath,
+			});
 		capturing.delete(id);
 		recorder = { phase: 'idle' };
 		if (stopError !== null) {
@@ -678,6 +677,35 @@ export function createLibrary(
 		if (selectedPath === selectionBefore) open(path);
 	}
 
+	function audioOf(entry: RecordingEntry): RecordingAudio {
+		trackMutations();
+		const files = listing();
+		// A listing read since the recording finished says where its audio is.
+		const unlisted =
+			finishedOver.has(entry.stem) &&
+			finishedOver.get(entry.stem)?.count ===
+				(queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0);
+		if (!unlisted) finishedOver.delete(entry.stem);
+		return recordingAudio(entry.stem, entry.row.fields, {
+			capturePath:
+				active?.id === entry.stem
+					? active.capture.audioPath
+					: finishedOver.get(entry.stem)?.path,
+			listing: files,
+			settling:
+				unlisted ||
+				capturing.has(entry.stem) ||
+				queryClient.isMutating({ mutationKey: keys.recording(entry.path) }) > 0,
+		});
+	}
+
+	function recordingNaming(path: string): RecordingEntry | undefined {
+		return entries().find((entry) => {
+			const audio = audioOf(entry);
+			return audio.kind === 'here' && audio.path === path;
+		});
+	}
+
 	const deletionContext = (): DeletionContext => ({
 		folder,
 		deleteRow: (table, id) => folder.tables[table].edit(id).delete(),
@@ -685,9 +713,7 @@ export function createLibrary(
 		busy: (id) =>
 			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
 		audioOf: (path) => {
-			const entry = entries().find(
-				(item) => audioPathIn(item.row.fields) === path,
-			);
+			const entry = recordingNaming(path);
 			return entry && recordingTitle(entry);
 		},
 	});
@@ -1151,32 +1177,13 @@ export function createLibrary(
 			return rows ? textResultsOf(rows).repairs : [];
 		},
 		/** The recording whose row names `path` as its audio, if one does. */
-		recordingNaming(path: string): RecordingEntry | undefined {
-			return entries().find((entry) => audioPathIn(entry.row.fields) === path);
-		},
+		recordingNaming,
 		/**
 		 * Whether the audio `entry` names is in this device's folder: here,
 		 * absent, or named nowhere. Read reactively. A recording this window is
 		 * still capturing or writing is never reported absent.
 		 */
-		audioOf(entry: RecordingEntry): RecordingAudio {
-			trackMutations();
-			const files = listing();
-			// A listing read since the recording finished says where its audio is.
-			const unlisted =
-				finishedOver.has(entry.stem) &&
-				finishedOver.get(entry.stem) ===
-					(queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0);
-			if (!unlisted) finishedOver.delete(entry.stem);
-			return recordingAudio(entry.row.fields, {
-				listing: files,
-				settling:
-					unlisted ||
-					capturing.has(entry.stem) ||
-					queryClient.isMutating({ mutationKey: keys.recording(entry.path) }) >
-						0,
-			});
-		},
+		audioOf,
 
 		// ------------------------------------------------------------------
 		// Recording
@@ -1234,7 +1241,6 @@ export function createLibrary(
 				title: defaultTitle(at),
 				recordedAt: InstantString.fromDate(at),
 				capture: services.capture.source,
-				audioPath: capture.audioPath,
 			};
 			const creating = track(
 				() => folder.tables.recordings.set(id, null, { fields, body: '' }),
@@ -1386,8 +1392,7 @@ export function createLibrary(
 			if (rowIdOf(RECORDINGS, path) !== undefined) return RECORDING_NAME;
 			if (rowIdOf(TRANSFORMATIONS, path) !== undefined)
 				return TRANSFORMATION_NAME;
-			if (entries().some((entry) => audioPathIn(entry.row.fields) === path))
-				return RECORDING_AUDIO_NAME;
+			if (recordingNaming(path) !== undefined) return RECORDING_AUDIO_NAME;
 			if (
 				rowIdOf(TRANSCRIPTIONS, path) !== undefined &&
 				rowIdOf(TRANSCRIPTIONS, to) === undefined &&

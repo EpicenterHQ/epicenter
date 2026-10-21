@@ -18,6 +18,19 @@ import { maintainExclusions } from './exclusions.js';
 import { deferred, openTestServices } from './services.test-support.js';
 
 const cleanups: (() => Promise<void> | void)[] = [];
+const rules = [
+	'/recordings/*.[wW][aA][vV]',
+	'/recordings/*.[wW][eE][bB][mM]',
+	'/recordings/*.[mM]4[aA]',
+	'/recordings/*.[mM][pP]4',
+	'/recordings/*.[oO][gG][gG]',
+	'/recordings/*.[oO][gG][aA]',
+	'/recordings/*.[oO][pP][uU][sS]',
+	'/recordings/*.[mM][pP]3',
+	'/recordings/*.[fF][lL][aA][cC]',
+	'/recordings/*.[aA][aA][cC]',
+	'',
+].join('\n');
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -53,7 +66,7 @@ async function text(files: Pick<FolderFiles, 'read'>) {
 test('an empty folder gets only an ordinary .gitignore, and another startup writes nothing', async () => {
 	const { files, root } = await open();
 	expectOk(await maintainExclusions(files));
-	expect(await text(files)).toBe('/audio/\n');
+	expect(await text(files)).toBe(rules);
 	expect(await readdir(root)).toEqual(['.gitignore']);
 	let writes = 0;
 	expectOk(
@@ -69,11 +82,14 @@ test('an empty folder gets only an ordinary .gitignore, and another startup writ
 });
 
 test.each([
-	['# another app\n/cache/', '# another app\n/cache/\n/audio/\n'],
-	['/audio/\n!/audio/\n', '/audio/\n!/audio/\n/audio/\n'],
-	['audio/*\n!audio/keep.wav\n', 'audio/*\n!audio/keep.wav\n/audio/\n'],
-	['/AUDIO/\n', '/AUDIO/\n/audio/\n'],
-	['\ufeff# café\r\n/cache/', '\ufeff# café\r\n/cache/\r\n/audio/\r\n'],
+	['# another app\n/cache/', `# another app\n/cache/\n${rules}`],
+	['/recordings/\n!/recordings/\n', `/recordings/\n!/recordings/\n${rules}`],
+	['/audio/\n', `/audio/\n${rules}`],
+	['/RECORDINGS/\n', `/RECORDINGS/\n${rules}`],
+	[
+		'\ufeff# café\r\n/cache/',
+		`\ufeff# café\r\n/cache/\r\n${rules.replaceAll('\n', '\r\n')}`,
+	],
 ])(
 	'adds or restores the root exclusion while preserving %j',
 	async (before, after) => {
@@ -101,10 +117,10 @@ test.each([
 );
 
 test.each([
-	'/audio/\n!audio/take.wav\n',
-	'audio/\n',
+	'/recordings/\n',
+	'recordings/*\n',
 	'*\n',
-	'\ufeff/audio/\r\n',
+	'\ufeff/recordings/\r\n',
 ])('effective directory rules cause no write: %j', async (before) => {
 	const { files } = await open(before);
 	let writes = 0;
@@ -164,7 +180,7 @@ test('a concurrent edit after reading survives the startup save', async () => {
 			},
 		}),
 	);
-	expect(await text(files)).toBe('# keep\n/private/\n/audio/\n');
+	expect(await text(files)).toBe(`# keep\n/private/\n${rules}`);
 });
 
 test('a successful save followed by a conflicting rule reports ineffective installation without retrying', async () => {
@@ -178,7 +194,7 @@ test('a successful save followed by a conflicting rule reports ineffective insta
 				const saved = await files.write(...args);
 				expectOk(saved);
 				expectOk(
-					await files.write('.gitignore', '/audio/\n', '/audio/\n!/audio/\n'),
+					await files.write('.gitignore', rules, `${rules}!/recordings/*\n`),
 				);
 				return saved;
 			},
@@ -186,7 +202,7 @@ test('a successful save followed by a conflicting rule reports ineffective insta
 	);
 	expect(refused.name).toBe('NotExcluded');
 	expect(writes).toBe(1);
-	expect(await text(files)).toBe('/audio/\n!/audio/\n');
+	expect(await text(files)).toBe(`${rules}!/recordings/*\n`);
 });
 
 test('two browser connections starting from the same bytes retain both the rule and another edit after reopening', async () => {
@@ -219,7 +235,7 @@ test('two browser connections starting from the same bytes retain both the rule 
 	b.close();
 	const reopened = await openRepository(id);
 	cleanups.push(() => reopened.close());
-	expect(await text(reopened.files)).toBe('# keep\n/private/\n/audio/\n');
+	expect(await text(reopened.files)).toBe(`# keep\n/private/\n${rules}`);
 });
 
 test('startup rules exclude new audio from commit preparation while preserving offline bytes and an exact pending send', async () => {
@@ -228,7 +244,16 @@ test('startup rules exclude new audio from commit preparation while preserving o
 	const { storage } = repository;
 	const files = filesOf(repository);
 	const audio = new Uint8Array([0, 255, 1]);
-	expectOk(await files.write('audio/take.wav', null, audio));
+	expectOk(await files.write('recordings/take.wav', null, audio));
+	expectOk(await files.write('recordings/take.WEBM', null, audio));
+	expectOk(await files.write('recordings/take.md', null, 'Recording\n'));
+	expectOk(
+		await files.write(
+			'recordings/attachment.pdf',
+			null,
+			new Uint8Array([1, 2]),
+		),
+	);
 	expectOk(await files.write('notes/one.md', null, 'Offline note\n'));
 	expectOk(await maintainExclusions(files));
 	// A simulated first observation of an empty remote, not a network call.
@@ -247,11 +272,16 @@ test('startup rules exclude new audio from commit preparation while preserving o
 		commit.tree,
 		async (oid) => captured.objects.get(oid)!,
 	);
-	expect([...tree.files.keys()].sort()).toEqual(['.gitignore', 'notes/one.md']);
-	const localAudio = expectOk(await files.read('audio/take.wav'))!;
+	expect([...tree.files.keys()].sort()).toEqual([
+		'.gitignore',
+		'notes/one.md',
+		'recordings/attachment.pdf',
+		'recordings/take.md',
+	]);
+	const localAudio = expectOk(await files.read('recordings/take.wav'))!;
 	expect(new Uint8Array(await localAudio.content.arrayBuffer())).toEqual(audio);
 	expectOk(
-		await files.write('.gitignore', '/audio/\n', '# changed after preparing\n'),
+		await files.write('.gitignore', rules, '# changed after preparing\n'),
 	);
 	expectOk(await maintainExclusions(files));
 	expect(await prepareCommit(storage, { ...author, timestamp: 2 })).toEqual(
