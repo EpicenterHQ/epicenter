@@ -1,6 +1,6 @@
 ---
 name: delegate-claude
-description: Delegate a bounded implementation, prototype, benchmark, or file artifact to Claude Code, which owns the reasoning and applies the result in the current checkout or a selected standalone clone. Use when an authorized task benefits from Claude's reasoning, design judgment, or taste, or when asked to delegate execution to Claude. Answer-only investigations, recommendations, and text drafts belong to consult-claude.
+description: Delegate a bounded implementation, prototype, benchmark, or file artifact to Claude Code, which owns the reasoning and applies the result in the current checkout or a selected standalone clone. Use when asked to delegate execution to Claude or when a task-specific benefit justifies a separately owned Claude assignment. Answer-only investigations, recommendations, and text drafts belong to consult-claude.
 ---
 
 # Delegate Claude
@@ -9,12 +9,13 @@ Claude owns the reasoning and delivery of a completed assignment, including
 applying its changes in the assigned checkout. By default that is the current
 checkout. The coordinating Codex owns overall continuity and focused acceptance.
 It pauses its own edits to that checkout until Claude returns, and it does not
-repeat Claude's investigation or copy the result into another checkout. Prefer
-Claude when reasoning, design judgment, or taste can improve the delivered
-result. Codex need not solve the question before assigning delivery, and a small
-change can warrant Claude when the choice matters. Keep purely mechanical
-changes with Codex. Give Claude a coherent outcome and observable acceptance
-criteria, including the investigation needed to deliver it.
+repeat Claude's investigation or copy the result into another checkout. Name
+the benefit of assigning delivery to Claude, such as a user-requested division
+of work or a bounded experiment that can proceed separately from the parent
+task. Reasoning, design judgment, or taste alone does not require delegation.
+Once delegation is selected, give Claude a coherent outcome and observable
+acceptance criteria, including the investigation needed to deliver it. Codex
+need not solve the assignment before handing it over.
 
 Choose the execution route before launching. For substantial implementation,
 default to `--codex --codex-model <selected-model>`. Claude owns the design

@@ -1,6 +1,6 @@
 ---
 name: consult-claude
-description: Give Claude Opus 5.5 responsibility for reasoning, design judgment, read-only investigations, recommendations, or finished text drafts. Use when the result benefits from thoughtful reasoning or taste, when asked to consult Claude, or when a design-review workflow includes Claude. Completed edits and executable experiments belong to delegate-claude.
+description: Obtain a bounded read-only opinion, investigation, recommendation, or text draft from Claude Code. Use when asked to consult Claude, when a task-specific need for an independent Claude perspective is identified, or when a review workflow assigns Claude a role. Completed edits and executable experiments belong to delegate-claude.
 ---
 
 # Consult Claude
@@ -14,19 +14,18 @@ run an experiment. If the user already authorizes a delivered change, assign
 the investigation and implementation together through that route; do not add
 an initial consultation merely because the approach is unresolved.
 
-Use Claude early when the result depends on reasoning, design judgment, taste,
-or choosing between competing interpretations. Codex need not solve the question
-before briefing Claude or wait until it is stuck. Give Claude the desired
-outcome and raw source evidence, and enough
-ownership to finish the answer. A short but consequential question can warrant
-consultation; routine mechanical work stays in Codex. A standalone
-consultation does not automatically launch the adversarial reviewer pair.
+Identify what the consultation adds: a requested Claude opinion, an independent
+challenge to a consequential assumption, or a role assigned by a review
+workflow. Reasoning, design judgment, or taste alone does not require a handoff.
+Once consultation is selected, brief Claude before resolving the assigned
+question yourself. Give it the desired outcome, raw source evidence, and enough
+ownership to finish the answer. A standalone consultation does not automatically
+launch the adversarial reviewer pair.
 
-Choose Claude for the quality of its reasoning and judgment, including on a
-small question when the choice matters. Use Codex assistance for supporting
-evidence that Claude can inspect without giving up its understanding of the
-problem. Judge the answer by its reasoning, evidence, and quality of judgment.
-Elapsed time and usage are context, not the objective.
+Use Codex assistance for supporting evidence that Claude can inspect without
+giving up its understanding of the problem. Judge the answer by its reasoning,
+evidence, and quality of judgment. Elapsed time and usage are context, not the
+objective.
 
 ## Define the result
 
@@ -70,8 +69,8 @@ design is valid when its guarantees earn their cost.
 
 Requires Bun, Git, and authenticated Claude Code 2.1.280 or later with access to
 the selected model. New and resumed consultations default to `claude-opus-5-5`
-at high effort. Sonnet is an explicit choice for routine bounded work, not the
-default reasoning lead. Adversarial architecture reviews use Opus high, including
+at high effort. Sonnet is an explicit alternative for routine bounded work.
+Adversarial architecture reviews use Opus high, including
 follow-ups. Use `xhigh` only for a
 focused unresolved decision, then return to high. Run from the checkout
 containing the evidence; supply the brief directly on stdin:
