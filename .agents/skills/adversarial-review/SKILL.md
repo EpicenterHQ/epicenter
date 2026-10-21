@@ -35,8 +35,9 @@ Opus reviewer through [consult-claude](../consult-claude/SKILL.md). Explicit
 user choices override this default. Ordinary final checks remain local under
 post-implementation-review.
 
-A requested Claude reviewer occupies one of the two seats unless the user
-specifies different staffing; do not automatically add a third reviewer.
+A requested Claude reviewer occupies one of the two initial seats unless the
+user specifies different staffing. Reassess further staffing after the first
+passes under Manage the search.
 
 Give both reviewers the same evidence and complementary starting questions.
 Run them in parallel when possible, and withhold each reviewer's findings from
@@ -115,19 +116,36 @@ Reviewers do not edit the live checkout.
 
 ## Manage the search
 
-Be willing to add reviewers for independent exploration, a different starting
-angle, or a focused sequential challenge. A known defect or suspected shared
-assumption is not required. Name the opportunity another perspective could
-explore and how its answer could affect the decision. Scale the search to the
-breadth and consequence of the design; available capacity alone is not a purpose.
-For broad decisions, two reviewers of each model can explore both starting
-questions. Model symmetry and a fixed panel size are not requirements.
+After the independent first passes, actively reassess the search before settling
+the recommendation. Identify worthwhile unexplored angles, whether the reviewers
+agree or disagree, and commission additional reviewers when another perspective
+could materially improve the decision. Do not wait for the user to request more
+agents. A known defect or suspected shared assumption is not required.
+
+When reviewers disagree, identify the competing models and the claim or tradeoff
+that separates them. Add an independent exploration when the alternatives need
+development, or a focused challenge when a consequential claim remains untested.
+Prefer a direct caller trace or executable check when it can settle a factual
+dispute. When reviewers agree, examine the assumptions both retained and the
+organizing ideas neither explored. Agreement alone does not close the search;
+a worthwhile alternative can justify another reviewer without evidence that
+either initial review is wrong.
+
+Name what each additional assignment could discover and how its answer could
+change the decision. Scale the search to the breadth and consequence of the
+design; available capacity alone is not a purpose. For broad decisions, two
+reviewers of each model can explore both starting questions. Model symmetry and
+a fixed panel size are not requirements. Reassess again when new findings
+materially change the alternatives. Repeated reasoning without a distinct
+opportunity does not justify expanding the panel.
 
 Use parallel reviewers to broaden the search and sequential reviewers to
 challenge emerging alternatives, shared assumptions, or the coordinator's
-synthesis. Later reviewers receive raw evidence alongside preserved findings;
-their passes are informed challenges rather than blind discovery. A fresh
-reviewer can reopen the destination:
+synthesis. For another independent exploration, give the fresh reviewer raw
+evidence and a distinct starting question, withholding earlier conclusions until
+its initial answer is preserved. For an informed challenge, provide raw evidence
+alongside preserved findings and label the pass accordingly. A fresh reviewer
+can reopen the destination:
 
 > The current recommendation is evidence to examine, not your destination.
 > Independently consider whether a different organizing idea would better
