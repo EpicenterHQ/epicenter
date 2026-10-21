@@ -192,6 +192,46 @@ test('a failed save says so, keeps the edit, and Save again lands it', async () 
 	expect(await harness.text(PATH)).toBe(saved('Text', '- first\n- kept\n'));
 });
 
+test('failed row input stays copyable in the text view after switching and foreign deletion', async () => {
+	const harness = await setup({ [PATH]: FILE }, 'capture');
+	const restore = harness.failSaves();
+	type(field('capture-text'), 'Kept row input');
+	blur(field('capture-text'));
+	await until(
+		() => harness.folder.files.edit(PATH).getPending()?.error !== undefined,
+		'the failed row save',
+	);
+	restore();
+	await harness.captures.open('one', 'text');
+	flushSync();
+	let copied: string | undefined;
+	const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+	Object.defineProperty(navigator, 'clipboard', {
+		configurable: true,
+		value: {
+			writeText: async (value: string) => { copied = value; },
+		},
+	});
+	try {
+		click(harness.target, 'Copy your text');
+		await until(() => copied !== undefined, 'the copied row input');
+		expect(JSON.parse(copied!).body).toContain('Kept row input');
+		await harness.deleteElsewhere('one');
+		await until(
+			() => harness.folder.files.edit(PATH).getReadStatus().known === 'missing',
+			'the foreign deletion',
+		);
+		flushSync();
+		copied = undefined;
+		click(harness.target, 'Copy your text');
+		await until(() => copied !== undefined, 'the copied input after deletion');
+		expect(JSON.parse(copied!).body).toContain('Kept row input');
+	} finally {
+		if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard);
+		else Reflect.deleteProperty(navigator, 'clipboard');
+	}
+});
+
 test('a thought typed and not added stays visible to copy when the capture stops reading as text and thoughts', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	type(field('new-thought'), 'my pending thought');

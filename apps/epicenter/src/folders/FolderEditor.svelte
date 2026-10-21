@@ -2,9 +2,9 @@
 	/**
 	 * The files of the folder this window was opened on, inside the
 	 * `<FolderApp>` that owns its handle. What is typed is held by the folder
-	 * itself (`folder.files.edit(path)`), not by the file shown, so hiding the
-	 * window sends it, closing the window waits for its saves, and a failed
-	 * save keeps the window with its text.
+	 * itself (`folder.files.edit(path)`), not by the file shown. Hiding the
+	 * window sends it. Pending saves prompt before departure; confirming
+	 * closes immediately and may discard unsaved input.
 	 *
 	 * The context refreshes each changed path and its dependents, including
 	 * directory descendants and document reads. This editor owns no change listener.

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getFolder } from './context.js';
-	import { readDocument } from '@epicenter/folder/documents';
+	import { documentChange, readDocument } from '@epicenter/folder/documents';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -72,16 +72,17 @@
 			// a patch of the file as stored. Only typing held there is read
 			// from it; otherwise the listing shows the document as read.
 			const pending = textEdit.pending;
-			const text = pending === undefined ? undefined : textEdit.text;
-			// Held fields typed before the file was read show over the listing.
+			let text = pending === undefined ? undefined : textEdit.text;
+			// Until the edit reads the file, project its fields through the same
+			// source patcher so removals and diagnostics agree with what is shown.
+			if (text === undefined && pending?.kind === 'fields') {
+				const changed = documentChange(doc, { fields: pending.fields });
+				if (changed.error === null) text = changed.data.text;
+			}
 			const shown =
-				text === undefined
-					? pending?.kind === 'fields'
-						? { ...doc, fields: { ...doc.fields, ...pending.fields } }
-						: doc
-					: text === decoder.decode(doc.content)
-						? doc
-						: readDocument(doc.path, encoder.encode(text), tableFor(doc.path));
+				text === undefined || text === doc.text
+					? doc
+					: readDocument(doc.path, encoder.encode(text), tableFor(doc.path));
 			return {
 				doc,
 				textEdit,
@@ -126,7 +127,6 @@
 		row.textEdit.changeFields({ [view.groupBy]: value });
 	}
 	const encoder = new TextEncoder();
-	const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 	function tableSchema() {
 		return Object.hasOwn(reading.data?.tables ?? {}, directory)
 			? reading.data?.tables[directory]

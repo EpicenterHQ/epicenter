@@ -9,6 +9,7 @@
 	including unsaved text. Open as capture changes views without saving. The parent keys this view by the capture.
 -->
 <script lang="ts">
+	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -18,6 +19,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
+	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, untrack } from 'svelte';
 	import { type Captures, capturePath, describeFailure, readCaptureBody } from '$lib/captures.svelte.js';
@@ -42,16 +44,12 @@
 	const status = $derived(textEdit.readStatus);
 	const unreadable = $derived(status.known === 'not-text');
 	const pending = $derived(textEdit.pending);
-	const typed = $derived(pending?.kind === 'text' ? pending.text : undefined);
+	const unsaved = $derived(pending === undefined ? undefined : unsavedText(pending));
 	const text = $derived(textEdit.text);
 	const locked = $derived(textEdit.locked);
 	// The text saves after a pause, and outlives the view; send it now.
 	onDestroy(() => void textEdit.save());
-	/**
-	 * The capture as the timeline lists it, as last saved, which the issues
-	 * follow. Its reads, polled while the view shows, also keep the edit's
-	 * file current, an edit made outside this page included.
-	 */
+	/** Poll this edit's file while shown, including changes made outside this page. */
 	createQuery(() => captures.readQuery(textEdit));
 
 	/** Why the current edit is not a capture yet: each with its line when it has one. */
@@ -61,10 +59,6 @@
 		const { error: refusal } = readCaptureBody(row);
 		return refusal === null ? [] : [{ message: refusal.message }];
 	});
-
-	/** `typed` with the line endings of the file it replaces: a text box reads `\r\n` as `\n`. */
-	const withFileNewlines = (typed: string, file: string) =>
-		file.includes('\r\n') ? typed.replace(/\r?\n/g, '\r\n') : typed;
 
 	async function copy(value: string | undefined, what: string) {
 		if (value !== undefined && (await copyText(value))) toast.success(`${what} copied`);
@@ -97,29 +91,29 @@
 		{/if}
 	</div>
 
+	{#if pending?.error && !pending.saving}
+		<Alert.Root variant="destructive" aria-label="Not saved">
+			<Alert.Title>Your edit is not saved</Alert.Title>
+			<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
+			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
+				<Button size="sm" variant="outline" onclick={() => void textEdit.retry()}>Save again</Button>
+				<Button size="sm" variant="outline" onclick={() => copy(unsaved, 'Your text')}>Copy your text</Button>
+				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
+			</div>
+		</Alert.Root>
+	{/if}
+
 	{#if text !== undefined}
 		{@const shown = text}
 		<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
 			{pending === undefined ? `Saved to ${path}` : pending?.error && !pending.saving ? 'Not saved' : 'Saving…'}
 		</p>
 
-		{#if pending?.error && !pending.saving}
-			<Alert.Root variant="destructive" aria-label="Not saved">
-				<Alert.Title>Your edit is not saved</Alert.Title>
-				<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
-				<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-					<Button size="sm" variant="outline" onclick={() => void textEdit.retry()}>Save again</Button>
-					<Button size="sm" variant="outline" onclick={() => copy(typed, 'Your text')}>Copy your text</Button>
-					<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
-				</div>
-			</Alert.Root>
-		{/if}
-
 		{#if issues.length > 0}
 			<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					{typed === undefined
+					{pending === undefined
 						? 'This text does not read as a capture yet. Fix it here; it saves when you pause.'
 						: 'This text does not read as a capture yet. It is checked as you type.'}
 				</p>
