@@ -21,9 +21,8 @@
 
 	// This component owns one opened context for its lifetime.
 	// svelte-ignore state_referenced_locally
-	setFolder(context);
-	// svelte-ignore state_referenced_locally
-	setQueryClientContext(context.queryClient);
+	const { queryClient } = setFolder(context);
+	setQueryClientContext(queryClient);
 </script>
 
 <FolderView {updateView} />

@@ -23,8 +23,7 @@
 	} from '$lib/local-todos.js';
 	import TodoRow from './TodoRow.svelte';
 
-	const context = getFolder();
-	const { folder, queries, refresh } = context;
+	const { folder, queries, refresh, getStatus } = getFolder();
 
 	let {
 		open,
@@ -81,9 +80,9 @@
 			bind:value={title}
 			placeholder="Add a todo"
 			aria-label="New todo title"
-			disabled={create.isPending || context.closing}
+			disabled={create.isPending || getStatus().closing}
 		/>
-		<Button type="submit" disabled={create.isPending || context.closing || title.trim() === ''}>
+		<Button type="submit" disabled={create.isPending || getStatus().closing || title.trim() === ''}>
 			{create.isPending ? 'Adding…' : 'Add'}
 		</Button>
 	</form>

@@ -25,15 +25,14 @@
 
 	// The opened context stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setFolder(context);
-	// svelte-ignore state_referenced_locally
-	setQueryClientContext(context.queryClient);
+	const { queryClient, getStatus } = setFolder(context);
+	setQueryClientContext(queryClient);
 
 	// An accepted Folder change still saving holds navigation; for a reload or a closed tab
 	// ('leave'), SvelteKit turns the cancel into the browser's own leave
 	// confirmation. Opening another todo changes only the query.
 	beforeNavigate(({ type, from, to, cancel }) => {
-		if (!context.getStatus().saving && context.getStatus().unsaved.length === 0) return;
+		if (!getStatus().saving && getStatus().unsaved.length === 0) return;
 		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
 	});
 

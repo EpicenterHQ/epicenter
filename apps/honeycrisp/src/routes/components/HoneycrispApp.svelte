@@ -19,9 +19,8 @@
 
 	// The opened context stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setFolder(context);
-	// svelte-ignore state_referenced_locally
-	setQueryClientContext(context.queryClient);
+	const { queryClient, getStatus } = setFolder(context);
+	setQueryClientContext(queryClient);
 	// svelte-ignore state_referenced_locally
 	const notes = createNotes(context);
 	const loading = notes.load();
@@ -32,7 +31,7 @@
 	// <FolderApp> owns the browser unload prompt. Once the notes are closing,
 	// `notes.fenced` holds back every input and action here.
 	beforeNavigate(({ cancel }) => {
-		if (context.getStatus().saving || context.getStatus().unsaved.length > 0) cancel();
+		if (getStatus().saving || getStatus().unsaved.length > 0) cancel();
 	});
 </script>
 

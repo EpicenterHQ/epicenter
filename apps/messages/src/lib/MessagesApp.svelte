@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FolderContext } from '@epicenter/svelte/folder';
+	import { type getFolder, setFolder } from './folder.js';
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -8,12 +8,13 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { createInfiniteQuery, createMutation, createQuery, setQueryClientContext } from '@tanstack/svelte-query';
 	import { beforeNavigate } from '$app/navigation';
-	import type { messagesTables } from './definition.js';
 	import { type Backend, createDemoBackend, requestBeeper } from './backend.js';
 	import ConversationView from './Conversation.svelte';
-	let { context }: { context: FolderContext<typeof messagesTables> } = $props();
+	let { context }: { context: ReturnType<typeof getFolder> } = $props();
+	// This root keeps the opened folder until it unmounts.
 	// svelte-ignore state_referenced_locally
-	setQueryClientContext(context.queryClient);
+	const { folder, queries, queryClient, getStatus } = setFolder(context);
+	setQueryClientContext(queryClient);
 	const demo = createDemoBackend();
 	let backend = $state<Backend>(demo);
 	let selected = $state<string>();
@@ -21,7 +22,7 @@
 	let showConnect = $state(false);
 	let token = $state('');
 	let notice = $state('');
-	beforeNavigate(({ type, cancel }) => { if (type === 'leave' && (context.getStatus().saving || context.getStatus().unsaved.length > 0)) cancel(); });
+	beforeNavigate(({ type, cancel }) => { if (type === 'leave' && (getStatus().saving || getStatus().unsaved.length > 0)) cancel(); });
 	const chats = createInfiniteQuery(() => ({
 		queryKey: ['beeper', backend.mode, backend.profile, 'chats'],
 		initialPageParam: undefined as string | undefined,
@@ -37,11 +38,11 @@
 	const all = $derived([...new Map((chats.data?.pages.flatMap((page) => page.items) ?? []).map((chat) => [chat.id, chat])).values()].sort((a, b) => b.activity.localeCompare(a.activity)));
 	const visible = $derived(all.filter((chat) => `${chat.title} ${chat.network}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())));
 	const current = $derived(all.find((chat) => chat.id === selected));
-	const drafts = createQuery(() => context.queries.rows('drafts'));
+	const drafts = createQuery(() => queries.rows('drafts'));
 	// The query discovers saved Markdown; FileEdit supplies current input,
 	// including text still waiting for autosave or held after a failed save.
 	const draftEdits = $derived((drafts.data ?? []).map((row) =>
-		createFileEdit(context.folder.tables.drafts.edit(row.id)),
+		createFileEdit(folder.tables.drafts.edit(row.id)),
 	));
 	const draftPreviews = $derived.by(() => {
 		const previews = new Map<string, { label: string; text: string }>();
@@ -64,9 +65,9 @@
 			const answer = await requestBeeper({ action: 'connect', ...(token.trim() ? { token: token.trim() } : {}) });
 			token = '';
 			if (answer.kind !== 'connected') { notice = answer.kind === 'error' ? answer.message : 'Could not connect.'; return; }
-			await context.folder.settle();
-			await context.queryClient.cancelQueries({ queryKey: ['beeper'] });
-			context.queryClient.removeQueries({ queryKey: ['beeper'] });
+			await folder.settle();
+			await queryClient.cancelQueries({ queryKey: ['beeper'] });
+			queryClient.removeQueries({ queryKey: ['beeper'] });
 			selected = undefined;
 			backend = { mode: 'live', profile: answer.profile, request: requestBeeper };
 			showConnect = false; notice = '';
@@ -77,9 +78,9 @@
 		mutationFn: async () => {
 			const answer = await requestBeeper({ action: 'disconnect' });
 			if (answer.kind !== 'disconnected') { notice = answer.kind === 'error' ? answer.message : 'Could not disconnect.'; return; }
-			await context.folder.settle();
-			await context.queryClient.cancelQueries({ queryKey: ['beeper'] });
-			context.queryClient.removeQueries({ queryKey: ['beeper'] });
+			await folder.settle();
+			await queryClient.cancelQueries({ queryKey: ['beeper'] });
+			queryClient.removeQueries({ queryKey: ['beeper'] });
 			selected = undefined; backend = demo; notice = '';
 		},
 		onError: () => { notice = 'Could not remove the saved Beeper connection.'; },
@@ -91,7 +92,7 @@
 		<h1 class="font-semibold">Messages</h1>
 		<Badge variant={backend.mode === 'demo' ? 'secondary' : 'default'}>{backend.mode === 'demo' ? 'Demo · fictional conversations' : 'Live Beeper'}</Badge>
 		<div class="ml-auto flex gap-2">
-			<Button variant="ghost" size="sm" disabled={chats.isFetching} onclick={() => void context.queryClient.invalidateQueries({ queryKey: ['beeper'] })}>Refresh</Button>
+			<Button variant="ghost" size="sm" disabled={chats.isFetching} onclick={() => void queryClient.invalidateQueries({ queryKey: ['beeper'] })}>Refresh</Button>
 			{#if backend.mode === 'demo'}<Button variant="outline" size="sm" onclick={() => { showConnect = !showConnect; token = ''; }}>Connect Beeper</Button>
 			{:else}<Button variant="outline" size="sm" disabled={disconnect.isPending} onclick={() => disconnect.mutate()}>Disconnect</Button>{/if}
 		</div>
@@ -108,7 +109,7 @@
 	{#if backend.mode === 'demo'}
 		<div class="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
 			<span>No real accounts are connected. Replies stay in this demo.</span>
-			<Button variant="ghost" size="sm" onclick={() => { demo.incoming(); void context.queryClient.invalidateQueries({ queryKey: ['beeper'] }); }}>Simulate incoming</Button>
+			<Button variant="ghost" size="sm" onclick={() => { demo.incoming(); void queryClient.invalidateQueries({ queryKey: ['beeper'] }); }}>Simulate incoming</Button>
 			<Button variant="ghost" size="sm" onclick={() => { demo.failNext(); notice = 'The next demo send will have an unknown outcome.'; }}>Simulate send failure</Button>
 		</div>
 	{/if}
@@ -132,7 +133,7 @@
 		</aside>
 		<div class="min-h-0 min-w-0 flex-1 md:block" class:hidden={selected === undefined}>
 			{#if current}
-				{#key `${backend.mode}:${backend.profile}:${current.id}`}<ConversationView {context} {backend} chat={current} onBack={() => { selected = undefined; }} />{/key}
+				{#key `${backend.mode}:${backend.profile}:${current.id}`}<ConversationView {backend} chat={current} onBack={() => { selected = undefined; }} />{/key}
 			{:else}<Empty.Root class="h-full"><Empty.Title>Choose a conversation</Empty.Title><Empty.Description>Read and reply through Beeper.</Empty.Description></Empty.Root>{/if}
 		</div>
 	</div>

@@ -18,11 +18,11 @@
 		openInEpicenter,
 	} from './open-in-epicenter';
 
-	const context = getFolder();
+	const { getStatus } = getFolder();
 	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
 
 	const saved = $derived.by(() => {
-		const line = saveLine(context.getStatus());
+		const line = saveLine(getStatus());
 		return pendingNewTodo && line.tone === 'good'
 			? { label: 'Todo not added', tone: 'warning' as const }
 			: line;

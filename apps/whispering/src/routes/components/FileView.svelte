@@ -53,9 +53,9 @@
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.edit(own);
-	const context = getFolder();
+	const { queries } = getFolder();
 	/** What the file is while it shows as text; its reads keep the text edit current. */
-	const opened = createQuery(() => ({ ...context.queries.file(path, textRead), enabled: asText }));
+	const opened = createQuery(() => ({ ...queries.file(path, textRead), enabled: asText }));
 	/** A transcript that reads: its body is edited here, its fields kept. */
 	const transcript = $derived.by(() => {
 		if (table !== TRANSCRIPTIONS || asText) return undefined;

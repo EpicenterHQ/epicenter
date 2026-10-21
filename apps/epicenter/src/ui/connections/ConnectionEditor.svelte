@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { createFileEdit } from '@epicenter/svelte/edits';
-	import type { FolderContext } from '@epicenter/svelte/folder';
+	import { getFolder } from './folder.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
-	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { commands } from '../bindings.gen';
 	import {
 		type Connection,
-		type connectionTables,
 		failureText,
 		keyStateKey,
 		KIND_LABELS,
@@ -27,24 +26,21 @@
 	 */
 	let {
 		row,
-		local,
 	}: {
 		/** The row as the folder holds it now. */
 		row: Connection;
-		local: FolderContext<typeof connectionTables>;
 	} = $props();
+	const { folder, queryClient, getStatus } = getFolder();
 
 	// svelte-ignore state_referenced_locally
 	const id = row.id;
 	// The list keys each editor by its id, in one opened folder. The list's
 	// read answered the edit's document.
-	// svelte-ignore state_referenced_locally
-	const fileEdit = createFileEdit(local.folder.tables.connections.edit(id));
+	const fileEdit = createFileEdit(folder.tables.connections.edit(id));
 	/** The connection with what is typed over it, or as the list read it while that is not known. */
 	const fields = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown.fields : row.fields);
 	const pending = $derived(fileEdit.pending);
 	const failure = $derived(pending?.saving ? undefined : pending?.error);
-	const client = useQueryClient();
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -81,7 +77,7 @@
 			}
 		} finally {
 			savingKey = false;
-			await client.invalidateQueries({ queryKey: keyStateKey(id) });
+			await queryClient.invalidateQueries({ queryKey: keyStateKey(id) });
 		}
 	}
 
@@ -89,14 +85,14 @@
 		keyProblem = undefined;
 		const { error } = await commands.aiKeyRemove(id);
 		if (error !== null) keyProblem = failureText(error);
-		await client.invalidateQueries({ queryKey: keyStateKey(id) });
+		await queryClient.invalidateQueries({ queryKey: keyStateKey(id) });
 	}
 
 	async function removeConnection() {
 		keyProblem = undefined;
 		deleteProblem = undefined;
 		// Closing Settings refuses the row's delete; the key stays with its row.
-		if (local.closing) return;
+		if (getStatus().closing) return;
 		const { error } = await commands.aiKeyRemove(id);
 		if (error !== null) {
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;

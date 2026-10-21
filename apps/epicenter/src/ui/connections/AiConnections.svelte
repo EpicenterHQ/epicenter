@@ -4,7 +4,6 @@
 		createFolderContext,
 		type FolderContext,
 	} from '@epicenter/svelte/folder';
-	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { onMount } from 'svelte';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import ConnectionList from './ConnectionList.svelte';
@@ -57,9 +56,7 @@
 	{#if problem}
 		<p role="alert" class="text-destructive">Epicenter's folder did not open: {problem}</p>
 	{:else if local}
-		<QueryClientProvider client={local.queryClient}>
-			<ConnectionList {local} />
-		</QueryClientProvider>
+		<ConnectionList context={local} />
 	{:else}
 		<p class="text-muted-foreground">Opening…</p>
 	{/if}

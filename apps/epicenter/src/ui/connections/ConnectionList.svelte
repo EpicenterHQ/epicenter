@@ -1,15 +1,14 @@
 <script lang="ts">
 	import type { ConnectionKind } from '@epicenter/ai/send';
-	import type { FolderContext } from '@epicenter/svelte/folder';
+	import { type getFolder, setFolder } from './folder.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createQuery, setQueryClientContext } from '@tanstack/svelte-query';
 	import { commands } from '../bindings.gen';
 	import ConnectionEditor from './ConnectionEditor.svelte';
 	import {
 		connectionId,
 		connectionsOf,
-		type connectionTables,
 		failureText,
 		KIND_LABELS,
 		OFFERED_KINDS,
@@ -22,9 +21,13 @@
 	 * does not read as one shown as it is, and a form that adds one: its row,
 	 * then, for an endpoint, its endpoint and key in this computer's keychain.
 	 */
-	let { local }: { local: FolderContext<typeof connectionTables> } = $props();
+	let { context }: { context: ReturnType<typeof getFolder> } = $props();
+	// Settings keeps this opened folder until the list unmounts.
+	// svelte-ignore state_referenced_locally
+	const { folder, queries, queryClient, refresh, getStatus } = setFolder(context);
+	setQueryClientContext(queryClient);
 
-	const list = createQuery(() => local.queries.rows('connections'));
+	const list = createQuery(() => queries.rows('connections'));
 	const rows = $derived(connectionsOf(list.data ?? []));
 	const unreadable = $derived(unreadableOf(list.data ?? []));
 
@@ -41,7 +44,7 @@
 		problem = undefined;
 		try {
 			const id = connectionId(title, new Set((list.data ?? []).map((row) => row.id)));
-			const { error } = await local.folder.tables.connections.set(id, null, {
+			const { error } = await folder.tables.connections.set(id, null, {
 				fields: { kind, title: title.trim(), model: model.trim() },
 				body: '',
 			});
@@ -49,7 +52,7 @@
 				problem = saveFailureText(error);
 				return;
 			}
-			await local.refresh([`connections/${id}.md`]);
+			await refresh([`connections/${id}.md`]);
 			if (kind === 'openai-compatible') {
 				const { error } = await commands.aiKeySet(id, endpoint, key);
 				if (error !== null) {
@@ -79,7 +82,7 @@
 	{/if}
 	<ul class="grid gap-2">
 		{#each rows as row (row.id)}
-			<ConnectionEditor {row} {local} />
+			<ConnectionEditor {row} />
 		{/each}
 	</ul>
 	{#each unreadable as row (row.id)}
@@ -121,6 +124,6 @@
 	{:else if kind === 'epicenter'}
 		<p class="text-muted-foreground">Sends to your Epicenter account with this app's sign-in, under Account above.</p>
 	{/if}
-	<div><Button type="submit" disabled={adding || local.closing}>Add</Button></div>
+	<div><Button type="submit" disabled={adding || getStatus().closing}>Add</Button></div>
 	{#if problem}<p role="alert" class="text-destructive">{problem}</p>{/if}
 </form>

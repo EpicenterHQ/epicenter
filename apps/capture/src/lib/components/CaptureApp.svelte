@@ -20,9 +20,8 @@
 
 	// The opened context stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setFolder(context);
-	// svelte-ignore state_referenced_locally
-	setQueryClientContext(context.queryClient);
+	const { queryClient, getStatus } = setFolder(context);
+	setQueryClientContext(queryClient);
 	// svelte-ignore state_referenced_locally
 	const captures = createCaptures(context);
 
@@ -32,7 +31,7 @@
 	// Read save status when leaving is requested, not while the view renders.
 	beforeNavigate(({ willUnload, cancel }) => {
 		if (!willUnload) return;
-		const { saving, unsaved } = context.getStatus();
+		const { saving, unsaved } = getStatus();
 		if (saving || unsaved.length > 0) cancel();
 	});
 	// `<FolderApp>` sends what is typed, as fields or as text, when the page

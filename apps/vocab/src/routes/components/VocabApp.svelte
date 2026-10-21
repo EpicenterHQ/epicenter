@@ -26,9 +26,8 @@
 
 	// The opened context stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setFolder(context);
-	// svelte-ignore state_referenced_locally
-	setQueryClientContext(context.queryClient);
+	const { queryClient, getStatus, refresh } = setFolder(context);
+	setQueryClientContext(queryClient);
 	// svelte-ignore state_referenced_locally
 	const vocab = createVocab(context);
 	const { folder, entries, chats } = vocab;
@@ -103,7 +102,7 @@
 	// Leaving then is cancelled; for a reload or a closed tab, SvelteKit turns
 	// the cancel into the browser's own leave confirmation.
 	beforeNavigate((navigation) => {
-		if (!context.getStatus().saving && context.getStatus().unsaved.length === 0) return;
+		if (!getStatus().saving && getStatus().unsaved.length === 0) return;
 		if (navigation.willUnload || navigation.to?.route.id !== page.route.id) navigation.cancel();
 	});
 
@@ -143,7 +142,7 @@
 	{#if loadError}
 		<div role="alert" class="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs text-destructive">
 			<span>Vocab could not read its folder in this browser: {loadError}</span>
-			<Button variant="ghost" size="sm" onclick={() => void context.refresh()}>Read again</Button>
+			<Button variant="ghost" size="sm" onclick={() => void refresh()}>Read again</Button>
 		</div>
 	{/if}
 	{#if unreadable.length > 0}

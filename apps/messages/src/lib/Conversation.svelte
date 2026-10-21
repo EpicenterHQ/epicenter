@@ -1,17 +1,17 @@
 <script lang="ts">
 	import type { Conversation, Message } from '@epicenter/cli/messages-protocol';
-	import type { FolderContext } from '@epicenter/svelte/folder';
+	import { getFolder } from './folder.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
 	import { createInfiniteQuery, createMutation, createQuery } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import type { Backend } from './backend.js';
-	import type { messagesTables } from './definition.js';
 	import { openDraft } from './drafts.js';
 	import Composer from './Composer.svelte';
 	import DemoAttachment from './DemoAttachment.svelte';
 	import { demoAttachments } from './demo/attachments.js';
-	let { context, backend, chat, onBack }: { context: FolderContext<typeof messagesTables>; backend: Backend; chat: Conversation; onBack: () => void } = $props();
+	let { backend, chat, onBack }: { backend: Backend; chat: Conversation; onBack: () => void } = $props();
+	const { folder, queryClient } = getFolder();
 	let scroller: HTMLDivElement;
 	let follow = $state(true);
 	const messages = createInfiniteQuery(() => ({
@@ -29,7 +29,7 @@
 	const draft = createQuery(() => ({
 		queryKey: ['draft', backend.mode, backend.profile, chat.id],
 		queryFn: async () => {
-			const opened = await openDraft(context.folder, backend, chat.id);
+			const opened = await openDraft(folder, backend, chat.id);
 			if (opened.error !== null) throw opened.error;
 			return opened.data;
 		},
@@ -77,6 +77,6 @@
 	</div>
 	{#if draft.error}<p role="alert" class="border-t p-4 text-sm text-destructive">Could not open your draft: {draft.error.message}</p>
 	{:else if draft.data}
-		{#key draft.data.id}<Composer {context} {backend} id={draft.data.id} chatId={chat.id} onAccepted={() => { follow = true; void messages.refetch(); void context.queryClient.invalidateQueries({ queryKey: ['beeper', backend.mode, backend.profile, 'chats'] }); }} />{/key}
+		{#key draft.data.id}<Composer {backend} id={draft.data.id} chatId={chat.id} onAccepted={() => { follow = true; void messages.refetch(); void queryClient.invalidateQueries({ queryKey: ['beeper', backend.mode, backend.profile, 'chats'] }); }} />{/key}
 	{/if}
 </section>

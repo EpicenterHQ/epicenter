@@ -1,33 +1,32 @@
 <script lang="ts">
-	import type { FolderContext } from '@epicenter/svelte/folder';
+	import { getFolder } from './folder.js';
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import type { Backend } from './backend.js';
 	import { sendDraft } from './drafts.js';
-	import type { messagesTables } from './definition.js';
-	let { context, backend, id, chatId, onAccepted }: { context: FolderContext<typeof messagesTables>; backend: Backend; id: string; chatId: string; onAccepted: () => void } = $props();
+	let { backend, id, chatId, onAccepted }: { backend: Backend; id: string; chatId: string; onAccepted: () => void } = $props();
+	const { folder, queries, refresh } = getFolder();
 	// The parent keys this composer by its durable draft ID.
 	// svelte-ignore state_referenced_locally
 	const draftId = id;
-	const query = createQuery(() => context.queries.file(`drafts/${draftId}.md`, {
+	const query = createQuery(() => queries.file(`drafts/${draftId}.md`, {
 		name: 'draft',
 		async read() {
-			const result = await context.folder.tables.drafts.get(draftId);
+			const result = await folder.tables.drafts.get(draftId);
 			if (result.error !== null) throw result.error;
 			return result.data ?? null;
 		},
 	}));
-	// svelte-ignore state_referenced_locally
-	const fileEdit = createFileEdit(context.folder.tables.drafts.edit(draftId));
+	const fileEdit = createFileEdit(folder.tables.drafts.edit(draftId));
 	let message = $state('');
 	// This draft's own input, so another file's failure is never shown as this one's.
 	const failed = $derived(fileEdit.pending?.error !== undefined && !fileEdit.pending.saving);
 	const send = createMutation(() => ({
 		mutationFn: async () => {
-			const result = await sendDraft(context.folder, draftId, chatId, backend);
-			await context.refresh([`drafts/${draftId}.md`]);
+			const result = await sendDraft(folder, draftId, chatId, backend);
+			await refresh([`drafts/${draftId}.md`]);
 			if (result.error !== null) { message = result.error.message; return; }
 			message = backend.mode === 'demo' ? 'Demo message sent.' : 'Accepted by Beeper. Delivery status appears in the conversation.';
 			onAccepted();

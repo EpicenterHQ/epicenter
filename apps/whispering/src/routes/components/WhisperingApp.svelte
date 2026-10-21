@@ -27,9 +27,8 @@
 
 	// Each mounted product root keeps the context it received.
 	// svelte-ignore state_referenced_locally
-	setFolder(context);
-	// svelte-ignore state_referenced_locally
-	setQueryClientContext(context.queryClient);
+	const { queryClient } = setFolder(context);
+	setQueryClientContext(queryClient);
 	// svelte-ignore state_referenced_locally
 	const whispering = createWhispering(context);
 	setWhispering(whispering);

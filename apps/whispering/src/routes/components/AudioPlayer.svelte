@@ -10,10 +10,10 @@
 		label: string;
 	} = $props();
 	const whispering = getWhispering();
-	const context = getFolder();
+	const { queries } = getFolder();
 	const capture = $derived(whispering.capturePhase(path));
 	const reading = createQuery(() => ({
-		...context.queries.file(path, audioRead),
+		...queries.file(path, audioRead),
 		enabled: capture === undefined,
 	}));
 	const audio = $derived(capture === undefined ? reading.data : undefined);
