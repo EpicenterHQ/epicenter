@@ -3,6 +3,7 @@
 Choose the owner by when input becomes accepted application content. These are
 the two default content-input patterns. They do not classify every rune: dialog
 visibility, selection, request outcomes and widget history have other jobs.
+Judge the information and coordination each owner carries, not the rune count.
 
 ## Immediate editing
 

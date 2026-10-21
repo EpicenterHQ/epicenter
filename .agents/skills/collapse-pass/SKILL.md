@@ -8,10 +8,11 @@ metadata:
 
 # Collapse pass
 
-A collapse pass actively finds and removes complexity that does not earn its
-place. Ask whether the system could do the same job with a simpler model, then
-carry worthwhile changes through implementation and verification. Read the
-relevant [refactoring methods](references/refactoring-methods.md)
+A collapse pass simplifies the system's model by finding and removing complexity
+that does not earn its place. Start from the intended outcome and actual use.
+Question the current concepts and promises as well as their implementation,
+then carry worthwhile simplifications through implementation and verification.
+Read the relevant [refactoring methods](references/refactoring-methods.md)
 for caller evidence, safe inlining, typed boundaries, or straggler cleanup.
 
 ## Start and expand the hunt
@@ -59,15 +60,20 @@ implementation is authorized.
 
 For a broad pass, once you understand actual use, visibly inventory the nouns,
 methods, properties, keys, and relationships someone must understand to use or
-change the relevant system. Ask which distinctions carry independent information
-or behavior and whether the same job could use fewer concepts or operations,
-including a different design that makes several parts unnecessary together.
-Replace unnecessary flexibility with
-stronger invariants: ask whether ownership and lifetime can determine
-relationships the code currently has to coordinate. Use the
+change the relevant system. Show where information lives, how responsibilities
+connect, and which relationships require coordination. Ask which distinctions
+carry independent information or behavior and whether the same job could use
+fewer concepts or operations, including a different design that makes several
+parts unnecessary together.
+Look for ownership and lifetime rules that eliminate coordination. Name what
+flexibility the stronger rule removes and whether actual users need it. Use the
 [concept inventory](references/concept-inventory.md) to examine that surface
 through its owners and callers. A focused transformation needs no subsystem
 inventory.
+
+For expensive guarantees, establish who needs the promise and what would change
+if it were narrowed, replaced, or removed. Show the machinery eliminated and any
+user loss or obligation. Changes beyond existing authorization remain proposals.
 
 Look for forwarding layers, re-export chains, shallow aliases, shadow or
 mirrored state, duplicated decisions, copied boundary shapes, derivable state,
@@ -85,47 +91,48 @@ in related owners. Count the coordination or repeated decisions eliminated,
 not the collections deleted. A computed key alone does not make membership,
 authorization, selection, in-flight work, or unsaved input derivable.
 
-When replacement is within scope, prefer a clean break: move callers to one
-current path and delete the superseded one. Search the affected path for
-`fallback`, `adapter`, `legacy`, `migration`, and `compatibility`. A matching
-adapter or fallback may still own active recovery; trace its consumers and
-stored data before removal. Applied migrations are durable history, not
-disposable compatibility code. Keep a temporary compatibility path only for a
-named consumer or migration, with a retirement condition. Use
+Design the replacement from the intended outcome and actual use. Reconsider the
+API, ownership, lifecycle, and compatibility promises together; develop a shape
+that could make several existing paths unnecessary. Trace callers and stored
+data to establish the consequences and transition. Carry an authorized
+replacement through its consumers and retire superseded paths.
+
+Search the affected path for `fallback`, `adapter`, `legacy`, `migration`, and
+`compatibility`. A matching adapter or fallback may still own active recovery;
+trace its consumers and stored data before removal. Applied migrations are
+durable history, not disposable compatibility code. Keep a temporary
+compatibility path only for a named consumer or migration, with a retirement
+condition. Use
 [clean breaks](../rethink/references/clean-breaks.md) to carry an authorized
 replacement through its callers.
 
-For Svelte input wrappers, hunt paired `read`/`write`, `getValue`/`setValue`,
-and forwarding value-change props that recreate the binding protocol. Use
-[Svelte function bindings](../svelte/references/component-ui-patterns.md#function-bindings-for-transformed-values)
-when one bindable value removes that custom API. Trace transformations and
-lifecycle guards before collapsing them; commands and draft ownership may earn
-their boundaries.
+For Svelte surfaces, hunt custom binding protocols, mirrored input state, and
+duplicated editor-view conditions. Use
+[function bindings](../svelte/references/component-ui-patterns.md#function-bindings-for-transformed-values)
+for wrapper boundaries, [input ownership](../svelte/references/input-ownership.md)
+for drafts and submission, and
+[file editor views](../svelte/references/component-ui-patterns.md#file-editor-views)
+for selection, repair, and control lifetimes. Trace the current owner before
+removing state or guards.
 
-For input consumers, distinguish
-[immediate editing from explicit submission](../svelte/references/input-ownership.md).
-Immediate controls read the current editor and submit replacements. Explicit
-forms own unfinished input, preferably one replace-only raw draft object for
-fields submitted together. Single values and intentionally mutable proxied forms are
-valid when they fit the interaction; rune count is not the target. Hunt mirrored
-editor values, effect-driven synchronization, parallel draft/payload copies,
-unnecessary snapshot or clone layers, raw-state property mutation, and late
-results that erase newer typing. Classify search matches before changing them.
+Mentally inline the affected layers and reconsider the resulting flow from
+scratch. When should work happen? Who should own its lifetime? Are caching,
+snapshots, callbacks, or repeated checks still necessary, or could different
+ownership make them disappear together?
 
-For file editor consumers, selection determines purpose: Files edits full text,
-product lists edit structured records, and invalid files have a repair route.
-Hunt per-record Source tabs, raw-mode admission, duplicated selection and
-selected-tab conditions inside shared `Tabs.Content`. Follow
-[the Svelte editor ownership patterns](../svelte/references/component-ui-patterns.md#file-editor-views).
-Use shared `Input` and `Textarea` retirement rather than forwarding wrappers.
-Keep genuine unfinished forms, accepted-content owners, path-operation facts,
-edit identities and rich-widget history. Remove an owner only after naming who
-will preserve its information.
+**Look for opportunities to recompose capabilities, not only inline them.**
+Trace how method namespaces, resources, and context are passed between layers.
+Could binding context once, regrouping operations, or composing a focused adapter
+remove repeated wiring or duplicated decisions? Show the resulting caller code
+and where state, rules, and lifecycle would live.
 
-Trace callers and mentally inline the candidate. Preserve evaluation timing,
-receiver binding, caching, and snapshot semantics when inlining. Keep a boundary when it names
-non-obvious work, enforces a shared rule, owns a lifecycle, isolates unsafe input,
-or makes a long phase understandable. Caller count alone does not decide.
+For a local inlining, preserve the existing semantics. When redesigning the
+model, make changed semantics explicit and verify the resulting caller
+experience.
+
+Keep a boundary when it names non-obvious work, enforces a shared rule, owns a
+lifecycle, isolates unsafe input, or makes a long phase understandable. Caller
+count alone does not decide.
 A local that preserves type narrowing inside a deferred callback can earn its place even when it only reads a property; inspect its consumers before inlining it.
 Use [one-sentence-test](../one-sentence-test/SKILL.md) when a file's purpose is
 unclear, rather than forcing the exercise on every small change.
@@ -136,13 +143,10 @@ alone are insufficient. Do not manufacture changes to make a pass look productiv
 If an edit fails this test on rereading, undo only that edit while preserving
 unrelated and unsaved work.
 
-When a library refuses the proposed model, treat that as evidence about the
-model. Do not reimplement its public surface to make the simplification work.
-Read [library refusal](references/library-refusal.md) for this situation.
 Use [rethink](../rethink/SKILL.md) for ownership, lifecycle, API, or package-boundary
-decisions. Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when refusing a small
-promise would delete a disproportionate code family; name the promise and
-establish whether the user's authorization covers changing it.
+decisions. Use [asymmetric-wins](../asymmetric-wins/SKILL.md) to develop the
+tradeoff when refusing a small promise could delete a disproportionate code
+family.
 
 ## Carry each finding through
 

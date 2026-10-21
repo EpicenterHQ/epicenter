@@ -74,20 +74,22 @@ Downstream operations use its typed result rather than repeating casts.
 ```
 BAD: Multiple raw access points scattered across methods
 ─────────────────────────────────────────────────────────
-currentType getter  → entry.get('type') as ContentType     ← raw .get() + cast
+getCurrentType()    → entry.get('type') as ContentType     ← raw .get() + cast
 write()             → entry.get('columns') as Y.Map<...>   ← raw .get() + cast
 replaceCurrentText  → entry.get('content') as Y.Text       ← raw .get() + cast
 
     GOOD: Single boundary, everything else uses typed discriminated union
     ───────────────────────────────────────────────────────────────────
 readEntry()         → entry.get('type'), instanceof checks  ← THE boundary
-    currentEntry getter → readEntry(last)                       ← typed from here
-    write()             → this.currentEntry (discriminated)     ← typed
-read()              → this.currentEntry (discriminated)     ← typed
+    getCurrentEntry()   → readEntry(last)                       ← typed from here
+    write()             → getCurrentEntry() (discriminated)     ← typed
+read()              → getCurrentEntry() (discriminated)     ← typed
 ```
 
-Route access through the typed getter. Public methods discriminate
-`this.currentEntry` instead of repeating raw `.get()` calls.
+Route access through the typed reader. Public methods discriminate
+`getCurrentEntry()` instead of repeating raw `.get()` calls. A Svelte reactive
+adapter may expose that read as a tracked property; the framework-neutral
+implementation keeps the explicit method.
 
 ## Collapsing Duplicate Branches
 

@@ -107,8 +107,10 @@ not two-way bound booleans.
 For a controlled input wrapper, expose a `$bindable` value and use Svelte's
 [`bind:value={get, set}`](https://svelte.dev/docs/svelte/bind#Function-bindings)
 when the caller must transform reads or writes. Paired `read`/`write` or
-`getValue`/`setValue` props recreate that protocol. Trace their callers and replace
-them when they only control the same value. Keep commands as callback props.
+`getValue`/`setValue` props and forwarding value-change props recreate that
+protocol. Trace their callers, transformations, and lifecycle guards before
+replacing them when they only control the same value. Keep commands as callback
+props and preserve real draft ownership.
 
 ```svelte
 <Textarea
@@ -173,10 +175,10 @@ Use [ADR-0528](../../../../docs/adr/0528-applications-edit-files-through-the-que
 for how an app edits files and [the input patterns](input-ownership.md) for the
 choice between immediate editing and explicit submission.
 
-A product list opens structured controls. An invalid file shows its reason and
-opens as text, as below; repairing text does not switch a mounted editor's
-interpretation. Do not add per-record Source/Fields tabs, raw mode, or automatic
-Source fallback.
+Files opens full text; a product list opens structured controls. An invalid file
+shows its reason and opens as text, as below; repairing text does not switch a
+mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
+mode, or automatic Source fallback.
 
 The query cache holds the files. An edit is one immutable change to the cached
 row or text, written by a mutation keyed and scoped by the file's path as the
@@ -201,8 +203,11 @@ controls and delayed commands retain their own lifetime and current-data checks.
 Inline components that only forward bindings; keep substantial UI, resources,
 format rules and real editing lifetimes.
 
-For a hunt, trace each app's write mutations and the queries they update.
-Classify state by its actual owner before removing it. Use the
+For a hunt, trace each app's write mutations and the queries they update. Hunt
+per-record Source tabs, raw-mode admission, and duplicated selection or
+selected-tab conditions inside shared `Tabs.Content`. Classify state by its
+actual owner before removing it. Keep path-operation facts and edit identities;
+name who preserves their information before removing an owner. Use the
 [search recipes](input-ownership.md#search-recipes), then verify repair
 navigation and that a failed write rolls back with a visible notice.
 
@@ -589,7 +594,7 @@ use. Keep extraction when it centralizes a shared rule, avoids substantial
 repetition, provides necessary caching, or gives non-obvious work a useful name.
 Two uses alone do not establish any of those benefits. See
 [refactoring methods](../../collapse-pass/references/refactoring-methods.md#keep-source-and-action-visible) for the
-general test, and [lifecycle and reactivity](lifecycle-and-reactivity.md#shallow-template-aliases-inline-direct-reads)
+general test, and [lifecycle and reactivity](lifecycle-and-reactivity.md#template-locals-narrow-reactive-values-before-use)
 for reactive reads and operation-local snapshots.
 
 # Referential Stability for Reactive Data Sources
