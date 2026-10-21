@@ -33,7 +33,7 @@ before FolderApp closes storage. Route changes retain the same product state.
 
 ```text
 ~/Epicenter/Whispering/
-├── .gitignore                     app-maintained exclusions for recording audio
+├── .gitignore                     app-maintained Markdown-only Git defaults
 ├── recordings/
 │   ├── <recording-id>.md            title, time, length; notes in the body
 │   └── <recording-id>.<extension>   matching audio beside its Markdown file
@@ -47,7 +47,7 @@ before FolderApp closes storage. Route changes retain the same product state.
     └── <run-id>.md                  a result on pasted text you saved: what was sent and with what; the result in the body
 ```
 
-Startup maintains `.gitignore` to exclude untracked recording audio from Git. Where
+Startup maintains `.gitignore` so Git includes untracked Markdown and ignore files only. Where
 requests go is set up per device in Settings and is never in the folder;
 until you set it up, nothing is sent to a provider. Recording, transcript,
 transformation, and result files are created by explicit actions. A folder has no
@@ -68,24 +68,34 @@ A recording's ID is its file stem, set when the recording starts
 frontmatter and never moves a file. Audio is an ordinary same-stem file under `recordings/`,
 saved as its exact bytes. Whispering keeps no history and copies the folder
 nowhere, and a fresh folder has no `epicenter.json`: opening and recording
-declare nothing. Whispering maintains audio-extension rules scoped to `/recordings/` in `.gitignore`. A copy of the
+declare nothing. Whispering maintains Markdown-only rules in `.gitignore`. A copy of the
 folder that leaves recording audio out has each recording's row, notes, and
 transcripts, and no audio. There a recording says "This recording's audio
 isn't on this device", and it cannot be played or transcribed.
 
 The `epicenter` CLI's `save-version` and `sync` use Git's tracked-file
 and ignore rules, without requiring `epicenter.json`. The root `.gitignore`
-excludes untracked recording audio after Whispering confirms its startup update. Markdown and unrelated attachments remain eligible.
-Already-tracked audio remains tracked. Removing the rule can make untracked
-audio eligible; there is no extra binary refusal or declaration privacy policy.
+excludes untracked audio, images, PDFs, and other non-Markdown files after Whispering confirms its startup update.
+Those files stay on disk and travel with a complete folder copy. Already-tracked
+files remain tracked; the app never silently removes them from Git or rewrites
+history. There is no extra binary refusal or declaration privacy policy.
+
+The default rules apply throughout the folder, including nested directories:
+
+```gitignore
+*
+!*/
+!*.md
+!.gitignore
+```
 
 Whispering reads `.gitignore` before starting its first product reads. If its rules
-already exclude supported recording audio formats, startup writes nothing. Otherwise
-it preserves the existing text and appends missing case-insensitive extension patterns under `/recordings/` through `folder.files.write`,
-using the exact bytes read as the merge base. This also restores an exclusion
-overridden by a later exception. Comments, unrelated rules, a UTF-8 BOM, and
-existing line endings survive. App upgrades can add further exclusions through
-the same read-modify-write; no version flag or rule registry is stored.
+already end with that active rule block, startup writes nothing; trailing comments
+and blank lines do not cause another write. Otherwise it preserves the existing
+text and appends the block through `folder.files.write`, using the exact bytes
+read as the merge base. This also restores the defaults after later rules change
+the policy. Comments, earlier rules, a UTF-8 BOM, and existing line endings survive.
+No version flag or rule registry is stored.
 
 A changed file is read again to confirm its effective rule after merging.
 An unreadable file or failed update shows a warning while the rest of Whispering

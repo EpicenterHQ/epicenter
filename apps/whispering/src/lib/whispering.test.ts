@@ -60,8 +60,8 @@ test('startup reads connections and maintains exclusions before any listing', as
 	expect(checked).toBe(true);
 	expect(library.connections?.transcription?.model).toBe('verification-model');
 	expect(await readdir(test.root)).toEqual(['.gitignore']);
-	expect(await Bun.file(`${test.root}/.gitignore`).text()).toContain(
-		'/recordings/*.[wW][aA][vV]\n',
+	expect(await Bun.file(`${test.root}/.gitignore`).text()).toBe(
+		'*\n!*/\n!*.md\n!.gitignore\n',
 	);
 });
 

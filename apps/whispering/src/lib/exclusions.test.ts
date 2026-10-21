@@ -6,6 +6,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { type FolderFiles, ReadError, SaveError } from '@epicenter/folder';
 import { Ok } from 'wellcrafted/result';
@@ -18,19 +19,7 @@ import { maintainExclusions } from './exclusions.js';
 import { deferred, openTestServices } from './services.test-support.js';
 
 const cleanups: (() => Promise<void> | void)[] = [];
-const rules = [
-	'/recordings/*.[wW][aA][vV]',
-	'/recordings/*.[wW][eE][bB][mM]',
-	'/recordings/*.[mM]4[aA]',
-	'/recordings/*.[mM][pP]4',
-	'/recordings/*.[oO][gG][gG]',
-	'/recordings/*.[oO][gG][aA]',
-	'/recordings/*.[oO][pP][uU][sS]',
-	'/recordings/*.[mM][pP]3',
-	'/recordings/*.[fF][lL][aA][cC]',
-	'/recordings/*.[aA][aA][cC]',
-	'',
-].join('\n');
+const rules = ['*', '!*/', '!*.md', '!.gitignore', ''].join('\n');
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -60,7 +49,12 @@ function filesOf(repository: Awaited<ReturnType<typeof openRepository>>) {
 }
 
 async function text(files: Pick<FolderFiles, 'read'>) {
-	return expectOk(await files.read('.gitignore'))?.content.text();
+	const loaded = expectOk(await files.read('.gitignore'));
+	return loaded === undefined
+		? undefined
+		: new TextDecoder('utf-8', { ignoreBOM: true }).decode(
+				await loaded.content.arrayBuffer(),
+			);
 }
 
 test('an empty folder gets only an ordinary .gitignore, and another startup writes nothing', async () => {
@@ -86,12 +80,13 @@ test.each([
 	['/recordings/\n!/recordings/\n', `/recordings/\n!/recordings/\n${rules}`],
 	['/audio/\n', `/audio/\n${rules}`],
 	['/RECORDINGS/\n', `/RECORDINGS/\n${rules}`],
+	['*\n', `*\n${rules}`],
 	[
 		'\ufeff# café\r\n/cache/',
 		`\ufeff# café\r\n/cache/\r\n${rules.replaceAll('\n', '\r\n')}`,
 	],
 ])(
-	'adds or restores the root exclusion while preserving %j',
+	'adds the Markdown-only rules while preserving %j',
 	async (before, after) => {
 		const { files } = await open(before);
 		let supplied: Parameters<FolderFiles['write']>[1] | undefined;
@@ -109,19 +104,23 @@ test.each([
 		expect(new Uint8Array(await saved.content.arrayBuffer())).toEqual(
 			new TextEncoder().encode(after),
 		);
-		// Another app can append its own rule without making ours append again.
+		// A later rule is preserved before the restored app default.
 		expectOk(await files.write('.gitignore', after, `${after}/private/\n`));
 		expectOk(await maintainExclusions(files));
-		expect(await text(files)).toEndWith('/private/\n');
+		const installed = rules.replaceAll(
+			'\n',
+			after.includes('\r\n') ? '\r\n' : '\n',
+		);
+		expect(await text(files)).toBe(`${after}/private/\n${installed}`);
 	},
 );
 
 test.each([
-	'/recordings/\n',
-	'recordings/*\n',
-	'*\n',
-	'\ufeff/recordings/\r\n',
-])('effective directory rules cause no write: %j', async (before) => {
+	rules,
+	`# keep\n${rules}`,
+	`${rules}# comment\n\n`,
+	`\ufeff${rules.replaceAll('\n', '\r\n')}`,
+])('an installed Markdown-only block causes no write: %j', async (before) => {
 	const { files } = await open(before);
 	let writes = 0;
 	expectOk(
@@ -238,7 +237,62 @@ test('two browser connections starting from the same bytes retain both the rule 
 	expect(await text(reopened.files)).toBe(`# keep\n/private/\n${rules}`);
 });
 
-test('startup rules exclude new audio from commit preparation while preserving offline bytes and an exact pending send', async () => {
+test('native Git includes nested Markdown and ignore files while leaving non-Markdown bytes and tracked files intact', async () => {
+	const { files, root } = await open();
+	const git = (...args: string[]) =>
+		execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+	git('init', '--quiet');
+	expectOk(
+		await files.write(
+			'recordings/tracked.wav',
+			null,
+			new Uint8Array([1, 2, 3]),
+		),
+	);
+	git('add', '--', 'recordings/tracked.wav');
+	expectOk(
+		await files.write('recordings/new.wav', null, new Uint8Array([4, 5, 6])),
+	);
+	expectOk(await files.write('notes/nested/one.md', null, 'Nested note\n'));
+	expectOk(await files.write('notes/nested/.gitignore', null, '# nested\n'));
+	expectOk(
+		await files.write('notes/nested/image.png', null, new Uint8Array([7, 8])),
+	);
+	expectOk(
+		await files.write('notes/nested/export.pdf', null, new Uint8Array([9, 10])),
+	);
+	expectOk(await maintainExclusions(files));
+	git('add', '--', '.gitignore', 'notes', 'recordings');
+	expect(git('ls-files').trim().split('\n')).toEqual([
+		'.gitignore',
+		'notes/nested/.gitignore',
+		'notes/nested/one.md',
+		'recordings/tracked.wav',
+	]);
+	expect(
+		git(
+			'check-ignore',
+			'recordings/new.wav',
+			'notes/nested/image.png',
+			'notes/nested/export.pdf',
+		)
+			.trim()
+			.split('\n'),
+	).toEqual([
+		'recordings/new.wav',
+		'notes/nested/image.png',
+		'notes/nested/export.pdf',
+	]);
+	expect(
+		new Uint8Array(
+			await expectOk(
+				await files.read('recordings/new.wav'),
+			)!.content.arrayBuffer(),
+		),
+	).toEqual(new Uint8Array([4, 5, 6]));
+});
+
+test('startup commits only Markdown and ignore files while preserving other offline bytes and an exact pending send', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	cleanups.push(() => repository.close());
 	const { storage } = repository;
@@ -255,6 +309,11 @@ test('startup rules exclude new audio from commit preparation while preserving o
 		),
 	);
 	expectOk(await files.write('notes/one.md', null, 'Offline note\n'));
+	expectOk(await files.write('notes/nested/two.md', null, 'Nested note\n'));
+	expectOk(await files.write('notes/nested/image.png', null, audio));
+	expectOk(
+		await files.write('notes/nested/.gitignore', null, '# local rules\n'),
+	);
 	expectOk(await maintainExclusions(files));
 	// A simulated first observation of an empty remote, not a network call.
 	const { state } = await storage.capture([]);
@@ -274,12 +333,20 @@ test('startup rules exclude new audio from commit preparation while preserving o
 	);
 	expect([...tree.files.keys()].sort()).toEqual([
 		'.gitignore',
+		'notes/nested/.gitignore',
+		'notes/nested/two.md',
 		'notes/one.md',
-		'recordings/attachment.pdf',
 		'recordings/take.md',
 	]);
 	const localAudio = expectOk(await files.read('recordings/take.wav'))!;
 	expect(new Uint8Array(await localAudio.content.arrayBuffer())).toEqual(audio);
+	expect(
+		new Uint8Array(
+			await expectOk(
+				await files.read('notes/nested/image.png'),
+			)!.content.arrayBuffer(),
+		),
+	).toEqual(audio);
 	expectOk(
 		await files.write('.gitignore', rules, '# changed after preparing\n'),
 	);

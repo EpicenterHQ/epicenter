@@ -9,8 +9,8 @@
 Whispering's authored folder is a portable recording library: copying the
 folder includes original audio alongside its Markdown. Original recordings
 remain in this folder rather than app-managed AppData. For now, ordinary
-Git commits exclude untracked recording audio by default; folder portability
-and Git synchronization have different inclusion policies.
+Git commits include only untracked Markdown and ignore files by default;
+folder portability and Git synchronization have different inclusion policies.
 
 New captures pair `recordings/<id>.md` with one supported audio file
 `recordings/<id>.<extension>`. The capture device chooses the extension from
@@ -24,12 +24,22 @@ the former `audio/` directory. Opening does not move files or rewrite old
 metadata. Native interrupted-WAV recovery checks both locations. Audio remains
 an ordinary authored file; deleting a recording keeps its audio as before.
 
-Whispering maintains case-insensitive audio-extension patterns scoped to
-`/recordings/` through ordinary `.gitignore` saves. It preserves existing text
-and verifies the merged rules. Markdown and unrelated attachments are not
-excluded by this policy. Existing `/audio/` rules are preserved. Git still
-controls tracked files; this is an app-maintained default, not a permanent
-privacy boundary.
+Whispering maintains these ordinary `.gitignore` rules throughout its folder:
+
+```gitignore
+*
+!*/
+!*.md
+!.gitignore
+```
+
+Markdown and ignore files remain eligible in nested directories. Audio,
+images, PDFs, configuration, and other non-Markdown files stay on disk but
+are excluded when untracked. Earlier ignore text is preserved and the block
+is appended when it is not the final active policy. Trailing comments and
+blank lines do not trigger another append. Merged text is read again to verify
+the block. Git still controls tracked files; this is an app-maintained default,
+not a permanent privacy boundary.
 
 These rules do not remove audio that Git already tracks or erase it from
 earlier commits. Existing tracked audio requires an explicit, separate
@@ -46,7 +56,8 @@ Transcription resolves siblings from a fresh listing so a stale UI cannot
 silently choose the wrong format. Two same-stem audio files need user repair
 rather than an arbitrary extension preference.
 
-The ignore patterns must stay aligned with the recognized audio formats.
-Ignoring every non-Markdown file would also hide unrelated attachments, so
-that broader policy is not adopted. No SQLite database or internal namespace
+Git eligibility no longer depends on the recognized audio formats. New audio
+formats and other attachments remain local without adding an extension rule.
+This deliberately excludes untracked non-Markdown attachments from Git too;
+a complete folder copy retains them. No SQLite database or internal namespace
 is introduced by this change.

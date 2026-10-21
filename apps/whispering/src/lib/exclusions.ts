@@ -1,9 +1,20 @@
 import type { FolderFiles, ReadError, SaveError } from '@epicenter/folder';
-import ignore from 'ignore';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
-import { AUDIO_EXTENSIONS } from './audio-format.js';
-import { RECORDINGS } from './definition.js';
+
+const MARKDOWN_RULES = ['*', '!*/', '!*.md', '!.gitignore'];
+
+/** Comments and empty lines do not change the final ordered rule block. */
+function hasMarkdownRules(text: string) {
+	const active = text
+		.replace(/^\ufeff/, '')
+		.split(/\r?\n/)
+		.filter((line) => line !== '' && !line.startsWith('#'));
+	return (
+		active.slice(-MARKDOWN_RULES.length).join('\n') ===
+		MARKDOWN_RULES.join('\n')
+	);
+}
 
 const ExclusionError = defineErrors({
 	InvalidIgnoreText: () => ({
@@ -11,7 +22,7 @@ const ExclusionError = defineErrors({
 	}),
 	NotExcluded: () => ({
 		message:
-			'.gitignore changed during startup and does not exclude recording audio.',
+			'.gitignore changed during startup and no longer ends with the Markdown-only rules.',
 	}),
 });
 type ExclusionError = InferErrors<typeof ExclusionError>;
@@ -37,9 +48,8 @@ async function readRules(files: Pick<FolderFiles, 'read'>) {
 }
 
 /**
- * Maintain format-specific recording exclusions through ordinary file saves.
- * Existing rules stay in order; missing format rules are appended after them.
- * Non-audio attachments in recordings remain outside this default policy.
+ * Maintain Markdown-only Git defaults through ordinary file saves.
+ * Existing text stays intact; the four rules follow any earlier exclusions.
  * No Git commit, startup marker, or separate policy is created.
  */
 export async function maintainExclusions(
@@ -48,38 +58,20 @@ export async function maintainExclusions(
 	const read = await readRules(files);
 	if (read.error !== null) return Err(read.error);
 	const { before, text } = read.data;
-	const rules = ignore({ ignorecase: false }).add(text);
-	const missing = AUDIO_EXTENSIONS.filter(
-		(extension) =>
-			!rules.ignores(`${RECORDINGS}/take.${extension}`) ||
-			!rules.ignores(`${RECORDINGS}/take.${extension.toUpperCase()}`),
-	);
-	if (missing.length === 0) return Ok(undefined);
+	if (hasMarkdownRules(text)) return Ok(undefined);
 	const newline = text.includes('\r\n') ? '\r\n' : '\n';
 	const separator = text === '' || text.endsWith('\n') ? '' : newline;
 	const saved = await files.write(
 		'.gitignore',
 		before,
-		`${text}${separator}${missing
-			.map(
-				(extension) =>
-					`/${RECORDINGS}/*.${[...extension].map((letter) => (letter.toUpperCase() === letter ? letter : `[${letter}${letter.toUpperCase()}]`)).join('')}`,
-			)
-			.join(newline)}${newline}`,
+		`${text}${separator}${MARKDOWN_RULES.join(newline)}${newline}`,
 	);
 	if (saved.error !== null) return saved;
 
 	// A save confirms merged bytes, not the meaning of the requested rules.
 	const verified = await readRules(files);
 	if (verified.error !== null) return Err(verified.error);
-	const installed = ignore({ ignorecase: false }).add(verified.data.text);
-	if (
-		AUDIO_EXTENSIONS.some(
-			(extension) =>
-				!installed.ignores(`${RECORDINGS}/take.${extension}`) ||
-				!installed.ignores(`${RECORDINGS}/take.${extension.toUpperCase()}`),
-		)
-	)
+	if (!hasMarkdownRules(verified.data.text))
 		return ExclusionError.NotExcluded();
 	return Ok(undefined);
 }
