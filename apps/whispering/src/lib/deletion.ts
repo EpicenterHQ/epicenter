@@ -307,14 +307,14 @@ export async function runDeletion(
 			const { id } = deletion;
 			const busy = context.busy(id);
 			if (busy !== undefined) return busy;
-			// A result saved since the person was asked was not confirmed.
-			const { data: now, error } = await resultsOf(context, id);
-			if (error !== null) return error;
-			const confirmed = new Set(deletion.results);
-			if (now.some((result) => !confirmed.has(result)))
-				return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
 			context.deleting.add(id);
 			try {
+				// Reserve before reading: no request starts while this list is read.
+				const { data: now, error } = await resultsOf(context, id);
+				if (error !== null) return error;
+				const confirmed = new Set(deletion.results);
+				if (now.some((result) => !confirmed.has(result)))
+					return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
 				const refused = await deleteRow(context, RECORDINGS, id);
 				if (refused !== undefined) return refused;
 				context.dropFailed(id);

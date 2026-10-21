@@ -23,7 +23,6 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
 import {
 	audioPathIn,
-	type RecordingFields,
 	rowIdOf,
 	rowPath,
 	TEXT_RUNS,
@@ -219,6 +218,10 @@ export function createRuns({
 						if (error === null && recording === undefined)
 							return Err('The recording is no longer in the folder.');
 					}
+					const late = refused();
+					if (late !== undefined) return Err(late);
+					if (target.recording !== undefined && deleting.has(target.recording))
+						return Err(BEING_DELETED);
 					const { data, error } = await tableOf(target.table).set(
 						target.stem,
 						null,
@@ -233,6 +236,29 @@ export function createRuns({
 		);
 		if (begun.error !== null) live.delete(pathOf(target));
 		return begun;
+	}
+
+	/** The audio its recording names now, after accepted typing has saved. */
+	async function audioAt(recording: string): Promise<Result<string, string>> {
+		if (await settle(rowPath('recordings', recording)))
+			return Err(
+				'This recording has unsaved changes. Try again or discard them before transcribing it.',
+			);
+		const { data: entry, error } =
+			await folder.tables.recordings.get(recording);
+		if (error !== null) return Err(describeError(error));
+		if (entry === undefined)
+			return Err('The recording is no longer in the folder.');
+		if (entry.issues !== null)
+			return Err(
+				`The recording needs repair before it is transcribed: ${unread(entry)}`,
+			);
+		const late = refused();
+		if (late !== undefined) return Err(late);
+		if (deleting.has(recording)) return Err(BEING_DELETED);
+		if (capturing.has(recording)) return Err(STILL_RECORDING);
+		const audioPath = audioPathIn(entry.fields);
+		return audioPath === undefined ? Err(NO_AUDIO) : Ok(audioPath);
 	}
 
 	/**
@@ -299,6 +325,15 @@ export function createRuns({
 		from: Row,
 		request: () => Promise<Answer>,
 	) {
+		const why =
+			refused() ??
+			(target.recording !== undefined && deleting.has(target.recording)
+				? BEING_DELETED
+				: undefined);
+		if (why !== undefined) {
+			setLive(target, { kind: 'failed', message: why });
+			return;
+		}
 		setLive(target, { kind: 'running' });
 		let answer: Answer;
 		try {
@@ -451,6 +486,10 @@ export function createRuns({
 		).find((name) => rowIdOf(name, path) !== undefined);
 		if (table === undefined) return Err(`${path} is not a result.`);
 		const stem = rowIdOf(table, path) as string;
+		if (await settle(path))
+			return Err(
+				'This result has unsaved changes. Try again or discard them before running it again.',
+			);
 		const { data: stored, error } = await tableOf(table).get(stem);
 		if (error !== null) return Err(describeError(error));
 		if (stored === undefined) return Err(`${path} is no longer in the folder.`);
@@ -467,17 +506,8 @@ export function createRuns({
 			if (moved !== undefined) return Err(moved);
 			if (deleting.has(recording)) return Err(BEING_DELETED);
 			if (capturing.has(recording)) return Err(STILL_RECORDING);
-			const { data: entry, error: recordingError } =
-				await folder.tables.recordings.get(recording);
-			if (recordingError !== null) return Err(describeError(recordingError));
-			if (entry === undefined)
-				return Err('The recording is no longer in the folder.');
-			if (entry.issues !== null)
-				return Err(
-					`The recording needs repair before it is transcribed: ${unread(entry)}`,
-				);
-			const audioPath = audioPathIn(entry.fields);
-			if (audioPath === undefined) return Err(NO_AUDIO);
+			const { data: audioPath, error: audioError } = await audioAt(recording);
+			if (audioError !== null) return Err(audioError);
 			return Ok({
 				target: { table, stem, recording },
 				from: stored,
@@ -568,10 +598,7 @@ export function createRuns({
 		 * audio its row names over the transcription connection, then write the
 		 * answer into that row.
 		 */
-		async transcribe(entry: {
-			readonly stem: string;
-			readonly row: { readonly fields: RecordingFields };
-		}) {
+		async transcribe(entry: { readonly stem: string }) {
 			if (refused() !== undefined) return;
 			const id = entry.stem;
 			if (transcriptions.get(id)?.kind === 'running' || deleting.has(id))
@@ -580,8 +607,6 @@ export function createRuns({
 				transcriptions.set(id, { kind: 'failed', message });
 			};
 			if (capturing.has(id)) return fail(STILL_RECORDING);
-			const audioPath = audioPathIn(entry.row.fields);
-			if (audioPath === undefined) return fail(NO_AUDIO);
 			const { info, error: connectionsError } = connections();
 			const connection = info?.transcription;
 			if (connection === undefined)
@@ -593,6 +618,10 @@ export function createRuns({
 			const running: TranscriptionRun = { kind: 'running' };
 			transcriptions.set(id, running);
 			try {
+				const { data: audioPath, error: audioError } = await track(() =>
+					audioAt(id),
+				);
+				if (audioError !== null) return fail(audioError);
 				const at = new Date();
 				const target: Target = {
 					table: TRANSCRIPTIONS,

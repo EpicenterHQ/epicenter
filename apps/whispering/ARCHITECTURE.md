@@ -238,6 +238,13 @@ The page reads those lines into a `Response` with `createResponseReader`
 from `@epicenter/ai/send`. The request never leaves from the page, so the
 endpoint needs no CORS headers.
 
+Before preparing a transcription, the run saves accepted edits and reads the
+recording again. It uses the current audio path even when the list has not
+refreshed; missing, malformed, or unsaved recording input sends nothing. Running
+a result again also saves its accepted input before deciding whether it is
+unfinished. Provider requests are checked again for close and deletion after
+preparation and initial result saving.
+
 A transcription reads its audio through the folder engine, from the path the
 recording's row names, and sends those bytes with the file's own name and the
 type its extension calls for. The folder plugin reads only beneath the root
@@ -517,7 +524,8 @@ own, so none is deleted with it. Any other file is deleted the same way,
 file another program changes in that very moment is kept, and the person is
 told. For a recording, the same guards hold by its name: the capture and the
 confirmation both refuse while work for that recording is running, and
-nothing new starts for it while it is deleted.
+nothing new starts for it from the deletion's reservation through its result
+reads and final deletes.
 
 ## Editing through Folder
 

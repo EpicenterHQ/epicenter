@@ -897,14 +897,6 @@ test('closing while several are being transcribed sends nothing more: the one un
 	// Asked again after closing, the library sends nothing.
 	await library.transcribe({
 		stem: 'lecture',
-		row: {
-			fields: {
-				title: 'Lecture notes',
-				recordedAt: '2026-03-01T09:00:00.000Z',
-				capture: 'microphone',
-				audioPath: 'audio/lecture.wav',
-			} as RecordingFields,
-		},
 	});
 	expect(sent).toHaveLength(1);
 	expect(library.transcriptionRun('lecture')).toBeUndefined();
