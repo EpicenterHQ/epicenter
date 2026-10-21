@@ -10,9 +10,9 @@ Add Wellcrafted option namespace helpers for regular Result-service calls,
 adopt them in the dashboard, and rebuild Whispering's observation boundary
 around Result commands and explicit recording/run owners.
 
-The helper runtime is unimplemented. Epicenter uses Wellcrafted 0.44.0 and
-query-core 5.96.2; Wellcrafted's source and published 0.45.0 expose client-free
-options adapters and Result runners. Completion requires a tested library
+The helper runtime is implemented in [Wellcrafted PR #145](https://github.com/wellcrafted-dev/wellcrafted/pull/145),
+with a minor changeset and passing CI. Epicenter still uses Wellcrafted 0.44.0
+and query-core 5.96.2. The helpers are not yet adopted here; completion requires a tested library
 release, a compatible dependency set, migrated legacy consumers, and preserved
 dashboard isolation and Whispering lifecycle behavior.
 
@@ -331,19 +331,31 @@ publication retries that reuse a received answer rather than resend a request.
 
 ### 1. Prove and implement the library contract
 
-- [ ] Add `createQueries` and `createMutations` beside the existing adapters,
+- [x] Add `createQueries` and `createMutations` beside the existing adapters,
   with no client capture, proxy, callback-merging overload, or invalidation DSL.
-- [ ] Generate bounded query keys and ordinary operation mutation keys; prevent
+- [x] Generate bounded query keys and ordinary operation mutation keys; prevent
   descriptors from replacing the generated identity or Result conversion.
-- [ ] Prove heterogeneous shorthand/descriptor inference, zero/optional/multiple
+- [x] Prove heterogeneous shorthand/descriptor inference, zero/optional/multiple
   query arguments, void/unary mutation inputs, `select`, cache `DataTag`,
-  `initialData` compatibility, and optimistic callback context. Reject unsupported
-  multi-argument mutation functions with an explicit-adapter path.
-- [ ] Test construction without execution, exact and prefix keys across nested
+  `initialData` compatibility, and optimistic callback context. Rollback inference
+  requires annotations on every parameter declared by namespace `onMutate`;
+  the explicit adapter retains full unannotated optimistic inference. Reject
+  unsupported multi-argument mutation functions with an explicit-adapter path.
+- [x] Test construction without execution, exact and prefix keys across nested
   namespaces, receiver handling, Result conversion, mutation callback ordering,
   observer departure, and shared policy through `runMutation`.
-- [ ] Update the library query README and distributable TanStack skill, then
-  validate the package and prepare a release containing the tested helpers.
+- [x] Update the library query README and distributable TanStack skill,
+  validate the package, and open a PR with a minor changeset.
+- [ ] Release the helpers through Wellcrafted's existing release workflow before
+  upgrading Epicenter's dependency.
+
+The library checkpoint passes 183 tests, typecheck, build, and query-module
+Biome checks. Packed declarations pass real React Query 5.104.5 and Svelte
+Query 6.3.5 consumer checks; query-core 5.102.0 also passes a packed type/runtime
+check. Review repaired fixed-hash identity overrides, prototype-named method
+mapping, and unannotated service wrappers accepting arbitrary inputs. The
+namespace helpers add no per-entry builder to hide the optimistic inference
+limit. Whispering implementation remains the next phase.
 
 The source runner already catches thrown work. An executed check confirmed
 `Err` with the same thrown value and no success callback. Another check found
