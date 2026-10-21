@@ -7,8 +7,8 @@
 ## One sentence
 
 Add Wellcrafted option namespace helpers for regular Result-service calls,
-adopt them in the dashboard, and migrate Whispering's existing work adapters
-without changing Folder reads or workflow lifetimes.
+adopt them in the dashboard, and rebuild Whispering's observation boundary
+around Result commands and explicit recording/run owners.
 
 The helper runtime is unimplemented. Epicenter uses Wellcrafted 0.44.0 and
 query-core 5.96.2; Wellcrafted's source and published 0.45.0 expose client-free
@@ -31,24 +31,30 @@ The inspected production legacy imports are concentrated in these owners:
 | `apps/api/ui/src/lib/billing/queries.ts` | Key map, forwarding functions, client-bound definitions | Selected query/mutation maps composed directly in the existing dashboard runtime |
 | `apps/api/ui/src/lib/account/queries.ts` | Key map and fixed/nested auth-client reads | Selected read closures; shared invalidation for unlink/passkey writes where adopted |
 | `apps/api/ui/src/lib/dashboard/runtime.ts` | Account, transports, fresh QueryClient, injected factories | Retain lifetime; replace factories-only plumbing with native options namespaces |
-| `apps/whispering/src/lib/library.svelte.ts` | Scope-keyed `track`, fenced `action`, accepted-work draining | Keep those adapters; execute explicit `resultMutationOptions` through `runMutation` |
+| `apps/whispering/src/lib/library.svelte.ts` | Scope-keyed `track`, fenced `action`, accepted-work draining | Remove internal mutation wrappers; expose Result commands and domain activity with one registry for accepted local stages |
 | `packages/svelte/src/folder-queries.ts` | Path/representation keys and context-aware generic readers | Replace removed `defineKeys` with plain tuple data/functions; keep reader API and key layout |
 | Capture and other consumers of `resultMutationOptions` | Explicit local observation of app actions | Keep explicit options unless a real repeated service namespace appears |
 
 The dashboard's `billingKeys` and `accountKeys`, repeated service argument
 annotations, forwarding lambdas, and injected `createQueryFactories` plumbing
-can disappear. Whispering's scope keys, action closures, and Folder's positional
-key protocol contain independent information and remain.
+can disappear. Whispering's internal mutation keys, mutation-cache activity
+subscription, outer `Ok` round trips, and duplicate pending accounting can also
+disappear. Folder's positional key protocol remains.
 
 ## Review findings and decisions
 
-Two independent reviews reconstructed the callers and challenged the proposal.
-Both support selective adoption and preserving Whispering's resource/workflow
-adapters. The strongest disagreement is whether a mutation namespace saves
-enough beyond plain `resultMutationOptions`. Retain the two-helper proposal
-within its small mapping contract; do not add a lifecycle registry, callback
-merging, automatic invalidation, or per-domain wrapper factories to justify it.
-An isolated or customized mutation can still use the explicit adapter.
+The initial reviews supported a narrow compatibility migration. A subsequent
+independent greenfield review challenged its assumption that Whispering's
+wrappers had to survive. Both reviewers found that their TanStack machinery
+could disappear while recorder and run owners retain the necessary behavior.
+Shutdown admission and draining remain necessary; merely renaming `hold` to
+another lifecycle helper would not establish a simplification.
+
+Retain the two-helper proposal within its small mapping contract. The strongest
+library disagreement remains whether a mutation namespace saves enough beyond
+plain `resultMutationOptions`; an isolated or customized mutation can use the
+explicit adapter. Do not add a lifecycle registry, callback merging, automatic
+invalidation, or per-domain wrapper factories to justify namespace helpers.
 
 | Decision | Basis | Consequence |
 | --- | --- | --- |
@@ -56,7 +62,8 @@ An isolated or customized mutation can still use the explicit adapter.
 | Keep services independent of TanStack | Composition | Observation and cache relationships stay at the consuming edge |
 | Bound query arguments in a final tuple | Executed key-collision check | Use `[...namespace, method, args]`; require readonly string namespace paths |
 | Preserve supplied-argument identity | Native hashing and service signatures | No automatic trailing-undefined trimming; canonicalize before factory calls when required |
-| Keep explicit Folder and Whispering adapters | Actual callers and lifecycle tests | No generic namespace wrapper around files, capture, inference, or `track` |
+| Keep explicit Folder readers | Actual readers and refresh protocol | No generic namespace wrapper around resource/context arguments |
+| Remove Whispering's internal mutation wrappers | Actual state consumers and greenfield review | Domain owners report activity; one lifecycle registry admits complete local stages |
 | Retain a small mutation helper | Design choice | Saves operation-key and forwarding declarations; explicit adapters remain a valid alternative |
 
 ### Query identity correction
@@ -214,80 +221,111 @@ Keep component callbacks for local effects; remove their duplicate invalidation
 after the shared definition owns it. The same success callback must run when a
 component observer has gone away.
 
-### Whispering action execution
+## Whispering workflow redesign
 
-Before, `apps/whispering/src/lib/library.svelte.ts:730`:
+Whispering records audio, transcribes it, transforms saved or pasted text, and
+keeps the results as editable files. Its platform services currently supply
+capabilities; `library.svelte.ts` supplies most application workflows. Merely
+mapping the platform service object would leave that orchestration intact.
+
+### Ownership and callers
+
+| Owner | Responsibility |
+| --- | --- |
+| Folder | Authoritative files, typed edits, merge/save behavior, change notifications |
+| Folder context | QueryClient, read refresh, one registry for accepted local operations |
+| Mounted app root | Construction and shutdown order, selection, drafts, pasted text |
+| Recorder | Active capture, initial recording row, stop/cancel, audio finalization state |
+| Runs | Request snapshots, duplicate-send exclusion, per-result state, received answers awaiting persistence |
+| Result commands | Finite file/settings operations, including admission before asynchronous work |
+| Options namespaces | Native observation and cache policy for selected Result methods |
+
+Keep the existing platform seam. Construct stateful owners once per mounted
+app; routes consume them. A feature module does not require a separate public
+factory, injected callback framework, or query/mutation wrapper factory.
+Existing Svelte reactive state can remain where it makes the application model
+simpler; a new generic subscription layer is not a goal.
+
+The following is a proposed caller shape, not an existing export. These are
+application commands, not direct aliases for low-level transport methods:
 
 ```ts
-const mutation = defineMutation({
-  mutationKey: keys.action(name),
-  mutationFn: async (args: TArgs) => Ok(await work(...args)),
+const mutations = createMutations(['whispering'], {
+  createTransformation: app.createTransformation,
+  saveConnection: app.saveConnection,
 });
-// Inside the returned function, after the refusal check:
-const ran = await hold(local.run(() => mutation(args)));
-```
 
-Target:
-
-```ts
-const mutationOptions = resultMutationOptions({
-  mutationKey: keys.action(name),
-  mutationFn: async (args: TArgs) => Ok(await work(...args)),
+// Component:
+const create = createMutation(() => mutations.createTransformation());
+create.mutate(starter, {
+  onSuccess: ({ path }) => openTransformation(path),
 });
-// Inside the same returned function, after the same refusal check:
-const ran = await hold(
-  local.run(() => runMutation(queryClient, mutationOptions, args)),
-);
 ```
 
-Keep the public variadic action API, `refused()`, `hold`, `local.run`, and the
-existing Result-to-message translation. A tuple already serves as the single
-mutation variable; do not reshape every action into an object to fit a mapper.
+`createTransformation` returns a Result containing the created path. The
+component observes pending/error and chooses what to open. A direct call to
+the same command has the same admission and save guarantees. The command must
+not depend on executing through mutation options to be safe.
 
-### Whispering resource-scoped work
+Recording and inference commands may also be adapted when a caller benefits,
+but their shared state remains owned by the recorder and runs. Successful
+`startRecording` means a recording started, not that it finished. A received
+answer can still be awaiting persistence after the provider call succeeds.
+Native mutation pending/success/error does not replace those distinctions.
 
-`track<T>` at `apps/whispering/src/lib/library.svelte.ts:516` becomes:
+### Remove the compensating machinery
 
-```ts
-async function track<T>(work: () => Promise<T>, scope?: string): Promise<T> {
-  const options = resultMutationOptions({
-    mutationKey:
-      scope === undefined ? keys.action('read') : keys.recording(scope),
-    mutationFn: async () => Ok(await work()),
-  });
-  const ran = await hold(runMutation(queryClient, options, undefined));
-  if (ran.error !== null) throw ran.error;
-  return ran.data as T;
-}
-```
+Delete `track`, `action`, `whisperingKeys`, their internal `defineMutation`
+calls, `trackMutations`, and the outer `Ok`/unwrap/cast round trips. Replace
+`audioOf`'s mutation-cache lookup with recorder-owned capture/finalization
+state. Writing a transcript must not incidentally mark its audio as settling.
 
-The third `runMutation` argument is required by the inspected 0.45 signature;
-pass `undefined` for a void mutation. Preserve the outer `Ok`: some work
-intentionally returns an inner Result which its caller inspects. Do not unwrap
-that inner value as an incidental cleanup.
+Consolidate accepted local work in the existing context registry rather than
+retaining both library `pending`/`hold` and `context.run`. Commands admit whole
+local stages once; after an await, their continuations call Folder directly
+instead of attempting admission again. Resource reservations and domain state
+remain necessary; do not replace them with one generic `isPending` flag.
 
-`audioOf` uses `isMutating({ mutationKey: keys.recording(entry.path) })` to
-derive settling state. That per-recording key is information the generic
-operation-name mapper does not supply. Keep `whisperingKeys` as a plain typed
-object after removing `defineKeys`; preserve every existing key value,
-including `['whispering', 'action', 'read']` in `runs-lifecycle.test.ts`.
+Tests that synchronize on internal mutation-cache events should instead block
+the actual folder/capture stage and assert its outcome. Preserve the behavior
+under test, not the fabricated mutation identity.
 
-## Whispering boundaries to preserve
+### Shutdown boundary to prove
 
-- `FolderApp` owns the opened folder/context, and the mounted product survives
-  route changes. No route creates another client, folder, or product owner.
-- Folder's change channel and visible polling refresh file/row representations.
-  Service mutation invalidation does not replace that channel. Saves and closing
-  continue to finish without waiting for display rereads.
-- File readers keep path/representation identity, generic table inference,
-  query context, and audio cache policy. Do not put a `FileReader`, edit object,
-  Blob, or AbortSignal into an automatically generated cache key.
-- Capture owns a live microphone and its finalization. Inference workflows
-  write their result rows before sending provider requests. Keep those workflow
-  objects, deletion reservations, and result-save retry paths.
-- Provider requests stay outside the Folder work that shutdown waits for
-  (`runs.svelte.ts:459`). A stalled provider must not prevent closing, and
-  retrying publication must not resend a paid request.
+The proposed cutoff is explicit:
+
+1. Root shutdown synchronously refuses new commands and provider replies,
+   stops retry scheduling, and registers recorder finalization before storage
+   shutdown begins.
+2. Preparation and initial result publication are admitted local stages. If
+   shutdown begins during preparation, finish that local stage but check the
+   cutoff before sending the provider request.
+3. Provider waits are outside the registry. An answer handled before the
+   cutoff synchronously admits its complete publication attempt. That attempt
+   finishes even if the cutoff occurs before its callback starts.
+4. Answers handled after the cutoff are ignored. Do not start new publication
+   retries or automatically resend inference. Drain admitted local stages and
+   finalization, then close Folder.
+
+The current mounted teardown can support one registry: `FolderApp` defers
+`context.close()` through `opening.then`, while `WhisperingApp` calls product
+stop synchronously. Finalization must be registered synchronously in that
+interval. Verify this ordering with the mounted close test; do not silently
+extend the claim to arbitrary direct calls of `context.close()` while the
+product is mounted. If those calls must also shut down the product, establish
+an explicit context-owned pre-close registration instead of relying on component
+ordering. This lifecycle seam must be resolved before deleting the old registry.
+
+This is orderly in-page teardown. The current desktop window destroy path does
+not await it, and browser/process termination cannot promise it. Recording
+durability and result rows written before dispatch remain necessary; options
+factories do not strengthen abrupt-exit guarantees.
+
+Folder's path/representation reads and change-driven refresh remain. Do not
+put a `FileReader`, edit object, Blob, or AbortSignal into an automatically
+generated key, or require a display reread before accepting a save as complete.
+Keep deletion reservations, conflict handling, ambiguous-audio refusal, and
+publication retries that reuse a received answer rather than resend a request.
 
 ## Implementation plan
 
@@ -314,7 +352,29 @@ that existing limitation is not a new exhaustive error guarantee. Keep cache
 policy outside `mutationFn`, so a policy failure cannot retry a completed write.
 Any broader runner error-model change is a separate decision.
 
-### 2. Upgrade Epicenter directly to the final compatible shape
+### 2. Establish Whispering's workflow boundary
+
+- [ ] Separate recorder ownership and run ownership from the library's read
+  projections and view selection. Preserve the existing platform capabilities
+  and one mounted app lifetime; avoid replacing one giant library with an
+  equally broad service object.
+- [ ] Make finite application commands return Results and own their admission.
+  Remove presentation strings as the success/error protocol; preserve domain
+  error detail and let callers choose toasts, selection, and navigation.
+- [ ] Prove one accepted-work registry using whole local stages and synchronous
+  finalization registration. Test the explicit reply cutoff before replacing
+  `hold`/`pending`; establish pre-close registration if direct context closure
+  must coordinate product shutdown too.
+- [ ] Remove `track`, `action`, internal mutation keys and mutation-cache
+  subscriptions. Use recorder state for audio settling; keep run persistence,
+  duplicate-send exclusion, deletion safeguards, and save-only retries.
+- [ ] Replace mutation-event test synchronization with actual stage control.
+  Prove direct command calls and observed calls have the same close behavior.
+
+This work can use the current native Result adapters before the library release.
+The namespace helper is not a prerequisite for establishing domain ownership.
+
+### 3. Upgrade Epicenter directly to the final compatible shape
 
 - [ ] Update the root dependency catalog and lockfile to the selected helper
   release and an aligned TanStack set; verify resolution from each real importer.
@@ -323,11 +383,15 @@ Any broader runner error-model change is a separate decision.
   that leaves consumers broken, or build a throwaway dashboard adapter layer.
 - [ ] Compose dashboard maps in the existing runtime; translate consumers and
   runtime tests to native options and explicit Result runners.
-- [ ] Replace `defineKeys` in Folder and Whispering with plain typed tuples,
-  preserving their layouts. Replace Whispering's two mutation execution sites
-  as shown, without converting them into service namespaces.
+- [ ] Replace Folder's `defineKeys` with plain typed tuples, preserving its key
+  layout. Whispering's obsolete internal keys disappear with its workflow
+  redesign; do not write a temporary `track`/`action` execution shim.
+- [ ] Compose selected Whispering command options directly beside their
+  application owner. Adopt native component mutation state where useful,
+  including transformation creation; do not require observers for recorder or
+  inference state that already has a domain owner.
 
-### 3. Establish shared app policy and prove behavior
+### 4. Establish shared app policy and prove behavior
 
 - [ ] Move conditional checkout/top-up invalidation into shared definitions,
   retaining local UI effects and departure guards.
@@ -357,9 +421,12 @@ The implementation is done when these checks pass on its own baseline:
   removal and no completed-purchase claim for a returned checkout URL.
 - Folder tests cover refresh after writes, active-reader polling, and close
   ordering with unchanged positional key matching.
-- Whispering tests cover capture completion/cancellation, action refusal after
-  closing, accepted-write draining, per-recording settling, inner Results,
+- Whispering tests cover capture completion/cancellation, command refusal after
+  closing, admitted-stage draining, recorder-owned settling, Result failures,
   unchanged provider request counts, and retry of failed result publication.
+  Test replies before and after the cutoff, cutoff during preparation, and
+  finalization registration before storage closes. No mutation-cache event is
+  required for correctness or test synchronization.
 - Whispering's `page-boundary.test.ts`, mounted route tests, browser build, and
   host build preserve the platform seam and one mounted product lifetime.
 - No production importer uses a removed Wellcrafted export. No compatibility

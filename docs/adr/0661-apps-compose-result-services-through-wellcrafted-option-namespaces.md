@@ -38,10 +38,16 @@ in Epicenter's installed Wellcrafted 0.44 API.
 
 Folder's `createFolderQueries` and file-representation readers keep their
 explicit options: their keys describe paths and representations, and their
-functions use query context or resource objects. Whispering's `track` and
-`action` adapters also stay explicit because they own scope-keyed work and
-closing fences. The shared library upgrade changes their execution adapters,
-not their product responsibilities.
+functions use query context or resource objects.
+
+Whispering's `track` and `action` wrappers are not boundaries to preserve.
+They manufacture internal mutations for work whose lifetime and activity
+already have application owners. Replace that machinery with Result-returning
+application commands and explicit recorder/run state. Commands remain safe to
+call directly: admission, accepted local work, and finalization belong below
+the options adapter. A mutation observer describes a call; it does not own an
+active microphone or an answer awaiting persistence. The implementation plan
+must establish the shutdown boundary before removing the wrappers.
 
 Compose the two namespaces directly where their service instance is available:
 
@@ -146,6 +152,10 @@ Direct service calls remain available and bypass adapter cache policy.
 - Migration preserves mutation pending/error state, conditional checkout
   behavior, and the dashboard's late-result isolation tests. The proposal does
   not replace Folder's edit lifecycle with service mutations.
+- Whispering loses its internal mutation fabrication and mutation-cache checks
+  for recording activity. Its recorder and inference workflows retain their
+  own state, request safeguards, and accepted-write lifecycle. Native options
+  observe selected commands rather than replacing those workflows.
 
 ## Considered alternatives
 
