@@ -556,7 +556,7 @@ test('the tutor is asked over the transcript the folder holds now, not the one f
 
 test('a tutor reply is written in its chat’s turn, and leaving waits while it is written', async () => {
 	await using context = await setup();
-	const opened = createFolderContext(context.folder);
+	const opened = createFolderContext(context.gatedFolder);
 	const vocab = createVocab(opened);
 	using chat = await ready(
 		context.open(

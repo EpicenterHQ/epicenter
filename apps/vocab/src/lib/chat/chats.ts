@@ -6,9 +6,9 @@
  * under `chats/`. Messages are named by their chat, so the list never reads
  * them; the open conversation reads its own.
  *
- * Starting a chat and saving each message are Vocab's own actions, so
- * leaving the page waits while one runs. A chat's messages are saved in its
- * own turn: one at a time, in the order the loop made them.
+ * Starting a chat and saving each message enter Folder work before any await.
+ * Normal folder close drains those admitted actions, including messages waiting
+ * for their chat's turn: one at a time, in the order the loop made them.
  */
 
 import { AgentMessageStoreError } from '@epicenter/agent';
@@ -21,7 +21,6 @@ import {
 	readRows,
 	type UnreadableFile,
 } from '../data.js';
-import { CLOSING } from '../failure.js';
 import type { VocabContext } from '../vocab.svelte.js';
 import {
 	byRecency,
@@ -50,8 +49,7 @@ export function listingOf(rows: readonly RowOf<'chats'>[]): ChatListing {
 }
 
 export function createChats(local: VocabContext) {
-	const { folder, queries, refresh, run } = local;
-	const rowsKey = queries.rows('chats').queryKey;
+	const { folder, queries, refresh } = local;
 	/** The last message save of each chat, which the next one waits for. */
 	const turns = new Map<string, Promise<unknown>>();
 
@@ -70,36 +68,42 @@ export function createChats(local: VocabContext) {
 		 * Save the focus as a new chat. It is in the list once the folder holds
 		 * its file; the tutor opening is requested only after that.
 		 */
-		start(focus: readonly FocusItem[]): Promise<Result<Chat, ChatHistoryError>> {
-			if (local.closing)
-				return Promise.resolve(ChatHistoryError.NotSaved({ cause: CLOSING }));
-			return run(async () => {
-				const started = await startChat(folder.tables.chats, focus);
+		async start(
+			focus: readonly FocusItem[],
+		): Promise<Result<Chat, ChatHistoryError>> {
+			const admitted = await folder.run([], async (work) => {
+				const started = await startChat(work.tables.chats, focus);
 				if (started.error === null)
 					await refresh([`chats/${started.data.id}.md`]);
 				return started;
 			});
+			if (admitted.error !== null)
+				return ChatHistoryError.NotSaved({ cause: admitted.error });
+			return admitted.data;
 		},
 		/**
 		 * How the open chat saves each message: in the chat's own turn, so its
-		 * messages are written one at a time and in order, and leaving the
-		 * page waits for them.
+		 * messages are written one at a time and in order. Each save is admitted
+		 * before waiting its turn, so normal folder close drains queued writes.
 		 */
 		messageWriter(chatId: string): MessageWrite {
 			return (_message, save) => {
-				if (local.closing)
-					return Promise.resolve(
-						AgentMessageStoreError.WriteFailed({ cause: CLOSING }),
-					);
 				const previous = turns.get(chatId) ?? Promise.resolve();
-				const saved = run(async () => {
-					await previous.catch(() => {});
-					return save();
-				});
+				const saved = folder
+					.run([], async (work) => {
+						await previous.catch(() => {});
+						return save(work.tables.messages);
+					})
+					.then((admitted) =>
+						admitted.error !== null
+							? AgentMessageStoreError.WriteFailed({ cause: admitted.error })
+							: admitted.data,
+					);
 				turns.set(chatId, saved);
-				void saved.finally(() => {
+				const release = () => {
 					if (turns.get(chatId) === saved) turns.delete(chatId);
-				});
+				};
+				void saved.then(release, release);
 				return saved;
 			};
 		},

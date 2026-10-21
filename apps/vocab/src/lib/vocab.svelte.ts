@@ -7,10 +7,10 @@
  * committed save names stale, whichever handle or tab made it. A word's note
  * and stage are typed through its row's edit handle, and a repair through
  * its file's text edit handle; the folder holds both, and the context counts
- * them. Adding a word, starting a chat, and saving a message are counted by
- * the folder context so leaving the page waits while one runs. Closing the
- * context waits for every save that started. Nothing is synced and nothing
- * records a version.
+ * them. Adding a word, starting a chat, and saving a message enter Folder
+ * work before any await. Normal folder close drains those actions through
+ * their admitted storage, including queued message saves. Nothing is synced
+ * and nothing records a version.
  */
 import type { FolderContext } from '@epicenter/svelte/folder';
 import { createChats } from './chat/chats.js';

@@ -3,7 +3,7 @@ import {
 	type AgentMessageStore,
 	AgentMessageStoreError,
 } from '@epicenter/agent';
-import type { ReadError } from '@epicenter/folder';
+import type { FolderWork, ReadError } from '@epicenter/folder';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -19,6 +19,7 @@ import {
 	rowPath,
 	type UnreadableFile,
 	type VocabFolder,
+	type VocabTables,
 } from '../data.js';
 import { untilClosed } from '../failure.js';
 
@@ -90,7 +91,7 @@ async function listMessageIds(
 
 /** Read the messages at `ids`, and report the files that are not valid messages. */
 async function readMessages(
-	table: VocabFolder['tables']['messages'],
+	table: FolderWork<VocabTables>['tables']['messages'],
 	ids: readonly string[],
 ): Promise<
 	Result<{ rows: ChatMessage[]; unreadable: UnreadableFile[] }, ReadError>
@@ -107,12 +108,14 @@ async function readMessages(
 
 /**
  * How one message's save runs: by default at once; in the app, in its
- * chat's turn, so a chat's messages are written in order and leaving the
- * page waits for them.
+ * chat's turn, using the admitted action's storage so normal folder close
+ * drains each accepted save. The callback receives that storage explicitly.
  */
 export type MessageWrite = (
 	message: AgentMessage,
-	save: () => Promise<Result<undefined, AgentMessageStoreError>>,
+	save: (
+		table: FolderWork<VocabTables>['tables']['messages'],
+	) => Promise<Result<undefined, AgentMessageStoreError>>,
 ) => Promise<Result<undefined, AgentMessageStoreError>>;
 
 /**
@@ -133,7 +136,7 @@ export function createChatMessageStore(
 	{ tables, files }: Pick<VocabFolder, 'tables' | 'files'>,
 	chatId: string,
 	/** Runs each message's save; the app runs it in the chat's turn. */
-	write: MessageWrite = (_message, save) => save(),
+	write: MessageWrite = (_message, save) => save(tables.messages),
 ): AgentMessageStore & {
 	/** Message files of this chat that cannot be shown or sent to the tutor. */
 	readonly unreadable: UnreadableFile[];
@@ -156,13 +159,14 @@ export function createChatMessageStore(
 	};
 
 	async function save(
+		target: FolderWork<VocabTables>['tables']['messages'],
 		key: string,
 		value: AgentMessage,
 	): Promise<Result<undefined, AgentMessageStoreError>> {
 		const id = messageId(chatId, key);
 		// A file keeps JSON: a key whose value is `undefined` is not written.
 		const message = JSON.parse(JSON.stringify(value)) as AgentMessage;
-		const { data: current, error: readError } = await table.get(id);
+		const { data: current, error: readError } = await target.get(id);
 		if (readError !== null)
 			return AgentMessageStoreError.WriteFailed({ cause: readError });
 		if (current !== undefined) {
@@ -179,7 +183,7 @@ export function createChatMessageStore(
 				return AgentMessageStoreError.WriteFailed({ cause: taken });
 			}
 		} else {
-			const { error } = await table.set(id, null, {
+			const { error } = await target.set(id, null, {
 				fields: { chat: chatId, message },
 				body: '',
 			});
@@ -225,9 +229,9 @@ export function createChatMessageStore(
 			return Ok(undefined);
 		},
 		set: (key, value) =>
-			write(value, () =>
+			write(value, (target) =>
 				untilClosed(
-					() => save(key, value),
+					() => save(target, key, value),
 					(cause) => AgentMessageStoreError.WriteFailed({ cause }),
 				),
 			),
@@ -251,7 +255,7 @@ export function createChatMessageStore(
  * holds its file. The tutor opening is requested only after that.
  */
 export async function startChat(
-	chats: VocabFolder['tables']['chats'],
+	chats: FolderWork<VocabTables>['tables']['chats'],
 	focus: readonly FocusItem[],
 ): Promise<Result<Chat, ChatHistoryError>> {
 	if (

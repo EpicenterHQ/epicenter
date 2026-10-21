@@ -20,7 +20,7 @@
  * only when none is there.
  */
 
-import type { ReadError, SaveError } from '@epicenter/folder';
+import type { FolderWork, ReadError, SaveError } from '@epicenter/folder';
 import { ActionError, type Pending } from '@epicenter/folder/edits';
 import { createFileEdit } from '@epicenter/svelte/edits';
 import {
@@ -37,6 +37,7 @@ import {
 	rowPath,
 	type Stage,
 	type UnreadableFile,
+	type VocabTables,
 } from './data.js';
 import { CLOSING, untilClosed } from './failure.js';
 import { createRepair } from './repair.svelte.js';
@@ -87,7 +88,7 @@ export function repairsOf(rows: EntryRows): UnreadableFile[] {
 }
 
 export function createEntries(local: VocabContext) {
-	const { folder, queries, queryClient, refresh, run } = local;
+	const { folder, queries, queryClient, refresh } = local;
 	const rowsKey = queries.rows('entries').queryKey;
 	const repair = createRepair(folder);
 	const cachedRows = () => queryClient.getQueryData<EntryRows>(rowsKey) ?? [];
@@ -100,6 +101,7 @@ export function createEntries(local: VocabContext) {
 	}
 
 	async function addWord(
+		table: FolderWork<VocabTables>['tables']['entries'],
 		exact: string,
 	): Promise<Result<'added' | 'present', EntryError>> {
 		// A word under another name, such as one written outside Vocab, is
@@ -107,14 +109,14 @@ export function createEntries(local: VocabContext) {
 		for (const listed of wordsOf(cachedRows()).filter(
 			(entry) => entry.text === exact,
 		)) {
-			const { data: current } = await folder.tables.entries.get(listed.id);
+			const { data: current } = await table.get(listed.id);
 			if (current?.issues === null && current.fields.text === exact) {
 				await reread();
 				return Ok('present');
 			}
 		}
 		const id = await wordId(exact);
-		const { data: current, error: readError } = await folder.tables.entries.get(id);
+		const { data: current, error: readError } = await table.get(id);
 		if (readError !== null) return EntryError.NotSaved({ cause: readError });
 		// Another add, another tab, or an earlier attempt whose answer was
 		// lost may have made it: it is this word only if it holds this text.
@@ -124,7 +126,7 @@ export function createEntries(local: VocabContext) {
 			await reread();
 			return Ok('present');
 		}
-		const { error } = await folder.tables.entries.set(id, null, {
+		const { error } = await table.set(id, null, {
 			fields: {
 				text: exact,
 				note: '',
@@ -195,12 +197,14 @@ export function createEntries(local: VocabContext) {
 			if (local.closing) return ActionError.NotStarted({ reason: CLOSING });
 			const exact = text.trim().toWellFormed();
 			if (exact === '') return EntryError.Empty();
-			return run(() =>
+			const added = await folder.run([], (work) =>
 				untilClosed(
-					() => addWord(exact),
+					() => addWord(work.tables.entries, exact),
 					(cause) => EntryError.NotSaved({ cause }),
 				),
 			);
+			if (added.error !== null) return added;
+			return added.data;
 		},
 		/**
 		 * Type the note of `entry`; it is saved a second after the last change.

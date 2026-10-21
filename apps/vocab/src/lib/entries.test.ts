@@ -23,8 +23,7 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import type { SaveError } from '@epicenter/folder';
-import { Err } from 'wellcrafted/result';
+import { SaveError } from '@epicenter/folder';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { VocabFolder } from './data.js';
 import {
@@ -156,17 +155,25 @@ test('a refused add lists nothing and the retry adds it; an add that landed with
 	expect(cached(context.vocab, 'opaque').stage).toBe('new');
 
 	// The save lands, and its answer is lost on the way back.
-	const table = context.folder.tables.entries;
-	const set = table.set;
-	table.set = async (...args) => {
-		await set(...args);
-		table.set = set;
-		return Err({
-			name: 'StorageFailed',
-			message: 'lost',
-			cause: new Error('lost'),
-		} as SaveError);
-	};
+	const run = context.folder.run;
+	context.folder.run = (paths, action) =>
+		run(paths, (work) =>
+			action({
+				...work,
+				tables: {
+					...work.tables,
+					entries: {
+						...work.tables.entries,
+						async set(...args) {
+							const saved = await work.tables.entries.set(...args);
+							context.folder.run = run;
+							if (saved.error !== null) return saved;
+							return SaveError.StorageFailed({ cause: new Error('lost') });
+						},
+					},
+				},
+			}),
+		);
 	expect(expectErr(await entries.add('subtle')).name).toBe('NotSaved');
 	expect(expectOk(await entries.add('subtle'))).toBe('present');
 	expect(
@@ -531,4 +538,18 @@ test('a word is one plain Markdown file named by its text under entries/', async
 	expect(await fileText(folder, `entries/${idOf('lucid')}.md`)).toMatch(
 		/^---\n[\s\S]*text: lucid\n[\s\S]*---\n$/,
 	);
+});
+
+test('an add admitted before close finishes hashing and saves through its work handle', async () => {
+	await using browser = createBrowser();
+	const folder = await browser.open();
+	await using opened = await openVocab(folder);
+	const adding = opened.vocab.entries.add('admitted before hashing');
+	const closing = opened.context.close();
+	expectOk(await adding);
+	await closing;
+	const reopened = await browser.open();
+	expect((await savedWords(reopened)).map((entry) => entry.text)).toEqual([
+		'admitted before hashing',
+	]);
 });

@@ -24,10 +24,10 @@ import {
 	type AgentMessage,
 	createConversation,
 } from '@epicenter/agent';
+import type { FolderWork } from '@epicenter/folder';
 import { QueryObserver } from '@tanstack/query-core';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { RowOf, VocabFolder } from '../data.js';
-import type { VocabContext } from '../vocab.svelte.js';
+import type { RowOf, VocabFolder, VocabTables } from '../data.js';
 import {
 	createBrowser,
 	fileText,
@@ -37,6 +37,7 @@ import {
 	settle,
 	tableFiles,
 } from '../folder.test-support.js';
+import type { VocabContext } from '../vocab.svelte.js';
 import { type ChatListing, createChats, listingOf } from './chats.js';
 import { createChatMessageStore, startChat } from './messages.js';
 
@@ -91,17 +92,28 @@ const contexts = new WeakMap<VocabFolder, VocabContext>();
 /** The chat list over `folder`, with `tables` in place of its own, in the folder's one context. */
 function chatsOver(
 	folder: VocabFolder,
-	tables: Partial<VocabFolder['tables']> = {},
+	tables: Partial<FolderWork<VocabTables>['tables']> = {},
 ) {
 	const context = contexts.get(folder) ?? createFolderContext(folder);
 	contexts.set(folder, context);
 	const chats = createChats({
 		...context,
-		folder: { ...folder, tables: { ...folder.tables, ...tables } },
+		folder: {
+			...folder,
+			run: (paths, action) =>
+				folder.run(paths, (work) =>
+					action({
+						...work,
+						tables: { ...work.tables, ...tables },
+					}),
+				),
+		},
 	});
 	const rows = context.queries.rows('chats');
 	// The history screen observes the list, so a change reads it again.
-	new QueryObserver(context.queryClient, chats.chatsQuery()).subscribe(() => {});
+	new QueryObserver(context.queryClient, chats.chatsQuery()).subscribe(
+		() => {},
+	);
 	return {
 		chats,
 		/** Read the list from the folder now, as opening the page does. */
@@ -544,7 +556,7 @@ test('one chat’s message writes run one at a time, and close lets the started 
 	await using context = await setup();
 	const { folder } = context;
 	const { gate, folder: gatedFolder } = gatedMessages(folder);
-	const local = createFolderContext(folder);
+	const local = createFolderContext(gatedFolder);
 	const vocab = createVocab(local);
 	const store = createChatMessageStore(
 		gatedFolder,
@@ -558,24 +570,39 @@ test('one chat’s message writes run one at a time, and close lets the started 
 	await Bun.sleep(5);
 	// The answer waits its turn behind the question.
 	expect(gate.sets).toBe(0);
-	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(false);
+	expect(
+		vocab.folder.getStatus().saving ||
+			vocab.folder.getStatus().unsaved.length > 0,
+	).toBe(false);
 	writing.resolve();
 	expectOk(await first);
 	expectOk(await second);
 	expect(gate.sets).toBe(2);
-	expect(vocab.folder.getStatus().saving || vocab.folder.getStatus().unsaved.length > 0).toBe(false);
+	expect(
+		vocab.folder.getStatus().saving ||
+			vocab.folder.getStatus().unsaved.length > 0,
+	).toBe(false);
 
-	// A save that started before close lands; close waits for it.
+	// Close drains both an active save and the next message already waiting its turn.
 	const landing = Promise.withResolvers<void>();
 	gate.heldSet = landing.promise;
 	const started = store.set(nextQuestion.id, nextQuestion);
+	const queued = store.set('next-answer', { ...answer, id: 'next-answer' });
 	await Bun.sleep(5);
+	let closed = false;
+	const closing = local.close().then(() => {
+		closed = true;
+	});
+	await Bun.sleep(5);
+	expect(closed).toBe(false);
 	gate.heldSet = undefined;
 	landing.resolve();
-	await local.close();
 	expectOk(await started);
+	expectOk(await queued);
+	await closing;
 	expect(await tableFiles(await context.browser.open(), 'messages')).toEqual([
 		'messages/chat-a.answer.md',
+		'messages/chat-a.next-answer.md',
 		'messages/chat-a.next-question.md',
 		'messages/chat-a.question.md',
 	]);
@@ -583,4 +610,20 @@ test('one chat’s message writes run one at a time, and close lets the started 
 	expect(
 		expectErr(await store.set('late', { ...question, id: 'late' })).name,
 	).toBe('WriteFailed');
+});
+
+test('a new chat admitted before close finishes saving its focus', async () => {
+	await using context = await setup();
+	const local = createFolderContext(context.folder);
+	const vocab = createVocab(local);
+	const starting = vocab.chats.start([{ entryId: 'entry', text: 'lucid' }]);
+	const closing = local.close();
+	const chat = expectOk(await starting);
+	await closing;
+	const reopened = await context.browser.open();
+	expect(
+		expectOk(await reopened.tables.chats.get(chat.id))?.fields,
+	).toMatchObject({
+		focus: [{ entryId: 'entry', text: 'lucid' }],
+	});
 });
