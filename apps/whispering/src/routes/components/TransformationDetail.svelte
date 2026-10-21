@@ -26,7 +26,7 @@
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick } from 'svelte';
-	import { rowIdOf, TRANSFORMATIONS, type TransformationFields } from '$lib/definition.js';
+	import { rowIdOf, TRANSFORMATIONS } from '$lib/definition.js';
 	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
 	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
@@ -94,13 +94,9 @@
 	const recipe = $derived(
 		row ?? (sourceRow?.issues === null ? sourceRow : undefined),
 	);
-	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
-	const locked = $derived(library.locked(path));
 	const pending = $derived(fileEdit.pending);
 	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
 
-	/** Set fields of the transformation as its file is now, at once. */
-	const set = (fields: Partial<TransformationFields>) => library.setFields(fileEdit, fields);
 	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
 	const id = $derived(rowIdOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
@@ -193,7 +189,7 @@
 	/** Show Instructions with the model notes open. The button pressed leaves with Try it, so focus moves to the tab. */
 	async function goToInstructions() {
 		const from = document.activeElement;
-		const problem = await library.useForm(path);
+		const problem = library.useForm(path);
 		if (problem) {
 			toast.error('The fields were not opened', { description: problem });
 			return;
@@ -226,8 +222,8 @@
 	}
 
 	/** Show the fields or the whole text. Answers whether it switched. */
-	async function show(asSource: boolean) {
-		const problem = asSource ? await library.editSource(path) : await library.useForm(path);
+	function show(asSource: boolean) {
+		const problem = asSource ? library.editSource(path) : library.useForm(path);
 		if (problem) toast.error(asSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 		return problem === undefined;
 	}
@@ -246,7 +242,7 @@
 				class="flex-1 text-base font-medium"
 				bind:value={() => shown.fields.title, (value) => fileEdit.change({ fields: { title: value } })}
 				onblur={() => void fileEdit.save()}
-				disabled={locked}
+				disabled={fileEdit.locked}
 				placeholder="Title"
 				aria-label="Transformation title"
 				data-testid="transformation-title"
@@ -292,9 +288,7 @@
 				tab = 'try';
 				return;
 			}
-			void show(value === 'source').then((shown) => {
-				if (shown) tab = 'instructions';
-			});
+			if (show(value === 'source')) tab = 'instructions';
 		}
 	} class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
 		<Tabs.List>
@@ -318,10 +312,10 @@
 							class="min-h-36 resize-y font-sans"
 							bind:value={
 								() => shown.body,
-								(value) => library.editBody(fileEdit, value)
+								(value) => fileEdit.change({ body: value })
 							}
 						onblur={() => void fileEdit.save()}
-							disabled={locked}
+							disabled={fileEdit.locked}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
 						/>
@@ -357,7 +351,7 @@
 										}
 									}
 									onblur={() => void fileEdit.save()}
-									disabled={locked}
+									disabled={fileEdit.locked}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
 									spellcheck={false}
@@ -525,9 +519,10 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => library.editText(fileEdit, withFileNewlines(value, shown))}
+					bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
+					{@attach () => { library.editSource(path); }}
 					onblur={() => void fileEdit.save()}
-					disabled={locked}
+					disabled={fileEdit.locked}
 					aria-label="Markdown source"
 					spellcheck={false}
 					data-testid="transformation-source"

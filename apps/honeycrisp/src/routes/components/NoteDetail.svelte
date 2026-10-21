@@ -29,6 +29,7 @@
 	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
 	import { describeFailure } from '$lib/status.js';
 	import { confirmDelete } from './file-actions.js';
+	import { noteBody } from '$lib/editor/rich-text.js';
 	import RichEditor from './RichEditor.svelte';
 
 	let {
@@ -54,15 +55,14 @@
 	 * The note list beside this view reads the notes, which keeps it current.
 	 */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = createFileEdit(notes.folder.tables.notes.edit(id));
+	const coreEdit = notes.folder.tables.notes.edit(id);
+	const fileEdit = createFileEdit(coreEdit);
 	const status = $derived(fileEdit.readStatus);
 	const pending = $derived(fileEdit.pending);
 	/** The note as the rich-text view reads and edits it, when it reads as one. */
-	// svelte-ignore state_referenced_locally
-	const body = notes.noteBody(path);
-	const shownNote = $derived(body.getMarkdown());
+	const shownNote = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown : undefined);
 	/** Edits wait once the notes are closing, and while this file is deleted. */
-	const locked = $derived(notes.isLocked(path));
+	const locked = $derived(fileEdit.locked);
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
 	let tab = $state<'rich' | 'source'>('rich');
@@ -76,11 +76,11 @@
 	}
 
 	/** Set fields of the note and save at once. */
-	// Every change here is typed over what this view shows (`body`).
-	const set = (fields: Partial<NoteFields>) => refusal(body.patch(fields));
+	const set = (fields: Partial<NoteFields>) => refusal(notes.patchNote(path, fields));
 
 	/** Whether typing here did not save, with no save running. */
-	const unsaved = $derived(notes.isUnsaved(path));
+	const unsaved = $derived(pending?.error !== undefined && !pending.saving);
+	const writing = $derived(pending !== undefined && (pending.error === undefined || pending.saving));
 
 	async function report(action: string, problem: string | undefined) {
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
@@ -120,7 +120,7 @@
 		<div class="flex items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => row.fields.title, (typed) => refusal(body.change({ fields: { title: typed } }))}
+				bind:value={() => row.fields.title, (typed) => refusal(fileEdit.change({ fields: { title: typed.toWellFormed() } }).error?.message)}
 				onblur={() => void fileEdit.save()}
 				disabled={locked}
 				placeholder="Title"
@@ -165,7 +165,7 @@
 			     survives a look at the source that changes nothing. -->
 			<Tabs.Content value="rich" forceMount class="min-h-0 flex-1">
 				<RichEditor
-					note={body}
+					fileEdit={coreEdit}
 					focusRequest={notes.focusRequest}
 					onOpenSource={() => (tab = 'source')}
 					onRefuse={(reason) => toast.warning('That edit was not made', { description: reason })}
@@ -175,7 +175,7 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => row.body, (typed) => refusal(body.change({ body: typed }))}
+						bind:value={() => noteBody(row) ?? '', (typed) => refusal(fileEdit.change({ body: typed.toWellFormed() }).error?.message)}
 						onblur={() => void fileEdit.save()}
 						disabled={locked}
 						aria-label="Markdown source"
@@ -190,7 +190,7 @@
 				{#if unsaved && pending?.error}
 					Not saved: {describeFailure(pending.error)}
 				{:else}
-					{notes.isWriting(path) ? 'Saving…' : 'Saved to'}
+					{writing ? 'Saving…' : 'Saved to'}
 					<code class="font-mono">{path}</code>
 				{/if}
 			</span>
@@ -214,7 +214,7 @@
 						size="sm"
 						variant="outline"
 						disabled={locked}
-						onclick={() => void report('restore the note', body.patch({ deletedAt: null }))}
+						onclick={() => void report('restore the note', notes.patchNote(path, { deletedAt: null }))}
 					>
 						Restore
 					</Button>
@@ -226,7 +226,7 @@
 						size="sm"
 						variant="ghost-destructive"
 						disabled={locked}
-						onclick={() => void report('delete the note', body.patch({ deletedAt: InstantString.now() }))}
+						onclick={() => void report('delete the note', notes.patchNote(path, { deletedAt: InstantString.now() }))}
 					>
 						Move to Recently Deleted
 					</Button>

@@ -526,7 +526,7 @@ the table shows the row once it is saved.
 A recording, transcript, or transformation file whose text does not read as a
 row is listed under "Needs repair" with why, and opens as its text with the
 issues of its saved text; they update once what you type is saved, a moment
-after you pause. Its fields open once the text reads. A row starts
+after you pause. Source stays open after a repair until you explicitly return to fields. A row starts
 with a `---` line, its fields, and a closing `---` line; Markdown without
 those lines, bad YAML, a repeated key, a missing field, or a field with the
 wrong kind of value does not read. A transformation runs once its file reads
@@ -537,8 +537,8 @@ other fields, and the body are kept.
 Any file name works for a row, including a trailing space or `recordings/.md`.
 Only `.md` in lowercase makes a file a row.
 
-A deletion first saves what you typed in that file, then deletes the file as
-it is then. Deleting a recording also deletes its results; its audio stays. It
+A deletion reserves every file it will remove and saves their held input first.
+If any input cannot save, no file is deleted. It then deletes each file as it is stored; an outside change during deletion keeps that file. Deleting a recording also deletes its results; its audio stays. It
 is refused while any result file cannot say which recording it belongs to
 (text that does not read, or a file that is not text). Repair or remove those
 from Files first.

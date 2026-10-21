@@ -84,8 +84,6 @@
 	const issues = $derived(asText ? (fileEdit.markdown?.issues ?? undefined) : undefined);
 	const id = $derived(rowIdOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
-	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
-	const locked = $derived(library.locked(path));
 	const pending = $derived(fileEdit.pending);
 
 	// The edits outlive the view; send what is typed now.
@@ -103,8 +101,8 @@
 		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 	}
 
-	async function show(source: boolean) {
-		const problem = source ? await library.editSource(path) : await library.useForm(path);
+	function show(source: boolean) {
+		const problem = source ? library.editSource(path) : library.useForm(path);
 		if (problem) toast.error(source ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 	}
 </script>
@@ -122,7 +120,7 @@
 				class="flex-1 text-base font-medium"
 				bind:value={() => shown.fields.title, (value) => fileEdit.change({ fields: { title: value } })}
 				onblur={() => void fileEdit.save()}
-				disabled={locked}
+				disabled={fileEdit.locked}
 				placeholder="Title"
 				aria-label="Recording title"
 			/>
@@ -225,10 +223,10 @@
 						class="min-h-28 resize-y font-sans"
 						bind:value={
 							() => shown.body,
-							(value) => library.editBody(fileEdit, value)
+							(value) => fileEdit.change({ body: value })
 						}
 						onblur={() => void fileEdit.save()}
-						disabled={locked}
+						disabled={fileEdit.locked}
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
 					/>
@@ -289,9 +287,10 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => library.editText(fileEdit, withFileNewlines(value, shown))}
+					bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
+					{@attach () => { library.editSource(path); }}
 					onblur={() => void fileEdit.save()}
-					disabled={locked}
+					disabled={fileEdit.locked}
 					aria-label="Markdown source"
 					spellcheck={false}
 				/>

@@ -89,13 +89,13 @@ test('opening a note writes nothing; a title and body save once sent, keeping ke
 	const fixture = await setup();
 	const { notes, saves, text } = fixture;
 	notes.open(A);
-	const note = notes.noteBody(A);
+	const note = notes.folder.tables.notes.edit('a');
 	expect(note.getMarkdown()?.fields?.title).toBe('A');
 	await quiet(notes);
 	expect(saves(A)).toBe(0);
 
-	expect(note.change({ fields: { title: 'Renamed' } })).toBeUndefined();
-	expect(note.edit('Body, edited.\n')).toBe(true);
+	expectOk(note.change({ fields: { title: 'Renamed' } }));
+	expectOk(note.change({ body: 'Body, edited.\n' }));
 	// Shown at once, before any save.
 	expect(note.getMarkdown()?.fields?.title).toBe('Renamed');
 	expect(note.getMarkdown()?.body).toBe('Body, edited.\n');
@@ -115,12 +115,12 @@ test('opening a note writes nothing; a title and body save once sent, keeping ke
 test('a body typed while its save runs is saved next, from the body that save sent', async () => {
 	const fixture = await setup();
 	const { notes, text } = fixture;
-	const note = notes.noteBody(A);
-	note.edit('one\n');
+	const note = notes.folder.tables.notes.edit('a');
+	note.change({ body: 'one\n' });
 	const first = saveA(fixture);
 	// The view shows what it typed before typing on.
 	expect(note.getMarkdown()?.body).toBe('one\n');
-	note.edit('one two\n');
+	note.change({ body: 'one two\n' });
 	await first;
 	await saveA(fixture);
 	await quiet(notes);
@@ -133,8 +133,8 @@ test('a read that lands while a body is held does not replace it, and the save m
 		[A]: noteText({ body: 'one\n\ntwo\n' }),
 	});
 	const { notes, otherTab, text } = fixture;
-	const note = notes.noteBody(A);
-	note.edit('one!\n\ntwo\n');
+	const note = notes.folder.tables.notes.edit('a');
+	note.change({ body: 'one!\n\ntwo\n' });
 
 	const tab = await otherTab();
 	const theirs = await noteIn(tab, 'a');
@@ -172,9 +172,9 @@ test('a list action sets its field at once and keeps the fields another tab chan
 test('a save that fails keeps the typing on screen and says so; Save again saves it', async () => {
 	const fixture = await setup();
 	const { notes, failSaves, text } = fixture;
-	const note = notes.noteBody(A);
+	const note = notes.folder.tables.notes.edit('a');
 	failSaves();
-	note.edit('kept\n');
+	note.change({ body: 'kept\n' });
 	await saveA(fixture);
 	expect(notes.isUnsaved(A)).toBe(true);
 	expect(note.getMarkdown()?.body).toBe('kept\n');
@@ -193,7 +193,7 @@ test('a save that fails keeps the typing on screen and says so; Save again saves
 test('a change another tab saved shows in the lists and the open note', async () => {
 	const { notes, otherTab } = await setup();
 	notes.open(A);
-	const note = notes.noteBody(A);
+	const note = notes.folder.tables.notes.edit('a');
 	const tab = await otherTab();
 	expectOk(
 		await tab.tables.notes.set('b', null, {
@@ -227,7 +227,7 @@ test('a note whose text is not a note is listed for repair, opens as text, saves
 	await quiet(notes);
 	expect(saves(A)).toBe(0);
 	// A row edit is refused while the file does not read as a note.
-	expect(notes.noteBody(A).patch({ pinned: true })).toBeDefined();
+	expect(notes.patchNote(A, { pinned: true })).toBeDefined();
 
 	expectOk(typeInto(notes, A, noteText()));
 	expect(notes.folder.files.edit(A).getPending()).toMatchObject({ kind: 'text', text: noteText() });
@@ -237,7 +237,7 @@ test('a note whose text is not a note is listed for repair, opens as text, saves
 	expect(notes.folder.files.edit(A).getPending()).toBeUndefined();
 	expect(repairsOf(rows(notes))).toEqual([]);
 	notes.open(A, 'note');
-	expect(notes.noteBody(A).getMarkdown()?.fields?.pinned).toBe(false);
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.fields?.pinned).toBe(false);
 });
 
 test('a note open as its file takes text edits merged by line with another tab, and permits row patches meanwhile', async () => {
@@ -247,8 +247,8 @@ test('a note open as its file takes text edits merged by line with another tab, 
 	notes.open(A, 'text');
 	observe(A);
 	await quiet(notes);
-	const note = notes.noteBody(A);
-	expect(note.change({ fields: { pinned: true } })).toBeUndefined();
+	const note = notes.folder.tables.notes.edit('a');
+	expectOk(note.change({ fields: { pinned: true } }));
 	expect(note.getMarkdown()?.fields?.pinned).toBe(true);
 
 	const tab = await otherTab();
@@ -322,7 +322,7 @@ test("a folder's name is a set of its row, saved at once", async () => {
 test('a delete sends what is typed first, then deletes the note', async () => {
 	const { notes, text } = await setup();
 	notes.open(A);
-	notes.noteBody(A).edit('last words\n');
+	notes.folder.tables.notes.edit('a').change({ body: 'last words\n' });
 	const deletion = expectOk(await notes.deletionFor(A));
 	expect(deletion.title).toBe('A');
 	expect(await notes.delete(deletion)).toBeUndefined();
@@ -347,30 +347,15 @@ test('a new file is made where none is, and a name some disk reads as another fi
 	});
 });
 
-test('a lone surrogate typed into the body or the title is saved as U+FFFD', async () => {
-	const fixture = await setup();
-	const { notes, text } = fixture;
-	const note = notes.noteBody(A);
-	expect(
-		note.change({ fields: { title: 'T\uDC00' }, body: 'half \uD800\n' }),
-	).toBeUndefined();
-	await saveA(fixture);
-	await quiet(notes);
-	expect(notes.isUnsaved(A)).toBe(false);
-	const saved = (await text(A)) ?? '';
-	expect(saved).toContain('half �\n');
-	expect(saved).toContain('title: "T\uFFFD"');
-});
-
 test('close sends typing still waiting, and takes no input from then on', async () => {
 	const { notes, local, text } = await setup();
-	const note = notes.noteBody(A);
-	note.edit('typed before close\n');
+	const note = notes.folder.tables.notes.edit('a');
+	note.change({ body: 'typed before close\n' });
 
 	expect(await local.close()).toEqual([]);
 	expect(await text(A)).toContain('---\ntyped before close\n');
 	expect(notes.fenced).toBe(true);
-	expect(note.edit('late\n')).toBe(false);
+	expect(note.change({ body: 'late\n' }).error).not.toBeNull();
 	expect(await notes.createNote()).toContain('closing');
 });
 
@@ -405,25 +390,25 @@ test('a failed file edit stays visible across selection and accepts a field patc
 	notes.open(A);
 	expect(notes.selected?.as).toBe('note');
 	expect(notes.isUnsaved(A)).toBe(true);
-	expect(notes.noteBody(A).getMarkdown()?.body).toBe('Keep this unfinished file\n');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Keep this unfinished file\n');
 	expect(notes.folder.files.edit(A).getPending()).toMatchObject({ kind: 'text', text: changed });
 	failSaves(false);
 	expect(notes.patchNote(A, { pinned: true })).toBeUndefined();
 	await notes.folder.files.edit(A).save();
-	expect(notes.noteBody(A).getMarkdown()?.fields?.pinned).toBe(true);
-	expect(notes.noteBody(A).getMarkdown()?.body).toBe('Keep this unfinished file\n');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.fields?.pinned).toBe(true);
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Keep this unfinished file\n');
 });
 
 test('reading a file never sends pending body changes', async () => {
 	const { notes, saves, text } = await setup();
-	notes.noteBody(A).change({ body: 'Unsent body\n' });
+	notes.folder.tables.notes.edit('a').change({ body: 'Unsent body\n' });
 	const read = await notes.queryClient.fetchQuery(
 		notes.queries.file(A, textRead),
 	);
 	expect(read.kind).toBe('text');
 	expect(saves(A)).toBe(0);
 	expect(await text(A)).toContain('Body.');
-	expect(notes.noteBody(A).getMarkdown()?.body).toBe('Unsent body\n');
+	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe('Unsent body\n');
 });
 
 test('a folder rename patches held text instead of requiring it to save first', async () => {

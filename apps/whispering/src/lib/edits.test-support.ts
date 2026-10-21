@@ -57,11 +57,12 @@ function rowEditor<T extends RowTable>(
 					JSON.stringify((before.fields as Record<string, unknown>)[name])
 				)
 					set[name] = value;
-			if (Object.keys(set).length > 0) library.setFields(view, set as never);
-			if (next.body !== before.body) {
-				library.editBody(view, next.body);
-				void view.save();
-			}
+			if (Object.keys(set).length === 0 && next.body === before.body) return;
+			view.change({
+				fields: set as never,
+				...(next.body !== before.body ? { body: next.body } : {}),
+			});
+			void view.save();
 		},
 	};
 }
@@ -82,6 +83,7 @@ export const transcriptEditor = (library: Library, path: string) =>
 export function textEditor(library: Library, path: string) {
 	// One view of the text, as a mounted view keeps it.
 	const view = library.edit(path);
+	library.editSource(path);
 	return {
 		view,
 		get draft(): string {
@@ -90,7 +92,7 @@ export function textEditor(library: Library, path: string) {
 			return text;
 		},
 		input(text: string) {
-			library.editText(view, text);
+			view.replaceText(text);
 			void view.save();
 		},
 	};

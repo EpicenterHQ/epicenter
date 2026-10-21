@@ -48,7 +48,6 @@ import {
 } from '@tanstack/query-core';
 import { customAlphabet } from 'nanoid';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
-import type { TSchema } from 'typebox';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ActiveCapture, CaptureError } from './capture.js';
@@ -77,7 +76,7 @@ import {
 	runDeletion,
 } from './deletion.js';
 import { textRead } from './file-reads.js';
-import { describeError, listingOf, nameProblem, readBytes } from './files.js';
+import { describeError, listingOf, nameProblem } from './files.js';
 import type { WhisperingContext } from './folder.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { WhisperingServices } from './platform/types.js';
@@ -153,8 +152,6 @@ export type RecorderState =
 	| { readonly phase: 'stopping' };
 
 const CLOSING = 'Whispering is closing, so nothing was changed.';
-const UNSAVED =
-	'Typing in this file did not save yet. Save or discard it first.';
 const RECORDING_NAME =
 	'A recording’s file is named by its ID, which its transcription results refer to. Change the title instead.';
 const RECORDING_AUDIO_NAME =
@@ -285,8 +282,6 @@ export function createLibrary(
 	let captureNotice = $state<string | undefined>();
 	/** Why nothing new starts now, if it does not. */
 	const refused = () => (fenced ? CLOSING : undefined);
-	/** Files being renamed or deleted: typing into them waits. */
-	const busyPaths = new SvelteSet<string>();
 	/** Work closing waits for. */
 	const pending = new Set<Promise<unknown>>();
 	function hold<T>(work: Promise<T>): Promise<T> {
@@ -700,7 +695,6 @@ export function createLibrary(
 
 	const deletionContext = (): DeletionContext => ({
 		folder,
-		deleteRow: (table, id) => folder.tables[table].edit(id).delete(),
 		settle: settlePath,
 		busy: (id) =>
 			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
@@ -902,36 +896,6 @@ export function createLibrary(
 		showsText(path: string) {
 			return showsText(path);
 		},
-		/** Whether the row file at `path` takes an edit now: not closing, renamed, or deleted. */
-		canEdit: (path: string) =>
-			!fenced && !busyPaths.has(path) && !editAt(path).locked,
-		/**
-		 * Set fields of the row a view shows at once, over what it last
-		 * showed, merged with whatever was saved meanwhile. Refused, changing
-		 * nothing, while closing, and while a rename or delete of the file
-		 * runs. Controls supply schema-typed values; source can retain invalid values.
-		 */
-		setFields<T extends RowTable>(
-			fileEdit: FileEdit<WhisperingTables[T]>,
-			set: Partial<ReadRow<T>['fields']>,
-		): void {
-			if (fenced || busyPaths.has(fileEdit.path)) return;
-			if (fileEdit.change({ fields: set }).error === null) void fileEdit.save();
-		},
-		/**
-		 * Type `body` as the body of the row a view shows, over what it last
-		 * showed; it saves a second after the last change, or at once with
-		 * `fileEdit.save()`, merged with whatever changed since.
-		 */
-		editBody<TDocumentSchema extends TSchema>(fileEdit: FileEdit<TDocumentSchema>, body: string): void {
-			if (fenced || busyPaths.has(fileEdit.path)) return;
-			fileEdit.change({ body });
-		},
-		/** Type `text` as the whole text a view shows, over what it last showed. */
-		editText<TDocumentSchema extends TSchema>(fileEdit: FileEdit<TDocumentSchema>, text: string): void {
-			if (fenced || busyPaths.has(fileEdit.path)) return;
-			if (fileEdit.replaceText(text).error === null) asText.add(fileEdit.path);
-		},
 		/** Hear each save of a file's text that failed, which the person is told. */
 		onWriteFailure(listener: (notice: WriteFailure) => void): () => void {
 			noticeListeners.add(listener);
@@ -940,11 +904,7 @@ export function createLibrary(
 		/** Whether a save of `path` runs or waits, or typing there waits to be sent; read reactively. */
 		isSaving(path: string) {
 			const pending = editAt(path).pending;
-			return (
-				busyPaths.has(path) ||
-				(pending !== undefined &&
-					(pending.saving || pending.error === undefined))
-			);
+			return pending !== undefined && (pending.saving || pending.error === undefined);
 		},
 		/** Whether typing at `path` did not save, with no save running; read reactively. */
 		isUnsaved(path: string) {
@@ -983,20 +943,15 @@ export function createLibrary(
 			const failure = local.getStatus().storageFailure;
 			return failure === null ? undefined : describeError(failure);
 		},
-		/** Whether input is refused now: while closing, or while `path` is renamed or deleted. */
-		locked: (path?: string) =>
-			path === undefined
-				? fenced
-				: fenced || busyPaths.has(path) || editAt(path).locked,
 		/** Show the same path-owned edit as whole text; no save or reread is required. */
-		async editSource(path: string): Promise<string | undefined> {
+		editSource(path: string): string | undefined {
 			const why = refused();
 			if (why !== undefined) return why;
 			asText.add(path);
 			return undefined;
 		},
 		/** Show structured fields when the current edit fits the row's schema. */
-		async useForm(path: string): Promise<string | undefined> {
+		useForm(path: string): string | undefined {
 			const why = refused();
 			if (why !== undefined) return why;
 			const fileEdit = editAt(path);
@@ -1383,39 +1338,24 @@ export function createLibrary(
 			)
 				return TRANSCRIPT_NAME;
 			if (taken(to)) return TAKEN;
-			if (busyPaths.has(path) || busyPaths.has(to))
-				return 'This file is being changed. Try again when it is done.';
-			busyPaths.add(path);
-			busyPaths.add(to);
-			try {
-				return await hold(
-					local.run(async () => {
-						if (await settlePath(path)) return UNSAVED;
-						const { data: bytes, error: readError } = await readBytes(
-							folder,
-							path,
-						);
-						if (readError !== null) return readError;
-						const { error: copyError } = await folder.files.write(
-							to,
-							null,
-							bytes,
-						);
-						if (copyError !== null) return describeError(copyError);
-						const { data: removed, error: removeError } =
-							await folder.files.delete(path, bytes);
-						if (removeError !== null)
-							return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
-						if (!removed.deleted)
-							return `${to} was saved, but ${path} changed meanwhile, so both are kept. Check them.`;
-						moved(path, to);
-						return undefined;
-					}),
-				);
-			} finally {
-				busyPaths.delete(path);
-				busyPaths.delete(to);
-			}
+			const outcome = await folder.files.exclusive([path, to], async (files) => {
+				const source = files.get(path)!;
+				const destination = files.get(to)!;
+				const { data: found, error: readError } = await source.read();
+				if (readError !== null) return describeError(readError);
+				if (found === undefined) return `No file exists at '${path}'.`;
+				const bytes = new Uint8Array(await found.content.arrayBuffer());
+				const { error: copyError } = await destination.write(null, bytes);
+				if (copyError !== null) return describeError(copyError);
+				const { data: removed, error: removeError } = await source.delete(bytes);
+				if (removeError !== null)
+					return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
+				if (!removed.deleted)
+					return `${to} was saved, but ${path} changed meanwhile, so both are kept. Check them.`;
+				if (!fenced) moved(path, to);
+				return undefined;
+			});
+			return outcome.error === null ? outcome.data : describeError(outcome.error);
 		},
 		/** A new empty text file, shown; it is never made where a file is listed. */
 		createFile: action(
@@ -1461,23 +1401,25 @@ export function createLibrary(
 				deletion.kind === 'recording'
 					? [deletion.path, ...deletion.results]
 					: [deletion.path];
-			for (const path of paths) busyPaths.add(path);
+			if (recording !== undefined) deleting.add(recording);
 			try {
-				return await hold(
-					local.run(() =>
-						runDeletion(
-							{
-								...deletionContext(),
-								deleting,
-								dropFailed: runs.dropFailed,
-								deleted,
-							},
-							deletion,
-						).catch((cause: unknown) => describe(cause)),
-					),
-				);
+				const outcome = await folder.files.exclusive(paths, async (files) => {
+					const why = refused();
+					if (why !== undefined) return why;
+					return runDeletion(
+						{
+							...deletionContext(),
+							dropFailed: runs.dropFailed,
+							deleted: (path) => { if (!fenced) deleted(path); },
+							refused,
+						},
+						deletion,
+						files,
+					).catch((cause: unknown) => describe(cause));
+				});
+				return outcome.error === null ? outcome.data : describeError(outcome.error);
 			} finally {
-				for (const path of paths) busyPaths.delete(path);
+				if (recording !== undefined) deleting.delete(recording);
 			}
 		},
 		/**
@@ -1490,6 +1432,7 @@ export function createLibrary(
 		stop(): Promise<void> {
 			stopping ??= (async () => {
 				fenced = true;
+				folder.stopEditing();
 				runs.stop();
 				// The microphone first: nothing still being written may keep it open.
 				input.close();

@@ -66,11 +66,12 @@
 	 * too large shows as that, and is never read into the fileEdit.
 	 */
 	const pending = $derived(fileEdit.pending);
+	const writing = $derived(pending !== undefined && (pending.error === undefined || pending.saving));
 	const text = $derived(pending !== undefined || file.data?.kind === 'text' ? fileEdit.text : undefined);
 	/** Why the current text is not a row, including unsaved input. */
 	const issues = $derived(fileEdit.markdown?.issues ?? undefined);
 	/** Edits wait once the notes are closing, and while this file is deleted. */
-	const locked = $derived(notes.isLocked(path));
+	const locked = $derived(fileEdit.locked);
 	/** A failed read with nothing of this file to show but what it held before. */
 	const reading = $derived(pending === undefined && file.isError && file.data?.kind !== 'text');
 	const failed = $derived(pending?.error === undefined ? undefined : describeFailure(pending.error));
@@ -153,12 +154,12 @@
 			/>
 		</div>
 		<p class="flex shrink-0 items-center gap-2 border-t px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{#if failed !== undefined && !notes.isWriting(path)}
+			{#if failed !== undefined && !writing}
 				Not saved: {failed}
 				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => void fileEdit.save()}>Save again</Button>
 				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => fileEdit.discard()}>Discard changes</Button>
 			{:else}
-				{notes.isWriting(path) ? 'Saving…' : 'Saved'}
+				{writing ? 'Saving…' : 'Saved'}
 			{/if}
 		</p>
 	{:else if file.data?.kind === 'missing'}

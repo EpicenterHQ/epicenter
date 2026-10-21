@@ -73,11 +73,10 @@
 	const issues = $derived(
 		table === undefined || text === undefined ? undefined : (fileEdit.markdown?.issues ?? undefined),
 	);
-	const locked = $derived(library.locked(path));
 	const pending = $derived(fileEdit.pending);
 
-	async function show(source: boolean) {
-		const problem = source ? await library.editSource(path) : await library.useForm(path);
+	function show(source: boolean) {
+		const problem = source ? library.editSource(path) : library.useForm(path);
 		if (problem)
 			toast.error(source ? 'The text was not opened for editing' : 'The text was not opened alone', {
 				description: problem,
@@ -157,10 +156,10 @@
 				class="min-h-40 flex-1 resize-none font-sans"
 				bind:value={
 					() => row.body,
-					(value) => library.editBody(fileEdit, value)
+					(value) => fileEdit.change({ body: value })
 				}
 				onblur={() => void fileEdit.save()}
-				disabled={locked}
+				disabled={fileEdit.locked}
 				aria-label="Contents of {name}"
 			/>
 		</div>
@@ -193,9 +192,10 @@
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(shown), (value) => library.editText(fileEdit, withFileNewlines(value, shown))}
+				bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
+				{@attach () => { library.editSource(path); }}
 				onblur={() => void fileEdit.save()}
-				disabled={locked}
+				disabled={fileEdit.locked}
 				aria-label="Contents of {name}"
 				spellcheck={false}
 			/>

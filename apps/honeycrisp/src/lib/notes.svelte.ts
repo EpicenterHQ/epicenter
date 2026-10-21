@@ -44,7 +44,6 @@ import {
 	rowFile,
 	type TableName,
 } from './data.js';
-import type { NoteBody } from './editor/rich-text.js';
 import { nameProblem } from './files.js';
 import { displayTitle } from './note-source.js';
 import { describeFailure, saveLine } from './status.js';
@@ -199,40 +198,24 @@ export function createNotes(local: NotesFolder) {
 		return undefined;
 	}
 
-	/** A change of a note's fields and body. */
-	type NoteChange = { fields?: Partial<NoteFields>; body?: string };
-
-	/**
-	 * Type `change` into the note at `path`, over the note its edit shows. A
-	 * lone surrogate in the title or body becomes U+FFFD, which the folder
-	 * can store. Answers why it was refused, changing nothing, if it was.
-	 */
-	function changeNote(path: string, typed: NoteChange): string | undefined {
-		const id = noteIdOf(path);
-		if (id === undefined) return NOT_LISTED;
-		const why = noteRefusal(id);
-		if (why !== undefined) return why;
-		const { fields, body } = typed;
-		const change: NoteChange = {
-			...(fields !== undefined && {
-				fields:
-					fields.title === undefined
-						? fields
-						: { ...fields, title: fields.title.toWellFormed() },
-			}),
-			...(body !== undefined && { body: body.toWellFormed() }),
-		};
-		return folder.tables.notes.edit(id).change(change).error?.message;
-	}
-
 	/**
 	 * Set fields of a note and save at once: pin, move to a folder, trash,
 	 * restore. Each keeps every field another writer changed.
 	 */
 	function patchNote(path: string, fields: Partial<NoteFields>) {
-		const why = changeNote(path, { fields });
-		if (why === undefined) void folder.files.edit(path).save();
-		return why;
+		const id = noteIdOf(path);
+		if (id === undefined) return NOT_LISTED;
+		const why = noteRefusal(id);
+		if (why !== undefined) return why;
+		const fileEdit = folder.tables.notes.edit(id);
+		const changed = fileEdit.change({
+			fields:
+				fields.title === undefined
+					? fields
+					: { ...fields, title: fields.title.toWellFormed() },
+		});
+		if (changed.error !== null) return changed.error.message;
+		void fileEdit.save();
 	}
 
 	/** Give a refused action its app-level reason even after the context closes. */
@@ -436,10 +419,6 @@ export function createNotes(local: NotesFolder) {
 			const pending = editAt(path).pending;
 			return pending?.error !== undefined && !pending.saving;
 		},
-		/** Whether edits of `path` are refused now: closing, or a delete runs. */
-		isLocked(path: string) {
-			return local.closing || editAt(path).locked;
-		},
 		/** Whether input and actions are held back because the notes are closing. */
 		get fenced() {
 			return local.closing;
@@ -449,56 +428,6 @@ export function createNotes(local: NotesFolder) {
 		// Note and folder rows
 		// ------------------------------------------------------------------
 
-		/** Why the note at `path` takes no change now, if it does not. */
-		refusalAt(path: string): string | undefined {
-			const id = noteIdOf(path);
-			return id === undefined ? NOT_LISTED : noteRefusal(id);
-		},
-		/**
-		 * The note at `path` as a view shows it: the folder's edit of it, read
-		 * reactively, when it reads as a note, what is typed over it included;
-		 * whether it takes edits; `edit`, which types a body as the rich-text
-		 * editor does; and `change` and `patch`, which type fields and body
-		 * over the note shown now (`patch` saves at once). Each answers why it
-		 * was refused, if it was.
-		 */
-		noteBody(path: string): NoteBody & {
-			change(change: NoteChange): string | undefined;
-			patch(fields: Partial<NoteFields>): string | undefined;
-		} {
-			const id = noteIdOf(path) ?? '';
-			const fileEdit = createFileEdit(folder.tables.notes.edit(id));
-			// The folder reads a body with its file's line endings. The editors
-			// read and write it with line feeds (ADR-0572), so a CRLF body gets
-			// line feeds with its first edit and opening it writes nothing.
-			let last: { row: NoteMarkdown; shown: NoteMarkdown } | undefined;
-			function getMarkdown(): NoteMarkdown | undefined {
-				const row = fileEdit.markdown;
-				if (row?.issues !== null || row === undefined) return undefined;
-				if (!row.body.includes('\r')) return row;
-				if (last?.row !== row)
-					last = {
-						row,
-						shown: { ...row, body: row.body.replace(/\r\n?/g, '\n') },
-					};
-				return last.shown;
-			}
-			return {
-				getMarkdown,
-				// Closing refuses input before the folder itself closes.
-				isLocked: () => local.closing || fileEdit.locked,
-				edit(body) {
-					// The rich-text editor checked its document against `getMarkdown()`
-					// synchronously before this change.
-					const shown = getMarkdown();
-					if (shown === undefined) return false;
-					if (body === shown.body) return true;
-					return changeNote(path, { body }) === undefined;
-				},
-				change: (change) => changeNote(path, change),
-				patch: (fields) => patchNote(path, fields),
-			};
-		},
 		patchNote,
 		/** Move a note to Recently Deleted. The file stays; `deletedAt` is set. */
 		trashNote: (path: string) =>

@@ -90,6 +90,7 @@ the saved files.
 | `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A save of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
 | `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or exclusive change running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
 | `settle()` | Attempts held input once, including previous failures, after running deletes and exclusive changes, and waits for saves already started, direct ones included, never for reads. Answers the input that did not save. |
+| `stopEditing()` | Irreversibly refuses new `FileEdit` input and discards, notifying every edit view. Existing input, timers and saves remain. Storage and exclusive actions stay open so work already admitted by an app can finish before final `close()`. Idempotent; this does not set `status.closing`. |
 | `close()` | At once, new input is refused and every storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; running deletes and exclusive changes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getPending()` and `discard()` answer, whose `read()` rejects, and whose `save()` joins the close. Answers the input that did not save. Calling it again returns the same promise. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
@@ -205,6 +206,13 @@ await file.read();
 file.change({ fields: { title: 'x' } });
 file.replaceText(editedText);
 await file.exclusive(async (file) => file.write(before, next));
+
+await folder.files.exclusive(['notes/a.md', 'audio/a.bin'], async (files) => {
+  const note = files.get('notes/a.md')!;
+  const audio = files.get('audio/a.bin')!;
+  // Read and write through these capabilities while both paths are held.
+  // Await all their operations before this callback returns.
+});
 ```
 
 `change(patch)` and `replaceText(text)` synchronously return
@@ -271,10 +279,20 @@ when the attempt finishes, including failure; pending input and folder status
 report the outcome. `discard()` explicitly releases input and returns it for
 recovery; it refuses while a save or action runs.
 
-`delete()` and `exclusive(action)` fence the path immediately, save held input,
-and refuse with `ActionError.NotStarted` if it cannot save or another fence holds
-it. An exclusive action reads and writes through its bound `file`, which remains
-usable during folder close and expires with the action. Close refuses new input
+`delete()` and `exclusive(action)` fence the path immediately. The multi-file
+`folder.files.exclusive(paths, action)` deduplicates and reserves every path
+synchronously, before notifying any view or awaiting saves. Invalid structural
+paths or overlaps refuse the whole reservation without queuing. Existing
+nonportable names remain addressable under the ordinary storage rules.
+The scope waits for running saves, then attempts held input once per path.
+If any input remains, the action refuses with `ActionError.NotStarted`;
+successful saves of other paths stay landed. This is a local edit fence, not
+an atomic storage transaction or a lock on outside programs.
+An exclusive action reads and writes through its bound files, which remain
+usable during folder close and expire with the callback. Await their operations
+inside the callback. Do not await this folder's `settle()` or `close()` there,
+because both wait for the action itself.
+Close refuses new input
 immediately, waits for started saves and actions, then attempts remaining input
 once. Later `save()` calls join close.
 

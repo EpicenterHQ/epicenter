@@ -84,6 +84,11 @@ A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
 initialization. The context contains `folder`, `queryClient`,
 `queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `queries.read(edit)`, `getStatus()`, `closing`, `run`,
 `guardWindowClose`, `refresh`, and `close`.
+Context close calls `folder.stopEditing()` immediately, so every retained edit
+refuses new input while previously admitted app actions finish. Accepted input
+can still save, and admitted actions can acquire file scopes and use storage.
+The final `folder.close()` then drains accepted work and releases storage.
+Stopping editing alone does not set `FolderStatus.closing`.
 Every save, own or not, reaches the context through the folder's one change
 channel (`onChange`), which also names a save of this handle that changed
 nothing; the context marks the queries over the named paths stale. No save

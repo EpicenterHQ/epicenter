@@ -32,7 +32,13 @@ import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openRepository } from './browser/repository.js';
 import { openFolder } from './browser.js';
-import { CLOSING, DELETING, mergeText, type ReadStatus } from './edits.js';
+import {
+	CLOSING,
+	DELETING,
+	type ExclusiveFile,
+	mergeText,
+	type ReadStatus,
+} from './edits.js';
 import type { FileContent, FolderChange, FolderStatus } from './folder.js';
 import type { FolderEngine } from './handle.js';
 import { folderHandle } from './handle.js';
@@ -1714,6 +1720,229 @@ test('delete fences input at once and removes the row after its held save', asyn
 	expect(edit.getPending()).toBeUndefined();
 	expect(folder.getStatus().saving).toBe(false);
 	expect(expectOk(await folder.tables.notes.get('milk'))).toBeUndefined();
+});
+
+test('stopEditing locks every view without closing storage or dropping accepted input', async () => {
+	const { folder, edit, load, stored } = await setup();
+	await load();
+	const text = folder.files.edit(MILK);
+	const unseen = folder.files.edit('notes/unseen.md');
+	let notifications = 0;
+	cleanup.push(
+		text.subscribe(() => {
+			notifications++;
+		}),
+	);
+	expectOk(edit.change({ fields: { title: 'Accepted' } }));
+	const beforeStop = notifications;
+	folder.stopEditing();
+	folder.stopEditing();
+	expect(notifications).toBe(beforeStop + 1);
+	expect(folder.getStatus().closing).toBe(false);
+	for (const view of [edit, text, unseen]) {
+		expect(view.isLocked()).toBe(true);
+		expect(expectErr(view.replaceText('too late')).name).toBe('Locked');
+	}
+	expect(expectErr(edit.change({ body: 'too late' })).name).toBe('Locked');
+	expect(edit.discard()).toBeUndefined();
+	await edit.save();
+	expect(edit.getPending()).toBeUndefined();
+	expect(await stored(MILK)).toContain('title: Accepted');
+	expectOk(await folder.files.write('direct.txt', null, 'admitted work'));
+	expectOk(
+		await folder.files.exclusive([MILK], async (files) => {
+			const file = files.get(MILK)!;
+			const read = expectOk(await file.read());
+			expect(read).toBeDefined();
+			return expectOk(
+				await file.write(await read!.content.text(), 'scope after stop'),
+			);
+		}),
+	);
+	expect(await stored(MILK)).toBe('scope after stop');
+});
+
+test('stopEditing preserves the autosave timer of input already accepted', async () => {
+	const { folder, edit, load, stored } = await setup('body', 5);
+	await load();
+	expectOk(edit.change({ body: 'accepted before stop' }));
+	folder.stopEditing();
+	await until(() => edit.getPending() === undefined);
+	expect(await stored(MILK)).toContain('accepted before stop');
+});
+
+test('a multi-file scope reserves all paths synchronously and refuses overlaps without partial locks', async () => {
+	const { folder, edit, load, stored } = await setup();
+	await load();
+	expectOk(edit.change({ fields: { title: 'Before operation' } }));
+	const source = folder.files.edit(MILK);
+	const second = folder.files.edit('audio/take.bin');
+	const untouched = folder.files.edit('notes/untouched.md');
+	const entered = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	const operation = folder.files.exclusive(
+		[MILK, second.path, MILK],
+		async (files) => {
+			expect([...files.keys()]).toEqual([MILK, second.path]);
+			expect(await stored(MILK)).toContain('title: Before operation');
+			expect(source.getPending()).toBeUndefined();
+			entered.resolve();
+			await gate.promise;
+			return expectOk(
+				await files.get(second.path)!.write(null, new Uint8Array([1, 2])),
+			);
+		},
+	);
+	expect(edit.isLocked()).toBe(true);
+	expect(source.isLocked()).toBe(true);
+	expect(second.isLocked()).toBe(true);
+	expect(untouched.isLocked()).toBe(false);
+	expect(
+		expectErr(
+			await folder.files.exclusive([untouched.path, MILK], async () => {}),
+		).name,
+	).toBe('NotStarted');
+	expect(untouched.isLocked()).toBe(false);
+	expect(
+		expectErr(
+			await folder.files.exclusive(
+				[untouched.path, '../escape'],
+				async () => {},
+			),
+		).name,
+	).toBe('NotStarted');
+	expect(untouched.isLocked()).toBe(false);
+	expect(expectErr(await source.exclusive(async () => {})).name).toBe(
+		'NotStarted',
+	);
+	await entered.promise;
+	gate.resolve();
+	expectOk(await operation);
+	expect(edit.isLocked()).toBe(false);
+	expect(second.isLocked()).toBe(false);
+});
+
+test('a scope waits for every running save then sends changes accepted while they ran', async () => {
+	const { folder, engine, load, stored } = await setup();
+	await load();
+	expectOk(await folder.files.write('second.txt', null, 'before'));
+	const first = folder.files.edit(MILK);
+	const second = folder.files.edit('second.txt');
+	expectOk(await second.read());
+	const writes = intercept(engine.files, 'write');
+	writes.hold();
+	expectOk(first.replaceText('first save'));
+	expectOk(second.replaceText('second save'));
+	const saving = Promise.all([first.save(), second.save()]);
+	await until(() => writes.calls.length === 2);
+	expectOk(first.replaceText('new first input'));
+	expectOk(second.replaceText('new second input'));
+	let ran = false;
+	const scope = folder.files.exclusive([MILK, second.path], async () => {
+		ran = true;
+		expect(await stored(MILK)).toBe('new first input');
+		expect(await stored(second.path)).toBe('new second input');
+	});
+	await Bun.sleep(0);
+	expect(ran).toBe(false);
+	writes.release();
+	await saving;
+	expectOk(await scope);
+	expect(ran).toBe(true);
+	expect(first.getPending()).toBeUndefined();
+	expect(second.getPending()).toBeUndefined();
+});
+
+test('a failed held save prevents the whole scope while successful held saves remain landed', async () => {
+	const { folder, edit, load, stored } = await setup();
+	await load();
+	expectOk(await folder.files.write('bad.md', null, 'original'));
+	const bad = folder.files.edit('bad.md');
+	expectOk(await bad.read());
+	expectOk(edit.change({ fields: { title: 'Landed before refusal' } }));
+	expectOk(bad.replaceText('cannot\0save'));
+	let ran = false;
+	expect(
+		expectErr(
+			await folder.files.exclusive([MILK, bad.path], async () => {
+				ran = true;
+			}),
+		).name,
+	).toBe('NotStarted');
+	expect(ran).toBe(false);
+	expect(await stored(MILK)).toContain('title: Landed before refusal');
+	expect(edit.getPending()).toBeUndefined();
+	expect(bad.getPending()).toMatchObject({
+		text: 'cannot\0save',
+		error: { name: 'NotText' },
+	});
+	expect(edit.isLocked()).toBe(false);
+	expect(bad.isLocked()).toBe(false);
+});
+
+test('throwing from a multi-file scope releases every path and expires every retained capability', async () => {
+	const { folder, edit } = await setup();
+	let held: ReadonlyMap<string, ExclusiveFile> | undefined;
+	await expect(
+		folder.files.exclusive([MILK, 'audio/a.bin'], async (files) => {
+			held = files;
+			throw new Error('action failed');
+		}),
+	).rejects.toThrow('action failed');
+	expect(edit.isLocked()).toBe(false);
+	expect(folder.files.edit('audio/a.bin').isLocked()).toBe(false);
+	expect(folder.getStatus().saving).toBe(false);
+	for (const file of held!.values()) {
+		expect(() => file.read()).toThrow('has ended');
+		expect(() => file.write(null, 'late')).toThrow('has ended');
+		expect(() => file.delete(null)).toThrow('has ended');
+	}
+});
+
+test('close reentered from the first lock notification waits for the complete multi-file scope', async () => {
+	const { folder, edit, stored } = await setup();
+	expectOk(await folder.files.write('remove.txt', null, 'remove me'));
+	const audio = folder.files.edit('audio/a.bin');
+	let closing: ReturnType<typeof folder.close> | undefined;
+	cleanup.push(
+		edit.subscribe(() => {
+			if (!edit.isLocked() || closing !== undefined) return;
+			expect(audio.isLocked()).toBe(true);
+			closing = folder.close();
+		}),
+	);
+	const entered = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	let held: ExclusiveFile | undefined;
+	const operation = folder.files.exclusive(
+		[MILK, audio.path, 'remove.txt'],
+		async (files) => {
+			held = files.get(MILK)!;
+			entered.resolve();
+			await gate.promise;
+			const note = expectOk(await held.read());
+			expectOk(await held.write(await note!.content.text(), 'survives close'));
+			expectOk(
+				await files.get(audio.path)!.write(null, new Uint8Array([4, 5])),
+			);
+			expectOk(await files.get('remove.txt')!.delete('remove me'));
+		},
+	);
+	await entered.promise;
+	expect(closing).toBeDefined();
+	expect(folder.getStatus().closing).toBe(true);
+	let finished = false;
+	void closing!.then(() => {
+		finished = true;
+	});
+	await Bun.sleep(0);
+	expect(finished).toBe(false);
+	gate.resolve();
+	expectOk(await operation);
+	expect(await closing).toEqual([]);
+	expect(await stored(MILK)).toBe('survives close');
+	expect(await stored('remove.txt')).toBeUndefined();
+	expect(() => held!.read()).toThrow('has ended');
 });
 
 test('close with no view sends a running save, answers a failed one, and fences input', async () => {

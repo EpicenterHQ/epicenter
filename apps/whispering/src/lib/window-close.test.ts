@@ -84,7 +84,7 @@ test('text held by the Folder prompts; Cancel retains it', async () => {
 	const window = await openWindow();
 	const { path, text } = await recordAsText(window);
 	const typed = `${text.draft}Typed just before closing.\n`;
-	window.library.editText(text.view, typed);
+	text.view.replaceText(typed);
 
 	await requestClose();
 
@@ -103,7 +103,7 @@ test('a failed save keeps the window until another save attempt saves the text',
 	const before = text.draft;
 	const typed = `${before}Typed but not saved.\n`;
 	window.control.refuse = true;
-	window.library.editText(text.view, typed);
+	text.view.replaceText(typed);
 	await window.library.edit(path).save();
 
 	await requestClose();
@@ -127,7 +127,7 @@ test('a thrown file write leaves a failed draft that can save again', async () =
 	const { path, text } = await recordAsText(window);
 	const typed = `${text.draft}Retained after throw.\n`;
 	window.control.throwWrite = true;
-	window.library.editText(text.view, typed);
+	text.view.replaceText(typed);
 	await window.library.edit(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);

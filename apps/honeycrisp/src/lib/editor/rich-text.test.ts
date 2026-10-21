@@ -55,7 +55,7 @@ import { noteSchema } from './schema.js';
 const { openNotes, quiet, until, noteText, rows } = await import(
 	'../local.test-support.ts'
 );
-const { editingPlugins, stateAfter, stateShowing } = await import(
+const { editingPlugins, noteBody, stateAfter, stateShowing } = await import(
 	'./rich-text.js'
 );
 
@@ -77,7 +77,7 @@ async function noteOver(text: string) {
 	fixture.observe();
 	notes.open(PATH);
 	await quiet(notes);
-	const note = notes.noteBody(PATH);
+	const note = notes.folder.tables.notes.edit('a');
 	const opened = fixture.saves(PATH);
 	return {
 		fixture,
@@ -88,7 +88,7 @@ async function noteOver(text: string) {
 		/** The note as shown now: with what is typed over it. */
 		draft: () => {
 			const row = note.getMarkdown();
-			if (row === undefined) throw new Error('The note is not in the cache');
+			if (row?.issues !== null) throw new Error('The note is not in the cache');
 			return row;
 		},
 		/** Send the body typed, as leaving the note does, and let every save and the reads after them land. */
@@ -112,7 +112,7 @@ async function open(
 ) {
 	const opened = await noteOver(text);
 	const { note, notes } = opened;
-	const body = () => opened.draft().body;
+	const body = () => noteBody(note.getMarkdown()) ?? '';
 	const initial = bodyCodec.decode(body());
 	if (!initial.supported) throw new Error('The note is not rich text');
 	/** Why the last edit was refused. */
@@ -175,7 +175,7 @@ async function open(
 	};
 	/** What the Source view, showing the note as it is now, does with typed text. */
 	const source = (text: string) =>
-		notes.noteBody(PATH).change({ body: text });
+		notes.folder.tables.notes.edit('a').change({ body: text });
 	/** What is on screen and the note's body are the same content. */
 	const expectNoteHoldsScreen = () =>
 		expect(equivalentNoteDocs(parseNoteBody(body()), state.doc)).toBe(true);
@@ -305,13 +305,15 @@ describe('every displayed edit is in the note', () => {
 
 	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
-		const { type, end, body, settled, failures, stored, writes } = await open(
+		const { type, end, body, settled, failures, stored, writes, note } = await open(
 			'',
 			{
 				text: crlf,
 			},
 		);
 		expect(body()).toBe('\none\n\ntwo\n');
+		expect(note.getMarkdown()?.body).toBe('\r\none\r\n\r\ntwo\r\n');
+		expect(note.getText()).toBe(crlf);
 		expect(writes()).toBe(0);
 		end();
 		type('!');

@@ -25,7 +25,12 @@
  */
 import type { TSchema as Schema, TRecord, TUnknown } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { Pending, FileEdit } from './edit-owner.js';
+import type {
+	ActionError,
+	ExclusiveFile,
+	FileEdit,
+	Pending,
+} from './edit-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
@@ -83,6 +88,15 @@ export type FolderFileOperations = {
 };
 
 export type FolderFiles = FolderFileOperations & {
+	/** Reserve all paths at once, save their held input, then run one protected action.
+	 * Overlaps refuse without queuing. These files work during close and expire
+	 * when the callback ends. This is not an atomic multi-file storage transaction.
+	 * Do not await this folder's settle/close inside the callback: they wait for it.
+	 */
+	exclusive<T>(
+		paths: readonly string[],
+		action: (files: ReadonlyMap<string, ExclusiveFile>) => Promise<T>,
+	): Promise<Result<T, ActionError>>;
 	/**
 	 * The file at `path` as last known stored, with the whole exact text or
 	 * the fields typed into it and not saved yet, shared by every caller of
@@ -148,6 +162,12 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	getStatus(): FolderStatus;
 	/** Called when save status changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
+	/**
+	 * Irreversibly refuse new FileEdit input and discards. Existing input,
+	 * timers, saves and admitted work remain; storage and exclusive actions
+	 * stay available until close. Repeated calls have no further effect.
+	 */
+	stopEditing(): void;
 	/**
 	 * Attempt held input once, including previous failures, after running
 	 * exclusive changes and deletes. Answers what did not save; editing stays open.

@@ -206,7 +206,7 @@ test('a deletion waits for the save of the row, then removes what it saved', asy
 	expect(await shell.text(PATH)).toBeUndefined();
 	await settle(library);
 	expect(library.selectedTransformation).toBeUndefined();
-	expect(library.locked(session.path)).toBe(false);
+	expect(library.edit(session.path).locked).toBe(false);
 });
 
 test('a deletion whose reply was lost is confirmed by reading back, and recreates nothing', async () => {

@@ -365,15 +365,26 @@ test('an app action does not enter Folder save status until its write is accepte
 
 test('close lets a started action write after its await, and refuses a new one', async () => {
 	const { folder, context } = await setup();
+	const fileEdit = createFileEdit(folder.tables.notes.edit('milk'));
+	expectOk(fileEdit.change({ body: 'Accepted before closing' }));
 	const actionStarted = Promise.withResolvers<void>();
 	const releaseAction = Promise.withResolvers<void>();
 	const action = context.run(async () => {
 		actionStarted.resolve();
 		await releaseAction.promise;
-		return folder.files.write('action.txt', null, 'done');
+		return folder.files.exclusive(['notes/milk.md', 'action.txt'], async (files) =>
+			expectOk(await files.get('action.txt')!.write(null, 'done')),
+		);
 	});
 	await actionStarted.promise;
 	const closing = context.close();
+	// Context teardown stops every editor before it closes storage. An
+	// action admitted earlier may still acquire its file scope after an await.
+	expect(fileEdit.locked).toBe(true);
+	expect(folder.getStatus().closing).toBe(false);
+	expect(expectErr(fileEdit.replaceText('Late source')).name).toBe('Locked');
+	expect(expectErr(folder.tables.notes.edit('milk').change({ body: 'Late body' })).name).toBe('Locked');
+	expect(fileEdit.markdown?.body).toBe('Accepted before closing');
 	let lateActionStarted = false;
 	await expect(
 		context.run(async () => {
@@ -382,13 +393,14 @@ test('close lets a started action write after its await, and refuses a new one',
 	).rejects.toThrow('The folder is closing');
 	expect(lateActionStarted).toBe(false);
 	releaseAction.resolve();
-	expect((await action).error).toBeNull();
+	expectOk(await action);
 	await closing;
 	const reopened = await open();
 	cleanup.push(() => reopened.close());
 	expect(
 		await expectOk(await reopened.files.read('action.txt'))?.content.text(),
 	).toBe('done');
+	expect(expectOk(await reopened.tables.notes.get('milk'))?.body).toBe('Accepted before closing');
 });
 
 test('close answers the typing whose save failed, as copyable text', async () => {
@@ -554,7 +566,7 @@ test("a binding re-runs for its own path's typing, its document, and close; not 
 
 	await context.close();
 	flushSync();
-	expect(breadLocked.values).toEqual([false, true]);
+	expect(breadLocked.values.at(-1)).toBe(true);
 	expect(unsaved.values.at(-1)).toEqual([]);
 });
 

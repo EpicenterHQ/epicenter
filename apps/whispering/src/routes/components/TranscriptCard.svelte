@@ -48,7 +48,6 @@
 	/** The text now: as typed while an edit is unsaved, else as the file holds it. */
 	const pending = $derived(fileEdit.pending);
 	const text = $derived(row?.body ?? (pending?.kind === 'document' ? pending.body : undefined) ?? result.row.body);
-	const locked = $derived(library.locked(result.path));
 	const progress = $derived(library.resultState(result.path, text));
 
 	const outputs = $derived(library.outputsFor(result.stem));
@@ -85,10 +84,10 @@
 			class="min-h-32 resize-y font-sans"
 			bind:value={
 				() => shown.body,
-				(value) => library.editBody(fileEdit, value)
+				(value) => fileEdit.change({ body: value })
 			}
 			onblur={() => void fileEdit.save()}
-			disabled={locked}
+			disabled={fileEdit.locked}
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"
 			data-testid="transcript-text"

@@ -80,8 +80,12 @@ document.
 Structured and whole-file editing use one `FileEdit` per file path. Its
 `change({ fields?, body? })` combines structured changes; `replaceText(text)`
 replaces the whole file. `getMarkdown()` interprets current text and `getText()`
-reads it directly. Svelte uses one `createFileEdit(handle)` adapter with tracked
-`.markdown` and `.text` properties. Switching views requires no save or refresh.
+reads it directly. Each observing Svelte component uses `createFileEdit(handle)`
+with tracked `.markdown` and `.text` properties. The rich-text view passes the
+same core `FileEdit` to its transaction rule; it has no separate note-body
+editing API. A pure presentation helper validates the note and shows its body
+with line feeds, without changing the exact Markdown snapshot or source.
+Switching views requires no save or refresh.
 A failed edit remains available when selecting the note again, including if
 another writer deletes or replaces its saved file. It can be saved again,
 copied, or explicitly discarded.

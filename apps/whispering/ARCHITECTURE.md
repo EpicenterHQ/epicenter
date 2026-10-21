@@ -528,13 +528,13 @@ deleted with one nor in the way of deleting one, readable or not.
 
 What a deletion of a recording or transformation path removes is decided by
 its file as read after the typing held for it saved, not by the last
-listing. A row that reads is deleted through its edit handle
-(`folder.tables[table].edit(id).delete()`), which sends the typing held for
-it once, waits for the row's running save, and deletes it as stored then. A file that is there and does not read as a row (bytes that
-are not text, say) is deleted alone, as the bytes read then, and the person is
-told its results are kept: nothing in the file says which results are its
-own, so none is deleted with it. Any other file is deleted the same way,
-`files.delete(path, bytes)`. Each delete names what it read (ADR-0632), so a
+listing. Before any delete, `folder.files.exclusive(paths, action)` reserves
+all confirmed paths and attempts their held input once. If any input cannot
+save, no file is deleted. The action reads and conditionally deletes each
+file through its scoped `ExclusiveFile`, for both rows and other files.
+A file that does not read as a row is deleted alone; its results stay because
+nothing in that file says which results are its own.
+Each delete names what it read (ADR-0632), so a
 file another program changes in that very moment is kept, and the person is
 told. For a recording, the same guards hold by its name: the capture and the
 confirmation both refuse while work for that recording is running, and
@@ -561,7 +561,8 @@ the Svelte edits expose tracked properties over its read methods. A read never r
   Each view keeps one adapter for its address, including when it switches
   between fields and Source. Autosave policy is configured when opening Folder.
   Folder owns one document, input, save ordering, and failure per physical path.
-  Switching views requires no save or refresh. Failed input and recovery remain
+  Switching views requires no save or refresh. A mounted Source control keeps
+  Source selected through external repairs until the person returns to fields. Failed input and recovery remain
   available even if the saved file can no longer be interpreted.
 - **A failed save** keeps the typing. The file's status line says **Not
   saved** with **Try again** and **Discard** (`SaveStatus.svelte`). Try again retries
@@ -591,8 +592,9 @@ state, and answers whose files are not written. Folder retains accepted
 file edits. Renaming a file saves its typing, saves its exact
 bytes under the new name, then deletes the old name as read; the selection
 follows it. Recording and transformation files keep their names. Once the
-context is closing during normal teardown, typing changes nothing; teardown
-waits for tracked work and the folder's held input. This differs from the
+library stops, it calls `folder.stopEditing()` so all core and Svelte handles
+refuse new input. Teardown still waits for tracked work and the folder’s held
+input. Accepted scoped file actions can finish during close. This differs from the
 person confirming immediate departure.
 
 ## Closing

@@ -230,7 +230,7 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 		target.querySelector('[data-testid="transcript-text"]'),
 	).not.toBeNull();
 	expect(await library.editSource(A)).toBeUndefined();
-	library.editText(library.edit(A), transcript('Typed in Source.\n'));
+	library.edit(A).replaceText(transcript('Typed in Source.\n'));
 	flushSync();
 	expect(
 		target.querySelector('[data-testid="transcript-text-readonly"]')
@@ -738,3 +738,27 @@ for (const replacement of ['missing', 'binary'] as const) {
 		expect(writeStatus(target)).toContain('Not saved');
 	});
 }
+
+
+test('a Source control remains mounted after external repair and keeps failed input until explicitly returning to fields', async () => {
+	const { library, target, root, disk } = await open({ [RECIPE]: 'Needs a header' }, 'transformations');
+	await show(library, RECIPE);
+	const source = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]');
+	expect(source).not.toBeNull();
+	await writeFile(join(root, RECIPE), '---\ntitle: Repaired\nmodel: null\n---\nValid instructions\n');
+	await reportChanged(library);
+	flushSync();
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBe(source);
+	disk.refusing = true;
+	type(source, '---\ntitle: Typed\nmodel: null\n---\nFailed instructions\n');
+	await library.edit(RECIPE).save();
+	flushSync();
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBe(source);
+	expect(source?.value).toContain('Failed instructions');
+	expect(library.isUnsaved(RECIPE)).toBe(true);
+	expect(library.useForm(RECIPE)).toBeUndefined();
+	flushSync();
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBeNull();
+	expect(field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]')?.value).toContain('Failed instructions');
+	disk.refusing = false;
+});

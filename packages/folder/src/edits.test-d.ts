@@ -7,11 +7,13 @@ import { expectTypeOf } from 'bun:test';
 import { Type } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import type {
+	ActionError,
 	ChangeResult,
+	DocumentChange,
+	ExclusiveFile,
 	MarkdownContent,
 	Pending,
 	ReadStatus,
-	DocumentChange,
 } from './edits.js';
 import type { Folder, ReadError, Row } from './folder.js';
 
@@ -24,15 +26,18 @@ expectTypeOf(edit.path).toEqualTypeOf<string>();
 expectTypeOf(edit.getMarkdown()).toEqualTypeOf<
 	MarkdownContent<typeof notes> | undefined
 >();
-expectTypeOf(edit.getPending()).toEqualTypeOf<
-	Pending | undefined
->();
+expectTypeOf(edit.getPending()).toEqualTypeOf<Pending | undefined>();
 const pending = edit.getPending();
 if (pending?.kind === 'document')
-	expectTypeOf(pending.fields).toEqualTypeOf<Readonly<Record<string, unknown>>>();
+	expectTypeOf(pending.fields).toEqualTypeOf<
+		Readonly<Record<string, unknown>>
+	>();
 const markdown = edit.getMarkdown();
 if (markdown?.issues === null)
-	expectTypeOf(markdown.fields).toEqualTypeOf<{ title: string; body: string }>();
+	expectTypeOf(markdown.fields).toEqualTypeOf<{
+		title: string;
+		body: string;
+	}>();
 expectTypeOf(edit.isLocked()).toEqualTypeOf<boolean>();
 expectTypeOf(edit.getReadStatus()).toEqualTypeOf<ReadStatus>();
 expectTypeOf<ReadStatus>().toEqualTypeOf<{
@@ -79,3 +84,10 @@ text.change({ fields: { anything: null } });
 expectTypeOf(folder.close()).toEqualTypeOf<
 	Promise<import('./edits.js').Pending[]>
 >();
+expectTypeOf(folder.stopEditing()).toEqualTypeOf<void>();
+expectTypeOf(
+	folder.files.exclusive(['notes/a.md', 'audio/a.bin'], async (files) => {
+		expectTypeOf(files).toEqualTypeOf<ReadonlyMap<string, ExclusiveFile>>();
+		return 'done';
+	}),
+).toEqualTypeOf<Promise<Result<string, ActionError>>>();

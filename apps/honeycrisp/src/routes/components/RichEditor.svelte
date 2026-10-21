@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { FileEdit } from '@epicenter/folder/edits';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import * as Popover from '@epicenter/ui/popover';
@@ -28,25 +30,26 @@
 	import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
 	import 'prosemirror-view/style/prosemirror.css';
 	import { untrack } from 'svelte';
+	import type { HoneycrispTables } from '$lib/data.js';
 	import {
 		editingPlugins,
 		nodeActive,
+		noteBody,
 		stateAfter,
 		stateShowing,
 		toggleQuote,
 	} from '$lib/editor/rich-text.js';
 	import { bodyCodec } from '$lib/editor/markdown.js';
 	import { noteSchema as schema } from '$lib/editor/schema.js';
-	import type { NoteBody } from '$lib/editor/rich-text.js';
 
 	let {
-		note,
+		fileEdit,
 		focusRequest,
 		onOpenSource,
 		onRefuse,
 	}: {
 		/** The note as shown: its draft while an edit is held, else the cache's. */
-		note: NoteBody;
+		fileEdit: FileEdit<HoneycrispTables['notes']>;
 		focusRequest: number;
 		onOpenSource: () => void;
 		/** An edit Markdown cannot spell was not made; says why. */
@@ -67,7 +70,10 @@
 	 * or a save landing, gives the same string, so nothing below runs
 	 * again.
 	 */
-	const body = $derived(note.getMarkdown()?.body);
+	// The parent keys this editor by its file path.
+	// svelte-ignore state_referenced_locally
+	const trackedEdit = createFileEdit(fileEdit);
+	const body = $derived(noteBody(trackedEdit.markdown));
 	/** The body as a document, or why it cannot be one. */
 	const rich = $derived(body === undefined ? undefined : bodyCodec.decode(body));
 	/**
@@ -176,14 +182,14 @@
 				plugins: [...editingPlugins(), placeholder, taskCheckbox],
 			}),
 			attributes: { class: 'focus:outline-none', 'aria-label': 'Note text' },
-			editable: () => !note.isLocked(),
+			editable: () => !trackedEdit.locked,
 			dispatchTransaction(this: EditorView, transaction) {
 				// Something that kept this view, a command or a timer, can still
 				// dispatch after it was destroyed. Its document is not the note's.
 				if (!alive || this.isDestroyed) return;
 				// A refused or stale transaction changes nothing on screen; a
 				// taken one is already in the note's draft, and its save started.
-				const next = stateAfter(this.state, transaction, note, onRefuse);
+				const next = stateAfter(this.state, transaction, fileEdit, onRefuse);
 				if (next !== undefined) show(this, next);
 			},
 		}));
@@ -213,7 +219,7 @@
 	// The view asks `editable` only when it updates: ask it again when the note
 	// starts or stops taking edits, so the text is not editable while locked.
 	$effect(() => {
-		note.isLocked();
+		trackedEdit.locked;
 		untrack(() => view)?.setProps({});
 	});
 
@@ -317,7 +323,7 @@
 					>
 						<Input class="h-8" placeholder="https://example.com" aria-label="Link address" bind:value={linkHref} />
 						<!-- The popover is outside the app's inert root. -->
-						<Button type="submit" size="sm" disabled={note.isLocked()}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
+						<Button type="submit" size="sm" disabled={trackedEdit.locked}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
 					</form>
 				</Popover.Content>
 			</Popover.Root>

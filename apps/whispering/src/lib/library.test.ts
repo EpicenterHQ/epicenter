@@ -53,6 +53,7 @@ import type { WhisperingServices } from './platform/types.js';
 import { QueryObserver, quiet } from './query.test-support.js';
 import {
 	eventually,
+	openGatedTestFolder,
 	openTestFolder,
 	type ResultFailures,
 	replaceTables,
@@ -94,6 +95,8 @@ type Options = {
 	beforeFileWrite?: (path: string, created: boolean) => Promise<void>;
 	/** Runs before each new recording row is saved. */
 	beforeRowCreate?: () => Promise<void>;
+	/** Runs below the edit owner for scoped actions and accepted saves. */
+	beforeDiskWrite?: (path: string) => Promise<void>;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Parameters<typeof testConnections>[0];
 };
@@ -105,12 +108,15 @@ async function open({
 	transcribe,
 	beforeFileWrite,
 	beforeRowCreate,
+	beforeDiskWrite,
 	root,
 	connections,
 }: Options = {}) {
 	const directory = root ?? (await whisperingDirectory('whispering-library-'));
 	if (root === undefined) roots.push(directory);
-	const folder = await openTestFolder(directory);
+	const folder = beforeDiskWrite === undefined
+		? await openTestFolder(directory)
+		: openGatedTestFolder(directory, beforeDiskWrite);
 	/** Result row writes still to fail. A test may arm more after opening. */
 	const failures: ResultFailures = {
 		starts: failResultStarts,
@@ -593,7 +599,7 @@ test('files in an ordinary directory read as they are, extra fields included', a
 	// Editing the notes keeps the field this version does not know.
 	const view = library.edit('recordings', entry.path);
 	expect(view.markdown?.body).toBeDefined();
-	library.editBody(view, 'My notes, edited\n');
+	view.change({ body: 'My notes, edited\n' });
 	await view.save();
 	await settle(library);
 	const saved = await readFile(join(root, 'recordings', 'kept.md'), 'utf8');
@@ -1187,7 +1193,7 @@ test('close waits for a rename still copying, and the rename finishes before the
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const { library, root } = await open({
-		beforeFileWrite: async (path) => {
+		beforeDiskWrite: async (path) => {
 			if (path !== 'renamed.md') return;
 			reached.resolve();
 			await release.promise;
@@ -1211,4 +1217,104 @@ test('close waits for a rename still copying, and the rename finishes before the
 	opened.splice(opened.indexOf(library), 1);
 	expect(await readFile(join(root, 'renamed.md'), 'utf8')).toBe('original\n');
 	expect(await Bun.file(join(root, 'notes.md')).exists()).toBe(false);
+});
+
+
+test('stopping the library fences direct row and source input while keeping accepted input', async () => {
+	const { library } = await open();
+	await record(library);
+	const entry = library.entries[0]!;
+	const rowEdit = library.edit('recordings', entry.path);
+	const textEdit = library.local.folder.files.edit(entry.path);
+	await textEdit.read();
+	rowEdit.change({ body: 'Accepted before stop' });
+	const accepted = rowEdit.text;
+	library.stop();
+	expect(rowEdit.locked).toBe(true);
+	expect(textEdit.isLocked()).toBe(true);
+	expect(rowEdit.change({ fields: { title: 'Too late' } }).error).not.toBeNull();
+	expect(textEdit.replaceText('Too late').error).not.toBeNull();
+	expect(rowEdit.text).toBe(accepted);
+	await rowEdit.save();
+	expect(rowEdit.pending).toBeUndefined();
+});
+
+test('rename reserves both addresses against direct edits before waiting for held input', async () => {
+	const reached = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	let hold = false;
+	const { library, root } = await open({ beforeDiskWrite: async (path) => {
+		if (!hold || path !== 'from.txt') return;
+		reached.resolve();
+		await release.promise;
+	} });
+	await library.createFile('', 'from.txt');
+	const source = (await openText(library, 'from.txt')).view;
+	const destination = library.local.folder.files.edit('to.txt');
+	await destination.read();
+	source.replaceText('Accepted source');
+	hold = true;
+	const renaming = library.rename('from.txt', 'to.txt');
+	expect(source.locked).toBe(true);
+	expect(destination.isLocked()).toBe(true);
+	expect(source.replaceText('Too late').error).not.toBeNull();
+	expect(destination.replaceText('Steal destination').error).not.toBeNull();
+	await reached.promise;
+	release.resolve();
+	expect(await renaming).toBeUndefined();
+	expect(await readFile(join(root, 'to.txt'), 'utf8')).toBe('Accepted source');
+	expect(await Bun.file(join(root, 'from.txt')).exists()).toBe(false);
+});
+
+test('cascade deletion reserves every confirmed path and aborts all deletes if a result cannot save', async () => {
+	let refusedPath: string | undefined;
+	const { library, root, transcribed } = await open({ beforeDiskWrite: async (path) => {
+		if (path === refusedPath) throw new Error('Result cannot save');
+	} });
+	await record(library);
+	const entry = library.entries[0]!;
+	await library.transcribe(entry);
+	await settle(library);
+	const deletion = expectOk(await library.deletionFor(entry.path));
+	if (deletion.kind !== 'recording') throw new Error('Expected recording deletion');
+	const result = deletion.results[0]!;
+	const resultEdit = library.edit(result);
+	resultEdit.change({ body: 'Held result' });
+	refusedPath = result;
+	const deleting = library.delete(deletion);
+	for (const path of [deletion.path, ...deletion.results]) {
+		const edit = library.local.folder.files.edit(path);
+		expect(edit.isLocked()).toBe(true);
+		expect(edit.replaceText('Too late').error).not.toBeNull();
+	}
+	const requests = transcribed.length;
+	await library.transcribe(entry);
+	expect(transcribed).toHaveLength(requests);
+	expect(await deleting).toContain('unsaved changes');
+	expect(await Bun.file(join(root, entry.path)).exists()).toBe(true);
+	expect(await Bun.file(join(root, result)).exists()).toBe(true);
+	expect(resultEdit.pending).toBeDefined();
+	refusedPath = undefined;
+});
+
+
+test('an admitted rename finishes its scoped copy and deletion while the library closes', async () => {
+	const reached = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	const { library, root } = await open({ beforeDiskWrite: async (path) => {
+		if (path !== 'renamed.txt') return;
+		reached.resolve();
+		await release.promise;
+	} });
+	await library.createFile('', 'original.txt');
+	const renaming = library.rename('original.txt', 'renamed.txt');
+	await reached.promise;
+	opened.splice(opened.indexOf(library), 1);
+	const closing = closeTestLibrary(library);
+	expect(library.local.folder.files.edit('original.txt').isLocked()).toBe(true);
+	release.resolve();
+	expect(await renaming).toBeUndefined();
+	await closing;
+	expect(await Bun.file(join(root, 'original.txt')).exists()).toBe(false);
+	expect(await readFile(join(root, 'renamed.txt'), 'utf8')).toBe('');
 });

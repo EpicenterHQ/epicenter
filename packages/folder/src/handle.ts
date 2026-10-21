@@ -430,6 +430,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		files: {
 			...opened(readFiles),
 			edit: (path, schema) => edits.edit(path, schema),
+			exclusive: edits.exclusive,
 		},
 		tables: Object.fromEntries(
 			Object.entries(tableOperations).map(([name, table]) => [
@@ -458,6 +459,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				statusListeners.delete(listener);
 			};
 		},
+		stopEditing: edits.stopEditing,
 		async settle() {
 			assertOpen();
 			// Saves already started, the folder's own and direct ones alike;

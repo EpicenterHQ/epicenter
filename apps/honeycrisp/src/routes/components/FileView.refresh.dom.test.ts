@@ -137,7 +137,7 @@ test('failed source input stays visible when the saved file becomes binary', asy
 test('failed row changes remain available in Files after another tab deletes the note, and retry restores them', async () => {
 	const path = 'notes/a.md';
 	const { notes, folder, otherTab, failSaves, local, target, text } = await open(path, noteText());
-	notes.noteBody(path).change({ body: 'Keep my row changes\n' });
+	notes.folder.tables.notes.edit(path.slice('notes/'.length, -3)).change({ body: 'Keep my row changes\n' });
 	failSaves();
 	await folder.files.edit(path).save();
 	failSaves(false);

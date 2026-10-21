@@ -25,6 +25,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderFileOperations } from './folder.js';
 import { callObserver } from './observer.js';
+import { readablePath } from './paths.js';
 import { ownFields } from './shared/content/canonical.js';
 import { mergeLinesWith } from './shared/content/merge-lines.js';
 import { readDocument } from './shared/document.js';
@@ -483,6 +484,7 @@ export function createEditOwner({
 	let rereads: Set<string> | undefined;
 	let saves = 0;
 	let aggregate: EditAggregate = { unsaved: [], failures: [], working: false };
+	let editingStopped = false;
 	let closing: Promise<Pending[]> | undefined;
 
 	function stateOf(path: string): PathState {
@@ -744,7 +746,7 @@ export function createEditOwner({
 	}
 
 	const isLocked = (state: PathState | undefined) =>
-		closing !== undefined || state?.action !== undefined;
+		editingStopped || closing !== undefined || state?.action !== undefined;
 
 	function clearTimer(state: PathState) {
 		clearTimeout(state.timer);
@@ -1005,57 +1007,78 @@ export function createEditOwner({
 	}
 
 	/**
-	 * Take `path` before the first await, wait for its running save, send held
-	 * input once, and run `action` only if nothing stays unsaved. `action`
-	 * reaches the file through its own `file`, which works while the folder
-	 * closes, so an action already taken can finish, and ends with it.
+	 * Reserve every path before publishing or awaiting anything. Scopes do not
+	 * queue behind overlapping scopes: either every path is taken or none is.
+	 * Admitted work is tracked before listeners can close the folder, and its
+	 * file capabilities stay usable until the action ends, even during close.
 	 */
 	function fence<T>(
-		path: string,
+		paths: readonly string[],
 		reason: string,
-		action: (file: ExclusiveFile) => Promise<T>,
+		action: (files: ReadonlyMap<string, ExclusiveFile>) => Promise<T>,
 	): Promise<Result<T, ActionError>> {
 		if (closing !== undefined)
 			return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
-		const state = stateOf(path);
-		if (state.action !== undefined)
-			return Promise.resolve(
-				ActionError.NotStarted({ reason: state.action.reason }),
-			);
-		state.action = { reason };
-		clearTimer(state);
+		const uniquePaths = [...new Set(paths)];
+		for (const path of uniquePaths) {
+			if (!readablePath(path))
+				return Promise.resolve(
+					ActionError.NotStarted({
+						reason: SaveError.InvalidPath({ path }).error.message,
+					}),
+				);
+			const conflict = states.get(path)?.action;
+			if (conflict !== undefined)
+				return Promise.resolve(
+					ActionError.NotStarted({ reason: conflict.reason }),
+				);
+		}
+		const reserved = uniquePaths.map((path) => {
+			const state = stateOf(path);
+			state.action = { reason };
+			clearTimer(state);
+			return { path, state };
+		});
 		let taken = true;
 		const ended = () => {
 			if (!taken)
 				throw new Error('This exclusive change of the file has ended');
 		};
-		const file: ExclusiveFile = {
-			path,
-			read: () => (ended(), files.read(path)),
-			write: (from, content) => (ended(), files.write(path, from, content)),
-			delete: (from) => (ended(), files.delete(path, from)),
-		};
-		const work = (async (): Promise<Result<T, ActionError>> => {
+		const scopedFiles = new Map<string, ExclusiveFile>(
+			reserved.map(({ path }) => [
+				path,
+				{
+					path,
+					read: () => (ended(), files.read(path)),
+					write: (from, content) => (ended(), files.write(path, from, content)),
+					delete: (from) => (ended(), files.delete(path, from)),
+				},
+			]),
+		);
+		const completion = Promise.withResolvers<Result<T, ActionError>>();
+		const work = completion.promise;
+		actions.add(work);
+		for (const { path } of reserved) publish(path);
+		// An empty scope is still work that settle/close must wait for.
+		if (reserved.length === 0) updateAggregate();
+		(async (): Promise<Result<T, ActionError>> => {
 			try {
-				await state.running;
-				if (state.input !== undefined) {
-					await flush(path, true);
-					if (state.input !== undefined)
-						return ActionError.NotStarted({ reason: UNSAVED });
-				}
-				return Ok(await action(file));
+				await Promise.all(reserved.map(({ state }) => state.running));
+				await Promise.all(reserved.map(({ path }) => flush(path, true)));
+				if (reserved.some(({ state }) => state.input !== undefined))
+					return ActionError.NotStarted({ reason: UNSAVED });
+				return Ok(await action(scopedFiles));
 			} finally {
 				taken = false;
-				state.action = undefined;
+				for (const { state } of reserved) state.action = undefined;
 			}
-		})();
-		actions.add(work);
+		})().then(completion.resolve, completion.reject);
 		const done = () => {
 			actions.delete(work);
-			publish(path);
+			for (const { path } of reserved) publish(path);
+			if (reserved.length === 0) updateAggregate();
 		};
 		work.then(done, done);
-		publish(path);
 		return work;
 	}
 
@@ -1064,7 +1087,7 @@ export function createEditOwner({
 		path: string,
 		action: () => Promise<Result<{ deleted: boolean }, SaveError | ReadError>>,
 	): Promise<DeleteResult> {
-		const outcome = await fence(path, DELETING, async () => {
+		const outcome = await fence([path], DELETING, async () => {
 			try {
 				return await action();
 			} catch (cause) {
@@ -1147,7 +1170,9 @@ export function createEditOwner({
 	}
 
 	function lockReason(state: PathState | undefined) {
-		return closing !== undefined ? CLOSING : state?.action?.reason;
+		if (closing !== undefined) return CLOSING;
+		if (editingStopped) return 'Editing has stopped for this folder.';
+		return state?.action?.reason;
 	}
 
 	/** Current source, with applicable held input. Unapplied fields stay only in pending. */
@@ -1378,7 +1403,8 @@ export function createEditOwner({
 						new Uint8Array(await stored.data.content.arrayBuffer()),
 					);
 				}),
-			exclusive: (action) => fence(path, BUSY, action),
+			exclusive: (action) =>
+				fence([path], BUSY, (files) => action(files.get(path)!)),
 		};
 	}
 
@@ -1400,6 +1426,15 @@ export function createEditOwner({
 
 	return {
 		edit,
+		exclusive: <T>(
+			paths: readonly string[],
+			action: (files: ReadonlyMap<string, ExclusiveFile>) => Promise<T>,
+		) => fence(paths, BUSY, action),
+		stopEditing() {
+			if (editingStopped) return;
+			editingStopped = true;
+			publish(undefined);
+		},
 		settle,
 		close,
 		getAggregate() {

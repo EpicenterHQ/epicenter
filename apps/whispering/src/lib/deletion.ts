@@ -14,7 +14,8 @@
  * cannot say which recording it belongs to. A result on pasted text names no
  * recording and is never part of one.
  */
-import type { ReadError, Row, SaveError } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder';
+import type { ExclusiveFile } from '@epicenter/folder/edits';
 import { basename } from '@epicenter/folder/file-browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -27,7 +28,7 @@ import {
 	TRANSFORMATIONS,
 	type TransformationFields,
 } from './definition.js';
-import { describeError, listingOf, readBytes } from './files.js';
+import { describeError, listingOf } from './files.js';
 import type { WhisperingFolder } from './folder.js';
 import { recordingAudio } from './recording-audio.js';
 
@@ -62,30 +63,8 @@ export type Deletion =
 			readonly audioOf?: string;
 	  };
 
-/** The tables a deletion removes rows from. */
-type DeletedTable =
-	| typeof RECORDINGS
-	| typeof TRANSCRIPTIONS
-	| typeof TRANSFORMATIONS
-	| typeof TRANSFORMATION_RUNS;
-
 export type DeletionContext = {
 	readonly folder: WhisperingFolder;
-	/**
-	 * Delete a row as it is stored once the typing held for it saved: the
-	 * edit layer's delete. `deleted: false` when it changed meanwhile.
-	 */
-	deleteRow(
-		table: DeletedTable,
-		id: string,
-	): Promise<
-		Result<
-			{ deleted: boolean },
-			| SaveError
-			| ReadError
-			| { readonly name: string; readonly message: string }
-		>
-	>;
 	/** Send the typing held for `path`, row or text; answers whether some still did not save. */
 	settle(path: string): Promise<boolean>;
 	/** Why a recording cannot be deleted now, while work for it is under way. */
@@ -243,112 +222,65 @@ export async function captureDeletion(
 const changedMeanwhile = (path: string) =>
 	`${path} changed while it was being deleted, so it was kept. Check it, then delete it again.`;
 
-/** Delete the row `id` of `table` as it is stored now. */
-async function deleteRow(
-	context: RunContext,
-	table: DeletedTable,
-	id: string,
-): Promise<string | undefined> {
-	const path = rowPath(table, id);
-	const { data, error } = await context.deleteRow(table, id);
-	if (error !== null) return describeError(error);
-	if (!data.deleted) {
-		// Kept because it changed, or already gone, here or elsewhere.
-		const { data: still } = await context.folder.tables[table].get(id);
-		if (still !== undefined) return changedMeanwhile(path);
-	}
-	context.deleted(path);
-	return undefined;
-}
-
-/** Delete the file at `path` as it holds now, row or not. */
+/** Delete the current stored bytes through the already reserved file scope. */
 async function deleteFile(
 	context: RunContext,
+	files: ReadonlyMap<string, ExclusiveFile>,
 	path: string,
 ): Promise<string | undefined> {
-	const { data: bytes, error: readError } = await readBytes(
-		context.folder,
-		path,
-	);
-	if (readError !== null) return readError;
-	const { data, error } = await context.folder.files.delete(path, bytes);
-	if (error !== null) return describeError(error);
-	if (!data.deleted) return changedMeanwhile(path);
+	const file = files.get(path)!;
+	const { data: found, error: readError } = await file.read();
+	if (readError !== null) return describeError(readError);
+	if (found !== undefined) {
+		const bytes = new Uint8Array(await found.content.arrayBuffer());
+		const { data, error } = await file.delete(bytes);
+		if (error !== null) return describeError(error);
+		if (!data.deleted) return changedMeanwhile(path);
+	}
 	context.deleted(path);
 	return undefined;
 }
 
 type RunContext = DeletionContext & {
-	/** Recordings whose deletion is under way. */
-	readonly deleting: Set<string>;
 	dropFailed(recordingId: string): void;
 	/** The caches let a deleted file go. */
 	deleted(path: string): void;
+	/** Refuse a workflow whose preflight answered after the product stopped. */
+	refused(): string | undefined;
 };
 
 /**
- * Delete exactly what was confirmed. `deleting` holds the recording while it
- * is deleted, so nothing new starts for it.
+ * Delete exactly what was confirmed through the files the caller reserved.
+ * All held input has saved before this action starts.
  */
 export async function runDeletion(
 	context: RunContext,
 	deletion: Deletion,
+	files: ReadonlyMap<string, ExclusiveFile>,
 ): Promise<string | undefined> {
-	switch (deletion.kind) {
-		case 'transformation': {
-			const id = rowIdOf(TRANSFORMATIONS, deletion.path);
-			if (id === undefined) return deleteFile(context, deletion.path);
-			return deleteRow(context, TRANSFORMATIONS, id);
-		}
-		case 'file': {
-			const id = deletion.recordingId;
-			if (id === undefined) return deleteFile(context, deletion.path);
-			const busy = context.busy(id);
-			if (busy !== undefined) return busy;
-			context.deleting.add(id);
-			try {
-				return await deleteFile(context, deletion.path);
-			} finally {
-				context.deleting.delete(id);
-			}
-		}
-		case 'recording': {
-			const { id } = deletion;
-			const busy = context.busy(id);
-			if (busy !== undefined) return busy;
-			context.deleting.add(id);
-			try {
-				// Reserve before reading: no request starts while this list is read.
-				const { data: now, error } = await resultsOf(context, id);
-				if (error !== null) return error;
-				const confirmed = new Set(deletion.results);
-				if (now.some((result) => !confirmed.has(result)))
-					return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
-				const refused = await deleteRow(context, RECORDINGS, id);
-				if (refused !== undefined) return refused;
-				context.dropFailed(id);
-				// One file at a time: a refusal keeps that file, and what was
-				// deleted before it stays deleted.
-				const leftovers: string[] = [];
-				for (const result of deletion.results) {
-					const transcript = rowIdOf(TRANSCRIPTIONS, result);
-					const output = rowIdOf(TRANSFORMATION_RUNS, result);
-					const problem =
-						transcript !== undefined
-							? await deleteRow(context, TRANSCRIPTIONS, transcript)
-							: output !== undefined
-								? await deleteRow(context, TRANSFORMATION_RUNS, output)
-								: await deleteFile(context, result);
-					if (problem !== undefined) leftovers.push(result);
-				}
-				return leftovers.length > 0
-					? `The recording was deleted, but these files were not: ${leftovers.join(', ')}`
-					: undefined;
-			} finally {
-				context.deleting.delete(id);
-			}
-		}
+	if (deletion.kind !== 'recording')
+		return deleteFile(context, files, deletion.path);
+	const { id } = deletion;
+	// The caller reserved the recording and all confirmed files before this read.
+	const { data: now, error } = await resultsOf(context, id);
+	if (error !== null) return error;
+	const why = context.refused();
+	if (why !== undefined) return why;
+	const confirmed = new Set(deletion.results);
+	if (now.some((result) => !confirmed.has(result)))
+		return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
+	const refused = await deleteFile(context, files, deletion.path);
+	if (refused !== undefined) return refused;
+	context.dropFailed(id);
+	// One file at a time: an outside change keeps that file; earlier deletes stay deleted.
+	const leftovers: string[] = [];
+	for (const result of deletion.results) {
+		const problem = await deleteFile(context, files, result);
+		if (problem !== undefined) leftovers.push(result);
 	}
+	return leftovers.length > 0
+		? `The recording was deleted, but these files were not: ${leftovers.join(', ')}`
+		: undefined;
 }
 
 const count = (n: number, one: string, many: string) =>

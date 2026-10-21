@@ -271,6 +271,9 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			// answers this same promise.
 			const completion = Promise.withResolvers<WriteFailure[]>();
 			closing = completion.promise;
+			// Stop new input now; admitted actions can still use storage while
+			// they finish, before the handle's final close.
+			folder.stopEditing();
 			updateStatus?.();
 			(async () => {
 				clearTimeout(refreshTimer);
