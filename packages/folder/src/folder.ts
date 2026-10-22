@@ -14,10 +14,10 @@
  * against the schema, so unknown fields and repairable content survive.
  *
  * Writes are unconditional: a file write replaces whatever is there, a
- * delete removes it, and the last to land wins. A row set composes over held
- * text at the call, or reads in the lane when none is held, and publishes
- * the whole result. Every write and delete of a path, an editor's included, runs in
- * one lane in call order, and each reports its own outcome.
+ * delete removes it, and the last to land wins. A row set composes in its
+ * lane over the input held at its call, or over the file it reads there, and
+ * publishes the whole result. Every write and delete of a path, an editor's
+ * included, runs in one lane in call order, and each reports its own outcome.
  *
  * Opening authenticates nothing, selects no remote, creates no Git history,
  * and writes no schema file (ADR-0633).
@@ -100,14 +100,15 @@ export type FolderTableOperations<TSchema extends Schema = Schema> = {
 	list(): Promise<Result<Row<TSchema>[], ReadError>>;
 	get(id: string): Promise<Result<Row<TSchema> | undefined, ReadError>>;
 	/**
-	 * Apply `change` to row `id` and publish the whole row. It composes over
-	 * the text the folder holds for the row at this call: its editor's input,
-	 * or its last known text, even when the file is gone; with nothing held,
-	 * over the file read in the row's lane after earlier commands, or a new
-	 * row. On success the row's editor knows the stored text, and input held
-	 * at the call is acknowledged; input typed meanwhile stays. A failure
-	 * changes nothing held and is never retried. Answers the row it stored.
-	 * The schema never refuses a save.
+	 * Apply `change` to row `id` and publish the whole row. It composes in
+	 * the row's lane, after earlier commands: over its editor's input held at
+	 * this call while that input is unpublished, otherwise over the file as
+	 * read then, or a new row when there is none. Text the folder retained
+	 * from an earlier read is never the base. On success the row's editor
+	 * knows the stored text, and input held at the call is acknowledged;
+	 * input typed meanwhile stays. A failure changes nothing held and is
+	 * never retried. Answers the row it stored. The schema never refuses a
+	 * save.
 	 */
 	set(id: string, change: RowChange): Promise<Result<Row<TSchema>, SaveError>>;
 	/**

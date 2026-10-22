@@ -144,13 +144,18 @@ from, and the last one to land wins.
   byte-order mark; a byte array is copied when the method is called.
 - `files.delete(path)` removes the file. A file that is not there is
   already deleted, which is success.
-- `tables.<name>.set(id, { fields?, body? })` applies the change to the row
-  text held at the call, including unsaved input, and answers the row it
-  stored. With no held text, it reads and composes inside the path's lane,
-  after earlier commands. `undefined` removes a field; `body` replaces the
-  body. The composed whole file is published unconditionally, so another
-  writer's changes may be replaced. A field edit of a row whose frontmatter
-  does not parse is `Unparseable`; a body edit lands.
+- `tables.<name>.set(id, { fields?, body? })` composes inside the path's
+  lane, after earlier commands, and answers the row it stored. It applies
+  the change to the editor's input held at the call while that input is
+  unpublished; otherwise to the file as it reads it then, or to a new row.
+  Text retained from an earlier read is never the base: with no input held,
+  a set keeps what another writer stored before its turn, and over a
+  deleted row it makes a new row from the change alone. `undefined` removes
+  a field; `body` replaces the body. The composed whole file is published
+  unconditionally, so a change landing between its read and its write, or
+  older text in the held input, replaces another writer's work. A field
+  edit of a row whose frontmatter does not parse is `Unparseable`; a body
+  edit lands.
 - `tables.<name>.delete(id)` removes only the row file. Adjacent files stay.
 
 Every write and delete of a path through one handle, the editors' included,

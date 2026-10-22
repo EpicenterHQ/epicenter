@@ -957,6 +957,59 @@ test('a direct set with no held text reads in the lane after earlier commands', 
 	).toBe('InvalidId');
 });
 
+test('a direct set with no input held composes over the file it reads, never over retained text', async () => {
+	const { folder, disk, outside, text } = setup({
+		'notes/a.md': row('Old', 'Original\n'),
+		'notes/b.md': row('Old', 'Original\n'),
+	});
+	// The list retains both rows' text, and nothing subscribes to either.
+	expectOk(await folder.tables.notes.list());
+	const theirs = row('Theirs', 'Their body\n');
+	// Another writer changes both: one notice arrives, the other is lost.
+	outside('notes/a.md', theirs);
+	disk.set('notes/b.md', encode(theirs));
+	for (const id of ['a', 'b'])
+		expectOk(await folder.tables.notes.set(id, { fields: { pinned: true } as never }));
+	for (const path of ['notes/a.md', 'notes/b.md'])
+		expect(text(path)).toBe('---\ntitle: Theirs\npinned: true\n---\nTheir body\n');
+	// A row deleted since it was read is made from the change alone.
+	outside('notes/a.md', null);
+	expectOk(await folder.tables.notes.set('a', { fields: { title: 'New' } }));
+	expect(text('notes/a.md')).toBe(row('New', ''));
+});
+
+test('direct sets compose in call order over what the commands before them stored', async () => {
+	const { folder, text, writes } = setup({
+		'notes/a.md': row('Old', 'Original\n'),
+	});
+	const edit = folder.tables.notes.edit('a');
+	expectOk(await edit.refresh());
+	expectOk(edit.replaceText(row('Old', 'Typed\n')));
+	// None awaited before the next: each joins the lane at its call.
+	const x = folder.tables.notes.set('a', { fields: { x: 1 } as never });
+	const y = folder.tables.notes.set('a', { fields: { y: 2 } as never });
+	const raw = folder.files.write('notes/a.md', row('Raw', 'Written\n'));
+	const z = folder.tables.notes.set('a', { fields: { z: 3 } as never });
+	expectOk(await x);
+	expectOk(await y);
+	expectOk(await raw);
+	expectOk(await z);
+	const typed = (fields: string) => `---\ntitle: Old\n${fields}---\nTyped\n`;
+	const stored = '---\ntitle: Raw\nz: 3\n---\nWritten\n';
+	expect(writes()).toEqual([
+		// The first captured the typing; the rest build on what landed.
+		`write notes/a.md ${typed('x: 1\n')}`,
+		`write notes/a.md ${typed('x: 1\ny: 2\n')}`,
+		`write notes/a.md ${row('Raw', 'Written\n')}`,
+		`write notes/a.md ${stored}`,
+	]);
+	expect(text('notes/a.md')).toBe(stored);
+	expect(edit.getSnapshot()).toMatchObject({
+		isDirty: false,
+		content: { text: stored },
+	});
+});
+
 test('a raw write acknowledges only the input captured at its call and is known before it resolves', async () => {
 	const { folder, hold } = setup({ 'a.md': 'A\n' });
 	const edit = folder.files.edit('a.md');

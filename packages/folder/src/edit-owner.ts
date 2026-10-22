@@ -23,7 +23,9 @@
  * request carries the tick it happened at. An observation installs only
  * when nothing newer happened to its path since it started and no command
  * of the path is admitted; otherwise the owner's own read reads again,
- * until one applies.
+ * until one applies. A structured command composes over the input it
+ * captured while that is still the input, otherwise over the file it reads
+ * in the lane, never over retained text.
  */
 import { type Static, type TSchema, Type } from 'typebox';
 import {
@@ -1151,12 +1153,12 @@ export function createEditOwner({
 			ingest(path, at, observation, observation.kind !== 'failed');
 		},
 		/**
-		 * Admit a structured change of `path`, composed by `compose` from the
-		 * text held at this call: the input, or the known text, even when the
-		 * file is missing. With no text known, it reads the file inside the
-		 * lane, after the path's earlier commands, and composes from that, or
-		 * from `null` for no file. On success the source knows the composed
-		 * text and the input captured at the call is acknowledged, before
+		 * Admit a structured change of `path`, composed by `compose` in the
+		 * lane, after the path's earlier commands. It composes over the input
+		 * captured at this call while that is still the input; otherwise over
+		 * the file read then, or `null` for no file. Retained text is never
+		 * the base: it may be older than the file. On success the source knows
+		 * the composed text and the captured input is acknowledged, before
 		 * this resolves; newer input stays. A failure changes nothing held.
 		 */
 		compose(
@@ -1166,29 +1168,27 @@ export function createEditOwner({
 			const source = sourceOf(path);
 			const captured = source.intent;
 			const epoch = source.epoch;
-			const held = textOf(source);
-			let composed: string | undefined;
-			if (held !== undefined) {
-				const result = compose(held);
-				if (result.error !== null) return Promise.resolve(result);
-				composed = result.data;
-			}
 			// The captured input is this command's to publish now, composed.
 			const ticket = own(source, captured, 'command');
 			return enqueue(
 				path,
 				'publication',
 				async (): Promise<Result<string, SaveError>> => {
-					let text = composed;
-					if (text === undefined) {
+					let base: string | null;
+					// Input an earlier command published, or newer typing replaced,
+					// is no longer the base: the file as stored now is.
+					if (captured !== undefined && source.intent === captured)
+						base = captured.text;
+					else {
 						const found = await observe(path);
 						if (found.kind === 'failed')
 							return SaveError.StorageFailed({ cause: found.cause });
 						if (found.kind === 'not-text') return SaveError.NotText();
-						const result = compose(found.kind === 'text' ? found.text : null);
-						if (result.error !== null) return result;
-						text = result.data;
+						base = found.kind === 'text' ? found.text : null;
 					}
+					const composed = compose(base);
+					if (composed.error !== null) return composed;
+					const text = composed.data;
 					const written = await write(path, text);
 					return written.error === null ? Ok(text) : written;
 				},
