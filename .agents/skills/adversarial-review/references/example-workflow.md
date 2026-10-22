@@ -14,24 +14,28 @@ viable options.
 
 ## Independent review
 
-Codex sends one fresh GPT-6.1 Sol reviewer and one read-only Opus reviewer the outcome,
-explicit requirements, existing implementation, and actual callers. It withholds
-the proposed rebinding design and its rationale until both have proposed their
-own strongest greenfield shape. The reviewers have complementary starting questions
-but both must search for the deletion prize and test the guarantees. After their
-independent first answers, Codex shares the proposal with each and asks for a
-challenge against it.
+Codex sends two fresh read-only Codex reviewers and a read-only Claude Opus
+reviewer the outcome, explicit requirements, existing implementation, and actual
+callers. It withholds the proposed rebinding design and its rationale until all
+three have proposed their own strongest greenfield shape. The Codex reviewers
+start from different questions about the organizing model and consequential
+caller sequences. Claude independently challenges the premises shared by the
+design and its obvious alternatives. Every reviewer can pursue another model
+or establish why the current one earns its place. After their independent first
+answers, Codex shares the proposal with each for comparison.
 
-Both find that the manual rebinding procedures compensate for resources having
+The Codex reviewers find that manual rebinding compensates for resources having
 no single workspace owner. One proposes a keyed workspace boundary. The other
 asks whether pending edits belong to that boundary or survive its disposal.
-Codex inspects the current code rather than assigning that check to the user.
+Claude challenges the assumption that one mutable active workspace is necessary
+and identifies independently owned sessions as a possibility to investigate.
+Codex inspects current code rather than assigning that check to the user.
 
-The keyed boundary is promising, but a fresh perspective could reconsider the
-need to switch a single mutable workspace at all. Codex commissions another
-reviewer to explore independently opened workspace sessions. No known defect is
-required to justify that exploration. This reviewer receives raw callers and
-the initial proposals; its pass is an informed challenge, not blind discovery.
+Claude's alternative leaves a distinct question unresolved: would independently
+owned sessions preserve pending edits more naturally than the keyed boundary,
+and what resource costs would they introduce? Codex adds a reviewer to trace
+that comparison. This reviewer receives raw callers and the initial proposals;
+its pass is an informed challenge, not blind discovery.
 
 The reviewer proposes independently owned sessions, each with its own resources.
 Codex steers the next completed turn toward the deciding uncertainty:
@@ -102,7 +106,7 @@ explicit no-reload requirement if they prefer the larger deletion prize.
 ## When the current design wins
 
 In a separate hypothetical case, deletion markers prevent offline devices
-from restoring deleted records. Both reviewers examine alternatives and
+from restoring deleted records. All three reviewers examine alternatives and
 recommend keeping the markers. Codex verifies the finding and reports:
 
 > **Keep the deletion markers.** Removing marker retention and cleanup is the

@@ -29,32 +29,28 @@ disagreement and deletion at any cost do not establish improvement either.
 If you are already the delegated reviewer, perform the review yourself and
 launch no child agents. The following setup belongs to the coordinating agent.
 
-The coordinating agent starts with one fresh read-only `gpt-6.1-sol` subagent with
-`fork_turns: "none"` and `reasoning_effort: "high"`, and one read-only Claude
-Opus reviewer through [consult-claude](../consult-claude/SKILL.md). Explicit
-user choices override this default. Ordinary final checks remain local under
-post-implementation-review.
+The coordinator normally staffs three read-only seats. Two are fresh Codex
+subagents using the runtime's available GPT-6 model, each with
+`fork_turns: "none"` and `reasoning_effort: "high"`. The third is a fresh,
+read-only Claude Opus reviewer through
+[consult-claude](../consult-claude/SKILL.md). Include it without waiting for the
+user to name Claude. Explicit user choices override this staffing. If a reviewer is unavailable, report the limitation and continue
+with the available seats. If none is available, perform the review locally and
+state that it was not independent. Ordinary final checks remain local under
+post-implementation-review; a routine edit does not earn this review.
 
-A requested Claude reviewer occupies one of the two initial seats unless the
-user specifies different staffing. Reassess further staffing after the first
-passes under Manage the search.
+Give every reviewer the same raw evidence and a different starting question.
+Run them in parallel when possible. Withhold each reviewer's conclusions from
+the others until all initial answers arrive.
 
-Give both reviewers the same evidence and complementary starting questions.
-Run them in parallel when possible, and withhold each reviewer's findings from
-the other until both initial verdicts arrive. Assign the starting questions
-without assuming either model is better at simplification or guarantee tracing.
-If either reviewer is unavailable, report that limitation and continue with the
-available review. If neither is available, perform the pass locally and state
-that it was not independent.
-
-Reviewer one starts with:
+Codex reviewer one starts with:
 
 > Starting from the desired outcome and actual users and callers, what is the
 > strongest greenfield design? Reconsider the organizing idea, ownership,
 > lifecycle, representation, and promises. Show concrete use, the deletion prize,
 > the replacement guarantees, and the complexity introduced.
 
-Reviewer two starts with:
+Codex reviewer two starts with:
 
 > Independently develop the strongest greenfield design. What must it preserve
 > to be worth adopting? Trace concrete callers and lifecycle sequences to find
@@ -62,10 +58,19 @@ Reviewer two starts with:
 > and which are inherited assumptions? Show where an alternative would break
 > a necessary guarantee or move the burden onto someone else.
 
+The Claude reviewer starts with:
+
+> Find the premises the design under review shares with its obvious
+> alternatives: about ownership, lifetime, representation, or what is promised
+> to people. Which premise accounts for the most machinery, and what would you
+> build if it were false? Develop your own account and test it against the
+> strongest case for the current design. If the evidence points to a better
+> question, pursue that instead.
+
 These are starting questions, not assigned conclusions or separate file lanes.
 Reviewer two explores alternatives without waiting for reviewer one's proposal.
-Both can discover a better design or conclude that the current boundaries earn
-their place.
+Any reviewer can discover a better design, challenge its starting frame, or
+conclude that the current boundaries earn their place.
 
 When reviewing a design before implementation, first give each reviewer the
 desired outcome, explicit requirements, actual callers, and existing system,
@@ -97,8 +102,9 @@ outcome and actual callers if the current abstraction did not exist. All
 reviewers apply this review method themselves without launching more reviewers.
 They may propose follow-up investigations; the coordinator commissions them.
 Codex owns verification and can assign bounded experiments through
-[delegate-claude](../delegate-claude/SKILL.md) when the user explicitly
-authorizes Claude execution.
+[delegate-claude](../delegate-claude/SKILL.md) within the parent task's
+authorization, with Codex implementing substantial changes under Claude's
+direction.
 
 For a proposal without implementation, supply the proposal and any existing
 system it would replace. Distinguish observed behavior from design assumptions;
@@ -126,17 +132,18 @@ When reviewers disagree, identify the competing models and the claim or tradeoff
 that separates them. Add an independent exploration when the alternatives need
 development, or a focused challenge when a consequential claim remains untested.
 Prefer a direct caller trace or executable check when it can settle a factual
-dispute. When reviewers agree, examine the assumptions both retained and the
-organizing ideas neither explored. Agreement alone does not close the search;
-a worthwhile alternative can justify another reviewer without evidence that
-either initial review is wrong.
+dispute. When reviewers agree, examine the assumptions the initial reviewers
+retained and the organizing ideas they left unexplored. Agreement alone does
+not close the search; a worthwhile alternative can justify another reviewer
+without evidence that an initial review is wrong.
 
 Name what each additional assignment could discover and how its answer could
 change the decision. Scale the search to the breadth and consequence of the
-design; available capacity alone is not a purpose. For broad decisions, two
-reviewers of each model can explore both starting questions. Model symmetry and
-a fixed panel size are not requirements. Reassess again when new findings
-materially change the alternatives. Repeated reasoning without a distinct
+design; available capacity alone is not a purpose. For broad decisions,
+additional reviewers can pursue different starting angles or challenge emerging
+alternatives. Model symmetry and a fixed panel size are not requirements. Add
+reviewers within the task's scope without another permission step. Reassess
+again when new findings materially change the alternatives. Repeated reasoning without a distinct
 opportunity does not justify expanding the panel.
 
 Use parallel reviewers to broaden the search and sequential reviewers to
