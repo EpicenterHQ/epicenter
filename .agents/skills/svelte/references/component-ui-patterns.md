@@ -219,7 +219,7 @@ each other and which source information survives.
 
 ## File editor views
 
-Use [Folder editing](../../../../packages/folder/README.md#unsaved-input)
+Use [Folder editing](../../../../packages/folder/README.md#editors)
 for how an app edits files and [the input patterns](input-ownership.md) for the
 choice between immediate editing and explicit submission.
 
