@@ -99,7 +99,7 @@ test('the pause a directory is opened with saves its held input', async () => {
 	)
 		await new Promise((resolve) => setTimeout(resolve, 5));
 	expect(await text(root, 'notes/milk.md')).toBe('---\ntitle: Oat\n---\n');
-	expect(await folder.close()).toEqual([]);
+	folder.close();
 });
 
 test('binary saves keep exact bytes and preserve the input captured at call time', async () => {
@@ -112,7 +112,7 @@ test('binary saves keep exact bytes and preserve the input captured at call time
 	expect(new Uint8Array(await readFile(join(root, 'audio/clip.bin')))).toEqual(
 		new Uint8Array([0, 1, 255]),
 	);
-	await folder.close();
+	folder.close();
 });
 
 test('opening an existing directory reads its files as they are and writes none', async () => {
@@ -156,7 +156,7 @@ test('opening an existing directory reads its files as they are and writes none'
 	expect(new Uint8Array(await read.content.arrayBuffer())).toEqual(binary);
 	expect(expectOk(await folder.files.read('missing.txt'))).toBeUndefined();
 
-	await folder.close();
+	folder.close();
 	expect((await stat(join(root, 'notes/fits.md'))).mtimeMs).toBe(
 		before.mtimeMs,
 	);
@@ -192,7 +192,7 @@ test('existing empty and nonportable row stems remain visible for repair', async
 	expect(
 		expectErr(await folder.files.write('notes/a: b.md', 'again')).name,
 	).toBe('InvalidPath');
-	await folder.close();
+	folder.close();
 });
 
 test('an existing HEAD is readable but cannot be changed into Git state', async () => {
@@ -206,7 +206,7 @@ test('an existing HEAD is readable but cannot be changed into Git state', async 
 	).toBe('InvalidPath');
 	expect(expectErr(await folder.files.delete('HEAD')).name).toBe('InvalidPath');
 	expect(await text(root, 'HEAD')).toBe('notes\n');
-	await folder.close();
+	folder.close();
 });
 
 test('opening refuses what cannot hold a folder, before acquiring anything', async () => {
@@ -252,7 +252,7 @@ test('opening and saving make no .git, and stage nothing in the directory', asyn
 	expect(await readdir(join(root, '..', '.folder.epicenter-scratch'))).toEqual(
 		[],
 	);
-	await folder.close();
+	folder.close();
 });
 
 test('opening clears what a stopped save staged an hour ago, and leaves younger and foreign files', async () => {
@@ -274,7 +274,7 @@ test('opening clears what a stopped save staged an hour ago, and leaves younger 
 		[fresh, 'left-behind'].sort(),
 	);
 	expect(await readdir(root)).toEqual([]);
-	await folder.close();
+	folder.close();
 });
 
 test('a .git file or link opens and saves, and is left as it is', async () => {
@@ -293,7 +293,7 @@ test('a .git file or link opens and saves, and is left as it is', async () => {
 			'---\ntitle: One\ndone: true\n---\n',
 		);
 		expect(await text(root, 'new.md')).toBe('new\n');
-		await folder.close();
+		folder.close();
 	}
 	expect(await text(worktree, '.git')).toBe(
 		'gitdir: /elsewhere/.git/worktrees/folder\n',
@@ -318,7 +318,7 @@ test('a save waits for the save lock another program holds', async () => {
 	other.close();
 	expectOk(await saving);
 	expect(await text(root, 'a.md')).toBe('a');
-	await folder.close();
+	folder.close();
 });
 
 /** The permission bits at `path`. */
@@ -381,7 +381,7 @@ test.skipIf(process.platform === 'win32')(
 		}
 		expect(await readdir(staging)).toEqual([]);
 		expect(await mode(staging)).toBe(0o700);
-		await folder.close();
+		folder.close();
 	},
 );
 
@@ -448,7 +448,7 @@ test.skipIf(!darwin)(
 		expect(await text(root, 'shared.md')).toBe('secret\n');
 		expect(await readdir(staging)).toEqual([]);
 		expect(acl(staging)).toEqual([]);
-		await folder.close();
+		folder.close();
 	},
 );
 
@@ -463,7 +463,7 @@ test.skipIf(!darwin)(
 		expect(acl(staging)).not.toEqual([]);
 		const folder = await open(root);
 		expect([await mode(staging), acl(staging)]).toEqual([0o700, []]);
-		await folder.close();
+		folder.close();
 	},
 );
 
@@ -483,7 +483,7 @@ test.skipIf(!darwin)(
 			expect(JSON.stringify(refused)).toContain('could not be made private');
 			expect(await text(root, 'a.md')).toBe('accepted\n');
 			expect(await readdir(staging)).toEqual([]);
-			await folder.close();
+			folder.close();
 		} finally {
 			execFileSync('/usr/bin/chflags', ['nouchg', staging]);
 		}
@@ -504,7 +504,7 @@ test.skipIf(process.platform === 'win32')(
 		expect(await text(root, 'a.md')).toBe('old\n');
 		expect(await readdir(elsewhere)).toEqual([]);
 		expect(await mode(elsewhere)).toBe(0o755);
-		await folder.close();
+		folder.close();
 	},
 );
 
@@ -526,7 +526,7 @@ test('a field edit keeps unknown fields and comments, and a schema never refuses
 	);
 	expect(wrong.issues?.[0]?.kind).toBe('schema');
 	expect(await text(root, 'notes/extra.md')).toContain('title: 7');
-	await folder.close();
+	folder.close();
 });
 
 test('malformed frontmatter stays repairable: a body edit lands, a field edit is refused', async () => {
@@ -544,7 +544,7 @@ test('malformed frontmatter stays repairable: a body edit lands, a field edit is
 		'---\ntitle: [unclosed\n---\nNew\n',
 	);
 	expect(folder.getStatus().storageFailure).toBeNull();
-	await folder.close();
+	folder.close();
 });
 
 test('a write or delete replaces what another program landed: the last one wins', async () => {
@@ -563,7 +563,7 @@ test('a write or delete replaces what another program landed: the last one wins'
 	await writeFile(join(root, 'new.md'), 'theirs\n');
 	expectOk(await folder.files.write('new.md', 'mine\n'));
 	expect(await text(root, 'new.md')).toBe('mine\n');
-	await folder.close();
+	folder.close();
 });
 
 test('a row set patches the row another program landed', async () => {
@@ -582,7 +582,7 @@ test('a row set patches the row another program landed', async () => {
 		'---\ntitle: Theirs\nfrom: phone\ndone: true\n---\nTheir body\n',
 	);
 	expect(await text(root, 'notes/one.md')).toBe(stored.text);
-	await folder.close();
+	folder.close();
 });
 
 test('structural refusals are results, and none is a storage failure', async () => {
@@ -614,7 +614,7 @@ test('structural refusals are results, and none is a storage failure', async () 
 		closing: false,
 	});
 	expect(await text(root, 'keep.md')).toBe('keep');
-	await folder.close();
+	folder.close();
 });
 
 test('a row delete removes the row as stored and keeps adjacent files', async () => {
@@ -638,7 +638,7 @@ test('a row delete removes the row as stored and keeps adjacent files', async ()
 	]);
 	expect(await text(root, 'notes/one/nested/a.txt')).toBe('attachment');
 	expect(expectOk(await table.list())).toEqual([]);
-	await folder.close();
+	folder.close();
 });
 
 test('a save notifies this handle and the directory’s other handles in this process', async () => {
@@ -660,7 +660,7 @@ test('a save notifies this handle and the directory’s other handles in this pr
 	]);
 	expect(heardElsewhere).toHaveLength(2);
 	stop();
-	await second.close();
+	second.close();
 	expectOk(await first.files.write('b.md', 'b'));
 	expect(heardElsewhere).toHaveLength(2);
 	// A listener that throws does not fail the save.
@@ -668,7 +668,7 @@ test('a save notifies this handle and the directory’s other handles in this pr
 		throw new Error('listener bug');
 	});
 	expectOk(await first.files.write('c.md', 'c'));
-	await first.close();
+	first.close();
 });
 
 test('status shows saving and the last storage failure until a later success', async () => {
@@ -704,21 +704,21 @@ test('status shows saving and the last storage failure until a later success', a
 		true,
 		false,
 	]);
-	await folder.close();
+	folder.close();
 });
 
-test('close lets a started save finish, then stops listening; new calls throw', async () => {
+test('close releases immediately while an admitted save finishes without notifying listeners', async () => {
 	const root = await directory();
 	const folder = await open(root);
 	const heard: FolderChange[] = [];
 	folder.onChange((change) => heard.push(change));
 	const saving = folder.files.write('a.md', 'a');
 	const closing = folder.close();
-	expect(folder.close()).toBe(closing);
+	expect(closing).toBeUndefined();
+	expect(folder.close()).toBeUndefined();
 	expectOk(await saving);
-	await closing;
 	expect(await text(root, 'a.md')).toBe('a');
-	expect(heard).toHaveLength(1);
+	expect(heard).toHaveLength(0);
 	expect(() => folder.files.list()).toThrow('The folder is closed');
 	expect(() => folder.onChange(() => {})).toThrow('The folder is closed');
 });
@@ -762,7 +762,7 @@ test.skipIf(process.platform === 'win32')(
 			expectOk(await edit.save());
 			expect(await text(root, 'notes/a.md')).toBe(row('Old', 'Later\n'));
 		} finally {
-			await folder.close();
+			folder.close();
 		}
 	},
 );
@@ -798,6 +798,6 @@ test('an editor save over another program’s racing write lands its exact text'
 			saveError: undefined,
 		});
 	} finally {
-		await folder.close();
+		folder.close();
 	}
 });

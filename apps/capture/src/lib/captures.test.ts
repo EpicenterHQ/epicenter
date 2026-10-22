@@ -20,7 +20,7 @@
  * - Edit as text saves exact text, including unfinished Markdown, and can
  *   reopen as a capture without saving or refreshing
  * - Deleting runs after the edit's saves and removes the file
- * - Close sends the edits held and refuses new input
+ * - Close leaves held edits unsaved and refuses new input
  */
 import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
@@ -118,24 +118,21 @@ test('a failed Add writes nothing and opens nothing', async () => {
 	expect(expectOk(await harness.folder.tables.captures.list())).toEqual([]);
 });
 
-test('closing after Add waits for the accepted capture', async () => {
+test('close may fail an admitted Add before storage starts', async () => {
 	const harness = await open();
 	const creating = harness.captures.create('Before close');
 	const closing = harness.context.close();
-	const { stem } = expectOk(await creating);
-	expect(await closing).toEqual([]);
-	const saved = await harness.text(`captures/${stem}.md`);
-	expect(saved).toContain('\nBefore close\n\n## Thoughts\n');
-	expect(saved).not.toContain('draft');
+	expect(expectErr(await creating).name).toBe('StorageFailed');
+	expect(closing).toBeUndefined();
 });
 
-test('closing after Delete waits for the accepted removal', async () => {
+test('close may fail an admitted Delete before storage starts', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const deleting = harness.captures.delete(harness.captures.deletionFor('one'));
 	const closing = harness.context.close();
-	expectOk(await deleting);
-	expect(await closing).toEqual([]);
-	expect(await harness.text(PATH)).toBeUndefined();
+	expect(expectErr(await deleting).name).toBe('StorageFailed');
+	expect(closing).toBeUndefined();
+	expect(await harness.text(PATH)).toBe(HAND);
 });
 
 test('the timeline orders by instant and names files to repair', async () => {
@@ -454,16 +451,20 @@ test('unfinished Markdown typed as text saves exactly; a failed save keeps it un
 	expect(await harness.text(PATH)).toBe(unfinished);
 });
 
-test('closing after a failed whole-file save returns its exact text for recovery', async () => {
+test('a failed whole-file save retains exact text for recovery while open', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const changed = HAND.replace('Text', 'Text kept after close');
 	const restore = harness.failSaves();
 	(await textOfOne(harness)).replaceText(changed);
-	const unsaved = await harness.context.close();
+	await harness.folder.files.edit(PATH).save();
+	const unsaved = harness.context.getStatus().failures;
 	restore();
 	expect(unsaved).toMatchObject([
-		{ path: PATH, unsaved: changed, error: { name: 'StorageFailed' } },
+		{ path: PATH, error: { name: 'StorageFailed' } },
 	]);
+	expect(harness.folder.files.edit(PATH).getSnapshot().content?.text).toBe(
+		changed,
+	);
 	expect(await harness.text(PATH)).toBe(HAND);
 });
 
@@ -494,22 +495,19 @@ test('a delete consumes captured pending source without publishing it', async ()
 	expect(await harness.text(PATH)).toBeUndefined();
 });
 
-test('close sends the edit held and refuses new input', async () => {
+test('close leaves held input unsaved and refuses new input', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures, context } = harness;
 	const actions = actionsOf(harness);
 	const fileEdit = harness.folder.tables.captures.edit('one');
 	actions.inputText('Sent at close');
 
-	const unsaved = await context.close();
-	expect(unsaved).toEqual([]);
-	expect(await harness.text(PATH)).toBe(
-		withBody('Sent at close\n\n## Thoughts\n\n- first\n  nested line\n'),
-	);
+	expect(context.close()).toBeUndefined();
+	expect(await harness.text(PATH)).toBe(HAND);
 
 	expect(captures.fenced).toBe(true);
 	actions.inputText('Too late');
-	expect(fileEdit.getSnapshot().isDirty).toBe(false);
+	expect(fileEdit.getSnapshot().isDirty).toBe(true);
 	expect(expectErr(harness.folder.files.edit(PATH).replaceText('x')).name).toBe(
 		'Closing',
 	);

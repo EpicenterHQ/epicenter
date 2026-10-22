@@ -17,7 +17,11 @@ import {
 const warning = mock(() => {});
 mock.module('@epicenter/ui/sonner', () => ({ toast: { warning } }));
 
-const { holdWindowClose } = await import('./window-close.js');
+const { holdWindowClose: holdWindowCloseWithCallback } = await import(
+	'./window-close.js'
+);
+const holdWindowClose = (pendingSave: () => boolean) =>
+	holdWindowCloseWithCallback(pendingSave, () => {});
 const cleanup: (() => void)[] = [];
 afterEach(() => {
 	for (const stop of cleanup.splice(0).reverse()) stop();
@@ -206,4 +210,44 @@ test('a dispatched destroy stays inert and cannot prompt or destroy again', asyn
 	await requestClose();
 	expect(nativeDialog.count).toBe(1);
 	expect(nativeWindow.destroyed).toBe(1);
+});
+
+test('successful destruction calls cleanup once after dispatch', async () => {
+	desktop(true);
+	let destroyed = 0;
+	cleanup.push(
+		await holdWindowCloseWithCallback(
+			() => false,
+			() => {
+				destroyed++;
+			},
+		),
+	);
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(1);
+	expect(destroyed).toBe(1);
+});
+
+test('a destroy completion from a retired guard does not clean up its replacement', async () => {
+	desktop(true);
+	const destruction = Promise.withResolvers<void>();
+	nativeWindow.destruction = destruction.promise;
+	let oldDestroyed = 0;
+	const stop = await holdWindowCloseWithCallback(
+		() => false,
+		() => {
+			oldDestroyed++;
+		},
+	);
+	cleanup.push(stop);
+	const oldClose = requestClose();
+	for (let tries = 0; tries < 400 && !document.documentElement.inert; tries++)
+		await Bun.sleep(1);
+	stop();
+	nativeWindow.destruction = undefined;
+	cleanup.push(await holdWindowClose(() => false));
+	destruction.resolve();
+	await oldClose;
+	expect(oldDestroyed).toBe(0);
+	expect(nativeWindow.listeners).toBe(1);
 });

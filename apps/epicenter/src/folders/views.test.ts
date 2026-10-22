@@ -58,7 +58,7 @@ async function setup(source: Record<string, unknown> = { views: { a: grid } }) {
 		stored: async () =>
 			JSON.parse(await readFile(join(directory, 'epicenter.json'), 'utf8')),
 		async close() {
-			await folder.close();
+			folder.close();
 			await rm(directory, { recursive: true, force: true });
 		},
 	};
@@ -78,7 +78,7 @@ test('settings submission composes with current raw input and puts both in the d
 		);
 		expect(fixture.views.save('saved:a')).toBe('saved:a');
 		expect(fixture.views.dirty('saved:a')).toBe(false);
-		expect(await fixture.folder.settle()).toEqual([]);
+		expectOk(await fixture.declaration.save());
 		expect(await fixture.stored()).toEqual({
 			views: {
 				a: { ...grid, title: 'Typed settings' },
@@ -100,13 +100,13 @@ test('a failed copy is already selected in owner text and a retry adds no second
 		expect(target).not.toBe('saved:a');
 		expect(fixture.views.value(target)?.title).toBe('The copy');
 		expect(fixture.views.held).toEqual([]);
-		await fixture.folder.settle();
+		await fixture.declaration.save();
 		expect(fixture.neutral.getSnapshot().saveError?.message).toContain(
 			'disk full',
 		);
 		fixture.views.edit(target, { ...grid, title: 'Later copy input' });
 		expect(fixture.views.save(target)).toBe(target);
-		await fixture.folder.settle();
+		await fixture.declaration.save();
 		fixture.fail();
 		expectOk(await fixture.declaration.save());
 		const stored = await fixture.stored();
@@ -151,7 +151,7 @@ test('form reset reads current owner values while submitted deletion composes wi
 		);
 		expect(fixture.views.remove('saved:a')).toBe(true);
 		expect(fixture.views.value('saved:a')).toBeUndefined();
-		expect(await fixture.folder.settle()).toEqual([]);
+		expectOk(await fixture.declaration.save());
 		expect(await fixture.stored()).toEqual({
 			views: { keep: { type: 'calendar' } },
 			title: 'Raw title',

@@ -64,6 +64,7 @@ async function notifyCloseFailure(current: Window, guard: symbol) {
  */
 export async function holdWindowClose(
 	pendingSave: () => boolean,
+	onDestroyed: () => void,
 ): Promise<() => void> {
 	if (!isTauri()) return () => {};
 	if (activeGuard) throw new Error('This window already has a Folder close guard');
@@ -108,6 +109,17 @@ export async function holdWindowClose(
 				log.error(new Error('The window could not close', { cause }));
 				await notifyCloseFailure(current, guard);
 				closing = false;
+				return;
+			}
+			if (activeGuard !== guard) return;
+			try {
+				onDestroyed();
+			} catch (cause) {
+				log.error(
+					new Error('The destroyed window could not release its folder', {
+						cause,
+					}),
+				);
 			}
 		});
 		return () => {

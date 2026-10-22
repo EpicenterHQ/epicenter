@@ -47,10 +47,10 @@ afterEach(async () => {
 });
 
 /** A fresh profile holding `milk`, opened as a browser tab opens it. */
-async function freshFolder() {
+async function freshFolder(saveAfterMs = MINUTE) {
 	globalThis.indexedDB = new IDBFactory();
 	const folder = expectOk(
-		await openFolder({ tables: { notes }, saveAfterMs: MINUTE }),
+		await openFolder({ tables: { notes }, saveAfterMs }),
 	);
 	expectOk(
 		await folder.tables.notes.set('milk', {
@@ -62,13 +62,15 @@ async function freshFolder() {
 }
 
 /** The context over a fresh folder, guarding the desktop window it runs in. */
-async function guarded() {
-	const folder = await freshFolder();
+async function guarded(saveAfterMs = MINUTE) {
+	const folder = await freshFolder(saveAfterMs);
+	const observer = expectOk(await openFolder({ tables: { notes } }));
+	cleanup.push(() => observer.close());
 	const context = createFolderContext(folder);
 	cleanup.push(() => context.close());
 	desktop(true);
 	await context.guardWindowClose();
-	return { context, milk: folder.tables.notes.edit('milk') };
+	return { context, milk: folder.tables.notes.edit('milk'), observer };
 }
 
 type Notes = FolderContext<{ notes: typeof notes }>;
@@ -109,7 +111,7 @@ test('an accepted edit prompts and Cancel keeps its input', async () => {
 });
 
 test('Confirm destroys without waiting for the accepted edit to save', async () => {
-	const { context, milk } = await guarded();
+	const { context, milk, observer } = await guarded(100);
 	await typeTitle(context, 'Oat milk');
 	nativeDialog.answer = true;
 
@@ -117,19 +119,11 @@ test('Confirm destroys without waiting for the accepted edit to save', async () 
 
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(nativeDialog.count).toBe(1);
+	expect(context.getStatus().closing).toBe(true);
 	expect(milk.getSnapshot().isDirty).toBe(true);
-});
-
-test('an app action before its first Folder write does not prompt', async () => {
-	const { context } = await guarded();
-	context.folder
-		.run(() => Promise.reject(new Error('save interrupted')))
-		.catch(() => {});
-
-	await requestClose();
-
-	expect(nativeWindow.destroyed).toBe(1);
-	expect(nativeDialog.count).toBe(0);
+	await Bun.sleep(150);
+	const stored = expectOk(await observer.tables.notes.get('milk'));
+	expect(stored?.fields?.title).toBe('Milk');
 });
 
 test('whole text waiting to save prompts and Cancel retains it', async () => {
@@ -142,6 +136,7 @@ test('whole text waiting to save prompts and Cancel retains it', async () => {
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
+	expect(context.getStatus().closing).toBe(false);
 	expect(nativeDialog.count).toBe(1);
 	expect(text.getSnapshot()).toMatchObject({
 		isDirty: true,
@@ -150,11 +145,12 @@ test('whole text waiting to save prompts and Cancel retains it', async () => {
 });
 
 test('two close requests at once destroy the window once', async () => {
-	await guarded();
+	const { context } = await guarded();
 
 	await Promise.all([requestClose(), requestClose()]);
 
 	expect(nativeWindow.destroyed).toBe(1);
+	expect(context.getStatus().closing).toBe(true);
 });
 
 test('a failed destroy keeps the close guard for the next attempt', async () => {

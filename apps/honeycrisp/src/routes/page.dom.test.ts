@@ -9,7 +9,7 @@
  *
  * Key behaviors:
  * - A new note, its title, and its text persist across close and reopen;
- *   closing sends typing still waiting for its pause
+ *   closing leaves typing still waiting for its pause unsaved
  * - Leaving the page is held back while typing is not saved
  * - A note that does not read as one is listed for repair, repaired as its
  *   file, and opens as a note
@@ -149,7 +149,7 @@ test('a new note, its title, and its text persist across close and reopen', asyn
 	expect(leave()).toBe(false);
 	await until(() => first.text(LIST).includes('Groceries'), 'the list');
 
-	// Typed and closed before its pause: closing saves it.
+	// Typed and closed before its pause: close does not submit this input.
 	button(first.target, 'Source').dispatchEvent(
 		new MouseEvent('click', { bubbles: true }),
 	);
@@ -157,19 +157,14 @@ test('a new note, its title, and its text persist across close and reopen', asyn
 	type(first.get<HTMLTextAreaElement>(SOURCE), 'Milk\n');
 	first.close();
 	const tab = await otherTab();
-	for (let tries = 0; ; tries++) {
-		const [note] = expectOk(await tab.tables.notes.list());
-		if (note?.body === 'Milk\n') break;
-		if (tries > 400) throw new Error('The text was not stored on close');
-		await Bun.sleep(5);
-	}
+	expect(expectOk(await tab.tables.notes.list())[0]?.body).not.toBe('Milk\n');
 
 	const second = await openPage();
 	await until(
 		() => second.text(LIST).includes('Groceries'),
 		'the note after reopening',
 	);
-	expect(second.text(LIST)).toContain('Milk');
+	expect(second.text(LIST)).not.toContain('Milk');
 });
 
 test('autosave survives switching files, and a failed source save remains retryable after returning', async () => {

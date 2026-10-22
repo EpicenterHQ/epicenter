@@ -835,7 +835,7 @@ test('nothing is opened or read after closing', async () => {
 	expect(reads).toHaveLength(before);
 });
 
-test('typing in a transcript that was opened before closing is saved before the folder closes', async () => {
+test('close does not save held transcript input', async () => {
 	const { context, whispering, root } = await history();
 	(await transcriptEditor(whispering, TRANSCRIPT)).edit((row) => {
 		row.body = 'Typed just before quitting.\n';
@@ -843,7 +843,7 @@ test('typing in a transcript that was opened before closing is saved before the 
 
 	await closeTestWhispering({ whispering, context });
 
-	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
+	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).not.toContain(
 		'Typed just before quitting.',
 	);
 });

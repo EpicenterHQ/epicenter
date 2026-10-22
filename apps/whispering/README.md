@@ -28,9 +28,12 @@ native capture and inference through `#platform/services`.
 
 One Whispering owner holds capture, requests, selections and settings drafts.
 Its startup maintains exclusions before recovery and reads. Its synchronous
-`dispose()` refuses new work and late replies without finishing recordings or
-waiting for workflows. FolderApp protects accepted saves; native departure
-finalizes captured audio. Route changes retain the same app state.
+`dispose()` cleans up once without finishing recordings or waiting for workflows,
+even if native window destruction already closed the folder context. New work
+and late replies follow `context.closing`. FolderApp closes immediately on
+unmount, closes a folder whose open finishes late, and closes the context after
+a successful native destruction dispatch. Native departure finalizes captured
+audio. Route changes retain the same app state.
 
 Product-specific components read that mounted instance with `getWhispering()`
 during initialization. Props select files or supply UI actions. Transformation
@@ -541,7 +544,10 @@ the table shows the row once it is saved.
 - Saves publish the complete current source. There is no merge or conflict
   choice: the last publication wins, including changes from other writers.
   Typing into a retained source can recreate a deleted file.
-- A failed save keeps the exact input and shows **Try again** and **Discard**.
+- A failed save contributes `{ path, error }` metadata to aggregate status and
+  keeps the exact input in its editor. A notice's Copy action reads the current
+  dirty editor text, so newer typing is copied and success or discard leaves
+  nothing stale to copy. It shows **Try again** and **Discard**.
   A later successful publication clears the error. Runs capture current held
   input without publishing it; deletion discards the pending input captured by
   the delete command once deletion succeeds. Newer input may recreate the path.

@@ -24,10 +24,13 @@ the last publication wins, without merging concurrent changes. Fields Vocab does
 not name and the text below frontmatter survive local field edits. Notes preserve
 well-formed text; a lone surrogate becomes U+FFFD as it is typed.
 
-A save failure keeps the text and error for **Try again**. Further typing remains
-accepted. When a failed word is no longer listed, Words keeps its source available
-through **Save again**, **Copy**, and **Discard**. Explicit publication can recreate
-a word deleted elsewhere. Storage observations never automatically write it back.
+A save failure contributes `{ path, error }` metadata to passive status and
+keeps the text in its editor for **Try again**. Reading that status acquires no
+editor and starts no file read. Further typing remains accepted. When a failed
+word is no longer listed, Words uses the editor already acquired for that card,
+so **Save again**, **Copy**, and **Discard** use its current text. Explicit
+publication can recreate a word deleted elsewhere. Storage observations never
+automatically write it back.
 
 The listing reads on open and after targeted folder change notifications. Each
 editor observes its own current content; it needs no query for loading or errors.
@@ -42,7 +45,7 @@ Delete asks first, then removes the path without first saving unsubmitted input.
 Already admitted publications finish before it. New input remains accepted and
 may recreate the path. A failed deletion retains pending input.
 
-Leaving the page while the Folder has an accepted change still saving is cancelled; for a reload or a closed tab, the browser asks first. Normal page teardown sends held edits and waits for started saves.
+Leaving the page while the Folder has an accepted change still saving is cancelled; for a reload or a closed tab, the browser asks first. Page hide calls best-effort `flush()`. Teardown releases synchronously without submitting input or waiting; confirmed departure accepts losing unfinished work.
 
 Vocab records no versions and offers no "Save version" or Sync.
 
@@ -95,7 +98,7 @@ A message's file is named by its chat and its ID. A save reads that file first a
 
 ## Development
 
-Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks. The tests run the real modules over the real local folder on an in-memory IndexedDB (`fake-indexeddb`, loaded from `@epicenter/svelte`'s install). Words, chats, and every save go through the local folder context `<FolderApp>` builds (`getFolder()`): one TanStack Query cache whose table reads the folder's `onChange` marks stale, and one close when the page goes away. The folder holds each word as stored and its draft (`folder.tables.entries.edit(id)`), which each card reads with `createFileEdit(folder.tables.entries.edit(id))` from `@epicenter/svelte/edits`; the list's reads keep it current. `src/lib/vocab.svelte.ts` builds Vocab over that context. Close submits held input and drains submitted writes; it does not wait for word hashing, queued chat turns, or future writes in those workflows. `src/lib/entries.svelte.ts` holds the words and each word's draft, `src/lib/repair.svelte.ts` the repair's text, typed through the folder's edit of the file (`createFileEdit(folder.tables.entries.edit(id))`), and `src/lib/chat/chats.ts` the chat list and each chat's turn of message saves. `bun run --cwd apps/vocab test` also runs `test:svelte`, which mounts the real word card in jsdom under the browser build of Svelte; it shows what delivered events do, not layout, focus, or IME.
+Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks. The tests run the real modules over the real local folder on an in-memory IndexedDB (`fake-indexeddb`, loaded from `@epicenter/svelte`'s install). Words, chats, and every save go through the local folder context `<FolderApp>` builds (`getFolder()`): one TanStack Query cache whose table reads the folder's `onChange` marks stale, and one close when the page goes away. The folder holds each word as stored and its draft (`folder.tables.entries.edit(id)`), which each card reads with `createFileEdit(folder.tables.entries.edit(id))` from `@epicenter/svelte/edits`; the list's reads keep it current. `src/lib/vocab.svelte.ts` builds Vocab over that context. Close releases synchronously without submitting input or waiting for writes, word hashing, or queued chat turns. Callers needing durable bytes await their actual write or save. `src/lib/entries.svelte.ts` holds the words and each word's draft, `src/lib/repair.svelte.ts` the repair's text, typed through the folder's edit of the file (`createFileEdit(folder.tables.entries.edit(id))`), and `src/lib/chat/chats.ts` the chat list and each chat's turn of message saves. `bun run --cwd apps/vocab test` also runs `test:svelte`, which mounts the real word card in jsdom under the browser build of Svelte; it shows what delivered events do, not layout, focus, or IME.
 
 ## Changed promises
 
@@ -108,4 +111,4 @@ This version opens this browser's local folder (`openFolder({ tables })`) instea
 - A word's listing is read again after this page's own saves too, rather than taking what the save wrote.
 - Half of a surrogate pair in a note becomes U+FFFD as it is typed, not when the save lands.
 - A word file and a message file are written in the folder's canonical frontmatter: keys a new file adds are sorted, and strings may be quoted.
-- Close submits held typing and drains submitted writes while the runtime remains alive. It does not wait for a word add still hashing or a message save waiting on an earlier turn. A page unload can interrupt cleanup; starting an app action does not guarantee its later saves will land.
+- Close releases at once and refuses new input, submits nothing, and waits for nothing. A word add or message save already started may still finish or fail. Confirmed departure accepts losing unfinished work.

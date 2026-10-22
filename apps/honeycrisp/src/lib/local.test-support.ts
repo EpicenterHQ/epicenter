@@ -40,7 +40,7 @@ export async function openNotes({ saveAfterMs = 60_000 } = {}) {
 	});
 	const local = createFolderContext(folder);
 	const notes = createNotes(local);
-	const others: { close(): Promise<unknown> }[] = [];
+	const others: { close(): void }[] = [];
 	const stops: (() => void)[] = [];
 	const put = IDBObjectStore.prototype.put;
 
@@ -103,8 +103,8 @@ export async function openNotes({ saveAfterMs = 60_000 } = {}) {
 			IDBObjectStore.prototype.put = put;
 			for (const stop of stops.splice(0)) stop();
 
-			await local.close();
-			for (const tab of others.splice(0)) await tab.close();
+			local.close();
+			for (const tab of others.splice(0)) tab.close();
 		},
 	};
 }

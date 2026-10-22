@@ -1,19 +1,17 @@
 /**
  * The caller-facing `Folder` over an engine, the same on every host: its one
  * edit owner, whose per-path lane every write and delete enters and which
- * composes row changes, local save status, the writes and actions `close`
- * waits for, and the error a released handle throws. The browser's default
+ * composes row changes, local save status, synchronous release, and the error
+ * a released handle throws. The browser's default
  * local folder (`local-folder.ts`) and the native directory folder
  * (`native/engine.ts`) each supply the engine: raw files and typed row reads.
  */
 import { type TSchema as Schema, Type } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
-	ActionError,
 	createEditOwner,
 	type Observation,
 	observationOf,
-	type Recovery,
 	textProblem,
 } from './edit-owner.js';
 import type {
@@ -22,7 +20,6 @@ import type {
 	Folder,
 	FolderChange,
 	FolderFileOperations,
-	FolderStatus,
 	FolderTableOperations,
 	Row,
 	RowChange,
@@ -74,7 +71,7 @@ export type FolderEngine = {
 	 * the editors of their paths, which read again.
 	 */
 	subscribe(listener: (change: FolderChange) => void): () => void;
-	/** Release listeners and storage; the handle calls it once, after admitted writes settled. */
+	/** Release listeners and storage; the handle calls it once, at close; admitted writes may still finish or fail afterwards. */
 	close(): void;
 };
 
@@ -95,70 +92,24 @@ function ownChange(change: RowChange): Result<RowChange, SaveError> {
 	return Ok({ fields: fields.data, body: change.body });
 }
 
-const sameList = <T>(left: readonly T[], right: readonly T[]) =>
-	left.length === right.length &&
-	left.every((item, index) => item === right[index]);
-
 /** The handle over `engine`, typed by `tables`, saving held input as `options` say. */
 export function folderHandle<const TTables extends Record<string, Schema>>(
 	engine: FolderEngine,
 	tables: TTables,
 	{ saveAfterMs }: EditOptions = {},
 ): Folder<TTables> {
-	let closing: Promise<Recovery[]> | undefined;
-	/** Set by close once nothing it waits for remains, before the engine is released. */
-	let released = false;
-	/** Writes and admitted actions share one lifetime registry. */
-	const inflight = new Set<Promise<unknown>>();
-	let storageFailure: FolderStatus['storageFailure'] = null;
-	let status: FolderStatus = {
-		saving: false,
-		savingPaths: [],
-		storageFailure: null,
-		unsaved: [],
-		failures: [],
-		closing: false,
-	};
-	const statusListeners = new Set<(status: FolderStatus) => void>();
+	let closed = false;
 	const changeListeners = new Set<(change: FolderChange) => void>();
 
-	/** Listeners and settle refuse from the moment close is called. */
+	/** New storage calls, listeners, and flush refuse as soon as close is called. */
 	function assertOpen() {
-		if (closing !== undefined) throw new Error('The folder is closed');
-	}
-
-	/** Storage refuses once close released the engine. */
-	function assertUsable() {
-		if (released) throw new Error('The folder is closed');
-	}
-
-	function publishStatus() {
-		const { unsaved, failures, savingPaths } = edits.getAggregate();
-		const next: FolderStatus = {
-			saving: savingPaths.length > 0,
-			savingPaths,
-			storageFailure,
-			unsaved,
-			failures,
-			closing: closing !== undefined,
-		};
-		if (
-			next.saving === status.saving &&
-			sameList(next.savingPaths, status.savingPaths) &&
-			next.storageFailure === status.storageFailure &&
-			sameList(next.unsaved, status.unsaved) &&
-			sameList(next.failures, status.failures) &&
-			next.closing === status.closing
-		)
-			return;
-		status = next;
-		for (const listener of [...statusListeners])
-			callObserver('status listener', listener, next);
+		if (closed) throw new Error('The folder is closed');
 	}
 
 	function tell(change: FolderChange) {
 		for (const listener of [...changeListeners])
-			callObserver('change listener', listener, change);
+			if (changeListeners.has(listener))
+				callObserver('change listener', listener, change);
 	}
 
 	/**
@@ -177,46 +128,10 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		tell(change);
 	}
 
-	/** Register work before it can notify listeners or begin other work. */
-	function track<T>(run: () => Promise<T>): Promise<T> {
-		const operation = Promise.withResolvers<T>();
-		inflight.add(operation.promise);
-		const done = () => inflight.delete(operation.promise);
-		operation.promise.then(done, done);
-		try {
-			Promise.resolve(run()).then(operation.resolve, operation.reject);
-		} catch (cause) {
-			operation.reject(cause);
-		}
-		return operation.promise;
-	}
-
-	/** An admitted action, or any caller while close drains, can start writes after an await. */
-	async function drainWork() {
-		while (inflight.size > 0) await Promise.allSettled([...inflight]);
-	}
-
-	/**
-	 * A write's outcome, kept as the handle's last storage failure or its
-	 * clearing. Status tells it with the command's end, in one change.
-	 */
-	async function recorded<T>(
-		writing: Promise<Result<T, SaveError>>,
-	): Promise<Result<T, SaveError>> {
-		const result = await writing;
-		if (result.error === null) storageFailure = null;
-		else if (result.error.name === 'StorageFailed')
-			storageFailure = result.error;
-		return result;
-	}
-
 	const edits = createEditOwner({
 		read: (path) => engine.files.read(path),
-		write: (path, content) => recorded(engine.files.write(path, content)),
+		write: (path, content) => engine.files.write(path, content),
 		saveAfterMs,
-		onAggregate: publishStatus,
-		track,
-		drainWork,
 		// A write that stored what was already there reports no change itself.
 		announce: (path) => tell({ paths: [path], origin: 'this-handle' }),
 	});
@@ -224,11 +139,11 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 
 	const files: Folder<Record<string, Schema>>['files'] = {
 		list(prefix) {
-			assertUsable();
+			assertOpen();
 			return engine.files.list(prefix);
 		},
 		async read(path) {
-			assertUsable();
+			assertOpen();
 			const at = edits.beginObservation();
 			try {
 				const result = await engine.files.read(path);
@@ -254,13 +169,13 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			}
 		},
 		write(path, content) {
-			assertUsable();
+			assertOpen();
 			// A write queued behind another of its path keeps the bytes of its call.
 			return edits.write(path, owned(content));
 		},
 		delete(path) {
-			assertUsable();
-			return edits.remove(path, () => recorded(engine.files.delete(path)));
+			assertOpen();
+			return edits.remove(path, () => engine.files.delete(path));
 		},
 		edit: (path, schema) => edits.edit(path, schema),
 	};
@@ -274,7 +189,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				// Every row read tells the owner the exact text it found, before
 				// it answers, ordered against writes and changes meanwhile.
 				async list() {
-					assertUsable();
+					assertOpen();
 					const at = edits.beginObservation();
 					try {
 						const result = await table.list();
@@ -293,7 +208,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 					}
 				},
 				async get(id) {
-					assertUsable();
+					assertOpen();
 					const at = edits.beginObservation();
 					try {
 						const result = await table.get(id);
@@ -313,15 +228,15 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 					}
 				},
 				set(id, change) {
-					assertUsable();
+					assertOpen();
 					return setRow(id, change);
 				},
 				delete(id) {
-					assertUsable();
+					assertOpen();
 					if (!readableId(name, id))
 						return Promise.resolve(SaveError.InvalidId({ id }));
 					const path = rowPath(id);
-					return edits.remove(path, () => recorded(engine.files.delete(path)));
+					return edits.remove(path, () => engine.files.delete(path));
 				},
 				edit: (id) => edits.edit(rowPath(id), tables[name]),
 			};
@@ -377,53 +292,19 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				changeListeners.delete(listener);
 			};
 		},
-		getStatus() {
-			return status;
-		},
-		onStatusChange(listener) {
+		getStatus: edits.getStatus,
+		onStatusChange: edits.onStatusChange,
+		flush() {
 			assertOpen();
-			statusListeners.add(listener);
-			return () => {
-				statusListeners.delete(listener);
-			};
-		},
-		run(action) {
-			if (closing !== undefined) return Promise.resolve(ActionError.Closing());
-			return track(async () => Ok(await action()));
-		},
-		async settle() {
-			assertOpen();
-			return edits.settle();
+			edits.flush();
 		},
 		close() {
-			if (closing !== undefined) return closing;
-			// Assigned before anything is told, so a listener that closes again
-			// answers this same promise.
-			const completion = Promise.withResolvers<Recovery[]>();
-			closing = completion.promise;
-			(async () => {
-				// New input, actions and listeners already refuse; storage stays
-				// usable for what close waits for.
-				const sending = edits.close();
-				publishStatus();
-				await sending;
-				// Release in the same turn the registry is found empty: a write
-				// any earlier continuation started is waited for, and one called
-				// after this turn finds storage released and throws, or, for an
-				// editor's `save()`, refuses. What is still held then is the
-				// answer. Status is told after, so a listener cannot start one in
-				// between.
-				while (inflight.size > 0) await Promise.allSettled([...inflight]);
-				released = true;
-				const unsaved = edits.release();
-				publishStatus();
-				statusListeners.clear();
-				changeListeners.clear();
-				stopEngine();
-				engine.close();
-				return unsaved;
-			})().then(completion.resolve, completion.reject);
-			return closing;
+			if (closed) return;
+			closed = true;
+			edits.close();
+			changeListeners.clear();
+			stopEngine();
+			engine.close();
 		},
 	};
 	return folder as unknown as Folder<TTables>;

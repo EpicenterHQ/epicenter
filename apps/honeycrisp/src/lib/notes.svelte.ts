@@ -181,12 +181,6 @@ export function createNotes(local: NotesFolder) {
 		void fileEdit.save();
 	}
 
-	/** Give a refused action its app-level reason even after the context closes. */
-	async function runAction(action: () => Promise<string | undefined>) {
-		const result = await folder.run(action);
-		return result.error === null ? result.data : describeFailure(result.error);
-	}
-
 	/**
 	 * Open `path`, just created, once the list holds it. The read is this
 	 * view's, after the action that saved the file, so closing never waits
@@ -260,40 +254,39 @@ export function createNotes(local: NotesFolder) {
 	}
 
 	/** Move every known member out before removing its logical folder. */
-	function deleteFolder(entry: FolderEntry) {
-		return runAction(async () => {
-			const listed = await folder.tables.notes.list();
-			if (listed.error !== null) return describeFailure(listed.error);
-			if (!local.closing) queryClient.setQueryData(rowsKey(NOTES), listed.data);
-			const current = notesWithInput(listed.data);
-			const unknown = unknownRelations(current);
-			if (unknown !== undefined) return unknown;
-			for (const note of notesOf(current)) {
-				const edit = folder.tables.notes.edit(note.id);
-				const content = edit.getSnapshot().content;
-				if (content?.issues !== null || content.fields.folderId !== entry.id)
-					continue;
-				const saved = await folder.tables.notes.set(note.id, {
-					fields: { folderId: null },
-				});
-				if (saved.error !== null) return describeFailure(saved.error);
-			}
-			const reread = await folder.tables.notes.list();
-			if (reread.error !== null) return describeFailure(reread.error);
-			const remaining = notesWithInput(reread.data);
-			const unreadable = unknownRelations(remaining);
-			if (unreadable !== undefined) return unreadable;
-			if (remaining.some((note) => note.fields?.folderId === entry.id))
-				return 'Some notes are still in this folder, so it was kept. Delete it again to move them out.';
-			const why = await deleteConfirmed({
-				path: rowFile(FOLDERS, entry.id),
-				title: undefined,
+	async function deleteFolder(entry: FolderEntry) {
+		if (local.closing) return CLOSING;
+		const listed = await folder.tables.notes.list();
+		if (listed.error !== null) return describeFailure(listed.error);
+		if (!local.closing) queryClient.setQueryData(rowsKey(NOTES), listed.data);
+		const current = notesWithInput(listed.data);
+		const unknown = unknownRelations(current);
+		if (unknown !== undefined) return unknown;
+		for (const note of notesOf(current)) {
+			const edit = folder.tables.notes.edit(note.id);
+			const content = edit.getSnapshot().content;
+			if (content?.issues !== null || content.fields.folderId !== entry.id)
+				continue;
+			const saved = await folder.tables.notes.set(note.id, {
+				fields: { folderId: null },
 			});
-			if (why !== undefined) return why;
-			if (!local.closing && view.folderId === entry.id)
-				view = { ...view, folderId: null };
-			return undefined;
+			if (saved.error !== null) return describeFailure(saved.error);
+		}
+		const reread = await folder.tables.notes.list();
+		if (reread.error !== null) return describeFailure(reread.error);
+		const remaining = notesWithInput(reread.data);
+		const unreadable = unknownRelations(remaining);
+		if (unreadable !== undefined) return unreadable;
+		if (remaining.some((note) => note.fields?.folderId === entry.id))
+			return 'Some notes are still in this folder, so it was kept. Delete it again to move them out.';
+		const why = await deleteConfirmed({
+			path: rowFile(FOLDERS, entry.id),
+			title: undefined,
 		});
+		if (why !== undefined) return why;
+		if (!local.closing && view.folderId === entry.id)
+			view = { ...view, folderId: null };
+		return undefined;
 	}
 
 	/** Refuse deletion while any row cannot identify its logical folder. */
@@ -418,49 +411,42 @@ export function createNotes(local: NotesFolder) {
 			const id = newId();
 			const path = rowFile(NOTES, id);
 			const folderId = view.deleted ? null : view.folderId;
-			const why = await runAction(async () => {
-				const created = await folder.tables.notes.set(id, {
-					fields: {
-						folderId,
-						title: '',
-						pinned: false,
-						createdAt: InstantString.now(),
-						deletedAt: null,
-					},
-					body: '',
-				});
-				return created.error === null
-					? undefined
-					: describeFailure(created.error);
+			if (local.closing) return CLOSING;
+			const created = await folder.tables.notes.set(id, {
+				fields: {
+					folderId,
+					title: '',
+					pinned: false,
+					createdAt: InstantString.now(),
+					deletedAt: null,
+				},
+				body: '',
 			});
-			if (why === undefined) await openCreated(path, 'note');
-			return why;
+			if (created.error !== null) return describeFailure(created.error);
+			await openCreated(path, 'note');
+			return undefined;
 		},
-		createFolder(name: string) {
+		async createFolder(name: string) {
 			const id = newId();
-			return runAction(async () => {
-				const created = await folder.tables.folders.set(id, {
-					fields: { name, icon: null },
-					body: '',
-				});
-				return created.error === null
-					? undefined
-					: describeFailure(created.error);
+			if (local.closing) return CLOSING;
+			const created = await folder.tables.folders.set(id, {
+				fields: { name, icon: null },
+				body: '',
 			});
+			return created.error === null
+				? undefined
+				: describeFailure(created.error);
 		},
 		/** A new empty text file, opened after checking the listed names. */
 		async createFile(directory: string, name: string) {
 			const problem = placeProblem(directory, name);
 			if (problem !== undefined) return problem;
 			const path = joinPath(directory, name);
-			const why = await runAction(async () => {
-				const written = await folder.files.write(path, '');
-				return written.error === null
-					? undefined
-					: describeFailure(written.error);
-			});
-			if (why === undefined) await openCreated(path, 'text');
-			return why;
+			if (local.closing) return CLOSING;
+			const written = await folder.files.write(path, '');
+			if (written.error !== null) return describeFailure(written.error);
+			await openCreated(path, 'text');
+			return undefined;
 		},
 		deleteFolder,
 		/** What deleting `path` would remove, for the person to confirm. */
@@ -483,6 +469,7 @@ export function createNotes(local: NotesFolder) {
 						: undefined,
 			});
 		},
-		delete: (deletion: Deletion) => runAction(() => deleteConfirmed(deletion)),
+		delete: (deletion: Deletion) =>
+			local.closing ? Promise.resolve(CLOSING) : deleteConfirmed(deletion),
 	};
 }

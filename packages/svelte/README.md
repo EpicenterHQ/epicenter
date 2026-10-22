@@ -3,8 +3,8 @@
 Svelte state around an opened `@epicenter/folder` handle. The Folder package
 owns files, row parsing, whole-source drafts, storage, change reports, local save
 status, and unsaved input (`@epicenter/folder/edits`). This package owns the
-page's query cache, Svelte tracking of that input, recovery,
-and close sequence. It also has separate agent conversation and
+page's query cache, Svelte tracking of that input, in-session recovery,
+and synchronous release. It also has separate agent conversation and
 status UI helpers.
 
 ## Folder app root
@@ -69,7 +69,7 @@ origin's fixed IndexedDB folder. In a desktop window it opens the directory
 the shell bound to that window before the window existed; the page names no
 path. It never falls back to browser storage if a native open fails. Opening needs
 no account, remote, or network. The root shows a loading or refusal screen,
-sends held input when the page hides, and closes after pending work settles.
+calls best-effort `flush()` when the page hides, and releases synchronously on close.
 Only a pending Folder save prompts before a browser unload. In a desktop
 window, the editable page appears only after its close listener is installed.
 Closing checks `folder.getStatus().saving` and `folder.getStatus().unsaved` and
@@ -77,30 +77,28 @@ awaits a native `confirm(...)` only for unfinished saves. Saved windows close
 silently, including while recording: native destruction ends capture and keeps
 its audio. Repeated requests for one window share its current answer; other
 windows answer independently. Successful destruction keeps the page inert until
-it is gone. Cancel or failure leaves it usable. Save status is sampled once;
+it is gone and synchronously closes that page's context after the destroy call
+succeeds. Cancel or failure leaves it usable. Save status is sampled once;
 a save finishing while the question opens does not withdraw it.
 
 Desktop capabilities grant `dialog:allow-message`, `core:window:allow-set-focus`,
 and `core:window:allow-destroy`. No page asks for native recording status or
 reports save status to Quit. Epicenter application Quit always confirms in
 Rust and adds its native recording warning when capture is active.
-If a save still fails as the route unmounts, the
-root shows its exact unsaved source for copying in a
-notice held by the app layout's toaster.
+Confirming departure accepts losing unfinished work. Await the actual write or
+editor save before departure when durable bytes are required.
 
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
 initialization. The context contains `folder`, `queryClient`,
 `queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `getStatus()`, `closing`,
 `guardWindowClose`, `refresh`, and `close`.
-Context close stops the change channel and calls `folder.close()` immediately.
-`FolderStatus.closing` becomes true at that call, retained edits refuse new
-input, and `folder.run` refuses new actions. Accepted work finishes through the
-same `folder.files` and `folder.tables`, which stay usable until close
-releases storage. The Folder drains that work, the writes it started, and held
-input before releasing storage. The context cancels page reads and clears its
-cache; it owns no second action queue or close phase. `<FolderApp>` starts this
-close when it unmounts and does not wait for it: it finishes while the page's
-runtime lives, and a destroyed window or an unloading page does not wait.
+Context `close(): void` stops change, focus, and window listeners, unmounts
+the query client, closes the folder, and clears the cache synchronously.
+`FolderStatus.closing` means close was called. New input, saves, refreshes,
+and storage calls refuse. Held input is not submitted; admitted writes may
+finish or fail with their own Results. Apps check closing state before starting
+work or saving late results. `<FolderApp>` closes on unmount, including a folder
+that finishes opening afterwards, without waiting for native guard registration.
 Every save, own or not, reaches the context through the folder's one change
 channel (`onChange`), which also names a save of this handle that changed
 nothing; the context marks the queries over the named paths stale. No save
@@ -281,15 +279,11 @@ immediately. `save()` publishes the exact current text; `discard()` drops
 unpublished input, answers its text, and writes nothing. Writes are
 unconditional: the last publication wins, and nothing merges or conflicts.
 
-Use `folder.run(async () => ...)` for work that must finish through close.
-It admits the action at the call; it reserves no path and locks nothing.
-Await what it needs to finish before it returns, since close waits for the
-callback and the writes it started, not for a continuation left running. Do
-not await `folder.close()` or `folder.settle()` inside it. Context `close()`
-answers copyable failures, which `<FolderApp>` offers after unmount as the
-exact unsaved source (`unsavedText`).
+Context `close()` returns nothing and waits for no writes or application
+workflows. Retry and copying remain available while the folder is open.
 
 The status UI helpers (`status-line`, `status-popover`, `status-row`) render
-app-owned status text. `write-failure` and `write-failure-toast` offer the
-unsaved text for app actions that use a toast. Agent conversation bindings
+app-owned status text. `write-failure` and `write-failure-toast` sample text
+from an app-owned `getText()` at each Copy click. They keep attempted text only
+for a manual clipboard fallback. Agent conversation bindings
 remain independent of Folder.

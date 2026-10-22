@@ -22,7 +22,7 @@ import {
 
 const { STOPPED } = await import('./whispering.svelte.js');
 
-const cleanups: (() => Promise<unknown>)[] = [];
+const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });

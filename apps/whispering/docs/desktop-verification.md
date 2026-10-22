@@ -32,14 +32,15 @@ Quit Cancel, retry, and confirmed exit; the recording evidence below comes from
 the preceding attached-sheet build. The isolated native suite passed 143 tests
 with one ignored.
 
-### October 22 source reconciliation
+### October 22 source reconciliation (historical drain contract)
 
 The folder-owned-source change in `bd78bfb52b` keeps the Close and Quit policy
-above. `folder.run(action)` admits lifetime only, with no path reservation or
-automatic input flush. Ordinary file and table operations stay usable while
-Folder close drains; writes started before final storage release are waited
-for. Folder lifetime tracking alone does not mean a file is saving and adds
-no departure warning. Native destruction and browser unload do not wait for
+above. Folder now tracks submitted writes without a workflow `run` API.
+Folder close refuses new file and table calls and editor saves immediately,
+submits held input once, and waits for submitted writes. Failed commands return
+original input for recovery without starting another autosave. Waiting
+application workflows add no departure warning.
+Native destruction and browser unload do not wait for
 that drain.
 
 The page's Stop/finalization flow can write recording length, including after
@@ -80,7 +81,7 @@ application Quit also belong to earlier policies and are not current behavior.
 
 Shared close tests cover duplicate requests, Cancel/retry, registration and
 destruction failures, and old callbacks or cleanup acting on a replacement guard.
-Folder and mounted app tests cover accepted input, failed saves, admitted work
+Folder and mounted app tests cover accepted input, failed saves, submitted writes
 through close, retained capture paths through held Stop, repeated Stop joining
 metadata, and route changes preserving the app. Confirmed native departure does
 not wait for page workflows and does not promise recording length metadata.
@@ -463,3 +464,17 @@ Accounts, sync, hosted transport, LFS, migration, legacy readers, global shortcu
 The embedded terminal retains its directory, output, history, and typed command. Each command starts a new shell; it has no PTY or persistent shell variables, functions, or interactive full-screen programs.
 
 Unsaved audio, transcripts, and drafts live only in the window. Ordinary close and quit request explicit approval before discarding them. Force Quit, a crash, power loss, or external process termination can still lose that memory. A window that cannot respond requires Force Quit. See the [app README](../README.md) for operation and the full unsupported-feature list.
+
+### October 22 amendment: synchronous Folder release
+
+Folder.close() now releases synchronously, without submitting held input or
+waiting for writes. Page hide calls best-effort flush(). Confirmed departure
+accepts losing unfinished work; callers needing durability await their write.
+The historical drain description above no longer describes current source.
+This source change does not add a new packaged native verification claim.
+
+After a successful native window `destroy()` dispatch, the active page guard
+now closes its Folder context immediately; Cancel and failed destruction keep
+it live. FolderApp also closes synchronously on unmount and retires a late
+opening or native registration. These lifecycle claims have automated coverage
+only and add no packaged native verification claim.

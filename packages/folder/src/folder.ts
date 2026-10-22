@@ -8,7 +8,7 @@
  * The handle exposes rooted `files`, table views that interpret Markdown rows
  * through the caller's schemas, one editor source per path (`edit`, owned by
  * the folder for its whole life, `edit-owner.ts`), change notification,
- * local-save status with held input, `settle`, and `close`. A schema only
+ * local-save status with held input, `flush`, and `close`. A schema only
  * interprets (ADR-0632). A row that does not fit still comes back with its
  * exact source, its raw fields, and the issues, and a save never validates
  * against the schema, so unknown fields and repairable content survive.
@@ -30,7 +30,7 @@
  */
 import type { TSchema as Schema, TRecord, TUnknown } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { ActionError, FileEdit, Recovery } from './edit-owner.js';
+import type { FileEdit, SaveFailure } from './edit-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
@@ -60,7 +60,7 @@ export type FolderStatus = {
 	/** The paths with accepted input no publication has acknowledged. Sorted. */
 	readonly unsaved: readonly string[];
 	/** Held input whose last publication failed and that no save is retrying. */
-	readonly failures: readonly Recovery[];
+	readonly failures: readonly SaveFailure[];
 	/** Whether `close` was called: no input, action, or listener is taken from then on. */
 	readonly closing: boolean;
 };
@@ -148,30 +148,15 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	getStatus(): FolderStatus;
 	/** Called when save status changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
+	/** Submit held input no admitted command owns, failed input included, without waiting. */
+	flush(): void;
 	/**
-	 * Admit `action` into the folder's lifetime: `close` waits for it, and
-	 * the action's writes keep working while close drains. Admission happens
-	 * at this call, so work admitted before close begins finishes even when
-	 * close is called before the action awaits anything. Refused once close
-	 * was called. It reserves no path, sends no held input, and locks
-	 * nothing. Do not await this folder's settle or close inside it.
+	 * Refuse new work and synchronously release listeners and storage, once.
+	 * Stops autosave without submitting held input or waiting for admitted writes.
+	 * Editors stay readable; admitted commands keep their own outcomes.
+	 * Await the write or save you started when durable bytes are required.
 	 */
-	run<T>(action: () => Promise<T>): Promise<Result<T, ActionError>>;
-	/**
-	 * Submit held input now, including input whose last publication failed,
-	 * and drain admitted work. Answers input still held; editing stays open.
-	 */
-	settle(): Promise<Recovery[]>;
-	/**
-	 * Refuse new input, new actions, `settle`, and new listeners immediately.
-	 * Submit held input once and drain admitted actions and writes, then
-	 * release storage and listeners; `files` and `tables` throw from then on.
-	 * Until that release they stay usable, so a write any caller starts while
-	 * close drains is waited for too, and prolongs close. Editors stay
-	 * readable; `save()` works until release and refuses after. Answers input
-	 * that did not save. Repeated calls return the same promise.
-	 */
-	close(): Promise<Recovery[]>;
+	close(): void;
 };
 
 /**

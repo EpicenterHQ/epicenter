@@ -79,7 +79,8 @@ either source editor restarts the rich-text history on that body.
 Blurring a title or source input, changing presentation, and selecting another
 file leave autosave with the Folder owner. These transitions neither discard input nor
 request an early save, and they never wait for a save or a refresh. The shared
-page lifecycle flushes pending changes when the page is hidden or closes.
+page lifecycle calls best-effort `flush()` when hidden. Close releases synchronously
+without submitting input. Confirmed departure accepts losing unfinished work.
 
 The detail view has one save status and one set of retry and discard controls
 across all presentations. A failed save keeps the current content and its
@@ -145,11 +146,10 @@ removed only after another read finds no remaining members. This is not
 atomic: a note already moved stays moved if a later write fails, and another
 writer can move a note in after the final read.
 
-Async workflows enter `folder.run(action)` so admitted work finishes before
-close releases the folder. This admission does not reserve paths, flush
-input, or lock editors. Direct file and table publications join the same
-per-path command lane as editor saves. Closing refuses new input and actions;
-admitted workflows finish without changing the departing view's selection.
+Direct file and table publications join the same per-path command lane as
+editor saves. Apps refuse new actions once closing starts. Folder releases synchronously without waiting for submitted writes. Callers
+needing durable bytes await their write or save before closing.
+Internal view changes retain the opened Folder.
 
 ## When something changes underneath you
 

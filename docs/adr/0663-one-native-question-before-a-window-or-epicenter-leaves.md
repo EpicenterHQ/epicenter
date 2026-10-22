@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) at desktop window Close and application Quit, and [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) at departure metadata and the removed recorder cancel operation.
-- **Lifecycle:** [ADR-0664's write-only closure amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes public workflow admission. Folder submits held input and drains submitted writes; apps refuse new work and late results. [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) and the `run(action)` paragraph below preserve the intermediate lifetime-only model. The native departure policy and its evidence remain unchanged.
+- **Lifecycle:** [ADR-0664's synchronous release amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-close-releases-without-draining) makes close release without submitting input or draining writes; apps refuse new work and late results. The earlier [write-only closure amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removed public workflow admission. [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) and the `run(action)` paragraph below preserve the intermediate lifetime-only model. The native departure policy and its evidence remain unchanged.
 - **Source reconciliation:** 2026-10-22, against `bd78bfb52b` and current callers. The native runs below remain October 21 evidence, not a new acceptance of the latest editor build.
 
 ## Context
@@ -55,7 +55,8 @@ through the metadata write.
 Departure preserves audio without promising duration metadata. Browser departure
 can lose an in-memory recording and adds no recording-only unload warning.
 
-**Product disposal is synchronous.** Whispering refuses new work and late
+**Historical lifecycle, superseded by the 2026-10-22 amendments below.**
+Product disposal is synchronous. Whispering refuses new work and late
 answers, aborts a starting capture, releases microphone tests and subscriptions,
 and starts Folder closure without awaiting it. It neither calls Stop on active
 capture nor drains provider workflows. Folder.close independently refuses fresh
@@ -214,3 +215,21 @@ Quit before the lifecycle repair and allowed a fresh Quit afterward.
 The [native verification record](../../apps/whispering/docs/desktop-verification.md)
 distinguishes source evidence, automated coverage, actual native checks, and
 remaining Windows/Linux verification. No user folders were moved.
+
+## Amendment, 2026-10-22: Folder release is synchronous
+
+Folder.close() no longer submits held input or drains writes. It releases
+synchronously; confirmed departure accepts losing unfinished work. Page hide
+uses best-effort flush(), and callers needing durability await their write.
+Departure confirmation, Cancel, failed-destroy recovery, and application Quit
+behavior remain unchanged. Earlier drain descriptions are historical.
+
+## Amendment, 2026-10-22: successful window destruction closes the page context
+
+After `destroy()` returns successfully for the active native close guard, the
+page synchronously closes its Folder context and remains inert while the host
+removes the WebView. Cancel and a rejected destroy leave that context live and
+the guard retryable. A retired guard cannot close a replacement context.
+FolderApp also closes an existing context immediately on unmount and closes a
+folder whose asynchronous open finishes after unmount, without registering a
+late guard.

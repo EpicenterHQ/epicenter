@@ -55,10 +55,11 @@ the target and replace one file, while preserving root containment and link
 checks. Failed saves retain the input and its error for retry. Folder-wide
 observations identify paths to reread. Native directory watching and browser
 broadcasts supply these hints; manual/focus refresh reconciles missed events
-without periodic polling. `getStatus()` reports aggregate work and
-failures. `folder.run(action)` admits a workflow for normal close to drain; it
-reserves no paths and flushes no drafts. Closing finishes admitted work and
-releases listeners and storage. In-memory retention does not survive a crash.
+without periodic polling. `getStatus()` reports aggregate work and immutable
+failure metadata as `{ path, error }`; copyable text remains in the live editor
+snapshot. Folder tracks submitted writes, not application workflows. Close synchronously releases listeners and storage without submitting held input
+or waiting for writes. Page hide calls best-effort `flush()`. Confirmed departure
+accepts losing unfinished work; callers needing durability await their write. Apps refuse new work and late results through their own closing state. In-memory retention does not survive a crash.
 
 Git exchange is separate from opening and local saving. The `epicenter`
 CLI retains history commands, while current product pages offer no Save
@@ -96,6 +97,11 @@ coordination. The shell owns directory permission and atomic file publication.
 Whispering's recorder is a separate shell service that writes into the
 directory granted to its window. Settings and connection credentials are
 separate from the folder's local opening path.
+
+After a native window successfully dispatches destruction, its page context is
+closed immediately so app admission and late answers see `closing`. Cancel or a
+failed destroy keeps the context live. FolderApp also closes synchronously on
+unmount and closes any folder whose asynchronous open finishes after unmount.
 
 ## What to check next
 

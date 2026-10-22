@@ -81,7 +81,7 @@ test('opening names no folder, reads existing files, and writes nothing', async 
 			).toBe(true);
 		else expect(call.args).not.toHaveProperty('directory');
 	}
-	await folder.close();
+	folder.close();
 });
 
 test('every refused open is a refusal, and nothing opens or falls back', async () => {
@@ -131,7 +131,7 @@ test('the automatic opener opens the window folder, and browser storage is refus
 	shell = createGrantedShell(await grantedDirectory('native-tauri-'));
 	const folder = expectOk(await openFolder({ tables: { notes } }));
 	expect(shell.calls[0]).toEqual({ cmd: 'open_folder', args: {} });
-	await folder.close();
+	folder.close();
 	shell.control.open = () => {
 		throw { name: 'NotBound' };
 	};
@@ -162,7 +162,7 @@ test('the pause a window folder is opened with saves its held input, through eit
 		expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.title).toBe(
 			'Oat',
 		);
-		expect(await folder.close()).toEqual([]);
+		folder.close();
 	}
 });
 
@@ -180,7 +180,7 @@ test('a file write is one unconditional put that replaces an overtaking write', 
 	expect(await shell.text('note.md')).toBe(laptop);
 	const puts = shell.calls.filter((call) => call.cmd === 'put_folder_file');
 	expect(puts.map((call) => call.args.expected)).toEqual(['any']);
-	await folder.close();
+	folder.close();
 });
 
 test('a row set with nothing held reads once in its lane and publishes one unconditional put', async () => {
@@ -208,7 +208,7 @@ test('a row set with nothing held reads once in its lane and publishes one uncon
 	expect(
 		shell.calls.filter((call) => call.cmd === 'read_folder_file'),
 	).toHaveLength(reads.length);
-	await folder.close();
+	folder.close();
 });
 
 test('a native-style save stages beside the root and leaves no .git in the authored folder', async () => {
@@ -226,7 +226,7 @@ test('a native-style save stages beside the root and leaves no .git in the autho
 			join(root, '..', `.${basename(root)}.epicenter-scratch`),
 		);
 		expect(await readdir(shell.scratch)).toEqual([]);
-		await folder.close();
+		folder.close();
 	} finally {
 		await rm(shell.scratch, { recursive: true, force: true });
 	}
@@ -255,7 +255,7 @@ test('opening sweeps stale staged files beside the root, and leaves younger and 
 			[fresh, 'left-behind'].sort(),
 		);
 		expect(existsSync(old)).toBe(true);
-		await folder.close();
+		folder.close();
 	} finally {
 		await rm(shell.scratch, { recursive: true, force: true });
 	}
@@ -281,7 +281,7 @@ test('a lost reply is the save landing only when the path holds what was sent', 
 	});
 	expect(folder.getStatus().storageFailure).toBe(lost as never);
 	expect(await shell.text('b.md')).toBe('someone else');
-	await folder.close();
+	folder.close();
 });
 
 test('own saves and page peers report paths without native watching', async () => {
@@ -294,8 +294,8 @@ test('own saves and page peers report paths without native watching', async () =
 	expectOk(await folder.files.write('a.md', 'a'));
 	expect(heard).toEqual([{ paths: ['a.md'], origin: 'this-handle' }]);
 	expect(others).toEqual([{ paths: ['a.md'], origin: 'other-handle' }]);
-	await folder.close();
+	folder.close();
 	expectOk(await peer.files.write('b.md', 'b'));
 	expect(heard).toHaveLength(1);
-	await peer.close();
+	peer.close();
 });

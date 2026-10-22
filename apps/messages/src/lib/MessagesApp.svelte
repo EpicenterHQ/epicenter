@@ -73,7 +73,6 @@
 			const answer = await requestBeeper({ action: 'connect', ...(token.trim() ? { token: token.trim() } : {}) });
 			token = '';
 			if (answer.kind !== 'connected') { notice = answer.kind === 'error' ? answer.message : 'Could not connect.'; return; }
-			await folder.settle();
 			await queryClient.cancelQueries({ queryKey: ['beeper'] });
 			queryClient.removeQueries({ queryKey: ['beeper'] });
 			selected = undefined;
@@ -86,7 +85,6 @@
 		mutationFn: async () => {
 			const answer = await requestBeeper({ action: 'disconnect' });
 			if (answer.kind !== 'disconnected') { notice = answer.kind === 'error' ? answer.message : 'Could not disconnect.'; return; }
-			await folder.settle();
 			await queryClient.cancelQueries({ queryKey: ['beeper'] });
 			queryClient.removeQueries({ queryKey: ['beeper'] });
 			selected = undefined; backend = demo; notice = '';

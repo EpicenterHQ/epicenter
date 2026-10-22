@@ -21,7 +21,7 @@
  */
 
 import type { ReadError, SaveError } from '@epicenter/folder';
-import { ActionError, type Recovery } from '@epicenter/folder/edits';
+import { ActionError, type SaveFailure } from '@epicenter/folder/edits';
 import { createFileEdit } from '@epicenter/svelte/edits';
 import {
 	defineErrors,
@@ -180,14 +180,10 @@ export function createEntries(local: VocabContext) {
 			if (local.closing) return ActionError.Closing();
 			const exact = text.trim().toWellFormed();
 			if (exact === '') return EntryError.Empty();
-			const added = await folder.run(() =>
-				untilClosed(
-					() => addWord(exact),
-					(cause) => EntryError.NotSaved({ cause }),
-				),
+			return untilClosed(
+				() => addWord(exact),
+				(cause) => EntryError.NotSaved({ cause }),
 			);
-			if (added.error !== null) return added;
-			return added.data;
 		},
 		/**
 		 * Type the note of `entry`; it is saved a second after the last change.
@@ -202,8 +198,8 @@ export function createEntries(local: VocabContext) {
 			return folder.files.delete(rowPath('entries', entry.id));
 		},
 
-		/** The words whose last save failed, with what was typed; read reactively. */
-		get failures(): Recovery[] {
+		/** Failed word publications, without acquiring their editors. */
+		get failures(): SaveFailure[] {
 			return local
 				.getStatus()
 				.failures.filter((pending) =>

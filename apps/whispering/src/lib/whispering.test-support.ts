@@ -44,5 +44,5 @@ export function closeTestWhispering({
 	context,
 }: Awaited<ReturnType<typeof createTestWhispering>>) {
 	whispering.dispose();
-	return context.close();
+	context.close();
 }

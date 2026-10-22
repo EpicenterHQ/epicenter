@@ -21,7 +21,7 @@
  *   its current members out first, including held pending input, and refuses
  *   while a note cannot say which folder it belongs to
  * - Delete removes the file without requiring pending input to save first
- * - Close sends typing still waiting and refuses input from then on
+ * - Close leaves held typing unsaved and refuses further input
  */
 import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
@@ -377,31 +377,6 @@ test('folder deletion moves a local-only pending note out without dropping its b
 	expect(await text('folders/work.md')).toBeUndefined();
 });
 
-test('close drains an admitted folder deletion through its later note moves without changing the departing view', async () => {
-	const { notes, local, text } = await setup({
-		'folders/work.md': folderText('Work'),
-		[A]: noteText({ folderId: 'work' }),
-	});
-	notes.showFolder('work');
-	notes.open('folders/work.md', 'text');
-	expectOk(
-		notes.folder.tables.notes
-			.edit('a')
-			.change({ body: 'Accepted before departure\n' }),
-	);
-
-	const deleting = notes.deleteFolder(folderEntry(notes, 'work'));
-	const closing = local.close();
-	expect(notes.folder.getStatus().closing).toBe(true);
-	expect(await deleting).toBeUndefined();
-	expect(await closing).toEqual([]);
-	expect(await text(A)).toContain('folderId: null');
-	expect(await text(A)).toContain('Accepted before departure');
-	expect(await text('folders/work.md')).toBeUndefined();
-	expect(notes.view.folderId).toBe('work');
-	expect(notes.selected?.path).toBe('folders/work.md');
-});
-
 test('a folder is not deleted while a note cannot say which folder it is in', async () => {
 	const { notes, text } = await setup({
 		'folders/work.md': folderText('Work'),
@@ -455,19 +430,19 @@ test('a new file is made where none is, and a name some disk reads as another fi
 	});
 });
 
-test('close sends typing still waiting, and takes no input from then on', async () => {
+test('close leaves held typing unsaved and refuses further input', async () => {
 	const { notes, local, text } = await setup();
 	const note = notes.folder.tables.notes.edit('a');
 	note.change({ body: 'typed before close\n' });
 
-	expect(await local.close()).toEqual([]);
-	expect(await text(A)).toContain('---\ntyped before close\n');
+	expect(local.close()).toBeUndefined();
+	expect(await text(A)).not.toContain('typed before close');
 	expect(notes.fenced).toBe(true);
 	expect(note.change({ body: 'late\n' }).error).not.toBeNull();
 	expect(await notes.createNote()).toContain('closing');
 });
 
-test('closing after a failed file save returns the exact text for recovery', async () => {
+test('a failed file save keeps its exact text available while open', async () => {
 	const { notes, local, observe, failSaves, text } = await setup();
 	notes.open(A, 'text');
 	observe(A);
@@ -475,10 +450,13 @@ test('closing after a failed file save returns the exact text for recovery', asy
 	const changed = noteText({ title: 'Keep this draft' });
 	expectOk(typeInto(notes, A, changed));
 	failSaves();
-	const unsaved = await local.close();
+	await notes.folder.files.edit(A).save();
+	const unsaved = local.getStatus().failures;
 	expect(unsaved).toMatchObject([
-		{ path: A, unsaved: changed, error: { name: 'StorageFailed' } },
+		{ path: A, error: { name: 'StorageFailed' } },
 	]);
+	expect(notes.folder.files.edit(A).getSnapshot().content?.text).toBe(changed);
+	expect(local.close()).toBeUndefined();
 	expect(await text(A)).not.toBe(changed);
 });
 

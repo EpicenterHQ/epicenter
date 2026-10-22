@@ -208,21 +208,17 @@ describe.skipIf(!browser)('folder editor', async () => {
 		};
 	}
 
-	/** Close the context, refusing every save still held until it is done. */
+	/** Release the context, then resolve admitted test writes so none stay blocked. */
 	async function closeRefusing(
 		page: ReturnType<typeof openEditor>,
 		disk: Awaited<ReturnType<typeof standIn>>,
 	) {
 		await page.close();
-		let closed = false;
-		const closing = page.context.close().then(() => {
-			closed = true;
-		});
+		page.context.close();
 		await until(() => {
 			disk.held.shift()?.answer(Err(new Error('disk full')));
-			return closed;
+			return !disk.folder.getStatus().saving;
 		}, 'pending saves');
-		await closing;
 	}
 
 	test('saved Files text stays mounted and editable after its reread fails', async () => {
@@ -266,7 +262,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(await disk.text('a.md')).toBe('alpha\nmine\nlater\n');
 		} finally {
 			await page.close();
-			await page.context.close();
+			page.context.close();
 		}
 	});
 
@@ -318,11 +314,11 @@ describe.skipIf(!browser)('folder editor', async () => {
 				await until(() => disk.held.length === 1, 'the later publication');
 				expect(disk.held[0]?.content).toBe('alpha\nmine\nlater\n');
 				disk.held.shift()!.answer(Ok(undefined));
-				expect(await page.context.folder.settle()).toEqual([]);
+				await until(() => !page.context.getStatus().saving, 'publication completion');
 				expect(await disk.text('a.md')).toBe('alpha\nmine\nlater\n');
 			} finally {
 				await page.close();
-				await page.context.close();
+				page.context.close();
 			}
 		},
 	);
@@ -496,15 +492,11 @@ describe.skipIf(!browser)('folder editor', async () => {
 			);
 		} finally {
 			await page.close();
-			let closed = false;
-			const closing = page.context.close().then(() => {
-				closed = true;
-			});
+			page.context.close();
 			await until(() => {
 				disk.held.shift()?.answer(Err(new Error('disk full')));
-				return closed;
+				return !disk.folder.getStatus().saving;
 			}, 'pending CRLF cleanup');
-			await closing;
 		}
 	});
 
@@ -570,7 +562,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 		}
 	});
 
-	test('held input settles when the window hides, stays editable, and holds a failed save', async () => {
+	test('flush submits held input without waiting and retains failed input while open', async () => {
 		const disk = await standIn({ 'a.md': 'alpha\n' });
 		const { held } = disk;
 		const page = openEditor(disk.folder);
@@ -584,19 +576,13 @@ describe.skipIf(!browser)('folder editor', async () => {
 				context.getStatus().saving || context.getStatus().unsaved.length > 0,
 			).toBe(true);
 
-			// Hidden: what is typed is sent at once, and settling waits for it.
-			let settled: boolean | undefined;
-			const settling = context.folder.settle().then((pending) => {
-				settled = pending.length === 0;
-			});
+			// Hidden: what is typed is submitted now, without waiting.
+			expect(context.folder.flush()).toBeUndefined();
 			await until(() => held.length === 1, 'the save on hide');
-			expect(settled).toBeUndefined();
+			expect(context.getStatus().saving).toBe(true);
 			held.shift()!.answer(Ok(undefined));
-			await settling;
-			expect(settled).toBe(true);
-			expect(
-				context.getStatus().saving || context.getStatus().unsaved.length > 0,
-			).toBe(false);
+			await until(() => !context.getStatus().saving, 'publication completion');
+			expect(context.getStatus().unsaved).toEqual([]);
 
 			// Shown again, typing goes on in the same box and saves.
 			expect(box()?.readOnly).toBe(false);
@@ -611,39 +597,29 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(
 				context.getStatus().saving || context.getStatus().unsaved.length > 0,
 			).toBe(true);
-			// Settling attempts failed input again and reports the new failure.
-			const attempted = context.folder.settle();
-			await until(() => held.length === 1, 'the save on settle');
+			// Flush attempts failed input again; status retains the new failure.
+			expect(context.folder.flush()).toBeUndefined();
+			await until(() => held.length === 1, 'the save on flush');
 			held.shift()!.answer(Err(new Error('disk full')));
-			expect(await attempted).not.toEqual([]);
+			await until(() => !context.getStatus().saving, 'failed publication');
+			expect(context.getStatus().failures).toHaveLength(1);
 			expect(held).toHaveLength(0);
 			click(page.target, 'Try again');
-			const retried = context.folder.settle();
 			await until(() => held.length === 1, 'the explicit retry');
 			held.shift()!.answer(Err(new Error('disk full')));
-			expect(await retried).not.toEqual([]);
+			await until(() => !context.getStatus().saving, 'failed retry');
+			expect(context.getStatus().failures).toHaveLength(1);
 			expect(box()?.value).toBe('alpha\nhidden\nshown\n');
 			expect(box()?.readOnly).toBe(false);
 
-			// Closing the folder waits for a running save and answers it unsaved.
+			// Closing releases without submitting the last held input.
 			type(box(), 'alpha\nhidden\nshown\nlast\n');
-			let closed = false;
 			await page.close();
-			const closing = context.close().then((unsaved) => {
-				closed = true;
-				return unsaved;
-			});
-			await until(() => held.length === 1, 'the save on close');
-			expect(closed).toBe(false);
-			// Every attempt is refused, and the close goes on only after the last.
-			await until(() => {
-				held.shift()?.answer(Err(new Error('disk full')));
-				return closed;
-			}, 'the close');
-			const unsaved = await closing;
-			expect(unsaved.map((draft) => [draft.path, draft.unsaved])).toEqual([
-				['a.md', 'alpha\nhidden\nshown\nlast\n'],
-			]);
+			expect(context.close()).toBeUndefined();
+			expect(held).toHaveLength(0);
+			expect(disk.folder.files.edit('a.md').getSnapshot().content?.text).toBe(
+				'alpha\nhidden\nshown\nlast\n',
+			);
 			expect(await disk.text('a.md')).toBe('alpha\nhidden\n');
 		} finally {
 			await page.close();
@@ -850,7 +826,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await until(() => disk.held.length === 1, 'the declaration publication');
 			expect(disk.held[0]?.path).toBe('epicenter.json');
 			disk.held.shift()!.answer(Ok(undefined));
-			expect(await disk.folder.settle()).toEqual([]);
+			await until(() => !disk.folder.getStatus().saving, 'publication completion');
 			await until(
 				() => page.target.querySelector('[aria-label="Saved views"]') !== null,
 				'saved recipe',
@@ -895,15 +871,11 @@ describe.skipIf(!browser)('folder editor', async () => {
 			);
 			press(button('Save view'));
 			await until(() => disk.held.length > 0, 'the composed publication');
-			let settled = false;
-			const settling = disk.folder.settle().then(() => {
-				settled = true;
-			});
+			disk.folder.flush();
 			await until(() => {
 				disk.held.shift()?.answer(Ok(undefined));
-				return settled;
+				return !disk.folder.getStatus().saving;
 			}, 'all declaration publications');
-			await settling;
 			const declaration = JSON.parse((await disk.text('epicenter.json'))!);
 			expect(declaration.title).toBe('Typed raw title');
 			expect(declaration.future).toEqual({ keep: true });
@@ -1015,14 +987,14 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(disk.held[0]?.content).toContain('Body');
 			expect(disk.held[0]?.content).not.toContain('extra: kept');
 			disk.held.shift()!.answer(Ok(undefined));
-			expect(await page.context.folder.settle()).toEqual([]);
+			await until(() => !page.context.getStatus().saving, 'publication completion');
 			expect(await disk.text('tasks/a.md')).toBe(
 				'---\nstatus: done\n---\nBody\n',
 			);
 			expect(page.context.getStatus().unsaved).toEqual([]);
 
 			await page.close();
-			await page.context.close();
+			page.context.close();
 			const { openFolder } = await import('@epicenter/folder/bun');
 			const reopened = openEditor(
 				expectOk(await openFolder({ directory: disk.root, tables: {} })),
@@ -1042,7 +1014,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 				);
 			} finally {
 				await reopened.close();
-				await reopened.context.close();
+				reopened.context.close();
 			}
 		} finally {
 			await closeRefusing(page, disk);

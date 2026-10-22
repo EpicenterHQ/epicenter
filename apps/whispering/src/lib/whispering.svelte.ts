@@ -16,10 +16,10 @@
  * the accepted input and is reported. Reads never initiate publication.
  *
  * Closing waits for nothing here: `dispose` refuses new work and late answers
- * and returns. Folder close drains admitted saves and file actions, including
- * a rename or delete that is already running. Provider requests and recording
- * workflows are fenced by the product and never delay its disposal. A
- * recording under way ends with the page (ADR-0663).
+ * and returns. Folder close releases storage synchronously without submitting
+ * input or waiting for saves. Provider requests and recording workflows
+ * follow the context's closing fence and never delay disposal. A recording under way
+ * ends with the page (ADR-0663).
  *
  * A recording is in the folder from the moment it starts (ADR-0543): its row
  * is written then beside its same-stem audio. On the desktop the audio is
@@ -31,7 +31,7 @@
 
 import { InstantString } from '@epicenter/definition';
 import type { Row } from '@epicenter/folder';
-import type { Recovery } from '@epicenter/folder/edits';
+import type { SaveFailure } from '@epicenter/folder/edits';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import { createFileEdit, type FileEdit } from '@epicenter/svelte/edits';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
@@ -43,8 +43,6 @@ import {
 import { customAlphabet } from 'nanoid';
 import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
-import { defineErrors } from 'wellcrafted/error';
-import { createLogger } from 'wellcrafted/logger';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
@@ -88,14 +86,6 @@ import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
 import { createRuns } from './runs.svelte.js';
 import { createSettingsDraft } from './settings-draft.svelte.js';
-
-const log = createLogger('whispering');
-const LifecycleError = defineErrors({
-	CloseFailed: ({ cause }: { cause: unknown }) => ({
-		message: 'Whispering could not finish closing its folder',
-		cause,
-	}),
-});
 
 export const STOPPED = 'Whispering stopped before it finished starting.';
 
@@ -333,11 +323,11 @@ export function createWhispering(context: WhisperingContext) {
 		for (const listener of noticeListeners) listener(notice);
 	}
 
-	/** Set by `dispose`: nothing new starts from then on, and no late answer lands. */
-	let fenced = $state(false);
+	/** Only product cleanup idempotence; the context owns admission and late-answer fencing. */
+	let disposed = false;
 	let captureNotice = $state<string | undefined>();
 	/** Why nothing new starts now, if it does not. */
-	const refused = () => (fenced ? CLOSING : undefined);
+	const refused = () => (context.closing ? CLOSING : undefined);
 
 	const trackQueries = createSubscriber((update) =>
 		queryClient.getQueryCache().subscribe((event) => {
@@ -470,30 +460,29 @@ export function createWhispering(context: WhisperingContext) {
 			folder.tables[table].edit(id),
 		);
 	}
-	// Each save of a file's text that fails is told once, with the text to
-	// copy, a save and a discard: a failure the folder reports that was not
-	// reported before. The failure remains until publication succeeds or is discarded.
-	let told = new Set<Recovery>();
+	// Each failed publication is told once. Its editor remains the only owner
+	// of copyable text, including typing accepted after this status snapshot.
+	const told = new WeakSet<SaveFailure>();
 	const stopTelling = folder.onStatusChange(({ failures }) => {
-		const failed = new Set<Recovery>();
-		for (const pending of failures) {
-			if (pending.error === undefined) continue;
-			failed.add(pending);
-			if (told.has(pending)) continue;
-			const { path } = pending;
+		for (const failure of failures) {
+			if (told.has(failure)) continue;
+			told.add(failure);
+			const edit = folder.files.edit(failure.path);
 			notify({
-				path,
-				error: pending.error,
-				unsaved: pending.text,
+				path: failure.path,
+				error: failure.error,
+				getText: () => {
+					const snapshot = edit.getSnapshot();
+					return snapshot.isDirty ? snapshot.content?.text : undefined;
+				},
 				save: () => {
-					if (fenced) return false;
-					void folder.files.edit(path).save();
+					if (context.closing || !edit.getSnapshot().isDirty) return false;
+					void edit.save();
 					return true;
 				},
-				discard: () => folder.files.edit(path).discard(),
+				discard: () => edit.discard(),
 			});
 		}
-		told = failed;
 	});
 
 	/** Row files the person chose to edit as their exact text. */
@@ -563,11 +552,11 @@ export function createWhispering(context: WhisperingContext) {
 	async function readConnections() {
 		try {
 			const read = await services.connections.read();
-			if (fenced) return;
+			if (context.closing) return;
 			connections = read;
 			connectionsError = undefined;
 		} catch (cause) {
-			if (fenced) return;
+			if (context.closing) return;
 			connections = undefined;
 			connectionsError = describe(cause);
 		}
@@ -645,7 +634,7 @@ export function createWhispering(context: WhisperingContext) {
 
 	/** Show `path`: a transformation on its page, anything else beside the recordings. Opening never waits or asks. */
 	function open(path: string): boolean {
-		if (fenced) return false;
+		if (context.closing) return false;
 		for (const ancestor of ancestors(path)) expanded.add(ancestor);
 		if (rowTableOf(path) === TRANSFORMATIONS) selectedTransformationPath = path;
 		else selectedPath = path;
@@ -663,7 +652,7 @@ export function createWhispering(context: WhisperingContext) {
 	 */
 	function finishRecording(): Promise<void> {
 		const current = captureState;
-		if (current.phase !== 'recording' || fenced)
+		if (current.phase !== 'recording' || context.closing)
 			return finishing ?? Promise.resolve();
 		captureState = {
 			phase: 'stopping',
@@ -701,7 +690,7 @@ export function createWhispering(context: WhisperingContext) {
 			});
 		captureState = { phase: 'idle' };
 		// Closed meanwhile: the folder is closing, so the length is not written.
-		if (fenced) return;
+		if (context.closing) return;
 		if (stopError !== null) {
 			recorderError = stopError.message;
 			return;
@@ -710,27 +699,22 @@ export function createWhispering(context: WhisperingContext) {
 			const { error: rowError } = await rowSave;
 			if (rowError !== null)
 				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
-			// The length is written only if the folder admits it now: one that
-			// began closing while the row saved takes no length, whatever else
-			// its close still waits for.
-			const written = await folder.run(async () => {
-				const { data: stored, error } = await folder.tables.recordings.get(id);
-				if (error !== null)
-					return `The recording is saved, but its length could not be written: ${describeError(error)}`;
-				// A row deleted meanwhile stays deleted.
-				if (stored === undefined) return undefined;
-				const { error: saveError } = await folder.tables.recordings.set(id, {
-					fields: { durationMs: stopped.durationMs },
-				});
-				return saveError === null
-					? undefined
-					: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
+			// A Stop that finishes after context close writes no length.
+			if (context.closing) return undefined;
+			const { data: stored, error } = await folder.tables.recordings.get(id);
+			if (error !== null)
+				return `The recording is saved, but its length could not be written: ${describeError(error)}`;
+			// A row deleted meanwhile stays deleted.
+			if (stored === undefined || context.closing) return undefined;
+			const { error: saveError } = await folder.tables.recordings.set(id, {
+				fields: { durationMs: stopped.durationMs },
 			});
-			// Refused only because the folder is closing: the page is going.
-			return written.error === null ? written.data : undefined;
+			return saveError === null
+				? undefined
+				: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
 		}, path).catch((cause: unknown) =>
 			// Whatever fails as the page goes is not shown.
-			fenced
+			context.closing
 				? undefined
 				: `The recording is saved, but its length could not be written: ${describe(cause)}`,
 		);
@@ -779,7 +763,7 @@ export function createWhispering(context: WhisperingContext) {
 		},
 	});
 
-	/** Refuse new work after disposal and present failures at the action boundary. */
+	/** Refuse new work after context close and present failures at the action boundary. */
 	function action<TArgs extends unknown[]>(
 		work: (...args: TArgs) => Promise<string | undefined>,
 	) {
@@ -833,24 +817,20 @@ export function createWhispering(context: WhisperingContext) {
 	/** Delete a result through the folder's path publication lane. */
 	function deleteResult(table: typeof TRANSFORMATION_RUNS | typeof TEXT_RUNS) {
 		return async (entry: { readonly stem: string; readonly path: string }) => {
-			const outcome = await folder.run(async () => {
-				const { error } = await folder.tables[table].delete(entry.stem);
-				if (error !== null) return describeError(error);
-				if (!fenced) deleted(entry.path);
-				return undefined;
-			});
-			return outcome.error === null
-				? outcome.data
-				: describeError(outcome.error);
+			const why = refused();
+			if (why !== undefined) return why;
+
+			const { error } = await folder.tables[table].delete(entry.stem);
+			if (error !== null) return describeError(error);
+			if (!context.closing) deleted(entry.path);
+			return undefined;
 		};
 	}
 
 	function dispose(): void {
-		if (fenced) return;
-		fenced = true;
-		void context.close().catch((cause: unknown) => {
-			log.warn(LifecycleError.CloseFailed({ cause }));
-		});
+		if (disposed) return;
+		disposed = true;
+		context.close();
 		runs.stop();
 		input.close();
 		if (captureState.phase === 'starting') {
@@ -987,7 +967,7 @@ export function createWhispering(context: WhisperingContext) {
 				entry: read?.entries.find((entry) => entry.path === path),
 			};
 		},
-		/** Select `path` immediately; false after disposal. Selection reads no file. */
+		/** Select `path` immediately; false after context close. Selection reads no file. */
 		open,
 
 		// ------------------------------------------------------------------
@@ -1057,7 +1037,7 @@ export function createWhispering(context: WhisperingContext) {
 		// ------------------------------------------------------------------
 
 		get closing() {
-			return fenced;
+			return context.closing;
 		},
 
 		// ------------------------------------------------------------------
@@ -1069,7 +1049,7 @@ export function createWhispering(context: WhisperingContext) {
 		 * failed, or before a step that goes by what is listed now.
 		 */
 		async readAgain(paths?: readonly string[]) {
-			if (fenced) return;
+			if (context.closing) return;
 			await context.refresh(paths);
 		},
 		/** Why recordings cut off by a quit or crash could not be checked. */
@@ -1080,12 +1060,12 @@ export function createWhispering(context: WhisperingContext) {
 		start(): Promise<void> {
 			starting ??= (async () => {
 				try {
-					if (fenced) throw new Error(STOPPED);
+					if (context.closing) throw new Error(STOPPED);
 					const { error } = await maintainExclusions(folder.files);
-					if (fenced) throw new Error(STOPPED);
+					if (context.closing) throw new Error(STOPPED);
 					exclusionNotice = error === null ? undefined : describeError(error);
 					const notice = await services.recoverRecordings();
-					if (fenced) throw new Error(STOPPED);
+					if (context.closing) throw new Error(STOPPED);
 					captureNotice = notice;
 					// A read that answers with an error is shown as that listing's
 					// problem; one that throws means the folder cannot be read at all,
@@ -1109,19 +1089,19 @@ export function createWhispering(context: WhisperingContext) {
 						),
 					);
 					if (thrown.length > 0) throw thrown[0];
-					if (fenced) throw new Error(STOPPED);
+					if (context.closing) throw new Error(STOPPED);
 					// Observed from now on, so what the folder reports changed is read again.
 					stopObserving = shownQueries().map((options) =>
 						new QueryObserver(queryClient, options).subscribe(() => {}),
 					);
-					if (fenced) throw new Error(STOPPED);
+					if (context.closing) throw new Error(STOPPED);
 					await readConnections();
 					// The saved choice only: no microphone is opened or listed at launch.
-					if (fenced) throw new Error(STOPPED);
+					if (context.closing) throw new Error(STOPPED);
 					await input.load();
-					if (fenced) throw new Error(STOPPED);
+					if (context.closing) throw new Error(STOPPED);
 				} catch (cause) {
-					const stopped = fenced;
+					const stopped = context.closing;
 					dispose();
 					throw stopped ? new Error(STOPPED) : cause;
 				}
@@ -1252,10 +1232,13 @@ export function createWhispering(context: WhisperingContext) {
 					signal: attempt.signal,
 				},
 			);
-			// Closed while the microphone was opening. The recorder released a
-			// microphone that answered after that; one that answered first ends
-			// with the page, as a recording under way does. No row is written.
-			if (attempt.signal.aborted) return;
+			// Closed while the microphone was opening. An aborted opener releases
+			// its microphone; after native destruction, page departure owns one
+			// that already answered. Neither writes a row.
+			if (attempt.signal.aborted || context.closing) {
+				captureState = { phase: 'idle' };
+				return;
+			}
 			if (startError !== null) {
 				captureState = { phase: 'idle' };
 				recorderError = startError.message;
@@ -1335,7 +1318,7 @@ export function createWhispering(context: WhisperingContext) {
 			const id = recordingId(new Date());
 			const path = rowPath(TRANSFORMATIONS, id);
 			const why = await createTransformation(id, input);
-			if (why !== undefined || fenced) return why;
+			if (why !== undefined || context.closing) return why;
 			// Listed before it opens, so the page never says it is gone. A read
 			// for this view, after the action: closing never waits for it, and
 			// it joins the read the save's change started.
@@ -1380,43 +1363,41 @@ export function createWhispering(context: WhisperingContext) {
 			if (taken(to)) return TAKEN;
 			const sourceEdit = folder.files.edit(path);
 			const captured = sourceEdit.getSnapshot().content;
-			const outcome = await folder.run(async () => {
-				let bytes: Uint8Array;
-				if (captured !== undefined)
-					bytes = new TextEncoder().encode(captured.text);
-				else {
-					const { data: found, error } = await folder.files.read(path);
-					if (error !== null) return describeError(error);
-					if (found === undefined) return `No file exists at '${path}'.`;
-					bytes = new Uint8Array(await found.content.arrayBuffer());
+
+			let bytes: Uint8Array;
+			if (captured !== undefined)
+				bytes = new TextEncoder().encode(captured.text);
+			else {
+				const { data: found, error } = await folder.files.read(path);
+				if (error !== null) return describeError(error);
+				if (found === undefined) return `No file exists at '${path}'.`;
+				bytes = new Uint8Array(await found.content.arrayBuffer());
+			}
+			// Compare information, including text copied from an unopened source.
+			// A binary copy has no editable text to compare.
+			let copiedText = captured?.text;
+			if (copiedText === undefined) {
+				try {
+					copiedText = new TextDecoder('utf-8', {
+						fatal: true,
+						ignoreBOM: true,
+					}).decode(bytes);
+				} catch {
+					/* Binary bytes are still copied exactly. */
 				}
-				// Compare information, including text copied from an unopened source.
-				// A binary copy has no editable text to compare.
-				let copiedText = captured?.text;
-				if (copiedText === undefined) {
-					try {
-						copiedText = new TextDecoder('utf-8', {
-							fatal: true,
-							ignoreBOM: true,
-						}).decode(bytes);
-					} catch {
-						/* Binary bytes are still copied exactly. */
-					}
-				}
-				const { error: copyError } = await folder.files.write(to, bytes);
-				if (copyError !== null) return describeError(copyError);
-				const currentText = sourceEdit.getSnapshot().content?.text;
-				if (currentText !== undefined && currentText !== copiedText)
-					return `${to} was saved. Different text arrived during the copy, so ${path} was kept with that text.`;
-				const { error: removeError } = await folder.files.delete(path);
-				if (removeError !== null)
-					return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
-				if (!fenced) moved(path, to);
-				return undefined;
-			});
-			return outcome.error === null
-				? outcome.data
-				: describeError(outcome.error);
+			}
+			const { error: copyError } = await folder.files.write(to, bytes);
+			if (copyError !== null) return describeError(copyError);
+			if (context.closing)
+				return `${to} was saved. ${path} was kept because the folder is closing.`;
+			const currentText = sourceEdit.getSnapshot().content?.text;
+			if (currentText !== undefined && currentText !== copiedText)
+				return `${to} was saved. Different text arrived during the copy, so ${path} was kept with that text.`;
+			const { error: removeError } = await folder.files.delete(path);
+			if (removeError !== null)
+				return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
+			if (!context.closing) moved(path, to);
+			return undefined;
 		},
 		/** A new empty text file, shown; it is never made where a file is listed. */
 		createFile: action(async (directory: string, name: string) => {
@@ -1465,21 +1446,16 @@ export function createWhispering(context: WhisperingContext) {
 			if (busy) return busy;
 			if (recording !== undefined) deleting.add(recording);
 			try {
-				const outcome = await folder.run(() =>
-					runDeletion(
-						{
-							folder,
-							dropFailed: runs.dropFailed,
-							deleted: (path) => {
-								if (!fenced) deleted(path);
-							},
+				return await runDeletion(
+					{
+						folder,
+						dropFailed: runs.dropFailed,
+						deleted: (path) => {
+							if (!context.closing) deleted(path);
 						},
-						deletion,
-					).catch((cause: unknown) => describe(cause)),
-				);
-				return outcome.error === null
-					? outcome.data
-					: describeError(outcome.error);
+					},
+					deletion,
+				).catch((cause: unknown) => describe(cause));
 			} finally {
 				if (recording !== undefined) deleting.delete(recording);
 			}

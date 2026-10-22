@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
-- **Lifecycle history:** [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) records the intermediate removal of path reservations and save-before-action behavior. The [write-only closure amendment](#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes workflow admission entirely. The original decision and earlier amendments below preserve the preceding lifecycle models.
+- **Lifecycle history:** The [synchronous release amendment](#amendment-2026-10-22-close-releases-without-draining) supersedes the drain contract: close releases without submitting input or waiting for writes. [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) records the intermediate removal of path reservations and save-before-action behavior. The [write-only closure amendment](#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes workflow admission entirely. The original decision and earlier amendments below preserve the preceding lifecycle models.
 - **Amends:** ADR-0574, ADR-0656, and ADR-0657 at action admission and orderly teardown. ADR-0662's FileEdit and MarkdownContent contract remains.
 
 ## Context
@@ -182,3 +182,60 @@ separate `release` call and handle-level released flag. The handle retains its
 cached close completion for reentrant callers and releases engine resources
 after the owner closes. Input refusal during the drain, storage refusal after it,
 explicit saves during the drain, and failed-input recovery retain their roles.
+
+## Amendment, 2026-10-22: close refuses new work immediately
+
+No app caller needs new storage calls or explicit retries after close starts.
+UI retries happen after cancelling departure, before Folder close. Refuse new
+file and table storage calls, editor saves and refreshes, and input at the call
+to close. Snapshot access and copying or discarding retained input remain usable.
+Submit held input once, then wait for the fixed set of queued writes. If a direct
+command fails during close, return its original input for recovery without
+resuming autosave. A reopened handle can save that recovered source.
+
+Collapse the edit owner's open/closing/closed phase into one closed boolean,
+set at the start. Remove the second handle guard and the owner's `isClosed`
+query. Close needs one wait on lane tails, without a loop for later submissions.
+The cached close promise still identifies completion and joins reentrant calls.
+A rename interrupted after its submitted copy keeps the original, rather than
+starting a new deletion during close.
+
+## Amendment, 2026-10-22: settle waits for one captured set
+
+The production callers of `settle` flush on page hide and before Messages
+switches between demo and Beeper. Those callers keep the Folder open and need
+the existing input submitted, without waiting for later commands or retries.
+Submit held input once, capture the current lane tails, and wait for those
+promises once. Remove the loop that followed work arriving during the wait,
+including new commands appended to an existing lane.
+
+Editing and autosave remain open. A failed command can resume its interrupted
+autosave after the captured set was taken; that publication proceeds independently
+and does not extend this settle. The returned recoveries still describe current
+held input when the wait finishes, including newer or still-publishing input.
+A caller needing subsequent work completed awaits that work or calls settle again.
+
+## Amendment, 2026-10-22: close releases without draining
+
+`close(): void` releases listeners and storage synchronously and idempotently.
+It submits no held input, drains no commands, returns no recoveries, and stops
+autosave. Admitted commands may finish or fail with their own Results. Callers
+needing durable bytes await the write or save they started. Confirmed departure
+accepts losing unfinished work.
+
+`settle()` is removed. `flush(): void` replaces page-hide submission: it submits
+held input no admitted command owns, including failed input, without waiting.
+This supersedes the drain and settle clauses above, including the drain parts
+of the earlier 2026-10-22 amendments. Per-path lanes, intent acknowledgement,
+and in-session failure retention remain. Messages guards its own send
+preparation after queue admission and before contacting the backend; a durable
+attempt remains available for review if close interrupts preparation.
+
+## Amendment, 2026-10-22: app admission follows context closing
+
+The synchronous Folder close above is also the app admission boundary. Native
+destruction and FolderApp unmount close the Svelte context immediately. Apps
+test that context's `closing` state before new work and before applying late
+provider, recording, or read answers. Product disposal has a separate
+idempotence flag so it still releases product-owned observers and devices when
+the context was closed first. This adds no Folder workflow drain.

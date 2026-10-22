@@ -106,9 +106,8 @@ async function readMessages(
 }
 
 /**
- * How one message's save runs: by default at once; in the app, admitted as
- * folder work and run in its chat's turn, so normal folder close drains each
- * accepted save.
+ * How one message's save runs: by default at once; in the app, in its chat's
+ * turn with a closing check before writing. Folder close does not wait for it.
  */
 export type MessageWrite = (
 	message: AgentMessage,

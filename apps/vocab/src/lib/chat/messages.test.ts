@@ -540,7 +540,7 @@ test('an older listing delivered after a newer one does not replace it', async (
 	expect([...store.entries()]).toEqual([{ key: question.id, val: question }]);
 });
 
-test('one chat’s message writes run one at a time, and close lets the started one land', async () => {
+test('one chat’s message writes run one at a time, and closing refuses later messages', async () => {
 	await using context = await setup();
 	const { folder } = context;
 	const { gate, folder: gatedFolder } = gatedMessages(folder);
@@ -571,47 +571,13 @@ test('one chat’s message writes run one at a time, and close lets the started 
 			vocab.folder.getStatus().unsaved.length > 0,
 	).toBe(false);
 
-	// Close drains both an active save and the next message already waiting its turn.
-	const landing = Promise.withResolvers<void>();
-	gate.heldSet = landing.promise;
-	const started = store.set(nextQuestion.id, nextQuestion);
-	const queued = store.set('next-answer', { ...answer, id: 'next-answer' });
-	await Bun.sleep(5);
-	let closed = false;
-	const closing = local.close().then(() => {
-		closed = true;
-	});
-	await Bun.sleep(5);
-	expect(closed).toBe(false);
-	gate.heldSet = undefined;
-	landing.resolve();
-	expectOk(await started);
-	expectOk(await queued);
-	await closing;
+	await local.close();
 	expect(await tableFiles(await context.browser.open(), 'messages')).toEqual([
 		'messages/chat-a.answer.md',
-		'messages/chat-a.next-answer.md',
-		'messages/chat-a.next-question.md',
 		'messages/chat-a.question.md',
 	]);
 	// Nothing is written once closing began.
 	expect(
 		expectErr(await store.set('late', { ...question, id: 'late' })).name,
 	).toBe('WriteFailed');
-});
-
-test('a new chat admitted before close finishes saving its focus', async () => {
-	await using context = await setup();
-	const local = createFolderContext(context.folder);
-	const vocab = createVocab(local);
-	const starting = vocab.chats.start([{ entryId: 'entry', text: 'lucid' }]);
-	const closing = local.close();
-	const chat = expectOk(await starting);
-	await closing;
-	const reopened = await context.browser.open();
-	expect(
-		expectOk(await reopened.tables.chats.get(chat.id))?.fields,
-	).toMatchObject({
-		focus: [{ entryId: 'entry', text: 'lucid' }],
-	});
 });

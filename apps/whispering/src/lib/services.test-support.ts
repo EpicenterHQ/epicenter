@@ -208,7 +208,7 @@ export type TestServicesOptions = {
 	failAnswerWrites?: number;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Partial<Record<Operation, StoredConnection>>;
-	/** Pause real storage listings beneath root and admitted work handles. */
+	/** Pause real storage listings beneath the Folder handle. */
 	beforeStorageList?: () => Promise<void>;
 	/** Open this folder instead of a directory with the Bun opener. */
 	folder?: WhisperingFolder;

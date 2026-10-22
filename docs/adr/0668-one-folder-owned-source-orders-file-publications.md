@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md), guarded editor saves, and [ADR-0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md), the nested editor state contract.
 - **Amends:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md) at retained source, save feedback, and acknowledgement, and [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) at local file publication. Git synchronization keeps its merge behavior.
 - **Implementation:** Commit `bd78bfb52b` implements the retained-source model. The decision retains that API and last-write-wins behavior, with passive aggregate save indicators and caller-owned input feedback.
-- **Lifecycle update:** [ADR-0664's write-only closure amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes public workflow admission. Folder submits held input and drains submitted writes, without waiting for whole app workflows. The workflow-admission reference in the consequences records the preceding lifecycle contract; source publication is unchanged.
+- **Lifecycle update:** [ADR-0664's synchronous release amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-close-releases-without-draining) removes public workflow admission and makes close release without submitting input or draining writes. The workflow-admission reference in the consequences records the preceding lifecycle contract; source publication is unchanged.
 - **Historical proposals:** [ADR-0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md) records the earlier common editor API; [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) records the guarded-source save model it replaced.
 
 ## Context
@@ -114,7 +114,8 @@ unchanged; a control must handle that refusal if it needs to keep the rejected
 value visible or copyable. The Folder retains accepted input, not every raw
 value a control attempted to submit.
 
-Retained source and detached recoveries live in memory. They survive component
+Historically, retained source and detached recoveries lived in memory. Under
+the amendment below only the retained source owns text. It survives component
 lifetimes, not process failure. This decision adds no crash recovery store or
 cross-process transaction. Disk files remain authoritative persisted data;
 the source is the Folder's current editing state, not an independent database.
@@ -140,3 +141,12 @@ and table operations through it. `packages/folder/README.md` documents current
 signatures. Framework adapters and application callers were migrated in
 `bd78bfb52b`; source-based documentation review does not repeat native UI
 acceptance.
+
+## Amendment, 2026-10-22: failures are metadata, text stays editor-owned
+
+`FolderStatus.failures` contains immutable `SaveFailure` values with only
+`{ path, error }`. A newly applicable failed publication creates a new value;
+typing retains that value, and a retry temporarily removes it from aggregate
+status while keeping the editor's failure. The exact copyable text, including
+BOM and line endings, is read from that path's current editor snapshot. This
+supersedes references above to detached recoveries or aggregate failure text.

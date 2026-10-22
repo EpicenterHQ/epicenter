@@ -93,7 +93,7 @@ async function noteOver(text: string) {
 		},
 		/** Flush pending input and let the resulting observations finish. */
 		settled: async () => {
-			await fixture.folder.settle();
+			if (note.getSnapshot().isDirty) await note.save();
 			await quiet(notes);
 		},
 		/** Saves of the note since it opened. */

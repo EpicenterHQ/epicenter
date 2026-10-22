@@ -137,9 +137,7 @@ hides Add. Manually removing `draft: true` makes the file a completed capture
 without composing its body or updating its date. Use Add to finish it instead.
 Capture writes no new drafts. A nonboolean `draft` value needs repair as text.
 
-`captures.finishDraft(stem)` enters `folder.run(action)` to keep the admitted
-workflow alive through close. Admission does not reserve or flush the file.
-Promotion composes the editor's current content, including unsaved writing,
+`captures.finishDraft(stem)` refuses once closing starts. Promotion composes the editor's current content, including unsaved writing,
 removes `draft`, and sets `capturedAt` in the same publication. A failed
 promotion keeps the original acquired writing for explicit retry. Retrying
 composes that writing once, without appending another Thoughts section. Input accepted
@@ -160,10 +158,10 @@ while promotion is saving stays current and is published afterward.
 
 `<FolderApp>` (from `@epicenter/svelte/folder-app`) opens the
 folder, shows one loading screen and one refusal screen, provides the
-folder's context, sends the input held when the page is hidden, and closes
-the folder when the page goes away: the context refuses app input, lets
-started actions finish, then the folder closes, which sends what is held
-once and waits for the saves.
+folder's context, calls best-effort `flush()` when hidden, and releases the folder
+synchronously when the page goes away. Close submits no input and waits for no
+writes. Confirmed departure accepts losing unfinished work; callers needing
+durable bytes await the write or save they started.
 
 The folder owns one edit per capture path. Both the capture view and Edit as
 text use `createFileEdit(folder.tables.captures.edit(stem))` from

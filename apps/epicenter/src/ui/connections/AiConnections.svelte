@@ -35,7 +35,7 @@
 			}
 			const context = createFolderContext(folder);
 			if (closed) {
-				await context.close();
+				context.close();
 				return undefined;
 			}
 			local = context;

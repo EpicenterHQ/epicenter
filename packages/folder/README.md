@@ -38,9 +38,9 @@ const stopEditing = fileEdit.subscribe((snapshot) => render(snapshot)); // start
 const changed = fileEdit.change({ fields: { done: true }, body: 'Two litres\n' });
 if (changed.error !== null) return show(changed.error.message); // accepted in memory; autosave follows
 fileEdit.getSnapshot();              // { content, loadError, isDirty, isSaving, saveError }
-folder.getStatus();                  // { saving, storageFailure, unsaved, failures, closing }
-await folder.settle();               // send held input now; answers what did not save
-const unsaved = await folder.close(); // sends held input once; answers what did not save
+folder.getStatus();                  // { saving, savingPaths, storageFailure, unsaved, failures, closing }
+folder.flush();                      // submit held input now, without waiting
+folder.close();                      // release synchronously; unfinished input may be lost
 ```
 
 ## Entries
@@ -54,7 +54,7 @@ const unsaved = await folder.close(); // sends held input once; answers what did
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
 | `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, saved-view types, and the pure view transform. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
 | `@epicenter/folder/documents` | Saved Markdown documents with optional schema diagnostics, including root and nested paths. | Generic file, grid, board, or SQL interpretation. |
-| `@epicenter/folder/edits` | The vocabulary of the editors over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#editors)): `FileEdit`, `EditorSnapshot`, `MarkdownContent`, `DocumentChange`, `LoadError`, `ChangeError`, `SaveRefusal`, `ActionError`, `Recovery`, `SAVE_AFTER_MS`. Opens nothing. | Code that names those types. |
+| `@epicenter/folder/edits` | The vocabulary of the editors over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#editors)): `FileEdit`, `EditorSnapshot`, `MarkdownContent`, `DocumentChange`, `LoadError`, `ChangeError`, `SaveRefusal`, `ActionError`, `SaveFailure`, `SAVE_AFTER_MS`. Opens nothing. | Code that names those types. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
 type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
@@ -88,10 +88,9 @@ the saved files.
 | `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, content)`; `delete(path)`; `edit(path, schema?)`, the path's editor. |
 | `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, change)`, `delete(id)`, and `edit(id)`, the path's editor through the table schema. Adjacent files are available through `folder.files`. |
 | `onChange(listener)` | Runs after a write commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A write of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
-| `getStatus()`, `onStatusChange(listener)` | `{ saving, savingPaths, storageFailure, unsaved, failures, closing }`: whether writes or deletes are unsettled, and their paths; the last storage failure; the paths holding accepted input; held input whose last publication failed; whether close was called. |
-| `settle()` | Submits held input, failed input included, and drains admitted work. Reads are not waited for. Answers the input that did not save. |
-| `run(action)` | Admits an action into the folder's lifetime at the call: close waits for it. It reserves no path, sends no input, and locks nothing. Refused with `ActionError.Closing` once close was called. |
-| `close()` | At once, new input and actions are refused, and `onChange`, `onStatusChange` and `settle` throw. `files` and `tables` stay usable while close drains: held input is submitted once, and admitted actions and writes, including ones any caller starts during the drain, finish with their real outcome; reads still running are not waited for. Then listeners and storage are released, and `files` and `tables` throw from then on. Editors stay readable, and their `save()` refuses with `SaveRefusal.Closed`. Answers the input that did not save. Calling it again returns the same promise. |
+| `getStatus()`, `onStatusChange(listener)` | `{ saving, savingPaths, storageFailure, unsaved, failures, closing }`: whether writes or deletes are unsettled, and their paths; the last storage failure; the paths holding accepted input; held input whose last publication failed, as `{ path, error }`; whether close was called. The text lives in the editor snapshot. |
+| `flush()` | Best-effort submission of held input no admitted command owns, failed input included. Returns nothing and does not wait. |
+| `close()` | Synchronously refuses new work, stops autosave, and releases listeners and storage. Submits no held input and waits for no writes. Returns nothing; repeated calls do nothing. Editors stay readable. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
 saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
@@ -102,8 +101,11 @@ The writes and deletes of one path through one handle run one at a time, in
 call order, direct ones and editors' alike; writes of different paths run
 side by side.
 
-A storage call on a handle whose close released storage throws: it is a
-programming error, not a storage failure.
+Await the actual write or editor save you started when you need durable bytes.
+Close does not submit held input or wait for per-path queues.
+
+A new storage call after `close()` starts throws: it is a programming error,
+not a storage failure. Calls submitted before close keep their own outcomes.
 
 New file and row names follow the portable path rule. Earlier files with a
 nonportable but structurally safe name remain readable, and a write or delete
@@ -258,6 +260,11 @@ demands content and is appropriate for an editing view.
 Status is a read-only projection of the existing command lanes and held input.
 `savingPaths` is derived from those lanes, not maintained as a second registry.
 No caller registers a path for a save indicator or keeps its list in sync.
+The edit owner builds one cached `FolderStatus` and notifies its status readers;
+the handle exposes that same snapshot. There is no intermediate aggregate or
+second status cache. Unchanged save metadata retains snapshot identity, even
+when the text changes. The Svelte context adds subscription tracking to the
+same read without mirroring the snapshot.
 
 A publication acknowledges only the input it captured, by identity: typing
 during a save stays dirty after it lands, even when the newer text equals the
@@ -273,22 +280,26 @@ a publication admitted before it cannot bring its failure back.
 editor's current input and defer its pending automatic save, never blocking
 new input. Success acknowledges only that captured input, which stays held as
 the content; newer input saves afterwards and recreates the path. Failure
-leaves pending input pending and resumes its automatic save; input an earlier
-publication already acknowledged never becomes dirty again.
+leaves pending input pending and resumes its automatic save while open. After
+close, that input stays readable without another save attempt. Input
+an earlier publication already acknowledged never becomes dirty again.
 
-`folder.settle()` submits held input, failed input included, and drains
-admitted work; `folder.close()` refuses new input, submits held input once,
-and drains. Both answer detached `Recovery` values, `{ path, text, error }`,
-for input that did not save; `getStatus().failures` lists the failed ones no
-save is retrying. After close, editors stay readable and `save()` refuses
-with `SaveRefusal.Closed`.
+`folder.flush()` submits held input no admitted command owns, failed input
+included, without waiting. Editing stays open. `getStatus().failures` exposes
+immutable in-session `SaveFailure` values, `{ path, error }`. Copyable text
+lives in the editor snapshot.
 
-`folder.run(action)` admits an action into the folder's lifetime at the
-call: close waits for it, and its writes work while close drains. It
-reserves no path, sends no input, and locks nothing. Code that must not
-write once the folder is closing, such as an answer arriving from a network
-request, admits that write with `run` and treats `ActionError.Closing` as
-closing. Do not await the folder's `settle()` or `close()` inside an action.
+`folder.close()` synchronously refuses new work, stops autosave, publishes
+`closing: true` once, and releases listeners and storage. It neither submits
+held input nor waits for admitted commands. Those commands may finish or fail
+and keep their own Results. Editors stay readable; subscribing after close
+reports the current snapshot once without reading or registering a listener.
+Editor `save()` refuses with `SaveRefusal.Closed`.
+
+Await the actual write or save you started when durable bytes are required.
+Confirmed departure accepts losing unfinished work. Application workflows
+waiting on reads, network requests, or other tasks do not keep storage open;
+apps refuse new work and late results through their own closing state.
 
 Editors learn of outside changes through folder-wide storage hints: browser
 broadcasts, native directory watching, and sync. Hints identify affected paths
@@ -556,7 +567,7 @@ neither loads until a folder is opened. No engine carries isomorphic-git.
 | --- | --- |
 | `src/contract.ts`, `folder.ts` | The public contract: `Folder` and its parts, the open options, and the errors. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
-| `src/handle.ts` | The caller-facing handle every engine shares: status, the close fence, the saves close waits for (one at a time per path), and the read notes. |
+| `src/handle.ts` | The caller-facing handle every engine shares: status, the close fence, per-path command ordering and synchronous release, and the read notes. |
 | `src/local-folder.ts`, `src/browser/` | The browser's default local folder over the IndexedDB repository engine. |
 | `src/native/` | The directory engine (`engine.ts`), its Bun host and save lock (`bun.ts`, `directory.ts`), and its desktop host (`tauri.ts`, with `bindings.gen.ts` generated from the folder plugin; do not edit). |
 | `src/shared/` | The content merge and row reading every engine uses, Markdown documents at any path (`document.ts`). |

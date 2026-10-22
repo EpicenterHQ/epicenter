@@ -23,14 +23,13 @@
  * - A save failure survives typing until a success or discard; discard
  *   drops input without writing, and a late failure cannot reattach
  * - Reads wait for admitted writes, and read again when overtaken
- * - Close refuses input, submits held input once, answers recoveries, and
- *   waits for admitted actions
+ * - Close releases synchronously without submitting input or waiting for writes
  */
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Type } from 'typebox';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder } from './browser.js';
 import type { EditorSnapshot } from './edits.js';
@@ -77,6 +76,9 @@ function fakeEngine(files: Record<string, string | Uint8Array> = {}) {
 	);
 	const listeners = new Set<(change: FolderChange) => void>();
 	const log: string[] = [];
+	const writeFailure = SaveError.StorageFailed({
+		cause: new Error('disk full'),
+	});
 	/** How often anything decoded a blob a read answered. */
 	const decoded = { count: 0 };
 	const blobOf = (bytes: Uint8Array) => {
@@ -142,8 +144,7 @@ function fakeEngine(files: Record<string, string | Uint8Array> = {}) {
 				);
 			},
 			async write(path, content) {
-				if (!(await gate('write')))
-					return SaveError.StorageFailed({ cause: new Error('disk full') });
+				if (!(await gate('write'))) return writeFailure;
 				const bytes = typeof content === 'string' ? encode(content) : content;
 				disk.set(path, bytes.slice());
 				log.push(`write ${path} ${decode(bytes)}`);
@@ -209,6 +210,7 @@ function fakeEngine(files: Record<string, string | Uint8Array> = {}) {
 				(entry) => entry.startsWith('write ') || entry.startsWith('delete '),
 			),
 		reads: () => log.filter((entry) => entry.startsWith('read ')),
+		writeError: writeFailure.error,
 	};
 }
 
@@ -292,6 +294,57 @@ test('passive status follows overlapping writes and queued deletes without readi
 	expect(folder.getStatus().saving).toBe(false);
 	expect(reads()).toEqual([]);
 	expect(cold.getSnapshot().content).toBeUndefined();
+});
+
+test('passive status retains snapshot identity until save metadata changes', async () => {
+	const { folder } = setup();
+	const initial = folder.getStatus();
+	const seen: (typeof initial)[] = [];
+	cleanup.push(folder.onStatusChange((status) => seen.push(status)));
+	const edit = folder.files.edit('a.md');
+	expect(folder.getStatus()).toBe(initial);
+	expectOk(edit.replaceText('first'));
+	const dirty = folder.getStatus();
+	expect(dirty.unsaved).toEqual(['a.md']);
+	expect(seen).toEqual([dirty]);
+	// Text changes while the same input remains outstanding need no metadata event.
+	expectOk(edit.replaceText('second'));
+	expect(folder.getStatus()).toBe(dirty);
+	expect(seen).toEqual([dirty]);
+	const saving = edit.save();
+	expect(folder.getStatus().savingPaths).toEqual(['a.md']);
+	expectOk(await saving);
+	expect(folder.getStatus().unsaved).toEqual([]);
+	expect(initial.unsaved).toEqual([]);
+	expect(dirty.unsaved).toEqual(['a.md']);
+});
+
+test('status remembers storage write and delete failures without replacing them with read failures', async () => {
+	const { folder, hold } = setup({ 'a.md': 'before' });
+	const failingWrite = hold('write');
+	const writing = folder.files.write('a.md', 'after');
+	await failingWrite.reached;
+	failingWrite.fail();
+	const writeError = expectErr(await writing);
+	if (writeError.name !== 'StorageFailed')
+		throw new Error('Expected a storage write failure');
+	expect(folder.getStatus().storageFailure).toBe(writeError);
+	const failingRead = hold('read');
+	const setting = folder.tables.notes.set('unknown', { body: 'new' });
+	await failingRead.reached;
+	failingRead.fail();
+	expect(expectErr(await setting).name).toBe('StorageFailed');
+	expect(folder.getStatus().storageFailure).toBe(writeError);
+	const failingDelete = hold('delete');
+	const deleting = folder.files.delete('a.md');
+	await failingDelete.reached;
+	failingDelete.fail();
+	const deleteError = expectErr(await deleting);
+	if (deleteError.name !== 'StorageFailed')
+		throw new Error('Expected a storage delete failure');
+	expect(folder.getStatus().storageFailure).toBe(deleteError);
+	expectOk(await folder.files.delete('a.md'));
+	expect(folder.getStatus().storageFailure).toBeNull();
 });
 
 test('subscribing emits the current snapshot at once and starts the first read once', async () => {
@@ -572,59 +625,112 @@ test('all writes and deletes of a path finish in call order; deletion is not sav
 	expect(folder.getStatus().saving).toBe(false);
 });
 
-test('a save failure survives typing until a success or discard, and cannot reattach after discard', async () => {
-	const { folder, hold, writes } = setup({ 'a.md': 'A\n' });
+test('a failed publication has stable identity through typing and a fresh identity after retry', async () => {
+	const { folder, hold, writeError } = setup({ 'a.md': 'A\n' });
 	const edit = folder.files.edit('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('B\n'));
+	const typed = '\uFEFFB\r\n';
+	expectOk(edit.replaceText(typed));
 	const failing = hold('write');
 	const saving = edit.save();
 	await failing.reached;
 	failing.fail();
 	expect(expectErr(await saving).name).toBe('StorageFailed');
-	expect(edit.getSnapshot()).toMatchObject({
-		isDirty: true,
-		saveError: { name: 'StorageFailed' },
-	});
-	expect(folder.getStatus().failures).toEqual([
-		{ path: 'a.md', text: 'B\n', error: edit.getSnapshot().saveError },
-	]);
-	expectOk(edit.replaceText('C\n'));
-	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
+	const failedStatus = folder.getStatus();
+	const [first] = failedStatus.failures;
+	if (first === undefined) throw new Error('Expected a failed publication');
+	expect(first.error).toBe(writeError);
+	expect(Object.isFrozen(first)).toBe(true);
+	expect('text' in first).toBe(false);
+	expect(edit.getSnapshot().content?.text).toBe(typed);
 
-	// Discard drops input and the failure, and writes nothing.
-	expect(edit.discard()).toBe('C\n');
-	expect(edit.getSnapshot()).toMatchObject({
-		content: { text: 'A\n' },
-		isDirty: false,
-		saveError: undefined,
-	});
-	expect(edit.discard()).toBeUndefined();
+	const statuses: (typeof failedStatus)[] = [];
+	cleanup.push(folder.onStatusChange((status) => statuses.push(status)));
+	expectOk(edit.replaceText('\uFEFFC\r\n'));
+	expect(folder.getStatus()).toBe(failedStatus);
+	expect(folder.getStatus().failures[0]).toBe(first);
+	expect(statuses).toEqual([]);
 
-	// A publication admitted before a discard fails afterwards: its error stays away.
-	expectOk(edit.replaceText('D\n'));
-	const late = hold('write');
-	const lateSave = edit.save();
-	await late.reached;
-	expect(edit.discard()).toBe('D\n');
-	late.fail();
-	expect(expectErr(await lateSave).name).toBe('StorageFailed');
+	const retrying = hold('write');
+	const retry = edit.save();
+	await retrying.reached;
+	expect(folder.getStatus().failures).toEqual([]);
+	expectOk(edit.replaceText('\uFEFFD\r\n'));
+	expect(folder.getStatus().failures[0]).toBe(first);
+	retrying.fail();
+	expect(expectErr(await retry).name).toBe('StorageFailed');
+	const [second] = folder.getStatus().failures;
+	if (second === undefined) throw new Error('Expected the retry failure');
+	expect(second).not.toBe(first);
+	expect(second.error).toBe(first.error);
+	expect(edit.getSnapshot().content?.text).toBe('\uFEFFD\r\n');
+});
+
+test.each(['discard', 'retry'] as const)(
+	'a status listener that starts %s prevents later listeners receiving the superseded failure',
+	async (action) => {
+		const { folder, hold } = setup({ 'a.md': 'A\n' });
+		const edit = folder.files.edit('a.md');
+		expectOk(await edit.refresh());
+		expectOk(edit.replaceText('B\n'));
+		let acted = false;
+		let retry: ReturnType<typeof edit.save> | undefined;
+		cleanup.push(
+			folder.onStatusChange((status) => {
+				if (acted || status.failures.length === 0) return;
+				acted = true;
+				if (action === 'discard') edit.discard();
+				else retry = edit.save();
+			}),
+		);
+		const noticed: unknown[] = [];
+		cleanup.push(
+			folder.onStatusChange((status) => noticed.push(...status.failures)),
+		);
+		const failing = hold('write');
+		const saving = edit.save();
+		await failing.reached;
+		failing.fail();
+		expectErr(await saving);
+		if (retry !== undefined) expectOk(await retry);
+		expect(acted).toBe(true);
+		expect(noticed).toEqual([]);
+	},
+);
+
+test('discard fences an admitted retry from newer input and a later success clears failure', async () => {
+	const { folder, hold } = setup({ 'a.md': 'A\n' });
+	const edit = folder.files.edit('a.md');
+	expectOk(await edit.refresh());
+	expectOk(edit.replaceText('failed\n'));
+	const first = hold('write');
+	const failed = edit.save();
+	await first.reached;
+	first.fail();
+	expectErr(await failed);
+
+	const retrying = hold('write');
+	const retry = edit.save();
+	await retrying.reached;
+	expect(edit.discard()).toBe('failed\n');
+	expectOk(edit.replaceText('newer\n'));
+	retrying.fail();
+	expectErr(await retry);
+	expect(edit.getSnapshot().content?.text).toBe('newer\n');
 	expect(edit.getSnapshot().saveError).toBeUndefined();
 
-	// A later success clears a failure.
-	expectOk(edit.replaceText('E\n'));
-	const again = hold('write');
-	const failed = edit.save();
-	await again.reached;
-	again.fail();
-	await failed;
+	const failingNewer = hold('write');
+	const newerSave = edit.save();
+	await failingNewer.reached;
+	failingNewer.fail();
+	expectErr(await newerSave);
 	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
 	expectOk(await edit.save());
 	expect(edit.getSnapshot()).toMatchObject({
+		content: { text: 'newer\n' },
 		isDirty: false,
 		saveError: undefined,
 	});
-	expect(writes()).toEqual(['write a.md E\n']);
 });
 
 test('a read waits for admitted writes, so an acknowledgement never lands over a newer observation', async () => {
@@ -695,60 +801,208 @@ test('change patches fields and body of the current text, owns nested values, an
 	expect(expectErr(edit.replaceText('a\uD800b')).name).toBe('InvalidText');
 });
 
-test('close refuses input, submits held input once, answers recoveries and keeps editors readable', async () => {
-	const { folder, hold } = setup({ 'a.md': 'A\n' });
+test('close releases synchronously with a blocked write and never submits held input', async () => {
+	const { folder, engine, text, hold, writes } = setup({}, 10);
+	let closes = 0;
+	const release = engine.close;
+	engine.close = () => {
+		closes++;
+		release();
+	};
+	const edit = folder.files.edit('held.md');
+	expectOk(edit.replaceText('held'));
+	const { seen } = record(edit);
+	const receipt = folder.files.edit('receipt.md');
+	expectErr(await receipt.refresh());
+	const receiptSnapshots = record(receipt).seen;
+	const statuses: boolean[] = [];
+	let changes = 0;
+	folder.onStatusChange((status) => statuses.push(status.closing));
+	folder.onChange(() => changes++);
+	const held = hold('write');
+	const writing = folder.files.write('receipt.md', 'sent');
+	await held.reached;
+	try {
+		expect(folder.close()).toBeUndefined();
+		expect(closes).toBe(1);
+		expect(folder.close()).toBeUndefined();
+		expect(closes).toBe(1);
+		expect(statuses.filter(Boolean)).toEqual([true]);
+		expect(expectErr(edit.replaceText('late')).name).toBe('Closing');
+		expect(expectErr(await edit.save()).name).toBe('Closed');
+		expect(() => folder.flush()).toThrow('The folder is closed');
+		const counts = [
+			seen.length,
+			receiptSnapshots.length,
+			statuses.length,
+			changes,
+		];
+		held.proceed();
+		expectOk(await writing);
+		await sleep(30);
+		expect([
+			seen.length,
+			receiptSnapshots.length,
+			statuses.length,
+			changes,
+		]).toEqual(counts);
+		expect(text('held.md')).toBeUndefined();
+		expect(writes()).toEqual(['write receipt.md sent']);
+		expect(folder.getStatus().saving).toBe(false);
+	} finally {
+		held.proceed();
+		await writing;
+	}
+});
+
+test('close from a publication notice suppresses later change listeners', async () => {
+	const fake = fakeEngine({ 'a.md': 'before\n' });
+	// No engine notice: the handle announces the committed command itself,
+	// before the edit owner acknowledges the input it captured.
+	const folder = folderHandle(
+		{ ...fake.engine, subscribe: () => () => {} },
+		{ notes },
+		{ saveAfterMs: 60_000 },
+	);
+	cleanup.push(() => folder.close());
 	const edit = folder.files.edit('a.md');
-	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('B\n'));
-	const writing = hold('write');
-	const closing = folder.close();
-	expect(folder.close()).toBe(closing);
-	expect(expectErr(edit.replaceText('C\n')).name).toBe('Closing');
-	await writing.reached;
-	writing.fail();
-	const recoveries = await closing;
-	expect(recoveries).toEqual([
-		{ path: 'a.md', text: 'B\n', error: edit.getSnapshot().saveError },
-	]);
-	expect(recoveries[0]!.error?.name).toBe('StorageFailed');
-	expect(edit.getSnapshot().content?.text).toBe('B\n');
-	expect(expectErr(await edit.save()).name).toBe('Closed');
-	expect(() => folder.files.list()).toThrow('The folder is closed');
-	expect(expectErr(await folder.run(async () => 1)).name).toBe('Closing');
-});
-
-test('an action admitted before close finishes its writes while close drains', async () => {
-	const { folder, text } = setup();
-	const gate = Promise.withResolvers<void>();
-	const action = folder.run(async () => {
-		await gate.promise;
-		return folder.files.write('receipt.md', 'sent\n');
+	expectOk(edit.replaceText('saved\n'));
+	let notices = 0;
+	let later = 0;
+	folder.onChange(() => {
+		notices++;
+		folder.close();
+		folder.close();
 	});
-	const closing = folder.close();
-	gate.resolve();
-	const ran = expectOk(await action);
-	expectOk(ran as Result<void, SaveError>);
-	expect(await closing).toEqual([]);
-	expect(text('receipt.md')).toBe('sent\n');
+	folder.onChange(() => later++);
+	expectOk(await edit.save());
+	expect(notices).toBe(1);
+	expect(later).toBe(0);
+	expect(edit.getSnapshot().isDirty).toBe(false);
+	expect(fake.text('a.md')).toBe('saved\n');
 });
 
-test('settle submits held input, failed input included, and answers what did not save', async () => {
-	const { folder, hold, text } = setup({ 'a.md': 'A\n', 'b.md': 'B\n' });
+test('close refuses new storage calls and editor saves while an admitted write is pending', async () => {
+	const { folder, hold, text, reads, writes } = setup({
+		'accepted.md': 'before',
+	});
+	const edit = folder.files.edit('accepted.md');
+	expectOk(await edit.refresh());
+	const held = hold('write');
+	const writing = folder.files.write('accepted.md', 'after');
+	await held.reached;
+	const closing = folder.close();
+	try {
+		expect(() => folder.files.write('late.md', 'late')).toThrow(
+			'The folder is closed',
+		);
+		expect(() => folder.files.delete('accepted.md')).toThrow(
+			'The folder is closed',
+		);
+		expect(() => folder.tables.notes.set('late', { body: 'late' })).toThrow(
+			'The folder is closed',
+		);
+		expect(() => folder.tables.notes.delete('late')).toThrow(
+			'The folder is closed',
+		);
+		await expect(folder.files.read('accepted.md')).rejects.toThrow(
+			'The folder is closed',
+		);
+		expect(() => folder.files.list()).toThrow('The folder is closed');
+		await expect(folder.tables.notes.get('late')).rejects.toThrow(
+			'The folder is closed',
+		);
+		await expect(folder.tables.notes.list()).rejects.toThrow(
+			'The folder is closed',
+		);
+		expect(expectErr(await edit.save()).name).toBe('Closed');
+		expect(expectErr(await edit.refresh()).name).toBe('ReadFailed');
+		expect(expectErr(edit.replaceText('too late')).name).toBe('Closing');
+		record(edit).stop();
+		expect(reads()).toEqual(['read accepted.md']);
+	} finally {
+		held.proceed();
+	}
+	expectOk(await writing);
+	expect(closing).toBeUndefined();
+	expect(text('accepted.md')).toBe('after');
+	expect(writes()).toEqual(['write accepted.md after']);
+});
+
+test('an overtaken editor read starts no further read after close', async () => {
+	const { folder, hold, outside, reads } = setup({ 'a.md': 'before\n' });
+	const edit = folder.files.edit('a.md');
+	const held = hold('read');
+	const reading = edit.refresh();
+	await held.reached;
+	outside('a.md', 'changed\n');
+	try {
+		folder.close();
+	} finally {
+		held.proceed();
+	}
+	await reading;
+	expect(reads()).toEqual(['read a.md']);
+});
+
+test('flush submits held and failed input immediately without waiting', async () => {
+	const { folder, hold, text } = setup();
 	const a = folder.files.edit('a.md');
 	const b = folder.files.edit('b.md');
-	expectOk(a.replaceText('A2\n'));
-	expectOk(b.replaceText('B2\n'));
+	expectOk(a.replaceText('A'));
 	const failing = hold('write');
-	const settling = folder.settle();
+	const saving = a.save();
 	await failing.reached;
 	failing.fail();
-	const settled = await settling;
-	expect(settled.map((recovery) => recovery.path)).toEqual(['a.md']);
-	expect(settled[0]!.error?.name).toBe('StorageFailed');
-	expect(text('b.md')).toBe('B2\n');
-	expect(folder.getStatus().unsaved).toEqual(['a.md']);
-	expect(await folder.settle()).toEqual([]);
-	expect(text('a.md')).toBe('A2\n');
+	expectErr(await saving);
+	expect(folder.getStatus().failures).toHaveLength(1);
+	expectOk(b.replaceText('B'));
+	const blocked = hold('write');
+	try {
+		expect(folder.flush()).toBeUndefined();
+		await blocked.reached;
+		expect(folder.getStatus().saving).toBe(true);
+	} finally {
+		blocked.proceed();
+	}
+	await flush();
+	expect(text('a.md')).toBe('A');
+	expect(text('b.md')).toBe('B');
+	expect(folder.getStatus().failures).toEqual([]);
+});
+
+test('subscribe after close reports one current snapshot and installs no listener or read', async () => {
+	const { folder, hold, reads } = setup();
+	const edit = folder.files.edit('a.md');
+	expectOk(edit.replaceText('A'));
+	const blocked = hold('write');
+	const saving = edit.save();
+	await blocked.reached;
+	try {
+		folder.close();
+		const { seen, stop } = record(edit);
+		expect(seen).toEqual([edit.getSnapshot()]);
+		blocked.proceed();
+		expectOk(await saving);
+		expect(seen).toHaveLength(1);
+		expect(reads()).toEqual([]);
+		stop();
+	} finally {
+		blocked.proceed();
+		await saving;
+	}
+});
+
+test('closing during status dispatch suppresses remaining listeners of that dispatch', async () => {
+	const { folder } = setup();
+	const later: boolean[] = [];
+	folder.onStatusChange((status) => {
+		if (!status.closing) folder.close();
+	});
+	folder.onStatusChange((status) => later.push(status.closing));
+	expectOk(await folder.files.write('a.md', 'A'));
+	// B receives the nested close notification, but never the interrupted open status.
+	expect(later).toEqual([true]);
 });
 
 test('over the browser engine an editor saves automatically and learns of another handle through a listing', async () => {
@@ -881,9 +1135,9 @@ test('a direct set composes over held input, publishes it, and acknowledges only
 		isDirty: false,
 		content: { text: row('New', 'Typed\n') },
 	});
-	// Nothing is left to send: settle and close write nothing more.
-	expect(await folder.settle()).toEqual([]);
-	expect(await folder.close()).toEqual([]);
+	// Nothing is left to send: flush and close write nothing more.
+	expect(folder.flush()).toBeUndefined();
+	folder.close();
 	expect(writes()).toEqual([`write notes/a.md ${row('New', 'Typed\n')}`]);
 });
 
@@ -906,7 +1160,8 @@ test('a failed direct set changes nothing held and is never retried', async () =
 		content: { text: before.content!.text },
 	});
 	// Its interrupted autosave resumes with the original input, never the failed command.
-	expect(await folder.close()).toEqual([]);
+	await flush();
+	folder.close();
 	expect(writes()).toEqual([`write notes/a.md ${row('Old', 'Typed\n')}`]);
 });
 
@@ -1341,7 +1596,7 @@ test('close during a direct promotion never queues the input that promotion capt
 	await writing.reached;
 	writing.proceed();
 	expectOk(await promotion);
-	expect(await closing).toEqual([]);
+	expect(closing).toBeUndefined();
 	expect(text('notes/a.md')).toBe(draftRow(false, 'composed\n'));
 	// The first set and the promotion; the raw input never follows it.
 	expect(writes()).toHaveLength(2);
@@ -1383,21 +1638,22 @@ test('an older command failing gives captured input back only if no later comman
 	await first.reached;
 	first.fail();
 	expect(expectErr(await setting).name).toBe('StorageFailed');
-	// The later save still owns the input: settle submits nothing behind it.
-	const settling = folder.settle();
+	// The later save still owns the input: flush submits nothing behind it.
+	const settling = folder.flush();
 	await second.reached;
 	second.proceed();
 	expectOk(await saving);
-	expect(await settling).toEqual([]);
+	expect(settling).toBeUndefined();
 	expect(writes()).toEqual([`write notes/a.md ${row('Old', 'I\n')}`]);
-	// The last owner failing does give it back, for a later explicit save or close.
+	// The last owner failing does give it back, for a later explicit save or flush.
 	expectOk(edit.replaceText(row('Old', 'J\n')));
 	const failing = hold('write');
 	const failed = folder.tables.notes.set('a', { fields: { title: 'Newer' } });
 	await failing.reached;
 	failing.fail();
 	await failed;
-	expect(await folder.close()).toEqual([]);
+	expectOk(await edit.save());
+	folder.close();
 	expect(writes().at(-1)).toBe(`write notes/a.md ${row('Old', 'J\n')}`);
 });
 
@@ -1412,13 +1668,13 @@ test('close during a raw write never queues the input it captured', async () => 
 	await writing.reached;
 	writing.proceed();
 	expectOk(await written);
-	expect(await closing).toEqual([]);
+	expect(closing).toBeUndefined();
 	expect(text('a.md')).toBe('raw\n');
 	expect(writes()).toEqual(['write a.md raw\n']);
 });
 
-test('a failed direct set during close resumes the original input publication', async () => {
-	const { folder, hold, text } = setup({
+test('a failed direct set after close retains original input without retrying', async () => {
+	const { folder, hold, text, writes } = setup({
 		'notes/a.md': row('Old', 'Original\n'),
 	});
 	const edit = folder.tables.notes.edit('a');
@@ -1430,8 +1686,11 @@ test('a failed direct set during close resumes the original input publication', 
 	await failing.reached;
 	failing.fail();
 	expect(expectErr(await setting).name).toBe('StorageFailed');
-	expect(await closing).toEqual([]);
-	expect(text('notes/a.md')).toBe(row('Old', 'I\n'));
+	expect(closing).toBeUndefined();
+	expect(edit.getSnapshot().content?.text).toBe(row('Old', 'I\n'));
+	expect(edit.getSnapshot().isDirty).toBe(true);
+	expect(text('notes/a.md')).toBe(row('Old', 'Original\n'));
+	expect(writes()).toEqual([]);
 });
 
 test('overlapping failed commands resume interrupted input once, never their payloads', async () => {
@@ -1501,10 +1760,9 @@ test('new equal input typed during a direct set is still published after it', as
 	await writing.reached;
 	expectOk(edit.replaceText(row('Old', 'C\n')));
 	expectOk(edit.replaceText(row('Old', 'B\n')));
-	const closing = folder.close();
 	writing.proceed();
 	expectOk(await setting);
-	expect(await closing).toEqual([]);
+	expectOk(await edit.save());
 	expect(text('notes/a.md')).toBe(row('Old', 'B\n'));
 });
 
@@ -1546,4 +1804,28 @@ test('over the browser engine a direct set composes over held input, and a failu
 		isDirty: true,
 		content: { text: row('Old', 'Later\n') },
 	});
+});
+
+test('an admitted command that throws after close resolves with StorageFailed', async () => {
+	const fake = fakeEngine();
+	const blocked = Promise.withResolvers<void>();
+	const reached = Promise.withResolvers<void>();
+	fake.engine.files.write = async () => {
+		reached.resolve();
+		await blocked.promise;
+		throw new Error('released storage');
+	};
+	const folder = folderHandle(fake.engine, {});
+	const writing = folder.files.write('a.md', 'A');
+	await reached.promise;
+	try {
+		folder.close();
+		blocked.resolve();
+		expect(expectErr(await writing).name).toBe('StorageFailed');
+		expect(folder.getStatus().saving).toBe(false);
+	} finally {
+		blocked.resolve();
+		await writing;
+		folder.close();
+	}
 });

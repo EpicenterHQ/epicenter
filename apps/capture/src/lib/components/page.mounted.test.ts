@@ -11,10 +11,10 @@
  * - A fresh browser opens an empty timeline whose header offers no Save
  *   version, Sync, or Connect
  * - Text not added yet writes nothing and never holds a reload; a capture
- *   added here, and its edit, are in the folder once the page closes
+ *   added here stays saved; later held edits are not submitted by close
  * - A draft an earlier version saved resumes, holds a reload while unsaved,
  *   and is removed by an explicit discard
- * - Text typed with Edit as text is in the folder once the page closes
+ * - Close does not submit held Edit as text input
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
@@ -140,7 +140,7 @@ test('a fresh browser opens an empty timeline with no Save version, Sync, or Con
 	);
 });
 
-test('text not added yet never holds reload or writes; Add and later edits persist on close', async () => {
+test('unsubmitted text never writes; close preserves Add but drops later held edits', async () => {
 	freshProfile();
 	const page = mountPage();
 	await until(() => page.text().includes('No captures yet'), 'the timeline');
@@ -151,7 +151,7 @@ test('text not added yet never holds reload or writes; Add and later edits persi
 		// Another handle of the profile: nothing was written for the typing.
 		const folder = expectOk(await openFolder({ tables: captureTables }));
 		expect(expectOk(await folder.tables.captures.list())).toEqual([]);
-		await folder.close();
+		folder.close();
 	}
 
 	flushSync();
@@ -166,27 +166,24 @@ test('text not added yet never holds reload or writes; Add and later edits persi
 	expect(reload()).toBe(false);
 	await page.close();
 
-	// Closing runs on after unmount: the edit lands while the folder closes.
+	// Close leaves the last saved capture unchanged.
 	const folder = expectOk(await openFolder({ tables: captureTables }));
 	cleanup.push(() => folder.close());
 	const listed = async () => expectOk(await folder.tables.captures.list());
-	for (let tries = 0; tries < 200; tries++) {
-		if ((await listed())[0]?.body?.includes('edited')) break;
-		await Bun.sleep(5);
-	}
+
 	const rows = await listed();
 	expect(rows).toHaveLength(1);
 	expect(rows[0]?.issues).toBeNull();
-	expect(rows[0]?.body).toBe('\nKept in this browser, edited\n\n## Thoughts\n');
+	expect(rows[0]?.body).toBe('\nKept in this browser\n\n## Thoughts\n');
 });
 
-test('text typed with Edit as text is in the folder once the page closes', async () => {
+test('close does not submit held Edit as text input', async () => {
 	freshProfile();
 	const file = '---\ncapturedAt: 2026-10-04T20:49:23Z\n---\n\nBefore\n';
 	{
 		const folder = expectOk(await openFolder({ tables: captureTables }));
 		expectOk(await folder.files.write('captures/one.md', file));
-		await folder.close();
+		folder.close();
 	}
 	const page = mountPage();
 	await until(() => page.text().includes('Before'), 'the timeline');
@@ -207,14 +204,11 @@ test('text typed with Edit as text is in the folder once the page closes', async
 		(await expectOk(
 			await folder.files.read('captures/one.md'),
 		)?.content.text()) ?? '';
-	for (let tries = 0; tries < 200; tries++) {
-		if ((await read()).includes('After')) break;
-		await Bun.sleep(5);
-	}
-	expect(await read()).toBe(file.replace('Before', 'After'));
+
+	expect(await read()).toBe(file);
 });
 
-test('a failed text save remains copyable after the page unmounts', async () => {
+test('a failed text save stays visible while mounted and close does not retry it', async () => {
 	freshProfile();
 	const path = 'captures/one.md';
 	const file = '---\ncapturedAt: 2026-10-04T20:49:23Z\n---\n\nBefore\n';
@@ -222,7 +216,7 @@ test('a failed text save remains copyable after the page unmounts', async () => 
 	{
 		const folder = expectOk(await openFolder({ tables: captureTables }));
 		expectOk(await folder.files.write(path, file));
-		await folder.close();
+		folder.close();
 	}
 	const page = mountPage(PageLeavingHost);
 	await until(() => page.text().includes('Before'), 'the timeline');
@@ -242,20 +236,19 @@ test('a failed text save remains copyable after the page unmounts', async () => 
 	cleanup.push(() => {
 		IDBObjectStore.prototype.put = put;
 	});
+	page.target.querySelector(contents)?.dispatchEvent(new FocusEvent('blur'));
+	await until(() => page.text().includes('Not saved'), 'the save failure');
+	expect(page.target.querySelector<HTMLTextAreaElement>(contents)?.value).toBe(draft);
 	click(page.target, 'Leave page');
-	await until(
-		() =>
-			document.querySelector<HTMLTextAreaElement>(
-				'[data-testid="unsaved-text"]',
-			) !== null,
-		'the copyable unsaved text',
-	);
-	expect(
-		document.querySelector<HTMLTextAreaElement>('[data-testid="unsaved-text"]')
-			?.value,
-	).toBe(draft);
-	expect(page.text()).toContain(`Could not save ${path}`);
-	expect(page.text()).toContain('Copy your text');
+	await until(() => page.target.querySelector(contents) === null, 'page unmount');
+	expect(document.querySelector('[data-testid="unsaved-text"]')).toBeNull();
+	const folder = expectOk(await openFolder({ tables: captureTables }));
+	try {
+		expect(await expectOk(await folder.files.read(path))?.content.text()).toBe(file);
+	} finally {
+		folder.close();
+	}
+
 });
 
 test('a draft an earlier version saved resumes from Drafts, saves across a restart, and explicit discard removes it', async () => {
@@ -269,7 +262,7 @@ test('a draft an earlier version saved resumes from Drafts, saves across a resta
 				`---\ncapturedAt: 2026-10-04T20:49:23Z\ndraft: true\n---\n`,
 			),
 		);
-		await folder.close();
+		folder.close();
 	}
 	const page = mountPage();
 	await until(

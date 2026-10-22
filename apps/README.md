@@ -15,7 +15,7 @@ const opened = await openFolder({ tables });
 if (opened.error !== null) throw opened.error;
 const folder = opened.data;
 const rows = await folder.tables.todos.list();
-await folder.close();
+folder.close();
 ```
 
 `openFolder({ tables })` opens this browser origin's stable default in
@@ -40,16 +40,16 @@ them without Git or `epicenter.json`.
 
 `<FolderApp>` calls the app's opener and provides one UI context. Each app
 installs that exact context for descendants to read through `getFolder()`.
-Folder owns accepted edits, autosave, save status, admitted actions, and storage
-closure. The context connects it to one TanStack Query cache, change invalidation,
-and window behavior. Failed saves retain input in Folder. An action that reaches
-later Folder calls after an `await` enters through `folder.run(action)`; its
-callback takes no argument and uses the same `folder.files` and `folder.tables`,
-which stay usable until close releases storage. Normal close waits for that work
-and the writes it started. Await what must finish before the callback returns.
-New actions refuse once close begins. Admission reserves no paths and does not
-flush input. Compose a deliberate workflow from the editor's current content.
-Unfinished forms remain with the app.
+Folder owns accepted edits, autosave, save status, and storage closure. The
+context connects it to one TanStack Query cache, change invalidation, and window
+behavior. Failed saves retain input in Folder. Close synchronously releases listeners and storage without submitting held input
+or waiting for writes. Page hide calls best-effort `flush()`. Callers needing
+durable bytes await the write or save they started; confirmed departure accepts
+losing unfinished work. Apps
+refuse new work and late results through their own closing state. Compose a
+deliberate workflow from the editor's current content. Unfinished forms remain
+with the app. Internal navigation retains the app's Folder; document or window
+destruction does not wait for its close.
 
 The editing lifecycle is recorded in [ADR 0656](../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md).
 

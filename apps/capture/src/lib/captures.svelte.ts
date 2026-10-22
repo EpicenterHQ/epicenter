@@ -355,37 +355,34 @@ export function createCaptures(context: CaptureFolder) {
 		 */
 		async finishDraft(stem: string): Promise<Result<void, Failure>> {
 			const path = capturePath(stem);
-			const added = await folder.run(
-				async (): Promise<Result<void, Failure>> => {
-					const edit = folder.tables.captures.edit(stem);
-					// Admission does not flush input. Acquire only when necessary,
-					// then compose from current owner content without rereading storage.
-					if (edit.getSnapshot().content === undefined) {
-						const loaded = await edit.refresh();
-						if (loaded.error !== null) return loaded;
-					}
-					const row = edit.getSnapshot().content;
-					if (row === undefined)
-						return CaptureError.Refused({
-							message: 'This draft is no longer here.',
-						});
-					if (row.issues !== null)
-						return CaptureError.Refused({
-							message: 'Repair this file as text before adding it.',
-						});
-					// A previous attempt or another tab already added it. Never append twice.
-					if (row.fields.draft !== true) return Ok(undefined);
-					if (row.body.trim() === '')
-						return CaptureError.Refused({ message: 'Write something first.' });
-					const saved = await folder.tables.captures.set(stem, {
-						fields: { draft: undefined, capturedAt: new Date().toISOString() },
-						body: composeBody(row.body).body,
-					});
-					return saved.error === null ? Ok(undefined) : saved;
-				},
-			);
-			if (added.error !== null) return added;
-			if (added.data.error !== null) return added.data;
+			if (context.closing) return ActionError.Closing();
+
+			const edit = folder.tables.captures.edit(stem);
+			// Acquire only when necessary,
+			// then compose from current owner content without rereading storage.
+			if (edit.getSnapshot().content === undefined) {
+				const loaded = await edit.refresh();
+				if (loaded.error !== null) return loaded;
+			}
+			const row = edit.getSnapshot().content;
+			if (row === undefined)
+				return CaptureError.Refused({
+					message: 'This draft is no longer here.',
+				});
+			if (row.issues !== null)
+				return CaptureError.Refused({
+					message: 'Repair this file as text before adding it.',
+				});
+			// A previous attempt or another tab already added it. Never append twice.
+			if (row.fields.draft === true) {
+				if (row.body.trim() === '')
+					return CaptureError.Refused({ message: 'Write something first.' });
+				const saved = await folder.tables.captures.set(stem, {
+					fields: { draft: undefined, capturedAt: new Date().toISOString() },
+					body: composeBody(row.body).body,
+				});
+				if (saved.error !== null) return saved;
+			}
 			if (!context.closing) {
 				await context.refresh([path]);
 				open(stem, 'capture', 'new-thought');

@@ -2,14 +2,13 @@
  * What a folder app tells a person when a save fails, worded once.
  *
  * A library error states the failure precisely; this module decides what a
- * person reads about it. `<FolderApp>` shows every `WriteFailure` as one
- * toast that offers the text the file does not hold, so typed text is never
- * lost without the person being told and handed it.
+ * person reads about it. Apps can present a `WriteFailure` with the
+ * text available to copy while the folder is open.
  *
  * Plain module: a store imports it without loading Svelte components.
  */
 import type { SaveError } from '@epicenter/folder';
-import type { ActionError, Recovery } from '@epicenter/folder/edits';
+import type { ActionError } from '@epicenter/folder/edits';
 
 /** The errors `describeWriteError` words by name. */
 export type DescribedError = SaveError | ActionError;
@@ -20,13 +19,13 @@ export type DescribedError = SaveError | ActionError;
  */
 export type OtherError = { readonly name: string; readonly message: string };
 
-/** A save that failed, and what it held. */
+/** A save that failed, and the current text its owner can still provide. */
 export type WriteFailure = {
 	/** The file the save was for. */
 	readonly path: string;
 	readonly error: DescribedError | OtherError;
-	/** The text that was typed and is not in the file; `''` when none is lost. */
-	readonly unsaved: string;
+	/** The text the person can copy now, or `undefined` when none remains. */
+	readonly getText: () => string | undefined;
 	/**
 	 * Send the edit again, answering whether a save started. Set when the
 	 * edit is still on screen, so saving it again is all the person needs to
@@ -35,31 +34,14 @@ export type WriteFailure = {
 	readonly save?: () => boolean;
 	/**
 	 * Let go of the edit still on screen, answering the text it let go: what
-	 * is typed now, which can be newer than `unsaved`, or `undefined` when
-	 * the edit was already gone. The file keeps what it holds, and the
+	 * is typed now, which can be newer than an earlier notice, or `undefined`
+	 * when the edit was already gone. The file keeps what it holds, and the
 	 * notice keeps that text to copy. Set while an edit is held, so a save
 	 * that keeps failing never leaves the person with input they cannot
 	 * drop.
 	 */
 	readonly discard?: () => string | undefined;
 };
-
-/** The exact held source a person can copy. */
-export function unsavedText(recovery: Recovery): string {
-	return recovery.text;
-}
-
-/** The failure a person is shown for held input that did not save. */
-export function recoveryFailure(recovery: Recovery): WriteFailure {
-	return {
-		path: recovery.path,
-		error: recovery.error ?? {
-			name: 'Unsaved',
-			message: 'The edit did not save.',
-		},
-		unsaved: unsavedText(recovery),
-	};
-}
 
 /**
  * What a person is told about a failed save or action.

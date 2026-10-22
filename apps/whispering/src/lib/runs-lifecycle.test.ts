@@ -3,8 +3,7 @@
  * Requests capture valid held recording facts without publishing the source.
  * Deletion blocks related work throughout its asynchronous reads.
  * Closing during preparation sends no request, and an answer that arrives
- * once closing began writes nothing, even while other admitted work, on its
- * row or elsewhere, keeps the folder open. Running an unfinished result
+ * once closing began writes nothing. Running an unfinished result
  * again inspects held input, so an answer typed there is not resent.
  */
 import {
@@ -154,8 +153,8 @@ test('a deletion blocks new transcriptions while it reads the recording’s conf
 	expect(expectOk(await folder.tables.transcriptions.list())).toEqual([]);
 });
 
-test('closing while the recording is being read prevents its transcription request', async () => {
-	const { whispering, folder, root, entry, transcribed } = await open();
+test('context close while the recording is being read prevents its transcription request', async () => {
+	const { context, whispering, folder, root, entry, transcribed } = await open();
 	const entered = deferred<void>();
 	const release = deferred<void>();
 	const recordings = folder.tables.recordings;
@@ -176,7 +175,7 @@ test('closing while the recording is being read prevents its transcription reque
 	});
 	const transcribing = whispering.transcribe(entry);
 	await entered.promise;
-	whispering.dispose();
+	context.close();
 	release.resolve();
 	await transcribing;
 	expect(transcribed).toEqual([]);
@@ -211,8 +210,8 @@ test('two transcription presses while the recording is being read send one reque
 	expect(transcribed).toHaveLength(1);
 });
 
-test('closing while the initial result is saving prevents a later provider request', async () => {
-	const { whispering, folder, root, entry, transcribed } = await open();
+test('context close while the initial result is saving prevents a later provider request', async () => {
+	const { context, whispering, folder, root, entry, transcribed } = await open();
 	const entered = deferred<void>();
 	const release = deferred<void>();
 	const transcripts = folder.tables.transcriptions;
@@ -231,7 +230,7 @@ test('closing while the initial result is saving prevents a later provider reque
 	});
 	const transcribing = whispering.transcribe(entry);
 	await entered.promise;
-	whispering.dispose();
+	context.close();
 	release.resolve();
 	await transcribing;
 	expect(transcribed).toEqual([]);
@@ -242,12 +241,9 @@ test('closing while the initial result is saving prevents a later provider reque
 	expect(await Bun.file(join(root, rows[0]!)).text()).toMatch(/\n---\n$/);
 });
 
-test('an answer arriving after close starts writes nothing while admitted work keeps the folder open', async () => {
+test('an answer arriving after the folder closes is not written', async () => {
 	const answer =
 		deferred<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
-	const entered = deferred<void>();
-	const gate = deferred<void>();
-	cleanups.push(async () => gate.resolve());
 	const { context, whispering, folder, root, entry, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -255,27 +251,9 @@ test('an answer arriving after close starts writes nothing while admitted work k
 	await eventually(() => transcribed.length === 1);
 	const [row] = expectOk(await folder.tables.transcriptions.list());
 	const path = `transcriptions/${row!.id}.md`;
-	const other = folder.run(async () => {
-		entered.resolve();
-		await gate.promise;
-	});
-	await entered.promise;
-	whispering.dispose();
-	let closed = false;
-	const closing = context.close().then(() => {
-		closed = true;
-	});
-	answer.resolve(Ok({ text: 'arrived while the folder drained' }));
+	context.close();
+	answer.resolve(Ok({ text: 'arrived after closing' }));
 	await transcribing;
-	// Storage still answers while close waits for the other work, and the
-	// answer did not reach it.
-	expect(closed).toBe(false);
-	expect(expectOk(await folder.tables.transcriptions.get(row!.id))?.body).toBe(
-		'',
-	);
-	gate.resolve();
-	expectOk(await other);
-	await closing;
 	expect(transcribed).toHaveLength(1);
 	expect(await readFile(join(root, path), 'utf8')).toMatch(/\n---\n$/);
 });
@@ -337,40 +315,6 @@ test('a deletion reserved during the final preparation read prevents its provide
 	).toBeUndefined();
 });
 
-test('an admitted recording deletion finishes after close interrupts its result reads', async () => {
-	const entered = deferred<void>();
-	const release = deferred<void>();
-	let armed = false;
-	const { context, whispering, root, entry } = await open({
-		async beforeStorageList() {
-			if (!armed) return;
-			armed = false;
-			entered.resolve();
-			await release.promise;
-		},
-	});
-	await whispering.transcribe(entry);
-	await quiet(context);
-	const deletion = expectOk(await whispering.deletionFor(entry.path));
-	if (deletion.kind !== 'recording')
-		throw new Error('Expected recording deletion');
-	expect(deletion.results).toHaveLength(1);
-	armed = true;
-	const removing = whispering.delete(deletion);
-	await entered.promise;
-	whispering.dispose();
-	expect(context.folder.getStatus().closing).toBe(true);
-	const closing = context.close();
-	release.resolve();
-	expect(await removing).toBeUndefined();
-	await closing;
-	for (const path of [entry.path, ...deletion.results])
-		expect(await Bun.file(join(root, path)).exists()).toBe(false);
-	expect(
-		await Bun.file(join(root, entry.path.replace(/\.md$/, '.wav'))).exists(),
-	).toBe(true);
-});
-
 test('closing completes while deletion preflight is reading and its late answer is refused', async () => {
 	const entered = deferred<void>();
 	const release = deferred<void>();
@@ -386,15 +330,9 @@ test('closing completes while deletion preflight is reading and its late answer 
 	armed = true;
 	const preflight = whispering.deletionFor(entry.path);
 	await entered.promise;
-	whispering.dispose();
 	const closing = context.close();
 	try {
-		expect(
-			await Promise.race([
-				closing.then(() => true),
-				Bun.sleep(100).then(() => false),
-			]),
-		).toBe(true);
+		expect(closing).toBeUndefined();
 	} finally {
 		release.resolve();
 	}

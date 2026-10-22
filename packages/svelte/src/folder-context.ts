@@ -3,7 +3,7 @@
  * write it: the handle, the page's one query client over its files and rows,
  * whether everything is saved, and one close. The folder owns typed input
  * from the moment it opens (`folder.tables.<name>.edit(id)`,
- * `folder.files.edit(path)`, `folder.getStatus()`, `folder.settle()`,
+ * `folder.files.edit(path)`, `folder.getStatus()`, `folder.flush()`,
  * `folder.close()`); this context reads its status reactively and adds what
  * belongs to the page: shared reads and the window's close.
  *
@@ -15,8 +15,8 @@
  * reports a save of this handle whose content was already stored, marks the
  * queries over the paths it names stale. Folder-wide watch events report
  * outside edits; manual refresh and focus reconcile after gaps. No save or close waits for a reread. `close` stops the
- * change channel and closes the folder immediately, then cancels page reads
- * and clears the cache after accepted Folder work finishes.
+ * change channel and closes the folder immediately, cancels page reads
+ * and clears the cache synchronously without waiting for accepted Folder work.
  *
  * In the desktop app the context also answers its window's close
  * (`guardWindowClose`) from the folder's current save status.
@@ -35,7 +35,6 @@ import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
 import { createFolderQueries, folderKeys } from './folder-queries.js';
 import { holdWindowClose } from './window-close.js';
-import { recoveryFailure, type WriteFailure } from './write-failure.js';
 
 const log = createLogger('svelte/folder');
 
@@ -62,7 +61,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	});
 	queryClient.mount();
 	const queries = createFolderQueries(folder);
-	let closing: Promise<WriteFailure[]> | undefined;
+	let closed = false;
 
 	// A refresh must show bytes read after the change. Join an older scan
 	// before invalidating, rather than abandoning I/O that cannot be cancelled.
@@ -70,14 +69,14 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		filters: InvalidateQueryFilters,
 		options?: { throwOnError?: boolean },
 	) {
-		if (closing !== undefined) return;
+		if (closed) return;
 		await Promise.allSettled(
 			queryClient
 				.getQueryCache()
 				.findAll(filters)
 				.map((query) => query.promise),
 		);
-		if (closing !== undefined) return;
+		if (closed) return;
 		// An unobserved old value must not become a recreated file's source.
 		// Disabled observers still own their query, so test observer count directly.
 		queryClient.removeQueries({
@@ -148,14 +147,14 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		paths?: readonly string[],
 		options?: { throwOnError?: boolean },
 	) {
-		if (closing !== undefined) return;
+		if (closed) return;
 		await Promise.all([
 			folder.refresh(paths),
 			refreshQueriesForPaths(paths, options),
 		]);
 	}
 	const stopFocus = focusManager.subscribe((focused) => {
-		if (focused && closing === undefined)
+		if (focused && !closed)
 			void folder.refresh().catch((cause) => {
 				log.error(new Error('The local folder could not refresh', { cause }));
 			});
@@ -164,6 +163,18 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	/** Only accepted Folder work determines whether departure needs a prompt. */
 	const pendingSave = () =>
 		folder.getStatus().saving || folder.getStatus().unsaved.length > 0;
+
+	/** Stop listeners, release the folder, and clear page reads synchronously, once. */
+	function close(): void {
+		if (closed) return;
+		closed = true;
+		stopChanges();
+		stopFocus();
+		stopWindow?.();
+		queryClient.unmount();
+		folder.close();
+		queryClient.clear();
+	}
 
 	return {
 		folder,
@@ -182,10 +193,10 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		 * A browser tab keeps its own unload behavior.
 		 */
 		guardWindowClose(): Promise<void> {
-			if (closing !== undefined)
+			if (closed)
 				return Promise.reject(new Error('The folder is closing'));
-			guarding ??= holdWindowClose(pendingSave).then((stop) => {
-				if (closing !== undefined) stop();
+			guarding ??= holdWindowClose(pendingSave, close).then((stop) => {
+				if (closed) stop();
 				else stopWindow = stop;
 			});
 			return guarding;
@@ -196,7 +207,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		/**
 		 * The folder's save status, held input included, read reactively: the
 		 * one record of whether what the person did is in this device's
-		 * storage. An admitted action is not in it; its writes are, from their
+		 * storage. Application workflows are not in it; submitted writes are, from their
 		 * call until they land. A passive per-file label checks `savingPaths`,
 		 * `unsaved`, and `failures` here without subscribing to file content.
 		 */
@@ -204,41 +215,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			trackStatus();
 			return folder.getStatus();
 		},
-		/**
-		 * Stop listening and close the folder immediately, which refuses new
-		 * input and work, sends held input, and drains accepted work. Cancel
-		 * page reads, then clear the cache after that work finishes. Answers
-		 * copyable failures for input that did not save, which are also logged.
-		 * Every call answers the same completion.
-		 */
-		close(): Promise<WriteFailure[]> {
-			if (closing !== undefined) return closing;
-			// Assigned before anything is told, so a listener that closes again
-			// answers this same promise.
-			const completion = Promise.withResolvers<WriteFailure[]>();
-			closing = completion.promise;
-			// Stop refreshes before Folder close reports its status or saves.
-			// Accepted work keeps using the folder while close drains it.
-			stopChanges();
-			stopFocus();
-			queryClient.unmount();
-			const folderClose = folder.close();
-			(async () => {
-				// A window close from here on is the shell's own.
-				stopWindow?.();
-				await queryClient.cancelQueries({ queryKey: KEY });
-				const unsaved = (await folderClose).map(recoveryFailure);
-				for (const draft of unsaved)
-					log.warn(
-						new Error(
-							`Closed with ${draft.path} unsaved: ${draft.error.message}`,
-						),
-					);
-				queryClient.clear();
-				return unsaved;
-			})().then(completion.resolve, completion.reject);
-			return closing;
-		},
+		close,
 	};
 }
 

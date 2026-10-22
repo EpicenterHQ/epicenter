@@ -28,12 +28,9 @@
 	import { onDestroy, type Snippet } from 'svelte';
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { createLogger } from 'wellcrafted/logger';
 	import { Err, Ok, type Result } from 'wellcrafted/result';
 	import { createFolderContext, type FolderContext } from './folder-context.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
-	import { toastWriteFailure } from './write-failure-toast.js';
-	const log = createLogger('svelte/folder-app');
 
 	let {
 		open,
@@ -49,60 +46,46 @@
 	} = $props();
 
 	let context: FolderContext<TTables> | undefined;
+	let destroyed = false;
 	// svelte-ignore state_referenced_locally
 	async function openContext() {
 		const { data: folder, error } = await open();
 		if (error !== null) return Err(error);
-		context = createFolderContext(folder);
+		const openedContext = createFolderContext(folder);
+		if (destroyed) {
+			openedContext.close();
+			return Ok(openedContext);
+		}
+		context = openedContext;
 		try {
-			await context.guardWindowClose();
+			await openedContext.guardWindowClose();
 		} catch (cause) {
-			await context.close();
+			openedContext.close();
 			throw cause;
 		}
-		return Ok(context);
+		return Ok(openedContext);
 	}
 	let opening = $state(openContext());
 
-	// Teardown starts the folder's close and does not wait for it: what is
-	// typed is sent and admitted work drains, then the folder is released,
-	// for as long as this page's runtime lives. A destroyed window or an
-	// unloading page does not wait for it. A folder still opening is closed
-	// once it opens. Input that did not save is offered for copying after its
-	// editor has gone away.
 	onDestroy(() => {
-		void opening
-			.then(async ({ data: context }) => {
-				if (context === null) return;
-				const unsaved = await context.close();
-				for (const draft of unsaved)
-					toastWriteFailure(draft);
-			})
-			.catch((cause: unknown) =>
-				log.error(new Error('The local folder did not close', { cause })),
-			);
+		destroyed = true;
+		context?.close();
+		void opening.catch(() => {});
 	});
 	function beforeUnload(event: BeforeUnloadEvent) {
 		if (!context || (!context.getStatus().saving && context.getStatus().unsaved.length === 0)) return;
 		event.preventDefault();
 		event.returnValue = '';
 	}
-	function settle() {
-		void opening
-			.then(({ data: context }) => {
-				if (context && !context.getStatus().closing)
-					return context.folder.settle();
-			})
-			.catch((cause: unknown) =>
-				log.error(new Error('The local folder edits did not settle', { cause })),
-			);
+	function flush() {
+		if (context && !context.getStatus().closing) context.folder.flush();
 	}
 </script>
 
-<svelte:window onpagehide={settle} onbeforeunload={beforeUnload} />
+<svelte:window onpagehide={flush} onbeforeunload={beforeUnload} />
 <svelte:document
 	onvisibilitychange={() => {
-		if (document.visibilityState === 'hidden') settle();
+		if (document.visibilityState === 'hidden') flush();
 	}}
 />
 

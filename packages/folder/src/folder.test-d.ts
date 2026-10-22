@@ -94,8 +94,8 @@ expectTypeOf(folder.files.delete('a.md')).toEqualTypeOf<
 folder.files.write('a.md', null, 'x');
 // @ts-expect-error A row set names a change, with no base row.
 folder.tables.notes.set('a', row, { body: 'x' });
-// @ts-expect-error An action reserves no paths.
-folder.run(['a.md'], async () => {});
+// @ts-expect-error Folder tracks submitted writes, not workflows.
+folder.run(async () => {});
 
 // Every entry exports the contract unchanged.
 type ContractKeys = keyof typeof import('./contract.js');

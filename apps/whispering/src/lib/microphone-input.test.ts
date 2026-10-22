@@ -71,6 +71,7 @@ function scriptedMicrophone(
 		meter: [] as (MicrophonePreference | undefined)[],
 		start: [] as CaptureStart[],
 	};
+	let meterStops = 0;
 	const open = { meters: 0, captures: 0 };
 	const changeListeners = new Set<() => void>();
 	/** Whoever hears the open meter's microphone stop on its own. */
@@ -134,6 +135,7 @@ function scriptedMicrophone(
 						return () => meterEndings.delete(listener);
 					},
 					stop() {
+						meterStops += 1;
 						if (!stopped) open.meters -= 1;
 						stopped = true;
 					},
@@ -169,7 +171,16 @@ function scriptedMicrophone(
 			});
 		},
 	};
-	return { device, calls, open, gate, state, changeListeners, meterEndings };
+	return {
+		device,
+		calls,
+		open,
+		gate,
+		state,
+		changeListeners,
+		meterEndings,
+		meterStops: () => meterStops,
+	};
 }
 
 /**
@@ -237,6 +248,7 @@ async function open({
 		input: whispering.input,
 		microphone,
 		device,
+		test,
 		root: test.root,
 	};
 }
@@ -461,6 +473,34 @@ test('choosing another input and closing the session each release a running test
 	await input.refresh();
 	expect(microphone.calls.meter).toHaveLength(2);
 	expect(microphone.calls.allow).toBe(0);
+});
+
+test('dispose still releases product resources once after the context closed first', async () => {
+	const { context, whispering, input, microphone, test } = await open();
+	await input.startTest();
+	expect(microphone.open.meters).toBe(1);
+	expect(
+		context.queryClient
+			.getQueryCache()
+			.getAll()
+			.some((query) => query.getObserversCount() > 0),
+	).toBe(true);
+
+	context.close();
+	expect(test.closes).toBe(1);
+	whispering.dispose();
+	whispering.dispose();
+
+	expect(test.closes).toBe(1);
+	expect(microphone.meterStops()).toBe(1);
+	expect(microphone.open.meters).toBe(0);
+	expect(microphone.changeListeners.size).toBe(0);
+	expect(
+		context.queryClient
+			.getQueryCache()
+			.getAll()
+			.every((query) => query.getObserversCount() === 0),
+	).toBe(true);
 });
 
 test('a recording closed while its microphone is opening releases it when it opens', async () => {

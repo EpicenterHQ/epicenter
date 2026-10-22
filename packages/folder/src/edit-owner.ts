@@ -32,6 +32,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { FolderStatus } from './folder.js';
 import { callObserver } from './observer.js';
 import { ownFields, sameValue } from './shared/content/canonical.js';
 import { type ReadError, SaveError } from './shared/errors.js';
@@ -153,11 +154,10 @@ export type EditorSnapshot<TRowSchema extends TSchema = AnyFieldsSchema> = {
 	readonly saveError: SaveError | undefined;
 };
 
-/** A detached, copyable record of input that did not save. */
-export type Recovery = {
+/** The last applicable failed publication of one path. */
+export type SaveFailure = {
 	readonly path: string;
-	readonly text: string;
-	readonly error: SaveError | undefined;
+	readonly error: SaveError;
 };
 
 /** One path's editor, viewed through one schema. */
@@ -169,7 +169,8 @@ export type FileEdit<TRowSchema extends TSchema = AnyFieldsSchema> = {
 	 * Call `listener` with the current snapshot now and with each new one.
 	 * The first subscription reads the file when nothing is known yet, or
 	 * when it changed while nobody watched. Returns the stop, which cancels
-	 * no accepted work.
+	 * no accepted work. After close, reports the snapshot once without reading
+	 * or registering a listener.
 	 */
 	subscribe(
 		listener: (snapshot: EditorSnapshot<TRowSchema>) => void,
@@ -273,7 +274,7 @@ type Intent = {
 	/**
 	 * The latest admitted command that captured this input and owns it: an
 	 * editor save, a direct write or row set, or a delete. While one owns it,
-	 * no automatic save or close submits it again behind that command. Only
+	 * no automatic save or flush submits it again behind that command. Only
 	 * the owning command's failure gives it back; lanes run in call order, so
 	 * an older command failing never does. `undefined` when no command owns it.
 	 */
@@ -314,8 +315,8 @@ type Source = {
 	textAt: number;
 	intent: Intent | undefined;
 	loadError: LoadError | undefined;
-	saveError: SaveError | undefined;
-	/** Bumped by `discard()`: older publications no longer touch `saveError`. */
+	failure: SaveFailure | undefined;
+	/** Bumped by `discard()`: older publications no longer touch `failure`. */
 	epoch: number;
 	timer: ReturnType<typeof setTimeout> | undefined;
 	/** The tick of the observation or command whose answer is installed. */
@@ -329,13 +330,6 @@ type Source = {
 	stamp: number;
 	readonly subscriptions: Set<Subscription>;
 	readonly views: WeakMap<TSchema, View>;
-};
-
-/** What the owner tells the handle: input held, failures, and whether work runs. */
-export type EditAggregate = {
-	readonly unsaved: readonly string[];
-	readonly failures: readonly Recovery[];
-	readonly savingPaths: readonly string[];
 };
 
 const sameList = <T>(left: readonly T[], right: readonly T[]) =>
@@ -360,17 +354,14 @@ const covers = (hint: string, path: string) =>
 	hint === '' || path === hint || path.startsWith(`${hint}/`);
 
 /**
- * Make the owner over the engine's raw reads and writes. `track` registers
- * admitted work for close; `announce` reports a successful command whose
- * change the engine did not report itself, so readers reread.
+ * Make the owner over the engine's raw reads and writes. Its lanes order
+ * all writes; `announce` reports a successful command whose change the
+ * engine did not report itself, so readers reread.
  */
 export function createEditOwner({
 	read,
 	write,
 	saveAfterMs,
-	onAggregate,
-	track,
-	drainWork,
 	announce,
 }: {
 	readonly read: (
@@ -381,20 +372,24 @@ export function createEditOwner({
 		content: FileContent,
 	) => Promise<Result<void, SaveError>>;
 	readonly saveAfterMs?: number;
-	/** Called after anything `getAggregate` reports, or a command's end, may have changed. */
-	readonly onAggregate: () => void;
-	readonly track: <T>(work: () => Promise<T>) => Promise<T>;
-	readonly drainWork: () => Promise<void>;
 	readonly announce: (path: string) => void;
 }) {
 	const pause = saveDelay(saveAfterMs);
 	const sources = new Map<string, Source>();
 	const lanes = new Map<string, Lane>();
-	/** Paths with an intent, kept for the aggregate. */
+	/** Paths with an intent, kept for passive save status and failure reporting. */
 	const dirty = new Set<string>();
-	let aggregate: EditAggregate = { unsaved: [], failures: [], savingPaths: [] };
-	let phase: 'open' | 'closing' | 'closed' = 'open';
-	const recoveries = new WeakMap<Intent, Recovery>();
+	let storageFailure: FolderStatus['storageFailure'] = null;
+	let status: FolderStatus = {
+		saving: false,
+		savingPaths: [],
+		storageFailure: null,
+		unsaved: [],
+		failures: [],
+		closing: false,
+	};
+	const statusListeners = new Set<(status: FolderStatus) => void>();
+	let closed = false;
 
 	/** The private order of observations and what overtakes them. */
 	let clock = 0;
@@ -498,7 +493,7 @@ export function createEditOwner({
 				textAt: 0,
 				intent: undefined,
 				loadError: undefined,
-				saveError: undefined,
+				failure: undefined,
 				epoch: 0,
 				timer: undefined,
 				knownAt: 0,
@@ -524,49 +519,53 @@ export function createEditOwner({
 		source.textAt > 0 ||
 		source.subscriptions.size > 0;
 
-	function recoveryOf(source: Source): Recovery | undefined {
-		const intent = source.intent;
-		if (intent === undefined) return undefined;
-		const previous = recoveries.get(intent);
-		if (previous !== undefined && previous.error === source.saveError)
-			return previous;
-		const recovery = Object.freeze({
-			path: source.path,
-			text: intent.text,
-			error: source.saveError,
-		});
-		recoveries.set(intent, recovery);
-		return recovery;
+	/** Remember actual storage outcomes; notify after the command acknowledges its input. */
+	async function recorded<T extends Result<unknown, SaveError>>(
+		writing: Promise<T>,
+	): Promise<T> {
+		const result = await writing;
+		if (result.error === null) storageFailure = null;
+		else if (result.error.name === 'StorageFailed')
+			storageFailure = result.error;
+		return result;
 	}
 
-	function heldRecoveries(): Recovery[] {
-		return [...dirty].sort().flatMap((path) => {
-			const recovery = recoveryOf(sources.get(path)!);
-			return recovery === undefined ? [] : [recovery];
-		});
-	}
-
-	function updateAggregate() {
+	function publishStatus() {
 		const unsaved = [...dirty].sort();
 		const failures = unsaved.flatMap((path) => {
 			const source = sources.get(path)!;
 			if (
-				source.saveError === undefined ||
+				source.failure === undefined ||
 				source.intent === undefined ||
 				source.intent.ticket !== undefined
 			)
 				return [];
-			return [recoveryOf(source)!];
+			return [source.failure];
 		});
 		const savingPaths = [...lanes.keys()].sort();
 		if (
-			sameList(unsaved, aggregate.unsaved) &&
-			sameList(failures, aggregate.failures) &&
-			sameList(savingPaths, aggregate.savingPaths)
+			sameList(unsaved, status.unsaved) &&
+			sameList(failures, status.failures) &&
+			sameList(savingPaths, status.savingPaths) &&
+			storageFailure === status.storageFailure &&
+			closed === status.closing
 		)
 			return;
-		aggregate = { unsaved, failures, savingPaths };
-		onAggregate();
+		const next: FolderStatus = {
+			saving: savingPaths.length > 0,
+			savingPaths,
+			storageFailure,
+			unsaved,
+			failures,
+			closing: closed,
+		};
+		status = next;
+		for (const listener of [...statusListeners]) {
+			// A listener may publish a newer status; its dispatch replaces this one.
+			if (status !== next) break;
+			if (statusListeners.has(listener))
+				callObserver('status listener', listener, next);
+		}
 	}
 
 	function snapshotOf(source: Source, view: View): EditorSnapshot<TSchema> {
@@ -584,7 +583,7 @@ export function createEditOwner({
 			loadError: source.loadError,
 			isDirty: source.intent !== undefined,
 			isSaving: (lanes.get(source.path)?.publications ?? 0) > 0,
-			saveError: source.saveError,
+			saveError: source.failure?.error,
 		};
 		if (
 			previous !== undefined &&
@@ -611,7 +610,7 @@ export function createEditOwner({
 			subscription.last = snapshot;
 			callObserver('edit listener', subscription.listener, snapshot);
 		}
-		updateAggregate();
+		publishStatus();
 	}
 
 	function laneOf(path: string): Lane {
@@ -641,9 +640,8 @@ export function createEditOwner({
 
 	/**
 	 * Admit `work` to the lane of `path`, behind every command admitted
-	 * before it. It is tracked for close from this call. `settle` runs in the
-	 * lane, before the next command starts and before the command's promise
-	 * resolves, with the tick the command settled at.
+	 * before it. `settle` runs in the lane, before the next command starts and
+	 * before the command's promise resolves, with the tick the command settled at.
 	 */
 	function enqueue<T extends Result<unknown, SaveError>>(
 		path: string,
@@ -668,25 +666,26 @@ export function createEditOwner({
 			lane.running = undefined;
 			lane.pending--;
 			if (kind === 'publication') lane.publications--;
-			if (lane.pending === 0 && lanes.get(path) === lane) lanes.delete(path);
 			const at = ++clock;
 			// `settle` tells held sources, or running observations, what landed.
-			if (result.error === null && !command.heard) announce(path);
-			settle(result, at);
-			updateAggregate();
-			// The handle's own status, such as its last storage failure, may have changed too.
-			onAggregate();
+			try {
+				if (result.error === null && !command.heard) announce(path);
+				settle(result, at);
+			} finally {
+				// Keep the lane through settlement so observers see the command order.
+				if (lane.pending === 0 && lanes.get(path) === lane) lanes.delete(path);
+				publishStatus();
+			}
 			return result;
 		})();
 		lane.tail = running.then(
 			() => {},
 			() => {},
 		);
-		const tracked = track(() => running);
 		const source = sources.get(path);
 		if (source !== undefined) touch(source);
-		else updateAggregate();
-		return tracked;
+		else publishStatus();
+		return running;
 	}
 
 	/** Whether an observation started at `at` may install into `source`. */
@@ -707,8 +706,7 @@ export function createEditOwner({
 	function invalidate(source: Source) {
 		source.changedAt = ++clock;
 		if (source.reading !== undefined) return;
-		if (source.subscriptions.size > 0 && phase !== 'closed')
-			void startRead(source);
+		if (source.subscriptions.size > 0 && !closed) void startRead(source);
 	}
 
 	/** Install what an observation started at `at` found, as what is stored. */
@@ -762,7 +760,7 @@ export function createEditOwner({
 		const reading = (async () => {
 			for (;;) {
 				await idle(source.path);
-				if (current(source)) break;
+				if (closed || current(source)) break;
 				const at = beginObservation();
 				try {
 					const observation = await observe(source.path);
@@ -809,7 +807,7 @@ export function createEditOwner({
 			clearTimer(source);
 		}
 		if (observation !== undefined) install(source, observation, at);
-		if (source.epoch === epoch) source.saveError = undefined;
+		if (source.epoch === epoch) source.failure = undefined;
 		invalidate(source);
 		touch(source);
 	}
@@ -858,13 +856,16 @@ export function createEditOwner({
 		return enqueue(
 			source.path,
 			'publication',
-			() => write(source.path, text),
+			() => recorded(write(source.path, text)),
 			(result, at) => {
 				if (result.error === null)
 					landedAt(source.path, text, intent, epoch, at);
 				else {
 					if (source.epoch === epoch)
-						source.saveError = Object.freeze(result.error);
+						source.failure = Object.freeze({
+							path: source.path,
+							error: Object.freeze(result.error),
+						});
 					disown(source, intent, ticket);
 					touch(source);
 				}
@@ -875,12 +876,7 @@ export function createEditOwner({
 	/** Submit the current input, unless an admitted command already owns it. */
 	function autosave(source: Source) {
 		const intent = source.intent;
-		if (
-			intent === undefined ||
-			intent.ticket !== undefined ||
-			phase === 'closed'
-		)
-			return;
+		if (intent === undefined || intent.ticket !== undefined || closed) return;
 		void publish(source, intent.text, intent);
 	}
 
@@ -894,7 +890,7 @@ export function createEditOwner({
 
 	/** Accept `text` as the latest local input. */
 	function accept(source: Source, text: string): ChangeResult {
-		if (phase !== 'open') return ChangeError.Closing();
+		if (closed) return ChangeError.Closing();
 		if (typeof text !== 'string')
 			return ChangeError.InvalidText({ reason: 'it is not a string' });
 		const problem = textProblem(text);
@@ -912,7 +908,7 @@ export function createEditOwner({
 		source: Source,
 		change: DocumentChange<TSchema>,
 	): ChangeResult {
-		if (phase !== 'open') return ChangeError.Closing();
+		if (closed) return ChangeError.Closing();
 		const owned = ownFields(change.fields ?? {});
 		if (owned.error !== null)
 			return ChangeError.InvalidFields({ reason: owned.error.reason });
@@ -940,14 +936,14 @@ export function createEditOwner({
 	function save(
 		source: Source,
 	): Promise<Result<void, SaveError | SaveRefusal>> {
-		if (phase === 'closed') return Promise.resolve(SaveRefusal.Closed());
+		if (closed) return Promise.resolve(SaveRefusal.Closed());
 		const text = textOf(source);
 		if (text === undefined) return Promise.resolve(SaveRefusal.NoContent());
 		return publish(source, text, source.intent);
 	}
 
 	function refresh(source: Source): Promise<Result<void, LoadError>> {
-		if (phase === 'closed')
+		if (closed)
 			return Promise.resolve(
 				LoadError.ReadFailed({
 					path: source.path,
@@ -965,10 +961,9 @@ export function createEditOwner({
 		const dropped = source.intent?.text;
 		// Every older publication's feedback is superseded, dirty or not.
 		source.epoch++;
-		if (dropped === undefined && source.saveError === undefined)
-			return undefined;
+		if (dropped === undefined && source.failure === undefined) return undefined;
 		source.intent = undefined;
-		source.saveError = undefined;
+		source.failure = undefined;
 		invalidate(source);
 		touch(source);
 		return dropped;
@@ -979,6 +974,10 @@ export function createEditOwner({
 		view: View,
 		listener: (snapshot: EditorSnapshot<TSchema>) => void,
 	) {
+		if (closed) {
+			callObserver('edit listener', listener, snapshotOf(source, view));
+			return () => {};
+		}
 		const subscription: Subscription = {
 			view,
 			listener,
@@ -989,7 +988,7 @@ export function createEditOwner({
 		if (
 			!current(source) &&
 			source.reading === undefined &&
-			phase !== 'closed' &&
+			!closed &&
 			source.subscriptions.has(subscription)
 		)
 			void startRead(source);
@@ -1030,16 +1029,16 @@ export function createEditOwner({
 	}
 
 	/**
-	 * Submit every input no admitted command owns, failed ones included.
-	 * Input an admitted command owns is that command's to publish.
+	 * Submit held input no admitted command owns, failed input included, now
+	 * without waiting. Input an admitted command owns is that command's to publish.
 	 */
-	function submitHeld() {
-		return [...dirty].flatMap((path) => {
+	function flush(): void {
+		for (const path of [...dirty]) {
 			const source = sources.get(path)!;
 			const intent = source.intent;
-			if (intent === undefined || intent.ticket !== undefined) return [];
-			return [publish(source, intent.text, intent)];
-		});
+			if (intent === undefined || intent.ticket !== undefined) continue;
+			void publish(source, intent.text, intent);
+		}
 	}
 
 	/**
@@ -1087,7 +1086,7 @@ export function createEditOwner({
 		 * Never publishes input.
 		 */
 		async refreshKnown(paths?: readonly string[]): Promise<void> {
-			if (phase === 'closed') return;
+			if (closed) return;
 			const scope = paths?.map(normalizeHint);
 			const reads: Promise<Result<void, LoadError>>[] = [];
 			for (const source of sources.values()) {
@@ -1189,7 +1188,7 @@ export function createEditOwner({
 						if (result.error !== null) return result;
 						text = result.data;
 					}
-					const written = await write(path, text);
+					const written = await recorded(write(path, text));
 					return written.error === null ? Ok(text) : written;
 				},
 				(result, at) => {
@@ -1219,7 +1218,7 @@ export function createEditOwner({
 			return enqueue(
 				path,
 				'publication',
-				() => write(path, content),
+				() => recorded(write(path, content)),
 				(result, at) => {
 					// A source acquired while it ran learns it too.
 					if (result.error === null)
@@ -1243,13 +1242,18 @@ export function createEditOwner({
 			const intent = source?.intent;
 			const epoch = source?.epoch ?? 0;
 			const ticket = own(source, intent, 'command');
-			return enqueue(path, 'delete', work, (result, at) => {
-				if (result.error === null) landedAt(path, null, intent, epoch, at);
-				else {
-					disown(source, intent, ticket);
-					if (source !== undefined) touch(source);
-				}
-			});
+			return enqueue(
+				path,
+				'delete',
+				() => recorded(work()),
+				(result, at) => {
+					if (result.error === null) landedAt(path, null, intent, epoch, at);
+					else {
+						disown(source, intent, ticket);
+						if (source !== undefined) touch(source);
+					}
+				},
+			);
 		},
 		/**
 		 * The engine reported `paths` changed, `null` for any: files, or
@@ -1282,26 +1286,28 @@ export function createEditOwner({
 				return false;
 			});
 		},
-		/** Submit held input, failed input included, then drain admitted work. */
-		async settle(): Promise<Recovery[]> {
-			await Promise.allSettled(submitHeld());
-			await drainWork();
-			return heldRecoveries();
+		flush,
+		/** Refuse new work and release listeners synchronously, without submitting input. */
+		close(): void {
+			if (closed) return;
+			closed = true;
+			for (const source of sources.values()) {
+				clearTimer(source);
+				source.subscriptions.clear();
+			}
+			publishStatus();
+			statusListeners.clear();
 		},
-		/** Close begins: refuse new input and submit what is held once. */
-		async close(): Promise<void> {
-			phase = 'closing';
-			onAggregate();
-			await Promise.allSettled(submitHeld());
+		/** Passive, cached save status; acquiring or observing it reads no file content. */
+		getStatus(): FolderStatus {
+			return status;
 		},
-		/** Nothing is left to wait for: from now on nothing starts. Answers input still held. */
-		release(): Recovery[] {
-			phase = 'closed';
-			for (const source of sources.values()) clearTimer(source);
-			return heldRecoveries();
-		},
-		getAggregate(): EditAggregate {
-			return aggregate;
+		onStatusChange(listener: (status: FolderStatus) => void): () => void {
+			if (closed) throw new Error('The folder is closed');
+			statusListeners.add(listener);
+			return () => {
+				statusListeners.delete(listener);
+			};
 		},
 	};
 }

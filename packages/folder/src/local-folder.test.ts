@@ -79,7 +79,7 @@ test('a fresh profile opens empty without an app, account, remote, or network', 
 	expect(expectOk(await folder.tables.notes.list())).toEqual([]);
 	expect(expectOk(await folder.tables.notes.get('missing'))).toBeUndefined();
 	expect(folder.getStatus()).toEqual(idle);
-	await folder.close();
+	folder.close();
 });
 
 test('old OPFS access cannot block the current IndexedDB folder', async () => {
@@ -97,12 +97,12 @@ test('old OPFS access cannot block the current IndexedDB folder', async () => {
 	try {
 		const first = await open();
 		expectOk(await first.files.write('readme.md', 'saved'));
-		await first.close();
+		first.close();
 		const second = await open();
 		expect(
 			await expectOk(await second.files.read('readme.md'))?.content.text(),
 		).toBe('saved');
-		await second.close();
+		second.close();
 		expect(opened).toBe(0);
 	} finally {
 		if (storage === undefined) Reflect.deleteProperty(navigator, 'storage');
@@ -121,7 +121,7 @@ test('files and rows saved before close are there after reopening', async () => 
 	);
 	expect(stored.fields).toEqual({ title: 'Milk' });
 	expectOk(await first.files.write('notes/a/photo.txt', 'x'));
-	await first.close();
+	first.close();
 
 	const second = await open();
 	const readme = expectOk(await second.files.read('readme.md'));
@@ -150,7 +150,7 @@ test('files and rows saved before close are there after reopening', async () => 
 		'notes/a/photo.txt',
 		'readme.md',
 	]);
-	await second.close();
+	second.close();
 });
 
 test('binary files persist exact bytes and a competing binary save keeps its whole change', async () => {
@@ -170,14 +170,14 @@ test('binary files persist exact bytes and a competing binary save keeps its who
 	expectOk(
 		await second.files.write('audio/clip.bin', new Uint8Array([0, 3, 255])),
 	);
-	await first.close();
-	await second.close();
+	first.close();
+	second.close();
 	const reopened = await open();
 	const stored = expectOk(await reopened.files.read('audio/clip.bin'))!;
 	expect(new Uint8Array(await stored.content.arrayBuffer())).toEqual(
 		new Uint8Array([0, 3, 255]),
 	);
-	await reopened.close();
+	reopened.close();
 });
 
 test('a schema that does not fit never refuses a save or discards unknown fields', async () => {
@@ -200,14 +200,14 @@ test('a schema that does not fit never refuses a save or discards unknown fields
 		extra: 'kept',
 		done: 'maybe',
 	});
-	await first.close();
+	first.close();
 
 	const second = await open();
 	const again = expectOk(await second.tables.notes.get('a'))!;
 	expect(again.text).toBe(sent.text);
 	expect(again.fields).toEqual(sent.fields);
 	expect(again.issues?.length).toBeGreaterThan(0);
-	await second.close();
+	second.close();
 });
 
 test('source with malformed frontmatter stays exact, readable as a file, and repairable', async () => {
@@ -223,7 +223,7 @@ test('source with malformed frontmatter stays exact, readable as a file, and rep
 	});
 	expect(expectErr(refused).name).toBe('Unparseable');
 	expectOk(await first.tables.notes.set('b', { body: 'New body' }));
-	await first.close();
+	first.close();
 
 	const second = await open();
 	const file = expectOk(await second.files.read('notes/b.md'));
@@ -233,7 +233,7 @@ test('source with malformed frontmatter stays exact, readable as a file, and rep
 	const fixed = expectOk(await second.tables.notes.get('b'))!;
 	expect(fixed.issues).toBeNull();
 	expect(fixed.fields).toEqual({ title: 'Fixed' });
-	await second.close();
+	second.close();
 });
 
 test('a row set applies its fields to what another writer stored', async () => {
@@ -255,8 +255,8 @@ test('a row set applies its fields to what another writer stored', async () => {
 			'before',
 		);
 	} finally {
-		await first.close();
-		await second.close();
+		first.close();
+		second.close();
 	}
 });
 
@@ -277,8 +277,8 @@ test('another handle of the origin hears a committed save, and the saver hears i
 	expect(expectOk(await b.tables.notes.get('c'))?.fields).toEqual({
 		title: 'One',
 	});
-	await a.close();
-	await b.close();
+	a.close();
+	b.close();
 });
 
 test('stopping a listener and closing the handle end its notifications', async () => {
@@ -293,11 +293,11 @@ test('stopping a listener and closing the handle end its notifications', async (
 	await settle();
 	expect(stopped).toBe(0);
 	expect(released).toBe(1);
-	await b.close();
+	b.close();
 	expectOk(await a.files.write('two.md', 'y'));
 	await settle();
 	expect(released).toBe(1);
-	await a.close();
+	a.close();
 });
 
 test('a failed save returns the reason, leaves storage unchanged, and shows in status', async () => {
@@ -345,12 +345,12 @@ test('a failed save returns the reason, leaves storage unchanged, and shows in s
 		[true, null],
 		[false, null],
 	]);
-	await folder.close();
+	folder.close();
 
 	const reopened = await open();
 	const text = expectOk(await reopened.files.read('keep.md'));
 	expect(await text?.content.text()).toBe('third');
-	await reopened.close();
+	reopened.close();
 });
 
 test('status is saving while a save is in progress and saved only after it commits', async () => {
@@ -359,10 +359,10 @@ test('status is saving while a save is in progress and saved only after it commi
 	expect(folder.getStatus().saving).toBe(true);
 	expectOk(await pending);
 	expect(folder.getStatus()).toEqual(idle);
-	await folder.close();
+	folder.close();
 });
 
-test('close lets a started save finish, refuses listeners at once, then releases storage and listeners', async () => {
+test('close releases listeners immediately and preserves a started save outcome', async () => {
 	const folder = await open();
 	const other = await open();
 	let status = 0;
@@ -372,42 +372,42 @@ test('close lets a started save finish, refuses listeners at once, then releases
 
 	const started = folder.files.write('late.md', 'kept');
 	const closing = folder.close();
-	expect(closing).toBe(folder.close());
+	expect(closing).toBeUndefined();
+	expect(folder.close()).toBeUndefined();
 	expect(() => folder.onChange(() => {})).toThrow('closed');
 	expect(() => folder.onStatusChange(() => {})).toThrow('closed');
-	expectOk(await started);
-	await closing;
-	// Storage stays usable while close drains, and refuses once released.
+	expect(expectErr(await started).name).toBe('StorageFailed');
+	// New storage calls refuse from the moment close starts.
 	expect(() => folder.files.list()).toThrow('closed');
-	expect(() => folder.tables.notes.get('a')).toThrow('closed');
+	await expect(folder.tables.notes.get('a')).rejects.toThrow('closed');
 
 	const statusAfterClose = status;
 	expectOk(await other.files.write('after.md', 'x'));
 	await settle();
 	expect(status).toBe(statusAfterClose);
-	expect(changes).toBe(1);
-	await other.close();
+	expect(changes).toBe(0);
+	other.close();
 
 	const reopened = await open();
-	expect(expectOk(await reopened.files.list())).toEqual([
-		'after.md',
-		'late.md',
-	]);
-	await reopened.close();
+	expect(expectOk(await reopened.files.list())).toEqual(['after.md']);
+	reopened.close();
 });
 
-test('closing from a saving observer waits for the save it observed', async () => {
+test('closing from a saving observer releases the handle immediately', async () => {
 	const folder = await open();
-	let closing: Promise<unknown> | undefined;
+	let closed = false;
 	folder.onStatusChange((status) => {
-		if (status.saving) closing = folder.close();
+		if (status.saving) {
+			folder.close();
+			closed = true;
+		}
 	});
-	expectOk(await folder.files.write('observed.md', 'kept'));
-	await closing;
+	expect(expectErr(await folder.files.write('observed.md', 'kept')).name).toBe('StorageFailed');
+	expect(closed).toBe(true);
 	const reopened = await open();
 	const file = expectOk(await reopened.files.read('observed.md'));
-	expect(await file?.content.text()).toBe('kept');
-	await reopened.close();
+	expect(file).toBeUndefined();
+	reopened.close();
 });
 
 test('a table that cannot be one directory, or missing IndexedDB, refuses to open', async () => {
@@ -441,7 +441,7 @@ test('browser writes refuse the same nonportable paths and row IDs as a director
 			expectErr(await folder.tables.notes.set(id, { body: 'x' })).name,
 		).toBe('InvalidId');
 	expect(expectOk(await folder.files.list())).toEqual([]);
-	await folder.close();
+	folder.close();
 });
 
 test('earlier nonportable browser paths remain readable for repair', async () => {
@@ -491,7 +491,7 @@ test('earlier nonportable browser paths remain readable for repair', async () =>
 	expect(
 		expectErr(await folder.files.write('notes/a: b.md', 'again')).name,
 	).toBe('InvalidPath');
-	await folder.close();
+	folder.close();
 	earlier.close();
 });
 
@@ -521,19 +521,19 @@ test('an existing HEAD stays readable but cannot be changed into Git state', asy
 	expect(await expectOk(await folder.files.read('HEAD'))?.content.text()).toBe(
 		'notes\n',
 	);
-	await folder.close();
+	folder.close();
 	earlier.close();
 });
 
 test('the automatic opener opens the browser default and refuses a directory in a browser', async () => {
 	const folder = expectOk(await openAutomaticFolder({ tables: { notes } }));
 	expectOk(await folder.tables.notes.set('d', { fields: { title: 'Auto' } }));
-	await folder.close();
+	folder.close();
 	const browser = await open();
 	expect(expectOk(await browser.tables.notes.get('d'))?.fields).toEqual({
 		title: 'Auto',
 	});
-	await browser.close();
+	browser.close();
 
 	expect(
 		expectErr(

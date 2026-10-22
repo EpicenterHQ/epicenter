@@ -7,7 +7,6 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import { CopyButton } from '@epicenter/ui/copy-button';
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { type Entry, type FocusItem, rowPath, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { type Entries, type EntryRows, repairsOf, wordsOf } from '$lib/entries.svelte.js';
@@ -140,15 +139,18 @@
 				{#each orphaned as draft (draft.path)}
 					{@const held = entries.edit(draft.path.slice('entries/'.length, -'.md'.length))}
 					{@const saving = held.isSaving}
-					<div class="space-y-1" role="alert">
-						<p>A change to <code>{draft.path}</code> was not saved, and the file is no longer a word here.{draft.error ? ` ${describeFailure(draft.error)}` : ''}</p>
-						<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{unsavedText(draft)}</pre>
-						<div class="flex gap-1">
-							<Button size="xs" variant="outline" disabled={saving} onclick={() => void held.save()}>Save again</Button>
-							<CopyButton size="xs" variant="ghost" text={unsavedText(draft)}>Copy</CopyButton>
-							<Button size="xs" variant="ghost-destructive" disabled={saving} onclick={() => held.discard()}>Discard</Button>
+					{@const content = held.content}
+					{#if content}
+						<div class="space-y-1" role="alert">
+							<p>A change to <code>{draft.path}</code> was not saved, and the file is no longer a word here. {describeFailure(draft.error)}</p>
+							<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{content.text}</pre>
+							<div class="flex gap-1">
+								<Button size="xs" variant="outline" disabled={saving} onclick={() => void held.save()}>Save again</Button>
+								<CopyButton size="xs" variant="ghost" text={content.text}>Copy</CopyButton>
+								<Button size="xs" variant="ghost-destructive" disabled={saving} onclick={() => held.discard()}>Discard</Button>
+							</div>
 						</div>
-					</div>
+					{/if}
 				{/each}
 			</section>
 		{/if}

@@ -283,3 +283,110 @@ test('a valid unsaved repair opens its structured controls even when saving fail
 		target.remove();
 	}
 });
+
+test('an orphan failure card follows current editor text for Copy and Discard', async () => {
+	await using browser = createBrowser();
+	const folder = await browser.open({ saveAfterMs: 60_000 });
+	await using opened = await openVocab(folder);
+	expectOk(await opened.vocab.entries.add('lucid'));
+	const id = cached(opened.vocab, 'lucid').id;
+	const edit = folder.tables.entries.edit(id);
+	const target = document.createElement('div');
+	document.body.append(target);
+	const { default: WordsViewHost } = await import(
+		'./fixtures/WordsViewHost.svelte'
+	);
+	const view = mount(WordsViewHost, {
+		target,
+		props: { client: opened.vocab.queryClient, entries: opened.vocab.entries },
+	});
+	const put = IDBObjectStore.prototype.put;
+	const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+	const copied: string[] = [];
+	try {
+		IDBObjectStore.prototype.put = () => {
+			throw new DOMException('storage refused', 'QuotaExceededError');
+		};
+		expectOk(edit.replaceText('\uFEFForphan A\r\n'));
+		expect((await edit.save()).error).not.toBeNull();
+		await until(
+			() => target.querySelector('[aria-label="Unsaved change"]') !== null,
+			'the orphan failure card',
+		);
+
+		expectOk(edit.replaceText('\uFEFForphan newest\r\n'));
+		flushSync();
+		expect(
+			target.querySelector('[aria-label="Unsaved change"]')?.textContent,
+		).toBe('\uFEFForphan newest\r\n');
+		Object.defineProperty(navigator, 'clipboard', {
+			configurable: true,
+			value: { writeText: async (text: string) => void copied.push(text) },
+		});
+		target.querySelector<HTMLButtonElement>('button[name="copy"]')?.click();
+		await until(() => copied.length === 1, 'the current orphan text to copy');
+		expect(copied).toEqual(['\uFEFForphan newest\r\n']);
+
+		click(target, 'Discard');
+		await until(
+			() => target.querySelector('[aria-label="Unsaved change"]') === null,
+			'the orphan failure card to leave',
+		);
+		expect(edit.getSnapshot().isDirty).toBe(false);
+	} finally {
+		IDBObjectStore.prototype.put = put;
+		if (clipboard === undefined)
+			Reflect.deleteProperty(navigator, 'clipboard');
+		else Object.defineProperty(navigator, 'clipboard', clipboard);
+		await unmount(view);
+		target.remove();
+	}
+});
+
+test('Save again publishes the current orphan text and clears its failure card', async () => {
+	await using browser = createBrowser();
+	const folder = await browser.open({ saveAfterMs: 60_000 });
+	await using opened = await openVocab(folder);
+	expectOk(await opened.vocab.entries.add('lucid'));
+	const edit = folder.tables.entries.edit(cached(opened.vocab, 'lucid').id);
+	const target = document.createElement('div');
+	document.body.append(target);
+	const { default: WordsViewHost } = await import(
+		'./fixtures/WordsViewHost.svelte'
+	);
+	const view = mount(WordsViewHost, {
+		target,
+		props: { client: opened.vocab.queryClient, entries: opened.vocab.entries },
+	});
+	const put = IDBObjectStore.prototype.put;
+	try {
+		IDBObjectStore.prototype.put = () => {
+			throw new DOMException('storage refused', 'QuotaExceededError');
+		};
+		expectOk(edit.replaceText('orphan failed\n'));
+		expect((await edit.save()).error).not.toBeNull();
+		await until(
+			() => target.querySelector('[aria-label="Unsaved change"]') !== null,
+			'the orphan failure card',
+		);
+		expectOk(edit.replaceText('orphan saved\n'));
+		IDBObjectStore.prototype.put = put;
+		click(target, 'Save again');
+		await until(
+			() => target.querySelector('[aria-label="Unsaved change"]') === null,
+			'the saved orphan failure card to leave',
+		);
+		await until(
+			() => !edit.getSnapshot().isSaving && !edit.getSnapshot().isDirty,
+			'the current orphan text to save',
+		);
+		expect(edit.getSnapshot()).toMatchObject({
+			isDirty: false,
+			content: { text: 'orphan saved\n' },
+		});
+	} finally {
+		IDBObjectStore.prototype.put = put;
+		await unmount(view);
+		target.remove();
+	}
+});

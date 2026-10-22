@@ -18,7 +18,7 @@
  * - A file that is not a valid word is named for repair, written as typed
  *   text, and reads as a word once repaired
  * - Delete consumes captured unsubmitted input; newer local input survives
- * - Close saves typing still waiting for its pause, and refuses new input
+ * - Close leaves typing still waiting for its pause unsaved, and refuses new input
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
@@ -309,13 +309,24 @@ test('a save that fails keeps the typing and its error, and saving again writes 
 	await edit.save();
 	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
 	expect(edit.getSnapshot().content?.fields?.note).toBe('clear');
-	expect(vocab.entries.failures).toMatchObject([
-		{
-			path: context.path,
-			text: edit.getSnapshot().content?.text,
-			error: { name: 'StorageFailed' },
-		},
-	]);
+	const acquire = folder.tables.entries.edit;
+	let acquisitions = 0;
+	folder.tables.entries.edit = (id) => {
+		acquisitions++;
+		return acquire(id);
+	};
+	try {
+		expect(vocab.entries.failures).toMatchObject([
+			{
+				path: context.path,
+				error: { name: 'StorageFailed' },
+			},
+		]);
+		expect(acquisitions).toBe(0);
+	} finally {
+		folder.tables.entries.edit = acquire;
+	}
+	expect(edit.getSnapshot().content?.text).toContain('note: "clear"');
 	expect(context.word().note).toBe('');
 
 	saves.failing = false;
@@ -473,7 +484,7 @@ test('local publication recreates a word deleted elsewhere', async () => {
 	).toMatchObject({ text: 'lucid', note: 'clear' });
 });
 
-test('close saves typing still waiting for its pause, and refuses input from then on', async () => {
+test('close leaves typing unsaved and refuses input from then on', async () => {
 	const browser = createBrowser();
 	const folder = await browser.open({ saveAfterMs: 60_000 });
 	const opened = await openVocab(folder);
@@ -482,7 +493,7 @@ test('close saves typing still waiting for its pause, and refuses input from the
 	const word = cached(vocab, 'lucid');
 	vocab.entries.setNote(word, 'clear');
 
-	expect(await context.close()).toEqual([]);
+	expect(context.close()).toBeUndefined();
 	expect(expectErr(vocab.entries.setNote(word, 'more')).name).toBe('Closing');
 	expect(expectErr(await vocab.entries.add('opaque')).name).toBe('Closing');
 	expect(
@@ -492,13 +503,13 @@ test('close saves typing still waiting for its pause, and refuses input from the
 
 	const reopened = await browser.open();
 	expect((await savedWords(reopened)).map((entry) => entry.note)).toEqual([
-		'clear',
+		'',
 	]);
 	await opened[Symbol.asyncDispose]();
 	await browser[Symbol.asyncDispose]();
 });
 
-test('close sends a whole-file repair draft before releasing the folder', async () => {
+test('close does not submit a held whole-file repair', async () => {
 	const browser = createBrowser();
 	const folder = await browser.open({ saveAfterMs: 60_000 });
 	const source = '---\ntext: [\n---\n';
@@ -507,12 +518,10 @@ test('close sends a whole-file repair draft before releasing the folder', async 
 	const repair = opened.vocab.entries.repair;
 	expect(repair.start('broken')).toBe(true);
 	expectOk(repair.view()!.replaceText('---\ntext: repaired\n---\n'));
-	await opened.context.close();
+	opened.context.close();
 	const reopened = await browser.open();
-	expect(await fileText(reopened, 'entries/broken.md')).toContain(
-		'text: repaired',
-	);
-	await reopened.close();
+	expect(await fileText(reopened, 'entries/broken.md')).toBe(source);
+	reopened.close();
 	await opened[Symbol.asyncDispose]();
 	await browser[Symbol.asyncDispose]();
 });
@@ -529,18 +538,4 @@ test('a word is one plain Markdown file named by its text under entries/', async
 	expect(await fileText(folder, `entries/${idOf('lucid')}.md`)).toMatch(
 		/^---\n[\s\S]*text: lucid\n[\s\S]*---\n$/,
 	);
-});
-
-test('an add admitted before close finishes hashing and saves through the folder while close waits', async () => {
-	await using browser = createBrowser();
-	const folder = await browser.open();
-	await using opened = await openVocab(folder);
-	const adding = opened.vocab.entries.add('admitted before hashing');
-	const closing = opened.context.close();
-	expectOk(await adding);
-	await closing;
-	const reopened = await browser.open();
-	expect((await savedWords(reopened)).map((entry) => entry.text)).toEqual([
-		'admitted before hashing',
-	]);
 });

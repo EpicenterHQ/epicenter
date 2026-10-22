@@ -119,9 +119,11 @@ What Whispering adds on top:
   every app from its one origin, so it lasts between launches.
 
 Every file action, including settings saves, file creation, rename, and
-deletion, checks the app's closing state before starting. Folder close submits
-held input and drains submitted writes; it does not keep a multi-step action
-alive across later reads or writes. Product teardown itself waits for nothing.
+deletion, checks `context.closing` before starting. Late provider, recording,
+and read answers check the same state before changing product state or saving.
+Folder close releases
+synchronously without submitting held input or waiting for writes; it does not
+keep a multi-step action alive across later reads or writes. Product teardown itself waits for nothing.
 A request to
 an endpoint is not waited for: its result row is in the folder before it goes
 out (ADR-0542), and an answer that has not arrived when the app quits is lost.
@@ -291,6 +293,11 @@ with `createWhispering(context)`, and provides `getWhispering()`
 and `getFolder()` to descendants. Pages build no product state and open no folder.
 There is no module-level mutable state.
 
+Unmount closes an existing context synchronously. If opening finishes after
+unmount, FolderApp closes that context without registering a native guard. A
+native guard closes the same context after destruction is dispatched
+successfully; Cancel or a failed destroy leaves it open and editable.
+
 Product construction is synchronous and reads nothing. Its `start()` first
 calls `maintainExclusions` (`src/lib/exclusions.ts`), before any product read.
 It reads the root `.gitignore` and inserts the four Markdown-only defaults before
@@ -308,11 +315,12 @@ the folder and device settings. A thrown startup error disposes Whispering and
 shows its original message under "Whispering could not start". Disposal
 starts the folder context’s close immediately.
 
-On destruction, WhisperingApp calls `whispering.dispose()`, which returns at once:
-it refuses new work and late answers, releases a microphone test, and stops
-observers and listeners. It finishes no recording and waits for no write; a
-recording under way ends with the page (ADR-0663). It starts the context’s
-close synchronously and logs an unexpected close failure without awaiting it.
+On destruction, WhisperingApp calls `whispering.dispose()`, which returns at once.
+Admission and late answers already follow `context.closing`; disposal separately
+owns cleanup idempotence. It closes the context, releases a microphone test,
+and stops observers and listeners even when the native guard closed the context
+first. It finishes no recording and waits for no write; a recording under way
+ends with the page (ADR-0663).
 
 Settings keep one replace-only draft of explicit input, separate from saved
 connection values. Untouched fields follow saved values and defaults; a
@@ -568,12 +576,16 @@ the Svelte edits expose tracked properties over its read methods. A read never r
   activates initial reading. `createFileEdit(handle)` exposes tracked getters
   over this same snapshot. Function bindings call `change` or `replaceText`.
   Switching views requires no save or reread. Autosave continues after unmount.
-- **A failed save** keeps its accepted input and error. The status offers
+- **A failed save** keeps its accepted input and error. Aggregate status carries
+  immutable `{ path, error }` metadata only. Whispering acquires that path's
+  editor once for the notice, and Copy samples its current dirty text at the
+  click; after success or discard there is nothing to copy. The status offers
   **Try again** and **Discard**. New typing may autosave; only a successful
   publication or explicit discard clears the save failure. A run captures held input
   without publishing it. Discard drops unsubmitted intent and returns
   its source to copy; it does not cancel admitted publications or restore an
-  earlier storage version. Shared failure toasts carry the recoverable source.
+  earlier storage version. Shared failure toasts read the live editor rather
+  than storing another copy of its source.
 - **Acquired source** remains available after clean deletion, binary replacement,
   failed refresh, and unmount. A retained source stays editable and new input
   can recreate a deleted file. Storage observations never initiate a write.
@@ -588,28 +600,33 @@ the Svelte edits expose tracked properties over its read methods. A read never r
   which the audio's "settling" state reads. Waiting on an endpoint is not
   tracked, so a request that does not answer never keeps the app from
   closing. An answer's write, each retry, and a Stop's length write check the app's
-  closing state before saving. Folder drains submitted writes, without tracking
-  the surrounding workflows.
+  closing state before saving. Folder releases synchronously without waiting
+  for writes or the surrounding workflows.
 
 Whispering retains view selection, connection forms, pasted text, capture
 state, and answers whose files are not written. Folder retains accepted
 file edits. Rename copies held source or current bytes to the new name, then
 deletes the source. If current held text differs from the copied source, the
-source stays and the app reports both paths. Identical text is already preserved
-at the destination. Otherwise the selection follows the new name. Recording and transformation files keep their names. When
-Whispering is disposed, it refuses new app work and late answers and starts
-`context.close()` synchronously. Editor handles refuse new input. Disposal
-returns immediately. The folder submits held input and drains submitted writes
-before releasing storage; it does not wait for provider replies or the later
-steps of app workflows. Confirmed native departure can destroy the runtime
-before that cleanup finishes.
+source stays and the app reports both paths. Closing after the copy also keeps
+the source, because no new deletion starts once close begins. Identical text is
+already preserved at the destination. Otherwise the selection follows the new
+name. Recording and transformation files keep their names. When
+`context.closing` becomes true, Whispering refuses new app work and late
+answers. Disposal starts `context.close()` synchronously if needed and still
+performs product cleanup when the context was closed first. Editor handles
+refuse new input. Disposal
+returns immediately. The folder releases storage and listeners synchronously,
+without submitting held input or waiting for admitted writes. Page hide calls
+best-effort `flush()`. Confirmed departure accepts losing unfinished work;
+callers needing durable bytes await the write or save they started.
 
 ## Closing
 
 Closing a desktop window prompts only while its Folder is saving or holds
 unsaved input. A recording alone closes silently; Rust still finalizes and
 keeps its audio. Cancel keeps the window, its input, and its recording; Close
-Anyway destroys the window without waiting for page workflows. Epicenter
+Anyway dispatches destruction without waiting for page workflows, then closes
+the page context so no work is admitted while destruction completes. Epicenter
 always confirms application Quit and mentions active capture from its native
 recorder, without querying pages
 ([ADR-0663](../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md)).

@@ -283,7 +283,7 @@ export function createRuns({
 				target.stem,
 			);
 			if (error !== null) return describeError(error);
-			if (stored === undefined) return undefined;
+			if (stored === undefined || refused() !== undefined) return undefined;
 			const { error: writeError } = await folder.tables[target.table].set(
 				target.stem,
 				{
@@ -297,12 +297,9 @@ export function createRuns({
 	}
 
 	/**
-	 * Write a received answer into its row. Each attempt, the first and every
-	 * retry, is admitted by the folder before it reads or writes anything: an
-	 * attempt admitted before close finishes, and one asked for once the
-	 * folder is closing starts nothing and is not tried again, however long
-	 * that close still waits for other work. A failed write is tried again
-	 * later, in the background, until it lands or this window closes.
+	 * Write a received answer into its row. Each attempt checks the app's closing
+	 * state before reading or saving. A failed write is retried in the background
+	 * until it lands or this window closes.
 	 */
 	async function write(target: Target, text: string, attempt: number) {
 		const path = pathOf(target);
@@ -313,19 +310,8 @@ export function createRuns({
 			text,
 			message: before?.kind === 'writing' ? before.message : undefined,
 		});
-		const admitted = await writeOf(target, () =>
-			folder.run(() => fill(target, resultBody(text))),
-		);
-		if (admitted.error !== null) {
-			// Refused only because the folder is closing; the answer is not written.
-			setLive(target, {
-				kind: 'writing',
-				text,
-				message: admitted.error.message,
-			});
-			return;
-		}
-		const error = admitted.data;
+		if (refused() !== undefined) return;
+		const error = await writeOf(target, () => fill(target, resultBody(text)));
 		if (error === undefined) {
 			live.delete(path);
 			return;

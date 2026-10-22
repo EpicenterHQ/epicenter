@@ -7,10 +7,9 @@
  * committed save names stale, whichever handle or tab made it. A word's note
  * and stage are typed through its row's edit handle, and a repair through
  * its file's text edit handle; the folder holds both, and the context counts
- * them. Adding a word, starting a chat, and saving a message enter Folder
- * work before any await. Normal folder close drains those actions through
- * their admitted storage, including queued message saves. Nothing is synced
- * and nothing records a version.
+ * them. Adding a word, starting a chat, and saving a message check closing
+ * before writing. Folder close releases synchronously without waiting for
+ * those workflows or their writes. Nothing is synced or records a version.
  */
 import type { FolderContext } from '@epicenter/svelte/folder';
 import { createChats } from './chat/chats.js';

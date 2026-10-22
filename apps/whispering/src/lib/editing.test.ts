@@ -24,8 +24,14 @@
  *   recovery state in either view
  * - Deletion runs after already admitted saves and removes the confirmed
  *   results, keeping its audio
- * - Close waits for a save being written
+ * - Close releases immediately while submitted saves keep their own outcomes
  */
+import { type FileContent, SaveError } from '@epicenter/folder';
+import {
+	type FolderEngine,
+	folderHandle,
+} from '../../../../packages/folder/src/handle.js';
+import { whisperingTables } from './definition.js';
 import type { WhisperingContext } from './folder.js';
 import {
 	closeTestWhispering,
@@ -73,6 +79,9 @@ afterEach(async () => {
  * `mdWrites` counts the writes that went through.
  */
 function gated(root: string) {
+	const refused = SaveError.StorageFailed({
+		cause: new Error('the disk refused it'),
+	});
 	const control = {
 		mdWrites: 0,
 		hold: undefined as
@@ -81,21 +90,40 @@ function gated(root: string) {
 		failing: undefined as string | undefined,
 		failOnce: false,
 	};
-	const folder = openGatedTestFolder(root, async (path) => {
-		if (!path.endsWith('.md')) return undefined;
-		if (control.failing === path) {
-			if (control.failOnce) control.failing = undefined;
-			return new Error('the disk refused it');
+	const inner = openGatedTestFolder(root, async () => undefined);
+	let activeWrites = 0;
+	let closed = false;
+	const write = async (path: string, content: FileContent) => {
+		activeWrites++;
+		try {
+			if (!path.endsWith('.md')) return await inner.files.write(path, content);
+			const hold = control.hold;
+			if (hold !== undefined) {
+				control.hold = undefined;
+				hold.held.resolve();
+				await hold.gate.promise;
+			}
+			if (control.failing === path) {
+				if (control.failOnce) control.failing = undefined;
+				return refused;
+			}
+			control.mdWrites++;
+			return await inner.files.write(path, content);
+		} finally {
+			activeWrites--;
+			if (closed && activeWrites === 0) inner.close();
 		}
-		const hold = control.hold;
-		if (hold !== undefined) {
-			control.hold = undefined;
-			hold.held.resolve();
-			await hold.gate.promise;
-		}
-		control.mdWrites++;
-		return undefined;
-	});
+	};
+	const engine: FolderEngine = {
+		files: { ...inner.files, write },
+		tables: inner.tables,
+		subscribe: (listener) => inner.onChange(listener),
+		close: () => {
+			closed = true;
+			if (activeWrites === 0) inner.close();
+		},
+	};
+	const folder = folderHandle(engine, whisperingTables);
 	return { folder, control };
 }
 
@@ -510,23 +538,78 @@ test('switching between fields and Source preserves failed input and recovery in
 	);
 });
 
-test('a text save that fails is told with the text, Save again, and Discard', async () => {
-	const { context, whispering, root, failNextWrite } = await open();
+test('each failed publication is told once while text stays editor-owned', async () => {
+	const { context, whispering, root, failWrites, holdNextMarkdownWrite } =
+		await open();
 	const notices: Parameters<Parameters<Whispering['onWriteFailure']>[0]>[0][] =
 		[];
 	whispering.onWriteFailure((notice) => notices.push(notice));
 	await writeFile(join(root, 'notes.md'), 'first\n');
 	await settle(whispering, context);
+	const edit = context.folder.files.edit('notes.md');
+	expectOk(await edit.refresh());
 
-	failNextWrite('notes.md');
+	failWrites('notes.md');
+	expectOk(edit.replaceText('\uFEFFsecond\r\n'));
+	expect((await edit.save()).error).not.toBeNull();
+	const [first] = context.folder.getStatus().failures;
+	if (first === undefined) throw new Error('Expected a failed publication');
+	expect(notices).toHaveLength(1);
+	expect(notices[0]?.getText()).toBe('\uFEFFsecond\r\n');
+
+	expectOk(edit.replaceText('\uFEFFnewer\r\n'));
+	expect(context.folder.getStatus().failures[0]).toBe(first);
+	expect(notices).toHaveLength(1);
+	expect(notices[0]?.getText()).toBe('\uFEFFnewer\r\n');
+
+	const { held, release } = holdNextMarkdownWrite();
+	expect(notices[0]?.save?.()).toBe(true);
+	await held;
+	expect(context.folder.getStatus().failures).toEqual([]);
+	expectOk(edit.replaceText('\uFEFFnewest\r\n'));
+	expect(context.folder.getStatus().failures[0]).toBe(first);
+	expect(notices).toHaveLength(1);
+	release();
+	await settle(whispering, context);
+	const [second] = context.folder.getStatus().failures;
+	if (second === undefined) throw new Error('Expected the retry failure');
+	expect(second).not.toBe(first);
+	expect(second.error).toBe(first.error);
+	expect(notices).toHaveLength(2);
+	expect(notices[1]?.getText()).toBe('\uFEFFnewest\r\n');
+
+	failWrites();
+	expectOk(await edit.save());
+	expect(notices[1]?.getText()).toBeUndefined();
+	expect(notices[1]?.save?.()).toBe(false);
+
+	failWrites('notes.md');
+	expectOk(edit.replaceText('discard me\r\n'));
+	expect((await edit.save()).error).not.toBeNull();
+	const discardedNotice = notices.at(-1);
+	expect(discardedNotice?.getText()).toBe('discard me\r\n');
+	expect(edit.discard()).toBe('discard me\r\n');
+	expect(discardedNotice?.getText()).toBeUndefined();
+	expect(discardedNotice?.save?.()).toBe(false);
+	context.close();
+	expect(discardedNotice?.save?.()).toBe(false);
+});
+
+test('a reentrant failure listener never announces one failure twice', async () => {
+	const { context, whispering, root, failWrites } = await open();
+	await writeFile(join(root, 'notes.md'), 'first\n');
+	await settle(whispering, context);
+	const notices: Parameters<Parameters<Whispering['onWriteFailure']>[0]>[0][] =
+		[];
+	whispering.onWriteFailure((notice) => {
+		notices.push(notice);
+		if (notices.length === 1) expect(notice.save?.()).toBe(true);
+	});
+	failWrites('notes.md');
 	(await openText(whispering, context, 'notes.md')).input('second\n');
 	await settle(whispering, context);
-
-	expect(notices).toMatchObject([{ path: 'notes.md', unsaved: 'second\n' }]);
-	expect(notices[0]?.save?.()).toBe(true);
-	await settle(whispering, context);
-	expect(await text(root, 'notes.md')).toBe('second\n');
-	expect(whispering.unsaved).toBe(false);
+	expect(notices).toHaveLength(2);
+	expect(new Set(notices.map((notice) => notice.error)).size).toBe(1);
 });
 
 // ============================================================================
@@ -585,7 +668,7 @@ test('a deletion removes the recording as it is when it runs, whatever changed s
 // Closing
 // ============================================================================
 
-test('close waits for a save being written, and it lands before the folder closes', async () => {
+test('close releases immediately while an admitted editor save finishes', async () => {
 	const { context, whispering, root, holdNextMarkdownWrite } = await open();
 	const editor = await record(whispering, context);
 	const { path } = editor;
@@ -594,19 +677,18 @@ test('close waits for a save being written, and it lands before the folder close
 		row.fields.title = 'Typed before closing';
 	});
 	await held;
-	let closed = false;
-	const closing = closeTestWhispering({ whispering, context }).then(() => {
-		closed = true;
-	});
-	await Bun.sleep(10);
-	expect(closed).toBe(false);
-	// Nothing new is taken once closing began.
-	editor.edit((row) => {
-		row.fields.title = 'Typed after closing began';
-	});
-	release();
-	await closing;
-	expect(closed).toBe(true);
+	try {
+		expect(closeTestWhispering({ whispering, context })).toBeUndefined();
+		// Nothing new is taken once closing began.
+		editor.edit((row) => {
+			row.fields.title = 'Typed after closing began';
+		});
+	} finally {
+		release();
+	}
+	for (let tries = 0; tries < 200 && context.folder.getStatus().saving; tries++)
+		await Bun.sleep(5);
+	expect(context.folder.getStatus().saving).toBe(false);
 	expect(await text(root, path)).toContain('title: Typed before closing');
 });
 

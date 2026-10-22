@@ -28,7 +28,7 @@ const { createFolderContext } = await import('@epicenter/svelte/folder');
 const { createCaptures, describeFailure, timelineOf } = await import(
 	'./captures.svelte.ts'
 );
-const cleanup: (() => Promise<unknown>)[] = [];
+const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const close of cleanup.splice(0).reverse()) await close();
 });
@@ -63,7 +63,7 @@ async function typeInto(t: CapturesHarness, stem: string, raw: string) {
 
 /** A new context and collection over the existing profile, without resetting IndexedDB. */
 async function restart(t: CapturesHarness) {
-	await t.context.close();
+	t.context.close();
 	const folder = expectOk(await openFolder({ tables: captureTables }));
 	const context = createFolderContext(folder);
 	const captures = createCaptures(context);
@@ -201,7 +201,7 @@ test('a failed discard leaves the draft discoverable and retry removes it', asyn
 	expectOk(await resumed.captures.delete(resumed.captures.deletionFor('one')));
 });
 
-test('an accepted finish completes when close begins and new input is refused', async () => {
+test('close may fail an admitted finish and refuses new input', async () => {
 	const t = await setup({ one: '' });
 	const { stem, edit, path } = await typeInto(
 		t,
@@ -211,12 +211,9 @@ test('an accepted finish completes when close begins and new input is refused', 
 	const finishing = t.captures.finishDraft(stem);
 	const closing = t.context.close();
 	expectErr(edit.change({ body: 'Late input' }));
-	expectOk(await finishing);
-	expect(await closing).toEqual([]);
-	expect(await t.text(path)).toContain(
-		composeBody('Accepted before close').body,
-	);
-	expect(await t.text(path)).not.toContain('draft:');
+	expect(expectErr(await finishing).name).toBe('StorageFailed');
+	expect(closing).toBeUndefined();
+	expect(await t.text(path)).toContain('draft: true');
 });
 
 test('finishing refuses currently acquired invalid source', async () => {

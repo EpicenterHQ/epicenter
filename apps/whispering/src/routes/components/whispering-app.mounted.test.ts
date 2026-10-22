@@ -80,7 +80,7 @@ test('route changes share one opened folder and keep recording', async () => {
 	);
 	expect(app.seen[1]?.whispering).toBe(first.whispering);
 	expect(first.whispering.recorder.phase).toBe('recording');
-	await first.context.folder.settle();
+	while (first.context.folder.getStatus().saving) await Bun.sleep(5);
 	// Recording alone adds no browser departure warning. FolderApp still
 	// guards accepted edits, covered by its mounted beforeunload test.
 	const departure = new window.Event('beforeunload', { cancelable: true });

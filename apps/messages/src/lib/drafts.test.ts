@@ -47,7 +47,7 @@ test('an uncertain attempt retains sent text separately and cannot repeat after 
 			text,
 		);
 		expect(expectOk(await folder.tables.drafts.get(draft.id))?.body).toBe('');
-		await folder.close();
+		folder.close();
 		folder = expectOk(await openFolder({ directory, tables: messagesTables }));
 		expectErr(await sendDraft(folder, draft.id, 'demo-maya', backend));
 		expectOk(
@@ -68,7 +68,7 @@ test('an uncertain attempt retains sent text separately and cannot repeat after 
 		expect(expectOk(await folder.tables.drafts.get(draft.id))?.body).toBe('');
 		expectErr(await sendDraft(folder, draft.id, 'demo-maya', backend));
 	} finally {
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
@@ -95,7 +95,7 @@ test('demo and live drafts never share IDs and a held composer is saved before s
 			throw new Error('Could not read demo messages');
 		expect(answer.page.items.at(-1)?.text).toBe('Accepted input not saved yet');
 	} finally {
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
@@ -141,7 +141,7 @@ test('a storage failure before the durable send fence prevents any backend send'
 		expectErr(await sendDraft(folder, draft.id, 'demo-maya', backend));
 		expect(sends).toBe(0);
 	} finally {
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
@@ -172,12 +172,12 @@ test('editing a draft destination cannot redirect a reply away from the displaye
 			).toBe(false);
 		}
 	} finally {
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
 
-test('an admitted send saves its receipt after close starts during the backend reply', async () => {
+test('closing during a send keeps its durable uncertain attempt for recovery', async () => {
 	const directory = await mkdtemp(join(tmpdir(), 'epicenter-messages-test-'));
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
@@ -204,30 +204,25 @@ test('an admitted send saves its receipt after close starts during the backend r
 		);
 		const sending = sendDraft(folder, draft.id, 'demo-maya', backend);
 		await reached.promise;
-		let closed = false;
-		const closing = folder.close().then(() => {
-			closed = true;
-		});
+		folder.close();
 		expect(folder.getStatus().closing).toBe(true);
 		expectErr(await sendDraft(folder, 'closed', 'demo-noah', backend));
-		expect(closed).toBe(false);
 		release.resolve();
-		expectOk(await sending);
-		await closing;
+		expect(expectErr(await sending).message).toContain('Check Beeper');
 		const reopened = expectOk(
 			await openFolder({ directory, tables: messagesTables }),
 		);
 		try {
 			const receipt = expectOk(await reopened.tables.attempts.get(draft.id));
-			expect(receipt?.fields?.state).toBe('accepted');
-			expect(receipt?.fields?.pendingId).not.toBe('');
+			expect(receipt?.fields?.state).toBe('sending');
+			expect(receipt?.fields?.pendingId).toBe('');
 			expect(receipt?.body).toBe('Sent during close');
 		} finally {
-			await reopened.close();
+			reopened.close();
 		}
 	} finally {
 		release.resolve();
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
@@ -261,12 +256,12 @@ test('two sends of one draft at once reach the backend once', async () => {
 		expect(expectErr(second).name).toBe('Refused');
 		expect(sends).toBe(1);
 	} finally {
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
 
-test('sending is admitted when called, before close', async () => {
+test('a closed folder refuses a send before reading its draft', async () => {
 	const directory = await mkdtemp(join(tmpdir(), 'epicenter-messages-test-'));
 	const backend = createDemoBackend();
 	const folder = expectOk(
@@ -279,12 +274,12 @@ test('sending is admitted when called, before close', async () => {
 				body: 'Entered before close',
 			}),
 		);
-		const sending = sendDraft(folder, draft.id, 'demo-maya', backend);
-		const closing = folder.close();
-		expectOk(await sending);
-		await closing;
+		folder.close();
+		expect(
+			expectErr(await sendDraft(folder, draft.id, 'demo-maya', backend)).name,
+		).toBe('Closing');
 	} finally {
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
@@ -328,13 +323,13 @@ test('a receipt does not erase a new composition accepted during the backend rep
 		expect(edit.getSnapshot().content?.body).toBe('Next reply');
 		expect(edit.getSnapshot().isDirty).toBe(true);
 		expect(expectOk(await folder.tables.drafts.get(draft.id))?.body).toBe('');
-		expect(await folder.settle()).toEqual([]);
+		expectOk(await edit.save());
 		const row = expectOk(await folder.tables.drafts.get(draft.id));
 		expect(row?.body).toBe('Next reply');
 		expect(row?.fields?.state).toBe('draft');
 	} finally {
 		release.resolve();
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
@@ -392,7 +387,7 @@ test.each(['Same reply', 'Different next reply'])(
 				expectOk(await second.tables.attempts.get(draft.id))?.fields?.state,
 			).toBe('sending');
 			expect(sends).toBe(1);
-			await second.close();
+			second.close();
 			const reopened = expectOk(
 				await openFolder({ directory, tables: messagesTables }),
 			);
@@ -400,12 +395,12 @@ test.each(['Same reply', 'Different next reply'])(
 				expectErr(await sendDraft(reopened, draft.id, 'demo-maya', backend));
 				expect(sends).toBe(1);
 			} finally {
-				await reopened.close();
+				reopened.close();
 			}
 		} finally {
 			release.resolve();
-			await first.close();
-			await second.close();
+			first.close();
+			second.close();
 			await rm(directory, { recursive: true, force: true });
 		}
 	},
@@ -453,7 +448,7 @@ test('a stale recovery clicked during a live send cannot restore an accepted mes
 		expect(sends).toBe(1);
 	} finally {
 		release.resolve();
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
@@ -490,7 +485,7 @@ test('existing unresolved draft records require checked recovery before sending'
 		).toBe('acknowledged');
 		expectOk(await sendDraft(folder, draft.id, 'demo-maya', backend));
 	} finally {
-		await folder.close();
+		folder.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
@@ -556,8 +551,190 @@ test('checked recovery for an older identical attempt cannot acknowledge a newer
 		expect(sends).toBe(2);
 	} finally {
 		release.resolve();
-		await first.close();
-		await second.close();
+		first.close();
+		second.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+test('close while sends wait for an attempt read and queue admission refuses both before sending', async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'messages-close-queue-'));
+	const folder = expectOk(
+		await openFolder({ directory, tables: messagesTables }),
+	);
+	const demo = createDemoBackend();
+	let sends = 0;
+	const backend: Backend = {
+		...demo,
+		request(request) {
+			if (request.action === 'send') sends++;
+			return demo.request(request);
+		},
+	};
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	try {
+		const draft = await seedDraft(folder, backend, 'demo-maya');
+		expectOk(await folder.tables.drafts.set(draft.id, { body: 'Do not send' }));
+		const get = folder.tables.attempts.get;
+		folder.tables.attempts.get = async (id) => {
+			const result = await get(id);
+			entered.resolve();
+			await release.promise;
+			return result;
+		};
+		const first = sendDraft(folder, draft.id, 'demo-maya', backend);
+		await entered.promise;
+		const queued = sendDraft(folder, draft.id, 'demo-maya', backend);
+		folder.close();
+		release.resolve();
+		expect(expectErr(await first).name).toBe('Closing');
+		expect(expectErr(await queued).name).toBe('Closing');
+		expect(sends).toBe(0);
+		expect(
+			await Bun.file(join(directory, `attempts/${draft.id}.md`)).exists(),
+		).toBe(false);
+	} finally {
+		release.resolve();
+		folder.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test.each(['attempt', 'changed', 'clear'] as const)(
+	'close during send preparation at %s keeps the durable attempt and sends nothing',
+	async (stage) => {
+		const directory = await mkdtemp(join(tmpdir(), 'messages-close-preparation-'));
+		const folder = expectOk(
+			await openFolder({ directory, tables: messagesTables, saveAfterMs: 60_000 }),
+		);
+		const demo = createDemoBackend();
+		let sends = 0;
+		const backend: Backend = {
+			...demo,
+			request(request) {
+				if (request.action === 'send') sends++;
+				return demo.request(request);
+			},
+		};
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		try {
+			const draft = await seedDraft(folder, backend, 'demo-maya');
+			expectOk(
+				await folder.tables.drafts.set(draft.id, { body: 'Prepared message' }),
+			);
+			if (stage === 'clear') {
+				const set = folder.tables.drafts.set;
+				folder.tables.drafts.set = async (...args) => {
+					const result = await set(...args);
+					entered.resolve();
+					await release.promise;
+					return result;
+				};
+			} else {
+				const write = folder.files.write;
+				folder.files.write = async (...args) => {
+					const result = await write(...args);
+					entered.resolve();
+					await release.promise;
+					return result;
+				};
+			}
+			const sending = sendDraft(folder, draft.id, 'demo-maya', backend);
+			await entered.promise;
+			if (stage === 'changed')
+				expectOk(
+					folder.tables.drafts.edit(draft.id).change({ body: 'Next message' }),
+				);
+			folder.close();
+			release.resolve();
+			const refused = expectErr(await sending);
+			expect(refused.name).toBe('Refused');
+			expect(refused.message).toContain('Nothing was sent');
+			expect(sends).toBe(0);
+			const attempt = await Bun.file(
+				join(directory, `attempts/${draft.id}.md`),
+			).text();
+			expect(attempt).toContain('state: sending');
+			expect(attempt).toContain('Prepared message');
+		} finally {
+			release.resolve();
+			folder.close();
+			await rm(directory, { recursive: true, force: true });
+		}
+	},
+);
+
+test.each(['read', 'write'] as const)(
+	'close during recovery after %s reports whether the check was saved',
+	async (stage) => {
+		const directory = await mkdtemp(join(tmpdir(), 'messages-close-recovery-'));
+		const folder = expectOk(
+			await openFolder({ directory, tables: messagesTables }),
+		);
+		const backend = createDemoBackend();
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		try {
+			const draft = await seedDraft(folder, backend, 'demo-maya');
+			expectOk(
+				await folder.tables.attempts.set(draft.id, {
+					fields: {
+						chatId: 'demo-maya',
+						profile: backend.profile,
+						mode: backend.mode,
+						state: 'sending',
+						attemptId: 'checked',
+						pendingId: '',
+					},
+					body: 'Uncertain message',
+				}),
+			);
+			if (stage === 'read') {
+				const get = folder.tables.drafts.get;
+				folder.tables.drafts.get = async (id) => {
+					const result = await get(id);
+					entered.resolve();
+					await release.promise;
+					return result;
+				};
+			} else {
+				const write = folder.files.write;
+				folder.files.write = async (...args) => {
+					const result = await write(...args);
+					entered.resolve();
+					await release.promise;
+					return result;
+				};
+			}
+			const recovering = recoverDraft(
+				folder,
+				draft.id,
+				'demo-maya',
+				backend,
+				{ attemptId: 'checked' },
+				true,
+			);
+			await entered.promise;
+			folder.close();
+			release.resolve();
+			const error = expectErr(await recovering);
+			expect(error.name).toBe(stage === 'read' ? 'Closing' : 'Refused');
+			if (stage === 'write') {
+				expect(error.message).toContain('The check was saved');
+				expect(error.message).toContain('The attempt file keeps the text');
+			}
+			const attempt = await Bun.file(
+				join(directory, `attempts/${draft.id}.md`),
+			).text();
+			expect(attempt).toContain(
+				stage === 'read' ? 'state: sending' : 'state: acknowledged',
+			);
+		} finally {
+			release.resolve();
+			folder.close();
+			await rm(directory, { recursive: true, force: true });
+		}
+	},
+);

@@ -10,8 +10,7 @@
  * - Closing waits for no Stop and starts none: a recording under way is
  *   neither stopped nor deleted by the page, gets no length, and an ending
  *   heard afterward finishes nothing
- * - A Stop asks the folder to admit its length write: once closing began it
- *   is refused, even while other admitted work keeps the folder open
+ * - A Stop that answers after closing began writes no length
  * - A recording that answers after closing writes no row
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
@@ -318,15 +317,12 @@ test('closing during an interrupted capture’s Stop waits for neither the Stop 
 	expect(whispering.recorderError).toContain('Recording stopped');
 });
 
-test('a Stop whose row was still saving when closing began writes no length, though other admitted work keeps the folder open', async () => {
+test('a Stop whose row was still saving when closing began writes no length, after the folder closes', async () => {
 	const { whispering, context, test } = await open();
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
-	const entered = Promise.withResolvers<void>();
-	const gate = Promise.withResolvers<void>();
 	cleanups.push(async () => {
 		release.resolve();
-		gate.resolve();
 	});
 	const recordings = test.folder.tables.recordings;
 	replaceTables(test.folder, {
@@ -347,23 +343,9 @@ test('a Stop whose row was still saving when closing began writes no length, tho
 	await reached.promise;
 	const stopping = whispering.stopRecording();
 	await eventually(() => whispering.recorder.phase === 'idle');
-	const other = test.folder.run(async () => {
-		entered.resolve();
-		await gate.promise;
-	});
-	await entered.promise;
-	let closed = false;
-	const closing = closeTestWhispering({ whispering, context }).then(() => {
-		closed = true;
-	});
+	await closeTestWhispering({ whispering, context });
 	release.resolve();
 	await Promise.all([starting, stopping]);
-	// The folder is still draining the other work, and storage still answers,
-	// yet the length was refused when Stop asked to write it.
-	expect(closed).toBe(false);
-	gate.resolve();
-	expectOk(await other);
-	await closing;
 	const [name] = await rows(test.root);
 	expect(
 		await readFile(join(test.root, 'recordings', name!), 'utf8'),
@@ -371,14 +353,14 @@ test('a Stop whose row was still saving when closing began writes no length, tho
 	expect(whispering.recorderError).toBeUndefined();
 });
 
-test('a recording that answers after closing writes no row', async () => {
+test('a recording that answers after context close writes no row', async () => {
 	const answer = Promise.withResolvers<void>();
 	const { context, whispering, test, starts, stops } = await open({
 		beforeStart: answer.promise,
 	});
 	const starting = whispering.startRecording();
 	await eventually(() => starts() === 1);
-	await closeTestWhispering({ whispering, context });
+	context.close();
 	answer.resolve();
 	await starting;
 	expect(stops()).toBe(0);

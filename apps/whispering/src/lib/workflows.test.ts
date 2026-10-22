@@ -32,7 +32,7 @@
  *   recording and transformation files keep their names
  * - Stop waits for its own initial row save across overlapping captures
  * - Closing refuses new work and selection without draining workflows; the
- *   Folder still waits for writes it already admitted
+ *   admitted writes may still finish after synchronous Folder release
  */
 import type { WhisperingContext } from './folder.js';
 import {
@@ -46,7 +46,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathProblem } from '@epicenter/folder/file-browser';
 import { Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createFixtureDevice, toneWav } from './capture.js';
 import { recordingAudioStem } from './definition.js';
 import { describeDeletion } from './deletion.js';
@@ -1178,7 +1178,7 @@ test('closing refuses new work and waits for no workflow still on its way to the
 	expect(await Bun.file(join(root, 'late.txt')).exists()).toBe(false);
 });
 
-test('closing waits for a save the Folder already admitted', async () => {
+test('close releases immediately while an admitted save finishes', async () => {
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const { context, whispering, root } = await open({
@@ -1190,20 +1190,16 @@ test('closing waits for a save the Folder already admitted', async () => {
 	});
 	const creating = whispering.createFile('', 'kept.txt');
 	await reached.promise;
-	let closed = false;
 	opened.splice(
 		opened.findIndex((fixture) => fixture.whispering === whispering),
 		1,
 	);
-	const closing = closeTestWhispering({ whispering, context }).then(() => {
-		closed = true;
-	});
-	await Bun.sleep(20);
-	expect(closed).toBe(false);
-
-	release.resolve();
+	try {
+		expect(closeTestWhispering({ whispering, context })).toBeUndefined();
+	} finally {
+		release.resolve();
+	}
 	expect(await creating).toBeUndefined();
-	await closing;
 	expect(await readFile(join(root, 'kept.txt'), 'utf8')).toBe('');
 });
 
@@ -1222,8 +1218,9 @@ test('stopping Whispering fences direct row and source input while keeping accep
 	).not.toBeNull();
 	expect(textEdit.replaceText('Too late').error).not.toBeNull();
 	expect(rowEdit.content?.text).toBe(accepted);
-	await rowEdit.save();
-	expect(rowEdit.isDirty).toBe(false);
+	expect(expectErr(await rowEdit.save()).name).toBe('Closed');
+	context.close();
+	expect(rowEdit.isDirty).toBe(true);
 });
 
 test.each(['Captured source', 'Newer accepted input'])(
@@ -1289,7 +1286,7 @@ test('cascade deletion drops unsent input without saving it and keeps audio', as
 	expect(resultEdit.isDirty).toBe(false);
 });
 
-test('an admitted rename finishes its copy and deletion while Whispering closes', async () => {
+test('closing during a rename finishes its submitted copy and keeps the original', async () => {
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const { whispering, context, root } = await open({
@@ -1308,13 +1305,13 @@ test('an admitted rename finishes its copy and deletion while Whispering closes'
 	);
 	const closing = closeTestWhispering({ whispering, context });
 	release.resolve();
-	expect(await renaming).toBeUndefined();
+	expect(await renaming).toContain('was kept because the folder is closing');
 	await closing;
-	expect(await Bun.file(join(root, 'original.txt')).exists()).toBe(false);
+	expect(await Bun.file(join(root, 'original.txt')).exists()).toBe(true);
 	expect(await readFile(join(root, 'renamed.txt'), 'utf8')).toBe('');
 });
 
-test('an admitted result deletion removes the current path while close waits', async () => {
+test('an admitted result deletion removes the current path after close', async () => {
 	const path = 'text_runs/result.md';
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
@@ -1333,7 +1330,7 @@ test('an admitted result deletion removes the current path while close waits', a
 	whispering.dispose();
 	release.resolve();
 	expect(await removing).toBeUndefined();
-	await context.close();
+	context.close();
 	expect(await Bun.file(join(root, path)).exists()).toBe(false);
 });
 
