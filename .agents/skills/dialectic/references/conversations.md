@@ -1,12 +1,12 @@
 # Example conversations
 
-These illustrations pair an articulation of the model with a concrete
-expression: prose to read, caller code, a conversation a skill could produce,
-or a rendered website. The articulation explains the proposed meaning or
-arrangement; the expression lets the user judge the choices made in realizing
-it. They are not measured runs or records of the user's preferences. Reactions
-may change either or both. The examples teach judgment, not a fixed sequence,
-number of versions, or response format.
+These illustrations show how making intent, proposed work, or consequences
+visible can advance a discussion. A reading of the intent may clarify what
+matters; actual prose or a design may expose a choice; caller code, a sample
+conversation, or a rendered page may reveal how the proposal works in practice.
+The user’s response can change both the work and our understanding of it.
+These are not measured runs or records of the user's preferences. The examples
+teach judgment, not a fixed sequence, number of versions, or response format.
 
 ## Writing: a correction can leave several directions open
 
@@ -68,8 +68,8 @@ closing selection and synthesis are hypothetical.
 >>
 >> I don't necessarily take it down.
 
-The correction settles something about the model without selecting one
-expression. Each heading articulates a distinct direction in terms the user
+The correction clarifies the intent without selecting one passage.
+Each heading articulates a distinct direction in terms the user
 can understand on its own; the passage beneath it shows how that direction
 could read. The later reaction calls for a synthesis rather than another menu.
 The same method can compare complete drafts when their development and endings
@@ -224,7 +224,46 @@ about current package exports. Unrelated setup is omitted.
 > actual caller before adding a shared helper; the smaller preview-only tool
 > shouldn't inherit a recording session it doesn't need.
 
-## Agent skills: revise a visible model
+## Agent skills: inspect instructions and behavior
+
+This hypothetical exchange shows how different contributions advance different
+questions within one skill-editing conversation. All replies are illustrative.
+
+> **Human:** I want my comparison skill to recommend something, but I don't
+> want it to act like the decision is already settled.
+>
+> **Agent:** You want a judgment you can examine: what the agent would choose,
+> why, and what could make another choice better.
+>
+> **Human:** Yes. What would the instruction actually say?
+>
+> **Agent:** I'd replace “List the advantages and disadvantages of each option”
+> with:
+>
+>> Recommend a direction when you have grounds. Explain the reason that
+>> decides it for you and what could change your recommendation. Leave room
+>> for the user to challenge that judgment or introduce another possibility.
+>
+> **Human:** Show what that would produce if I were choosing between autosave
+> and a Save button for private notes.
+>
+> **Agent:** A sample response following that instruction:
+>
+>> I'd use autosave here. Writing a private note shouldn't require a separate
+>> decision to keep it. I'd show whether changes are still saving so the user
+>> can tell when they're stored.
+>>
+>> I'd reconsider if saving also published the note or triggered another
+>> action. Then a Save button could give the user a useful moment of control.
+
+The first reply clarifies the intent. The next shows the actual instruction,
+which the user can judge as wording. The sample then exposes the behavior that
+wording could encourage. Each contribution answers the question at hand;
+the exchange does not establish a required order or require all three in
+every turn. The sample proposes behavior rather than proving an agent will
+reliably produce it.
+
+## Product design: revise a visible model
 
 This hypothetical exchange uses the Epicenter cloud discussion to show a model
 the human can point to and change. The services are a proposal, not a claim
@@ -307,9 +346,9 @@ in live work, render and show the actual images.
 > **Agent:** Here's the shorter quote in place. It explains the change from
 > returning a result to acting on it, without repeating the opening rule.
 
-The articulation describes how the opening should teach the idea. The concrete
-expression is the rendered opening, including prose, code, quotation, and their
-spacing on the site. Plain text could show the wording but would leave the
+The explanation describes how the opening should teach the idea. The rendered
+opening lets the user judge how the prose, code, quotation, and spacing work
+together. Plain text could show the proposed wording but would leave the
 reader's path through those elements to the user's imagination. A sentence-only
 choice may need only prose in chat; this comparison needs the page.
 
