@@ -189,7 +189,7 @@ Do not add an artificial loop, key, or conditional just to host `{@const}`;
 those blocks introduce structure or lifetimes unrelated to the binding.
 
 For optional text whose binding getter needs narrowing, capture
-`{@const content = fileDocument.content}` in the nearest supported scope, then gate
+`{@const content = snapshot.current.content}` in the nearest supported scope, then gate
 the control with `content !== undefined`, then bind to `content.text`. An empty
 string is valid source. Use `?? ''` only when absence
 really means an empty editable value; it must not turn unread, missing, or
@@ -234,14 +234,14 @@ mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
 The query cache owns saved listings; Folder owns each path's working source.
-Bind controls through `reactiveDocument(handle)` from
-`@epicenter/svelte/document`. Repeated wrapping reuses a passive adapter by
-handle, including inside derived collections; no caller-managed adapter cache
-is needed. Derive from a changing path prop to follow the selected document.
+Construct a view with `liveSnapshot(handle)` from
+`@epicenter/svelte/snapshot`, read its `.current`, and keep commands on the original handle. Reuse
+views per component, keyed block, or source identity to avoid subscription churn; see the
+[package guide](../../../../packages/svelte/README.md#snapshot-observation).
 Tracking starts observation, and the last tracking effect leaving releases it.
 Use function bindings: `patch({ fields: { title } })` patches a field and
 `replace(text)` replaces full source. Show immediate acceptance refusals at
-the control. Use `{@const content = fileDocument.content}` in the nearest
+the control. Use `{@const content = snapshot.current.content}` in the nearest
 template block to narrow fields with `content.issues === null`.
 
 For an action that publishes a patch to an existing document, use

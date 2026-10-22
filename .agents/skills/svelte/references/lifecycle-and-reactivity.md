@@ -309,7 +309,7 @@ value with `set(id, next)`.
 | Data Shape | Use | Example |
 |---|---|---|
 | Folder listings | Context query cache | saved notes and folders |
-| Editable file content | `reactiveDocument` tracked getters | source, fields, body, save feedback |
+| Editable file content | `liveSnapshot` tracked `.current` | source, fields, body, save feedback |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
@@ -345,10 +345,11 @@ Filtering and sorting belong in `$derived` when several consumers need the
 computed view.
 
 Lists and raw file reads return stored data without acquiring or updating a
-working document. `reactiveDocument(handle)` reuses a passive adapter by handle,
-so repeated wrapping in derived collections is safe. A tracked getter subscribes
-and acquires unknown or invalidated source; the last tracking effect leaving
-releases that subscription. For a one-off `save(patch)` on an unopened or
+working document. `liveSnapshot(handle)` exposes a tracked `.current` getter.
+Reusing it outside calculations that read its changing value avoids subscription
+replacement on each update; constructing it inside remains correct. No wrapper
+cache is needed. Tracking acquires unknown or invalidated source, and
+the last tracking effect leaving releases that view's subscription. For a one-off `save(patch)` on an unopened or
 inactive clean document, await its `refresh()` and check closing again before
 writing. A complete one-shot document uses `write()`. The [editor ownership guidance](component-ui-patterns.md#file-editor-views)
 explains these boundaries and failed-save retention.

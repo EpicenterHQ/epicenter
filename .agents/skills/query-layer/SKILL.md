@@ -167,8 +167,9 @@ const deleteTodo  = createMutation(() => store.deleteTodo.options);
 ```
 
 A folder app edits accepted file content through Folder-owned working
-documents, observed with `reactiveDocument(handle)` from
-`@epicenter/svelte/document`. Keep document commands outside TanStack mutations;
+documents, observed with `liveSnapshot(handle)` from
+`@epicenter/svelte/snapshot`; read the view's `.current` and keep commands on the
+original handle. Keep document commands outside TanStack mutations;
 an app action over them, such as Save version, is a mutation like any other.
 Accept complete source with `replace(text)` and acquired fields/body with
 `patch(patch)`. Use `save(textOrPatch?)` when acceptance and publication must
