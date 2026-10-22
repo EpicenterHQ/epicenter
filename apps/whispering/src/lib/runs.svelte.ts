@@ -131,7 +131,6 @@ export function createRuns({
 	resolve,
 	deleting,
 	isCapturing,
-	track,
 }: {
 	transcribe: WhisperingServices['transcribe'];
 	transform: WhisperingServices['transform'];
@@ -148,13 +147,6 @@ export function createRuns({
 	deleting: ReadonlySet<string>;
 	/** The recording still being captured. Its audio is not finished, so it is not transcribed. */
 	isCapturing: (id: string) => boolean;
-	/**
-	 * Run folder work as a mutation, so a view of `scope` knows it is running;
-	 * what it saves reaches the views on the folder's change channel. `scope`
-	 * names the recording or file it is for.
-	 * Waiting on an endpoint is not tracked.
-	 */
-	track: <T>(work: () => Promise<T>, scope: string) => Promise<T>;
 }) {
 	/** Transcribe presses, by recording ID: one under way, or why one sent nothing. */
 	const transcriptions = new SvelteMap<string, TranscriptionRun>();
@@ -173,10 +165,6 @@ export function createRuns({
 
 	const setLive = (target: Target, state: LiveResult) =>
 		live.set(pathOf(target), { state, recording: target.recording });
-	const scopeOf = (target: Target) =>
-		target.recording === undefined
-			? pathOf(target)
-			: rowPath('recordings', target.recording);
 
 	/** Run `work` as the folder work of `target`, counted as a write of its row. */
 	async function writeOf<T>(
@@ -186,7 +174,7 @@ export function createRuns({
 		const path = pathOf(target);
 		writing.set(path, target.recording);
 		try {
-			return await track(work, scopeOf(target));
+			return await work();
 		} finally {
 			writing.delete(path);
 		}

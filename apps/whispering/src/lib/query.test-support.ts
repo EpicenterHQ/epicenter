@@ -15,14 +15,12 @@ import type { WhisperingContext } from './folder.js';
 export { QueryClient, QueryObserver };
 
 /**
- * Wait until no save runs, and nothing is mutating or fetching. Typing that
- * waits for its pause is not waited for.
+ * Wait until no Folder publication or query fetch runs. Workflow preparation,
+ * endpoint requests and typing that waits for its pause are not waited for.
  */
 export async function quiet({ queryClient, folder }: WhisperingContext) {
 	const idle = () =>
-		!folder.getStatus().saving &&
-		queryClient.isMutating() === 0 &&
-		queryClient.isFetching() === 0;
+		!folder.getStatus().saving && queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 1000; tries++) {
 		if (idle()) {
 			await Bun.sleep(0);

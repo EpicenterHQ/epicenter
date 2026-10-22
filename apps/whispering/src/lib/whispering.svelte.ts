@@ -30,7 +30,7 @@
  */
 
 import { InstantString } from '@epicenter/definition';
-import type { Row } from '@epicenter/folder';
+import { type Row, SaveError } from '@epicenter/folder';
 import type {
 	DocumentSnapshot,
 	FileDocument,
@@ -47,8 +47,7 @@ import { customAlphabet } from 'nanoid';
 import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
-import { createQueryFactories, defineKeys } from 'wellcrafted/query';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, type Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
 import { type ActiveCapture, CaptureError } from './capture.js';
 import type {
@@ -168,14 +167,6 @@ const suffix = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 4);
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
-
-/** Cache identity for the app's own actions. */
-export const whisperingKeys = defineKeys({
-	/** Every action the app runs. */
-	all: ['whispering'],
-	/** A recording's lifecycle: its row and length, and saving its transcripts and results. */
-	recording: (path: string) => ['whispering', 'recording', path] as const,
-});
 
 /** A sortable id from a time: `20260102-030405-k3f9`. */
 export function recordingId(at: Date): string {
@@ -319,8 +310,6 @@ export function createWhispering(context: WhisperingContext) {
 	});
 	let exclusionNotice = $state<string | undefined>();
 	let starting: Promise<void> | undefined;
-	const keys = whisperingKeys;
-	const { defineMutation } = createQueryFactories(queryClient);
 
 	const noticeListeners = new Set<(notice: WriteFailure) => void>();
 	function notify(notice: WriteFailure) {
@@ -342,9 +331,6 @@ export function createWhispering(context: WhisperingContext) {
 			)
 				update();
 		}),
-	);
-	const trackMutations = createSubscriber((update) =>
-		queryClient.getMutationCache().subscribe(update),
 	);
 
 	// --- reads -----------------------------------------------------------------
@@ -530,21 +516,6 @@ export function createWhispering(context: WhisperingContext) {
 			selectedTransformationPath = undefined;
 	}
 
-	/**
-	 * Run `work` as a mutation, so a view of `scope` knows it is running.
-	 * `scope` names the recording or file it is for. Saves reach the views
-	 * on the folder's change channel,
-	 * so it ends when its own work does, never after a reread.
-	 */
-	async function track<T>(work: () => Promise<T>, scope: string): Promise<T> {
-		const ran = await defineMutation({
-			mutationKey: keys.recording(scope),
-			mutationFn: async () => Ok(await work()),
-		})();
-		if (ran.error !== null) throw ran.error;
-		return ran.data as T;
-	}
-
 	// --- connections, microphone -------------------------------------------------
 
 	/** What the device has set up, never a key; undefined until read or when the read failed. */
@@ -629,7 +600,6 @@ export function createWhispering(context: WhisperingContext) {
 		resolve,
 		deleting,
 		isCapturing,
-		track,
 	});
 
 	const input = createMicrophoneInput({
@@ -683,8 +653,7 @@ export function createWhispering(context: WhisperingContext) {
 		const selectionBefore = selectedPath;
 		// In a browser, and for fixture audio, the audio file is written now; on
 		// the desktop it was written as it was captured, and stop finishes it.
-		// Started here, not when the mutation runs, so the microphone is let go
-		// at once.
+		// Start immediately so the microphone is let go before row work finishes.
 		const stopping = capture
 			.stop()
 			.catch((cause) => CaptureError.Failed({ cause }));
@@ -701,7 +670,7 @@ export function createWhispering(context: WhisperingContext) {
 			recorderError = stopError.message;
 			return;
 		}
-		const saveWarning = await track(async () => {
+		const saveDuration = async () => {
 			const { error: rowError } = await rowSave;
 			if (rowError !== null)
 				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
@@ -719,7 +688,8 @@ export function createWhispering(context: WhisperingContext) {
 			return saveError === null
 				? undefined
 				: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
-		}, path).catch((cause: unknown) =>
+		};
+		const saveWarning = await saveDuration().catch((cause: unknown) =>
 			// Whatever fails as the page goes is not shown.
 			context.closing
 				? undefined
@@ -730,7 +700,6 @@ export function createWhispering(context: WhisperingContext) {
 	}
 
 	function audioOf(entry: RecordingEntry): RecordingAudio {
-		trackMutations();
 		const files = listing();
 		// A listing read since the recording finished says where its audio is.
 		const unlisted =
@@ -746,10 +715,7 @@ export function createWhispering(context: WhisperingContext) {
 					? captureState.capture.audioPath
 					: finishedOver.get(entry.stem)?.path,
 			listing: files,
-			settling:
-				unlisted ||
-				isCapturing(entry.stem) ||
-				queryClient.isMutating({ mutationKey: keys.recording(entry.path) }) > 0,
+			settling: unlisted || isCapturing(entry.stem),
 		});
 	}
 
@@ -1259,10 +1225,14 @@ export function createWhispering(context: WhisperingContext) {
 				recordedAt: InstantString.fromDate(at),
 				capture: services.capture.source,
 			};
-			const creating = track(
-				() => folder.tables.recordings.write(id, { fields, body: '' }),
-				rowPath(RECORDINGS, id),
-			);
+			// Keep the capture installed even if admitting its row throws.
+			const creating = (async () => {
+				try {
+					return await folder.tables.recordings.write(id, { fields, body: '' });
+				} catch (cause) {
+					return SaveError.StorageFailed({ cause });
+				}
+			})();
 			// Stop awaits this capture's own initial row save.
 			captureState = { phase: 'recording', id, capture, rowSave: creating };
 			capture.onEnded((reason) => {

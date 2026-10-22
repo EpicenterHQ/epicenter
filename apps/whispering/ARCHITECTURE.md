@@ -604,16 +604,16 @@ A read never replaces unfinished input.
 - **A value the schema does not accept** is saved as written, and the row is
   listed for repair. A field change leaves the rest of the file's bytes as
   they were; text typed into a body saves with LF line endings (ADR-0572).
-- **A recording's initial row save** stays on its active capture. Stop and
-  Cancel await that attempt before changing or deleting its row, even if
-  another capture has since started.
-- **A recording's lifecycle** (its row at start, its length at stop, saving
-  a transcript or a result) is tracked work scoped by the recording's path,
-  which the audio's "settling" state reads. Waiting on an endpoint is not
-  tracked, so a request that does not answer never keeps the app from
-  closing. An answer's write, each retry, and a Stop's length write check the app's
-  closing state before saving. Folder releases synchronously without waiting
-  for writes or the surrounding workflows.
+- **A recording's initial row save** stays on its active capture. Stop awaits
+  that attempt before writing its length, even if another capture has since
+  started.
+- **Audio settling** follows capture state and the first successful file-listing
+  update after Stop. Saving notes, transcripts or results does not change audio
+  availability. Runs coordinate request preparation with deletion and block
+  deletion during active requests and publications; retry backoff does not hold
+  that guard. An answer's write, each
+  retry, and a Stop's length write check the app's closing state before saving.
+  Folder releases synchronously without waiting for writes or workflows.
 
 Whispering retains view selection, connection forms, pasted text, capture
 state, and answers whose files are not written. Folder retains accepted

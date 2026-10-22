@@ -116,6 +116,44 @@ async function rows(root: string) {
 	);
 }
 
+test.each(['throw', 'reject'] as const)(
+	'a row admission %s leaves the recording available to Stop and reports its failure',
+	async (failure) => {
+		const test = await openTestServices();
+		replaceTables(test.folder, {
+			recordings: {
+				...test.folder.tables.recordings,
+				write() {
+					const cause = new Error('Row admission failed');
+					if (failure === 'throw') throw cause;
+					return Promise.reject(cause);
+				},
+			},
+		});
+		const { whispering, context } = await openTestWhispering(test);
+		cleanups.push(async () => {
+			await closeTestWhispering({ whispering, context });
+			await test.remove();
+		});
+
+		await whispering.startRecording();
+		expect(whispering.recorder.phase).toBe('recording');
+		expect(whispering.recorderError).toContain('recording is running');
+		expect(whispering.recorderError).toContain('file could not be written');
+
+		await whispering.stopRecording();
+		expect(whispering.recorder.phase).toBe('idle');
+		expect(whispering.recorderError).toContain('audio is saved');
+		const audio = (await readdir(join(test.root, 'recordings'))).filter(
+			(path) => path.endsWith('.wav'),
+		);
+		expect(audio).toHaveLength(1);
+		expect<Uint8Array>(
+			new Uint8Array(await readFile(join(test.root, 'recordings', audio[0]!))),
+		).toEqual(toneWav());
+	},
+);
+
 test('a delayed failed initial row save reports the recording after Stop truthfully', async () => {
 	const test = await openTestServices();
 	const reached = Promise.withResolvers<void>();
