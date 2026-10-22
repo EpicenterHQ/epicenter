@@ -27,6 +27,18 @@ workspace or provide a second folder lifetime. The build selects browser or
 native capture and inference through `#platform/services`.
 
 One Whispering owner holds capture, requests, selections and settings drafts.
+Folder owns each file's working document. Typing, recording length updates,
+and received result bodies all edit that document; subsequent typing includes
+accepted programmatic changes. Saving publishes a captured whole-file snapshot
+and reports success or failure. Failure retains accepted changes and their
+save error for retry. A read never initiates publication.
+
+Recording rows, transformation recipes, and result placeholders are created
+with `table.write`, a one-shot complete document publication. A failed creation
+leaves no accepted input for autosave. Existing rows use an acquired edit and
+`table.set`; lists and raw reads do not acquire text. Background completion
+refreshes the edit before applying its patch, preserving local input while
+leaving a file already deleted on disk absent.
 Its startup maintains exclusions before recovery and reads. Its synchronous
 `dispose()` cleans up once without finishing recordings or waiting for workflows,
 even if native window destruction already closed the folder context. New work
@@ -583,8 +595,8 @@ It refuses while work for that recording runs or an unreadable result cannot
 say which recording it belongs to. Repair or remove those files first.
 
 Files lists files. Directories appear while files are in them, so Files creates
-files rather than empty folders. Rename copies the held source, or current
-stored bytes, to the new name and then removes the old path. Held text that differs from the copied source keeps the source path and
+files rather than empty folders. Rename copies pending local source, or current
+stored bytes, to the new name and then removes the old path. New input or observations that differ from the copied source keeps the source path and
 produces a notice naming both files. Identical text is already preserved at
 the destination and the rename can finish.
 

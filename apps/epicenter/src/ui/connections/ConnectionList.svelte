@@ -44,7 +44,7 @@
 		problem = undefined;
 		try {
 			const id = connectionId(title, new Set((list.data ?? []).map((row) => row.id)));
-			const { error } = await folder.tables.connections.set(id, {
+			const { error } = await folder.tables.connections.write(id, {
 				fields: { kind, title: title.trim(), model: model.trim() },
 				body: '',
 			});

@@ -115,7 +115,11 @@ test('a failed Add writes nothing and opens nothing', async () => {
 	);
 	restore();
 	expect(harness.captures.opened).toBeUndefined();
+	expect(harness.folder.getStatus().unsaved).toEqual([]);
+	await harness.folder.flush();
 	expect(expectOk(await harness.folder.tables.captures.list())).toEqual([]);
+	expectOk(await harness.captures.create('Kept'));
+	expect(expectOk(await harness.folder.tables.captures.list())).toHaveLength(1);
 });
 
 test('close may fail an admitted Add before storage starts', async () => {

@@ -41,9 +41,9 @@ export const ConnectionRowError = defineErrors({
 		path,
 		reason,
 	}),
-	/** The save was refused or failed; the file is as it was. */
+	/** The save was refused or its publication could not be confirmed. */
 	SaveFailed: ({ path, reason }: { path: string; reason: string }) => ({
-		message: `${path} was not changed: ${reason}`,
+		message: `${path} could not be saved: ${reason}`,
 		path,
 		reason,
 	}),
@@ -159,9 +159,17 @@ export async function setConnectionRow(
 		});
 	const id = WHISPERING_CONNECTION_IDS[connection];
 	return withConnections(directory, async (folder) => {
-		const { data, error: saveError } = await folder.tables.connections.set(id, {
-			fields,
-		});
+		const table = folder.tables.connections;
+		const acquired = await table.edit(id).refresh();
+		if (acquired.error !== null && acquired.error.name !== 'Missing')
+			return ConnectionRowError.SaveFailed({
+				path: `${directory}/connections/${id}.md`,
+				reason: acquired.error.message,
+			});
+		const { data, error: saveError } =
+			acquired.error?.name === 'Missing'
+				? await table.write(id, { fields })
+				: await table.set(id, { fields });
 		if (saveError !== null)
 			return ConnectionRowError.SaveFailed({
 				path: `${directory}/connections/${WHISPERING_CONNECTION_IDS[connection]}.md`,
@@ -175,7 +183,7 @@ export async function setConnectionRow(
  * `epicenter whispering-connection read|set <transcription|text>`. `read`
  * answers `{"row": <row> | null}`; `set` reads `ConnectionRowSetInput` as
  * JSON on stdin and answers `{"row": <row as sent>}`. A refusal is
- * `{"error", "name"}` and exit 2; the file is as it was. The command awaits
+ * `{"error", "name"}` and exit 2. The command awaits
  * its save before answering. A stop signal may interrupt ordinary work.
  */
 export async function whisperingConnection(

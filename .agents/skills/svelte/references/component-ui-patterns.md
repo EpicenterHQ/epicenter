@@ -248,6 +248,21 @@ when a later read fails or finds deletion. Direct file/table operations share th
 per-path publication lane. Apps coordinate multi-step workflows and check
 disposal before late asynchronous writes.
 
+Every ordinary edit of a row builds on its one working document, whoever
+makes it. Controls call the editor's `change()` or `replaceText()`; an app
+action or a fact the app records, such as a recording's length or a draft
+that finishes, calls `folder.tables.<name>.set()`, which changes the same
+document and saves that exact version. Typing that lands while either saves
+builds on it, so nothing is undone, and none of these needs the control to
+be read-only while it saves. A failed save leaves the change in the
+document, dirty, with its `saveError`, for the person to save again or
+discard; never report a failed `set` as though nothing changed. `set`
+refuses a document that was never acquired: await `edit.refresh()` first
+for a clean or unopened one, since retained text can be stale, and check
+`closing` again right after that await. Use `write()` for a complete
+one-shot document, such as creating a row from a submitted form: it
+publishes once and leaves nothing pending if it fails.
+
 Do not mirror the edit owner's draft in the query cache or a page store.
 `$state` can hold a new-item box, a search, or input that has not been accepted
 by the edit. Invalid source opens as text with its issues and is repaired

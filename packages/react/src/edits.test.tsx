@@ -7,7 +7,7 @@
  * Key behaviors:
  * - A view's subscription starts the editor's first read; it tells awaiting
  *   text, a missing row, and editable content apart
- * - Typing shows at once; another handle's change found by a listing shows
+ * - Typing shows at once; another handle's publication shows
  *   in a clean view, and never replaces held input
  * - The last body replacement in one event determines the input
  * - A reused view follows its path, and the row it left keeps its input
@@ -58,7 +58,7 @@ async function setup() {
 		['bread', 'Bread'],
 	] as const)
 		expectOk(
-			await folder.tables.notes.set(id, {
+			await folder.tables.notes.write(id, {
 				fields: { title, done: false },
 				body: 'one\ntwo\n',
 			}),
@@ -168,7 +168,7 @@ test('a view starts the first read, and tells awaiting text, a missing row and c
 	await until(() => missing.text() === 'Missing');
 });
 
-test('typing shows at once; a listing shows another handle in a clean view and never replaces input', async () => {
+test('typing shows at once; another handle updates a clean view and never replaces input', async () => {
 	const { folder, other } = await setup();
 	const view = await mount(<Title table={folder.tables.notes} id="milk" />);
 	await until(() => view.container.querySelector('input') !== null);
@@ -178,7 +178,10 @@ test('typing shows at once; a listing shows another handle in a clean view and n
 	expectOk(await act(() => folder.tables.notes.edit('milk').save()));
 	expect(view.text()).toContain('Saved');
 	expectOk(
-		await other.tables.notes.set('milk', { fields: { title: 'Theirs' } }),
+		await other.tables.notes.write('milk', {
+			fields: { title: 'Theirs', done: false },
+			body: 'one\ntwo\n',
+		}),
 	);
 	await act(async () => {
 		expectOk(await folder.tables.notes.list());
@@ -186,7 +189,10 @@ test('typing shows at once; a listing shows another handle in a clean view and n
 	await until(() => view.input().value === 'Theirs');
 	await act(async () => type(view.input(), 'Mine again'));
 	expectOk(
-		await other.tables.notes.set('milk', { fields: { title: 'Later' } }),
+		await other.tables.notes.write('milk', {
+			fields: { title: 'Later', done: false },
+			body: 'one\ntwo\n',
+		}),
 	);
 	await act(async () => {
 		expectOk(await folder.tables.notes.list());

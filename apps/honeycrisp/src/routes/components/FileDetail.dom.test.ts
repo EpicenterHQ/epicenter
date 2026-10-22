@@ -384,6 +384,7 @@ test('a title typed before another tab saves publishes the current complete file
 	type(titleOf(target), 'Mine');
 	await tick();
 	const tab = await otherTab();
+	expectOk(await tab.tables.notes.edit('a').refresh());
 
 	expectOk(
 		await tab.tables.notes.set('a', {
@@ -406,6 +407,7 @@ test('a change another tab saved shows in the open note', async () => {
 	const { target, otherTab, settle } = await view();
 	const rich = richOf(target);
 	const tab = await otherTab();
+	expectOk(await tab.tables.notes.edit('a').refresh());
 
 	expectOk(
 		await tab.tables.notes.set('a', {

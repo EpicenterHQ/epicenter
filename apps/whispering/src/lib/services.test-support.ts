@@ -182,14 +182,14 @@ export function withObstructedCreates<TTable extends FolderTable>(
 ): TTable {
 	return {
 		...table,
-		async set(id, change) {
+		async write(id, change) {
 			if (change.body !== '' || failures.creates === 0)
-				return table.set(id, change);
+				return table.write(id, change);
 			failures.creates -= 1;
 			const obstacle = join(directory, `${id}.md`);
 			mkdirSync(obstacle, { recursive: true });
 			try {
-				return await table.set(id, change);
+				return await table.write(id, change);
 			} finally {
 				rmdirSync(obstacle);
 			}
@@ -227,17 +227,23 @@ export function withResultFailures<TTable extends FolderTable>(
 	table: TTable,
 	failures: ResultFailures,
 ): TTable {
+	const refused = () =>
+		Err({
+			name: 'StorageFailed' as const,
+			message: 'Repository save failed: the disk refused the result',
+			cause: new Error('the disk refused the result'),
+		});
 	return {
 		...table,
+		async write(id, change) {
+			if (failures.starts === 0) return table.write(id, change);
+			failures.starts -= 1;
+			return refused();
+		},
 		async set(id, change) {
-			const counter = change.body === '' ? 'starts' : 'answers';
-			if (failures[counter] === 0) return table.set(id, change);
-			failures[counter] -= 1;
-			return Err({
-				name: 'StorageFailed' as const,
-				message: 'Repository save failed: the disk refused the result',
-				cause: new Error('the disk refused the result'),
-			});
+			if (failures.answers === 0) return table.set(id, change);
+			failures.answers -= 1;
+			return refused();
 		},
 	};
 }

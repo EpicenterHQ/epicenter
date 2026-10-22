@@ -114,7 +114,7 @@ test('files and rows saved before close are there after reopening', async () => 
 	const first = await open();
 	expectOk(await first.files.write('readme.md', 'hello'));
 	const stored = expectOk(
-		await first.tables.notes.set('a', {
+		await first.tables.notes.write('a', {
 			fields: { title: 'Milk' },
 			body: 'Body',
 		}),
@@ -191,6 +191,7 @@ test('a schema that does not fit never refuses a save or discards unknown fields
 	const row = expectOk(await first.tables.notes.get('a'))!;
 	expect(row.fields).toEqual({ '10': 'ten', title: 42, extra: 'kept' });
 	expect(row.issues?.map((issue) => issue.kind)).toEqual(['schema']);
+	expectOk(await first.tables.notes.edit('a').refresh());
 	const sent = expectOk(
 		await first.tables.notes.set('a', { fields: { done: 'maybe' } }),
 	);
@@ -217,11 +218,12 @@ test('source with malformed frontmatter stays exact, readable as a file, and rep
 	const row = expectOk(await first.tables.notes.get('b'))!;
 	expect(row.text).toBe(broken);
 	expect(row.issues?.[0]?.kind).toBe('frontmatter');
+	expectOk(await first.tables.notes.edit('b').refresh());
 	// Fields cannot be edited through broken frontmatter; the body can.
 	const refused = await first.tables.notes.set('b', {
 		fields: { title: 'x' },
 	});
-	expect(expectErr(refused).name).toBe('Unparseable');
+	expect(expectErr(refused).name).toBe('InvalidFields');
 	expectOk(await first.tables.notes.set('b', { body: 'New body' }));
 	first.close();
 
@@ -236,7 +238,7 @@ test('source with malformed frontmatter stays exact, readable as a file, and rep
 	second.close();
 });
 
-test('a row set applies its fields to what another writer stored', async () => {
+test('an acquired row set applies its fields after reading another writer', async () => {
 	const first = await open();
 	const second = await open();
 	try {
@@ -248,6 +250,7 @@ test('a row set applies its fields to what another writer stored', async () => {
 				'---\ntitle: outside\n---\nbody\n',
 			),
 		);
+		expectOk(await first.tables.notes.edit('a').refresh());
 		expectOk(
 			await first.tables.notes.set('a', { fields: { title: 'before' } }),
 		);
@@ -265,7 +268,7 @@ test('another handle of the origin hears a committed save, and the saver hears i
 	const b = await open();
 	const heardByA = nextChange(a);
 	const heardByB = nextChange(b);
-	expectOk(await a.tables.notes.set('c', { fields: { title: 'One' } }));
+	expectOk(await a.tables.notes.write('c', { fields: { title: 'One' } }));
 	expect(await heardByA).toEqual({
 		origin: 'this-handle',
 		paths: ['notes/c.md'],
@@ -402,7 +405,9 @@ test('closing from a saving observer releases the handle immediately', async () 
 			closed = true;
 		}
 	});
-	expect(expectErr(await folder.files.write('observed.md', 'kept')).name).toBe('StorageFailed');
+	expect(expectErr(await folder.files.write('observed.md', 'kept')).name).toBe(
+		'StorageFailed',
+	);
 	expect(closed).toBe(true);
 	const reopened = await open();
 	const file = expectOk(await reopened.files.read('observed.md'));
@@ -438,7 +443,7 @@ test('browser writes refuse the same nonportable paths and row IDs as a director
 		);
 	for (const id of ['', 'con', 'a/b', 'a: b'])
 		expect(
-			expectErr(await folder.tables.notes.set(id, { body: 'x' })).name,
+			expectErr(await folder.tables.notes.write(id, { body: 'x' })).name,
 		).toBe('InvalidId');
 	expect(expectOk(await folder.files.list())).toEqual([]);
 	folder.close();
@@ -478,6 +483,7 @@ test('earlier nonportable browser paths remain readable for repair', async () =>
 	});
 	const raw = expectOk(await folder.tables.notes.get('a: b'))!;
 	expect(raw.fields).toEqual({ title: 'Kept' });
+	expectOk(await folder.tables.notes.edit('a: b').refresh());
 	// An existing nonportable row can be repaired and removed, never made.
 	expectOk(await folder.tables.notes.set('a: b', { body: 'Repaired\n' }));
 	expect(
@@ -527,7 +533,7 @@ test('an existing HEAD stays readable but cannot be changed into Git state', asy
 
 test('the automatic opener opens the browser default and refuses a directory in a browser', async () => {
 	const folder = expectOk(await openAutomaticFolder({ tables: { notes } }));
-	expectOk(await folder.tables.notes.set('d', { fields: { title: 'Auto' } }));
+	expectOk(await folder.tables.notes.write('d', { fields: { title: 'Auto' } }));
 	folder.close();
 	const browser = await open();
 	expect(expectOk(await browser.tables.notes.get('d'))?.fields).toEqual({

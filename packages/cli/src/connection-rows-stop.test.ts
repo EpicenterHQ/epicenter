@@ -41,10 +41,10 @@ mock.module(${JSON.stringify(folderModule)}, () => ({
 			...folder,
 			tables: { ...folder.tables, connections: {
 				...table,
-				async set(...args) {
+				async write(...args) {
 					process.stderr.write('SAVE_READY\\n');
 					while (!existsSync(${JSON.stringify(gate)})) await Bun.sleep(1);
-					return table.set(...args);
+					return table.write(...args);
 				},
 			} },
 		} };

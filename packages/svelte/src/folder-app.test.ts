@@ -124,12 +124,18 @@ test('an old late opener cannot steal or retire a replacement FolderApp guard', 
 	globalThis.indexedDB = new IDBFactory();
 	const oldFolder = expectOk(await openFolder({ tables }));
 	const replacementFolder = expectOk(await openFolder({ tables }));
-	cleanup.push(() => oldFolder.close(), () => replacementFolder.close());
+	cleanup.push(
+		() => oldFolder.close(),
+		() => replacementFolder.close(),
+	);
 	const oldOpening = Promise.withResolvers<void>();
 	const oldTarget = document.createElement('div');
 	const replacementTarget = document.createElement('div');
 	document.body.append(oldTarget, replacementTarget);
-	cleanup.push(() => oldTarget.remove(), () => replacementTarget.remove());
+	cleanup.push(
+		() => oldTarget.remove(),
+		() => replacementTarget.remove(),
+	);
 	const oldView = mount(FolderAppHost, {
 		target: oldTarget,
 		props: {
@@ -159,7 +165,10 @@ test.each(['resolve', 'reject'] as const)(
 		globalThis.indexedDB = new IDBFactory();
 		const folder = expectOk(await openFolder({ tables }));
 		const close = spyOn(folder, 'close');
-		cleanup.push(() => close.mockRestore(), () => folder.close());
+		cleanup.push(
+			() => close.mockRestore(),
+			() => folder.close(),
+		);
 		const registration = Promise.withResolvers<void>();
 		nativeWindow.registration = registration.promise;
 		desktop(true);
@@ -185,7 +194,7 @@ test('document departure warns for accepted input until its save lands', async (
 	globalThis.indexedDB = new IDBFactory();
 	const folder = expectOk(await openFolder({ tables, saveAfterMs: 60_000 }));
 	expectOk(
-		await folder.tables.notes.set('milk', {
+		await folder.tables.notes.write('milk', {
 			fields: { title: 'Milk' },
 			body: 'Before',
 		}),
@@ -248,7 +257,10 @@ test('pagehide and hidden visibility flush synchronously without waiting', async
 	window.dispatchEvent(new window.Event('pagehide'));
 	expect(flush).toHaveBeenCalledTimes(1);
 	expect(flush.mock.results[0]?.value).toBeUndefined();
-	const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+	const visibility = Object.getOwnPropertyDescriptor(
+		document,
+		'visibilityState',
+	);
 	try {
 		Object.defineProperty(document, 'visibilityState', {
 			configurable: true,

@@ -271,7 +271,7 @@ test('the draft text box writes nothing after its view is gone', async () => {
 	expect(t.captures.fenced).toBe(false);
 });
 
-test('a failed promotion keeps original writing visible and retry adds it once', async () => {
+test('a failed promotion keeps finalized writing visible and saving again adds it once', async () => {
 	const { t, box } = await openDraft();
 	type(box, draftFile('My original writing'));
 	await t.quiet();
@@ -282,9 +282,13 @@ test('a failed promotion keeps original writing visible and retry adds it once',
 			document.body.textContent?.includes('The capture was not added') ?? false,
 		'the Add failure',
 	);
-	expect(fileField()?.value).toBe(draftFile('My original writing'));
+	expect(fileField()?.value).toContain('My original writing\n\n## Thoughts\n');
+	expect(fileField()?.value).not.toContain('draft: true');
 	restore();
-	click(document, 'Add capture');
+	click(document, 'Save again');
+	await t.quiet();
+	expect(document.body.textContent).not.toContain('The capture was not added');
+	click(document, 'Open as capture');
 	await until(() => field('new-thought') !== null, 'the completed capture');
 	await t.quiet();
 	expect((await t.text(DRAFT))?.match(/^## Thoughts$/gm)).toHaveLength(1);

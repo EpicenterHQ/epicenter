@@ -177,9 +177,9 @@ async function open({
 				),
 				recordings: {
 					...recordings,
-					async set(id, change) {
+					async write(id, change) {
 						if (change.body === '') await beforeRowCreate?.();
-						return recordings.set(id, change);
+						return recordings.write(id, change);
 					},
 				},
 			},
@@ -574,6 +574,7 @@ test('files in an ordinary directory read as they are, extra fields included', a
 
 	// Editing the notes keeps the field this version does not know.
 	const view = whispering.edit('recordings', entry.path);
+	expectOk(await view.refresh());
 	expect(view.content?.body).toBeDefined();
 	view.change({ body: 'My notes, edited\n' });
 	await view.save();
@@ -1133,6 +1134,11 @@ test('recording and transformation files keep their names, and a transcript keep
 	);
 	expect(await whispering.rename(result.path, 'renamed.md')).toBeUndefined();
 	await settle(whispering, context);
+	expectOk(
+		await whispering
+			.edit('transcriptions', 'transcriptions/renamed.md')
+			.refresh(),
+	);
 	expect(
 		whispering.edit('transcriptions', 'transcriptions/renamed.md').content,
 	).toBeDefined();
@@ -1391,3 +1397,13 @@ test.each([false, true])(
 		expect(await Bun.file(join(root, 'unopened.txt')).exists()).toBe(false);
 	},
 );
+
+test('rename reads current bytes rather than clean inactive source', async () => {
+	const { context, whispering, root } = await open();
+	expectOk(await context.folder.files.write('from.txt', 'Earlier text'));
+	expectOk(await context.folder.files.edit('from.txt').refresh());
+	await writeFile(join(root, 'from.txt'), 'Outside text');
+	expect(await whispering.rename('from.txt', 'to.txt')).toBeUndefined();
+	expect(await readFile(join(root, 'to.txt'), 'utf8')).toBe('Outside text');
+	expect(await Bun.file(join(root, 'from.txt')).exists()).toBe(false);
+});

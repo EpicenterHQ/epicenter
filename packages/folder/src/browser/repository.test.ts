@@ -232,7 +232,7 @@ test('table and row-folder writes share the structural collision protection', as
 	const folder = folderOver(repository, { notes: { type: 'object' } });
 	const notes = folder.tables.notes!;
 	try {
-		expectOk(await notes.set('one', { fields: { title: 'Keep row' } }));
+		expectOk(await notes.write('one', { fields: { title: 'Keep row' } }));
 		expect(
 			expectErr(
 				await folder.files.write('notes/one.md/attachment.txt', 'collision'),
@@ -241,7 +241,7 @@ test('table and row-folder writes share the structural collision protection', as
 		expect(expectOk(await notes.get('one'))!.fields).toEqual({
 			title: 'Keep row',
 		});
-		expectOk(await notes.set('one.md', { fields: { title: 'Suffix row' } }));
+		expectOk(await notes.write('one.md', { fields: { title: 'Suffix row' } }));
 		expectOk(await notes.delete('one.md'));
 		expect(expectOk(await notes.get('one.md'))).toBeUndefined();
 		expect(expectOk(await notes.get('one'))!.fields).toEqual({
@@ -254,7 +254,7 @@ test('table and row-folder writes share the structural collision protection', as
 			),
 		);
 		expect(
-			expectErr(await notes.set('two', { fields: { title: 'collision' } }))
+			expectErr(await notes.write('two', { fields: { title: 'collision' } }))
 				.name,
 		).toBe('Occupied');
 		expect(expectOk(await folder.files.list('notes/two.md/'))).toEqual([
@@ -310,12 +310,13 @@ test('direct row sets patch the known row, keep other values, and refuse fields 
 	try {
 		const table = folder.tables.todos!;
 		const first = expectOk(
-			await table.set('one', {
+			await table.write('one', {
 				fields: { title: 'First', done: false, extra: 'untouched' },
 				body: 'Body\n',
 			}),
 		);
 		expect(first.issues).toBeNull();
+		expectOk(await table.edit('one').refresh());
 		const phone = expectOk(await table.set('one', { fields: { done: true } }));
 		expect(phone.fields).toMatchObject({ done: true });
 		const laptop = expectOk(
@@ -345,7 +346,7 @@ test('direct row sets patch the known row, keep other values, and refuse fields 
 		expect(malformed.issues?.[0]?.kind).toBe('frontmatter');
 		expect(
 			expectErr(await table.set('one', { fields: { title: 'repair?' } })).name,
-		).toBe('Unparseable');
+		).toBe('InvalidFields');
 		// The body of a broken header stays editable.
 		expectOk(await table.set('one', { body: 'New body\n' }));
 		expect(await text(repository, 'todos/one.md')).toBe(
@@ -372,7 +373,7 @@ test('row deletion removes the row as stored and keeps adjacent files', async ()
 	const folder = folderOver(repository, { notes: { type: 'object' } });
 	try {
 		const table = folder.tables.notes!;
-		expectOk(await table.set('one', { fields: { title: 'Before' } }));
+		expectOk(await table.write('one', { fields: { title: 'Before' } }));
 		expectOk(
 			await repository.files.write('notes/one/nested/a.txt', 'attachment'),
 		);
@@ -382,6 +383,7 @@ test('row deletion removes the row as stored and keeps adjacent files', async ()
 		expect(
 			await repository.storage.acknowledge(committed.base, committed.head),
 		).toBe(true);
+		expectOk(await table.edit('one').refresh());
 		expectOk(await table.set('one', { fields: { title: 'After' } }));
 		expectOk(await table.delete('one'));
 		expect(expectOk(await repository.files.list('notes/one/'))).toEqual([

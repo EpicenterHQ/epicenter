@@ -26,7 +26,7 @@
 	} = $props();
 
 	const id = $derived(todo.id);
-	// The list's read answered this row's document, so showing it reads nothing.
+	// Tracking the checkbox acquires its own editable source; the list stays passive.
 	const fileEdit = $derived(createFileEdit(folder.tables.todos.edit(id)));
 	const done = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields.done : todo.fields.done);
 	const label = $derived(labelOf(todo));
@@ -46,6 +46,7 @@
 			}
 		}
 
+		disabled={fileEdit.content?.issues !== null}
 		aria-label="{done ? 'Reopen' : 'Complete'} {label}"
 	/>
 	<Button

@@ -255,6 +255,10 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 		[A]: transcript('Alpha.\n'),
 	});
 	await show(whispering, context, 'recordings/one.md');
+	await eventually(() => {
+		flushSync();
+		return target.querySelector('[data-testid="transcript-text"]') !== null;
+	});
 	expect(
 		target.querySelector('[data-testid="transcript-text"]'),
 	).not.toBeNull();

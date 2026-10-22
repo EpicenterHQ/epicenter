@@ -154,10 +154,10 @@ test('a refused add lists nothing and the retry adds it; an add that landed with
 	expect(cached(context.vocab, 'opaque').stage).toBe('new');
 
 	// The save lands, and its answer is lost on the way back.
-	const set = context.folder.tables.entries.set;
-	context.folder.tables.entries.set = async (...args) => {
+	const set = context.folder.tables.entries.write;
+	context.folder.tables.entries.write = async (...args) => {
 		const saved = await set(...args);
-		context.folder.tables.entries.set = set;
+		context.folder.tables.entries.write = set;
 		if (saved.error !== null) return saved;
 		return SaveError.StorageFailed({ cause: new Error('lost') });
 	};
@@ -502,9 +502,7 @@ test('close leaves typing unsaved and refuses input from then on', async () => {
 	).toBe('NotSaved');
 
 	const reopened = await browser.open();
-	expect((await savedWords(reopened)).map((entry) => entry.note)).toEqual([
-		'',
-	]);
+	expect((await savedWords(reopened)).map((entry) => entry.note)).toEqual(['']);
 	await opened[Symbol.asyncDispose]();
 	await browser[Symbol.asyncDispose]();
 });

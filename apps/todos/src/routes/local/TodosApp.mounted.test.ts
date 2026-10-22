@@ -150,7 +150,7 @@ async function onMilk() {
 	freshProfile();
 	const folder = await otherTab();
 	expectOk(
-		await folder.tables.todos.set('milk', {
+		await folder.tables.todos.write('milk', {
 			fields: { title: 'Milk', done: false },
 			body: 'Two litres',
 		}),
@@ -230,7 +230,12 @@ test("another tab's change updates a clean todo without replacing its controls",
 	const notes = get<HTMLTextAreaElement>(NOTES);
 
 	const from = expectOk(await folder.tables.todos.get('milk'))!;
-	expectOk(await folder.tables.todos.set('milk', { body: 'Three litres' }));
+	expectOk(
+		await folder.tables.todos.write('milk', {
+			fields: from.fields,
+			body: 'Three litres',
+		}),
+	);
 	await until(
 		() => get<HTMLTextAreaElement>(NOTES).value === 'Three litres',
 		'the other tab’s notes',
@@ -260,7 +265,13 @@ test('a local whole-source publication wins after another tab changes the file',
 	const notes = get<HTMLTextAreaElement>(NOTES);
 	type(title, 'Oat milk');
 	flushSync();
-	expectOk(await folder.tables.todos.set('milk', { body: 'Three litres' }));
+	const outside = expectOk(await folder.tables.todos.get('milk'))!;
+	expectOk(
+		await folder.tables.todos.write('milk', {
+			fields: outside.fields,
+			body: 'Three litres',
+		}),
+	);
 	expect(title.value).toBe('Oat milk');
 	expect(notes.value).toBe('Two litres');
 	await until(

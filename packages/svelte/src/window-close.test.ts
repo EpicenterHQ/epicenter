@@ -49,11 +49,9 @@ afterEach(async () => {
 /** A fresh profile holding `milk`, opened as a browser tab opens it. */
 async function freshFolder(saveAfterMs = MINUTE) {
 	globalThis.indexedDB = new IDBFactory();
-	const folder = expectOk(
-		await openFolder({ tables: { notes }, saveAfterMs }),
-	);
+	const folder = expectOk(await openFolder({ tables: { notes }, saveAfterMs }));
 	expectOk(
-		await folder.tables.notes.set('milk', {
+		await folder.tables.notes.write('milk', {
 			fields: { title: 'Milk', done: false },
 			body: '',
 		}),

@@ -497,9 +497,9 @@ export function createWhispering(context: WhisperingContext) {
 		if (table === undefined) return true;
 		if (asText.has(path)) return true;
 		const stem = rowIdOf(table, path) as string;
-		const row =
-			editAt(table, path).content ??
-			listed(table)?.find((item) => item.id === stem);
+		const edit = editAt(table, path);
+		const saved = listed(table)?.find((item) => item.id === stem);
+		const row = edit.isDirty ? edit.content : (saved ?? edit.content);
 		return row !== undefined && row.issues !== null;
 	}
 
@@ -573,7 +573,7 @@ export function createWhispering(context: WhisperingContext) {
 				id: string;
 				capture: ActiveCapture;
 				/** Its initial row save, awaited before Stop writes the row's length. */
-				rowSave: ReturnType<typeof folder.tables.recordings.set>;
+				rowSave: ReturnType<typeof folder.tables.recordings.write>;
 		  }
 		| { phase: 'stopping'; id: string; capture: ActiveCapture };
 	let captureState = $state.raw<CaptureState>({ phase: 'idle' });
@@ -701,11 +701,11 @@ export function createWhispering(context: WhisperingContext) {
 				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
 			// A Stop that finishes after context close writes no length.
 			if (context.closing) return undefined;
-			const { data: stored, error } = await folder.tables.recordings.get(id);
-			if (error !== null)
-				return `The recording is saved, but its length could not be written: ${describeError(error)}`;
-			// A row deleted meanwhile stays deleted.
-			if (stored === undefined || context.closing) return undefined;
+			const loaded = await folder.tables.recordings.edit(id).refresh();
+			// Acquiring never discards pending input; a deleted row stays deleted.
+			if (loaded.error?.name === 'Missing' || context.closing) return undefined;
+			if (loaded.error !== null)
+				return `The recording is saved, but its length could not be written: ${describeError(loaded.error)}`;
 			const { error: saveError } = await folder.tables.recordings.set(id, {
 				fields: { durationMs: stopped.durationMs },
 			});
@@ -806,7 +806,7 @@ export function createWhispering(context: WhisperingContext) {
 			id: string,
 			{ title, prompt }: { title: string; prompt: string },
 		) => {
-			const { error } = await folder.tables.transformations.set(id, {
+			const { error } = await folder.tables.transformations.write(id, {
 				fields: { title, model: null },
 				body: prompt,
 			});
@@ -1253,7 +1253,7 @@ export function createWhispering(context: WhisperingContext) {
 				capture: services.capture.source,
 			};
 			const creating = track(
-				() => folder.tables.recordings.set(id, { fields, body: '' }),
+				() => folder.tables.recordings.write(id, { fields, body: '' }),
 				rowPath(RECORDINGS, id),
 			);
 			// Stop awaits this capture's own initial row save.
@@ -1338,7 +1338,7 @@ export function createWhispering(context: WhisperingContext) {
 		readConnections,
 
 		/**
-		 * Copy the held source, or current stored bytes, to a new name and then
+		 * Copy pending local source, or current stored bytes, to a new name and then
 		 * remove the old path. Held text that differs from the copied source
 		 * keeps its source path; identical text is already preserved at the destination.
 		 */
@@ -1362,7 +1362,8 @@ export function createWhispering(context: WhisperingContext) {
 				return TRANSCRIPT_NAME;
 			if (taken(to)) return TAKEN;
 			const sourceEdit = folder.files.edit(path);
-			const captured = sourceEdit.getSnapshot().content;
+			const before = sourceEdit.getSnapshot();
+			const captured = before.isDirty ? before.content : undefined;
 
 			let bytes: Uint8Array;
 			if (captured !== undefined)
@@ -1390,8 +1391,13 @@ export function createWhispering(context: WhisperingContext) {
 			if (copyError !== null) return describeError(copyError);
 			if (context.closing)
 				return `${to} was saved. ${path} was kept because the folder is closing.`;
-			const currentText = sourceEdit.getSnapshot().content?.text;
-			if (currentText !== undefined && currentText !== copiedText)
+			const current = sourceEdit.getSnapshot();
+			const currentText = current.content?.text;
+			if (
+				currentText !== undefined &&
+				currentText !== copiedText &&
+				(current.isDirty || currentText !== before.content?.text)
+			)
 				return `${to} was saved. Different text arrived during the copy, so ${path} was kept with that text.`;
 			const { error: removeError } = await folder.files.delete(path);
 			if (removeError !== null)

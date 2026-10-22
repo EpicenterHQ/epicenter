@@ -32,14 +32,14 @@ test('mounted row and text views follow each other and can revert held input', a
 	cleanup.push(() => folder.close());
 	const initial = 'one\ntwo\nthree\n';
 	expectOk(
-		await folder.tables.notes.set('a', {
+		await folder.tables.notes.write('a', {
 			fields: { title: 'A' },
 			body: initial,
 		}),
 	);
 	expectOk(await folder.files.write('b.md', initial));
 	expectOk(
-		await folder.tables.notes.set('c', {
+		await folder.tables.notes.write('c', {
 			fields: { title: 'C' },
 			body: 'Other address\n',
 		}),
@@ -148,7 +148,7 @@ test('unmounted views leave held input with the folder, and a new mount shows it
 	);
 	cleanup.push(() => folder.close());
 	expectOk(
-		await folder.tables.notes.set('a', {
+		await folder.tables.notes.write('a', {
 			fields: { title: 'A' },
 			body: 'one\n',
 		}),

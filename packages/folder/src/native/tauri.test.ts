@@ -183,10 +183,11 @@ test('a file write is one unconditional put that replaces an overtaking write', 
 	folder.close();
 });
 
-test('a row set with nothing held reads once in its lane and publishes one unconditional put', async () => {
+test('an acquired row set publishes one unconditional put even over a racing outside edit', async () => {
 	const { folder } = await granted({
 		'notes/milk.md': '---\ntitle: Milk\n---\nBody\n',
 	});
+	expectOk(await folder.tables.notes.edit('milk').refresh());
 	let overtaken = false;
 	shell.control.beforeChange = async (change) => {
 		if (overtaken || change.path !== 'notes/milk.md') return;

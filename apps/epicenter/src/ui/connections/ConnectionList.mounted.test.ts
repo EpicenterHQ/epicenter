@@ -51,7 +51,7 @@ describe.skipIf(!browser)('Settings folder context', async () => {
 				saveAfterMs: 20,
 			});
 			expectOk(
-				await folder.tables.connections.set('account', {
+				await folder.tables.connections.write('account', {
 					fields: { kind: 'epicenter', title, model: '' },
 					body: '',
 				}),

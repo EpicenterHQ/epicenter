@@ -10,7 +10,7 @@ export async function seedDraft(
 ) {
 	const id = await draftId(backend, chatId);
 	expectOk(
-		await folder.tables.drafts.set(id, {
+		await folder.tables.drafts.write(id, {
 			fields: {
 				chatId,
 				mode: backend.mode,
@@ -21,7 +21,7 @@ export async function seedDraft(
 			body: '',
 		}),
 	);
-	expectOk(await folder.tables.drafts.get(id));
-	expectOk(await folder.tables.attempts.get(id));
+	expectOk(await folder.tables.drafts.edit(id).refresh());
+	await folder.tables.attempts.edit(id).refresh();
 	return { id };
 }

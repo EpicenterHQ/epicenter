@@ -149,11 +149,11 @@ export function gated<TName extends keyof VocabTables>(
 ) {
 	const wrapped = {
 		...table,
-		async set(...args: Parameters<typeof table.set>) {
+		async write(...args: Parameters<typeof table.write>) {
 			await gate.heldSet;
 			gate.sets++;
 			if (gate.failing) return storageRefused('save');
-			const saved = await table.set(...args);
+			const saved = await table.write(...args);
 			if (!gate.losingReceipt) return saved;
 			gate.losingReceipt = false;
 			return storageRefused('save');

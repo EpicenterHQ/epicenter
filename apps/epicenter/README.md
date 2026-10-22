@@ -50,8 +50,10 @@ page runs `@epicenter/folder`'s own engine over a directory the shell grants
 calls by its window label ([Bundled apps](#bundled-apps)).
 
 The shell serves product bundles and holds no credential: the `epicenter`
-CLI holds the account and every key (ADR-0556). Product pages own unsaved
-input.
+CLI holds the account and every key (ADR-0556). Folder owns product pages' accepted file edits. Settings creates connections
+with a one-shot `table.write`; its mounted connection editor then acquires the
+shared working document for subsequent edits. A failed creation leaves no
+pending autosave, while a failed edit retains its accepted input.
 
 ## The epicenter binary
 

@@ -120,7 +120,7 @@ are not text are listed apart and not opened.
 New capture and Add a thought are explicit submissions: each text box's
 component owns its text (`$state`) until Add. Typing writes nothing, is not
 registered anywhere, and never prompts on reload or close. Add writes it once:
-`captures.create(text)` sets a new `captures/<stem>.md` to `capturedAt` and
+`captures.create(text)` uses `table.write` to publish a new `captures/<stem>.md` to `capturedAt` and
 `composeBody(text).body`; `actions.addThought(text)` changes the open capture's
 row edit, which saves at once. The text box clears only when Add is taken.
 [ADR-0658](../../docs/adr/0658-capture-compositions-are-durable-markdown-records.md)
@@ -138,10 +138,19 @@ without composing its body or updating its date. Use Add to finish it instead.
 Capture writes no new drafts. A nonboolean `draft` value needs repair as text.
 
 `captures.finishDraft(stem)` refuses once closing starts. Promotion composes the editor's current content, including unsaved writing,
-removes `draft`, and sets `capturedAt` in the same publication. A failed
-promotion keeps the original acquired writing for explicit retry. Retrying
-composes that writing once, without appending another Thoughts section. Input accepted
+removes `draft`, and sets `capturedAt` in the shared working document before
+saving. A failed promotion keeps that finalized document and its save error.
+**Save again** publishes it without appending another Thoughts section; the
+original draft remains on disk until publication succeeds. Input accepted
 while promotion is saving stays current and is published afterward.
+
+Creation is a one-shot publication: failure leaves the form's text in the form,
+with no pending document that a later flush can create. Existing captures use
+one working document per path for typing, thoughts, and programmatic field
+changes. `table.set` patches an acquired document and saves its captured
+snapshot; it reports success or failure, retaining an accepted patch if saving
+fails. List and raw reads do not acquire editable text; the mounted edit
+subscription or explicit `refresh()` does.
 
 ## How it is wired
 

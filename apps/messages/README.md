@@ -53,6 +53,14 @@ show the latest message instead. An unresolved attempt says **Check send**, reta
 from the next composition. Only drafts matching
 the current demo/live mode and connection profile are shown.
 
+The composer subscription acquires text; listing drafts does not populate the
+working documents. Typing, programmatic clearing, and checked recovery edit
+that same accepted document. A save publishes a captured snapshot and returns
+success or failure; failure keeps the accepted change pending. If clearing
+fails during send preparation, the empty composer remains pending, nothing is
+sent, and the durable attempt retains the submitted body for checked recovery.
+Those attempt files are one-shot writes outside composer autosave.
+
 `createQuery(() => context.queries.rows('drafts'))` discovers the saved Markdown
 files. Tracked `createFileEdit` adapters supply their current frontmatter and
 body, and a derived map joins previews to conversations by `chatId`. The query

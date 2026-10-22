@@ -45,7 +45,10 @@
 	// svelte-ignore state_referenced_locally
 	const sourceEdit = notes.folder.tables.notes.edit(noteIdOf(path) ?? '');
 	const shownNote = $derived(fileEdit.content?.issues === null ? fileEdit.content : undefined);
-	/** Edits wait once the notes are closing, and while this file is deleted. */
+	/**
+	 * Edits wait once the notes are closing. Retained text stays editable
+	 * after a delete or failed read; `FileDetail` shows why beside it.
+	 */
 	const locked = $derived(notes.fenced);
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
@@ -57,7 +60,7 @@
 	}
 
 	/** Set fields of the note and save at once. */
-	const set = (fields: Partial<NoteFields>) => refusal(notes.patchNote(path, fields));
+	const set = async (fields: Partial<NoteFields>) => refusal(await notes.patchNote(path, fields));
 
 	/** A folder's option value. No folder is the empty value, so a folder id never is. */
 	const optionOf = (id: string | null) => (id === null ? '' : `folder:${id}`);
@@ -65,6 +68,9 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
+	{#if fileEdit.content !== undefined && fileEdit.loadError}
+		<p class="px-3 py-2 text-sm text-destructive" role="alert">{fileEdit.loadError.message} Your previous text is kept.</p>
+	{/if}
 	{#if shownNote !== undefined}
 		{@const row = shownNote}
 		{@const folderId = row.fields.folderId}

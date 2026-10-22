@@ -217,10 +217,13 @@ export function createRuns({
 					if (late !== undefined) return Err(late);
 					if (target.recording !== undefined && deleting.has(target.recording))
 						return Err(BEING_DELETED);
-					const { error } = await folder.tables[target.table].set(target.stem, {
-						fields,
-						body: '',
-					});
+					const { error } = await folder.tables[target.table].write(
+						target.stem,
+						{
+							fields,
+							body: '',
+						},
+					);
 					return error === null ? Ok(undefined) : Err(describeError(error));
 				} catch (cause) {
 					// The folder went away.
@@ -232,13 +235,17 @@ export function createRuns({
 		return begun;
 	}
 
-	/** Capture the acquired source; only an unacquired input needs a read. */
+	/** Capture pending input, or refresh clean source before preparing a request. */
 	async function currentContent<Schema extends TSchema>(
 		edit: FileEdit<Schema>,
 	) {
-		const acquired = edit.getSnapshot().content;
-		if (acquired !== undefined) return Ok(acquired);
+		const snapshot = edit.getSnapshot();
+		if (snapshot.isDirty && snapshot.content !== undefined)
+			return Ok(snapshot.content);
 		const { error } = await edit.refresh();
+		// A retained document remains usable as an explicitly selected input.
+		if (error?.name === 'Missing' && snapshot.content !== undefined)
+			return Ok(snapshot.content);
 		if (error !== null) return Err(describeError(error));
 		const content = edit.getSnapshot().content;
 		return content === undefined
@@ -279,11 +286,12 @@ export function createRuns({
 	 */
 	async function fill(target: Target, body: string) {
 		try {
-			const { data: stored, error } = await folder.tables[target.table].get(
-				target.stem,
-			);
-			if (error !== null) return describeError(error);
-			if (stored === undefined || refused() !== undefined) return undefined;
+			const loaded = await folder.tables[target.table]
+				.edit(target.stem)
+				.refresh();
+			if (loaded.error?.name === 'Missing' || refused() !== undefined)
+				return undefined;
+			if (loaded.error !== null) return describeError(loaded.error);
 			const { error: writeError } = await folder.tables[target.table].set(
 				target.stem,
 				{
@@ -478,15 +486,14 @@ export function createRuns({
 		).find((name) => rowIdOf(name, path) !== undefined);
 		if (table === undefined) return Err(`${path} is not a result.`);
 		const stem = rowIdOf(table, path) as string;
-		const { data: stored, error } = await currentContent(
-			folder.tables[table].edit(stem),
-		);
-		if (error !== null) return Err(error);
-		// The result must still have its durable record before sending again.
-		const persisted = await folder.tables[table].get(stem);
-		if (persisted.error !== null) return Err(describeError(persisted.error));
-		if (persisted.data === undefined)
+		// A retry requires a durable record, even when its editor retains text.
+		const edit = folder.tables[table].edit(stem);
+		const loaded = await edit.refresh();
+		if (loaded.error?.name === 'Missing')
 			return Err(`${path} is no longer in the folder.`);
+		if (loaded.error !== null) return Err(describeError(loaded.error));
+		const stored = edit.getSnapshot().content;
+		if (stored === undefined) return Err('This file has no editable text.');
 		if (stored.issues !== null)
 			return Err(
 				`${path} needs repair before it runs again: ${unread(stored)}`,

@@ -23,7 +23,7 @@
  * - An answer whose write fails is written again while the page lives; a row
  *   already deleted when checked is not written
  * - An answer publishes into the current body and replaces earlier body text
- * - Requests capture valid held source, reading only when unacquired; invalid
+ * - Requests capture pending input or refresh clean acquired source; invalid
  *   transcript source or a deleted recording refuses
  * - A recording cannot be deleted while a request for it runs, including work
  *   that began after the deletion was confirmed
@@ -879,15 +879,14 @@ async function fillRace(typed: string) {
 	const { output } = await newestResult(whispering, context, transcript.stem);
 	const path = join(root, output.path);
 	const table = folder.tables.transformation_runs;
-	const get = table.get;
+	const set = table.set;
 	let filled = false;
-	(table as { get: typeof get }).get = async (stem) => {
-		const read = await get(stem);
+	table.set = async (stem, change) => {
 		if (stem === output.stem && !filled) {
 			filled = true;
 			await writeFile(path, `${await readFile(path, 'utf8')}${typed}`);
 		}
-		return read;
+		return set(stem, change);
 	};
 
 	answer.resolve(Ok({ text: 'from the endpoint' }));
@@ -941,10 +940,16 @@ async function openHoldingReads(
 		folder: replaceTables(test.folder, {
 			[held]: {
 				...table,
-				async get(stem: string) {
-					reads.waiting += 1;
-					await reads.hold;
-					return table.get(stem);
+				edit(stem: string) {
+					const edit = table.edit(stem);
+					return {
+						...edit,
+						async refresh() {
+							reads.waiting += 1;
+							await reads.hold;
+							return edit.refresh();
+						},
+					};
 				},
 			},
 		}),
@@ -1075,4 +1080,31 @@ test('a transformation uses clean retained recipe and transcript source without 
 	expect(await Bun.file(join(root, recipe.path)).exists()).toBe(false);
 	expect(input.getSnapshot().isDirty).toBe(false);
 	expect(instructions.getSnapshot().isDirty).toBe(false);
+});
+
+test('Run again refreshes clean inactive result text before deciding to contact the endpoint', async () => {
+	const { context, whispering, root, transformed } = await open({
+		transform: async () =>
+			TransformationError.Rejected({
+				url: 'http://127.0.0.1:18080/v1/chat/completions',
+				status: 429,
+				detail: 'wait',
+			}),
+	});
+	const { transcript } = await transcribed(whispering, context, root);
+	const recipe = await cleanupProfile(whispering, context);
+	expect(
+		await whispering.transform(transcript.path, recipe.path),
+	).toBeUndefined();
+	const { output } = await newestResult(whispering, context, transcript.stem);
+	expectOk(
+		await context.folder.tables.transformation_runs.edit(output.stem).refresh(),
+	);
+	const path = join(root, output.path);
+	await writeFile(path, `${await readFile(path, 'utf8')}Answered outside.\n`);
+	expect(await whispering.runAgain(output.path)).toContain(
+		'already has its answer',
+	);
+	expect(transformed).toHaveLength(1);
+	expect(await readFile(path, 'utf8')).toContain('Answered outside.');
 });

@@ -7,13 +7,17 @@
  * saved when its text is on this device.
  */
 import type { FolderStatus, ReadError, SaveError } from '@epicenter/folder';
-import type { ActionError } from '@epicenter/folder/edits';
+import type {
+	ActionError,
+	ChangeError,
+	LoadError,
+} from '@epicenter/folder/edits';
 import type { StatusLine } from '@epicenter/svelte/status-line';
 import { extractErrorMessage } from 'wellcrafted/error';
 
 /** What a person is told about a save, read, or delete that failed. */
 export function describeFailure(
-	error: SaveError | ReadError | ActionError,
+	error: SaveError | ReadError | ActionError | ChangeError | LoadError,
 ): string {
 	switch (error.name) {
 		case 'StorageFailed':

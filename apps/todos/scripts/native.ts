@@ -55,7 +55,7 @@ try {
 			const title = args.join(' ').trim();
 			if (title === '') throw new Error('create needs a title');
 			const id = crypto.randomUUID();
-			const result = await folder.tables.todos.set(id, {
+			const result = await folder.tables.todos.write(id, {
 				fields: { title, done: false },
 				body: '',
 			});
@@ -70,8 +70,9 @@ try {
 		case 'complete': {
 			const id = args[0];
 			if (id === undefined) throw new Error('complete needs an id');
-			const read = await folder.tables.todos.get(id);
-			if (read.error !== null || read.data === undefined) {
+			const edit = folder.tables.todos.edit(id);
+			const read = await edit.refresh();
+			if (read.error !== null || edit.getSnapshot().content === undefined) {
 				exitCode = 1;
 				print({ error: read.error?.message ?? `No todo named ${id}` });
 				break;

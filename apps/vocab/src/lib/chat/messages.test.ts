@@ -302,7 +302,7 @@ test('a message file that cannot be read is reported and left as it is, and two 
 	expectOk(await store.set(question.id, question));
 	// A second file holding the same message, as an import or another program can leave.
 	expectOk(
-		await folder.tables.messages.set('chat-a.zz-copy', {
+		await folder.tables.messages.write('chat-a.zz-copy', {
 			fields: { chat: 'chat-a', message: question },
 			body: '',
 		}),

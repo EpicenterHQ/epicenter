@@ -878,3 +878,4 @@ When you add an ADR, add its row here.
 | [0671](0671-the-launcher-lists-directories-from-all-current-references.md) | The launcher lists directories from all current references | Accepted (amends 0537, 0641, and 0670) |
 | [0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) | Native app defaults are fixed reverse-DNS children of one library | Proposed (amends 0670 and 0671) |
 | [0674](0674-standalone-apps-release-independently-from-one-monorepo.md) | Standalone apps release independently from one monorepo | Accepted |
+| [0676](0676-structured-edits-share-the-acquired-working-document.md) | Structured edits share the acquired working document | Accepted (amends 0668) |

@@ -120,7 +120,10 @@
 			<Alert.Title>Your edit is not saved</Alert.Title>
 			<Alert.Description>{describeFailure(fileEdit.saveError)} Your edit is still here.</Alert.Description>
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-				<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+				<Button size="sm" variant="outline" onclick={async () => {
+					const saved = await fileEdit.save();
+					if (saved.error === null) finishDraft.reset();
+				}}>Save again</Button>
 				<Button size="sm" variant="outline" onclick={() => copy(text, 'Your text')}>Copy your text</Button>
 				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 			</div>

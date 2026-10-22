@@ -16,7 +16,7 @@ Choose one to three saved expressions in Words and start a chat. Vocab saves the
 
 ### Editing a word
 
-Every word's note and stage can be changed at once; there is no word to open first. A word's note and stage are its draft, held by the folder (`folder.tables.entries.edit(id)`) apart from the list. A stage press, in Words or in a chat's focus list, is saved right away. A typed note is saved a second after the last keystroke, even after the card goes away. FolderApp also sends pending input when the page is hidden; a forced quit can lose input that has not saved, including older input whose save failed. A draft holds every field typed since the word last saved, so a stage press also saves the note typed just before it. One word's saves run one at a time. A read that lands while a draft is held never replaces it.
+Every word's note and stage can be changed at once; there is no word to open first. A word's note and stage are its working document, held by the folder (`folder.tables.entries.edit(id)`) apart from the list. A stage press, in Words or in a chat's focus list, is saved right away. A typed note is saved a second after the last keystroke, even after the card goes away. FolderApp also sends pending input when the page is hidden; a forced quit can lose input that has not saved, including older input whose save failed. A draft holds every field typed since the word last saved, so a stage press also saves the note typed just before it. One word's saves run one at a time. A read that lands while a draft is held never replaces it.
 
 The editor holds one source, including fields that were not edited. Outside
 observations do not replace pending input. Saving publishes that whole source;
@@ -48,6 +48,14 @@ may recreate the path. A failed deletion retains pending input.
 Leaving the page while the Folder has an accepted change still saving is cancelled; for a reload or a closed tab, the browser asks first. Page hide calls best-effort `flush()`. Teardown releases synchronously without submitting input or waiting; confirmed departure accepts losing unfinished work.
 
 Vocab records no versions and offers no "Save version" or Sync.
+
+New words, chats, and finished message records use `table.write` to publish
+complete documents once. Failure leaves retry data with the submitting form or
+message workflow, without a pending document that autosave can publish later.
+Ordinary note and stage changes share the acquired word document; programmatic
+`table.set` uses the same accepted-input and publication behavior as
+`change()` followed by `save()`. Publication success does not imply that newer
+input has also saved.
 
 ### Saving a phrase
 
@@ -98,7 +106,7 @@ A message's file is named by its chat and its ID. A save reads that file first a
 
 ## Development
 
-Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks. The tests run the real modules over the real local folder on an in-memory IndexedDB (`fake-indexeddb`, loaded from `@epicenter/svelte`'s install). Words, chats, and every save go through the local folder context `<FolderApp>` builds (`getFolder()`): one TanStack Query cache whose table reads the folder's `onChange` marks stale, and one close when the page goes away. The folder holds each word as stored and its draft (`folder.tables.entries.edit(id)`), which each card reads with `createFileEdit(folder.tables.entries.edit(id))` from `@epicenter/svelte/edits`; the list's reads keep it current. `src/lib/vocab.svelte.ts` builds Vocab over that context. Close releases synchronously without submitting input or waiting for writes, word hashing, or queued chat turns. Callers needing durable bytes await their actual write or save. `src/lib/entries.svelte.ts` holds the words and each word's draft, `src/lib/repair.svelte.ts` the repair's text, typed through the folder's edit of the file (`createFileEdit(folder.tables.entries.edit(id))`), and `src/lib/chat/chats.ts` the chat list and each chat's turn of message saves. `bun run --cwd apps/vocab test` also runs `test:svelte`, which mounts the real word card in jsdom under the browser build of Svelte; it shows what delivered events do, not layout, focus, or IME.
+Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks. The tests run the real modules over the real local folder on an in-memory IndexedDB (`fake-indexeddb`, loaded from `@epicenter/svelte`'s install). Words, chats, and every save go through the local folder context `<FolderApp>` builds (`getFolder()`): one TanStack Query cache whose table reads the folder's `onChange` marks stale, and one close when the page goes away. The folder holds each word as stored and its draft (`folder.tables.entries.edit(id)`), which each card reads with `createFileEdit(folder.tables.entries.edit(id))` from `@epicenter/svelte/edits`; the card's edit subscription acquires its text and follows file notifications. Lists and raw reads do not acquire editable text. `src/lib/vocab.svelte.ts` builds Vocab over that context. Close releases synchronously without submitting input or waiting for writes, word hashing, or queued chat turns. Callers needing durable bytes await their actual write or save. `src/lib/entries.svelte.ts` holds the words and each word's draft, `src/lib/repair.svelte.ts` the repair's text, typed through the folder's edit of the file (`createFileEdit(folder.tables.entries.edit(id))`), and `src/lib/chat/chats.ts` the chat list and each chat's turn of message saves. `bun run --cwd apps/vocab test` also runs `test:svelte`, which mounts the real word card in jsdom under the browser build of Svelte; it shows what delivered events do, not layout, focus, or IME.
 
 ## Changed promises
 

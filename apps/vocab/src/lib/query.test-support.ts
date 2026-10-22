@@ -44,9 +44,23 @@ export function observe(vocab: Vocab) {
 		new QueryObserver(vocab.queryClient, vocab.entries.entriesQuery()),
 		new QueryObserver(vocab.queryClient, vocab.chats.chatsQuery()),
 	];
-	const stops = observers.map((observer) => observer.subscribe(() => {}));
+	const edits = new Map<string, () => void>();
+	const stops = observers.map((observer, index) =>
+		observer.subscribe((result) => {
+			if (index !== 0 || !Array.isArray(result.data)) return;
+			for (const row of result.data) {
+				if (edits.has(row.id)) continue;
+				const edit = vocab.folder.tables.entries.edit(row.id);
+				edits.set(
+					row.id,
+					edit.subscribe(() => {}),
+				);
+			}
+		}),
+	);
 	return () => {
 		for (const stop of stops) stop();
+		for (const stop of edits.values()) stop();
 	};
 }
 
@@ -58,7 +72,11 @@ export async function quiet(vocab: Vocab) {
 	const idle = () =>
 		!vocab.folder.getStatus().saving &&
 		!vocab.entries.repair.view()?.isSaving &&
-		vocab.queryClient.isFetching() === 0;
+		vocab.queryClient.isFetching() === 0 &&
+		rows(vocab).every((row) => {
+			const snapshot = vocab.folder.tables.entries.edit(row.id).getSnapshot();
+			return snapshot.content !== undefined || snapshot.loadError !== undefined;
+		});
 	for (let tries = 0; tries < 400; tries++) {
 		if (idle()) {
 			await Bun.sleep(0);

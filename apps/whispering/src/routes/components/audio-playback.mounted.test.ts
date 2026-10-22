@@ -39,6 +39,10 @@ for (const view of ['home', 'detail', 'file'] as const) {
 		await quiet(context);
 		flushSync();
 
+		await eventually(() => {
+			flushSync();
+			return app.target.textContent?.includes('Recording…') === true;
+		});
 		expect(app.target.querySelector('audio') === null).toBe(true);
 		expect(app.target.textContent).toContain('Recording…');
 		expect(app.reads).toEqual([]);

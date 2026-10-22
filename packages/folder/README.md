@@ -29,11 +29,13 @@ const { data: folder, error } = await openFolder({ tables: { notes } });
 if (error !== null) return show(error.message);
 
 const stop = folder.onChange((change) => refresh(change.paths)); // subscribe, then read
-const saved = await folder.tables.notes.set('milk', { fields: { title: 'Milk' } });
-if (saved.error !== null) return show(saved.error.message);      // nothing was saved
+const saved = await folder.tables.notes.write('milk', { fields: { title: 'Milk' } });
+if (saved.error !== null) return show(saved.error.message);      // publication was not confirmed
 
 // The folder's editor of one path, interpreted through the notes schema.
 const fileEdit = folder.tables.notes.edit('milk');
+const acquired = await fileEdit.refresh();
+if (acquired.error !== null) return show(acquired.error.message);
 const stopEditing = fileEdit.subscribe((snapshot) => render(snapshot)); // starts the first read
 const changed = fileEdit.change({ fields: { done: true }, body: 'Two litres\n' });
 if (changed.error !== null) return show(changed.error.message); // accepted in memory; autosave follows
@@ -86,7 +88,7 @@ the saved files.
 | Member | Contract |
 | --- | --- |
 | `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, content)`; `delete(path)`; `edit(path, schema?)`, the path's editor. |
-| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, change)`, `delete(id)`, and `edit(id)`, the path's editor through the table schema. Adjacent files are available through `folder.files`. |
+| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, change)`, `write(id, document)`, `delete(id)`, and `edit(id)`, the path's editor through the table schema. Adjacent files are available through `folder.files`. |
 | `onChange(listener)` | Runs after a write commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A write of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
 | `getStatus()`, `onStatusChange(listener)` | `{ saving, savingPaths, storageFailure, unsaved, failures, closing }`: whether writes or deletes are unsettled, and their paths; the last storage failure; the paths holding accepted input; held input whose last publication failed, as `{ path, error }`; whether close was called. The text lives in the editor snapshot. |
 | `flush()` | Best-effort submission of held input no admitted command owns, failed input included. Returns nothing and does not wait. |
@@ -130,7 +132,7 @@ each `{ kind, message, path, line? }`:
 | `not-text` | is not UTF-8 text without NUL |
 
 A schema only interprets. It never refuses a save, and unknown fields,
-comments, and repairable frontmatter survive every save. A row that does not
+comments, and repairable frontmatter survive field and body edits. A row that does not
 fit is read, shown, and repaired, not dropped. `list()` reads every `.md`
 file directly in the table's directory; a missing directory is an empty
 table, and reading creates nothing.
@@ -146,13 +148,18 @@ from, and the last one to land wins.
   byte-order mark; a byte array is copied when the method is called.
 - `files.delete(path)` removes the file. A file that is not there is
   already deleted, which is success.
-- `tables.<name>.set(id, { fields?, body? })` applies the change to the row
-  text held at the call, including unsaved input, and answers the row it
-  stored. With no held text, it reads and composes inside the path's lane,
-  after earlier commands. `undefined` removes a field; `body` replaces the
-  body. The composed whole file is published unconditionally, so another
-  writer's changes may be replaced. A field edit of a row whose frontmatter
-  does not parse is `Unparseable`; a body edit lands.
+- `tables.<name>.set(id, { fields?, body? })` changes the acquired working
+  document immediately and publishes its exact captured text. It returns
+  `Result<Row, ChangeError | SaveError>`: `NoContent` refuses before acquisition;
+  accepted patches remain pending with `saveError` after publication fails.
+  `undefined` removes a field; `body` replaces the body. Later typing builds on
+  the accepted patch. A field edit of broken frontmatter is `InvalidFields`;
+  a body edit can still land. The schema never refuses a save.
+- `tables.<name>.write(id, { fields?, body? })` publishes a complete new row,
+  creating or replacing the file unconditionally. Omitted fields and body are
+  empty, and the id must be nonempty. It returns `Result<Row, SaveError>` with the exact published row and
+  accepts no autosave input on failure. Use this for a form's new-file submission;
+  keep the same chosen id for retry. It has no create-only or conflict guard.
 - `tables.<name>.delete(id)` removes only the row file. Adjacent files stay.
 
 Every write and delete of a path through one handle, the editors' included,
@@ -161,10 +168,14 @@ different paths run side by side. Sync and history keep their own
 conditional publication (`write.ts`, `git/history.ts`), which merges by the
 shared content rules (`shared/merge.ts`, ADR-0622).
 
-A direct command acknowledges only the input it captured, after success.
-Failure leaves that original input held, never installs the command's payload
-as input, and returns its own error. Any autosave the command interrupted resumes
-with the original input; the command's failed payload is never retried.
+A raw write, row `write`, or delete acknowledges only the input it captured,
+after success. Failure leaves that original input held and never accepts the
+replacement payload as input; an interrupted autosave resumes with the original
+input. A row `set` shares the editor's input workflow: it accepts its patch,
+captures it, and admits publication before observers can change the document.
+Success confirms that exact snapshot, even if newer input is already pending.
+Failure retains the accepted patch for explicit save or flush, without an
+unbounded automatic retry.
 
 | `SaveError` | When |
 | --- | --- |
@@ -172,7 +183,7 @@ with the original input; the command's failed payload is never retried.
 | `Occupied` | A file stands where a directory is needed, or the reverse. |
 | `CaseTwin` | A new path that differs from a stored one only by case. |
 | `NotText` | Text with NUL or unpaired surrogates, or a row edit of a file that is not text. |
-| `Unparseable` | A field edit of a row whose frontmatter does not parse. |
+| `Unparseable` | A complete row's fields cannot be serialized. Structured edits instead refuse `InvalidFields`. |
 | `StorageFailed` | Publication could not be confirmed, with its reason. A lost reply may follow a completed write. |
 
 A failed save returns its error and keeps accepted input available for retry.
@@ -217,8 +228,13 @@ frozen object until something in it changes. `subscribe(listener)` calls the
 listener with the current snapshot at once, then with each new one, and the
 first subscription reads the file when nothing has been read yet or it
 changed while nobody watched. Unsubscribing cancels no accepted work.
-`refresh()` reads now, after the path's admitted writes, and answers
-`Result<void, LoadError>`.
+`refresh()` reads after the path's admitted writes and answers
+`Result<void, LoadError>` with what the first read to start after the call
+found; a read already running never answers it, and a file that keeps
+changing cannot hold it off. A read overtaken by a newer change still shows
+its text when that is newer than anything installed, superseding an older
+`loadError`, and subscribed editors read again until one applies. If the folder closes before a refresh answers, it reports `ReadFailed`
+when its pending I/O returns. Close neither waits for nor cancels that I/O.
 
 `content` is the latest accepted input, or the last text read. Its `text` is
 the exact source; `fields`, `body` and `issues` interpret it through the
@@ -227,6 +243,15 @@ content with no `loadError` means text is awaited; absent with a `loadError`,
 acquisition failed. Once acquired, text stays for the folder's life: after
 unmounting, a delete, a binary replacement, or a failed read, each reported
 as the latest `loadError`. A successful text read clears it; input does not.
+
+Lists, row gets, and raw file reads return stored data without acquiring or
+updating working documents. Only an editor's own read or a successful command
+of this handle updates its known text. Each visible editor therefore reads its
+path on first subscription, even after a list returned the row. Acquire and
+await `edit.refresh()` before a one-off `set` on an unopened row or an inactive
+clean editor: retained text may be stale even when present. Refresh preserves
+dirty input. Keep a subscribed editor for interactive use. Fresh list rows take
+precedence over clean inactive snapshots; only dirty input overrides them.
 
 `replaceText(text)` accepts complete source, even before the first read.
 `change({ fields?, body? })` patches the current text, local or read, and
@@ -310,8 +335,8 @@ descendants. Receiving a hint never causes a write.
 `folder.refresh(paths?)` reconciles current editor readers and marks inactive
 sources stale. Omitted paths mean all, `[]` means none. Manual refresh and window
 visibility reconciliation complement best-effort notifications without polling.
-Table reads acquire parsed source before resolving, while raw file reads leave
-passive editor handles unacquired for initial size or media classification.
+Table and raw file reads leave working documents untouched. Visible editor
+subscriptions acquire their own source; save-status readers acquire no content.
 
 Svelte's `createFileEdit(edit)` exposes the snapshot as tracked getters;
 React's `useFileEdit(edit)` answers the snapshot through

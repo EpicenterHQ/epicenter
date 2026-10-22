@@ -6,12 +6,11 @@
  * local folder (`local-folder.ts`) and the native directory folder
  * (`native/engine.ts`) each supply the engine: raw files and typed row reads.
  */
-import { type TSchema as Schema, Type } from 'typebox';
+import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
+	type ChangeError,
 	createEditOwner,
-	type Observation,
-	observationOf,
 	textProblem,
 } from './edit-owner.js';
 import type {
@@ -25,10 +24,10 @@ import type {
 	RowChange,
 } from './folder.js';
 import { callObserver } from './observer.js';
-import { readablePath, rowAddressProblem } from './paths.js';
+import { readablePath } from './paths.js';
 import { ownFields } from './shared/content/canonical.js';
 import { SaveError } from './shared/errors.js';
-import { changeMarkdown, readMarkdown } from './shared/markdown-codec.js';
+import { changeMarkdown } from './shared/markdown-codec.js';
 import { readRow } from './shared/row.js';
 
 /** An engine's files: raw reads and unconditional writes, unordered and untracked. */
@@ -40,26 +39,11 @@ export type EngineTable<TSchema extends Schema = Schema> = Pick<
 	'list' | 'get'
 >;
 
-const anyFields = Type.Record(Type.String(), Type.Unknown());
-
 /** Whether `id` names an existing row file this table can address. */
 const readableId = (table: string, id: string) =>
 	typeof id === 'string' &&
 	!id.includes('/') &&
 	readablePath(`${table}/${id}.md`);
-
-/** Whether `id` may name a new row: one nonempty, portable segment. */
-const validId = (table: string, id: string) =>
-	typeof id === 'string' &&
-	id !== '' &&
-	id.isWellFormed() &&
-	rowAddressProblem(table, id) === undefined;
-
-/** What a row read found, as an observation of its file. */
-const rowObservation = (row: Pick<Row, 'text' | 'issues'>): Observation =>
-	row.issues?.some((issue) => issue.kind === 'not-text')
-		? { kind: 'not-text' }
-		: { kind: 'text', text: row.text };
 
 /** What an engine gives the handle: its files, tables, changes, and release. */
 export type FolderEngine = {
@@ -144,29 +128,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		},
 		async read(path) {
 			assertOpen();
-			const at = edits.beginObservation();
-			try {
-				const result = await engine.files.read(path);
-				// A passive editor's file is never decoded here; an engaged one learns it.
-				if (edits.wantsRaw(path)) {
-					let observation: Observation;
-					if (result.error !== null)
-						observation = { kind: 'failed', cause: result.error };
-					else if (result.data === undefined) observation = { kind: 'missing' };
-					else
-						try {
-							observation = observationOf(
-								new Uint8Array(await result.data.content.arrayBuffer()),
-							);
-						} catch (cause) {
-							observation = { kind: 'failed', cause };
-						}
-					edits.readRaw(path, at, observation);
-				}
-				return result;
-			} finally {
-				edits.endObservation();
-			}
+			return engine.files.read(path);
 		},
 		write(path, content) {
 			assertOpen();
@@ -186,46 +148,17 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			const rowPath = (id: string) => `${name}/${id}.md`;
 			const schema = tables[name] as Schema;
 			const operations: Folder<Record<string, Schema>>['tables'][string] = {
-				// Every row read tells the owner the exact text it found, before
-				// it answers, ordered against writes and changes meanwhile.
 				async list() {
 					assertOpen();
-					const at = edits.beginObservation();
-					try {
-						const result = await table.list();
-						if (result.error === null)
-							edits.listed(
-								`${name}/`,
-								at,
-								result.data.map((row) => ({
-									path: rowPath(row.id),
-									observation: rowObservation(row),
-								})),
-							);
-						return result;
-					} finally {
-						edits.endObservation();
-					}
+					return table.list();
 				},
 				async get(id) {
 					assertOpen();
-					const at = edits.beginObservation();
-					try {
-						const result = await table.get(id);
-						if (readableId(name, id))
-							edits.got(
-								rowPath(id),
-								at,
-								result.error !== null
-									? { kind: 'failed', cause: result.error }
-									: result.data === undefined
-										? { kind: 'missing' }
-										: rowObservation(result.data),
-							);
-						return result;
-					} finally {
-						edits.endObservation();
-					}
+					return table.get(id);
+				},
+				write(id, change) {
+					assertOpen();
+					return writeRow(id, change);
 				},
 				set(id, change) {
 					assertOpen();
@@ -240,15 +173,26 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				},
 				edit: (id) => edits.edit(rowPath(id), tables[name]),
 			};
-			/**
-			 * Compose `change` over the row's held text, or over the file read
-			 * in the lane when nothing is held, and publish it.
-			 */
+			/** Patch acquired text, retaining accepted edits when publication fails. */
 			async function setRow(
 				id: string,
 				change: RowChange,
-			): Promise<Result<Row, SaveError>> {
+			): Promise<Result<Row, ChangeError | SaveError>> {
 				if (!readableId(name, id)) return SaveError.InvalidId({ id });
+				const saved = await edits.set(rowPath(id), change);
+				if (saved.error === null) return Ok(readRow(id, saved.data, schema));
+				return saved.error.name === 'InvalidPath'
+					? SaveError.InvalidId({ id })
+					: saved;
+			}
+
+			/** Publish a complete replacement without accepting a pending edit. */
+			async function writeRow(
+				id: string,
+				change: RowChange,
+			): Promise<Result<Row, SaveError>> {
+				if (id === '' || !readableId(name, id))
+					return SaveError.InvalidId({ id });
 				if (
 					change.body !== undefined &&
 					(typeof change.body !== 'string' ||
@@ -257,23 +201,17 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 					return SaveError.NotText();
 				const owned = ownChange(change);
 				if (owned.error !== null) return owned;
-				const saved = await edits.compose(rowPath(id), (text) => {
-					if (text === null && !validId(name, id))
-						return SaveError.InvalidId({ id });
-					const changed = changeMarkdown(
-						text === null ? null : readMarkdown(text, anyFields),
-						owned.data,
-					);
-					return changed.error === null
-						? Ok(changed.data.text)
-						: SaveError.Unparseable({ reason: changed.error.reason });
-				});
-				if (saved.error === null) return Ok(readRow(id, saved.data, schema));
-				// A name only some disks hold is never made as a new row.
+				const changed = changeMarkdown(null, owned.data);
+				if (changed.error !== null)
+					return SaveError.Unparseable({ reason: changed.error.reason });
+				const saved = await edits.write(rowPath(id), changed.data.text);
+				if (saved.error === null)
+					return Ok(readRow(id, changed.data.text, schema));
 				return saved.error.name === 'InvalidPath'
 					? SaveError.InvalidId({ id })
 					: saved;
 			}
+
 			return [name, operations];
 		}),
 	);

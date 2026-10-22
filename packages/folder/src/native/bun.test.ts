@@ -180,10 +180,18 @@ test('existing empty and nonportable row stems remain visible for repair', async
 	const raw = expectOk(await folder.tables.notes.get('a: b'))!;
 	expect(raw.fields).toEqual({ title: 'Colon' });
 	// An existing nonportable row can be repaired and removed, never made.
+	expectOk(await folder.tables.notes.edit('').refresh());
+	expectOk(await folder.tables.notes.edit('a: b').refresh());
 	expectOk(await folder.tables.notes.set('', { body: 'new' }));
 	expect(await text(root, 'notes/.md')).toBe('---\ntitle: Empty\n---\nnew');
 	expectOk(await folder.tables.notes.set('a: b', { body: 'Repaired\n' }));
 	expect(await text(root, 'notes/a: b.md')).toContain('Repaired');
+	expectOk(
+		await folder.tables.notes.write('a: b', { body: 'Complete replacement\n' }),
+	);
+	expect(await text(root, 'notes/a: b.md')).toBe(
+		'---\n---\nComplete replacement\n',
+	);
 	expectOk(await folder.tables.notes.delete('a: b'));
 	expect(await text(root, 'notes/a: b.md')).toBeUndefined();
 	expect(
@@ -237,7 +245,9 @@ test('opening and saving make no .git, and stage nothing in the directory', asyn
 	const root = await directory({ 'readme.txt': 'plain\n' });
 	const folder = await open(root);
 	expect(await readdir(root)).toEqual(['readme.txt']);
-	expectOk(await folder.tables.notes.set('one', { fields: { title: 'One' } }));
+	expectOk(
+		await folder.tables.notes.write('one', { fields: { title: 'One' } }),
+	);
 	expectOk(await folder.files.write('docs/a.md', 'a\n'));
 	expectOk(await folder.files.write('notes/one/x.txt', 'x'));
 	expectOk(await folder.tables.notes.delete('one'));
@@ -287,6 +297,7 @@ test('a .git file or link opens and saves, and is left as it is', async () => {
 	for (const root of [worktree, linked]) {
 		const folder = await open(root);
 		expect(expectOk(await folder.files.list())).toEqual(['notes/one.md']);
+		expectOk(await folder.tables.notes.edit('one').refresh());
 		expectOk(await folder.tables.notes.set('one', { fields: { done: true } }));
 		expectOk(await folder.files.write('new.md', 'new\n'));
 		expect(await text(root, 'notes/one.md')).toBe(
@@ -513,6 +524,7 @@ test('a field edit keeps unknown fields and comments, and a schema never refuses
 		'notes/extra.md': '---\n# kept\ntitle: Eggs\nfrom: phone\n---\nBody\n',
 	});
 	const folder = await open(root);
+	expectOk(await folder.tables.notes.edit('extra').refresh());
 	const stored = expectOk(
 		await folder.tables.notes.set('extra', { fields: { done: true } }),
 	);
@@ -533,11 +545,12 @@ test('malformed frontmatter stays repairable: a body edit lands, a field edit is
 	const source = '---\ntitle: [unclosed\n---\nOld\n';
 	const root = await directory({ 'notes/broken.md': source });
 	const folder = await open(root);
+	expectOk(await folder.tables.notes.edit('broken').refresh());
 	expect(
 		expectErr(
 			await folder.tables.notes.set('broken', { fields: { done: true } }),
 		).name,
-	).toBe('Unparseable');
+	).toBe('InvalidFields');
 	expect(await text(root, 'notes/broken.md')).toBe(source);
 	expectOk(await folder.tables.notes.set('broken', { body: 'New\n' }));
 	expect(await text(root, 'notes/broken.md')).toBe(
@@ -575,6 +588,7 @@ test('a row set patches the row another program landed', async () => {
 		join(root, 'notes/one.md'),
 		'---\ntitle: Theirs\nfrom: phone\n---\nTheir body\n',
 	);
+	expectOk(await folder.tables.notes.edit('one').refresh());
 	const stored = expectOk(
 		await folder.tables.notes.set('one', { fields: { done: true } }),
 	);
@@ -621,11 +635,12 @@ test('a row delete removes the row as stored and keeps adjacent files', async ()
 	const root = await directory({ 'keep.md': 'keep' });
 	const folder = await open(root);
 	const table = folder.tables.notes;
-	expectOk(await table.set('one', { fields: { title: 'Before' } }));
+	expectOk(await table.write('one', { fields: { title: 'Before' } }));
 	expectOk(await folder.files.write('notes/one/nested/a.txt', 'attachment'));
 	expect(expectOk(await folder.files.list('notes/one/'))).toEqual([
 		'notes/one/nested/a.txt',
 	]);
+	expectOk(await table.edit('one').refresh());
 	expectOk(await table.set('one', { fields: { title: 'After' } }));
 	expectOk(await table.delete('one'));
 	expect(expectOk(await folder.files.list('notes/one/'))).toEqual([
@@ -650,19 +665,26 @@ test('a save notifies this handle and the directory’s other handles in this pr
 	first.onChange((change) => heard.push(change));
 	const stop = second.onChange((change) => heardElsewhere.push(change));
 	expectOk(await first.files.write('a.md', 'a'));
-	expect(heard).toEqual([{ paths: ['a.md'], origin: 'this-handle' }]);
-	expect(heardElsewhere).toEqual([{ paths: ['a.md'], origin: 'other-handle' }]);
+	expect(heard.filter((change) => change.origin === 'this-handle')).toEqual([
+		{ paths: ['a.md'], origin: 'this-handle' },
+	]);
+	expect(heardElsewhere).toContainEqual({
+		paths: ['a.md'],
+		origin: 'other-handle',
+	});
 	// Writing the same bytes again is still a publication, which every handle hears.
 	expectOk(await first.files.write('a.md', 'a'));
-	expect(heard).toEqual([
+	expect(heard.filter((change) => change.origin === 'this-handle')).toEqual([
 		{ paths: ['a.md'], origin: 'this-handle' },
 		{ paths: ['a.md'], origin: 'this-handle' },
 	]);
-	expect(heardElsewhere).toHaveLength(2);
+	// Native watching may report additional hints for the same publication.
+	expect(heardElsewhere.length).toBeGreaterThanOrEqual(2);
 	stop();
+	const countAtStop = heardElsewhere.length;
 	second.close();
 	expectOk(await first.files.write('b.md', 'b'));
-	expect(heardElsewhere).toHaveLength(2);
+	expect(heardElsewhere).toHaveLength(countAtStop);
 	// A listener that throws does not fail the save.
 	first.onChange(() => {
 		throw new Error('listener bug');
@@ -746,8 +768,8 @@ test.skipIf(process.platform === 'win32')(
 			}
 			expect(edit.getSnapshot()).toMatchObject({
 				isDirty: true,
-				saveError: undefined,
-				content: { text: row('Old', 'Typed\n') },
+				saveError: { name: 'StorageFailed' },
+				content: { text: row('New', 'Typed\n') },
 			});
 			const setting = folder.tables.notes.set('a', {
 				fields: { title: 'New' },

@@ -10,8 +10,8 @@
  *
  * A note's title, folder, pin, and body, a list action on any note, and a
  * folder's name are typed into the folder's edit of the row
- * (`folder.tables.notes.edit(id)`), which holds the row as the lists last
- * read it or a save stored it: what is typed shows at once, saves a second
+ * (`folder.tables.notes.edit(id)`), acquired by a mounted subscription or
+ * explicit refresh: what is typed shows at once, saves a second
  * after the last change, and keeps it on screen
  * when a save fails. Accepted local input remains visible across storage observations;
  * publications replace the complete file in call order. A file
@@ -145,40 +145,36 @@ export function createNotes(local: NotesFolder) {
 
 	/** The note the cache holds for `id`, if it reads as one. */
 	function storedNote(id: string): NoteMarkdown | undefined {
-		const row =
-			folder.tables.notes.edit(id).getSnapshot().content ??
-			rowsOf(NOTES)?.find((candidate) => candidate.id === id);
+		const snapshot = folder.tables.notes.edit(id).getSnapshot();
+		const listed = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
+		const row = snapshot.isDirty
+			? snapshot.content
+			: (listed ?? snapshot.content);
 		return row?.issues === null ? row : undefined;
 	}
 
-	function noteRefusal(id: string): string | undefined {
+	/** Acquire current text for list actions, then edit the shared document. */
+	async function patchNote(path: string, fields: Partial<NoteFields>) {
 		if (local.closing) return CLOSING;
-		const row =
-			folder.tables.notes.edit(id).getSnapshot().content ??
-			rowsOf(NOTES)?.find((candidate) => candidate.id === id);
-		if (row === undefined) return NOT_LISTED;
-		if (row.issues !== null) return NOT_A_NOTE;
-		return undefined;
-	}
-
-	/**
-	 * Set fields of a note and save at once: pin, move to a folder, trash,
-	 * restore. Each patches the current acquired content.
-	 */
-	function patchNote(path: string, fields: Partial<NoteFields>) {
 		const id = noteIdOf(path);
 		if (id === undefined) return NOT_LISTED;
-		const why = noteRefusal(id);
-		if (why !== undefined) return why;
 		const fileEdit = folder.tables.notes.edit(id);
-		const changed = fileEdit.change({
+		if (!fileEdit.getSnapshot().isDirty) {
+			const loaded = await fileEdit.refresh();
+			// The folder may have closed while this waited.
+			if (local.closing) return CLOSING;
+			if (loaded.error !== null) return describeFailure(loaded.error);
+		}
+		const content = fileEdit.getSnapshot().content;
+		if (content === undefined) return NOT_LISTED;
+		if (content.issues !== null) return NOT_A_NOTE;
+		const saved = await folder.tables.notes.set(id, {
 			fields:
 				fields.title === undefined
 					? fields
 					: { ...fields, title: fields.title.toWellFormed() },
 		});
-		if (changed.error !== null) return changed.error.message;
-		void fileEdit.save();
+		return saved.error === null ? undefined : describeFailure(saved.error);
 	}
 
 	/**
@@ -200,9 +196,11 @@ export function createNotes(local: NotesFolder) {
 	function defaultAs(path: string): OpenAs {
 		const id = noteIdOf(path);
 		if (id === undefined) return 'text';
-		const row =
-			folder.tables.notes.edit(id).getSnapshot().content ??
-			rowsOf(NOTES)?.find((candidate) => candidate.id === id);
+		const snapshot = folder.tables.notes.edit(id).getSnapshot();
+		const listed = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
+		const row = snapshot.isDirty
+			? snapshot.content
+			: (listed ?? snapshot.content);
 		return row === undefined || row.issues === null ? 'note' : 'text';
 	}
 
@@ -244,7 +242,8 @@ export function createNotes(local: NotesFolder) {
 			}),
 		]);
 		return [...ids].flatMap((id) => {
-			const content = folder.tables.notes.edit(id).getSnapshot().content;
+			const snapshot = folder.tables.notes.edit(id).getSnapshot();
+			const content = snapshot.isDirty ? snapshot.content : undefined;
 			const row =
 				content === undefined
 					? listed.find((note) => note.id === id)
@@ -264,6 +263,10 @@ export function createNotes(local: NotesFolder) {
 		if (unknown !== undefined) return unknown;
 		for (const note of notesOf(current)) {
 			const edit = folder.tables.notes.edit(note.id);
+			if (!edit.getSnapshot().isDirty) {
+				const loaded = await edit.refresh();
+				if (loaded.error !== null) return describeFailure(loaded.error);
+			}
 			const content = edit.getSnapshot().content;
 			if (content?.issues !== null || content.fields.folderId !== entry.id)
 				continue;
@@ -390,16 +393,20 @@ export function createNotes(local: NotesFolder) {
 			patchNote(path, { deletedAt: InstantString.now() }),
 		restoreNote: (path: string) => patchNote(path, { deletedAt: null }),
 		/** Set a folder's fields and save at once; answers why not, if not. */
-		patchFolder(path: string, fields: Partial<FolderFields>) {
+		async patchFolder(path: string, fields: Partial<FolderFields>) {
 			if (local.closing) return CLOSING;
 			const id = folderIdOf(path);
 			if (id === undefined) return NOT_LISTED;
 			const fileEdit = folder.tables.folders.edit(id);
+			if (!fileEdit.getSnapshot().isDirty) {
+				const loaded = await fileEdit.refresh();
+				// The folder may have closed while this waited.
+				if (local.closing) return CLOSING;
+				if (loaded.error !== null) return describeFailure(loaded.error);
+			}
 			if (fileEdit.getSnapshot().content?.issues !== null) return NOT_LISTED;
-			const changed = fileEdit.change({ fields });
-			if (changed.error !== null) return changed.error.message;
-			void fileEdit.save();
-			return undefined;
+			const saved = await folder.tables.folders.set(id, { fields });
+			return saved.error === null ? undefined : describeFailure(saved.error);
 		},
 
 		// ------------------------------------------------------------------
@@ -412,7 +419,7 @@ export function createNotes(local: NotesFolder) {
 			const path = rowFile(NOTES, id);
 			const folderId = view.deleted ? null : view.folderId;
 			if (local.closing) return CLOSING;
-			const created = await folder.tables.notes.set(id, {
+			const created = await folder.tables.notes.write(id, {
 				fields: {
 					folderId,
 					title: '',
@@ -429,7 +436,7 @@ export function createNotes(local: NotesFolder) {
 		async createFolder(name: string) {
 			const id = newId();
 			if (local.closing) return CLOSING;
-			const created = await folder.tables.folders.set(id, {
+			const created = await folder.tables.folders.write(id, {
 				fields: { name, icon: null },
 				body: '',
 			});

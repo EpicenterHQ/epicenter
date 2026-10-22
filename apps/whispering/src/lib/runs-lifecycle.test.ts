@@ -218,8 +218,8 @@ test('context close while the initial result is saving prevents a later provider
 	replaceTables(folder, {
 		transcriptions: {
 			...transcripts,
-			async set(id, change) {
-				const result = await transcripts.set(id, change);
+			async write(id, change) {
+				const result = await transcripts.write(id, change);
 				if (change.body === '') {
 					entered.resolve();
 					await release.promise;

@@ -8,8 +8,8 @@
  * folder's whole life once known, and the latest accepted local input, an
  * intent with its own identity. An editor shows the intent's text, or the
  * known text when there is no intent. Only accepted local input starts an
- * automatic save; observations of storage never write, and a direct command
- * never becomes input or retries itself.
+ * automatic save; observations of storage never write. Structured changes
+ * accept input before publishing, just like typing followed by save.
  *
  * The lane runs a path's commands one at a time in call order, and each one
  * admitted finishes and reports its own outcome. A successful command
@@ -17,13 +17,12 @@
  * identity, never by text, and updates what the source knows before its
  * promise resolves.
  *
- * Knowledge is ordered by one private clock. Every observation, the
- * owner's own reads, row lists and gets, and raw file reads, carries the
- * tick it started at; every command settling, reported change, and refresh
- * request carries the tick it happened at. An observation installs only
- * when nothing newer happened to its path since it started and no command
- * of the path is admitted; otherwise the owner's own read reads again,
- * until one applies.
+ * Each source orders its own reads against changes and publications. Lists,
+ * row gets, and raw file reads return data without acquiring editor state.
+ * A read that something newer overtook still shows its text when it is newer
+ * than anything installed, without claiming to be current, and subscribed
+ * editors read again; `refresh` settles with the first read to start after
+ * it, so a file that keeps changing cannot hold either off.
  */
 import { type Static, type TSchema, Type } from 'typebox';
 import {
@@ -186,8 +185,9 @@ export type FileEdit<TRowSchema extends TSchema = AnyFieldsSchema> = {
 	 */
 	save(): Promise<Result<void, SaveError | SaveRefusal>>;
 	/**
-	 * Read the file after the path's admitted commands, and again while
-	 * anything newer overtakes the read, until one applies.
+	 * Read the file after the path's admitted commands. Settles with what the
+	 * first read to start after this call found; a file that keeps changing
+	 * cannot hold it off, and subscribers keep reading until one applies.
 	 */
 	refresh(): Promise<Result<void, LoadError>>;
 	/**
@@ -311,8 +311,6 @@ type Source = {
 	readonly path: string;
 	/** The last text known to be stored, held for the folder's life. */
 	known: string | undefined;
-	/** The tick of the newest usable text, independent of later nontext observations. */
-	textAt: number;
 	intent: Intent | undefined;
 	loadError: LoadError | undefined;
 	failure: SaveFailure | undefined;
@@ -323,9 +321,10 @@ type Source = {
 	knownAt: number;
 	/** The tick of the last change or refresh request an observation must follow. */
 	changedAt: number;
-	/** Refreshed or given local input: raw reads keep it current. */
-	activated: boolean;
-	reading: Promise<Result<void, LoadError>> | undefined;
+	/** Whether the read loop runs. */
+	reading: boolean;
+	/** Callers waiting for the next read to start, settled once it is taken. */
+	nextRead: PromiseWithResolvers<Result<void, LoadError>> | undefined;
 	/** Bumped with every change a snapshot shows. */
 	stamp: number;
 	readonly subscriptions: Set<Subscription>;
@@ -393,59 +392,6 @@ export function createEditOwner({
 
 	/** The private order of observations and what overtakes them. */
 	let clock = 0;
-	/** Observations running now; `hints` matter only while one does. */
-	let observations = 0;
-	/** The tick of the last change reported for every path. */
-	let allChangedAt = 0;
-	/**
-	 * Changes of paths no source holds yet, kept while observations run. A
-	 * command of this owner records what it `stored` there, `null` for no
-	 * file; a reported change knows no content.
-	 */
-	let hints: {
-		readonly hint: string;
-		readonly at: number;
-		readonly stored?: FileContent | null;
-	}[] = [];
-
-	/** The tick of the newest change known of `path`, held or not. */
-	function pathChangedAt(path: string) {
-		let at = allChangedAt;
-		for (const hint of hints)
-			if (covers(hint.hint, path)) at = Math.max(at, hint.at);
-		return at;
-	}
-
-	function beginObservation() {
-		observations++;
-		return ++clock;
-	}
-
-	function endObservation() {
-		if (--observations === 0) hints = [];
-	}
-
-	/** Note a change of the paths `hint` covers, for observations of paths nobody holds. */
-	function noteHint(hint: string, at: number) {
-		if (observations > 0) hints.push({ hint, at });
-	}
-
-	/** What the newest command of this owner after tick `at` stored at `path`, if one did. */
-	function publishedAfter(path: string, at: number) {
-		let found:
-			| { readonly at: number; readonly stored: FileContent | null }
-			| undefined;
-		for (const hint of hints)
-			if (
-				hint.stored !== undefined &&
-				hint.hint === path &&
-				hint.at > at &&
-				(found === undefined || hint.at > found.at)
-			)
-				found = { at: hint.at, stored: hint.stored };
-		return found;
-	}
-
 	/**
 	 * Give captured input `intent` to a command admitted now: it owns it
 	 * until it settles, and its pending automatic save is cancelled, as an
@@ -490,17 +436,15 @@ export function createEditOwner({
 			source = {
 				path,
 				known: undefined,
-				textAt: 0,
 				intent: undefined,
 				loadError: undefined,
 				failure: undefined,
 				epoch: 0,
 				timer: undefined,
 				knownAt: 0,
-				// An observation that started before a change it never saw stays out.
-				changedAt: pathChangedAt(path),
-				activated: false,
-				reading: undefined,
+				changedAt: 0,
+				reading: false,
+				nextRead: undefined,
 				stamp: 0,
 				subscriptions: new Set(),
 				views: new WeakMap(),
@@ -511,13 +455,6 @@ export function createEditOwner({
 	}
 
 	const textOf = (source: Source) => source.intent?.text ?? source.known;
-
-	/** Whether raw reads of the source's path should keep it current. */
-	const engaged = (source: Source) =>
-		source.activated ||
-		source.knownAt > 0 ||
-		source.textAt > 0 ||
-		source.subscriptions.size > 0;
 
 	/** Remember actual storage outcomes; notify after the command acknowledges its input. */
 	async function recorded<T extends Result<unknown, SaveError>>(
@@ -667,7 +604,7 @@ export function createEditOwner({
 			lane.pending--;
 			if (kind === 'publication') lane.publications--;
 			const at = ++clock;
-			// `settle` tells held sources, or running observations, what landed.
+			// `settle` tells the source held at settlement what landed.
 			try {
 				if (result.error === null && !command.heard) announce(path);
 				settle(result, at);
@@ -705,37 +642,59 @@ export function createEditOwner({
 	 */
 	function invalidate(source: Source) {
 		source.changedAt = ++clock;
-		if (source.reading !== undefined) return;
-		if (source.subscriptions.size > 0 && !closed) void startRead(source);
+		if (source.subscriptions.size > 0) keepReading(source);
+	}
+
+	/** Why `observation` supplied no text, or `undefined` when it found text. */
+	function loadErrorOf(
+		path: string,
+		observation: Observation,
+	): LoadError | undefined {
+		switch (observation.kind) {
+			case 'text':
+				return undefined;
+			case 'missing':
+				return LoadError.Missing({ path }).error;
+			case 'not-text':
+				return LoadError.NotText({ path }).error;
+			case 'failed':
+				return LoadError.ReadFailed({ path, cause: observation.cause }).error;
+		}
 	}
 
 	/** Install what an observation started at `at` found, as what is stored. */
 	function install(source: Source, observation: Observation, at: number) {
-		const { path } = source;
-		let error: LoadError | undefined;
-		switch (observation.kind) {
-			case 'text':
-				source.known = observation.text;
-				source.textAt = at;
-				break;
-			case 'missing':
-				error = LoadError.Missing({ path }).error;
-				break;
-			case 'not-text':
-				error = LoadError.NotText({ path }).error;
-				break;
-			case 'failed':
-				error = LoadError.ReadFailed({ path, cause: observation.cause }).error;
-				break;
-		}
+		if (observation.kind === 'text') source.known = observation.text;
+		const error = loadErrorOf(source.path, observation);
 		if (!sameError(source.loadError, error))
 			source.loadError = error === undefined ? undefined : Object.freeze(error);
 		source.knownAt = at;
 		touch(source);
 	}
 
+	/**
+	 * Text a read started at `at` found after something newer overtook it.
+	 * It is newer than anything installed, so it shows and supersedes an older
+	 * load error, but it does not claim to be current: `knownAt` stays, and
+	 * subscribers read again. Overtaken non-text answers wait for a read that
+	 * applies, so a file briefly missing while it is replaced reports nothing.
+	 */
+	function showOvertaken(source: Source, observation: Observation, at: number) {
+		if (observation.kind !== 'text' || source.knownAt >= at) return;
+		source.known = observation.text;
+		source.loadError = undefined;
+		touch(source);
+	}
+
 	const outcomeOf = (source: Source): Result<void, LoadError> =>
 		source.loadError === undefined ? Ok(undefined) : Err(source.loadError);
+
+	/** A read refused because the folder closed before it could answer. */
+	const closedRead = (source: Source) =>
+		LoadError.ReadFailed({
+			path: source.path,
+			cause: new Error('The folder is closed'),
+		});
 
 	async function observe(path: string): Promise<Observation> {
 		try {
@@ -750,33 +709,62 @@ export function createEditOwner({
 		}
 	}
 
+	/** Start the read loop of `source` unless it runs or the folder closed. */
+	function keepReading(source: Source) {
+		if (!source.reading && !closed) void readLoop(source);
+	}
+
 	/**
-	 * Read `source`, or join the read running. Each attempt starts once the
-	 * path's admitted commands finished; one that something newer overtook
-	 * is read again, until one applies or what is known already answers.
+	 * Settles with what the next read of `source` to start finds, once it is
+	 * taken: a read that started before this call never answers it, and a
+	 * file that keeps changing cannot hold it off.
 	 */
-	function startRead(source: Source): Promise<Result<void, LoadError>> {
-		if (source.reading !== undefined) return source.reading;
-		const reading = (async () => {
-			for (;;) {
-				await idle(source.path);
-				if (closed || current(source)) break;
-				const at = beginObservation();
-				try {
-					const observation = await observe(source.path);
-					if (applies(source, at)) {
-						install(source, observation, at);
-						break;
-					}
-				} finally {
-					endObservation();
-				}
+	function readAfterNow(source: Source): Promise<Result<void, LoadError>> {
+		source.nextRead ??= Promise.withResolvers();
+		const { promise } = source.nextRead;
+		keepReading(source);
+		return promise;
+	}
+
+	/**
+	 * Read `source` while a subscriber needs it current or a caller waits.
+	 * Each attempt starts once the path's admitted commands finished. One
+	 * that applies is installed; one something newer overtook still shows its
+	 * text, and subscribers read again.
+	 */
+	async function readLoop(source: Source) {
+		// A call, so a check after an await is not narrowed away.
+		const isClosed = () => closed;
+		source.reading = true;
+		while (!isClosed()) {
+			await idle(source.path);
+			if (isClosed()) break;
+			const waiting = source.nextRead;
+			source.nextRead = undefined;
+			if (waiting === undefined && current(source)) break;
+			const at = ++clock;
+			const observation = await observe(source.path);
+			if (isClosed()) {
+				waiting?.resolve(closedRead(source));
+				break;
 			}
-			source.reading = undefined;
-			return outcomeOf(source);
-		})();
-		source.reading = reading;
-		return reading;
+			let result: Result<void, LoadError>;
+			if (applies(source, at)) {
+				install(source, observation, at);
+				result = outcomeOf(source);
+			} else {
+				showOvertaken(source, observation, at);
+				const error = loadErrorOf(source.path, observation);
+				result = error === undefined ? Ok(undefined) : Err(error);
+			}
+			waiting?.resolve(result);
+			if (source.subscriptions.size === 0 && source.nextRead === undefined)
+				break;
+		}
+		source.reading = false;
+		// Closed while a caller waited: its read never happened.
+		source.nextRead?.resolve(closedRead(source));
+		source.nextRead = undefined;
 	}
 
 	function clearTimer(source: Source) {
@@ -792,21 +780,20 @@ export function createEditOwner({
 	 */
 	function landed(
 		source: Source,
-		observation: Observation | undefined,
+		observation: Observation,
 		captured: Intent | undefined,
 		epoch: number,
 		at: number,
 	) {
 		if (captured !== undefined && source.intent === captured) {
 			// A delete leaves its input held as the content, as a save would.
-			if (observation?.kind !== 'text') {
+			if (observation.kind !== 'text') {
 				source.known = captured.text;
-				source.textAt = at;
 			}
 			source.intent = undefined;
 			clearTimer(source);
 		}
-		if (observation !== undefined) install(source, observation, at);
+		install(source, observation, at);
 		if (source.epoch === epoch) source.failure = undefined;
 		invalidate(source);
 		touch(source);
@@ -815,7 +802,7 @@ export function createEditOwner({
 	/**
 	 * A command stored `stored` at `path`, `null` for no file, at tick `at`.
 	 * The source held then learns it, even one acquired while the command
-	 * ran; with none held, observations still running learn what it stored.
+	 * ran; with no source held, no editor state is acquired.
 	 */
 	function landedAt(
 		path: string,
@@ -825,17 +812,10 @@ export function createEditOwner({
 		at: number,
 	) {
 		const source = sources.get(path);
-		if (source === undefined) {
-			if (observations > 0) hints.push({ hint: path, at, stored });
-			return;
-		}
+		if (source === undefined) return;
 		landed(
 			source,
-			stored === null
-				? { kind: 'missing' }
-				: typeof stored === 'string' || engaged(source)
-					? observationOf(stored)
-					: undefined,
+			stored === null ? { kind: 'missing' } : observationOf(stored),
 			captured,
 			epoch,
 			at,
@@ -889,24 +869,24 @@ export function createEditOwner({
 	}
 
 	/** Accept `text` as the latest local input. */
-	function accept(source: Source, text: string): ChangeResult {
+	function accept(source: Source, text: string, notify = true): ChangeResult {
 		if (closed) return ChangeError.Closing();
 		if (typeof text !== 'string')
 			return ChangeError.InvalidText({ reason: 'it is not a string' });
 		const problem = textProblem(text);
 		if (problem !== undefined)
 			return ChangeError.InvalidText({ reason: problem });
-		source.activated = true;
 		if (text === textOf(source)) return Ok(undefined);
 		source.intent = { text, ticket: undefined };
 		schedule(source);
-		touch(source);
+		if (notify) touch(source);
 		return Ok(undefined);
 	}
 
 	function changeDocument(
 		source: Source,
 		change: DocumentChange<TSchema>,
+		notify = true,
 	): ChangeResult {
 		if (closed) return ChangeError.Closing();
 		const owned = ownFields(change.fields ?? {});
@@ -930,7 +910,7 @@ export function createEditOwner({
 		});
 		if (changed.error !== null)
 			return ChangeError.InvalidFields({ reason: changed.error.reason });
-		return accept(source, changed.data.text);
+		return accept(source, changed.data.text, notify);
 	}
 
 	function save(
@@ -943,17 +923,10 @@ export function createEditOwner({
 	}
 
 	function refresh(source: Source): Promise<Result<void, LoadError>> {
-		if (closed)
-			return Promise.resolve(
-				LoadError.ReadFailed({
-					path: source.path,
-					cause: new Error('The folder is closed'),
-				}),
-			);
-		source.activated = true;
-		// A read already running started before this request; it reads again.
+		if (closed) return Promise.resolve(closedRead(source));
+		// What is known, or a read already running, predates this request.
 		source.changedAt = ++clock;
-		return startRead(source);
+		return readAfterNow(source);
 	}
 
 	function discard(source: Source): string | undefined {
@@ -985,13 +958,8 @@ export function createEditOwner({
 		};
 		source.subscriptions.add(subscription);
 		callObserver('edit listener', listener, subscription.last!);
-		if (
-			!current(source) &&
-			source.reading === undefined &&
-			!closed &&
-			source.subscriptions.has(subscription)
-		)
-			void startRead(source);
+		if (!current(source) && source.subscriptions.has(subscription))
+			keepReading(source);
 		return () => {
 			source.subscriptions.delete(subscription);
 		};
@@ -1041,42 +1009,6 @@ export function createEditOwner({
 		}
 	}
 
-	/**
-	 * Take what an observation started at `at` found at `path`. A source is
-	 * made for it when `create`; nothing reads or subscribes because of it.
-	 */
-	function ingest(
-		path: string,
-		at: number,
-		observation: Observation,
-		create: boolean,
-	) {
-		let source = sources.get(path);
-		if (source === undefined) {
-			if (!create) return;
-			if (!busy(path) && pathChangedAt(path) < at)
-				return install(sourceOf(path), observation, at);
-			// Something overtook it before any source was held. A command of
-			// this owner that stored the path meanwhile is newer knowledge.
-			const published = publishedAfter(path, at);
-			if (published !== undefined) {
-				source = sourceOf(path);
-				install(source, observationOf(published.stored), published.at);
-			} else {
-				if (observation.kind !== 'text') return;
-				source = sourceOf(path);
-			}
-		} else if (applies(source, at)) return install(source, observation, at);
-		// Overtaken text can advance knowledge without claiming freshness or
-		// clearing a load error. A later applicable observation reconciles it.
-		if (observation.kind === 'text' && source.textAt < at) {
-			source.known = observation.text;
-			source.textAt = at;
-			source.changedAt = Math.max(source.changedAt, at);
-			touch(source);
-		}
-	}
-
 	return {
 		edit,
 		/**
@@ -1097,109 +1029,24 @@ export function createEditOwner({
 					continue;
 				source.changedAt = ++clock;
 				if (source.subscriptions.size > 0) {
-					reads.push(startRead(source));
+					reads.push(readAfterNow(source));
 				}
 			}
 			await Promise.all(reads);
 		},
-		/** An observation of the handle starts: answers its tick. */
-		beginObservation,
-		/** An observation of the handle ended, installed or not. */
-		endObservation,
-		/**
-		 * A raw read started at `at` found `content` at `path`. It keeps an
-		 * engaged source current; a passive editor's path is not even decoded.
-		 * Answers whether `content` was wanted, so the caller decodes only then.
-		 */
-		wantsRaw(path: string) {
-			const source = sources.get(path);
-			return source !== undefined && engaged(source);
-		},
-		readRaw(path: string, at: number, observation: Observation) {
-			ingest(path, at, observation, false);
-		},
-		/**
-		 * A list of the table under `prefix`, started at `at`, found these
-		 * rows: each one's exact text is known, held or not, and a held row it
-		 * did not find is missing. Starts no read.
-		 */
-		listed(
-			prefix: string,
-			at: number,
-			rows: readonly {
-				readonly path: string;
-				readonly observation: Observation;
-			}[],
-		) {
-			const found = new Set<string>();
-			for (const { path, observation } of rows) {
-				found.add(path);
-				ingest(path, at, observation, true);
-			}
-			for (const [path] of sources)
-				if (
-					path.startsWith(prefix) &&
-					path.endsWith('.md') &&
-					!path.slice(prefix.length).includes('/') &&
-					!found.has(path)
-				)
-					ingest(path, at, { kind: 'missing' }, false);
-		},
-		/** A get of one row, started at `at`, found `observation` there. */
-		got(path: string, at: number, observation: Observation) {
-			ingest(path, at, observation, observation.kind !== 'failed');
-		},
-		/**
-		 * Admit a structured change of `path`, composed by `compose` from the
-		 * text held at this call: the input, or the known text, even when the
-		 * file is missing. With no text known, it reads the file inside the
-		 * lane, after the path's earlier commands, and composes from that, or
-		 * from `null` for no file. On success the source knows the composed
-		 * text and the input captured at the call is acknowledged, before
-		 * this resolves; newer input stays. A failure changes nothing held.
-		 */
-		compose(
+		/** Accept a structured edit and admit its exact publication before observers run. */
+		set(
 			path: string,
-			compose: (text: string | null) => Result<string, SaveError>,
-		): Promise<Result<string, SaveError>> {
-			const source = sourceOf(path);
-			const captured = source.intent;
-			const epoch = source.epoch;
-			const held = textOf(source);
-			let composed: string | undefined;
-			if (held !== undefined) {
-				const result = compose(held);
-				if (result.error !== null) return Promise.resolve(result);
-				composed = result.data;
-			}
-			// The captured input is this command's to publish now, composed.
-			const ticket = own(source, captured, 'command');
-			return enqueue(
-				path,
-				'publication',
-				async (): Promise<Result<string, SaveError>> => {
-					let text = composed;
-					if (text === undefined) {
-						const found = await observe(path);
-						if (found.kind === 'failed')
-							return SaveError.StorageFailed({ cause: found.cause });
-						if (found.kind === 'not-text') return SaveError.NotText();
-						const result = compose(found.kind === 'text' ? found.text : null);
-						if (result.error !== null) return result;
-						text = result.data;
-					}
-					const written = await recorded(write(path, text));
-					return written.error === null ? Ok(text) : written;
-				},
-				(result, at) => {
-					if (result.error === null)
-						landedAt(path, result.data, captured, epoch, at);
-					else {
-						// The original input stays held; the composed text is never kept.
-						disown(source, captured, ticket);
-						touch(source);
-					}
-				},
+			change: DocumentChange,
+		): Promise<Result<string, ChangeError | SaveError>> {
+			if (closed) return Promise.resolve(ChangeError.Closing());
+			const source = sources.get(path);
+			if (source === undefined) return Promise.resolve(ChangeError.NoContent());
+			const changed = changeDocument(source, change, false);
+			if (changed.error !== null) return Promise.resolve(changed);
+			const text = textOf(source)!;
+			return publish(source, text, source.intent).then((saved) =>
+				saved.error === null ? Ok(text) : saved,
 			);
 		},
 		/**
@@ -1263,13 +1110,11 @@ export function createEditOwner({
 		 */
 		changed(paths: readonly string[] | null) {
 			if (paths === null) {
-				allChangedAt = ++clock;
 				for (const source of sources.values()) invalidate(source);
 				return;
 			}
 			for (const raw of paths) {
 				const hint = normalizeHint(raw);
-				noteHint(hint, ++clock);
 				for (const source of sources.values())
 					if (covers(hint, source.path)) invalidate(source);
 			}

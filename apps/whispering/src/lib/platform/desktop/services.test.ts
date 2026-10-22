@@ -444,7 +444,7 @@ test('saves go through the shell: audio lands as its exact bytes, and a row as t
 
 	expectOk(await openedFolder.files.write('recordings/a.wav', audio));
 	expectOk(
-		await openedFolder.tables.transformations.set('clean', {
+		await openedFolder.tables.transformations.write('clean', {
 			fields: { title: 'Clean up', model: null },
 			body: 'Tidy.\n',
 		}),
@@ -476,6 +476,7 @@ test('a row save whose reply the shell never sent is confirmed by what landed, a
 	await granting.write(PATH, '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
 	const { services, folder: openedFolder } = await openDesktop();
 	const table = openedFolder.tables.transformations;
+	expectOk(await table.edit('clean').refresh());
 
 	// The shell writes, and its reply never reaches the page. The page reads
 	// the file back, finds exactly what it wrote, and the save is confirmed.
@@ -637,7 +638,7 @@ test('an edit Settings saved while Whispering saved a connection is kept beside 
 		host.beforeRowSave(undefined);
 		const folder = expectOk(await host.settings());
 		expectOk(
-			await folder.tables.connections.set('whispering-text', {
+			await folder.tables.connections.write('whispering-text', {
 				fields: { title: 'Renamed in Settings', note: 'kept' },
 			}),
 		);

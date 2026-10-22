@@ -130,10 +130,12 @@ must be unique within a context: one name always identifies the same cached data
 shape and read policy. A representation can own `gcTime` and `structuralSharing`;
 view options such as `enabled` and `select` stay at the observer. Queries list
 and derive; the editable source of a row or file belongs to its editor (below),
-which acquires it on subscription or refresh. Table reads also acquire their
-parsed source before resolving, so a list can immediately offer structured
-editing. A raw file query leaves a passive editor unacquired, allowing size and
-audio classification before opening text. The key carries
+which acquires it on subscription or refresh. Lists and file queries return
+read results without loading an editor. An editing view subscribes to its own
+source; a programmatic action explicitly refreshes its editor before calling
+`table.set(id, change)`. `table.write(id, document)` publishes a complete new
+row once, without retaining a failed creation as input. File queries can still
+classify size and audio before opening text. The key carries
 the decoded data type into `queryClient.getQueryData(options.queryKey)`. There is
 no reader registry or options cache. Query functions never change an existing
 file's bytes.

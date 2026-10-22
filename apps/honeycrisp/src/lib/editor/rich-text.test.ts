@@ -78,6 +78,8 @@ async function noteOver(text: string) {
 	notes.open(PATH);
 	await quiet(notes);
 	const note = notes.folder.tables.notes.edit('a');
+	cleanup.push(note.subscribe(() => {}));
+	expectOk(await note.refresh());
 	const opened = fixture.saves(PATH);
 	return {
 		fixture,
@@ -574,6 +576,7 @@ describe('the editor follows the note', () => {
 	test('a change another tab saved replaces a clean editor', async () => {
 		const { fixture, follow, settled, body, ...view } = await open('one\n');
 		const tab = await fixture.otherTab();
+		expectOk(await tab.tables.notes.edit('a').refresh());
 
 		expectOk(await tab.tables.notes.set('a', { body: 'theirs\n' }));
 		await until(() => body() === 'theirs\n', 'their save');
@@ -602,6 +605,7 @@ describe('the editor follows the note', () => {
 		// Another tab adds a line. Its report arrives and the read lands while
 		// the typing is held.
 		const tab = await fixture.otherTab();
+		expectOk(await tab.tables.notes.edit('a').refresh());
 
 		expectOk(
 			await tab.tables.notes.set('a', {
@@ -637,6 +641,7 @@ describe('the editor follows the note', () => {
 		end();
 		expect(type('!')).toBe(true);
 		const tab = await fixture.otherTab();
+		expectOk(await tab.tables.notes.edit('a').refresh());
 
 		expectOk(await tab.tables.notes.set('a', { body: 'theirs\n' }));
 		const edit = fixture.folder.tables.notes.edit('a');

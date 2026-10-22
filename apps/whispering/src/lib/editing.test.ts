@@ -314,6 +314,7 @@ test('a field another program added survives every edit of the row', async () =>
 		editor.path,
 		recordingText('Theirs').replace('---\n', '---\nspeaker: Ada\n'),
 	);
+	expectOk(await context.folder.files.edit(editor.path).refresh());
 	await settle(whispering, context);
 
 	editor.edit((row) => {
@@ -434,6 +435,7 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	const { path } = editor;
 	const broken = '---\ntitle: Broken\n---\n';
 	await writeElsewhere(root, path, broken);
+	expectOk(await context.folder.files.edit(path).refresh());
 	await settle(whispering, context);
 
 	expect(whispering.repairs.map((item) => item.path)).toEqual([path]);

@@ -93,7 +93,8 @@
 		});
 	}
 
-	function report(action: string, problem: string | undefined) {
+	async function report(action: string, result: Promise<string | undefined> | string | undefined) {
+		const problem = await result;
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
 	}
 

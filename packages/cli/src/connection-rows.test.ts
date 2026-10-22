@@ -180,6 +180,7 @@ test('field assignments use the current source after a Settings publication', as
 	const folder = expectOk(
 		await openFolder({ directory: settings, tables: connectionsTables }),
 	);
+	expectOk(await folder.tables.connections.edit('whispering-text').refresh());
 	expectOk(
 		await folder.tables.connections.set('whispering-text', {
 			fields: { title: 'Renamed in Settings', note: 'from Settings' },
@@ -217,7 +218,7 @@ test('a row whose frontmatter does not parse is answered with its issues, and a 
 		expect(refused.code).toBe(2);
 		expect(refused.reply.name).toBe('SaveFailed');
 		expect(refused.reply.error).toContain(
-			'so.epicenter/connections/whispering-text.md was not changed',
+			'so.epicenter/connections/whispering-text.md could not be saved',
 		);
 		expect(await readFile(rowFile(), 'utf8')).toBe(broken);
 	}

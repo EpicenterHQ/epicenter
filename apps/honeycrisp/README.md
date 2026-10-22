@@ -146,8 +146,15 @@ removed only after another read finds no remaining members. This is not
 atomic: a note already moved stays moved if a later write fails, and another
 writer can move a note in after the final read.
 
-Direct file and table publications join the same per-path command lane as
-editor saves. Apps refuse new actions once closing starts. Folder releases synchronously without waiting for submitted writes. Callers
+New notes and folders use `table.write`: the submitted fields and body form a
+complete document, and a failed creation leaves no deferred edit. Existing
+notes and folders use the shared working document. A list action refreshes clean source before editing, preserving pending local
+input; `table.set` then accepts the patch and publishes
+a snapshot. Typing during that publication builds on the accepted patch. A
+failed publication returns its error and keeps the change available for retry.
+Lists and raw reads remain independent of editable text acquisition.
+
+Direct file and table publications join the same per-path lane as editor saves. Apps refuse new actions once closing starts. Folder releases synchronously without waiting for submitted writes. Callers
 needing durable bytes await their write or save before closing.
 Internal view changes retain the opened Folder.
 

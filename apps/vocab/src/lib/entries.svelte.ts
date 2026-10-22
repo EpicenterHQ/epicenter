@@ -120,7 +120,7 @@ export function createEntries(local: VocabContext) {
 			await reread();
 			return Ok('present');
 		}
-		const { error } = await folder.tables.entries.set(id, {
+		const { error } = await folder.tables.entries.write(id, {
 			fields: {
 				text: exact,
 				note: '',
@@ -162,7 +162,7 @@ export function createEntries(local: VocabContext) {
 		},
 		/**
 		 * The word at `id` as views show and type into it: the folder's edit of
-		 * its row, which the list's reads keep current, read reactively;
+		 * its row, acquired and observed by its mounted edit subscription;
 		 * `setNote` and `setStage` type over the word it shows now.
 		 */
 		edit,

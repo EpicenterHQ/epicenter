@@ -262,7 +262,7 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 	});
 	if (opened.error !== null) throw new Error(opened.error.message);
 	const folder = opened.data;
-	const { error: created } = await folder.tables.connections.set(
+	const { error: created } = await folder.tables.connections.write(
 		CONNECTION_IDS.transcription,
 		{
 			fields: { kind: 'epicenter', title: 'Epicenter', model: 'whisper-1' },

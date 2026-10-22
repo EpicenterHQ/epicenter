@@ -315,3 +315,50 @@ test('classifying initial large UTF-8 text does not acquire or mount its editor'
 	expect(fixture.folder.files.edit(path).getSnapshot().content).toBeUndefined();
 	expect(fixture.saves(path)).toBe(0);
 });
+
+test('a clean note deleted in another tab stays shown as a note beside its deletion, and Restore text recreates it', async () => {
+	const path = 'notes/a.md';
+	const fixture = await openNotes();
+	await fixture.write(path, noteText({ title: 'Kept' }));
+	fixture.observe(path);
+	await quiet(fixture.notes);
+	const target = document.createElement('main');
+	document.body.append(target);
+	const view = mount(Host, {
+		target,
+		props: {
+			client: fixture.notes.queryClient,
+			component: FileDetail as never,
+			props: { notes: fixture.notes, path, as: 'note' },
+		},
+	});
+	cleanups.push(async () => {
+		await unmount(view);
+		await fixture.close();
+	});
+	const title = () =>
+		target.querySelector<HTMLInputElement>('input[aria-label="Title"]');
+	await until(() => {
+		flushSync();
+		return title()?.value === 'Kept';
+	}, 'the note');
+	const other = await fixture.otherTab();
+	expectOk(await other.files.delete(path));
+	await fixture.local.refresh([path]);
+	await until(() => {
+		flushSync();
+		return isMissing(fixture.folder.files.edit(path));
+	}, 'the deletion');
+	// The retained note stays editable, and the deletion shows beside it.
+	expect(title()?.value).toBe('Kept');
+	expect(target.querySelector('[role="alert"]')?.textContent).toContain(
+		`${path} does not exist.`,
+	);
+	expect(target.textContent).toContain('Text kept here');
+	click(target, 'Restore text');
+	await until(
+		() => fixture.folder.files.edit(path).getSnapshot().loadError === undefined,
+		'the restored note',
+	);
+	expect(await fixture.text(path)).toBe(noteText({ title: 'Kept' }));
+});

@@ -35,8 +35,9 @@ migrates or removes data.
 ## Editing and saving
 
 `folder.files` reads and changes paths; `folder.tables` interprets rows at
-`<table>/<id>.md`. File writes publish complete content. Table changes compose
-against the folder's current held source. All local publications and deletes
+`<table>/<id>.md`. File and table `write` publish complete content. Table `set` immediately
+patches the acquired working document, then awaits its captured publication.
+Lists and gets do not populate editors; cold actions explicitly refresh first. All local publications and deletes
 share one FIFO lane per path. Once admitted, an operation finishes in order.
 Outside writers are uncoordinated: the last actual publication wins.
 

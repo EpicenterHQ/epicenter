@@ -11,6 +11,7 @@ import type { Result } from 'wellcrafted/result';
 import * as browser from './browser.js';
 import * as bun from './bun.js';
 import type * as contract from './contract.js';
+import type { ChangeError } from './edits.js';
 import type {
 	Folder,
 	FolderFiles,
@@ -79,6 +80,9 @@ expectTypeOf(folder.tables.notes.get('a')).toEqualTypeOf<
 	Promise<Result<Row<typeof notes> | undefined, ReadError>>
 >();
 expectTypeOf(folder.tables.notes.set('a', { body: 'x' })).toEqualTypeOf<
+	Promise<Result<Row<typeof notes>, ChangeError | SaveError>>
+>();
+expectTypeOf(folder.tables.notes.write('a', { body: 'x' })).toEqualTypeOf<
 	Promise<Result<Row<typeof notes>, SaveError>>
 >();
 expectTypeOf(folder.tables.notes.delete('a')).toEqualTypeOf<

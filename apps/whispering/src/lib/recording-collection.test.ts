@@ -112,7 +112,7 @@ async function history(
 		const audioPath = `recordings/${stem}.wav`;
 		expectOk(await folder.files.write(audioPath, toneWav()));
 		expectOk(
-			await folder.tables.recordings.set(stem, {
+			await folder.tables.recordings.write(stem, {
 				fields: {
 					title,
 					recordedAt: `2026-03-${day}T09:00:00.000Z`,
@@ -130,7 +130,7 @@ async function history(
 		body: string,
 	) =>
 		expectOk(
-			await folder.tables.transcriptions.set(stem, {
+			await folder.tables.transcriptions.write(stem, {
 				fields: {
 					recordingId,
 					createdAt: `2026-03-${day}T10:00:00.000Z`,

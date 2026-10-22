@@ -49,8 +49,10 @@ Git history needed for ancestry proofs can be fetched into temporary memory.
 
 A file save captures W's required trees and the current file bytes in one
 read transaction. Public file and editor writes publish their captured whole
-content unconditionally. The folder owner composes table changes over held
-text at the call, or over a read inside the path's lane when nothing is held.
+content unconditionally. The folder owner applies table `set` changes to
+acquired working text and admits its captured publication before notifying
+observers; `write` creates a complete document without retaining a failed
+payload as input. Neither command reads inside the path's lane.
 The engine hashes the submitted file and
 rewrites its ancestor directories. A write transaction compares captured W,
 then publishes the new objects and root together. A changed root retries the

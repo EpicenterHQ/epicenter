@@ -163,7 +163,7 @@ test('failed autosave keeps raw input and deletion removes it without a save req
 	expect(expectOk(await resumed.folder.tables.captures.list())).toEqual([]);
 });
 
-test('a failed promotion retains original writing for explicit retry without appending Thoughts twice', async () => {
+test('a failed promotion retains finalized input for explicit retry without appending Thoughts twice', async () => {
 	const t = await setup({ one: 'Still composing\n' });
 	const edit = t.folder.tables.captures.edit('one');
 	expectOk(await edit.refresh());
@@ -171,9 +171,11 @@ test('a failed promotion retains original writing for explicit retry without app
 	expect(expectErr(await t.captures.finishDraft('one')).name).toBe(
 		'StorageFailed',
 	);
-	expect(edit.getSnapshot().isDirty).toBe(false);
-	expect(edit.getSnapshot().content?.body).toBe('Still composing\n');
-	expect(edit.getSnapshot().content?.fields?.draft).toBe(true);
+	expect(edit.getSnapshot().isDirty).toBe(true);
+	expect(edit.getSnapshot().content?.body).toBe(
+		composeBody('Still composing\n').body,
+	);
+	expect(edit.getSnapshot().content?.fields?.draft).toBeUndefined();
 	expect(await t.text('captures/one.md')).toBe(draftFile('Still composing\n'));
 	restore();
 	expectOk(await t.captures.finishDraft('one'));
@@ -248,4 +250,46 @@ test("another tab's finish preserves held input and a later save replaces the co
 	expect(finished).toContain('Before');
 	expect(finished).toContain('## Thoughts');
 	expect(finished).not.toContain('draft:');
+});
+
+test('finishing refreshes a clean inactive draft before composing it', async () => {
+	const t = await setup({ one: 'Earlier writing' });
+	expectOk(await t.folder.tables.captures.edit('one').refresh());
+	await t.writeElsewhere('captures/one.md', draftFile('Outside writing'));
+	expectOk(await t.captures.finishDraft('one'));
+	expect(await t.text('captures/one.md')).toContain('Outside writing');
+	expect(await t.text('captures/one.md')).not.toContain('Earlier writing');
+});
+
+test('typing as Add starts saving builds on the finished capture, never the draft', async () => {
+	const t = await setup({ one: 'Hello' });
+	const edit = t.folder.tables.captures.edit('one');
+	expectOk(await edit.refresh());
+	const path = 'captures/one.md';
+	// The person types the moment Add's publication is admitted.
+	let typed = false;
+	const stop = t.folder.onStatusChange(({ savingPaths }) => {
+		if (typed || !savingPaths.includes(path)) return;
+		typed = true;
+		const text = edit.getSnapshot().content?.text ?? '';
+		expectOk(edit.replaceText(`${text}- typed while adding\n`));
+	});
+	expectOk(await t.captures.finishDraft('one'));
+	stop();
+	expect(typed).toBe(true);
+	const working = edit.getSnapshot();
+	expect(working.isDirty).toBe(true);
+	expect(working.content?.fields?.draft).toBeUndefined();
+	expect(working.content?.text).toContain('## Thoughts\n- typed while adding\n');
+	expectOk(await edit.save());
+	const row = expectOk(await t.folder.tables.captures.get('one'));
+	expect(row?.fields?.draft).toBeUndefined();
+	expect(row?.body).toBe('\nHello\n\n## Thoughts\n- typed while adding\n');
+});
+
+test('Add interrupted by close during its refresh answers Closing instead of throwing', async () => {
+	const t = await setup({ one: 'Hello' });
+	const adding = t.captures.finishDraft('one');
+	t.folder.close();
+	expect(expectErr(await adding).name).toBe('Closing');
 });

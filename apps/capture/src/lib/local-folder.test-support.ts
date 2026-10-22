@@ -52,6 +52,9 @@ export async function openCaptures(
 	);
 	const stopObserving = observer.subscribe(() => {});
 	await until(() => observer.getCurrentResult().data !== undefined, 'the rows');
+	// Stand in for the edit subscription mounted by a capture detail.
+	for (const path of Object.keys(files))
+		expectOk(await folder.files.edit(path).refresh());
 	const other = await open();
 
 	/** Nothing typed waits, no save runs, and nothing is read. */

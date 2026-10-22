@@ -14,9 +14,9 @@
  * against the schema, so unknown fields and repairable content survive.
  *
  * Writes are unconditional: a file write replaces whatever is there, a
- * delete removes it, and the last to land wins. A row set composes over held
- * text at the call, or reads in the lane when none is held, and publishes
- * the whole result. Every write and delete of a path, an editor's included, runs in
+ * delete removes it, and the last to land wins. A row set changes acquired
+ * working text and publishes its captured snapshot. A row write publishes
+ * a complete new document without retaining failed publication as input. Every write and delete of a path, an editor's included, runs in
  * one lane in call order, and each reports its own outcome.
  *
  * Opening authenticates nothing, selects no remote, creates no Git history,
@@ -30,7 +30,7 @@
  */
 import type { TSchema as Schema, TRecord, TUnknown } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { FileEdit, SaveFailure } from './edit-owner.js';
+import type { ChangeError, FileEdit, SaveFailure } from './edit-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
@@ -100,16 +100,28 @@ export type FolderTableOperations<TSchema extends Schema = Schema> = {
 	list(): Promise<Result<Row<TSchema>[], ReadError>>;
 	get(id: string): Promise<Result<Row<TSchema> | undefined, ReadError>>;
 	/**
-	 * Apply `change` to row `id` and publish the whole row. It composes over
-	 * the text the folder holds for the row at this call: its editor's input,
-	 * or its last known text, even when the file is gone; with nothing held,
-	 * over the file read in the row's lane after earlier commands, or a new
-	 * row. On success the row's editor knows the stored text, and input held
-	 * at the call is acknowledged; input typed meanwhile stays. A failure
-	 * changes nothing held and is never retried. Answers the row it stored.
-	 * The schema never refuses a save.
+	 * Patch the row's acquired working document and publish that captured text.
+	 * Refuses NoContent until its editor acquires text. A successful own write
+	 * also updates an editor already held when that write completes.
+	 * Refresh an inactive clean editor before a one-off edit: retained text may
+	 * be stale, and list/get never update it. Refresh preserves dirty input.
+	 * Accepted edits are visible immediately and remain pending after failure.
+	 * Newer input stays pending; success answers the exact row published.
 	 */
-	set(id: string, change: RowChange): Promise<Result<Row<TSchema>, SaveError>>;
+	set(
+		id: string,
+		change: RowChange,
+	): Promise<Result<Row<TSchema>, ChangeError | SaveError>>;
+	/**
+	 * Publish a complete row from fields and body, making or replacing its file.
+	 * Omitted fields and body are empty; id must be nonempty. No create-only or conflict guard.
+	 * Failure accepts no pending autosave input. Answers the exact stored row.
+	 */
+	write(
+		id: string,
+		change: RowChange,
+	): Promise<Result<Row<TSchema>, SaveError>>;
+
 	/**
 	 * Delete only the row file; a row that is not there is already gone.
 	 * Adjacent files remain accessible through `folder.files`.

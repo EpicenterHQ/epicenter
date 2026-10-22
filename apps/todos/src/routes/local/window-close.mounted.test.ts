@@ -95,7 +95,7 @@ async function windowOnMilk() {
 	{
 		const folder = expectOk(await openFolder({ tables: todosTables }));
 		expectOk(
-			await folder.tables.todos.set('milk', {
+			await folder.tables.todos.write('milk', {
 				fields: { title: 'Milk', done: false },
 				body: '',
 			}),

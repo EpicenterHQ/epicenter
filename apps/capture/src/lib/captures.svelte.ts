@@ -34,7 +34,12 @@ import {
 	excerpt,
 } from '@epicenter/capture';
 import type { ReadError, SaveError } from '@epicenter/folder';
-import { ActionError, type LoadError } from '@epicenter/folder/edits';
+import {
+	ActionError,
+	type ChangeError,
+	type LoadError,
+	type SaveRefusal,
+} from '@epicenter/folder/edits';
 import type { FolderContext } from '@epicenter/svelte/folder';
 import {
 	defineErrors,
@@ -99,11 +104,13 @@ export type CaptureError = InferErrors<typeof CaptureError>;
 
 /** A failure a person is told about. */
 export type Failure =
+	| ChangeError
 	| SaveError
 	| ReadError
 	| LoadError
 	| ActionError
-	| CaptureError;
+	| CaptureError
+	| SaveRefusal;
 
 /** The file of the capture `stem`. */
 export const capturePath = (stem: string) => `${CAPTURES_TABLE}/${stem}.md`;
@@ -252,8 +259,10 @@ export function createCaptures(context: CaptureFolder) {
 	 */
 	function open(stem: string, mode: Mode, focus?: Focus) {
 		if (mode === 'capture') {
-			const row =
-				folder.tables.captures.edit(stem).getSnapshot().content ?? rowOf(stem);
+			const snapshot = folder.tables.captures.edit(stem).getSnapshot();
+			const row = snapshot.isDirty
+				? snapshot.content
+				: (rowOf(stem) ?? snapshot.content);
 			if (
 				row !== undefined &&
 				(row.issues !== null ||
@@ -325,7 +334,7 @@ export function createCaptures(context: CaptureFolder) {
 
 		/**
 		 * Add a finished capture holding `text`, then open it at Add a
-		 * thought. This is its first write: a failure writes nothing.
+		 * thought. Its one-shot publication leaves no pending edit on failure.
 		 */
 		async create(
 			text: string,
@@ -337,7 +346,7 @@ export function createCaptures(context: CaptureFolder) {
 				return CaptureError.Refused({ message: 'Write something first.' });
 			const now = new Date();
 			const stem = newStem(now);
-			const saved = await folder.tables.captures.set(stem, {
+			const saved = await folder.tables.captures.write(stem, {
 				fields: { capturedAt: now.toISOString() },
 				body: composeBody(text.toWellFormed()).body,
 			});
@@ -351,17 +360,19 @@ export function createCaptures(context: CaptureFolder) {
 		},
 		/**
 		 * Finish the current acquired writing as the same file. A failed
-		 * publication keeps original writing available for explicit retry.
+		 * publication keeps the finalized document pending for explicit retry.
 		 */
 		async finishDraft(stem: string): Promise<Result<void, Failure>> {
 			const path = capturePath(stem);
 			if (context.closing) return ActionError.Closing();
 
 			const edit = folder.tables.captures.edit(stem);
-			// Acquire only when necessary,
-			// then compose from current owner content without rereading storage.
-			if (edit.getSnapshot().content === undefined) {
+			// Refresh clean content that may have been inactive since acquisition.
+			// Pending local input already supplies the document to finish.
+			if (!edit.getSnapshot().isDirty) {
 				const loaded = await edit.refresh();
+				// The folder may have closed while this waited.
+				if (context.closing) return ActionError.Closing();
 				if (loaded.error !== null) return loaded;
 			}
 			const row = edit.getSnapshot().content;
@@ -382,6 +393,10 @@ export function createCaptures(context: CaptureFolder) {
 					body: composeBody(row.body).body,
 				});
 				if (saved.error !== null) return saved;
+			} else if (edit.getSnapshot().isDirty) {
+				// Retry finalized input without composing its thoughts twice.
+				const saved = await edit.save();
+				if (saved.error !== null) return saved;
 			}
 			if (!context.closing) {
 				await context.refresh([path]);
@@ -391,8 +406,10 @@ export function createCaptures(context: CaptureFolder) {
 		},
 		/** What deleting the capture at `stem` would remove, for the person to confirm. */
 		deletionFor(stem: string): Deletion {
-			const row =
-				folder.tables.captures.edit(stem).getSnapshot().content ?? rowOf(stem);
+			const snapshot = folder.tables.captures.edit(stem).getSnapshot();
+			const row = snapshot.isDirty
+				? snapshot.content
+				: (rowOf(stem) ?? snapshot.content);
 			const reading =
 				row?.issues === null ? readCaptureBody(row).data : undefined;
 			return {

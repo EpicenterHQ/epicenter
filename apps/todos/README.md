@@ -5,6 +5,13 @@ Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md
 The current UI can add, edit, complete, and delete todos. A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name remain in the source when a row is edited. A file that does not read as a todo remains visible with its source for repair.
 Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
 
+Add publishes a complete document with `table.write`; a failed Add leaves its
+form text available without a deferred autosave. Existing todo controls edit
+one shared working document per path. The mounted edit subscription acquires
+text; listing todos does not. Programmatic patches use `table.set` after
+acquisition, accepting the patch before saving and returning the publication's
+success or error. A failed publication leaves that accepted edit pending.
+
 ## Run the browser app
 
 From the repository root:

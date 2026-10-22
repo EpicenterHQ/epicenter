@@ -1,6 +1,11 @@
 import type { Folder, ReadError, SaveError } from '@epicenter/folder';
 import { documentChange } from '@epicenter/folder/documents';
-import { ActionError, type ChangeError } from '@epicenter/folder/edits';
+import {
+	ActionError,
+	type ChangeError,
+	type LoadError,
+	type SaveRefusal,
+} from '@epicenter/folder/edits';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Backend } from './backend.js';
@@ -11,7 +16,14 @@ export const DraftError = defineErrors({
 });
 type DraftError = InferErrors<typeof DraftError>;
 export type MessagesFolder = Folder<typeof messagesTables>;
-type Failure = ReadError | SaveError | ActionError | DraftError;
+type Failure =
+	| LoadError
+	| SaveRefusal
+	| ChangeError
+	| ReadError
+	| SaveError
+	| ActionError
+	| DraftError;
 
 export async function draftId(
 	backend: Pick<Backend, 'mode' | 'profile'>,
@@ -224,7 +236,7 @@ export async function sendDraft(
 					});
 					if (cleared.error !== null)
 						return DraftError.Refused({
-							message: `Nothing was sent. Preparing the draft failed: ${cleared.error.message}`,
+							message: `Nothing was sent. Your reply is kept in the recorded attempt. Choose "I checked: keep as draft" to restore it. Saving the cleared draft failed: ${cleared.error.message}`,
 						});
 				}
 				if (folder.getStatus().closing) return closedBeforeSend();
@@ -296,6 +308,7 @@ export async function recoverDraft(
 		if (folder.getStatus().closing) return ActionError.Closing();
 		const draft = await folder.tables.drafts.get(id);
 		if (draft.error !== null) return draft;
+		if (folder.getStatus().closing) return ActionError.Closing();
 		const legacy =
 			read.data === undefined &&
 			draft.data?.issues === null &&
@@ -336,7 +349,11 @@ export async function recoverDraft(
 		if (checked.error !== null)
 			return DraftError.Refused({ message: checked.error.reason });
 		const edit = folder.tables.drafts.edit(id);
-		const current = edit.getSnapshot().content ?? draft.data;
+		if (!edit.getSnapshot().isDirty && draft.data !== undefined) {
+			const loaded = await edit.refresh();
+			if (loaded.error !== null) return loaded;
+		}
+		const current = edit.getSnapshot().content;
 		let changed = false;
 		const stop = edit.subscribe((snapshot) => {
 			if (
@@ -368,14 +385,23 @@ export async function recoverDraft(
 					message:
 						'The check was saved, but the folder closed before the draft was restored. The attempt file keeps the text.',
 				});
-			const restored = await folder.tables.drafts.set(id, {
-				fields: {
-					...fieldsFor(backend, chatId),
-					state: 'draft',
-					pendingId: '',
+			// Recovery also accepts a new composer when its file was removed.
+			const restoredText = documentChange(
+				current ?? { text: '', issues: null },
+				{
+					fields: {
+						...fieldsFor(backend, chatId),
+						state: 'draft',
+						pendingId: '',
+					},
+					body,
 				},
-				body,
-			});
+			);
+			if (restoredText.error !== null)
+				return DraftError.Refused({ message: restoredText.error.reason });
+			const accepted = edit.replaceText(restoredText.data.text);
+			if (accepted.error !== null) return accepted;
+			const restored = await edit.save();
 			return restored.error !== null ? restored : Ok(undefined);
 		} finally {
 			stop();
