@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
-- **Amended by:** [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md), which removes path reservations and save-before-action behavior. The original decision and amendments below preserve the preceding lifecycle models.
+- **Lifecycle history:** [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) records the intermediate removal of path reservations and save-before-action behavior. The [write-only closure amendment](#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes workflow admission entirely. The original decision and earlier amendments below preserve the preceding lifecycle models.
 - **Amends:** ADR-0574, ADR-0656, and ADR-0657 at action admission and orderly teardown. ADR-0662's FileEdit and MarkdownContent contract remains.
 
 ## Context
@@ -148,3 +148,37 @@ the same way once its initial row has saved.
 Departure policy is unchanged. `FolderApp` starts close when it unmounts and
 does not wait for it; a native window close or Quit, or a browser unload, does
 not wait for the drain, and `run` keeps no destroyed page alive.
+
+## Amendment, 2026-10-22: Folder tracks writes, not app workflows
+
+Remove `Folder.run` and its app wrappers. Current app navigation retains its
+Folder: Whispering owns it above routes; the single-page apps keep it while
+switching views; Settings stays mounted when hidden. Vocab sign-in replaces the
+document. Window destruction and document unload do not wait for page promises.
+The surviving-runtime closes are startup failures and cleanup of a late opener,
+with no admitted user workflow to protect. Workflow lifetime admission therefore
+has no demonstrated product departure flow.
+
+Close still refuses new editor input, submits held input, drains submitted writes,
+and releases storage. It does not wait for future writes across workflow awaits.
+Apps keep their own closing checks for new work and late answers. Messages keeps
+its durable uncertain-send record when departure prevents saving a receipt.
+
+This supersedes the action-admission and workflow-draining clauses above; the
+per-path publication order and unsaved-input recovery remain.
+
+## Amendment, 2026-10-22: the write lanes own draining
+
+After removing `run`, every remaining tracked operation already belongs to an
+edit-owner lane. Remove the handle's second promise registry and the `track` and
+`drainWork` callbacks passed into the owner. Both settle and close drain the
+existing lane tails, including commands submitted while earlier ones settle.
+A lane stays registered through input acknowledgement and observer notification,
+so a close called from a publication notice waits for that acknowledgement.
+
+The edit owner finishes closure in the same turn that it finds its lanes empty,
+retains recovery text, and exposes its closed state to the handle. Remove the
+separate `release` call and handle-level released flag. The handle retains its
+cached close completion for reentrant callers and releases engine resources
+after the owner closes. Input refusal during the drain, storage refusal after it,
+explicit saves during the drain, and failed-input recovery retain their roles.

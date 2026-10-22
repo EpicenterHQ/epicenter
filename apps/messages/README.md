@@ -117,8 +117,11 @@ updates only the attempt. A remounted recovery action takes the same turn and
 rechecks persistence, so it cannot restore a message that has since succeeded.
 **I checked** explicitly acknowledges an unresolved outcome. The submitted text
 remains available to copy. Existing unresolved records in draft files still
-require checked recovery before composing again. Normal close waits for admitted
-sends and receipts; reload, reconnect, and draft autosave never replay them.
+require checked recovery before composing again. Normal close drains submitted
+writes without waiting for a backend reply or its later receipt write. If the
+folder closes before a receipt can be saved, the durable attempt remains
+unresolved and requires checked recovery. Reload, reconnect, and draft autosave
+never replay sends.
 
 This is local send recovery, not backend idempotency or a multi-device outbox.
 Intentional external edits to attempt records can change the protocol. Browser

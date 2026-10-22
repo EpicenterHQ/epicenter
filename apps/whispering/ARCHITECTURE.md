@@ -119,9 +119,10 @@ What Whispering adds on top:
   every app from its one origin, so it lasts between launches.
 
 Every file action, including settings saves, file creation, rename, and
-deletion, is ordinary work refused once closing begins. Closing waits for
-the saves and file actions the Folder already admitted. Product teardown
-itself waits for nothing. A request to
+deletion, checks the app's closing state before starting. Folder close submits
+held input and drains submitted writes; it does not keep a multi-step action
+alive across later reads or writes. Product teardown itself waits for nothing.
+A request to
 an endpoint is not waited for: its result row is in the folder before it goes
 out (ADR-0542), and an answer that has not arrived when the app quits is lost.
 
@@ -544,8 +545,7 @@ deleted with one nor in the way of deleting one, readable or not.
 
 The confirmation reads current row metadata and result membership. It does not
 save pending input. A malformed recording or transformation is deleted alone,
-so its results remain. `folder.run(action)` admits the workflow for close
-accounting without reserving paths or flushing edits. Each `files.delete(path)`
+so its results remain. Each `files.delete(path)`
 publishes removal in that path's command lane. Successful deletion consumes only
 its captured unsubmitted input; input accepted later remains pending. A partial
 cascade failure reports the result files that could not be removed.
@@ -587,9 +587,9 @@ the Svelte edits expose tracked properties over its read methods. A read never r
   a transcript or a result) is tracked work scoped by the recording's path,
   which the audio's "settling" state reads. Waiting on an endpoint is not
   tracked, so a request that does not answer never keeps the app from
-  closing. An answer's write, each retry, and a Stop's length write are each
-  admitted with `folder.run(action)`: once the folder is closing, they write
-  nothing, even while other admitted work keeps its close waiting.
+  closing. An answer's write, each retry, and a Stop's length write check the app's
+  closing state before saving. Folder drains submitted writes, without tracking
+  the surrounding workflows.
 
 Whispering retains view selection, connection forms, pasted text, capture
 state, and answers whose files are not written. Folder retains accepted
@@ -597,11 +597,12 @@ file edits. Rename copies held source or current bytes to the new name, then
 deletes the source. If current held text differs from the copied source, the
 source stays and the app reports both paths. Identical text is already preserved
 at the destination. Otherwise the selection follows the new name. Recording and transformation files keep their names. When
-Whispering is disposed, it starts `context.close()` synchronously, so all core
-and Svelte handles refuse new input and actions. Disposal returns immediately.
-The folder drains accepted saves and admitted file actions, including their
-later reads and writes through the same folder, before it releases storage. This differs from the
-person confirming immediate departure.
+Whispering is disposed, it refuses new app work and late answers and starts
+`context.close()` synchronously. Editor handles refuse new input. Disposal
+returns immediately. The folder submits held input and drains submitted writes
+before releasing storage; it does not wait for provider replies or the later
+steps of app workflows. Confirmed native departure can destroy the runtime
+before that cleanup finishes.
 
 ## Closing
 

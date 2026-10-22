@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) at desktop window Close and application Quit, and [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) at departure metadata and the removed recorder cancel operation.
-- **Lifecycle:** [ADR-0664](0664-folder-close-drains-admitted-work-through-one-owner.md), as amended by [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md), owns orderly Folder closure and lifetime-only action admission.
+- **Lifecycle:** [ADR-0664's write-only closure amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes public workflow admission. Folder submits held input and drains submitted writes; apps refuse new work and late results. [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) and the `run(action)` paragraph below preserve the intermediate lifetime-only model. The native departure policy and its evidence remain unchanged.
 - **Source reconciliation:** 2026-10-22, against `bd78bfb52b` and current callers. The native runs below remain October 21 evidence, not a new acceptance of the latest editor build.
 
 ## Context

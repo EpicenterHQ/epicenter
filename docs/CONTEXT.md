@@ -161,7 +161,7 @@ newer input arrives. Reads never replace pending local input and never cause
 writes. All acquired text remains available through unmounts, deletion, binary
 replacement, and failed refresh, until the folder closes. Explicit local input
 can recreate a missing file. Holding text in memory does not provide crash
-recovery. See [Folder editing](../packages/folder/README.md#unsaved-input).
+recovery. See [Folder editing](../packages/folder/README.md#editors).
 
 During sync, the same merge roles describe a base tree, the fetched remote
 tree, and the local tree being merged. These are roles in Epicenter's merge, not Git's

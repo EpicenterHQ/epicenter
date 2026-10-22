@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-22
 - **Amends:** [ADR-0664](0664-folder-close-drains-admitted-work-through-one-owner.md) at action admission, path reservations, and close-time editor results. Its one Folder owner and final storage-release boundary remain.
-- **Implementation:** Commit `bd78bfb52b` implements lifetime-only admission. The record describes that implementation without changing its Proposed status.
+- **Implementation history:** Commit `bd78bfb52b` implemented lifetime-only admission. [ADR-0664's write-only closure amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes `Folder.run` and its wrappers. The decision and examples below preserve that intermediate model, rather than describe an API to use. The [Folder guide](../../packages/folder/README.md#the-handle) documents the replacement.
 - **Relates:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md), retained sources and ordered local publications; [ADR-0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md), native departure policy.
 
 ## Context
