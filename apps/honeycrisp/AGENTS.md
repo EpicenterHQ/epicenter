@@ -44,7 +44,7 @@ verify it against the code. The constraints below apply to every edit here.
 - There are no versions and no sync. Do not add Save version, Sync, or
   Connect back until the local folder offers them.
 - A note whose text does not read as one is listed for repair and opens as
-  text, with the issues the folder read after its last save. Repair is text
+  text, with issues interpreted from its current acquired text. Repair is text
   editing; there is no structured partial-row repair.
 - A destructive action that must find every related file refuses when any
   file's relation did not read (`deleteFolder`).
@@ -71,10 +71,10 @@ verify it against the code. The constraints below apply to every edit here.
   `inspectNoteBody`, not dropped.
 - The rich-text view's lifetime depends on one boolean (`editable`) and its
   element. Do not make its mount effect read anything that changes on a
-  keystroke or a write, including `locked`; that recreates the view and
+  keystroke or a write, including save and load feedback; that recreates the view and
   erases undo history.
-- Views disable their inputs with their tracked `fileEdit.locked`: once the notes are
-  closing, and while the file is deleted.
+- Views disable inputs once the notes are closing. Saving, deleting, and
+  refresh failures never lock acquired content.
 
 ## Closing
 

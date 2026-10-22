@@ -110,27 +110,25 @@ separate presence from variant selection. Use an outer
 discriminant directly inside. Keep the owner visible instead of introducing a
 `$derived` alias solely to shorten these immediate reads.
 
-For illustration, given a `fileEdit.pending` union with `conflict`, `failed`,
-`saving`, and `dirty` statuses (not a declaration of the current editor API):
+For illustration, a job's optional `progress` can distinguish queued, running,
+and failed work:
 
 ```svelte
-{#if fileEdit.pending}
-	{#if fileEdit.pending.status === 'conflict'}
-		<ConflictResolver conflict={fileEdit.pending} />
-	{:else if fileEdit.pending.status === 'failed'}
-		<p>Not saved: {fileEdit.pending.error.message}</p>
-	{:else if fileEdit.pending.status === 'saving'}
-		<p><Spinner class="size-3.5" /> Saving...</p>
+{#if job.progress}
+	{#if job.progress.status === 'failed'}
+		<p>Failed: {job.progress.error.message}</p>
+	{:else if job.progress.status === 'running'}
+		<p><Spinner class="size-3.5" /> Running...</p>
 	{:else}
-		<p>Unsaved</p>
+		<p>Queued</p>
 	{/if}
 {:else}
-	<p>Saved</p>
+	<p>Idle</p>
 {/if}
 ```
 
 This makes absence one explicit branch instead of repeating
-`fileEdit.pending?.status` in every condition. Optional chaining is still useful
+`job.progress?.status` in every condition. Optional chaining is still useful
 for an isolated optional read. A local still earns its place when a deferred
 callback needs narrowing or an operation must retain the exact value shown;
 see the binding guidance below.
@@ -163,7 +161,7 @@ before creating the callbacks:
 
 ```svelte
 {#each rowEdits as rowEdit (rowEdit.path)}
-	{@const row = rowEdit.row}
+	{@const row = rowEdit.content}
 	{#if row && row.issues === null}
 		<Input
 			bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })}
@@ -173,8 +171,8 @@ before creating the callbacks:
 {/each}
 ```
 
-`{@const}` stays reactive within its template block. Use `$derived(rowEdit.row)`
-when script code also needs the row; a plain script `const row = rowEdit.row`
+`{@const}` stays reactive within its template block. Use `$derived(rowEdit.content)`
+when script code also needs the row; a plain script `const row = rowEdit.content`
 captures only the initial value. Narrow absent or invalid rows outside the
 control instead of putting `?.` and an empty fallback into every binding.
 Use the source's actual sentinel (`undefined` or `null`); a Folder row is valid
@@ -186,9 +184,9 @@ in its enclosing block. `{@const}` must be an immediate child of a supported
 template block or component, not an arbitrary HTML element.
 
 For optional text whose binding getter needs narrowing, capture
-`{@const source = fileEdit.text}` in the nearest supported scope, then gate
-the control with `source !== undefined`. An empty string is valid source, so a
-truthy `{#if source}` would hide an empty file. Use `?? ''` only when absence
+`{@const content = fileEdit.content}` in the nearest supported scope, then gate
+the control with `content !== undefined`, then bind to `content.text`. An empty
+string is valid source. Use `?? ''` only when absence
 really means an empty editable value; it must not turn unread, missing, or
 non-text content into an editable blank control.
 
@@ -230,15 +228,20 @@ shows its reason and opens as text, as below; repairing text does not switch a
 mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
-The query cache owns saved listings and refresh; `FileEdit` owns one whole-source
-draft per path. Bind controls through `createFileEdit`: `change()` updates named
-fields or the body in the current source, and `replaceText()` replaces it.
-Commands act in call order. Rereads do not fold outside changes into a dirty
-draft. A save failure retains the source for recovery; an outside change can
-cause a whole-file conflict that requires an explicit resolution. Read that save
-lifecycle from a ready `.buffer`'s optional `unsaved` value. Direct
-`folder.tables.<name>.set` and `folder.files.write` keep their content merge
-behavior; do not infer draft merging from those APIs.
+The query cache owns saved listings. One folder-owned `FileEdit` retains source
+per path. Bind controls through the memoized Svelte 5 `createFileEdit` adapter:
+its tracked `content` getter contains exact `text`, interpreted `fields` and
+`body`, and `issues`. `issues === null` proves the typed interpretation is valid.
+`change()` patches the current source; `replaceText()` replaces it. Use function
+bindings, not `$fileEdit` store syntax or a mirrored component draft.
+
+Read `loadError`, `isDirty`, `isSaving`, and `saveError` independently. Dirty means
+accepted publication intent, while saving describes admitted text publications;
+they can coexist. Saving publishes the text captured at the call, including over
+outside changes. Observations never write, and acquired text remains available
+when a later read fails or finds deletion. Direct file/table operations share the
+per-path publication lane. `folder.run(action)` admits workflow lifetime without
+reserving paths or flushing input.
 
 Do not mirror the edit owner's draft in the query cache or a page store.
 `$state` can hold a new-item box, a search, or input that has not been accepted
