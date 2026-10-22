@@ -5,50 +5,41 @@ service barrel.
 
 ## One Stable Import
 
-For a capability with browser and Tauri implementations, keep a shared contract
-and two implementation files:
+For a capability with browser and Epicenter-host implementations, keep one
+implementation file per build:
 
 ```txt
-services/text/
-|-- types.ts
+services/blobs/
 |-- index.browser.ts
-`-- index.tauri.ts
+`-- index.epicenter-host.ts
 ```
 
 Map one bare specifier in `apps/whispering/package.json`:
 
 ```jsonc
-"#platform/text": {
-  "tauri": "./src/lib/services/text/index.tauri.ts",
-  "default": "./src/lib/services/text/index.browser.ts"
+"#platform/blobs": {
+  "epicenter-host": "./src/lib/services/blobs/index.epicenter-host.ts",
+  "default": "./src/lib/services/blobs/index.browser.ts"
 }
 ```
 
 Shared consumers import one name:
 
 ```typescript
-import { TextServiceLive } from '#platform/text';
+import { BlobsLive } from '#platform/blobs';
 ```
 
-The web bundle resolves `default`; the Epicenter/Tauri surface activates the
-`tauri` condition. Do not add a runtime `window.__TAURI_INTERNALS__` branch or a
-second platform registry.
+The web bundle resolves `default`; the Epicenter host build activates the
+`epicenter-host` condition. Do not add a runtime `window.__TAURI_INTERNALS__`
+branch or a second platform registry.
 
-Each implementation exports the same name and checks the shared contract:
+Each implementation exports the same names with the same declared shape, so a
+consumer sees one contract whichever leaf the build selects. A seam whose only
+implementation is native, such as `#platform/text`, maps the bare specifier
+straight to its `.tauri.ts` file.
 
-```typescript
-export const TextServiceLive = {
-	readFromClipboard,
-	copyToClipboard,
-	writeToCursor,
-	simulateEnterKeystroke,
-	simulateCopyKeystroke,
-} satisfies TextService;
-```
-
-Current service seams include analytics, blobs, download, HTTP, recorder,
-and text. Check `package.json#imports` rather than copying this list when adding
-or moving a service.
+Check `package.json#imports` for the current seam list rather than copying it
+when adding or moving a service.
 
 ## Tauri-Only Capability
 
