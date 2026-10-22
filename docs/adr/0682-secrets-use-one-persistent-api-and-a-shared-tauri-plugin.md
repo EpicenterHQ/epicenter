@@ -33,17 +33,46 @@ The proposed public object is `secrets`, with these operations:
 | `set(name, value)` | Store or replace the string under that name |
 | `delete(name)` | Whether an entry was removed; an absent entry is not an error |
 
-Both adapters expose the same typed failure contract. Missing is distinct from
-storage being unavailable, access being denied, or an operation failing. The
-TypeScript adapter translates the generated native response envelope into that
-public contract. The app owns serialization of structured credentials.
+The shared TypeScript contract is:
 
-Operations are asynchronous even though localStorage is synchronous. Importing
-the package acquires no storage and reads no credentials. There is no open or
-close lifecycle, factory requirement, database catalog, or multi-key transaction
-promise. Persistence is the fixed policy; sync flags, session modes, expiry,
-listing, and rename are outside this initial contract. Persistence does not
-promise survival of browser-data clearing, eviction, or operating-system loss.
+```ts
+import type { Result } from 'wellcrafted/result';
+
+type SecretError = {
+  readonly name:
+    | 'InvalidName'
+    | 'NotBound'
+    | 'Denied'
+    | 'Unavailable'
+    | 'Failed';
+  readonly message: string;
+};
+
+type Secrets = {
+  get(name: string): Promise<Result<string | null, SecretError>>;
+  set(name: string, value: string): Promise<Result<void, SecretError>>;
+  delete(name: string): Promise<Result<boolean, SecretError>>;
+};
+
+declare const secrets: Secrets;
+```
+
+`SecretError` has `InvalidName`, `NotBound`, `Denied`, `Unavailable`, and
+`Failed` variants. Both adapters return these tagged failures rather than
+rejecting for ordinary storage failures. Missing is a successful `null`, not a
+failure. The TypeScript adapter translates the generated native response
+envelope into this public contract. The app owns serialization of structured
+credentials. Names use the one-segment lowercase ASCII grammar
+`^[a-z0-9][a-z0-9.-]{0,63}$`; a name selects an entry within the bound scope,
+never a service or path.
+
+Operations are asynchronous even though localStorage is synchronous. The
+`secrets` object is the capability handle; importing it acquires no storage and
+reads no credentials. There is no open or close lifecycle, factory requirement,
+database catalog, or multi-key transaction promise. Persistence is the fixed
+policy; sync flags, session modes, expiry, listing, and rename are outside this
+initial contract. Persistence does not promise survival of browser-data
+clearing, eviction, or operating-system loss.
 
 **The portable package selects its adapter at runtime; a build may pin one
 adapter without changing app calls.** The bare `@epicenter/secrets` entry checks
@@ -73,14 +102,20 @@ shell. The package's Tauri adapter uses those bindings beneath the public API.
 Cargo compiles the shared crate into each shell; the frontend installs its
 companion npm package. Desktop persistence requires no CLI child or Bun runtime.
 
-**The runtime binds the namespace before granting access.** The native plugin
-resolves an app's installation scope from the calling window's shell-owned
-binding. A page supplies an entry name, not a keychain service, application ID,
-or another installation's scope. Hosted apps have separate app-owned scopes;
-standalone and development installations have their own. Selecting a different
-authored Folder does not relocate credentials. The browser adapter uses an
-app-reserved prefix within its origin's localStorage; that prefix organizes
-names and does not isolate them from other scripts on the same origin.
+**The runtime binds the namespace before granting access.** Each native shell
+binds an installation scope to the window before its page loads. The secrets
+plugin consumes that shell-owned binding, the installation identity required
+by [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md); neither
+capability derives a scope from an entry name, page title, or chosen Folder. A
+page supplies an entry name, not a keychain service, application ID, or another
+installation's scope. Hosted apps have separate app-owned scopes; standalone
+and development installations have their own. Selecting a different authored
+Folder does not relocate credentials. An installed page receives no secrets
+grant by default; any later grant uses a host-issued installation scope, not a
+manifest claim. The browser adapter uses a package-owned prefix within its
+origin's localStorage.
+As with browser SQLite in ADR-0678, one origin is one app scope: paths and
+prefixes do not isolate same-origin scripts from one another.
 
 **The app does not synchronize secret values.** Native storage uses Apple
 Keychain, Windows Credential Manager, or a supported Linux Secret Service.

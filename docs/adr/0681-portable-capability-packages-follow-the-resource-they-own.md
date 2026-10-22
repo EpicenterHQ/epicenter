@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-22
 - **Relates:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) established runtime selection inside the former App package; [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) and [ADR-0643](0643-the-folder-package-owns-its-local-engine.md) establish Folder's public contract and implementation owner; [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) keeps inference independent of local data; [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) and [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) define the accepted, unbuilt database contract.
-- **Unbuilt:** `@epicenter/sqlite` and `@epicenter/secrets` have no production exports. The browser SQLite backend and native secret-store adapter remain undecided.
+- **Unbuilt:** `@epicenter/sqlite` and `@epicenter/secrets` have no production exports. The browser SQLite backend remains undecided.
 
 ## Context
 
@@ -19,7 +19,7 @@ These capabilities can all be used from more than one runtime. That property alo
 | --- | --- | --- |
 | Authored files, tables, and Git-backed exchange | `@epicenter/folder` | One opened Folder and its rooted files; the browser or native shell supplies the location. |
 | App-managed private SQLite databases | `@epicenter/sqlite` | Named databases in an installation scope, with SQL and connection cleanup. The app owns schemas, migrations, and rebuild policy. |
-| App-owned secret values | `@epicenter/secrets` | Named values under a runtime-bound application scope. Its adapters may use browser storage, an operating-system credential store, or Bun's credential API; the contract must state their different protection and persistence properties. |
+| App-owned secret values | `@epicenter/secrets` | Named values under a runtime-bound application scope. Browser and native adapters must state their different protection and persistence properties. |
 | Inference, including Epicenter's hosted service | `@epicenter/ai` | An explicitly chosen inference destination and request lifetime, with account authorization for the hosted service. It has no Folder or installation-private database lifetime. |
 
 **SQLite and secrets have separate package lifetimes and imports.** A database retains one connection and closes asynchronously. A secret-store operation needs no connection or matching close. Neither package absorbs Folder, inference, clipboard, recording, or every later native feature. An installation binding in Rust may support several capabilities without requiring one JavaScript package to own them all.
@@ -30,7 +30,7 @@ These capabilities can all be used from more than one runtime. That property alo
 
 **Add to an existing package only when the operation belongs to its resource contract.** A new package needs a real caller, a distinct owner and invariant, and failures, lifetime, or dependencies that do not belong in an existing package. The package home can be decided before implementation; create the package when its first real caller uses it. A private-file API, local settings wrapper, or universal device handle is not added in anticipation of possible callers.
 
-ADR-0673 and ADR-0678 still name `openDeviceDatabase` and `deleteDeviceDatabase`; this package decision does not rename them or change their signatures. The secret-store contract, native adapter, browser persistence choice, and treatment of host-owned credentials need their own decision before `@epicenter/secrets` ships. A browser storage adapter must not claim the operating system credential store's protection.
+ADR-0673 and ADR-0678 still name `openDeviceDatabase` and `deleteDeviceDatabase`; this package decision does not rename them or change their signatures. The secret-store contract, native adapter, browser persistence choice, and treatment of host-owned credentials belong to a separate decision. A browser storage adapter must not claim the operating system credential store's protection.
 
 ## Consequences
 
