@@ -141,7 +141,7 @@ impl<R: Runtime> Builder<R> {
                 // next `recover`.
                 RunEvent::Exit => {
                     if let Some(recorders) = app.try_state::<Recorders<R>>() {
-                        recorders.lock().finish_held();
+                        recorders.lock().shutdown();
                     }
                 }
                 _ => {}

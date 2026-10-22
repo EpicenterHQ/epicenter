@@ -79,6 +79,7 @@ pub async fn open_meter<R: Runtime>(
         // ownership check and microphone opening under the recorder lock.
         let recorders = opening_app.state::<Recorders<R>>();
         let recorder = recorders.lock();
+        recorder.require_running()?;
         if recorder.page(&opening_owner) != page {
             return Err(RecorderError::not_recording(
                 "the page that asked to open a meter has gone",

@@ -378,6 +378,74 @@ fn permission_granted_after_page_departure_resolves_no_device() {
 }
 
 #[test]
+fn shutdown_closes_meters_and_refuses_a_meter_opened_before_shutdown() {
+    let fixture = fixture();
+    let recorders = fixture.app.state::<Recorders<MockRuntime>>();
+    let mut recorder = recorders.lock();
+    let page = recorder.page("main");
+    recorder
+        .add_meter("held", page, "main", crate::meter::Meter::stand_in())
+        .unwrap();
+    let arriving = crate::meter::Meter::stand_in();
+
+    recorder.shutdown();
+    recorder.shutdown();
+    assert!(!recorder.is_capturing());
+    let refused = recorder
+        .add_meter("arriving", page, "main", arriving)
+        .unwrap_err();
+    assert!(matches!(refused, crate::RecorderError::NotRecording { .. }));
+    assert_eq!(recorder.open_meters(), 0);
+}
+
+#[test]
+fn permission_granted_after_exit_finalization_resolves_no_device() {
+    use std::sync::{mpsc, Mutex};
+    use std::time::Duration;
+
+    static PERMISSION: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>> = Mutex::new(None);
+    let mut refusals = Vec::new();
+    for command in ["open_meter", "start"] {
+        let (asking, asked) = mpsc::channel();
+        let (grant, granted) = mpsc::channel();
+        *PERMISSION.lock().unwrap() = Some((asking, granted));
+        let fixture = fixture_with_access(|| {
+            let (asking, granted) = PERMISSION.lock().unwrap().take().unwrap();
+            asking.send(()).unwrap();
+            granted.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(())
+        });
+        let main = window(&fixture.app, "main");
+        let args = match command {
+            "open_meter" => json!({ "device": "not an id", "levels": "__CHANNEL__:1" }),
+            _ => {
+                json!({ "path": "recordings/a", "device": "not an id", "signals": "__CHANNEL__:1" })
+            }
+        };
+        let calling = std::thread::spawn(move || invoke(&main, command, args));
+
+        asked.recv_timeout(Duration::from_secs(5)).unwrap();
+        // The exact recorder operation dispatched by the plugin's RunEvent::Exit.
+        fixture
+            .app
+            .state::<Recorders<MockRuntime>>()
+            .lock()
+            .shutdown();
+        grant.send(()).unwrap();
+
+        let refused = calling.join().unwrap().unwrap_err();
+        eprintln!("{command} after exit finalization: {refused}");
+        refusals.push(name(&refused).to_owned());
+        assert!(!fixture.root.join("recordings/a.wav").exists());
+    }
+    assert_eq!(
+        refusals,
+        vec!["NotRecording", "NotRecording"],
+        "exit finalization must reject deferred capture before device resolution"
+    );
+}
+
+#[test]
 fn start_and_recover_reach_only_the_folder_bound_to_the_calling_window() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");

@@ -544,6 +544,9 @@ struct HeldRecording {
 #[derive(Default)]
 pub struct Recorder {
     active: Option<HeldRecording>,
+    /// Exit seals capture before finalization, including requests still
+    /// waiting for microphone permission or a meter's worker.
+    stopped: bool,
     /// How many pages each window has shown, so a `start` a departed page
     /// sent is refused rather than recording for a page that cannot stop it.
     pages: HashMap<String, u64>,
@@ -597,6 +600,7 @@ impl Recorder {
         owner: &str,
         meter: Meter,
     ) -> Result<()> {
+        self.require_running()?;
         if self.page(owner) != page {
             return Err(RecorderError::not_recording(
                 "the page that asked for a meter has gone",
@@ -875,11 +879,21 @@ impl Recorder {
         }
     }
 
-    /// Finalize whatever recording is held, for the app's exit.
-    pub fn finish_held(&mut self) {
+    /// Refuse further capture and finalize held audio for the app's exit.
+    /// Calling this again is harmless; cancelling Quit never calls it.
+    pub fn shutdown(&mut self) {
+        self.stopped = true;
+        self.meters.clear();
         if let Some(active) = self.active.take() {
             let _ = finish(active);
         }
+    }
+
+    pub(crate) fn require_running(&self) -> Result<()> {
+        if self.stopped {
+            return Err(RecorderError::not_recording("the recorder has shut down"));
+        }
+        Ok(())
     }
 
     /// Whether a microphone is open right now, by the recording or a meter,
@@ -916,6 +930,7 @@ impl Recorder {
     /// because these are the recorder's two access rules and reading them
     /// together is how the slot's whole policy stays legible.
     fn require_free_slot(&self) -> Result<()> {
+        self.require_running()?;
         let Some(active) = &self.active else {
             return Ok(());
         };
@@ -993,7 +1008,7 @@ fn finish(active: HeldRecording) -> Result<FinishedRecording> {
 /// deleted.
 impl Drop for Recorder {
     fn drop(&mut self) {
-        self.finish_held();
+        self.shutdown();
     }
 }
 
