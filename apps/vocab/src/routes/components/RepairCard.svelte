@@ -26,45 +26,44 @@
 </script>
 
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
-	{#if fileEdit?.content}
+	{#if fileEdit}
 		{@const stored = fileEdit.content}
-		<p>
-			<code>{path}</code>
-			{stored.issues === null ? 'now reads as a word.' : 'is not a valid word, so its note and stage cannot be shown.'}
-			Edit its text here; it is saved when you pause.
-		</p>
-		{#if fileEdit}
-			{@const text = fileEdit.content?.text}
-			{#if text !== undefined}
-				<Textarea
-					class="min-h-32 font-mono text-xs"
-					aria-label="File text for {path}"
-					bind:value={() => text, (next) => fileEdit.replaceText(withFileNewlines(next, text))}
-				/>
-			{/if}
-		{/if}
-		{#if fileEdit?.loadError}
-			<p role="alert" class="text-sm text-destructive">{fileEdit?.loadError.message}</p>
-		{/if}
-		{#if fileEdit.saveError}
-			<p role="alert" class="text-destructive">Not saved: {describeFailure(fileEdit.saveError)}
-				<Button variant="link" size="xs" onclick={() => void fileEdit.save()}>Try again</Button>
+		{#if stored}
+			<p>
+				<code>{path}</code>
+				{stored.issues === null ? 'now reads as a word.' : 'is not a valid word, so its note and stage cannot be shown.'}
+				Edit its text here; it is saved when you pause.
 			</p>
-		{:else if fileEdit.isDirty || fileEdit.isSaving}
-			<p role="status" class="text-muted-foreground">Saving…</p>
-		{/if}
-		{#if stored.issues}
-			<ul role="alert" class="space-y-1 text-destructive" aria-label="Problems in the current text">
-				{#each stored.issues as issue, index (index)}
-					<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
-				{/each}
-			</ul>
+			<Textarea
+				class="min-h-32 font-mono text-xs"
+				aria-label="File text for {path}"
+				bind:value={() => stored.text, (next) => fileEdit.replaceText(withFileNewlines(next, stored.text))}
+			/>
+			{#if fileEdit.loadError}
+				<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>
+			{/if}
+			{#if fileEdit.saveError}
+				<p role="alert" class="text-destructive">Not saved: {describeFailure(fileEdit.saveError)}
+					<Button variant="link" size="xs" onclick={() => void fileEdit.save()}>Try again</Button>
+				</p>
+			{:else if fileEdit.isDirty || fileEdit.isSaving}
+				<p role="status" class="text-muted-foreground">Saving…</p>
+			{/if}
+			{#if stored.issues}
+				<ul role="alert" class="space-y-1 text-destructive" aria-label="Problems in the current text">
+					{#each stored.issues as issue, index (index)}
+						<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
+					{/each}
+				</ul>
+			{:else}
+				<Button size="sm" variant="outline" onclick={() => void repair.close()}>Show note and stage</Button>
+			{/if}
+		{:else if fileEdit.loadError}
+			<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {fileEdit.loadError.message}</p>
+			<Button size="sm" variant="outline" onclick={() => void fileEdit.refresh()}>Read again</Button>
 		{:else}
-			<Button size="sm" variant="outline" onclick={() => void repair.close()}>Show note and stage</Button>
+			<p>Reading <code>{path}</code>…</p>
 		{/if}
-	{:else if fileEdit?.loadError}
-		<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {fileEdit.loadError.message}</p>
-		<Button size="sm" variant="outline" onclick={() => void fileEdit?.refresh()}>Read again</Button>
 	{:else}
 		<p>Reading <code>{path}</code>…</p>
 	{/if}

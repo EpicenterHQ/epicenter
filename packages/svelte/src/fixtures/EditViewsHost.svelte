@@ -11,6 +11,7 @@
 	// svelte-ignore state_referenced_locally
 	const textEdits = [createFileEdit(folder.files.edit('b.md')), createFileEdit(folder.files.edit('b.md'))];
 	const textEdit = $derived(createFileEdit(folder.files.edit(`notes/${id}.md`)));
+	const content = $derived(textEdit.content);
 </script>
 
 <button onclick={() => (id = id === 'a' ? 'c' : 'a')}>Switch address</button>
@@ -28,8 +29,7 @@
 	{/if}
 {/each}
 
-{#if textEdit.content}
-	{@const content = textEdit.content}
+{#if content}
 	<textarea aria-label="Whole row text" bind:value={() => content.text, (value) => textEdit.replaceText(value)}></textarea>
 {/if}
 <output aria-label="Shared pending">{textEdit.isDirty ? textEdit.content?.text : 'saved'}</output>

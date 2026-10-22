@@ -13,6 +13,7 @@
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
 	const fileEdit = createFileEdit(folder.files.edit(path));
+	const content = $derived(fileEdit.content);
 	let inputProblem = $state<string>();
 	/** A textarea would rewrite mixed line endings or lone carriage returns. */
 	function hasMixedNewlines(text: string) {
@@ -52,8 +53,7 @@
 			</Alert.Root>
 		</div>
 	{/if}
-	{#if fileEdit.content}
-		{@const content = fileEdit.content}
+	{#if content}
 		{#if hasMixedNewlines(content.text)}
 			<div class="flex min-h-0 flex-1 flex-col gap-2 p-4">
 				<p class="text-sm text-muted-foreground">This file mixes line endings, which editing here would change, so it is shown as it is and not edited.</p>
