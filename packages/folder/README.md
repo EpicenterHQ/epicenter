@@ -220,8 +220,12 @@ frozen object until something in it changes. `subscribe(listener)` calls the
 listener with the current snapshot at once, then with each new one, and the
 first subscription reads the file when nothing has been read yet or it
 changed while nobody watched. Unsubscribing cancels no accepted work.
-`refresh()` reads now, after the path's admitted writes, and answers
-`Result<void, LoadError>`.
+`refresh()` reads after the path's admitted writes and answers
+`Result<void, LoadError>` with what the first read to start after the call
+found; a read already running never answers it, and a file that keeps
+changing cannot hold it off. A read overtaken by a newer change still shows
+its text when that is newer than any text shown before, without clearing a
+`loadError`; subscribed editors read again until one applies.
 
 `content` is the latest accepted input, or the last text read. Its `text` is
 the exact source; `fields`, `body` and `issues` interpret it through the

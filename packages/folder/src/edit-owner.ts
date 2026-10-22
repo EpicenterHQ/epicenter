@@ -22,10 +22,11 @@
  * tick it started at; every command settling, reported change, and refresh
  * request carries the tick it happened at. An observation installs only
  * when nothing newer happened to its path since it started and no command
- * of the path is admitted; otherwise the owner's own read reads again,
- * until one applies. A structured command composes over the input it
- * captured while that is still the input, otherwise over the file it reads
- * in the lane, never over retained text.
+ * of the path is admitted. Overtaken text still shows when it is newer than
+ * any text before it, without claiming freshness, and subscribed editors
+ * read again. A structured command composes over the input it captured
+ * while that is still the input, otherwise over the file it reads in the
+ * lane, never over retained text.
  */
 import { type Static, type TSchema, Type } from 'typebox';
 import {
@@ -187,8 +188,9 @@ export type FileEdit<TRowSchema extends TSchema = AnyFieldsSchema> = {
 	 */
 	save(): Promise<Result<void, SaveError | SaveRefusal>>;
 	/**
-	 * Read the file after the path's admitted commands, and again while
-	 * anything newer overtakes the read, until one applies.
+	 * Read the file after the path's admitted commands. Settles with what the
+	 * first read to start after this call found; a file that keeps changing
+	 * cannot hold it off, and subscribers keep reading until one applies.
 	 */
 	refresh(): Promise<Result<void, LoadError>>;
 	/**
@@ -326,7 +328,10 @@ type Source = {
 	changedAt: number;
 	/** Refreshed or given local input: raw reads keep it current. */
 	activated: boolean;
-	reading: Promise<Result<void, LoadError>> | undefined;
+	/** Whether the read loop runs. */
+	reading: boolean;
+	/** Callers waiting for the next read to start, settled once it is taken. */
+	nextRead: PromiseWithResolvers<Result<void, LoadError>> | undefined;
 	/** Bumped with every change a snapshot shows. */
 	stamp: number;
 	readonly subscriptions: Set<Subscription>;
@@ -507,7 +512,8 @@ export function createEditOwner({
 				// An observation that started before a change it never saw stays out.
 				changedAt: pathChangedAt(path),
 				activated: false,
-				reading: undefined,
+				reading: false,
+				nextRead: undefined,
 				stamp: 0,
 				subscriptions: new Set(),
 				views: new WeakMap(),
@@ -708,33 +714,50 @@ export function createEditOwner({
 	 */
 	function invalidate(source: Source) {
 		source.changedAt = ++clock;
-		if (source.reading !== undefined) return;
-		if (source.subscriptions.size > 0 && phase !== 'closed')
-			void startRead(source);
+		if (source.subscriptions.size > 0) keepReading(source);
+	}
+
+	/** Why `observation` supplied no text, or `undefined` when it found text. */
+	function loadErrorOf(
+		path: string,
+		observation: Observation,
+	): LoadError | undefined {
+		switch (observation.kind) {
+			case 'text':
+				return undefined;
+			case 'missing':
+				return LoadError.Missing({ path }).error;
+			case 'not-text':
+				return LoadError.NotText({ path }).error;
+			case 'failed':
+				return LoadError.ReadFailed({ path, cause: observation.cause }).error;
+		}
 	}
 
 	/** Install what an observation started at `at` found, as what is stored. */
 	function install(source: Source, observation: Observation, at: number) {
-		const { path } = source;
-		let error: LoadError | undefined;
-		switch (observation.kind) {
-			case 'text':
-				source.known = observation.text;
-				source.textAt = at;
-				break;
-			case 'missing':
-				error = LoadError.Missing({ path }).error;
-				break;
-			case 'not-text':
-				error = LoadError.NotText({ path }).error;
-				break;
-			case 'failed':
-				error = LoadError.ReadFailed({ path, cause: observation.cause }).error;
-				break;
+		if (observation.kind === 'text') {
+			source.known = observation.text;
+			source.textAt = at;
 		}
+		const error = loadErrorOf(source.path, observation);
 		if (!sameError(source.loadError, error))
 			source.loadError = error === undefined ? undefined : Object.freeze(error);
 		source.knownAt = at;
+		touch(source);
+	}
+
+	/**
+	 * Text an observation started at `at` found after something newer
+	 * overtook it. It still shows when newer than any text before it, without
+	 * claiming freshness or clearing a load error; a later applicable
+	 * observation reconciles it.
+	 */
+	function showOvertaken(source: Source, observation: Observation, at: number) {
+		if (observation.kind !== 'text' || source.textAt >= at) return;
+		source.known = observation.text;
+		source.textAt = at;
+		source.changedAt = Math.max(source.changedAt, at);
 		touch(source);
 	}
 
@@ -754,33 +777,65 @@ export function createEditOwner({
 		}
 	}
 
+	/** Start the read loop of `source` unless it runs or the folder closed. */
+	function keepReading(source: Source) {
+		if (!source.reading && phase !== 'closed') void readLoop(source);
+	}
+
 	/**
-	 * Read `source`, or join the read running. Each attempt starts once the
-	 * path's admitted commands finished; one that something newer overtook
-	 * is read again, until one applies or what is known already answers.
+	 * Settles with what the next read of `source` to start finds, once it is
+	 * taken: a read that started before this call never answers it, and a
+	 * file that keeps changing cannot hold it off.
 	 */
-	function startRead(source: Source): Promise<Result<void, LoadError>> {
-		if (source.reading !== undefined) return source.reading;
-		const reading = (async () => {
-			for (;;) {
-				await idle(source.path);
-				if (current(source)) break;
-				const at = beginObservation();
-				try {
-					const observation = await observe(source.path);
-					if (applies(source, at)) {
-						install(source, observation, at);
-						break;
-					}
-				} finally {
-					endObservation();
-				}
+	function readAfterNow(source: Source): Promise<Result<void, LoadError>> {
+		source.nextRead ??= Promise.withResolvers();
+		const { promise } = source.nextRead;
+		keepReading(source);
+		return promise;
+	}
+
+	/**
+	 * Read `source` while a subscriber needs it current or a caller waits.
+	 * Each attempt starts once the path's admitted commands finished. One
+	 * that applies is installed; one something newer overtook still shows its
+	 * text, and subscribers read again.
+	 */
+	async function readLoop(source: Source) {
+		// A call, so the check after an await is not narrowed away.
+		const closed = () => phase === 'closed';
+		source.reading = true;
+		while (!closed()) {
+			await idle(source.path);
+			if (closed()) break;
+			const waiting = source.nextRead;
+			source.nextRead = undefined;
+			if (current(source)) {
+				waiting?.resolve(outcomeOf(source));
+				break;
 			}
-			source.reading = undefined;
-			return outcomeOf(source);
-		})();
-		source.reading = reading;
-		return reading;
+			const at = beginObservation();
+			let result: Result<void, LoadError>;
+			try {
+				const observation = await observe(source.path);
+				if (applies(source, at)) {
+					install(source, observation, at);
+					result = outcomeOf(source);
+				} else {
+					showOvertaken(source, observation, at);
+					const error = loadErrorOf(source.path, observation);
+					result = error === undefined ? Ok(undefined) : Err(error);
+				}
+			} finally {
+				endObservation();
+			}
+			waiting?.resolve(result);
+			if (source.subscriptions.size === 0 && source.nextRead === undefined)
+				break;
+		}
+		source.reading = false;
+		// Closed while a caller waited: answer with what is known.
+		source.nextRead?.resolve(outcomeOf(source));
+		source.nextRead = undefined;
 	}
 
 	function clearTimer(source: Source) {
@@ -957,9 +1012,9 @@ export function createEditOwner({
 				}),
 			);
 		source.activated = true;
-		// A read already running started before this request; it reads again.
+		// What is known, or a read already running, predates this request.
 		source.changedAt = ++clock;
-		return startRead(source);
+		return readAfterNow(source);
 	}
 
 	function discard(source: Source): string | undefined {
@@ -988,13 +1043,8 @@ export function createEditOwner({
 		};
 		source.subscriptions.add(subscription);
 		callObserver('edit listener', listener, subscription.last!);
-		if (
-			!current(source) &&
-			source.reading === undefined &&
-			phase !== 'closed' &&
-			source.subscriptions.has(subscription)
-		)
-			void startRead(source);
+		if (!current(source) && source.subscriptions.has(subscription))
+			keepReading(source);
 		return () => {
 			source.subscriptions.delete(subscription);
 		};
@@ -1070,14 +1120,7 @@ export function createEditOwner({
 				source = sourceOf(path);
 			}
 		} else if (applies(source, at)) return install(source, observation, at);
-		// Overtaken text can advance knowledge without claiming freshness or
-		// clearing a load error. A later applicable observation reconciles it.
-		if (observation.kind === 'text' && source.textAt < at) {
-			source.known = observation.text;
-			source.textAt = at;
-			source.changedAt = Math.max(source.changedAt, at);
-			touch(source);
-		}
+		showOvertaken(source, observation, at);
 	}
 
 	return {
@@ -1100,7 +1143,7 @@ export function createEditOwner({
 					continue;
 				source.changedAt = ++clock;
 				if (source.subscriptions.size > 0) {
-					reads.push(startRead(source));
+					reads.push(readAfterNow(source));
 				}
 			}
 			await Promise.all(reads);

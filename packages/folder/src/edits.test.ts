@@ -650,21 +650,34 @@ test('a read waits for admitted writes, so an acknowledgement never lands over a
 	expect(edit.getSnapshot().content?.text).toBe('theirs\n');
 });
 
-test('a change reported while a read runs is read again afterwards', async () => {
+test('a refresh is answered by a read that started after it, and a change reported meanwhile is read again', async () => {
 	const { folder, hold, outside, reads } = setup({ 'a.md': 'old\n' });
 	const edit = folder.files.edit('a.md');
+	const first = hold('read');
 	const { seen } = record(edit);
-	const reading = hold('read');
-	const refreshing = edit.refresh();
-	await reading.reached;
+	await first.reached;
+	// The subscription's read is running: it predates the refresh.
+	const second = hold('read');
+	let settled = false;
+	const refreshing = edit.refresh().finally(() => {
+		settled = true;
+	});
 	outside('a.md', 'new\n');
-	reading.proceed();
+	first.proceed();
+	await second.reached;
+	await flush();
+	expect(settled).toBe(false);
+	second.proceed();
 	expectOk(await refreshing);
-	expect(edit.getSnapshot().content?.text).toBe('new\n');
-	expect(reads().length).toBeGreaterThanOrEqual(2);
-	expect(
-		seen.some((snapshot: EditorSnapshot) => snapshot.content?.text === 'old\n'),
-	).toBe(false);
+	expect(edit.getSnapshot()).toMatchObject({
+		content: { text: 'new\n' },
+		loadError: undefined,
+	});
+	expect(reads()).toHaveLength(2);
+	// The overtaken answer showed first; nothing older followed the newer one.
+	expect(seen.map((snapshot: EditorSnapshot) => snapshot.content?.text)).toEqual(
+		[undefined, 'old\n', 'new\n'],
+	);
 });
 
 test('change patches fields and body of the current text, owns nested values, and refuses what it cannot apply', async () => {
@@ -1068,13 +1081,17 @@ test('a raw read never decodes a passive editor’s file, and keeps an engaged o
 	expect(reads().length).toBe(before + 1);
 });
 
-test('a read overtaken again and again reads until one applies, never installing an older answer', async () => {
+test('a file that keeps changing shows each newer answer, settles a refresh, and is read until one applies', async () => {
 	const { folder, hold, outside, reads } = setup({ 'a.md': '0' });
 	const edit = folder.files.edit('a.md');
 	const first = hold('read');
 	const { stop } = record(edit);
 	cleanup.push(stop);
 	await first.reached;
+	let settled = false;
+	const refreshing = edit.refresh().finally(() => {
+		settled = true;
+	});
 	let held = first;
 	for (let change = 1; change <= 8; change++) {
 		const next = hold('read');
@@ -1082,9 +1099,15 @@ test('a read overtaken again and again reads until one applies, never installing
 		held.proceed();
 		await next.reached;
 		held = next;
-		// Every answer so far was overtaken: nothing older is installed.
-		expect(edit.getSnapshot().content).toBeUndefined();
+		// Each overtaken answer shows, never one older than the last shown.
+		expect(edit.getSnapshot()).toMatchObject({
+			content: { text: String(change - 1) },
+			loadError: undefined,
+		});
+		// The first read predates the refresh; the second one answers it.
+		expect(settled).toBe(change >= 2);
 	}
+	expectOk(await refreshing);
 	held.proceed();
 	await flush();
 	expect(edit.getSnapshot().content?.text).toBe('8');
