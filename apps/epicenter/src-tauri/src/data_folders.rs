@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, NoCache};
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_epicenter_folder::Directory;
 
@@ -32,17 +31,8 @@ pub fn overlaps_epicenter_files(paths: &DesktopPaths, directory: &Directory) -> 
     library::check_app_directory(&paths.data_dir, &paths.folder_dir, directory.root()).is_err()
 }
 
-/// One visible child discovered under the configured root.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RootFolder {
-    /// The directory entry name, used only to assemble its native path.
-    pub name: String,
-    /// `epicenter.json`'s `title` when it is a string, else the directory name.
-    pub title: String,
-}
-
-pub(crate) fn list_in(folder_dir: &Path) -> Result<Vec<RootFolder>, String> {
+/// Discover visible real children. The combined listing owns titles and order.
+pub(crate) fn list_in(folder_dir: &Path) -> Result<Vec<PathBuf>, String> {
     let entries = match fs::read_dir(folder_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -58,10 +48,8 @@ pub(crate) fn list_in(folder_dir: &Path) -> Result<Vec<RootFolder>, String> {
         if name.starts_with('.') || !is_directory {
             continue;
         }
-        let title = folder_title(&entry.path());
-        listed.push(RootFolder { name, title });
+        listed.push(entry.path());
     }
-    listed.sort_by_cached_key(|folder| (folder.title.to_lowercase(), folder.name.clone()));
     Ok(listed)
 }
 
@@ -96,7 +84,7 @@ pub struct DataFoldersWatch {
 }
 
 /// Watch `folder_dir` and send `DATA_FOLDERS_CHANGED` to the Folders window
-/// when what `list_in` reads may have changed: an entry directly under the
+/// when the combined folder list may have changed: an entry directly under the
 /// root, or a folder's optional `epicenter.json` title. The watch is recursive
 /// because a declaration is one level down; every deeper change, such as a row saved
 /// in a folder, is ignored. A rescan or a watch error is reported too, and so
@@ -210,7 +198,7 @@ mod tests {
     }
 
     impl Fixture {
-        fn list(&self) -> Vec<RootFolder> {
+        fn list(&self) -> Vec<PathBuf> {
             list_in(&self.folder_dir).unwrap()
         }
 
@@ -458,7 +446,7 @@ mod tests {
         // A directory without a declaration remains available.
         fs::create_dir_all(fixture.folder_dir.join("plain")).unwrap();
         // A dot directory, file, or lock file is not listed. An unusable
-        // declaration does not hide the directory or supply a title.
+        // declaration does not hide the directory.
         data_folder(&fixture, ".hidden", "{}");
         fs::write(fixture.folder_dir.join("loose.json"), "{}").unwrap();
         fs::write(fixture.folder_dir.join(".vault.epicenter-save-lock"), "").unwrap();
@@ -470,22 +458,11 @@ mod tests {
         )
         .unwrap();
 
+        let mut children = fixture.list();
+        children.sort();
         assert_eq!(
-            fixture.list(),
-            [
-                RootFolder {
-                    name: "odd".into(),
-                    title: "odd".into()
-                },
-                RootFolder {
-                    name: "plain".into(),
-                    title: "plain".into()
-                },
-                RootFolder {
-                    name: "vault".into(),
-                    title: "vault".into()
-                },
-            ]
+            children,
+            ["odd", "plain", "vault"].map(|name| fixture.folder_dir.join(name))
         );
     }
 
@@ -493,35 +470,7 @@ mod tests {
     fn a_missing_root_lists_nothing() {
         let fixture = fixture("missing");
         fs::remove_dir_all(&fixture.folder_dir).unwrap();
-        assert_eq!(fixture.list(), []);
-    }
-
-    #[test]
-    fn titles_come_from_epicenter_json_when_it_names_one() {
-        let fixture = fixture("titles");
-        data_folder(
-            &fixture,
-            "reading",
-            r#"{ "title": "Reading list", "tables": {} }"#,
-        );
-        data_folder(&fixture, "numbered", r#"{ "title": 7 }"#);
-        data_folder(&fixture, "broken", "not json");
-        data_folder(&fixture, RECORDS, r#"{ "title": "Epicenter" }"#);
-
-        let titles: Vec<(String, String)> = fixture
-            .list()
-            .into_iter()
-            .map(|folder| (folder.name, folder.title))
-            .collect();
-        assert_eq!(
-            titles,
-            [
-                ("broken".into(), "broken".into()),
-                (RECORDS.into(), "Epicenter".into()),
-                ("numbered".into(), "numbered".into()),
-                ("reading".into(), "Reading list".into()),
-            ]
-        );
+        assert!(fixture.list().is_empty());
     }
 
     /// Choosing a listed folder opens a separate editor window bound to that

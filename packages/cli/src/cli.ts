@@ -47,11 +47,11 @@ const HANDLERS: Record<string, Run> = {
 			json,
 		),
 	'folders add': async ({ positionals: [directory], json }) =>
-		(await import('./folders.js')).foldersCommand('add', directory, json),
+		(await import('./bookmarks.js')).foldersCommand('add', directory, json),
 	'folders list': async ({ positionals: [directory], json }) =>
-		(await import('./folders.js')).foldersCommand('list', directory, json),
+		(await import('./bookmarks.js')).foldersCommand('list', directory, json),
 	'folders forget': async ({ positionals: [directory], json }) =>
-		(await import('./folders.js')).foldersCommand('forget', directory, json),
+		(await import('./bookmarks.js')).foldersCommand('forget', directory, json),
 	check: async ({ positionals: [dir], json }) =>
 		(await import('./folder-commands.ts')).check(dir as string, json),
 	query: async ({ positionals: [dir, sql], json }) =>

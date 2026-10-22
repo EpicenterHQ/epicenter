@@ -519,10 +519,7 @@ mod tests {
     fn one_apps_default_opens_in_every_bundled_app() {
         let fixture = fixture();
         let todos = fixture.listed_with_todo(library::TODOS.id, "milk");
-        assert_eq!(
-            list_in(&fixture.folder_dir).unwrap()[0].name,
-            library::TODOS.id
-        );
+        assert_eq!(list_in(&fixture.folder_dir).unwrap(), [todos.clone()]);
         for app in BundledApp::ALL {
             let label = fixture.listed(app, library::TODOS.id).unwrap();
             assert_eq!(bound_root(&fixture, &label), todos);
@@ -725,13 +722,10 @@ mod tests {
                 (label.clone(), true)
             );
         }
-        let names: Vec<String> = list_in(&fixture.folder_dir)
-            .unwrap()
-            .into_iter()
-            .map(|folder| folder.name)
-            .collect();
+        let mut children = list_in(&fixture.folder_dir).unwrap();
+        children.sort();
         assert_eq!(
-            names,
+            children,
             [
                 "so.epicenter.capture",
                 "so.epicenter.honeycrisp",
@@ -739,6 +733,7 @@ mod tests {
                 "so.epicenter.todos",
                 "so.epicenter.whispering"
             ]
+            .map(|name| fixture.folder_dir.join(name))
         );
         assert_eq!(fs::read_dir(&fixture.data_dir).unwrap().count(), 0);
     }

@@ -260,7 +260,7 @@ test('only the two operations and the closed field assignments are taken, and a 
 	expect(await readdir(epicenter)).toEqual([]);
 });
 
-test('a save makes so.epicenter inside the Epicenter folder, never the Epicenter folder itself', async () => {
+test('a save creates the fixed records folder and its missing root', async () => {
 	const { run, rowFile } = await setup();
 	const save = { fields: { model: 'm' } };
 	expect((await run(['set', 'text'], save)).code).toBe(0);

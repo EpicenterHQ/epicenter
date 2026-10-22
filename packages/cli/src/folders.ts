@@ -1,5 +1,5 @@
 /**
- * Epicenter's records folder and this machine's folder bookmarks.
+ * Epicenter's records folder.
  *
  * Records are the fixed `<folderDir>/so.epicenter`, the directory the desktop
  * binds for Settings (`library::RECORDS` in `epicenter-folder-core`). Nothing
@@ -15,13 +15,9 @@ import {
 	join,
 	parse,
 	relative,
-	resolve,
 	sep,
 } from 'node:path';
 import type { AppPaths } from './app-paths.js';
-import { resolveAppPaths } from './app-paths.js';
-import { readBookmarks, updateBookmarks } from './bookmarks.js';
-import { EXIT, writeJson, writeOut } from './output.js';
 
 /** The records default's permanent name under the folder root. */
 const RECORDS = 'so.epicenter';
@@ -138,49 +134,4 @@ async function overlaps(left: string, right: string) {
 		}
 	}
 	return false;
-}
-
-/** CLI folder commands edit bookmarks only; none moves files or changes Git. */
-export async function foldersCommand(
-	action: 'add' | 'list' | 'forget',
-	input: string | undefined,
-	json: boolean,
-) {
-	const { dataDir } = resolveAppPaths();
-	if (action === 'list') {
-		const folders = await Promise.all(
-			(await readBookmarks(dataDir)).map(async (path) => {
-				let problem: string | null = null;
-				try {
-					if (!isAbsolute(path))
-						throw new Error('This is not an absolute folder path.');
-					if (!(await lstat(path)).isDirectory())
-						throw new Error('This path is a link or not a folder.');
-				} catch (cause) {
-					problem = cause instanceof Error ? cause.message : String(cause);
-				}
-				return { path, problem };
-			}),
-		);
-		if (json) writeJson({ folders });
-		else
-			for (const { path, problem } of folders)
-				writeOut(problem === null ? path : `${path}\t${problem}`);
-		return EXIT.ok;
-	}
-	const supplied = input as string;
-	// Forget can match a malformed or missing entry verbatim; add resolves a
-	// relative argument once, without resolving symbolic links into another path.
-	let path = resolve(supplied);
-	if (action === 'add' && !(await lstat(path)).isDirectory())
-		throw new Error(`${path} is a link or not a folder.`);
-	const changed = await updateBookmarks(dataDir, (bookmarks) => {
-		if (action === 'forget' && bookmarks.includes(supplied)) path = supplied;
-		if (action === 'add')
-			return bookmarks.includes(path) ? bookmarks : [...bookmarks, path];
-		return bookmarks.filter((entry) => entry !== path);
-	});
-	if (json) writeJson({ path, changed });
-	else writeOut(`${action === 'add' ? 'Added' : 'Forgot'} ${path}`);
-	return EXIT.ok;
 }

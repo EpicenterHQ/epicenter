@@ -30,7 +30,11 @@ impl DesktopPaths {
                     .map_err(|error| error.to_string())
             },
         )?;
-        let folder_dir = folder_root(app)?;
+        let folder_dir = resolve_folder_root(
+            &app.config().identifier,
+            std::env::var_os("EPICENTER_FOLDER_DIR").as_deref(),
+            || app.path().home_dir().map_err(|error| error.to_string()),
+        )?;
         for path in [&data_dir, &folder_dir] {
             path.to_str()
                 .ok_or("Desktop directories must be valid UTF-8.")?;
@@ -91,14 +95,6 @@ fn resolve_directory(
 /// Otherwise the bundle's storage environment selects `~/Epicenter` or
 /// `~/Epicenter Dev`. This computes a path; `open_default` admits and creates
 /// the fixed child an ordinary launch opens.
-fn folder_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    resolve_folder_root(
-        &app.config().identifier,
-        std::env::var_os("EPICENTER_FOLDER_DIR").as_deref(),
-        || app.path().home_dir().map_err(|error| error.to_string()),
-    )
-}
-
 fn resolve_folder_root(
     identifier: &str,
     override_value: Option<&OsStr>,

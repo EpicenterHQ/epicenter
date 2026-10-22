@@ -113,5 +113,3 @@ export function createFolderOpenings({ host }: { host: OpeningHost }) {
 		},
 	};
 }
-
-export type FolderOpenings = ReturnType<typeof createFolderOpenings>;

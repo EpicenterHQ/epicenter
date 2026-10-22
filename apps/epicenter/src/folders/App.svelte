@@ -33,13 +33,6 @@
 	/** What is being opened, said while the shell opens it. */
 	let opening = $state<string | undefined>(undefined);
 
-	/** Each listed folder with the apps it offers: no bundled app opens Epicenter's own. */
-	const listed = $derived(
-		(folders ?? []).map((folder) => ({
-			folder,
-			openers: folder.protected || folder.problem !== null ? [] : bundledOpeners,
-		})),
-	);
 	/** Listings that resolve out of order keep only the newest. */
 	let listSeq = 0;
 
@@ -140,7 +133,7 @@
 			</p>
 		{:else}
 			<ul class="flex flex-col gap-0.5 px-2" aria-label="Folders">
-				{#each listed as { folder, openers } (folder.id)}
+				{#each folders as folder (folder.id)}
 					<li class="flex items-center gap-1">
 						<button
 							type="button"
@@ -165,7 +158,7 @@
 								<span class="block text-xs text-muted-foreground">Opened this time only</span>
 							{/if}
 						</button>
-						{#if openers.length > 0}
+						{#if !folder.protected && folder.problem === null}
 							<DropdownMenu.Root>
 								<DropdownMenu.Trigger>
 									{#snippet child({ props })}
@@ -173,7 +166,7 @@
 									{/snippet}
 								</DropdownMenu.Trigger>
 								<DropdownMenu.Content align="end">
-									{#each openers as application (application.app)}
+									{#each bundledOpeners as application (application.app)}
 										<DropdownMenu.Item
 											onclick={() =>
 												void opened(application.title, () =>

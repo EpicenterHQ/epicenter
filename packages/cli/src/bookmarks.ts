@@ -15,13 +15,15 @@ import {
 	rename,
 	rm,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { holdingFileLock } from '@epicenter/folder/bun';
+import { resolveAppPaths } from './app-paths.js';
+import { EXIT, writeJson, writeOut } from './output.js';
 
 const FILE = 'bookmarks.json';
 
 /** Read without creating anything. An absent file holds no bookmarks. */
-export async function readBookmarks(dataDir: string): Promise<string[]> {
+async function readBookmarks(dataDir: string): Promise<string[]> {
 	const path = join(dataDir, FILE);
 	try {
 		const kind = await lstat(path).catch((cause: NodeJS.ErrnoException) => {
@@ -52,7 +54,7 @@ export async function readBookmarks(dataDir: string): Promise<string[]> {
  * Read, change, and replace under the desktop's lock, so another writer's
  * entries survive. An unchanged list writes nothing. Answers whether it changed.
  */
-export async function updateBookmarks(
+async function updateBookmarks(
 	dataDir: string,
 	change: (bookmarks: string[]) => string[],
 ): Promise<boolean> {
@@ -85,4 +87,49 @@ export async function updateBookmarks(
 			return true;
 		},
 	);
+}
+
+/** CLI folder commands edit bookmarks only; none moves files or changes Git. */
+export async function foldersCommand(
+	action: 'add' | 'list' | 'forget',
+	input: string | undefined,
+	json: boolean,
+) {
+	const { dataDir } = resolveAppPaths();
+	if (action === 'list') {
+		const folders = await Promise.all(
+			(await readBookmarks(dataDir)).map(async (path) => {
+				let problem: string | null = null;
+				try {
+					if (!isAbsolute(path))
+						throw new Error('This is not an absolute folder path.');
+					if (!(await lstat(path)).isDirectory())
+						throw new Error('This path is a link or not a folder.');
+				} catch (cause) {
+					problem = cause instanceof Error ? cause.message : String(cause);
+				}
+				return { path, problem };
+			}),
+		);
+		if (json) writeJson({ folders });
+		else
+			for (const { path, problem } of folders)
+				writeOut(problem === null ? path : `${path}\t${problem}`);
+		return EXIT.ok;
+	}
+	const supplied = input as string;
+	// Forget can match a malformed or missing entry verbatim; add resolves a
+	// relative argument once, without resolving symbolic links into another path.
+	let path = resolve(supplied);
+	if (action === 'add' && !(await lstat(path)).isDirectory())
+		throw new Error(`${path} is a link or not a folder.`);
+	const changed = await updateBookmarks(dataDir, (bookmarks) => {
+		if (action === 'forget' && bookmarks.includes(supplied)) path = supplied;
+		if (action === 'add')
+			return bookmarks.includes(path) ? bookmarks : [...bookmarks, path];
+		return bookmarks.filter((entry) => entry !== path);
+	});
+	if (json) writeJson({ path, changed });
+	else writeOut(`${action === 'add' ? 'Added' : 'Forgot'} ${path}`);
+	return EXIT.ok;
 }

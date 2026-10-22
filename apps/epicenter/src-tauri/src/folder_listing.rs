@@ -54,7 +54,7 @@ fn same_directory(first: &Path, second: &Path) -> bool {
 }
 
 enum Source {
-    Root(String),
+    Root,
     Bookmark,
     Temporary,
 }
@@ -105,10 +105,7 @@ pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderLis
             Some(index) => index,
             None => {
                 let title = if checked.is_ok() {
-                    match &source {
-                        Source::Root(title) => title.clone(),
-                        _ => folder_title(&identity),
-                    }
+                    folder_title(&identity)
                 } else {
                     candidate
                         .file_name()
@@ -143,7 +140,7 @@ pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderLis
             folder.problem = None;
         }
         match source {
-            Source::Root(_) => {}
+            Source::Root => {}
             Source::Bookmark => {
                 if !folder.bookmarks.iter().any(|entry| entry == path) {
                     folder.bookmarks.push(path.to_string());
@@ -153,8 +150,8 @@ pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderLis
         }
     };
     for child in children {
-        if let Some(path) = paths.folder_dir.join(child.name).to_str() {
-            add(path, Source::Root(child.title));
+        if let Some(path) = child.to_str() {
+            add(path, Source::Root);
         }
     }
     for path in &saved {
@@ -365,6 +362,36 @@ mod tests {
         assert_eq!(fs::read_dir(&notes).unwrap().count(), 0);
     }
 
+    #[test]
+    fn combined_listing_reads_declarations_and_sorts_all_sources_by_title() {
+        let f = Fixture::new();
+        for (relative, declaration) in [
+            (
+                "Epicenter/reading",
+                r#"{ "title": "Reading list", "tables": {} }"#,
+            ),
+            ("Epicenter/numbered", r#"{ "title": 7 }"#),
+            ("Epicenter/broken", "not json"),
+            ("Elsewhere/bookmark", r#"{ "title": "Apple" }"#),
+        ] {
+            let path = f.directory(relative);
+            fs::write(path.join("epicenter.json"), declaration).unwrap();
+        }
+        f.directory("Epicenter/odd/epicenter.json");
+        f.bookmark(&f.directory("Elsewhere/bookmark"));
+
+        let titles: Vec<_> = f
+            .list()
+            .folders
+            .into_iter()
+            .map(|folder| folder.title)
+            .collect();
+        assert_eq!(
+            titles,
+            ["Apple", "broken", "numbered", "odd", "Reading list"]
+        );
+    }
+
     /// Existing root defaults read as their apps and are deduplicated with a
     /// bookmark of them. A directory elsewhere with a default's name is an
     /// ordinary folder, and a missing default is neither listed nor made.
@@ -373,6 +400,11 @@ mod tests {
         let f = Fixture::new();
         let todos = f.paths.open_default(library::TODOS).unwrap();
         let records = f.paths.open_default(library::RECORDS).unwrap();
+        fs::write(
+            todos.root().join("epicenter.json"),
+            r#"{ "title": "Another title" }"#,
+        )
+        .unwrap();
         let outside = f.directory("Elsewhere/so.epicenter.capture");
         f.bookmark(todos.root());
         f.bookmark(&outside);
