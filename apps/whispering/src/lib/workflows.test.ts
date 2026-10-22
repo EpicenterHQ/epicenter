@@ -45,7 +45,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathProblem } from '@epicenter/folder/file-browser';
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createFixtureDevice, toneWav } from './capture.js';
 import { recordingAudioStem } from './definition.js';
@@ -1201,38 +1201,119 @@ test('recording and transformation files keep their names, and a transcript keep
 // Closing
 // ============================================================================
 
-test('closing refuses new work and waits for no workflow still on its way to the Folder', async () => {
-	const { context, whispering, root } = await open();
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	const set = whispering.services.connections.set;
-	whispering.services.connections.set = async (...args) => {
-		reached.resolve();
-		await release.promise;
-		return set(...args);
+test('file commands return thrown failures for their existing UI callers', async () => {
+	const { context, whispering } = await open();
+	const fail = () => {
+		throw new Error('The folder command failed');
 	};
-	const saving = whispering.saveConnection('transcription', {
-		baseUrl: TEST_BASE_URL,
-		model: 'held',
-		key: { action: 'keep' },
+	context.folder.files.write = fail;
+	replaceTables(context.folder, {
+		transformations: { ...context.folder.tables.transformations, write: fail },
+		transformation_runs: {
+			...context.folder.tables.transformation_runs,
+			delete: fail,
+		},
+		text_runs: { ...context.folder.tables.text_runs, delete: fail },
 	});
-	await reached.promise;
 
-	// Held before it reaches the Folder: the folder closes without it.
-	opened.splice(
-		opened.findIndex((fixture) => fixture.whispering === whispering),
-		1,
+	expect(await whispering.createFile('', 'new.txt')).toBe(
+		'The folder command failed',
 	);
-	await closeTestWhispering({ whispering, context });
-	const selected = whispering.selectedPath;
-	expect(whispering.open('late.txt')).toBe(false);
-	expect(whispering.selectedPath).toBe(selected);
-	expect(await whispering.createFile('', 'late.txt')).toContain('closing');
-
-	release.resolve();
-	await saving;
-	expect(await Bun.file(join(root, 'late.txt')).exists()).toBe(false);
+	expect(
+		await whispering.createTransformation({ title: 'New', prompt: '' }),
+	).toBe('The folder command failed');
+	expect(
+		await whispering.deleteTransformationResult({
+			stem: 'run',
+			path: 'transformation_runs/run.md',
+		}),
+	).toBe('The folder command failed');
+	expect(
+		await whispering.deleteTextResult({
+			stem: 'run',
+			path: 'text_runs/run.md',
+		}),
+	).toBe('The folder command failed');
 });
+
+test('a created transformation remains successful when its view refresh throws', async () => {
+	const { context, whispering } = await open();
+	context.refresh = async () => {
+		throw new Error('The view refresh failed');
+	};
+	expect(
+		await whispering.createTransformation({
+			title: 'Created',
+			prompt: 'Instructions',
+		}),
+	).toBeUndefined();
+	const [created] = expectOk(
+		await context.folder.tables.transformations.list(),
+	);
+	expect(created?.fields).toMatchObject({ title: 'Created' });
+	expect(whispering.selectedTransformationPath).toBe(
+		`transformations/${created!.id}.md`,
+	);
+});
+
+test.each(['saved', 'unknown'] as const)(
+	'closing preserves a %s connection save outcome without installing its late reply',
+	async (outcome) => {
+		const { context, whispering, root } = await open();
+		const connectionsBefore = whispering.connections;
+		const reached = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const set = whispering.services.connections.set;
+		whispering.services.connections.set = async (...args) => {
+			reached.resolve();
+			await release.promise;
+			if (outcome === 'unknown')
+				return Err('The save may or may not have completed.');
+			return set(...args);
+		};
+		const saving = whispering.saveConnection('transcription', {
+			baseUrl: TEST_BASE_URL,
+			model: 'held',
+			key: { action: 'keep' },
+		});
+		await reached.promise;
+
+		// Held before it reaches the Folder: the folder closes without it.
+		opened.splice(
+			opened.findIndex((fixture) => fixture.whispering === whispering),
+			1,
+		);
+		await closeTestWhispering({ whispering, context });
+		const selected = whispering.selectedPath;
+		expect(whispering.open('late.txt')).toBe(false);
+		expect(whispering.selectedPath).toBe(selected);
+		expect(await whispering.createFile('', 'late.txt')).toContain('closing');
+		expect(
+			await whispering.createTransformation({ title: 'Late', prompt: '' }),
+		).toContain('closing');
+		expect(
+			await whispering.deleteTextResult({
+				stem: 'late',
+				path: 'text_runs/late.md',
+			}),
+		).toContain('closing');
+		expect(
+			await whispering.deleteTransformationResult({
+				stem: 'late',
+				path: 'transformation_runs/late.md',
+			}),
+		).toContain('closing');
+
+		release.resolve();
+		expect(await saving).toBe(
+			outcome === 'saved'
+				? undefined
+				: 'The save may or may not have completed.',
+		);
+		expect(whispering.connections).toBe(connectionsBefore);
+		expect(await Bun.file(join(root, 'late.txt')).exists()).toBe(false);
+	},
+);
 
 test('close releases immediately while an admitted save finishes', async () => {
 	const reached = Promise.withResolvers<void>();

@@ -47,6 +47,8 @@ import { customAlphabet } from 'nanoid';
 import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
+import { defineErrors } from 'wellcrafted/error';
+import { createLogger } from 'wellcrafted/logger';
 import { Err, type Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
 import { type ActiveCapture, CaptureError } from './capture.js';
@@ -164,6 +166,20 @@ const STILL_TEXT =
 const TAKEN = 'Another file already has this name, so nothing was changed.';
 
 const suffix = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 4);
+const log = createLogger('whispering');
+const WhisperingError = defineErrors({
+	CreatedTransformationRefreshFailed: ({
+		path,
+		cause,
+	}: {
+		path: string;
+		cause: unknown;
+	}) => ({
+		message: 'The transformation was saved, but its view could not refresh',
+		path,
+		cause,
+	}),
+});
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -736,21 +752,6 @@ export function createWhispering(context: WhisperingContext) {
 		},
 	});
 
-	/** Refuse new work after context close and present failures at the action boundary. */
-	function action<TArgs extends unknown[]>(
-		work: (...args: TArgs) => Promise<string | undefined>,
-	) {
-		return async (...args: TArgs): Promise<string | undefined> => {
-			const why = refused();
-			if (why !== undefined) return why;
-			try {
-				return await work(...args);
-			} catch (cause) {
-				return describe(cause);
-			}
-		};
-	}
-
 	/** Whether `path` is taken by a file, or by a directory files are in, as last listed. */
 	function taken(path: string) {
 		const files = listing();
@@ -760,32 +761,27 @@ export function createWhispering(context: WhisperingContext) {
 		);
 	}
 
-	const saveConnection = action(
-		async (operation: Operation, change: ConnectionChange) => {
+	async function saveConnection(
+		operation: Operation,
+		change: ConnectionChange,
+	) {
+		const why = refused();
+		if (why !== undefined) return why;
+		try {
 			const { data: saved, error } = await services.connections.set(
 				operation,
 				change,
 			);
 			if (error !== null) return error;
-			connections = saved;
-			connectionsError = undefined;
+			if (!context.closing) {
+				connections = saved;
+				connectionsError = undefined;
+			}
 			return undefined;
-		},
-	);
-
-	/** Save a new recipe file `id`; it names no model of its own. */
-	const createTransformation = action(
-		async (
-			id: string,
-			{ title, prompt }: { title: string; prompt: string },
-		) => {
-			const { error } = await folder.tables.transformations.write(id, {
-				fields: { title, model: null },
-				body: prompt,
-			});
-			return error === null ? undefined : describeError(error);
-		},
-	);
+		} catch (cause) {
+			return describe(cause);
+		}
+	}
 
 	/** Delete a result through the folder's path publication lane. */
 	function deleteResult(table: typeof TRANSFORMATION_RUNS | typeof TEXT_RUNS) {
@@ -793,10 +789,14 @@ export function createWhispering(context: WhisperingContext) {
 			const why = refused();
 			if (why !== undefined) return why;
 
-			const { error } = await folder.tables[table].delete(entry.stem);
-			if (error !== null) return describeError(error);
-			if (!context.closing) deleted(entry.path);
-			return undefined;
+			try {
+				const { error } = await folder.tables[table].delete(entry.stem);
+				if (error !== null) return describeError(error);
+				if (!context.closing) deleted(entry.path);
+				return undefined;
+			} catch (cause) {
+				return describe(cause);
+			}
 		};
 	}
 
@@ -1291,20 +1291,40 @@ export function createWhispering(context: WhisperingContext) {
 		 * A new recipe file: a title and instructions. It names no model of its
 		 * own (`null`), so it runs with the text connection.
 		 */
-		async createTransformation(input: { title: string; prompt: string }) {
+		async createTransformation({
+			title,
+			prompt,
+		}: {
+			title: string;
+			prompt: string;
+		}) {
+			const why = refused();
+			if (why !== undefined) return why;
 			const id = recordingId(new Date());
 			const path = rowPath(TRANSFORMATIONS, id);
-			const why = await createTransformation(id, input);
-			if (why !== undefined || context.closing) return why;
-			// Listed before it opens, so the page never says it is gone. A read
-			// for this view, after the action: closing never waits for it, and
-			// it joins the read the save's change started.
-			await context.refresh([path]);
+			try {
+				const { error } = await folder.tables.transformations.write(id, {
+					fields: { title, model: null },
+					body: prompt,
+				});
+				if (error !== null) return describeError(error);
+			} catch (cause) {
+				return describe(cause);
+			}
+			if (context.closing) return undefined;
+			// List before opening; a read failure cannot undo the saved file.
+			try {
+				await context.refresh([path]);
+			} catch (cause) {
+				log.warn(
+					WhisperingError.CreatedTransformationRefreshFailed({ path, cause }),
+				);
+			}
 			open(path);
 			return undefined;
 		},
-		deleteTransformationResult: action(deleteResult(TRANSFORMATION_RUNS)),
-		deleteTextResult: action(deleteResult(TEXT_RUNS)),
+		deleteTransformationResult: deleteResult(TRANSFORMATION_RUNS),
+		deleteTextResult: deleteResult(TEXT_RUNS),
 
 		/**
 		 * Save one connection on this device. Nothing is sent to the endpoint
@@ -1383,16 +1403,22 @@ export function createWhispering(context: WhisperingContext) {
 			return undefined;
 		},
 		/** A new empty text file, shown; it is never made where a file is listed. */
-		createFile: action(async (directory: string, name: string) => {
-			const problem = nameProblem(directory, name);
-			if (problem !== undefined) return problem;
-			const path = joinPath(directory, name);
-			if (taken(path)) return `"${name}" already exists here.`;
-			const { error } = await folder.files.write(path, '');
-			if (error !== null) return describeError(error);
-			open(path);
-			return undefined;
-		}),
+		async createFile(directory: string, name: string) {
+			const why = refused();
+			if (why !== undefined) return why;
+			try {
+				const problem = nameProblem(directory, name);
+				if (problem !== undefined) return problem;
+				const path = joinPath(directory, name);
+				if (taken(path)) return `"${name}" already exists here.`;
+				const { error } = await folder.files.write(path, '');
+				if (error !== null) return describeError(error);
+				open(path);
+				return undefined;
+			} catch (cause) {
+				return describe(cause);
+			}
+		},
 		/**
 		 * Capture what deleting `path` would remove, for the person to confirm.
 		 * Capturing confirmation starts no publication.

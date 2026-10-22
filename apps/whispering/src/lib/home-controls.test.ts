@@ -266,33 +266,40 @@ test('a changed endpoint cannot keep the saved key: the draft says why and the d
 	});
 });
 
-test('a connection the device refuses is reported, its typed key stays, and nothing changes', async () => {
-	const { whispering, device } = await open((services) => ({
-		...services,
-		connections: {
-			...services.connections,
-			set: async () =>
-				Err('The transcription connection comes from the environment.'),
-		},
-	}));
-	const draft = whispering.settings.transcription;
-	draft.keyAction = 'replace';
-	draft.key = 'typed-key';
-	draft.baseUrl = 'http://127.0.0.1:9000/v1/';
-	draft.model = ' typed-model ';
+test.each(['result', 'throw'] as const)(
+	'a connection failure returned by %s keeps its typed key and releases the form',
+	async (failure) => {
+		const { whispering, device } = await open((services) => ({
+			...services,
+			connections: {
+				...services.connections,
+				set: async () => {
+					const reason =
+						'The transcription connection comes from the environment.';
+					if (failure === 'throw') throw new Error(reason);
+					return Err(reason);
+				},
+			},
+		}));
+		const draft = whispering.settings.transcription;
+		draft.keyAction = 'replace';
+		draft.key = 'typed-key';
+		draft.baseUrl = 'http://127.0.0.1:9000/v1/';
+		draft.model = ' typed-model ';
 
-	expect(await draft.save()).toEqual({
-		title: 'Could not save the transcription connection',
-		description: 'The transcription connection comes from the environment.',
-	});
-	expect(draft.baseUrl).toBe('http://127.0.0.1:9000/v1/');
-	expect(draft.model).toBe(' typed-model ');
-	expect(draft.key).toBe('typed-key');
-	expect(draft.keyAction).toBe('replace');
-	expect(draft.unsent).toBe(true);
-	expect(draft.saving).toBe(false);
-	expect(device.stored.transcription?.apiKey).toBeUndefined();
-});
+		expect(await draft.save()).toEqual({
+			title: 'Could not save the transcription connection',
+			description: 'The transcription connection comes from the environment.',
+		});
+		expect(draft.baseUrl).toBe('http://127.0.0.1:9000/v1/');
+		expect(draft.model).toBe(' typed-model ');
+		expect(draft.key).toBe('typed-key');
+		expect(draft.keyAction).toBe('replace');
+		expect(draft.unsent).toBe(true);
+		expect(draft.saving).toBe(false);
+		expect(device.stored.transcription?.apiKey).toBeUndefined();
+	},
+);
 
 test.each([true, false])(
 	'saving another connection preserves unsaved settings with configured connections: %s',
