@@ -107,6 +107,11 @@ selects these locations, and earlier locations are never looked for or moved
 (ADR-0672). Any other folder opens explicitly from Epicenter's launcher.
 Browser pages open their origin's IndexedDB default instead.
 
+The shell chooses a native window's directory before loading the app. Hosted
+apps use Epicenter's picker without implementing selection UI themselves.
+Standalone wrappers are not required to offer a picker; Todos uses only its
+fixed default. Both contexts keep the same `openFolder({ tables })` page API.
+
 | App | Surfaces | Native default | Tables |
 | --- | --- | --- | --- |
 | Epicenter | Settings (host) | `so.epicenter` (records) | `connections`; the folder editor declares none |

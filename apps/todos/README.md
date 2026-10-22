@@ -64,6 +64,13 @@ Both shells call the folder plugin's `open_folder_window("todos", directory, url
 
 Standalone Todos has one window and no folder picker, recent-folder list, or extra-folder windows. When its default cannot be opened, for example because a file or a link is at that path, a native dialog names the failure and offers only Quit. Epicenter need not be installed. For any other folder, use Epicenter's launcher. Both wrappers load the same static host build; its `openFolder({ tables })` call reaches the directory its native shell already bound to the invoking window.
 
+Folder selection is a shell capability, not a requirement of the app. Hosted
+Todos can open a directory chosen by Epicenter without adding a picker to its
+web interface. Standalone Todos keeps the smaller fixed-default experience.
+Opening arbitrary folders without Epicenter would justify an optional native
+Open Folder action, but it would also require multiple-window presentation
+and Quit behavior; that capability is not part of this standalone product.
+
 On macOS, the app menu's Quit and Cmd-Q request that window's ordinary close.
 The page awaits a native confirmation only while a Folder save is pending or
 has failed. Cancel preserves the window and unfinished input; Close Anyway

@@ -1,7 +1,7 @@
 /** The launcher asks native code to open editors and never acquires their folders. */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import type { AcceptedOpening } from '../ui/bindings.gen';
+import type { OpenedFolder } from '../ui/bindings.gen';
 import type { OpeningHost } from './openings.svelte';
 
 const { createFolderOpenings, folderName } = await import(
@@ -72,13 +72,13 @@ test('refusal stays visible without a second open request', async () => {
 });
 test('failed remembering leaves the opened folder available this run and says why', async () => {
 	const f = fixture();
-	f.failRemembering('bookmarks.json was left unchanged.');
+	f.failRemembering('navigation.sqlite was left unchanged.');
 	await f.openings.accept(path);
-	expect(f.openings.notice).toContain('bookmarks.json was left unchanged.');
+	expect(f.openings.notice).toContain('navigation.sqlite was left unchanged.');
 });
 test('a second acceptance waits until the first completes', async () => {
 	const f = fixture();
-	let finish!: (value: { data: AcceptedOpening; error: null }) => void;
+	let finish!: (value: { data: OpenedFolder; error: null }) => void;
 	f.host.acceptFolderOpening = async (path) => {
 		f.calls.push('accept ' + path);
 		return new Promise((resolve) => {

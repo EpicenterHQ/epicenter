@@ -15,6 +15,12 @@
 	import { createFolderOpenings, folderName, FOLDER_OPENINGS_CHANGED } from './openings.svelte.ts';
 
 	let folders = $state.raw<ListedFolder[] | undefined>(undefined);
+	let libraryName = $state('Epicenter');
+	const groups = $derived([
+		{ key: 'pinned', title: 'Pinned', folders: folders?.filter((folder) => folder.group === 'pinned') ?? [] },
+		{ key: 'library', title: libraryName, folders: folders?.filter((folder) => folder.group === 'library') ?? [] },
+		{ key: 'recent', title: 'Recent', folders: folders?.filter((folder) => folder.group === 'recent') ?? [] },
+	] as const);
 	let sourceProblems = $state.raw<string[]>([]);
 	let listProblem = $state<string | undefined>(undefined);
 
@@ -42,6 +48,7 @@
 			const data = await commands.listDataFolders();
 			if (seq !== listSeq) return;
 			folders = data.folders;
+			libraryName = data.libraryName;
 			sourceProblems = data.problems;
 			listProblem = undefined;
 		} catch (error) {
@@ -116,6 +123,9 @@
 				</Alert.Root>
 			</div>
 		{/if}
+		{#if launcher.notice}
+			<p class="px-4 text-sm text-muted-foreground" role="status">{launcher.notice}</p>
+		{/if}
 		{#each sourceProblems as problem}
 			<p class="px-4 text-sm text-destructive" role="alert">{problem}</p>
 		{/each}
@@ -129,11 +139,14 @@
 			<p class="px-4 text-sm text-muted-foreground">Reading…</p>
 		{:else if folders.length === 0}
 			<p class="px-4 text-sm text-muted-foreground">
-				No folders yet. Open an app to make its default folder, or add a folder under your Epicenter root.
+				No folders yet. Open an app to make its default folder, or add a folder under {libraryName}.
 			</p>
 		{:else}
-			<ul class="flex flex-col gap-0.5 px-2" aria-label="Folders">
-				{#each folders as folder (folder.id)}
+			{#each groups as group (group.key)}
+				{#if group.folders.length > 0}
+				<h2 class="px-4 pt-2 text-sm font-semibold">{group.title}</h2>
+				<ul class="flex flex-col gap-0.5 px-2" aria-label={group.title}>
+				{#each group.folders as folder (folder.id)}
 					<li class="flex items-center gap-1">
 						<button
 							type="button"
@@ -158,42 +171,46 @@
 								<span class="block text-xs text-muted-foreground">Opened this time only</span>
 							{/if}
 						</button>
-						{#if !folder.protected && folder.problem === null}
-							<DropdownMenu.Root>
-								<DropdownMenu.Trigger>
-									{#snippet child({ props })}
-										<Button {...props} variant="ghost" size="xs">Open with…</Button>
-									{/snippet}
-								</DropdownMenu.Trigger>
-								<DropdownMenu.Content align="end">
+						<DropdownMenu.Root>
+							<DropdownMenu.Trigger>
+								{#snippet child({ props })}
+									<Button {...props} variant="ghost" size="xs">Actions</Button>
+								{/snippet}
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Content align="end">
+								{#if !folder.protected && folder.problem === null}
 									{#each bundledOpeners as application (application.app)}
-										<DropdownMenu.Item
-											onclick={() =>
-												void opened(application.title, () =>
-													launcher.launch(application, folder.id),
-												)}
-										>
-											{application.title}
+										<DropdownMenu.Item onclick={() =>
+											void opened(application.title, () => launcher.launch(application, folder.id))}>
+											Open in {application.title}
 										</DropdownMenu.Item>
 									{/each}
-								</DropdownMenu.Content>
-							</DropdownMenu.Root>
-						{/if}
-						{#if folder.bookmarks.length > 0 || folder.temporary}
-							<Button
-								variant="ghost"
-								size="xs"
-								onclick={async () => {
-									await launcher.forgetBookmarks(folder.id, folder.title);
-									await list();
-								}}
-							>
-								Forget bookmark
-							</Button>
-						{/if}
+									<DropdownMenu.Separator />
+								{/if}
+								{#if folder.group === 'pinned'}
+									<DropdownMenu.Item onclick={async () => {
+										await launcher.unpin(folder.id, folder.title);
+										await list();
+									}}>Unpin</DropdownMenu.Item>
+								{:else if folder.problem === null}
+									<DropdownMenu.Item onclick={async () => {
+										await launcher.pin(folder.id, folder.title);
+										await list();
+									}}>Pin</DropdownMenu.Item>
+								{/if}
+								{#if folder.recent || folder.temporary}
+									<DropdownMenu.Item onclick={async () => {
+										await launcher.removeRecent(folder.id, folder.title);
+										await list();
+									}}>Remove from Recent</DropdownMenu.Item>
+								{/if}
+							</DropdownMenu.Content>
+						</DropdownMenu.Root>
 					</li>
 				{/each}
-			</ul>
+				</ul>
+				{/if}
+			{/each}
 		{/if}
 
 		{#if openings.failure}

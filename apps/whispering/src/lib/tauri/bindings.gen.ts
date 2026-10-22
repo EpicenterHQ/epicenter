@@ -96,13 +96,14 @@ export const commands = {
 	 *  accepted or dismissed, oldest first. Reads none of them.
 	 */
 	pendingFolderOpenings: () => __TAURI_INVOKE<string[]>("pending_folder_openings"),
-	/**  Accept a pending request and open its own editor, then remember the path. */
-	acceptFolderOpening: (path: string) => typedError<AcceptedOpening, string>(__TAURI_INVOKE("accept_folder_opening", { path })),
+	/**  Accept a pending request and open its own editor, then record recency. */
+	acceptFolderOpening: (path: string) => typedError<OpenedFolder, string>(__TAURI_INVOKE("accept_folder_opening", { path })),
 	/**  Let go of an app's request to open `path` without reading it. */
 	dismissFolderOpening: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_opening", { path }),
-	/**  Forget all shortcuts represented by this row. Other sources keep it visible. */
-	forgetFolderBookmarks: (id: string) => typedError<null, string>(__TAURI_INVOKE("forget_folder_bookmarks", { id })),
-	openFolderEditor: (id: string) => typedError<null, string>(__TAURI_INVOKE("open_folder_editor", { id })),
+	pinFolder: (id: string) => typedError<null, string>(__TAURI_INVOKE("pin_folder", { id })),
+	unpinFolder: (id: string) => typedError<null, string>(__TAURI_INVOKE("unpin_folder", { id })),
+	removeRecentFolder: (id: string) => typedError<null, string>(__TAURI_INVOKE("remove_recent_folder", { id })),
+	openFolderEditor: (id: string) => typedError<OpenedFolder, string>(__TAURI_INVOKE("open_folder_editor", { id })),
 	folderQuery: (sql: string) => typedError<QueryAnswer, CliError>(__TAURI_INVOKE("folder_query", { sql })),
 	/**
 	 *  Send one request over an AI connection with the key saved on this
@@ -166,16 +167,19 @@ export const commands = {
 	whisperingConnectionSet: (connection: WhisperingConnection, fields: ConnectionRowAssignment_Deserialize) => typedError<ConnectionRow_Serialize, CliError>(__TAURI_INVOKE("whispering_connection_set", { connection, fields })),
 	/**
 	 *  Open bundled app `app` on its fixed default, or with `folder`, on
-	 *  the folder identified by a current row in the combined listing. A window
+	 *  the folder identified by a current row in the grouped listing. A window
 	 *  already open on the folder is revealed.
 	 */
-	openBundledApp: (app: BundledApp, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_bundled_app", { app, folder })),
+	openBundledApp: (app: BundledApp, folder: string | null) => typedError<OpenedFolder, string>(__TAURI_INVOKE("open_bundled_app", { app, folder })),
 	/**
 	 *  Ask the person for a folder with the native picker and open bundled app
 	 *  `app` on it, or reveal the window already open on it. Answers whether a
 	 *  folder was chosen. The page passes no path: the picker answers Rust.
 	 */
-	chooseFolderForApp: (app: BundledApp) => typedError<boolean, string>(__TAURI_INVOKE("choose_folder_for_app", { app })),
+	chooseFolderForApp: (app: BundledApp) => typedError<{
+	/**  Why `navigation.sqlite` was not updated; the folder is open regardless. */
+	rememberProblem: string | null,
+} | null, string>(__TAURI_INVOKE("choose_folder_for_app", { app })),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("get_unload_policy"),
 	/**
@@ -225,12 +229,6 @@ export const events = {
 };
 
 /* Types */
-/**  A successful native opening, with a separate persistence failure if any. */
-export type AcceptedOpening = {
-	/**  Why `bookmarks.json` was not updated; the folder is open regardless. */
-	rememberProblem: string | null,
-};
-
 /**
  *  The deployment's resources an account request may carry a token for, by
  *  role: `api` for the profile read, `git` for Git and the folder connect
@@ -495,9 +493,11 @@ export type DownloadProgress = {
 	totalBytes: number | null,
 };
 
+export type FolderGroup = "pinned" | "library" | "recent";
+
 export type FolderListing = {
 	folders: ListedFolder[],
-	/**  An unavailable source must not hide folders found through another one. */
+	libraryName: string,
 	problems: string[],
 };
 
@@ -532,14 +532,13 @@ export type IssuePathStep = string | number;
 export type ListedFolder = {
 	id: string,
 	title: string,
-	/**  Display only. Opening passes the ID and rechecks current membership. */
+	/**  Display only. Openings pass the ID and recheck current membership. */
 	path: string,
-	/**  Protected directories remain editable, but cannot open in ordinary apps. */
+	group: FolderGroup,
+	/**  A pinned or library folder can also have a removable recent entry. */
+	recent: boolean,
 	protected: boolean,
-	/**  The title of the app whose fixed default this directory is, if any. */
 	defaultFor: string | null,
-	/**  Original shortcut spellings, removed together by Forget bookmark. */
-	bookmarks: string[],
 	temporary: boolean,
 	problem: string | null,
 };
@@ -586,6 +585,12 @@ export type ModelInfo = {
 	supportsLanguage: boolean,
 	recommended: boolean,
 	downloaded: boolean,
+};
+
+/**  A successful native opening, with a separate persistence failure if any. */
+export type OpenedFolder = {
+	/**  Why `navigation.sqlite` was not updated; the folder is open regardless. */
+	rememberProblem: string | null,
 };
 
 export type QueryAnswer = {

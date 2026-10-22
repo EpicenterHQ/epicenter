@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
+- **Related proposal:** [Folder-only pins and automatic recent openings](0679-the-launcher-groups-folders-by-pin-library-membership-then-recency.md) distinguish deliberate shortcuts from opening history. That replacement is unbuilt; the existing bookmark commands retain their current meaning.
 - **Amended by:** [ADR-0649](0649-folders-json-selects-this-machines-folder-locations.md) at the array format and list-only purpose: the object keeps added paths in `folders` and the selected portable-records path in `epicenter`.
 - **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) only at grouping machine-local preferences and the reserved `open` command: `folders` manages remembered paths; `open <directory>` requests desktop opening without the former `--app <id>` selector.
 - **Relates:** [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (explicit paths), [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) (composition through files), [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (CLI schemas), and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) (deferred desktop).

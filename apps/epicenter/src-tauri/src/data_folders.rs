@@ -1,6 +1,6 @@
 //! Root-child discovery and launcher invalidation. The combined folder list
 //! lives in folder_listing; listing never registers or allocates a directory.
-//! The root and its child declarations are watched alongside bookmarks.json.
+//! The root and its child declarations are watched alongside navigation.sqlite.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -15,7 +15,7 @@ use tauri_plugin_epicenter_folder::Directory;
 #[cfg(test)]
 use crate::folder_windows;
 use crate::BuiltInApp;
-use epicenter_folder_core::{bookmarks, library};
+use epicenter_folder_core::{library, navigation};
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 
 /// The optional declaration supplying a title while listing files.
@@ -88,15 +88,15 @@ pub struct DataFoldersWatch {
 /// root, or a folder's optional `epicenter.json` title. The watch is recursive
 /// because a declaration is one level down; every deeper change, such as a row saved
 /// in a folder, is ignored. A rescan or a watch error is reported too, and so
-/// is a change to `bookmarks.json`. An unavailable root does not prevent
-/// bookmark watching or startup.
+/// is a change to `navigation.sqlite`. An unavailable root does not prevent
+/// navigation watching or startup.
 pub fn watch_data_folders<R: Runtime>(
     app: &AppHandle<R>,
     folder_dir: &Path,
     data_dir: &Path,
 ) -> Result<DataFoldersWatch, String> {
     let root = folder_dir.to_path_buf();
-    let bookmark_file = bookmarks::file(data_dir);
+    let navigation_file = navigation::file(data_dir);
     fs::create_dir_all(data_dir).map_err(|error| error.to_string())?;
     let app = app.clone();
     let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher, NoCache>(
@@ -107,10 +107,9 @@ pub fn watch_data_folders<R: Runtime>(
                 Ok(events) => events.iter().any(|debounced| {
                     debounced.need_rescan()
                         || (!matches!(debounced.kind, EventKind::Access(_))
-                            && debounced
-                                .paths
-                                .iter()
-                                .any(|path| changes_listing(&root, path) || *path == bookmark_file))
+                            && debounced.paths.iter().any(|path| {
+                                changes_listing(&root, path) || *path == navigation_file
+                            }))
                 }),
                 // Some events could not be delivered.
                 Err(_) => true,
@@ -127,7 +126,7 @@ pub fn watch_data_folders<R: Runtime>(
         .watch(data_dir, RecursiveMode::NonRecursive)
         .map_err(|error| format!("{} could not be watched: {error}", data_dir.display()))?;
     // Creating the discovery root enables first-use watching, but is never a
-    // prerequisite for bookmarks elsewhere on the machine.
+    // prerequisite for navigation elsewhere on the machine.
     if let Err(error) = fs::create_dir_all(folder_dir)
         .map_err(|error| error.to_string())
         .and_then(|()| {
@@ -328,9 +327,9 @@ mod tests {
     }
 
     #[test]
-    fn the_launcher_hears_external_bookmark_writes() {
+    fn the_launcher_hears_external_navigation_writes() {
         use tauri::Listener;
-        let fixture = fixture("bookmark-watch");
+        let fixture = fixture("navigation-watch");
         let data = fixture.folder_dir.join(".app-data");
         let window =
             WebviewWindowBuilder::new(&fixture.app, BuiltInApp::Folders.id(), Default::default())
@@ -343,14 +342,48 @@ mod tests {
         let _watch = watch_data_folders(fixture.app.handle(), &fixture.folder_dir, &data).unwrap();
         std::thread::sleep(Duration::from_millis(300));
         while hearing.try_recv().is_ok() {}
-        bookmarks::add(&data, "/another/folder").unwrap();
+        let external = fixture.folder_dir.join("external-pinned");
+        fs::create_dir(&external).unwrap();
+        let module = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../packages/cli/src/navigation.ts")
+            .canonicalize()
+            .unwrap();
+        let script = format!(
+            "import {{pinNavigation}} from {}; await pinNavigation(process.argv[1], process.argv[2]);",
+            serde_json::to_string(&module.to_string_lossy()).unwrap()
+        );
+        let output = std::process::Command::new("bun")
+            .args([
+                "-e",
+                &script,
+                data.to_str().unwrap(),
+                external.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         hearing
             .recv_timeout(Duration::from_secs(5))
-            .expect("bookmark writes refresh the launcher");
+            .expect("a committed CLI write refreshes the launcher");
+        let paths = DesktopPaths {
+            data_dir: data,
+            folder_dir: fixture.folder_dir.clone(),
+        };
+        let listed =
+            crate::folder_listing::list(&paths, &crate::folder_opening::FolderOpenings::default());
+        assert!(listed
+            .folders
+            .iter()
+            .any(|row| row.path == external.to_str().unwrap()
+                && row.group == crate::folder_listing::FolderGroup::Pinned));
     }
 
     #[test]
-    fn an_unavailable_root_does_not_prevent_bookmark_watching() {
+    fn an_unavailable_root_does_not_prevent_navigation_watching() {
         use tauri::Listener;
         let fixture = fixture("blocked-root-watch");
         let data = fixture.folder_dir.join(".app-data");
@@ -367,10 +400,10 @@ mod tests {
         let _watch = watch_data_folders(fixture.app.handle(), &occupied, &data).unwrap();
         std::thread::sleep(Duration::from_millis(300));
         while hearing.try_recv().is_ok() {}
-        bookmarks::add(&data, "/outside/root").unwrap();
+        navigation::pin(&data, "/outside/root", |_| false).unwrap();
         hearing
             .recv_timeout(Duration::from_secs(5))
-            .expect("bookmarks remain watched");
+            .expect("navigation remains watched");
         assert_eq!(fs::read_to_string(occupied).unwrap(), "keep");
     }
 

@@ -55,8 +55,8 @@ required-features = ["native-tabs-smoke"]
 dunce = "1"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
-# The fixed library defaults and `bookmarks.json`, whose save lock the CLI
-# takes too (`epicenter_folder_core::{library, bookmarks}`).
+# Fixed library defaults and machine-local navigation shared with the CLI.
+# SQLite serializes navigation writers (`epicenter_folder_core::navigation`).
 epicenter-folder-core = { path = "../../../packages/tauri-plugin-epicenter-folder/core" }
 tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
 anyhow = "1"

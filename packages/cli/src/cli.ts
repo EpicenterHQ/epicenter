@@ -46,12 +46,14 @@ const HANDLERS: Record<string, Run> = {
 			directory as string,
 			json,
 		),
-	'folders add': async ({ positionals: [directory], json }) =>
-		(await import('./bookmarks.js')).foldersCommand('add', directory, json),
+	'folders pin': async ({ positionals: [directory], json }) =>
+		(await import('./navigation.js')).foldersCommand('pin', directory, json),
+	'folders remove-recent': async ({ positionals: [directory], json }) =>
+		(await import('./navigation.js')).foldersCommand('remove-recent', directory, json),
 	'folders list': async ({ positionals: [directory], json }) =>
-		(await import('./bookmarks.js')).foldersCommand('list', directory, json),
-	'folders forget': async ({ positionals: [directory], json }) =>
-		(await import('./bookmarks.js')).foldersCommand('forget', directory, json),
+		(await import('./navigation.js')).foldersCommand('list', directory, json),
+	'folders unpin': async ({ positionals: [directory], json }) =>
+		(await import('./navigation.js')).foldersCommand('unpin', directory, json),
 	check: async ({ positionals: [dir], json }) =>
 		(await import('./folder-commands.ts')).check(dir as string, json),
 	query: async ({ positionals: [dir, sql], json }) =>

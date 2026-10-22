@@ -1,5 +1,5 @@
 /**
- * Opening windows and forgetting bookmarks from the Folders launcher.
+ * Opening windows and changing navigation from the Folders launcher.
  *
  * Each act asks the shell, which decides the window's folder in Rust and
  * binds it to the window before the window exists; the page passes a listed
@@ -25,16 +25,21 @@ import { commands } from './bindings.gen';
 
 export function createLaunch() {
 	let failure = $state<string | null>(null);
+	let notice = $state<string | null>(null);
 
 	/** Run one request to the shell, presenting the caller's failure sentence. */
 	async function attempt(
 		failureMessage: string,
-		request: () => Promise<{ error: string | null }>,
+		request: () => Promise<{ data: unknown; error: string | null }>,
 	) {
 		failure = null;
+		notice = null;
 		try {
-			const { error } = await request();
+			const { data, error } = await request();
 			if (error !== null) throw new Error(error);
+			const opened = data as { rememberProblem?: string | null } | null;
+			if (opened?.rememberProblem)
+				notice = `The folder opened, but Recent could not be saved. ${opened.rememberProblem}`;
 		} catch (error) {
 			failure = `${failureMessage}. ${
 				error instanceof Error ? error.message : String(error)
@@ -46,6 +51,9 @@ export function createLaunch() {
 		/** The last action failure, or `null` when nothing has gone wrong. */
 		get failure() {
 			return failure;
+		},
+		get notice() {
+			return notice;
 		},
 		/** Open `application` on the listed folder `folder`, or on its fixed default. */
 		launch(application: Opener, folder?: string) {
@@ -65,10 +73,19 @@ export function createLaunch() {
 				commands.openFolderEditor(folder),
 			);
 		},
-		/** Remove shortcuts while retaining a root-discovered folder. */
-		forgetBookmarks(folder: string, title: string) {
-			return attempt(`${title} bookmarks were not forgotten`, () =>
-				commands.forgetFolderBookmarks(folder),
+		pin(folder: string, title: string) {
+			return attempt(`${title} was not pinned`, () =>
+				commands.pinFolder(folder),
+			);
+		},
+		unpin(folder: string, title: string) {
+			return attempt(`${title} was not unpinned`, () =>
+				commands.unpinFolder(folder),
+			);
+		},
+		removeRecent(folder: string, title: string) {
+			return attempt(`${title} was not removed from Recent`, () =>
+				commands.removeRecentFolder(folder),
 			);
 		},
 	};

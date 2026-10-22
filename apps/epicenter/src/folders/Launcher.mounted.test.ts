@@ -1,22 +1,25 @@
 /**
- * The launcher renders one native folder list and opens rows by their IDs.
- * Pending handoffs survive listener startup, default labels survive forgetting
- * bookmarks, and focusing refreshes folders located outside the watched root.
+ * Mounted Folders launcher tests for grouped rows, native ID actions, and
+ * pending handoffs that arrive while the native listener is registering.
  */
 import { describe, expect, mock, test } from 'bun:test';
-import type { FolderListing } from '../ui/bindings.gen';
+import type { FolderListing, ListedFolder } from '../ui/bindings.gen';
 
 const browser = Bun.resolveSync('svelte', import.meta.dir).endsWith(
 	'index-client.js',
 );
-describe.skipIf(!browser)('folder launcher startup', async () => {
+describe.skipIf(!browser)('folder launcher', async () => {
 	if (!browser) return;
 	await import('../../../../packages/svelte/src/svelte-dom.test-support.js');
 	const { flushSync, mount, unmount } = await import('svelte');
 	let subscribed!: (stop: () => void) => void;
 	let pending: string[] = [];
 	let reads = 0;
-	let listing: FolderListing = { folders: [], problems: [] };
+	let listing: FolderListing = {
+		folders: [],
+		libraryName: 'Epicenter Dev',
+		problems: [],
+	};
 	let focused!: (event: { payload: boolean }) => void;
 	const calls: string[] = [];
 	mock.module('@tauri-apps/api/webviewWindow', () => ({
@@ -33,6 +36,7 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 					: Promise.resolve(() => {}),
 		}),
 	}));
+	const okay = { data: null, error: null };
 	mock.module('../ui/bindings.gen', () => ({
 		commands: {
 			listDataFolders: async () => listing,
@@ -42,46 +46,66 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 			},
 			openFolderEditor: async (id: string) => {
 				calls.push(`edit:${id}`);
-				return { data: null, error: null };
+				return { data: { rememberProblem: null }, error: null };
 			},
-			forgetFolderBookmarks: async (id: string) => {
-				calls.push(`forget:${id}`);
+			pinFolder: async (id: string) => {
+				calls.push(`pin:${id}`);
 				listing = {
 					...listing,
-					folders: listing.folders.flatMap((folder) =>
-						folder.id !== id
-							? [folder]
-							: folder.defaultFor !== null
-								? [{ ...folder, bookmarks: [] }]
-								: [],
+					folders: listing.folders.map((row) =>
+						row.id === id ? { ...row, group: 'pinned' } : row,
 					),
+				} as FolderListing;
+				return okay;
+			},
+			unpinFolder: async (id: string) => {
+				calls.push(`unpin:${id}`);
+				listing = {
+					...listing,
+					folders: listing.folders.filter((row) => row.id !== id),
 				};
-				return { data: null, error: null };
+				return okay;
+			},
+			removeRecentFolder: async (id: string) => {
+				calls.push(`remove:${id}`);
+				return okay;
 			},
 		},
 	}));
 	const { default: App } = await import('./App.svelte');
-	test('reads pending requests after the native listener is registered', async () => {
+	async function settle() {
+		for (let n = 0; n < 15; n++) {
+			await Bun.sleep(0);
+			flushSync();
+		}
+	}
+	function row(
+		id: string,
+		group: ListedFolder['group'],
+		problem: string | null = null,
+	): ListedFolder {
+		return {
+			id,
+			title: id,
+			path: `/folder/${id}`,
+			group,
+			recent: group === 'recent',
+			protected: false,
+			defaultFor: null,
+			temporary: false,
+			problem,
+		};
+	}
+	test('reads pending handoffs after the listener is registered', async () => {
 		const target = document.createElement('div');
 		document.body.append(target);
 		const view = mount(App, { target });
 		try {
-			flushSync();
-			for (let n = 0; n < 10; n++) {
-				await Bun.sleep(0);
-				flushSync();
-			}
+			await settle();
 			expect(reads).toBe(0);
 			pending = ['/tmp/request-during-subscription'];
 			subscribed(() => {});
-			for (
-				let n = 0;
-				n < 100 && !target.textContent?.includes(pending[0]!);
-				n++
-			) {
-				await Bun.sleep(5);
-				flushSync();
-			}
+			await settle();
 			expect(target.textContent).toContain(pending[0]!);
 			expect(reads).toBe(1);
 		} finally {
@@ -90,137 +114,104 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 		}
 	});
 
-	test('one folder list shows paths and defaults, opens by ID, and retains a root default after forgetting its bookmark', async () => {
+	test('groups folders by pin, library name, then recent and opens by native ID', async () => {
 		pending = [];
 		calls.length = 0;
 		listing = {
+			libraryName: 'Epicenter Dev',
 			problems: [],
 			folders: [
-				{
-					id: 'folder:work',
-					title: 'Todos',
-					path: '/Epicenter/so.epicenter.todos',
-					protected: false,
-					defaultFor: 'Todos',
-					bookmarks: ['/Epicenter/so.epicenter.todos'],
-					temporary: false,
-					problem: null,
-				},
-				{
-					id: 'folder:personal',
-					title: 'Notes',
-					path: '/Personal/Notes',
-					protected: true,
-					defaultFor: null,
-					bookmarks: [],
-					temporary: false,
-					problem: null,
-				},
+				row('one', 'pinned'),
+				row('two', 'library'),
+				row('three', 'recent'),
 			],
 		};
 		const target = document.createElement('div');
 		document.body.append(target);
 		const view = mount(App, { target });
 		try {
-			for (let n = 0; n < 15; n++) {
-				await Bun.sleep(0);
-				flushSync();
-			}
+			await settle();
 			subscribed(() => {});
-			const rows = () =>
-				target.querySelectorAll('ul[aria-label="Folders"] > li');
-			expect(rows().length).toBe(2);
-			expect(target.querySelector('[aria-label="Opened folders"]')).toBeNull();
-			expect(rows()[0]!.textContent).toContain('/Epicenter/so.epicenter.todos');
-			expect(rows()[0]!.textContent).toContain('Default for Todos');
-			expect(rows()[1]!.textContent).toContain('/Personal/Notes');
-			expect(rows()[1]!.textContent).not.toContain('Default for');
-			expect(rows()[0]!.textContent).toContain('Open with…');
-			expect(rows()[1]!.textContent).not.toContain('Open with…');
-			expect(
-				(rows()[1]!.querySelector('button') as HTMLButtonElement).disabled,
-			).toBe(false);
-			(rows()[1]!.querySelector('button') as HTMLButtonElement).click();
-			for (let n = 0; n < 10; n++) {
-				await Bun.sleep(0);
-				flushSync();
-			}
-			expect(calls).toContain('edit:folder:personal');
-			const forget = [...rows()[0]!.querySelectorAll('button')].find((button) =>
-				button.textContent?.includes('Forget bookmark'),
-			)!;
-			forget.click();
-			for (let n = 0; n < 10; n++) {
-				await Bun.sleep(0);
-				flushSync();
-			}
-			expect(calls).toContain('forget:folder:work');
-			expect(rows().length).toBe(2);
-			expect(rows()[0]!.textContent).toContain('Default for Todos');
-			expect(rows()[0]!.textContent).not.toContain('Forget bookmark');
+			const headings = [...target.querySelectorAll('h2')].map(
+				(heading) => heading.textContent,
+			);
+			expect(headings.slice(0, 3)).toEqual([
+				'Pinned',
+				'Epicenter Dev',
+				'Recent',
+			]);
+			const rows = target.querySelectorAll(
+				'ul[aria-label="Epicenter Dev"] > li',
+			);
+			expect(rows).toHaveLength(1);
+			(rows[0]!.querySelector('button') as HTMLButtonElement).click();
+			await settle();
+			expect(calls).toContain('edit:two');
+			expect(rows[0]!.textContent).toContain('/folder/two');
 		} finally {
 			await unmount(view);
 			target.remove();
 		}
 	});
 
-	test('an unavailable bookmark refreshes on focus and can be forgotten without opening it', async () => {
+	test('a missing pin remains visible, cannot open, and refreshes after focus', async () => {
 		pending = [];
-		calls.length = 0;
 		listing = {
+			libraryName: 'Epicenter Dev',
 			problems: [],
-			folders: [
-				{
-					id: 'folder:missing',
-					title: 'Missing',
-					path: '/Gone/Missing',
-					protected: false,
-					defaultFor: null,
-					bookmarks: ['/Gone/Missing'],
-					temporary: false,
-					problem: 'This folder is not there.',
-				},
-			],
+			folders: [row('missing', 'pinned', 'This folder is not there.')],
 		};
 		const target = document.createElement('div');
 		document.body.append(target);
 		const view = mount(App, { target });
 		try {
-			for (let n = 0; n < 15; n++) {
-				await Bun.sleep(0);
-				flushSync();
-			}
+			await settle();
 			subscribed(() => {});
-			const row = target.querySelector('ul[aria-label="Folders"] > li')!;
-			expect(row.textContent).toContain('/Gone/Missing');
-			expect(row.textContent).toContain('This folder is not there.');
-			expect((row.querySelector('button') as HTMLButtonElement).disabled).toBe(
+			const item = target.querySelector('ul[aria-label="Pinned"] > li')!;
+			expect(item.textContent).toContain('This folder is not there.');
+			expect((item.querySelector('button') as HTMLButtonElement).disabled).toBe(
 				true,
 			);
-			listing = {
-				...listing,
-				folders: listing.folders.map((folder) => ({
-					...folder,
-					problem: null,
-				})),
-			};
+			listing = { ...listing, folders: [row('missing', 'pinned')] };
 			focused({ payload: true });
-			for (let n = 0; n < 10; n++) {
-				await Bun.sleep(0);
-				flushSync();
-			}
-			expect((row.querySelector('button') as HTMLButtonElement).disabled).toBe(
+			await settle();
+			expect((item.querySelector('button') as HTMLButtonElement).disabled).toBe(
 				false,
 			);
-			expect(row.textContent).not.toContain('This folder is not there.');
-			[...row.querySelectorAll('button')]
-				.find((button) => button.textContent?.includes('Forget bookmark'))!
-				.click();
-			for (let n = 0; n < 10; n++) {
-				await Bun.sleep(0);
-				flushSync();
-			}
-			expect(calls).toEqual(['forget:folder:missing']);
+		} finally {
+			await unmount(view);
+			target.remove();
+		}
+	});
+
+	test('a missing pin can be unpinned from its contextual menu', async () => {
+		pending = [];
+		calls.length = 0;
+		listing = {
+			libraryName: 'Epicenter Dev',
+			problems: [],
+			folders: [row('missing', 'pinned', 'This folder is not there.')],
+		};
+		const target = document.createElement('div');
+		document.body.append(target);
+		const view = mount(App, { target });
+		try {
+			await settle();
+			subscribed(() => {});
+			const item = target.querySelector('ul[aria-label="Pinned"] > li')!;
+			(
+				[...item.querySelectorAll('button')].find((button) =>
+					button.textContent?.includes('Actions'),
+				) as HTMLButtonElement
+			).click();
+			await settle();
+			const unpin = [...document.querySelectorAll('[role="menuitem"]')].find(
+				(item) => item.textContent?.includes('Unpin'),
+			) as HTMLElement;
+			expect(unpin).toBeDefined();
+			unpin.click();
+			await settle();
+			expect(calls).toContain('unpin:missing');
 			expect(target.textContent).toContain('No folders yet.');
 		} finally {
 			await unmount(view);

@@ -42,7 +42,7 @@ use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 
 pub use epicenter_folder_core::directory::{Directory, DirectoryError};
 pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
-pub use epicenter_folder_core::{bookmarks, library};
+pub use epicenter_folder_core::{navigation, library};
 
 mod command_names;
 mod commands;

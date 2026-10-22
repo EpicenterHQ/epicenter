@@ -1,9 +1,5 @@
-//! One derived launcher list. Root children, bookmarks, and this-run
-//! acceptances identify ordinary directories, not separate datasets.
-//! Row IDs name a resolved directory; every opening rebuilds membership before
-//! admitting it. Display names and default titles never identify folder rows.
-//! A row that is a library default, `<folder_dir>/<id>`, is titled by the
-//! default's table title; listing never creates a missing default.
+//! A derived, grouped launcher list. IDs name resolved directories, never
+//! titles or grants; an opening rebuilds membership before admitting its row.
 
 use std::path::Path;
 
@@ -13,24 +9,31 @@ use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_epicenter_folder::Directory;
 
 use crate::data_folders::{folder_title, list_in};
-use crate::folder_opening::FolderOpenings;
+use crate::folder_opening::{remember_opened, FolderOpenings, OpenedFolder};
 use crate::{folder_windows, DesktopAppHandle};
-use epicenter_folder_core::{bookmarks, library};
+use epicenter_folder_core::{library, navigation};
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum FolderGroup {
+    Pinned,
+    Library,
+    Recent,
+}
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ListedFolder {
     pub id: String,
     pub title: String,
-    /// Display only. Opening passes the ID and rechecks current membership.
+    /// Display only. Openings pass the ID and recheck current membership.
     pub path: String,
-    /// Protected directories remain editable, but cannot open in ordinary apps.
+    pub group: FolderGroup,
+    /// A pinned or library folder can also have a removable recent entry.
+    pub recent: bool,
     pub protected: bool,
-    /// The title of the app whose fixed default this directory is, if any.
     pub default_for: Option<String>,
-    /// Original shortcut spellings, removed together by Forget bookmark.
-    pub bookmarks: Vec<String>,
     pub temporary: bool,
     pub problem: Option<String>,
 }
@@ -39,11 +42,10 @@ pub struct ListedFolder {
 #[serde(rename_all = "camelCase")]
 pub struct FolderListing {
     pub folders: Vec<ListedFolder>,
-    /// An unavailable source must not hide folders found through another one.
+    pub library_name: String,
     pub problems: Vec<String>,
 }
 
-/// A deterministic native lookup key, never a display name or a folder grant.
 pub(crate) fn folder_id(path: &Path) -> String {
     let digest = Sha256::digest(path.as_os_str().as_encoded_bytes());
     format!("folder:{digest:x}")
@@ -53,26 +55,37 @@ fn same_directory(first: &Path, second: &Path) -> bool {
     first == second || same_file::is_same_file(first, second).unwrap_or(false)
 }
 
-enum Source {
-    Root,
-    Bookmark,
-    Temporary,
+fn same_reference(first: &str, second: &str) -> bool {
+    first == second
+        || same_directory(
+            &library::resolved(Path::new(first)),
+            &library::resolved(Path::new(second)),
+        )
 }
 
 pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderListing {
     let mut result = FolderListing {
         folders: Vec::new(),
+        library_name: paths
+            .folder_dir
+            .file_name()
+            .unwrap_or(paths.folder_dir.as_os_str())
+            .to_string_lossy()
+            .into_owned(),
         problems: Vec::new(),
     };
-    let saved = match bookmarks::read(&paths.data_dir) {
+    if let Err(problem) = navigation::discard_bookmarks(&paths.data_dir) {
+        result.problems.push(format!(
+            "Obsolete bookmarks could not be removed: {problem}"
+        ));
+    }
+    let saved = match navigation::read(&paths.data_dir) {
         Ok(saved) => saved,
         Err(problem) => {
             result.problems.push(problem);
-            Vec::new()
+            navigation::Navigation::default()
         }
     };
-
-    // Start with root children, so a folder's on-disk spelling wins over aliases.
     let children = match list_in(&paths.folder_dir) {
         Ok(children) => children,
         Err(problem) => {
@@ -80,7 +93,7 @@ pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderLis
             Vec::new()
         }
     };
-    let mut add = |path: &str, source: Source| {
+    let mut add = |path: &str, source: FolderGroup, temporary: bool| {
         let candidate = Path::new(path);
         let checked = (|| {
             if !candidate.is_absolute() {
@@ -97,26 +110,27 @@ pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderLis
         let Some(identity_text) = identity.to_str() else {
             return;
         };
-        let existing = result
+        let index = result
             .folders
             .iter()
             .position(|folder| same_directory(Path::new(&folder.path), &identity));
-        let index = match existing {
+        let index = match index {
             Some(index) => index,
             None => {
-                let title = if checked.is_ok() {
-                    folder_title(&identity)
-                } else {
-                    candidate
-                        .file_name()
-                        .unwrap_or(candidate.as_os_str())
-                        .to_string_lossy()
-                        .into_owned()
-                };
                 result.folders.push(ListedFolder {
                     id: folder_id(&identity),
-                    title,
+                    title: if checked.is_ok() {
+                        folder_title(&identity)
+                    } else {
+                        candidate
+                            .file_name()
+                            .unwrap_or(candidate.as_os_str())
+                            .to_string_lossy()
+                            .into_owned()
+                    },
                     path: identity_text.to_string(),
+                    group: source,
+                    recent: false,
                     protected: library::check_app_directory(
                         &paths.data_dir,
                         &paths.folder_dir,
@@ -124,7 +138,6 @@ pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderLis
                     )
                     .is_err(),
                     default_for: None,
-                    bookmarks: Vec::new(),
                     temporary: false,
                     problem: checked.as_ref().err().cloned(),
                 });
@@ -132,36 +145,38 @@ pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderLis
             }
         };
         let folder = &mut result.folders[index];
-        // A broken alias must not disable a directory another current source admits.
         if checked.is_ok() {
             if folder.problem.is_some() {
                 folder.title = folder_title(&identity);
             }
             folder.problem = None;
         }
-        match source {
-            Source::Root => {}
-            Source::Bookmark => {
-                if !folder.bookmarks.iter().any(|entry| entry == path) {
-                    folder.bookmarks.push(path.to_string());
-                }
-            }
-            Source::Temporary => folder.temporary = true,
+        if source == FolderGroup::Recent {
+            folder.recent = true;
+            folder.temporary |= temporary;
+        }
+        // Pinned > Library > Recent, regardless of the spelling found first.
+        if source == FolderGroup::Pinned
+            || (source == FolderGroup::Library && folder.group == FolderGroup::Recent)
+        {
+            folder.group = source;
         }
     };
+    for path in &saved.pins {
+        add(path, FolderGroup::Pinned, false);
+    }
     for child in children {
         if let Some(path) = child.to_str() {
-            add(path, Source::Root);
+            add(path, FolderGroup::Library, false);
         }
     }
-    for path in &saved {
-        add(path, Source::Bookmark);
+    for path in &saved.recent {
+        add(path, FolderGroup::Recent, false);
     }
-    for path in openings.temporary() {
-        add(&path, Source::Temporary);
+    let temporary = openings.temporary();
+    for path in &temporary {
+        add(path, FolderGroup::Recent, true);
     }
-    // A default is known by directory identity, so another spelling of it on
-    // a disk that ignores case is the same default. Missing rows are none.
     for folder in &mut result.folders {
         if folder.problem.is_some() {
             continue;
@@ -175,9 +190,28 @@ pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderLis
             folder.default_for = Some(default.title.to_string());
         }
     }
+    // Keep unsaved openings together in this-run MRU order, ahead of the
+    // durable history. Names order the other groups.
     result
         .folders
-        .sort_by_cached_key(|folder| (folder.title.to_lowercase(), folder.path.clone()));
+        .sort_by_cached_key(|folder| match folder.group {
+            FolderGroup::Pinned => (0, folder.title.to_lowercase(), folder.path.clone()),
+            FolderGroup::Library => (1, folder.title.to_lowercase(), folder.path.clone()),
+            FolderGroup::Recent => {
+                let rank = temporary
+                    .iter()
+                    .position(|path| same_reference(path, &folder.path))
+                    .unwrap_or_else(|| {
+                        temporary.len()
+                            + saved
+                                .recent
+                                .iter()
+                                .position(|path| same_reference(path, &folder.path))
+                                .unwrap_or(saved.recent.len())
+                    });
+                (2, format!("{rank:08}"), folder.path.clone())
+            }
+        });
     result
 }
 
@@ -187,17 +221,24 @@ pub fn list_data_folders(app: DesktopAppHandle) -> FolderListing {
     list(&app.state::<DesktopPaths>(), &app.state::<FolderOpenings>())
 }
 
-/// Rebuild membership, then bind the very directory that passed validation.
+fn current_row(
+    paths: &DesktopPaths,
+    openings: &FolderOpenings,
+    id: &str,
+) -> Result<ListedFolder, String> {
+    list(paths, openings)
+        .folders
+        .into_iter()
+        .find(|folder| folder.id == id)
+        .ok_or_else(|| "This folder is no longer in the list.".to_string())
+}
+
 pub(crate) fn listed_directory(
     paths: &DesktopPaths,
     openings: &FolderOpenings,
     id: &str,
 ) -> Result<Directory, String> {
-    let folder = list(paths, openings)
-        .folders
-        .into_iter()
-        .find(|folder| folder.id == id)
-        .ok_or("This folder is no longer in the list.")?;
+    let folder = current_row(paths, openings, id)?;
     if let Some(problem) = folder.problem {
         return Err(problem);
     }
@@ -211,45 +252,68 @@ pub(crate) fn listed_directory(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn open_folder_editor(app: DesktopAppHandle, id: String) -> Result<(), String> {
+pub async fn open_folder_editor(app: DesktopAppHandle, id: String) -> Result<OpenedFolder, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let directory = listed_directory(
-            &app.state::<DesktopPaths>(),
-            &app.state::<FolderOpenings>(),
-            &id,
-        )?;
-        folder_windows::open_editor(&app, directory)
-            .map(|_| ())
-            .map_err(|error| format!("{error:#}"))
+        let paths = app.state::<DesktopPaths>();
+        let openings = app.state::<FolderOpenings>();
+        let directory = listed_directory(&paths, &openings, &id)?;
+        folder_windows::open_editor(&app, directory.clone())
+            .map_err(|error| format!("{error:#}"))?;
+        Ok(remember_opened(&openings, &paths, &directory))
     })
     .await
     .map_err(|error| error.to_string())?
 }
 
-/// Forget all shortcuts represented by this row. Other sources keep it visible.
-#[tauri::command(async)]
-#[specta::specta]
-pub fn forget_folder_bookmarks(app: DesktopAppHandle, id: String) -> Result<(), String> {
-    forget_bookmarks(&app, &id)
-}
-
-pub(crate) fn forget_bookmarks<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<(), String> {
+fn change_reference<R: Runtime>(
+    app: &AppHandle<R>,
+    id: &str,
+    source: FolderGroup,
+    add: bool,
+) -> Result<(), String> {
     let paths = app.state::<DesktopPaths>();
     let openings = app.state::<FolderOpenings>();
-    let folder = list(&paths, &openings)
-        .folders
-        .into_iter()
-        .find(|folder| folder.id == id)
-        .ok_or("This folder is no longer in the list.")?;
-    for path in folder.bookmarks {
-        bookmarks::forget(&paths.data_dir, &path)?;
+    let folder = current_row(&paths, &openings, id)?;
+    if add {
+        listed_directory(&paths, &openings, id)?;
     }
-    // Temporary acceptances can also be aliases of the same row.
+    let target = folder.path;
+    if add {
+        navigation::pin(&paths.data_dir, &target, |entry| {
+            same_reference(entry, &target)
+        })?;
+    } else {
+        let list = if source == FolderGroup::Pinned {
+            navigation::List::Pins
+        } else {
+            navigation::List::Recent
+        };
+        navigation::remove(&paths.data_dir, list, |entry| {
+            same_reference(entry, &target)
+        })?;
+    }
+    Ok(())
+}
+
+#[tauri::command(async)]
+#[specta::specta]
+pub fn pin_folder(app: DesktopAppHandle, id: String) -> Result<(), String> {
+    change_reference(&app, &id, FolderGroup::Pinned, true)
+}
+
+#[tauri::command(async)]
+#[specta::specta]
+pub fn unpin_folder(app: DesktopAppHandle, id: String) -> Result<(), String> {
+    change_reference(&app, &id, FolderGroup::Pinned, false)
+}
+
+#[tauri::command(async)]
+#[specta::specta]
+pub fn remove_recent_folder(app: DesktopAppHandle, id: String) -> Result<(), String> {
+    change_reference(&app, &id, FolderGroup::Recent, false)?;
+    let openings = app.state::<FolderOpenings>();
     for path in openings.temporary() {
-        if same_directory(
-            &library::resolved(Path::new(&path)),
-            Path::new(&folder.path),
-        ) {
+        if folder_id(&library::resolved(Path::new(&path))) == id {
             openings.forget(&path);
         }
     }
@@ -260,389 +324,129 @@ pub(crate) fn forget_bookmarks<R: Runtime>(app: &AppHandle<R>, id: &str) -> Resu
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::PathBuf;
-    use tauri::{
-        test::{mock_builder, mock_context, noop_assets, MockRuntime},
-        App,
-    };
-    use tauri_plugin_epicenter_folder::FolderExt;
 
     struct Fixture {
-        app: App<MockRuntime>,
-        paths: DesktopPaths,
         _temp: tempfile::TempDir,
-    }
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            self.app.folders().shutdown();
-        }
-    }
-    impl Fixture {
-        fn new() -> Self {
-            let temp = tempfile::tempdir().unwrap();
-            let root = dunce::canonicalize(temp.path()).unwrap();
-            let paths = DesktopPaths {
-                folder_dir: root.join("Epicenter"),
-                data_dir: root.join("app-data"),
-            };
-            fs::create_dir(&paths.folder_dir).unwrap();
-            let app = mock_builder()
-                .plugin(tauri_plugin_epicenter_folder::init())
-                .manage(paths.clone())
-                .manage(FolderOpenings::default())
-                .build(mock_context(noop_assets()))
-                .unwrap();
-            Self {
-                app,
-                paths,
-                _temp: temp,
-            }
-        }
-        fn list(&self) -> FolderListing {
-            list(&self.paths, &self.app.state::<FolderOpenings>())
-        }
-        fn directory(&self, relative: &str) -> PathBuf {
-            let path = dunce::canonicalize(self._temp.path())
-                .unwrap()
-                .join(relative);
-            fs::create_dir_all(&path).unwrap();
-            path
-        }
-        fn bookmark(&self, path: &Path) {
-            bookmarks::add(&self.paths.data_dir, path.to_str().unwrap()).unwrap();
-        }
-        fn row(&self, path: &Path) -> ListedFolder {
-            self.list()
-                .folders
-                .into_iter()
-                .find(|folder| Path::new(&folder.path) == path)
-                .unwrap_or_else(|| panic!("{path:?} is not listed"))
-        }
-        fn open(&self, id: &str) -> Result<String, String> {
-            let directory = listed_directory(&self.paths, &self.app.state::<FolderOpenings>(), id)?;
-            folder_windows::open_editor(self.app.handle(), directory)
-                .map(|window| window.label().to_owned())
-                .map_err(|error| error.to_string())
-        }
-        fn open_in_todos(&self, id: String) -> Result<PathBuf, String> {
-            let window = crate::bundled_apps::open_on(
-                self.app.handle(),
-                crate::bundled_apps::BundledApp::Todos,
-                crate::bundled_apps::AppFolder::Listed(id),
-            )?;
-            Ok(self
-                .app
-                .folders()
-                .bound(window.label())
-                .unwrap()
-                .root()
-                .to_path_buf())
-        }
+        paths: DesktopPaths,
+        openings: FolderOpenings,
     }
 
-    #[test]
-    fn root_children_and_bookmarks_merge_without_registering_another_folder() {
-        let f = Fixture::new();
-        let notes = f.directory("Epicenter/Notes");
-        f.bookmark(&notes);
-        f.bookmark(&notes.join("."));
-        let before = fs::read(bookmarks::file(&f.paths.data_dir)).unwrap();
-        let listing = f.list();
-        assert!(listing.problems.is_empty());
-        assert_eq!(listing.folders.len(), 1);
-        let folder = &listing.folders[0];
-        assert_eq!(folder.path, notes.to_str().unwrap());
-        assert_eq!(folder.default_for, None);
-        assert_eq!(folder.bookmarks.len(), 2);
-        assert!(folder.problem.is_none());
-        assert_eq!(
-            fs::read(bookmarks::file(&f.paths.data_dir)).unwrap(),
-            before
-        );
-        assert_eq!(fs::read_dir(&notes).unwrap().count(), 0);
-    }
-
-    #[test]
-    fn combined_listing_reads_declarations_and_sorts_all_sources_by_title() {
-        let f = Fixture::new();
-        for (relative, declaration) in [
-            (
-                "Epicenter/reading",
-                r#"{ "title": "Reading list", "tables": {} }"#,
-            ),
-            ("Epicenter/numbered", r#"{ "title": 7 }"#),
-            ("Epicenter/broken", "not json"),
-            ("Elsewhere/bookmark", r#"{ "title": "Apple" }"#),
-        ] {
-            let path = f.directory(relative);
-            fs::write(path.join("epicenter.json"), declaration).unwrap();
-        }
-        f.directory("Epicenter/odd/epicenter.json");
-        f.bookmark(&f.directory("Elsewhere/bookmark"));
-
-        let titles: Vec<_> = f
-            .list()
-            .folders
-            .into_iter()
-            .map(|folder| folder.title)
-            .collect();
-        assert_eq!(
-            titles,
-            ["Apple", "broken", "numbered", "odd", "Reading list"]
-        );
-    }
-
-    /// Existing root defaults read as their apps and are deduplicated with a
-    /// bookmark of them. A directory elsewhere with a default's name is an
-    /// ordinary folder, and a missing default is neither listed nor made.
-    #[test]
-    fn root_defaults_have_readable_titles_and_outside_bookmarks_do_not() {
-        let f = Fixture::new();
-        let todos = f.paths.open_default(library::TODOS).unwrap();
-        let records = f.paths.open_default(library::RECORDS).unwrap();
-        fs::write(
-            todos.root().join("epicenter.json"),
-            r#"{ "title": "Another title" }"#,
-        )
-        .unwrap();
-        let outside = f.directory("Elsewhere/so.epicenter.capture");
-        f.bookmark(todos.root());
-        f.bookmark(&outside);
-        assert_eq!(f.list().folders.len(), 3);
-        let todos_row = f.row(todos.root());
-        assert_eq!(
-            (todos_row.title.as_str(), todos_row.default_for.as_deref()),
-            ("Todos", Some("Todos"))
-        );
-        assert!(!todos_row.protected);
-        assert_eq!(todos_row.bookmarks.len(), 1);
-        let records_row = f.row(records.root());
-        assert_eq!(
-            (
-                records_row.title.as_str(),
-                records_row.default_for.as_deref()
-            ),
-            ("Epicenter", Some("Epicenter"))
-        );
-        assert!(records_row.protected);
-        let outside_row = f.row(&outside);
-        assert_eq!(outside_row.title, "so.epicenter.capture");
-        assert_eq!(outside_row.default_for, None);
-        assert!(!f.paths.folder_dir.join(library::CAPTURE.id).exists());
-        // An explicitly bookmarked outside directory opens in an app.
-        assert_eq!(f.open_in_todos(outside_row.id).unwrap(), outside);
-    }
-
-    /// On a disk that ignores case, another spelling of a default is that
-    /// default, by directory identity rather than by name.
-    #[test]
-    fn a_default_spelled_in_another_case_follows_the_disks_case_sensitivity() {
-        let f = Fixture::new();
-        let stored = f.directory("Epicenter/SO.EPICENTER.TODOS");
-        let insensitive = f.paths.folder_dir.join(library::TODOS.id).exists();
-        let row = f.row(&stored);
-        if insensitive {
-            assert_eq!(row.default_for.as_deref(), Some("Todos"));
-            assert_eq!(row.title, "Todos");
-        } else {
-            assert_eq!(row.default_for, None);
-            assert_eq!(row.title, "SO.EPICENTER.TODOS");
-        }
-    }
-
-    #[test]
-    fn matching_names_are_distinct_and_outside_folders_open_in_editors_and_apps() {
-        let f = Fixture::new();
-        let first = f.directory("Work/Notes");
-        let second = f.directory("Personal/Notes");
-        f.bookmark(&first);
-        f.bookmark(&second);
-        let folders = f.list().folders;
-        assert_eq!(folders.len(), 2);
-        assert_eq!(folders[0].title, folders[1].title);
-        assert_ne!(folders[0].id, folders[1].id);
-        for folder in folders {
-            let editor = f.open(&folder.id).unwrap();
-            assert_eq!(
-                f.app.folders().bound(&editor).unwrap().root(),
-                Path::new(&folder.path)
-            );
-            assert_eq!(f.open_in_todos(folder.id).unwrap(), Path::new(&folder.path));
-        }
-        assert!(!f.paths.folder_dir.join(library::TODOS.id).exists());
-    }
-
-    /// The records default and the root holding it stay editable but open in
-    /// no app.
-    #[test]
-    fn records_and_the_root_remain_editable_but_cannot_open_in_apps() {
-        let f = Fixture::new();
-        let records = f.paths.open_default(library::RECORDS).unwrap();
-        f.bookmark(&f.paths.folder_dir);
-        let listing = f.list();
-        assert_eq!(listing.folders.len(), 2);
-        for folder in listing.folders {
-            assert!(folder.protected);
-            assert!(folder.problem.is_none());
-            let editor = f.open(&folder.id).unwrap();
-            assert_eq!(
-                f.app.folders().bound(&editor).unwrap().root(),
-                Path::new(&folder.path)
-            );
-            assert!(f.open_in_todos(folder.id).is_err());
-        }
-        assert!(records.root().is_dir());
-    }
-
-    #[test]
-    fn hand_edited_bookmarks_cannot_admit_application_data_or_its_parent() {
-        for parent in [false, true] {
-            let f = Fixture::new();
-            fs::create_dir_all(&f.paths.data_dir).unwrap();
-            let selected = if parent {
-                f.paths.data_dir.parent().unwrap().to_path_buf()
-            } else {
-                f.paths.data_dir.clone()
-            };
-            f.bookmark(&selected);
-            let original = fs::read(bookmarks::file(&f.paths.data_dir)).unwrap();
-            let folder = f.row(&selected);
-            assert!(folder.problem.is_some());
-            assert!(folder.protected);
-            assert!(f.open(&folder.id).is_err());
-            assert!(f.app.webview_windows().is_empty());
-            assert_eq!(
-                fs::read(bookmarks::file(&f.paths.data_dir)).unwrap(),
-                original
-            );
-        }
-    }
-
-    /// The list has no app-home source: a changed root lists its own
-    /// children and the bookmarks, and an earlier root's default is
-    /// neither listed nor touched.
-    #[test]
-    fn a_changed_root_lists_only_its_children_and_the_bookmarks() {
-        let f = Fixture::new();
-        let earlier = f.paths.open_default(library::TODOS).unwrap();
-        let outside = f.directory("Outside");
-        f.bookmark(&outside);
+    fn fixture() -> Fixture {
+        let temp = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
         let paths = DesktopPaths {
-            folder_dir: f.directory("New root"),
-            ..f.paths.clone()
+            data_dir: root.join("AppData"),
+            folder_dir: root.join("Epicenter Dev"),
         };
-        let listing = list(&paths, &f.app.state::<FolderOpenings>());
-        assert_eq!(listing.folders.len(), 1);
-        assert_eq!(listing.folders[0].path, outside.to_str().unwrap());
-        assert!(listed_directory(
-            &paths,
-            &f.app.state::<FolderOpenings>(),
-            &folder_id(earlier.root())
-        )
-        .is_err());
-        assert!(earlier.root().is_dir());
-        assert!(!paths.folder_dir.join(library::TODOS.id).exists());
+        fs::create_dir_all(&paths.folder_dir).unwrap();
+        fs::create_dir_all(&paths.data_dir).unwrap();
+        Fixture {
+            _temp: temp,
+            paths,
+            openings: FolderOpenings::default(),
+        }
     }
 
     #[test]
-    fn missing_bookmarks_remain_one_unavailable_row_and_are_not_recreated() {
-        let f = Fixture::new();
-        let missing = f.directory("Code/Todos");
-        f.bookmark(&missing);
-        f.bookmark(&missing.join("."));
-        fs::remove_dir(&missing).unwrap();
-        let folder = &f.list().folders[0];
-        assert!(folder.problem.is_some());
-        assert_eq!(folder.default_for, None);
-        assert_eq!(folder.bookmarks.len(), 2);
-        assert!(f.open(&folder.id).is_err());
-        forget_bookmarks(f.app.handle(), &folder.id).unwrap();
-        assert!(f.list().folders.is_empty());
-        assert!(!missing.exists());
-    }
-
-    #[test]
-    fn forgetting_a_bookmark_keeps_the_root_row_and_open_window() {
-        let f = Fixture::new();
-        let notes = f.directory("Epicenter/Notes");
-        f.bookmark(&notes);
-        f.bookmark(&notes.join("."));
-        let id = f.list().folders[0].id.clone();
-        let editor = f.open(&id).unwrap();
-        forget_bookmarks(f.app.handle(), &id).unwrap();
-        let listing = f.list();
-        assert_eq!(listing.folders.len(), 1);
-        assert!(listing.folders[0].bookmarks.is_empty());
-        assert_eq!(f.app.folders().bound(&editor).unwrap().root(), notes);
-        assert_eq!(f.open(&id).unwrap(), editor);
-    }
-
-    #[test]
-    fn forgotten_and_unlisted_ids_cannot_open_but_existing_windows_keep_their_bindings() {
-        let f = Fixture::new();
-        let notes = f.directory("Notes");
-        assert!(f.open(&folder_id(&notes)).is_err());
-        assert!(f.open(notes.to_str().unwrap()).is_err());
-        f.bookmark(&notes);
-        let id = f.list().folders[0].id.clone();
-        let window = f.open(&id).unwrap();
-        forget_bookmarks(f.app.handle(), &id).unwrap();
-        assert!(f.list().folders.is_empty());
-        assert!(f.open(&id).is_err());
-        assert_eq!(f.app.folders().bound(&window).unwrap().root(), notes);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn parent_aliases_merge_and_a_retargeted_alias_cannot_reuse_a_stale_id() {
-        use std::os::unix::fs::symlink;
-        let f = Fixture::new();
-        let notes = f.directory("Epicenter/Notes");
-        let alias = f._temp.path().join("alias");
-        symlink(&f.paths.folder_dir, &alias).unwrap();
-        let shortcut = alias.join("Notes");
-        f.bookmark(&shortcut);
-        assert_eq!(f.list().folders.len(), 1);
-        let id = f.list().folders[0].id.clone();
-        fs::remove_file(&alias).unwrap();
-        fs::create_dir_all(f.paths.data_dir.join("Notes")).unwrap();
-        symlink(&f.paths.data_dir, &alias).unwrap();
-        fs::remove_dir(&notes).unwrap();
-        assert!(f.open(&id).is_err());
-        let listing = f.list();
-        assert_eq!(listing.folders.len(), 1);
-        assert!(listing.folders[0].problem.is_some());
-        assert!(f.app.webview_windows().is_empty());
-    }
-
-    /// A broken bookmark list hides no root child, and an earlier build's
-    /// `folders.json` is no source at all and stays as it was.
-    #[test]
-    fn a_broken_source_does_not_hide_folders_from_other_sources() {
-        let f = Fixture::new();
-        let notes = f.directory("Epicenter/Notes");
-        fs::create_dir_all(&f.paths.data_dir).unwrap();
-        let old = f.paths.data_dir.join("folders.json");
-        let elsewhere = f.directory("Old home");
-        let contents = serde_json::to_string(&serde_json::json!({
-            "homes": { "todos": elsewhere }, "folders": [elsewhere],
-        }))
+    fn pins_library_and_recent_merge_by_directory_identity_in_precedence_order() {
+        let f = fixture();
+        let child = f.paths.folder_dir.join("Notes");
+        let outside = f.paths.folder_dir.parent().unwrap().join("Outside");
+        fs::create_dir(&child).unwrap();
+        fs::create_dir(&outside).unwrap();
+        navigation::pin(&f.paths.data_dir, child.to_str().unwrap(), |_| false).unwrap();
+        navigation::record_opening(&f.paths.data_dir, outside.to_str().unwrap(), |_| false)
+            .unwrap();
+        navigation::record_opening(&f.paths.data_dir, child.to_str().unwrap(), |_| false).unwrap();
+        navigation::pin(&f.paths.data_dir, &format!("{}/.", child.display()), |_| {
+            false
+        })
         .unwrap();
-        fs::write(&old, &contents).unwrap();
-        let file = bookmarks::file(&f.paths.data_dir);
-        fs::write(&file, "needs repair").unwrap();
-        assert_eq!(f.list().folders.len(), 1);
-        assert_eq!(f.list().problems.len(), 1);
-        assert_eq!(fs::read_to_string(&file).unwrap(), "needs repair");
-        fs::remove_file(&file).unwrap();
-        assert!(f.list().problems.is_empty());
-        let outside = f.directory("Outside");
-        f.bookmark(&outside);
-        fs::remove_dir(notes).unwrap();
-        fs::remove_dir(&f.paths.folder_dir).unwrap();
-        fs::write(&f.paths.folder_dir, "occupied").unwrap();
-        assert_eq!(f.list().folders.len(), 1);
-        assert_eq!(f.list().problems.len(), 1);
-        assert_eq!(fs::read_to_string(&old).unwrap(), contents);
+        let listed = list(&f.paths, &f.openings);
+        assert_eq!(listed.library_name, "Epicenter Dev");
+        assert_eq!(listed.folders.len(), 2);
+        assert_eq!(listed.folders[0].group, FolderGroup::Pinned);
+        assert!(listed.folders[0].recent);
+        assert_eq!(listed.folders[1].group, FolderGroup::Recent);
+        assert_eq!(listed.folders[1].path, outside.to_str().unwrap());
+    }
+
+    #[test]
+    fn listing_reads_titles_and_defaults_without_creating_a_missing_default() {
+        let f = fixture();
+        let child = f.paths.folder_dir.join("Notes");
+        fs::create_dir(&child).unwrap();
+        fs::write(child.join("epicenter.json"), r#"{"title":"Field notes"}"#).unwrap();
+        let listed = list(&f.paths, &f.openings);
+        assert_eq!(listed.folders[0].title, "Field notes");
+        assert_eq!(listed.folders[0].group, FolderGroup::Library);
+        assert!(!f.paths.folder_dir.join(library::TODOS.id).exists());
+        let default = f.paths.folder_dir.join(library::TODOS.id);
+        fs::create_dir(&default).unwrap();
+        let listed = list(&f.paths, &f.openings);
+        let row = listed
+            .folders
+            .iter()
+            .find(|row| row.path == default.to_str().unwrap())
+            .unwrap();
+        assert_eq!(row.title, "Todos");
+        assert_eq!(row.default_for.as_deref(), Some("Todos"));
+    }
+
+    #[test]
+    fn missing_and_protected_refs_cannot_open_but_remain_visible_for_removal() {
+        let f = fixture();
+        let missing = f.paths.folder_dir.parent().unwrap().join("Missing");
+        navigation::pin(&f.paths.data_dir, missing.to_str().unwrap(), |_| false).unwrap();
+        let records = f.paths.folder_dir.join(library::RECORDS.id);
+        fs::create_dir(&records).unwrap();
+        navigation::record_opening(
+            &f.paths.data_dir,
+            f.paths.data_dir.to_str().unwrap(),
+            |_| false,
+        )
+        .unwrap();
+        let listed = list(&f.paths, &f.openings);
+        let missing_row = listed
+            .folders
+            .iter()
+            .find(|row| row.path == missing.to_str().unwrap())
+            .unwrap();
+        assert!(missing_row.problem.is_some());
+        assert!(listed_directory(&f.paths, &f.openings, &missing_row.id).is_err());
+        let protected_row = listed
+            .folders
+            .iter()
+            .find(|row| row.path == records.to_str().unwrap())
+            .unwrap();
+        assert!(protected_row.protected);
+        let app_data_row = listed
+            .folders
+            .iter()
+            .find(|row| row.path == f.paths.data_dir.to_str().unwrap())
+            .unwrap();
+        assert!(app_data_row.problem.is_some());
+        assert!(listed_directory(&f.paths, &f.openings, &app_data_row.id).is_err());
+        navigation::remove(&f.paths.data_dir, navigation::List::Pins, |_| true).unwrap();
+        navigation::remove(&f.paths.data_dir, navigation::List::Recent, |_| true).unwrap();
+        assert!(!list(&f.paths, &f.openings)
+            .folders
+            .iter()
+            .any(|row| row.id == missing_row.id));
+    }
+
+    #[test]
+    fn stale_ids_and_changed_roots_cannot_admit_old_membership() {
+        let mut f = fixture();
+        let first = f.paths.folder_dir.join("First");
+        fs::create_dir(&first).unwrap();
+        let id = list(&f.paths, &f.openings).folders[0].id.clone();
+        f.paths.folder_dir = f.paths.folder_dir.parent().unwrap().join("New root");
+        fs::create_dir(&f.paths.folder_dir).unwrap();
+        assert!(listed_directory(&f.paths, &f.openings, &id).is_err());
+        assert!(!list(&f.paths, &f.openings)
+            .folders
+            .iter()
+            .any(|row| row.path == first.to_str().unwrap()));
     }
 }

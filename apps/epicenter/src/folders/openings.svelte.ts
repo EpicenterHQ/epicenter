@@ -1,15 +1,15 @@
 /**
  * The directories other apps asked Epicenter to open, and the folders it
- * remembers (ADR-0646).
+ * opens (ADR-0646).
  *
  * A standalone app's "Open in Epicenter" reaches the shell as
  * `epicenter://open?path=…`. The shell only holds the path and shows this
  * window: nothing reads the directory until the person accepts it here.
  * Accepting asks Rust to validate the directory, open its own bound editor,
- * and remember the path. The launcher never owns a folder or its drafts.
+ * and record a successful opening in Recent. The launcher never owns a folder or its drafts.
  * Existing editors keep their own input while another window opens.
  *
- * Root children and accepted shortcuts appear in the unified folder list.
+ * Opened paths appear in the grouped folder list.
  */
 import type { commands } from '../ui/bindings.gen';
 
@@ -59,7 +59,7 @@ export function createFolderOpenings({ host }: { host: OpeningHost }) {
 		get requests() {
 			return requests;
 		},
-		/** Why the last acceptance, dismissal, forgetting, or read failed. */
+		/** Why the last acceptance, dismissal, or read failed. */
 		get failure() {
 			return failure;
 		},
@@ -93,7 +93,7 @@ export function createFolderOpenings({ host }: { host: OpeningHost }) {
 				}
 				const { rememberProblem } = answer.data;
 				if (rememberProblem !== null)
-					notice = `Epicenter could not update its remembered folders. ${rememberProblem}`;
+					notice = `The folder opened, but Recent could not be saved. ${rememberProblem}`;
 			} catch (cause) {
 				failure = `Could not show ${folderName(path)}. ${described(cause)}`;
 			} finally {

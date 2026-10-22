@@ -161,7 +161,7 @@ Files split by what they cost to lose (ADR-0539):
   Notes/, ...                                 other data folders, each listed and opened as files
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   auth/<grant>.lock                           the lock a sign-in refreshes under (the CLI writes it)
-  bookmarks.json                              bookmarked folder paths, a JSON array
+  navigation.sqlite                           machine-local pins and recent openings
   local-transcription.json                    the active local model and when to unload it
 ```
 
@@ -293,58 +293,69 @@ Its page source is `src/folders`, built by `build:folders` into
 `epicenter://app/folders` opens it. The shell binds no folder to it, and its
 capability grants no folder command.
 
-The page asks the shell for one derived listing: real non-hidden root
-children, saved bookmarks, and this-run openings whose bookmark could not be
-saved. References resolving to the same directory share one row. Each row
-shows its path. A row that is an existing app default, the same directory as
-`<root>/<id>` (on a disk that ignores case, any spelling of it), takes that
-app's title and reads **Default for Todos**; a directory elsewhere with a
-default's name is an ordinary folder. Different directories with the same
-name remain separate. An optional `epicenter.json` can supply another
-folder's display title; opening needs no declaration. Missing bookmarks remain
-visible with their problem. Listing creates no folders, lists no missing
-default, and writes no registration records.
+The page asks the shell for one derived listing, grouped in order as
+**Pinned**, the library root's name (such as **Epicenter Dev**), and
+**Recent**. Pins are explicit folder preferences. The middle group contains
+visible real direct children of the library root. Recent records successful
+app and editor openings, newest first, up to 20. A directory appears once:
+pin takes precedence over library membership, which takes precedence over
+recency. References resolving to the same physical directory share one row.
+The launcher remains a compact single column; app launch and Choose Folder
+controls stay under Apps, and Settings opens in its own window.
 
-Rows have native IDs derived from resolved paths. Opening an editor or using
-**Open with…** passes that ID, and Rust rebuilds current membership and checks
-the directory before binding a window. A display name, supplied path, or stale
-row cannot select another directory. Epicenter's records directory,
-`<root>/so.epicenter`, can open in the generic editor, while bundled apps keep
-their protected-directory checks. No row can open application data or save
-staging.
+Each row shows its path. An existing fixed app default takes that app's title
+and says **Default for Todos**; a directory elsewhere with the same name is
+ordinary. An optional `epicenter.json` can supply another folder's display
+title. Missing pinned and recent references stay visible with an availability
+problem and can be removed. Listing creates no folders or missing defaults.
+It retries removal of obsolete bookmark metadata; a cleanup failure appears
+among listing problems.
 
-The shell watches the root from setup until exit (`watch_data_folders`). When
-an entry directly under it, or a folder's `epicenter.json`, is created,
-changed, or removed, it sends `epicenter://data-folders-changed` to the
-`folders` window, which calls `list_data_folders` again. A rescan or a watch
-error is sent the same way. Deeper changes, such as a row saved in a folder,
-are not. The listing also refreshes when the launcher gains focus, so
-bookmarks outside the root are checked again.
+Rows have native IDs derived from resolved paths. Opening an editor or choosing
+an app in **Actions** passes that ID. Rust rebuilds current membership and
+checks the directory before binding a window. A stale row cannot select
+another directory. Pin is available for an admitted row; Unpin and Remove
+from Recent remain available when a referenced directory has gone missing.
+Epicenter's records directory can open in the generic editor, while bundled
+apps keep their protected-directory checks. Application data and save staging
+cannot open as ordinary folders.
 
-### Incoming folders and remembered paths
+The shell watches the root and `navigation.sqlite` from setup until exit. Root
+children, their `epicenter.json` declarations, and navigation writes invalidate
+the listing. Focus refreshes it too, so outside paths are checked again.
 
-A standalone app can ask Epicenter to open `epicenter://open?path=<percent-encoded absolute directory>`. Receiving the link only queues it and shows the launcher. **Open** resolves the existing directory and opens its own bound editor; **Dismiss** reads none of its files. Handoffs refuse folders overlapping Epicenter's Settings or app data, including linked spellings. The editor receives the same canonical directory that passed that check.
+### Incoming folders and navigation
 
-After the editor opens, a visible direct child of the Epicenter folder root
-is already in the Folders listing and needs no shortcut. For another folder,
-Epicenter adds the original path to the JSON array in
-`<app data>/bookmarks.json`. Failed persistence leaves the editor open and the
-shortcut available for this run, with the problem shown. They appear in the
-same list as root children. **Forget bookmark** removes every bookmark
-spelling merged into that row and its temporary shortcut. A root-discovered
-folder stays listed; existing editors and their drafts stay open.
+A standalone app can ask Epicenter to open
+`epicenter://open?path=<percent-encoded absolute directory>`. Receiving the
+link only queues it and shows the launcher. **Open** resolves the existing
+directory and opens its own bound editor; **Dismiss** reads none of its files.
+Handoffs refuse folders overlapping Epicenter's Settings or app data. The
+editor receives the same canonical directory that passed admission.
 
-App defaults are not in this file or any other: each is the fixed
-`<root>/<id>` the shell computes (ADR-0672), and choosing or bookmarking a
-folder never changes an app's default.
+After any successful app or editor opening, including default, listed, chosen,
+and accepted handoff openings, the shell records its canonical directory in
+Recent. A cancelled picker, failed opening, queued handoff, listing, and edits
+within an existing window record nothing. If persistence fails, the opened
+window remains open, a warning appears, and the directory remains in a
+temporary Recent row for this run. Temporary rows appear first in Recent,
+newest first, until saved again or removed. Pins change only when requested. Pin,
+Unpin, and Remove from Recent move no files and leave windows and drafts open.
+Opening another directory changes no app default: each remains its fixed
+`<root>/<id>` (ADR-0672).
 
-The CLI's `epicenter folders add|list|forget` edits the same array. Both
-writers hold `.bookmarks.json.epicenter-save-lock` across read/change/replace,
-preserving concurrent updates. Malformed or unsupported contents remain
-untouched. The launcher watches the AppData directory and refreshes when the
-file changes. Root children are discovered directly and need no shortcut. The
-bookmarks stay local to this machine. An earlier build's `folders.json` is
-never read; its shortcuts are not carried over.
+The CLI's `epicenter folders pin|unpin|list|remove-recent` shares
+`<app data>/navigation.sqlite` with the native shell. Independently keyed
+`pins(path)` and `recent(path, sequence)` tables keep pin intent separate from
+opening history. SQLite immediate write transactions serialize both writers;
+a deferred read transaction returns one consistent listing. The database uses
+the DELETE rollback journal and a 10-second busy timeout. Foreign, future,
+corrupt, or non-DELETE-journal databases are refused without replacement.
+On startup, Epicenter also discards obsolete `bookmarks.json` under its old
+save lock without reading it or following a symlink; each CLI folders command
+does the same. A cleanup problem is reported. The earlier `folders.json`, its
+lock, and app-scoped device storage remain separate. Stray `navigation.json`
+files are ignored. Navigation is machine-local.
 
 ### Folder editor windows
 
@@ -352,7 +363,7 @@ Choosing a listed folder calls `open_folder_editor(id)`. The shell rebuilds
 the combined list and requires a current, available row with that ID. It
 binds that exact directory to a window labelled `files:<digest of the
 canonical root>` and opens `/folders/editor/`. Choosing it again reveals
-the existing window. This works for bookmarks outside the root
+the existing window. This works for listed folders outside the root
 without copying or creating a directory.
 
 The editor mounts `<FolderApp>` with no table schemas, so Files, grid, board,
@@ -495,8 +506,8 @@ The Folders window opens one in three ways, each deciding the folder in Rust:
   app's rows land directly in it, such as `todos/<id>.md`. A disk that stores
   the default under another casing opens that directory. A file or a link at
   the path is refused; no other folder is opened instead.
-- **Open with…**, beside a listed folder, calls `open_bundled_app(app, id)`.
-  Rust rechecks membership in the combined list, including outside bookmarks.
+- **Open in an app**, under a listed folder’s Actions menu, calls `open_bundled_app(app, id)`.
+  Rust rechecks current listing membership, including outside pinned and recent folders.
   A missing, stale, or protected directory is refused. Nothing is created and
   the app's default is never opened as a replacement.
 - **Choose folder…**, under Apps, calls `choose_folder_for_app(app)`. The

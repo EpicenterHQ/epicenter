@@ -6,13 +6,13 @@
 //! and change, shared by native windows and other participating processes. `page_files` checks a path the shell changes
 //! on disk, and `paths` is the path rule the folder engine shares. Nothing
 //! here depends on Tauri. `library` computes and admits the fixed native app
-//! defaults, and `bookmarks` is the machine's remembered folder list. The
+//! defaults, and `navigation` is the machine's remembered folder list. The
 //! folder's Git runs in the `epicenter` CLI, never here (ADR-0559).
 
-pub mod bookmarks;
 pub mod directory;
 pub mod library;
 pub mod lock;
+pub mod navigation;
 pub mod page_files;
 pub mod paths;
 pub mod root;

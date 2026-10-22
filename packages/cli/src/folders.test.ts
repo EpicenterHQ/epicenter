@@ -1,9 +1,6 @@
 /**
- * Folder commands run in fresh processes over isolated AppData. Bookmarks
- * are one JSON array in `bookmarks.json`; unavailable entries are retained,
- * malformed contents are left untouched, and concurrent writers keep every
- * entry. An earlier build's `folders.json` is never read or changed, and
- * connection commands use the fixed records folder whatever it says.
+ * Navigation command tests across fresh CLI processes and isolated AppData.
+ * Checks strict storage, reset cleanup, path identity, and concurrent writers.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -14,10 +11,12 @@ import {
 	readFile,
 	realpath,
 	rm,
+	symlink,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { Database } from 'bun:sqlite';
 
 const temporary: string[] = [];
 afterEach(async () => {
@@ -37,6 +36,7 @@ async function setup() {
 	const folder = join(root, 'Notes');
 	const authored = join(root, 'Epicenter');
 	await Promise.all([folder, authored].map((path) => mkdir(path)));
+	const navigation = join(data, 'navigation.sqlite');
 	const bookmarks = join(data, 'bookmarks.json');
 	const legacy = join(data, 'folders.json');
 	async function write(path: string, value: unknown) {
@@ -67,142 +67,195 @@ async function setup() {
 		]);
 		return { code, reply: JSON.parse(stdout), stderr };
 	}
-	return { root, data, folder, authored, bookmarks, legacy, write, run };
+	return {
+		root,
+		data,
+		folder,
+		authored,
+		navigation,
+		bookmarks,
+		legacy,
+		write,
+		run,
+	};
 }
 
-test('list and help create nothing; add is idempotent and writes one array', async () => {
-	const { data, folder, bookmarks, run } = await setup();
-	expect(await run('folders', 'list')).toMatchObject({
-		code: 0,
-		reply: { folders: [] },
+function seed(path: string, pins: string[], recent: string[]) {
+	const db = new Database(path, { create: true, readwrite: true });
+	db.exec(
+		'CREATE TABLE pins(path TEXT NOT NULL PRIMARY KEY) STRICT, WITHOUT ROWID; CREATE TABLE recent(path TEXT NOT NULL PRIMARY KEY, sequence INTEGER NOT NULL) STRICT; PRAGMA application_id = 0x45504E56; PRAGMA user_version = 1',
+	);
+	for (const path of pins)
+		db.query('INSERT INTO pins(path) VALUES (?)').run(path);
+	for (const [i, path] of recent.entries())
+		db.query('INSERT INTO recent(path, sequence) VALUES (?, ?)').run(
+			path,
+			recent.length - i,
+		);
+	db.close();
+}
+function facts(path: string) {
+	const db = new Database(path, { readwrite: true });
+	const pins = (
+		db.query('SELECT path FROM pins ORDER BY path').all() as { path: string }[]
+	).map((r) => r.path);
+	const recent = (
+		db.query('SELECT path FROM recent ORDER BY sequence DESC').all() as {
+			path: string;
+		}[]
+	).map((r) => r.path);
+	const id = (
+		db.query('PRAGMA application_id').get() as { application_id: number }
+	).application_id;
+	const version = (
+		db.query('PRAGMA user_version').get() as { user_version: number }
+	).user_version;
+	const mode = (
+		db.query('PRAGMA journal_mode').get() as { journal_mode: string }
+	).journal_mode;
+	db.close();
+	return { pins, recent, id, version, mode };
+}
+
+test('list creates nothing; pin initializes the strict SQLite database and is idempotent', async () => {
+	const { data, folder, navigation, run } = await setup();
+	expect((await run('folders', 'list')).reply).toEqual({
+		pins: [],
+		recent: [],
 	});
-	expect(Object.keys((await run('folders', 'list')).reply)).toEqual([
-		'folders',
-	]);
 	expect(existsSync(data)).toBe(false);
-	expect(
-		(await run('folders', '--help')).reply.commands.map(
-			(entry: { command: string }) => entry.command,
-		),
-	).toEqual(['folders add', 'folders list', 'folders forget']);
-	expect(await run('folders', 'add', 'Notes')).toMatchObject({
-		code: 0,
-		reply: { path: folder, changed: true },
-	});
-	const before = await readFile(bookmarks, 'utf8');
-	expect(await run('folders', 'add', folder)).toMatchObject({
-		code: 0,
-		reply: { changed: false },
-	});
-	expect(await readFile(bookmarks, 'utf8')).toBe(before);
-	expect(JSON.parse(before)).toEqual([folder]);
-	expect((await readdir(data)).sort()).toEqual([
-		'.bookmarks.json.epicenter-save-lock',
-		'bookmarks.json',
-	]);
-});
-
-test('add and forget delete no source files', async () => {
-	const { folder, bookmarks, run } = await setup();
-	await writeFile(join(folder, 'keep.md'), 'Keep this.');
-	await run('folders', 'add', folder);
-	expect(await run('folders', 'forget', folder)).toMatchObject({
-		code: 0,
-		reply: { changed: true },
-	});
-	expect(JSON.parse(await readFile(bookmarks, 'utf8'))).toEqual([]);
-	expect(await readFile(join(folder, 'keep.md'), 'utf8')).toBe('Keep this.');
-});
-
-test("an earlier build's folders.json is never read, migrated, or changed", async () => {
-	const { folder, bookmarks, legacy, write, run } = await setup();
-	const original = JSON.stringify({
-		homes: { epicenter: '/old/records', todos: '/old/Todos' },
-		folders: ['/old/shortcut'],
-	});
-	await write(legacy, original);
-	expect((await run('folders', 'list')).reply).toEqual({ folders: [] });
-	await run('folders', 'add', folder);
-	expect(JSON.parse(await readFile(bookmarks, 'utf8'))).toEqual([folder]);
-	expect(await readFile(legacy, 'utf8')).toBe(original);
-	await write(legacy, 'not json');
-	expect((await run('folders', 'forget', folder)).code).toBe(0);
-	expect(await readFile(legacy, 'utf8')).toBe('not json');
-});
-
-test('entries kept as written survive a change and stay forgettable', async () => {
-	const { folder, bookmarks, write, run } = await setup();
-	const original = '["relative/entry", "/gone/away"]';
-	await write(bookmarks, original);
-	expect((await run('folders', 'list')).reply.folders).toHaveLength(2);
-	expect(await readFile(bookmarks, 'utf8')).toBe(original);
-	await run('folders', 'add', folder);
-	expect(JSON.parse(await readFile(bookmarks, 'utf8'))).toEqual([
-		'relative/entry',
-		'/gone/away',
-		folder,
-	]);
-	await run('folders', 'forget', 'relative/entry');
-	await run('folders', 'forget', '/gone/away');
-	expect(JSON.parse(await readFile(bookmarks, 'utf8'))).toEqual([folder]);
-});
-
-test('unavailable bookmarks stay listed with a problem and can be forgotten', async () => {
-	const { folder, run } = await setup();
-	await run('folders', 'add', folder);
-	await rm(folder, { recursive: true });
-	const result = await run('folders', 'list');
-	expect(result.code).toBe(0);
-	expect(result.reply.folders[0]).toEqual({
+	expect((await run('folders', 'pin', 'Notes')).reply).toMatchObject({
 		path: folder,
-		problem: expect.any(String),
+		changed: true,
 	});
-	expect((await run('folders', 'forget', folder)).code).toBe(0);
-	expect((await run('folders', 'add', folder)).code).toBe(2);
+	expect((await run('folders', 'pin', folder)).reply.changed).toBe(false);
+	expect(facts(navigation)).toEqual({
+		pins: [folder],
+		recent: [],
+		id: 0x45504e56,
+		version: 1,
+		mode: 'delete',
+	});
+	expect(await readdir(data)).toEqual(['navigation.sqlite']);
 });
 
-test('malformed bookmarks are never overwritten by either mutation', async () => {
-	const { folder, bookmarks, write, run } = await setup();
-	for (const text of [
-		'not json',
-		'{"folders":[]}',
-		'{"homes":{},"folders":[]}',
-		'["/ok", 7]',
-		'[{"path":"/with/id"}]',
-	]) {
-		await write(bookmarks, text);
-		expect((await run('folders', 'list')).code).toBe(2);
-		for (const action of ['add', 'forget']) {
-			expect((await run('folders', action, folder)).code).toBe(2);
-			expect(await readFile(bookmarks, 'utf8')).toBe(text);
-		}
+test('unpin and remove-recent change independent facts without touching authored files', async () => {
+	const { data, folder, navigation, run } = await setup();
+	await mkdir(data);
+	seed(navigation, [folder], [folder]);
+	await writeFile(join(folder, 'keep.md'), 'Keep');
+	expect((await run('folders', 'unpin', folder)).reply.changed).toBe(true);
+	expect(facts(navigation)).toMatchObject({ pins: [], recent: [folder] });
+	expect((await run('folders', 'remove-recent', folder)).reply.changed).toBe(
+		true,
+	);
+	expect(facts(navigation)).toMatchObject({ pins: [], recent: [] });
+	expect(await readFile(join(folder, 'keep.md'), 'utf8')).toBe('Keep');
+});
+
+test('obsolete bookmarks are unlinked without parsing or affecting folders.json', async () => {
+	const { folder, bookmarks, legacy, navigation, write, run } = await setup();
+	await write(bookmarks, 'not json');
+	await write(legacy, 'not json');
+	expect((await run('folders', 'list')).code).toBe(0);
+	expect(existsSync(bookmarks)).toBe(false);
+	expect(existsSync(folder)).toBe(true);
+	expect(await readFile(legacy, 'utf8')).toBe('not json');
+	expect(existsSync(navigation)).toBe(false);
+});
+
+test('legacy symlink is unlinked, while a directory is refused', async () => {
+	const { data, bookmarks, run } = await setup();
+	await mkdir(data);
+	const target = join(data, 'target');
+	await writeFile(target, 'keep');
+	await symlink(target, bookmarks);
+	expect((await run('folders', 'list')).code).toBe(0);
+	expect(await readFile(target, 'utf8')).toBe('keep');
+	expect(existsSync(bookmarks)).toBe(false);
+	await mkdir(bookmarks);
+	expect((await run('folders', 'list')).code).toBe(2);
+	expect(existsSync(bookmarks)).toBe(true);
+});
+
+test('missing references remain visible and removable', async () => {
+	const { root, data, navigation, run } = await setup();
+	const missing = join(root, 'Missing');
+	await mkdir(data);
+	seed(navigation, [missing], [missing]);
+	const listed = (await run('folders', 'list')).reply;
+	expect(listed.pins[0].problem).toEqual(expect.any(String));
+	expect(listed.recent[0].problem).toEqual(expect.any(String));
+	expect((await run('folders', 'unpin', missing)).code).toBe(0);
+	expect((await run('folders', 'remove-recent', missing)).code).toBe(0);
+	expect(facts(navigation)).toMatchObject({ pins: [], recent: [] });
+});
+
+test('corrupt and foreign databases are refused without replacement', async () => {
+	const { data, folder, navigation, run } = await setup();
+	await mkdir(data);
+	const bytes = Buffer.from([0, 255, 1, 2]);
+	await writeFile(navigation, bytes);
+	for (const action of ['list', 'pin', 'unpin', 'remove-recent']) {
+		expect(
+			(await run('folders', action, ...(action === 'list' ? [] : [folder])))
+				.code,
+		).toBe(2);
+		expect(await readFile(navigation)).toEqual(bytes);
 	}
+	await rm(navigation);
+	const db = new Database(navigation, { create: true });
+	db.exec('CREATE TABLE foreign_table(x TEXT)');
+	db.close();
+	expect((await run('folders', 'pin', folder)).code).toBe(2);
+	const foreign = new Database(navigation);
+	expect(
+		foreign
+			.query("SELECT name FROM sqlite_schema WHERE name='foreign_table'")
+			.get(),
+	).toBeTruthy();
+	foreign.close();
 });
 
-test('concurrent CLI writers preserve every bookmark', async () => {
-	const { root, bookmarks, run } = await setup();
+test('concurrent CLI processes preserve every pin', async () => {
+	const { root, navigation, run } = await setup();
 	const folders = Array.from({ length: 6 }, (_, i) =>
 		join(root, `folder-${i}`),
 	);
 	await Promise.all(folders.map((path) => mkdir(path)));
-	const replies = await Promise.all(
-		folders.map((path) => run('folders', 'add', path)),
-	);
-	expect(replies.map(({ code }) => code)).toEqual(folders.map(() => 0));
-	expect(JSON.parse(await readFile(bookmarks, 'utf8')).sort()).toEqual(folders);
+	expect(
+		(await Promise.all(folders.map((path) => run('folders', 'pin', path)))).map(
+			(r) => r.code,
+		),
+	).toEqual(folders.map(() => 0));
+	expect(facts(navigation).pins).toEqual(folders);
 });
 
-test('invalid UTF-8 inside a path is refused without replacing its bytes', async () => {
-	const { folder, bookmarks, data, run } = await setup();
+test('alias membership is evaluated inside each SQLite write', async () => {
+	const { data, folder, navigation, run } = await setup();
 	await mkdir(data);
-	const bytes = Buffer.concat([
-		Buffer.from('["/'),
-		Buffer.from([255]),
-		Buffer.from('"]'),
-	]);
-	await writeFile(bookmarks, bytes);
-	expect((await run('folders', 'add', folder)).code).toBe(2);
-	expect(await readFile(bookmarks)).toEqual(bytes);
+	const alias = join(folder, '.');
+	seed(navigation, [alias], [alias]);
+	expect((await run('folders', 'pin', folder)).reply.changed).toBe(false);
+	expect((await run('folders', 'unpin', folder)).reply.changed).toBe(true);
+	expect((await run('folders', 'remove-recent', folder)).reply.changed).toBe(
+		true,
+	);
+	expect(facts(navigation)).toMatchObject({ pins: [], recent: [] });
+});
+
+test('stray JSON navigation is ignored during the clean SQLite reset', async () => {
+	const { data, navigation, folder, run } = await setup();
+	await mkdir(data);
+	const old = join(data, 'navigation.json');
+	await writeFile(old, 'broken');
+	expect((await run('folders', 'list')).reply).toEqual({
+		pins: [],
+		recent: [],
+	});
+	expect((await run('folders', 'pin', folder)).code).toBe(0);
+	expect(facts(navigation).pins).toEqual([folder]);
+	expect(await readFile(old, 'utf8')).toBe('broken');
 });
 
 test('connection commands use the fixed records folder whatever folders.json names', async () => {

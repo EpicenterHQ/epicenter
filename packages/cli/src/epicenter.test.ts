@@ -495,9 +495,10 @@ test('--help lists every command but send and install-command, and --json descri
 	expect(described.map((c: { command: string }) => c.command)).toEqual([
 		'schema export',
 		'schema import',
-		'folders add',
+		'folders pin',
+		'folders unpin',
 		'folders list',
-		'folders forget',
+		'folders remove-recent',
 		'check',
 		'query',
 		'generate',

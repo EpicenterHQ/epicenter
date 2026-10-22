@@ -9,10 +9,7 @@
 //! (`accept_folder_opening`).
 //!
 //! Accepting resolves an existing directory and opens its own bound editor
-//! window. The launcher stays unbound. An accepted path absent from the folder
-//! root listing is remembered in `bookmarks.json`; a visible direct child is
-//! already discoverable there. Bookmarks are shortcuts, never permissions.
-//! Bookmarks and this-run acceptances join the one derived folder listing.
+//! window. The launcher stays unbound. Successful openings enter Recent.
 //! Opening a row rechecks current membership and its directory.
 //! Like a bundled app's launcher, the handoff refuses paths overlapping
 //! Epicenter's own folder or app data (`overlaps_epicenter_files`). Receiving or
@@ -30,7 +27,7 @@ use tauri_plugin_epicenter_folder::Directory;
 
 use crate::data_folders::overlaps_epicenter_files;
 use crate::{BuiltInApp, DesktopAppHandle};
-use epicenter_folder_core::bookmarks;
+use epicenter_folder_core::navigation;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 
 /// The event the Folders window hears when the pending requests changed. It
@@ -106,7 +103,7 @@ pub(crate) fn is_plain_absolute_path(path: &str) -> bool {
     rebuilt.as_os_str() == candidate.as_os_str()
 }
 
-/// Pending opening requests and temporary shortcuts whose persistence failed.
+/// Pending opening requests and temporary Recent rows whose persistence failed.
 #[derive(Default)]
 pub struct FolderOpenings(Mutex<Openings>);
 
@@ -114,7 +111,7 @@ pub struct FolderOpenings(Mutex<Openings>);
 struct Openings {
     /// Requested and not yet accepted or dismissed, oldest first, each once.
     pending: Vec<String>,
-    /// Accepted this run but not persisted, in order. Saved shortcuts live only in bookmarks.json.
+    /// Opened this run but not persisted, newest first.
     temporary: Vec<String>,
 }
 
@@ -150,9 +147,8 @@ impl FolderOpenings {
 
     fn keep_temporarily(&self, directory: &str) {
         let mut openings = self.lock();
-        if !openings.temporary.iter().any(|path| path == directory) {
-            openings.temporary.push(directory.to_string());
-        }
+        openings.temporary.retain(|path| path != directory);
+        openings.temporary.insert(0, directory.to_string());
     }
 
     pub(crate) fn temporary(&self) -> Vec<String> {
@@ -204,8 +200,8 @@ fn admit(paths: &DesktopPaths, directory: &str) -> Result<Directory, String> {
 /// A successful native opening, with a separate persistence failure if any.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct AcceptedOpening {
-    /// Why `bookmarks.json` was not updated; the folder is open regardless.
+pub struct OpenedFolder {
+    /// Why `navigation.sqlite` was not updated; the folder is open regardless.
     pub remember_problem: Option<String>,
 }
 
@@ -221,34 +217,25 @@ fn requested_directory(
     admit(paths, directory)
 }
 
-/// Called only after its editor opened. Failed persistence leaves the editor open.
-fn remember_accepted(
+/// Called after an app or editor opens or is revealed. A failed history write
+/// leaves the window open.
+pub(crate) fn remember_opened(
     openings: &FolderOpenings,
     paths: &DesktopPaths,
-    directory: &str,
     opened: &Directory,
-) -> AcceptedOpening {
-    // Use the admitted directory, not the handed-off spelling: a linked
-    // parent may change between admission and remembering.
-    let listed_by_root =
-        opened.root().parent().is_some_and(|parent| {
-            same_file::is_same_file(parent, &paths.folder_dir).unwrap_or(false)
-        }) && opened
-            .root()
-            .file_name()
-            .is_some_and(|name| !name.to_string_lossy().starts_with('.'));
-    let remember_problem = if listed_by_root {
-        None
-    } else {
-        bookmarks::add(&paths.data_dir, directory).err()
-    };
+) -> OpenedFolder {
+    let directory = opened.root().to_string_lossy();
+    let remember_problem = navigation::record_opening(&paths.data_dir, &directory, |entry| {
+        same_file::is_same_file(entry, opened.root()).unwrap_or(false)
+    })
+    .err();
     if let Some(problem) = &remember_problem {
-        openings.keep_temporarily(directory);
+        openings.keep_temporarily(&directory);
         log::warn!("an opened folder was not remembered: {problem}");
     } else {
-        openings.forget(directory);
+        openings.forget(&directory);
     }
-    AcceptedOpening { remember_problem }
+    OpenedFolder { remember_problem }
 }
 
 /// The directories apps asked Epicenter to open that the person has not
@@ -259,13 +246,13 @@ pub fn pending_folder_openings(app: DesktopAppHandle) -> Vec<String> {
     app.state::<FolderOpenings>().pending()
 }
 
-/// Accept a pending request and open its own editor, then remember the path.
+/// Accept a pending request and open its own editor, then record recency.
 #[tauri::command]
 #[specta::specta]
 pub async fn accept_folder_opening(
     app: DesktopAppHandle,
     path: String,
-) -> Result<AcceptedOpening, String> {
+) -> Result<OpenedFolder, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let result = (|| {
             let openings = app.state::<FolderOpenings>();
@@ -273,7 +260,7 @@ pub async fn accept_folder_opening(
             let directory = requested_directory(&openings, &paths, &path)?;
             crate::folder_windows::open_editor(&app, directory.clone())
                 .map_err(|error| format!("{error:#}"))?;
-            Ok(remember_accepted(&openings, &paths, &path, &directory))
+            Ok(remember_opened(&openings, &paths, &directory))
         })();
         let _ = app.emit_to(BuiltInApp::Folders.id(), FOLDER_OPENINGS_CHANGED, ());
         result
@@ -319,16 +306,11 @@ mod tests {
         fn request(&self, path: &Path) {
             self.openings.queue(path.to_str().unwrap().into());
         }
-        fn accept(&self, path: &Path) -> Result<AcceptedOpening, String> {
+        fn accept(&self, path: &Path) -> Result<OpenedFolder, String> {
             let path = path.to_str().unwrap();
             let directory = requested_directory(&self.openings, &self.paths, path)?;
             self.editor(directory.clone());
-            Ok(remember_accepted(
-                &self.openings,
-                &self.paths,
-                path,
-                &directory,
-            ))
+            Ok(remember_opened(&self.openings, &self.paths, &directory))
         }
         fn reopen(&self, path: &Path) -> Result<String, String> {
             let listing = crate::folder_listing::list(&self.paths, &self.openings);
@@ -336,10 +318,7 @@ mod tests {
             let entry = listing
                 .folders
                 .iter()
-                .find(|entry| {
-                    entry.bookmarks.iter().any(|bookmark| bookmark == spelling)
-                        || entry.path == spelling
-                })
+                .find(|entry| (entry.recent || entry.temporary) && entry.path == spelling)
                 .ok_or("This folder is no longer in the list.")?;
             let directory =
                 crate::folder_listing::listed_directory(&self.paths, &self.openings, &entry.id)?;
@@ -355,7 +334,7 @@ mod tests {
             let mut listing = crate::folder_listing::list(&self.paths, &self.openings);
             listing
                 .folders
-                .retain(|entry| !entry.bookmarks.is_empty() || entry.temporary);
+                .retain(|entry| entry.recent || entry.temporary);
             listing
         }
         fn root(&self, label: &str) -> PathBuf {
@@ -489,7 +468,7 @@ mod tests {
         assert!(f.openings.take(f.elsewhere.to_str().unwrap()));
         assert!(f.accept(&f.elsewhere).is_err());
         assert!(!missing.exists());
-        assert!(!bookmarks::file(&f.paths.data_dir).exists());
+        assert!(!navigation::file(&f.paths.data_dir).exists());
         assert!(f.app.webview_windows().is_empty());
     }
     #[test]
@@ -521,7 +500,7 @@ mod tests {
         );
         assert!(f.app.folders().bound("home").is_err());
         assert_eq!(
-            bookmarks::read(&f.paths.data_dir).unwrap(),
+            navigation::read(&f.paths.data_dir).unwrap().recent,
             [f.elsewhere.to_str().unwrap()]
         );
     }
@@ -537,14 +516,17 @@ mod tests {
         assert!(f.openings.temporary().is_empty());
     }
     #[test]
-    fn a_visible_child_of_the_folder_root_needs_no_shortcut() {
+    fn a_visible_child_of_the_folder_root_is_recorded_in_recent() {
         let f = fixture();
         let todos = f.paths.folder_dir.join("Todos");
         fs::create_dir(&todos).unwrap();
         f.request(&todos);
         assert_eq!(f.accept(&todos).unwrap().remember_problem, None);
-        assert!(f.listed().folders.is_empty());
-        assert!(!bookmarks::file(&f.paths.data_dir).exists());
+        assert_eq!(f.listed().folders.len(), 1);
+        assert_eq!(
+            navigation::read(&f.paths.data_dir).unwrap().recent,
+            [todos.to_str().unwrap()]
+        );
         assert!(f.openings.temporary().is_empty());
     }
     #[test]
@@ -597,11 +579,11 @@ mod tests {
                 .contains("Epicenter's own files"));
         }
         assert!(f.app.webview_windows().is_empty());
-        assert!(!bookmarks::file(&f.paths.data_dir).exists());
+        assert!(!navigation::file(&f.paths.data_dir).exists());
     }
     #[cfg(unix)]
     #[test]
-    fn a_retargeted_parent_cannot_redirect_an_admitted_directory_or_bypass_reopen_checks() {
+    fn a_retargeted_parent_cannot_redirect_an_admitted_directory_or_its_history() {
         use std::os::unix::fs::symlink;
         let f = fixture();
         let alias = f.temp.path().join("alias");
@@ -614,111 +596,74 @@ mod tests {
         fs::remove_file(&alias).unwrap();
         symlink(&f.paths.data_dir, &alias).unwrap();
         let first = f.editor(admitted.clone());
-        remember_accepted(&f.openings, &f.paths, path.to_str().unwrap(), &admitted);
+        remember_opened(&f.openings, &f.paths, &admitted);
         assert_eq!(f.root(&first), f.elsewhere);
-        assert!(f
-            .reopen(&path)
-            .unwrap_err()
-            .contains("application data"));
-        assert!(f.listed().folders[0].problem.is_some());
+        assert!(admit(&f.paths, path.to_str().unwrap()).is_err());
+        assert_eq!(
+            navigation::read(&f.paths.data_dir).unwrap().recent,
+            [f.elsewhere.to_str().unwrap()]
+        );
+        assert_eq!(f.reopen(&f.elsewhere).unwrap(), first);
+        assert!(f.reopen(&path).is_err());
         let second_parent = f.temp.path().join("another-app");
         let second = second_parent.join("so.epicenter.todos");
         fs::create_dir_all(&second).unwrap();
+        let second = dunce::canonicalize(second).unwrap();
         fs::remove_file(&alias).unwrap();
         symlink(&second_parent, &alias).unwrap();
-        let next = f.reopen(&path).unwrap();
+        f.request(&path);
+        f.accept(&path).unwrap();
+        let next = f.reopen(&second).unwrap();
         assert_ne!(first, next);
         assert_eq!(f.root(&next), dunce::canonicalize(second).unwrap());
         assert_eq!(f.root(&first), f.elsewhere);
     }
     #[test]
-    fn restart_lists_shortcuts_without_binding_and_missing_paths_stay_forgettable() {
+    fn failed_history_writes_keep_temporary_rows_in_opening_order() {
         let f = fixture();
-        f.request(&f.elsewhere);
-        f.accept(&f.elsewhere).unwrap();
-        let restarted = FolderOpenings::default();
-        let mut listed = crate::folder_listing::list(&f.paths, &restarted);
-        listed.folders.retain(|entry| !entry.bookmarks.is_empty());
-        assert_eq!(listed.folders.len(), 1);
-        assert_eq!(listed.folders[0].path, f.elsewhere.to_str().unwrap());
-        assert_eq!(listed.folders[0].bookmarks, [f.elsewhere.to_str().unwrap()]);
-        assert!(f.reopen(&f.elsewhere).is_ok());
-        fs::remove_dir_all(&f.elsewhere).unwrap();
-        assert!(f.listed().folders[0].problem.is_some());
-        bookmarks::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
-        assert!(f.listed().folders.is_empty());
-        assert!(!f.elsewhere.exists());
-    }
-    #[test]
-    fn arbitrary_and_forgotten_paths_cannot_reopen_but_live_editors_stay_bound() {
-        let f = fixture();
-        assert!(f.reopen(&f.elsewhere).is_err());
-        f.request(&f.elsewhere);
-        f.accept(&f.elsewhere).unwrap();
-        let label = f.reopen(&f.elsewhere).unwrap();
-        bookmarks::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
-        assert!(f.listed().folders.is_empty());
-        assert!(f.reopen(&f.elsewhere).is_err());
-        assert_eq!(f.root(&label), f.elsewhere);
-    }
-    #[test]
-    fn a_failed_bookmark_write_keeps_the_editor_and_this_run_shortcut() {
-        let f = fixture();
-        let list = bookmarks::file(&f.paths.data_dir);
-        fs::write(&list, "{\"not\":\"a list\"}").unwrap();
-        f.request(&f.elsewhere);
-        let accepted = f.accept(&f.elsewhere).unwrap();
-        assert!(accepted.remember_problem.is_some());
-        assert_eq!(fs::read_to_string(&list).unwrap(), "{\"not\":\"a list\"}");
-        assert!(f.reopen(&f.elsewhere).is_ok());
-        let listed = f.listed();
-        assert!(!listed.problems.is_empty());
-        assert!(listed.folders[0].bookmarks.is_empty());
-        assert_eq!(listed.folders[0].problem, None);
-    }
-    #[test]
-    fn unusable_app_data_is_reported_after_the_editor_opens() {
-        let f = fixture();
-        fs::remove_dir_all(&f.paths.data_dir).unwrap();
-        fs::write(&f.paths.data_dir, "").unwrap();
-        f.request(&f.elsewhere);
-        assert!(f.accept(&f.elsewhere).unwrap().remember_problem.is_some());
-        assert_eq!(f.app.webview_windows().len(), 1);
-        assert!(f.reopen(&f.elsewhere).is_ok());
-    }
-    #[test]
-    fn hand_edited_bookmarks_are_checked_before_opening() {
-        let f = fixture();
-        let own = f.paths.folder_dir.join(library::RECORDS.id);
-        fs::write(
-            bookmarks::file(&f.paths.data_dir),
-            serde_json::to_string(&[
-                "relative/notes",
-                own.to_str().unwrap(),
-                f.elsewhere.to_str().unwrap(),
-            ])
-            .unwrap(),
-        )
-        .unwrap();
-        let listed = f.listed();
-        assert!(listed
-            .folders
-            .iter()
-            .find(|entry| entry.bookmarks.iter().any(|path| path == "relative/notes"))
-            .unwrap()
-            .problem
-            .is_some());
-        assert!(listed
-            .folders
-            .iter()
-            .find(|entry| entry.protected)
-            .unwrap()
-            .problem
-            .is_none());
-        assert!(f.app.webview_windows().is_empty());
-        assert!(
-            f.reopen(&own).is_ok(),
-            "the unified list permits the records folder in its generic editor"
+        let alpha = f.paths.folder_dir.parent().unwrap().join("Alpha");
+        let zulu = f.paths.folder_dir.parent().unwrap().join("Zulu");
+        fs::create_dir(&alpha).unwrap();
+        fs::create_dir(&zulu).unwrap();
+        fs::write(navigation::file(&f.paths.data_dir), "broken database").unwrap();
+        for path in [&alpha, &zulu] {
+            f.request(path);
+            assert!(f.accept(path).unwrap().remember_problem.is_some());
+        }
+        assert_eq!(
+            f.listed()
+                .folders
+                .iter()
+                .map(|row| row.path.as_str())
+                .collect::<Vec<_>>(),
+            [zulu.to_str().unwrap(), alpha.to_str().unwrap()]
         );
+        f.request(&alpha);
+        f.accept(&alpha).unwrap();
+        assert_eq!(
+            f.listed()
+                .folders
+                .iter()
+                .map(|row| row.path.as_str())
+                .collect::<Vec<_>>(),
+            [alpha.to_str().unwrap(), zulu.to_str().unwrap()]
+        );
+        assert_eq!(f.app.webview_windows().len(), 2);
+    }
+
+    #[test]
+    fn a_failed_navigation_write_keeps_the_editor_and_a_temporary_recent_row() {
+        let f = fixture();
+        let file = navigation::file(&f.paths.data_dir);
+        fs::write(&file, "{\"not\":\"navigation\"}").unwrap();
+        f.request(&f.elsewhere);
+        let opened = f.accept(&f.elsewhere).unwrap();
+        assert!(opened.remember_problem.is_some());
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "{\"not\":\"navigation\"}"
+        );
+        assert_eq!(f.app.webview_windows().len(), 1);
+        assert!(f.listed().folders[0].temporary);
     }
 }

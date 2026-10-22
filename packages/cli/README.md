@@ -27,9 +27,10 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 
 | Command | Status | Wraps |
 | --- | --- | --- |
-| `epicenter folders add <directory>` | built | Machine-local `bookmarks.json` under the shared save lock |
-| `epicenter folders list` | built | Bookmarked paths and their availability |
-| `epicenter folders forget <directory>` | built | Remove only the matching bookmark |
+| `epicenter folders pin <directory>` | built | Pin an existing directory in machine-local navigation |
+| `epicenter folders unpin <directory>` | built | Remove a pin without changing files |
+| `epicenter folders list` | built | Pinned and recent paths and their availability |
+| `epicenter folders remove-recent <directory>` | built | Remove a recent entry without changing files |
 | `epicenter schema export <dir>` | built | Export the declared `tables` as JSON |
 | `epicenter schema import <dir> <file\|-> [--replace]` | built | Import all tables from the source, preserving unrelated sections |
 | `epicenter documents-query <dir>` | built, hidden | Desktop saved-document SQL; statement on stdin |
@@ -92,30 +93,33 @@ may not be or sit inside a save staging directory, overlap application data,
 or be a file or a link. The CLI and native admissions run the same cases
 from `records-default.json` in the folder plugin's fixtures.
 
-The desktop and CLI share bookmarks in `<AppData>/bookmarks.json`, one JSON
-array of path strings. `EPICENTER_DATA_DIR` selects the same AppData
-directory for both; a terminal uses release storage by default, so set that
-override when working with development storage.
+The desktop and CLI share machine-local navigation in `<AppData>/navigation.sqlite`.
+`EPICENTER_DATA_DIR` selects the same AppData directory for both; a terminal
+uses release storage by default, so set that override for development storage.
 
-```json
-["/Users/braden/Code/vault"]
-```
+The database has independently keyed `pins(path)` and `recent(path, sequence)`
+tables. It uses SQLite's DELETE rollback journal, a 10-second busy timeout,
+and immediate write transactions.
 
-`folders add` checks an existing directory and remembers its absolute path
+`folders pin` admits an existing directory, resolves its path, and records it
 once. Relative arguments resolve against the current working directory.
-`folders list --json` returns `{"folders": [{"path", "problem"}]}`;
-unavailable entries stay listed. `folders forget` removes a bookmark even
-when its target is gone. It deletes no files and changes no Git
-configuration. Folders under the scanned root remain discoverable without a
-bookmark, and an app's default never comes from this file.
+`folders list --json` returns `{"pins": [{"path", "problem"}], "recent":
+[{"path", "problem"}]}`; missing entries remain visible. `folders unpin`
+and `folders remove-recent` also remove aliases of the supplied path, including
+missing paths by their saved spelling. Neither action deletes authored files,
+changes an app's fixed default, or changes Git configuration. Successful
+native app and editor openings automatically update Recent, newest first, up
+to 20 entries.
 
-Listing creates nothing. Mutations read/change/replace under the SQLite lock
-`.bookmarks.json.epicenter-save-lock`, shared with the native writer,
-preserving concurrent updates. Contents in any other shape remain untouched
-and are reported. The launcher observes writes made by the CLI. An earlier
-build's `folders.json` is never read; its saved homes and shortcuts are not
-carried over. This file is machine-local; the records directory can sync
-through its own Git remote.
+An absent database means empty lists and a read creates nothing. Native and
+CLI writes serialize through SQLite transactions; a read sees one consistent
+snapshot. Foreign, future, corrupt, or non-DELETE-journal databases are
+refused without replacement. The launcher observes committed CLI writes. Each
+folders command discards obsolete `bookmarks.json` metadata under its old save
+lock without parsing it, following a symlink, or touching a folder it named.
+A directory at that name is reported and left alone. The earlier `folders.json`
+and app-scoped device storage are separate and untouched. Stray
+`navigation.json` files are ignored. Navigation stays local to this machine.
 
 ## Hosted repositories
 
@@ -249,9 +253,8 @@ is `openai-compatible`. It patches the current row without a source precondition
 and answers the row as sent. The last publication wins. Anything else
 on stdin is refused. A refusal is `{"error", "name"}` and exit 2, and the file
 is as it was. Reading a missing `so.epicenter` answers no row and creates
-nothing; a save creates it inside an Epicenter folder that is there, and
-never the Epicenter folder itself. A link or a file at `so.epicenter` is
-refused.
+nothing; a save creates the Epicenter root and its `so.epicenter` child when
+missing. A link or a file at `so.epicenter` is refused.
 
 `install-command` is ADR-0558's hidden command. It keeps one link
 (ADR-0566, ADR-0567), and never needs `sudo`:

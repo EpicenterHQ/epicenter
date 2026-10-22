@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "folders",
-	"description": "Epicenter’s Folders launcher lists root children, bookmarks, and accepted temporary paths as one derived directory list. Existing fixed app defaults are labelled by their app titles. It opens editors or bundled apps through current native row IDs, or uses the Rust-owned picker for a one-time folder choice. Forget bookmark removes shortcuts without changing defaults or open windows. Incoming handoffs still require acceptance. The launcher is bound to no folder, holds no folder-storage command, and is served on the local epicenter-app scheme.",
+	"description": "Epicenter’s Folders launcher groups pinned, library, and recent directories. Existing fixed app defaults are labelled by their app titles. It opens editors or bundled apps through current native row IDs, or uses the Rust-owned picker. Pins and recent history change navigation only. Incoming handoffs still require acceptance. The launcher is bound to no folder and is served on the local epicenter-app scheme.",
 	"local": true,
 	"windows": ["folders"],
 	"permissions": [
@@ -15,6 +15,8 @@
 		"allow-pending-folder-openings",
 		"allow-accept-folder-opening",
 		"allow-dismiss-folder-opening",
-		"allow-forget-folder-bookmarks"
+		"allow-pin-folder",
+		"allow-unpin-folder",
+		"allow-remove-recent-folder"
 	]
 }

@@ -143,7 +143,9 @@ macro_rules! shell_commands {
             folder_opening::pending_folder_openings,
             folder_opening::accept_folder_opening,
             folder_opening::dismiss_folder_opening,
-            folder_listing::forget_folder_bookmarks,
+            folder_listing::pin_folder,
+            folder_listing::unpin_folder,
+            folder_listing::remove_recent_folder,
             folder_listing::open_folder_editor,
             folder_query::folder_query,
             cli::ai_send,
@@ -384,6 +386,14 @@ pub fn run() {
             macos_tabs::install(app.handle()).context("install native window menu")?;
 
             let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
+            let old_data_dir = desktop_paths.data_dir.clone();
+            std::thread::spawn(move || {
+                if let Err(problem) =
+                    epicenter_folder_core::navigation::discard_bookmarks(&old_data_dir)
+                {
+                    log::warn!("obsolete folder bookmarks could not be discarded: {problem}");
+                }
+            });
             match data_folders::watch_data_folders(
                 app.handle(),
                 &desktop_paths.folder_dir,
@@ -1299,11 +1309,13 @@ mod tests {
     /// folder command, and administers no model or connection.
     #[test]
     fn the_folders_window_is_a_launcher_without_folder_commands() {
-        const OPENING: [&str; 4] = [
+        const OPENING: [&str; 6] = [
             "allow-pending-folder-openings",
             "allow-accept-folder-opening",
             "allow-dismiss-folder-opening",
-            "allow-forget-folder-bookmarks",
+            "allow-pin-folder",
+            "allow-unpin-folder",
+            "allow-remove-recent-folder",
         ];
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
         assert_eq!(capability["windows"], serde_json::json!(["folders"]));
@@ -1320,7 +1332,9 @@ mod tests {
                 OPENING[0],
                 OPENING[1],
                 OPENING[2],
-                OPENING[3]
+                OPENING[3],
+                OPENING[4],
+                OPENING[5]
             ]),
             "folders"
         );

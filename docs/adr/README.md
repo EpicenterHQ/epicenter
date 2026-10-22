@@ -882,4 +882,5 @@ When you add an ADR, add its row here.
 | [0676](0676-structured-edits-share-the-acquired-working-document.md) | Structured edits share the acquired working document | Accepted (amends 0668) |
 | [0677](0677-one-source-repository-can-provide-many-desktop-apps.md) | One source repository can provide many desktop apps | Proposed (source installation and host builds unbuilt) |
 | [0678](0678-app-storage-openers-use-runtime-bound-scopes.md) | App storage openers use runtime-bound scopes | Proposed (device storage and shared file/SQLite paths unbuilt; browser OPFS prototype only; SQLite handles in 0673) |
+| [0679](0679-the-launcher-groups-folders-by-pin-library-membership-then-recency.md) | The launcher groups folders by pin, library membership, then recency | Proposed (implemented; amends 0641 and 0671) |
 | [0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md) | Rust serves each installed app from a pinned build on its own origin | Proposed (installed-page runtime and platform probes unbuilt) |
