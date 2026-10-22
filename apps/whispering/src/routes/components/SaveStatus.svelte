@@ -11,7 +11,7 @@
 	const failure = $derived(status.failures.find((failure) => failure.path === path));
 
 	function discard() {
-		const typing = folder.files.edit(path).discard();
+		const typing = folder.files.document(path).discard();
 		if (typing === undefined) return;
 		toast.info('Your unsaved typing was let go', {
 			action: { label: 'Copy it', onClick: () => void copyText(typing, 'your typing') },
@@ -23,7 +23,7 @@
 	<p>
 		{status.savingPaths.includes(path) ? 'Saving…' : status.unsaved.includes(path) ? 'Not saved' : 'No unsaved changes'}
 		{#if status.unsaved.includes(path) || failure}
-			<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void folder.files.edit(path).save()}>Try again</Button>
+			<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void folder.files.document(path).save()}>Try again</Button>
 			<Button variant="link" size="xs" class="h-auto p-0" onclick={discard}>Discard</Button>
 		{/if}
 	</p>

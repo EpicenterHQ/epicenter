@@ -44,9 +44,9 @@ shell and its compiled CLI must also be rebuilt for the new command.
 | Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
 | Source code and fictional fixtures | This source repository |
 
-Folder's edit owner handles draft autosave and failures; `FolderApp` owns
+Folder's document owner handles draft autosave and failures; `FolderApp` owns
 storage closure. Selecting a conversation creates no file; first input creates its draft.
-Text typed into it uses Folder's file edit handle, so leaving the view retains
+Text typed into it uses Folder's shared document handle, so leaving the view retains
 input. The conversation list shows **Draft** and a one-line preview from that
 same input, including before autosave and after a failed save. Empty replies
 show the latest message instead. An unresolved attempt says **Check send**, retaining its submitted text separately
@@ -55,16 +55,23 @@ the current demo/live mode and connection profile are shown.
 
 The composer subscription acquires text; listing drafts does not populate the
 working documents. Typing, programmatic clearing, and checked recovery edit
-that same accepted document. A save publishes a captured snapshot and returns
+that same accepted document. Typing calls `document.patch({ body })`, or
+`document.replace(text)` when composing a new draft before acquisition. Checked
+recovery uses `document.save(text)` to accept and publish its exact source.
+A save publishes a captured snapshot and returns
 success or failure; failure keeps the accepted change pending. If clearing
 fails during send preparation, the empty composer remains pending, nothing is
 sent, and the durable attempt retains the submitted body for checked recovery.
-Those attempt files are one-shot writes outside composer autosave.
+Those attempt files are one-shot writes outside composer autosave. Send and
+recovery checks use `folder.tables.drafts.get(id)` and
+`folder.tables.attempts.get(id)` for persisted state; a
+working snapshot cannot prove what was saved. These stored reads do not acquire
+or update the composer document.
 
 `createQuery(() => context.queries.rows('drafts'))` discovers the saved Markdown
-files. Tracked `createFileEdit` adapters supply their current frontmatter and
-body, and a derived map joins previews to conversations by `chatId`. The query
-cache owns listing and refresh, and FileEdit owns accepted input and saving;
+files. Tracked `reactiveDocument` adapters from `@epicenter/svelte/document` supply
+their current frontmatter and body, and a derived map joins previews to conversations by `chatId`. The query
+cache owns listing and refresh, and Folder owns accepted input and saving;
 there is no second draft store or SQL cache.
 
 Pending or failed saves prompt before the window closes. Cancel keeps the edit available; confirming

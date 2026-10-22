@@ -36,15 +36,14 @@ mock.module(${JSON.stringify(folderModule)}, () => ({
 		const opened = await original.openFolder(options);
 		if (opened.error !== null) return opened;
 		const folder = opened.data;
-		const table = folder.tables.connections;
 		return { error: null, data: {
 			...folder,
 			tables: { ...folder.tables, connections: {
-				...table,
+				...folder.tables.connections,
 				async write(...args) {
 					process.stderr.write('SAVE_READY\\n');
 					while (!existsSync(${JSON.stringify(gate)})) await Bun.sleep(1);
-					return table.write(...args);
+					return folder.tables.connections.write(...args);
 				},
 			} },
 		} };

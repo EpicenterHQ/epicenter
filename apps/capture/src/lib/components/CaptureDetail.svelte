@@ -22,7 +22,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { tick, untrack } from 'svelte';
 	import { createCaptureActions } from '$lib/capture-actions.svelte.js';
 	import { type Captures, capturePath, describeFailure, instantOf, readCaptureBody } from '$lib/captures.svelte.js';
@@ -41,7 +41,7 @@
 	// The view is keyed by the capture, so neither changes for this view.
 	const path = untrack(() => capturePath(stem));
 	/** The capture's commands, typing into the folder's edit of it, which every view shows. */
-	const fileEdit = untrack(() => createFileEdit(captures.folder.tables.captures.edit(stem)));
+	const fileEdit = untrack(() => reactiveDocument(captures.folder.tables.captures.document(stem)));
 	const actions = untrack(() => createCaptureActions(fileEdit));
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');

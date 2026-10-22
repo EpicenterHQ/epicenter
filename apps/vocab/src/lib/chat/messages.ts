@@ -129,7 +129,7 @@ export type MessageWrite = (
  * name is refused.
  */
 export function createChatMessageStore(
-	{ tables, files }: Pick<VocabFolder, 'tables' | 'files'>,
+	folder: Pick<VocabFolder, 'tables' | 'files'>,
 	chatId: string,
 	/** Runs each message's save; the app runs it in the chat's turn. */
 	write: MessageWrite = (_message, save) => save(),
@@ -143,7 +143,6 @@ export function createChatMessageStore(
 	 */
 	load(): Promise<Result<void, ChatHistoryError>>;
 } {
-	const table = tables.messages;
 	let listed = new Map<string, AgentMessage>();
 	/** Messages this store saved, kept over any read. */
 	const created = new Map<string, AgentMessage>();
@@ -161,7 +160,8 @@ export function createChatMessageStore(
 		const id = messageId(chatId, key);
 		// A file keeps JSON: a key whose value is `undefined` is not written.
 		const message = JSON.parse(JSON.stringify(value)) as AgentMessage;
-		const { data: current, error: readError } = await tables.messages.get(id);
+		const { data: current, error: readError } =
+			await folder.tables.messages.get(id);
 		if (readError !== null)
 			return AgentMessageStoreError.WriteFailed({ cause: readError });
 		if (current !== undefined) {
@@ -178,7 +178,7 @@ export function createChatMessageStore(
 				return AgentMessageStoreError.WriteFailed({ cause: taken });
 			}
 		} else {
-			const { error } = await tables.messages.write(id, {
+			const { error } = await folder.tables.messages.write(id, {
 				fields: { chat: chatId, message },
 				body: '',
 			});
@@ -191,9 +191,9 @@ export function createChatMessageStore(
 	}
 
 	async function read() {
-		const { data: ids, error } = await listMessageIds(files, chatId);
+		const { data: ids, error } = await listMessageIds(folder.files, chatId);
 		if (error !== null) return Err(error);
-		return readMessages(table, ids);
+		return readMessages(folder.tables.messages, ids);
 	}
 
 	return {

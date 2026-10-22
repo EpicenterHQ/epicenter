@@ -44,7 +44,7 @@ import { isMissing } from '../local-folder.test-support.js';
 const { flushSync, mount, unmount } = await import('svelte');
 const { openCaptures, until } = await import('../local-folder.test-support.js');
 const { createCaptureActions } = await import('../capture-actions.svelte.ts');
-const { createFileEdit } = await import('@epicenter/svelte/edits');
+const { reactiveDocument } = await import('@epicenter/svelte/document');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 
 // A desktop-width window: `min-width` queries match, so the UI kit's modal
@@ -98,7 +98,9 @@ async function setup(
 	// Initial acquisition belongs to the editor subscription, not TanStack.
 	await until(() => {
 		flushSync();
-		const snapshot = harness.folder.tables.captures.edit('one').getSnapshot();
+		const snapshot = harness.folder.tables.captures
+			.document('one')
+			.getSnapshot();
 		return snapshot.content !== undefined || snapshot.loadError !== undefined;
 	}, 'the initial editor acquisition');
 	await settle(harness);
@@ -149,7 +151,7 @@ test('two mounted capture views update each other and an intentional revert is s
 		type(a, 'one\nTWO');
 		flushSync();
 		expect(b.value).toBe('one\nTWO');
-		await harness.folder.files.edit(PATH).save();
+		await harness.folder.files.document(PATH).save();
 		await settle(harness);
 		expect(await harness.text(PATH)).toBe(saved('one\nTWO'));
 	} finally {
@@ -174,11 +176,11 @@ test("another tab's change preserves typing until the next whole-file publicatio
 	expect(field('capture-text')?.value).toBe('Mine');
 	expect(harness.target.textContent).not.toContain('theirs');
 
-	const edit = harness.folder.files.edit(PATH);
+	const edit = harness.folder.files.document(PATH);
 	await edit.save();
 	expect(edit.getSnapshot().saveError).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(saved('Mine'));
-	expectOk(edit.replaceText(saved('Mine', '- first\n- theirs\n')));
+	expectOk(edit.replace(saved('Mine', '- first\n- theirs\n')));
 	await edit.save();
 	await settle(harness);
 	expect(field('capture-text')?.value).toBe('Mine');
@@ -214,12 +216,17 @@ test('failed row input stays copyable in the text view after switching and forei
 	const restore = harness.failSaves();
 	type(field('capture-text'), 'Kept row input');
 	blur(field('capture-text'));
-	expect(harness.folder.files.edit(PATH).getSnapshot().isSaving).toBe(false);
+	expect(harness.folder.files.document(PATH).getSnapshot().isSaving).toBe(
+		false,
+	);
 	await harness.captures.open('one', 'text');
 	flushSync();
-	expect(harness.folder.files.edit(PATH).getSnapshot().isSaving).toBe(false);
+	expect(harness.folder.files.document(PATH).getSnapshot().isSaving).toBe(
+		false,
+	);
 	await until(
-		() => harness.folder.files.edit(PATH).getSnapshot().saveError !== undefined,
+		() =>
+			harness.folder.files.document(PATH).getSnapshot().saveError !== undefined,
 		'the failed autosave after leaving the row view',
 	);
 	restore();
@@ -239,7 +246,7 @@ test('failed row input stays copyable in the text view after switching and forei
 		expect(copied ?? '').toContain('Kept row input');
 		await harness.deleteElsewhere('one');
 		await until(
-			() => isMissing(harness.folder.files.edit(PATH)),
+			() => isMissing(harness.folder.files.document(PATH)),
 			'the foreign deletion',
 		);
 		flushSync();
@@ -292,7 +299,7 @@ test("a thought's Edit as text opens the file with that thought's lines selected
 	const harness = await setup({ [PATH]: crlf }, 'capture');
 	// What the menu item does, over the list the view shows.
 	const actions = createCaptureActions(
-		createFileEdit(harness.folder.tables.captures.edit('one')),
+		reactiveDocument(harness.folder.tables.captures.document('one')),
 	);
 	const range = actions.locateThought(1, ['first', 'second\nmore']);
 	if (range === undefined) throw new Error('The thought was not found');
@@ -400,8 +407,8 @@ test('while the folder closes, the text boxes take nothing', async () => {
 	type(field('new-thought'), 'Too late');
 	submit(field('new-thought')?.form);
 	flushSync();
-	expect(harness.folder.tables.captures.edit('one').getSnapshot().isDirty).toBe(
-		false,
-	);
+	expect(
+		harness.folder.tables.captures.document('one').getSnapshot().isDirty,
+	).toBe(false);
 	expect(await harness.text(PATH)).toBe(FILE);
 });

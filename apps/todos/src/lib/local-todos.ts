@@ -9,7 +9,7 @@ import type {
 	Row,
 	SaveError,
 } from '@epicenter/folder';
-import type { ActionError } from '@epicenter/folder/edits';
+import type { ActionError } from '@epicenter/folder/document';
 import type { StatusLine } from '@epicenter/svelte/status-line';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { todosTables } from './definition.js';

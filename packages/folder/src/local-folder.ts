@@ -13,7 +13,7 @@
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import { isTableName, openRepository } from './browser/repository.js';
-import { saveDelay } from './edit-owner.js';
+import { saveDelay } from './document-owner.js';
 import { OpenFolderError } from './errors.js';
 import type { DefaultFolderOptions, Folder } from './folder.js';
 import { type EngineTable, folderHandle } from './handle.js';

@@ -6,18 +6,19 @@
  * (`native/`).
  *
  * The handle exposes rooted `files`, table views that interpret Markdown rows
- * through the caller's schemas, one editor source per path (`edit`, owned by
- * the folder for its whole life, `edit-owner.ts`), change notification,
+ * through the caller's schemas, one working source per path (`document`, owned by
+ * the folder for its whole life, `document-owner.ts`), change notification,
  * local-save status with held input, `flush`, and `close`. A schema only
  * interprets (ADR-0632). A row that does not fit still comes back with its
  * exact source, its raw fields, and the issues, and a save never validates
  * against the schema, so unknown fields and repairable content survive.
  *
  * Writes are unconditional: a file write replaces whatever is there, a
- * delete removes it, and the last to land wins. A row set changes acquired
- * working text and publishes its captured snapshot. A row write publishes
- * a complete new document without retaining failed publication as input. Every write and delete of a path, an editor's included, runs in
- * one lane in call order, and each reports its own outcome.
+ * delete removes it, and the last to land wins. A document save can accept
+ * input and publish its captured content atomically. A row write publishes
+ * a complete document without retaining failed publication as input. Every
+ * write and delete of a path runs in one lane in call order and reports its
+ * own outcome.
  *
  * Opening authenticates nothing, selects no remote, creates no Git history,
  * and writes no schema file (ADR-0633).
@@ -30,7 +31,7 @@
  */
 import type { TSchema as Schema, TRecord, TUnknown } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { ChangeError, FileEdit, SaveFailure } from './edit-owner.js';
+import type { FileDocument, SaveFailure } from './document-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
@@ -84,34 +85,23 @@ export type FolderFileOperations = {
 
 export type FolderFiles = FolderFileOperations & {
 	/**
-	 * The editor of `path`, viewed through `schema`. The same path and schema
-	 * answer the same editor, over the path's one source. Acquiring it reads
-	 * and holds nothing.
+	 * The shared working document of `path`, viewed through `schema`. The same
+	 * path and schema answer the same handle. Acquisition reads nothing and
+	 * subscribes to nothing; input lives with the folder, not a component.
+	 * Throws RangeError for a structurally invalid path, before acquiring state.
 	 */
-	edit<TSchema extends Schema = TRecord<string, TUnknown>>(
+	document<TSchema extends Schema = TRecord<string, TUnknown>>(
 		path: string,
 		schema?: TSchema,
-	): FileEdit<TSchema>;
+	): FileDocument<TSchema>;
 };
 
 /** What every engine stores a table's rows through; `FolderTable` adds editors over them. */
 export type FolderTableOperations<TSchema extends Schema = Schema> = {
-	/** Every row of the table, with its source, fields, and issues. */
+	/** Stored rows with source, fields and issues; acquires no working documents. */
 	list(): Promise<Result<Row<TSchema>[], ReadError>>;
+	/** Read storage directly, independently of unsaved or retained working content. */
 	get(id: string): Promise<Result<Row<TSchema> | undefined, ReadError>>;
-	/**
-	 * Patch the row's acquired working document and publish that captured text.
-	 * Refuses NoContent until its editor acquires text. A successful own write
-	 * also updates an editor already held when that write completes.
-	 * Refresh an inactive clean editor before a one-off edit: retained text may
-	 * be stale, and list/get never update it. Refresh preserves dirty input.
-	 * Accepted edits are visible immediately and remain pending after failure.
-	 * Newer input stays pending; success answers the exact row published.
-	 */
-	set(
-		id: string,
-		change: RowChange,
-	): Promise<Result<Row<TSchema>, ChangeError | SaveError>>;
 	/**
 	 * Publish a complete row from fields and body, making or replacing its file.
 	 * Omitted fields and body are empty; id must be nonempty. No create-only or conflict guard.
@@ -131,8 +121,12 @@ export type FolderTableOperations<TSchema extends Schema = Schema> = {
 
 export type FolderTable<TSchema extends Schema = Schema> =
 	FolderTableOperations<TSchema> & {
-		/** The editor of row `id`, the same one `files.edit` gives with this schema. */
-		edit(id: string): FileEdit<TSchema>;
+		/**
+		 * The shared document of row `id`, as `files.document` gives with this
+		 * schema. Throws RangeError for an ID containing path separators or
+		 * otherwise structurally invalid; existing nonportable stems remain readable.
+		 */
+		document(id: string): FileDocument<TSchema>;
 	};
 
 /**
@@ -187,10 +181,10 @@ export type FolderTables = Record<string, Schema>;
 export type DefaultFolderOptions<TTables extends FolderTables> = {
 	readonly tables: TTables;
 	readonly directory?: never;
-} & EditOptions;
+} & DocumentOptions;
 
 /** How the folder's editors save accepted input. */
-export type EditOptions = {
+export type DocumentOptions = {
 	/** How long after its last change input saves; `SAVE_AFTER_MS` by default. */
 	readonly saveAfterMs?: number;
 };
@@ -202,7 +196,7 @@ export type EditOptions = {
 export type DirectoryFolderOptions<TTables extends FolderTables> = {
 	readonly directory: string;
 	readonly tables: TTables;
-} & EditOptions;
+} & DocumentOptions;
 
 /**
  * The opener of the browser, desktop, and automatic entries: each opens the

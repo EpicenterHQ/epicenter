@@ -19,7 +19,7 @@
  * checked is left absent; admitted publications finish in call order.
  */
 import type { Row } from '@epicenter/folder';
-import type { FileEdit } from '@epicenter/folder/edits';
+import type { FileDocument } from '@epicenter/folder/document';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -237,7 +237,7 @@ export function createRuns({
 
 	/** Capture pending input, or refresh clean source before preparing a request. */
 	async function currentContent<Schema extends TSchema>(
-		edit: FileEdit<Schema>,
+		edit: FileDocument<Schema>,
 	) {
 		const snapshot = edit.getSnapshot();
 		if (snapshot.isDirty && snapshot.content !== undefined)
@@ -256,7 +256,7 @@ export function createRuns({
 	/** Validate held recording facts and discover its current audio sibling. */
 	async function audioAt(recording: string): Promise<Result<string, string>> {
 		const { data: entry, error } = await currentContent(
-			folder.tables.recordings.edit(recording),
+			folder.tables.recordings.document(recording),
 		);
 		if (error !== null) return Err(error);
 		if (entry.issues !== null)
@@ -286,18 +286,14 @@ export function createRuns({
 	 */
 	async function fill(target: Target, body: string) {
 		try {
-			const loaded = await folder.tables[target.table]
-				.edit(target.stem)
-				.refresh();
+			const document = folder.tables[target.table].document(target.stem);
+			const loaded = await document.refresh();
 			if (loaded.error?.name === 'Missing' || refused() !== undefined)
 				return undefined;
 			if (loaded.error !== null) return describeError(loaded.error);
-			const { error: writeError } = await folder.tables[target.table].set(
-				target.stem,
-				{
-					body,
-				},
-			);
+			const { error: writeError } = await document.save({
+				body,
+			});
 			return writeError === null ? undefined : describeError(writeError);
 		} catch (cause) {
 			return describe(cause);
@@ -370,7 +366,7 @@ export function createRuns({
 		const stem = rowIdOf(TRANSFORMATIONS, path);
 		if (stem === undefined) return Err(`${path} is not a transformation.`);
 		const { data: stored, error } = await currentContent(
-			folder.tables.transformations.edit(stem),
+			folder.tables.transformations.document(stem),
 		);
 		if (error !== null) return Err(error);
 		return Ok({
@@ -395,7 +391,7 @@ export function createRuns({
 		if (transcriptionId === undefined)
 			return Err(`${path} is not a transcript.`);
 		const { data: stored, error } = await currentContent(
-			folder.tables.transcriptions.edit(transcriptionId),
+			folder.tables.transcriptions.document(transcriptionId),
 		);
 		if (error !== null) return Err(error);
 		if (stored.issues !== null)
@@ -487,7 +483,7 @@ export function createRuns({
 		if (table === undefined) return Err(`${path} is not a result.`);
 		const stem = rowIdOf(table, path) as string;
 		// A retry requires a durable record, even when its editor retains text.
-		const edit = folder.tables[table].edit(stem);
+		const edit = folder.tables[table].document(stem);
 		const loaded = await edit.refresh();
 		if (loaded.error?.name === 'Missing')
 			return Err(`${path} is no longer in the folder.`);

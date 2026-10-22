@@ -21,7 +21,7 @@ export async function seedDraft(
 			body: '',
 		}),
 	);
-	expectOk(await folder.tables.drafts.edit(id).refresh());
-	await folder.tables.attempts.edit(id).refresh();
+	expectOk(await folder.tables.drafts.document(id).refresh());
+	await folder.tables.attempts.document(id).refresh();
 	return { id };
 }

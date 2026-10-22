@@ -21,7 +21,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { createMutation } from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
 	import { resultMutationOptions } from 'wellcrafted/query';
@@ -41,7 +41,7 @@
 	// The view is keyed by the capture, so its path never changes for this view.
 	const path = untrack(() => capturePath(stem));
 	/** The folder's edit of the file: its exact text as stored, and what is typed over it. */
-	const fileEdit = untrack(() => createFileEdit(captures.folder.tables.captures.edit(stem)));
+	const fileEdit = untrack(() => reactiveDocument(captures.folder.tables.captures.document(stem)));
 	const unreadable = $derived(fileEdit.loadError?.name === 'NotText');
 	const text = $derived(fileEdit.content?.text);
 	const finishDraft = createMutation(() => resultMutationOptions({
@@ -178,7 +178,7 @@
 				(typing) => {
 					// The first change starts from the source shown; later ones keep theirs.
 					if (locked) return;
-					const { error } = fileEdit.replaceText(withFileNewlines(typing.toWellFormed(), shown));
+					const { error } = fileEdit.replace(withFileNewlines(typing.toWellFormed(), shown));
 					refusal = error?.message;
 					if (error === null) finishDraft.reset();
 				}

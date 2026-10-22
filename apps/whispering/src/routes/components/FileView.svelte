@@ -51,9 +51,9 @@
 	 * One file edit supplies the transcript body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = whispering.edit(own);
+	const fileEdit = whispering.document(own);
 	const { folder, queries } = getFolder();
-	const sourceEdit = folder.files.edit(own);
+	const sourceEdit = folder.files.document(own);
 	/** Classify unopened files before activating an editor; retained source takes precedence. */
 	const opened = createQuery(() => ({ ...queries.file(path, textRead), enabled: asText }));
 	/** A transcript that reads: its body is edited here, its fields kept. */
@@ -151,7 +151,7 @@
 				class="min-h-40 flex-1 resize-none font-sans"
 				bind:value={
 					() => row.body,
-					(value) => toastOnError(fileEdit.change({ body: value }), 'That change was not made')
+					(value) => toastOnError(fileEdit.patch({ body: value }), 'That change was not made')
 				}
 				aria-label="Contents of {name}"
 			/>
@@ -185,7 +185,7 @@
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replaceText(withFileNewlines(value, shown)), 'That change was not made')}
+					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replace(withFileNewlines(value, shown)), 'That change was not made')}
 				{@attach () => { whispering.editSource(path); }}
 				aria-label="Contents of {name}"
 				spellcheck={false}

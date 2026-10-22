@@ -77,7 +77,7 @@ async function noteOver(text: string) {
 	fixture.observe();
 	notes.open(PATH);
 	await quiet(notes);
-	const note = notes.folder.tables.notes.edit('a');
+	const note = notes.folder.tables.notes.document('a');
 	cleanup.push(note.subscribe(() => {}));
 	expectOk(await note.refresh());
 	const opened = fixture.saves(PATH);
@@ -177,7 +177,7 @@ async function open(
 	};
 	/** What the Source view, showing the note as it is now, does with typed text. */
 	const source = (text: string) =>
-		notes.folder.tables.notes.edit('a').change({ body: text });
+		notes.folder.tables.notes.document('a').patch({ body: text });
 	/** What is on screen and the note's body are the same content. */
 	const expectNoteHoldsScreen = () =>
 		expect(equivalentNoteDocs(parseNoteBody(body()), state.doc)).toBe(true);
@@ -576,9 +576,9 @@ describe('the editor follows the note', () => {
 	test('a change another tab saved replaces a clean editor', async () => {
 		const { fixture, follow, settled, body, ...view } = await open('one\n');
 		const tab = await fixture.otherTab();
-		expectOk(await tab.tables.notes.edit('a').refresh());
+		expectOk(await tab.tables.notes.document('a').refresh());
 
-		expectOk(await tab.tables.notes.set('a', { body: 'theirs\n' }));
+		expectOk(await tab.tables.notes.document('a').save({ body: 'theirs\n' }));
 		await until(() => body() === 'theirs\n', 'their save');
 		await settled();
 		follow();
@@ -605,10 +605,10 @@ describe('the editor follows the note', () => {
 		// Another tab adds a line. Its report arrives and the read lands while
 		// the typing is held.
 		const tab = await fixture.otherTab();
-		expectOk(await tab.tables.notes.edit('a').refresh());
+		expectOk(await tab.tables.notes.document('a').refresh());
 
 		expectOk(
-			await tab.tables.notes.set('a', {
+			await tab.tables.notes.document('a').save({
 				body: 'one\n\ntheirs\n',
 			}),
 		);
@@ -619,7 +619,7 @@ describe('the editor follows the note', () => {
 		follow();
 		expect(view.shown()).toBe(state);
 		expect(body()).toBe('one!\n');
-		const edit = fixture.folder.tables.notes.edit('a');
+		const edit = fixture.folder.tables.notes.document('a');
 		await edit.save();
 		expect(edit.getSnapshot().saveError).toBeUndefined();
 		expect(failures()).toEqual([]);
@@ -641,10 +641,10 @@ describe('the editor follows the note', () => {
 		end();
 		expect(type('!')).toBe(true);
 		const tab = await fixture.otherTab();
-		expectOk(await tab.tables.notes.edit('a').refresh());
+		expectOk(await tab.tables.notes.document('a').refresh());
 
-		expectOk(await tab.tables.notes.set('a', { body: 'theirs\n' }));
-		const edit = fixture.folder.tables.notes.edit('a');
+		expectOk(await tab.tables.notes.document('a').save({ body: 'theirs\n' }));
+		const edit = fixture.folder.tables.notes.document('a');
 		expect(body()).toBe('one!\n');
 		edit.discard();
 		await edit.refresh();

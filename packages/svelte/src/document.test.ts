@@ -1,12 +1,12 @@
 /**
- * Svelte Editor Adapter Tests
+ * Svelte Document Adapter Tests
  *
- * Drives `createFileEdit` over real folder editors on an in-memory
+ * Drives `reactiveDocument` over real folder documents on an in-memory
  * IndexedDB, reading its getters in effects as components do. The editor
  * handed to the adapter is wrapped to count its subscriptions and reads.
  *
  * Key behaviors:
- * - The adapter is memoized by editor handle and passive until tracked
+ * - Adapters are passive until tracked and share their Folder-owned document
  * - Tracking subscribes before the snapshot is read, and the subscription's
  *   synchronous first notification causes no extra run
  * - Every effect over one adapter shares one folder subscription, released
@@ -14,17 +14,17 @@
  * - Each accepted change re-runs readers once; commands go to the folder
  *
  * See also:
- * - `packages/folder/src/edits.test.ts` for the editor's own rules
+ * - `packages/folder/src/document.test.ts` for the document's own rules
  */
 import './svelte-modules.test-support.js';
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
-import type { FileEdit } from '@epicenter/folder/edits';
+import type { FileDocument } from '@epicenter/folder/document';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 
-const { createFileEdit } = await import('./edits.js');
+const { reactiveDocument } = await import('./document.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, tick } = await import('svelte');
 
@@ -56,9 +56,9 @@ async function setup() {
 			'---\ntitle: Milk\n---\nTwo litres\n',
 		),
 	);
-	const edit = folder.tables.notes.edit('milk');
+	const edit = folder.tables.notes.document('milk');
 	const calls: string[] = [];
-	const counted: FileEdit<typeof notes> = {
+	const counted: FileDocument<typeof notes> = {
 		...edit,
 		getSnapshot() {
 			calls.push('getSnapshot');
@@ -76,20 +76,22 @@ async function setup() {
 	return { folder, edit, counted, calls };
 }
 
-test('the adapter is memoized by editor and passive until a getter is tracked', async () => {
+test('constructing adapters and reading untracked getters subscribes to nothing', async () => {
 	const { counted, calls } = await setup();
-	const adapter = createFileEdit(counted);
-	expect(createFileEdit(counted)).toBe(adapter);
+	const adapter = reactiveDocument(counted);
+	const another = reactiveDocument(counted);
 	expect(calls).toEqual([]);
 	// A read outside any effect answers the current snapshot and subscribes to nothing.
 	expect(adapter.content).toBeUndefined();
 	expect(calls).toEqual(['getSnapshot']);
+	expect(another.content).toBeUndefined();
+	expect(calls).toEqual(['getSnapshot', 'getSnapshot']);
 	expect(adapter.path).toBe('notes/milk.md');
 });
 
 test('tracking subscribes before reading, starts the first read, and skips the startup notification', async () => {
 	const { counted, calls } = await setup();
-	const adapter = createFileEdit(counted);
+	const adapter = reactiveDocument(counted);
 	const titles = follow(() => adapter.content?.fields?.title);
 	cleanup.push(titles.stop);
 	flushSync();
@@ -100,16 +102,17 @@ test('tracking subscribes before reading, starts the first read, and skips the s
 	expect(calls.filter((call) => call === 'subscribe')).toHaveLength(1);
 });
 
-test('every effect shares one subscription, released once none reads it, and the folder keeps the text', async () => {
+test('effects share one subscription across repeated adaptation, released after the last reader leaves', async () => {
 	const { counted, calls, edit } = await setup();
-	const adapter = createFileEdit(counted);
+	const adapter = reactiveDocument(counted);
 	const content = follow(() => adapter.content?.text);
 	const dirty = follow(() => adapter.isDirty);
-	const again = follow(() => createFileEdit(counted).content?.body);
+	const another = reactiveDocument(counted);
+	const again = follow(() => another.content?.body);
 	flushSync();
 	await until(() => content.values.at(-1) !== undefined);
 	expect(calls.filter((call) => call === 'subscribe')).toHaveLength(1);
-	expectOk(adapter.change({ body: 'Three litres\n' }));
+	expectOk(adapter.patch({ body: 'Three litres\n' }));
 	flushSync();
 	expect(again.values.at(-1)).toBe('Three litres\n');
 	// One subscription serves every getter, so each reader re-runs per snapshot.
@@ -117,28 +120,36 @@ test('every effect shares one subscription, released once none reads it, and the
 	expect(dirty.values.slice(0, -1).every((value) => value === false)).toBe(
 		true,
 	);
-	for (const reader of [content, dirty, again]) reader.stop();
+	content.stop();
+	dirty.stop();
+	await tick();
+	expect(calls.filter((call) => call === 'unsubscribe')).toHaveLength(0);
+	// Releasing some readers leaves the shared document observed by the last one.
+	expectOk(edit.patch({ body: 'Four litres\n' }));
+	flushSync();
+	expect(again.values.at(-1)).toBe('Four litres\n');
+	again.stop();
 	await tick();
 	expect(calls.filter((call) => call === 'unsubscribe')).toHaveLength(1);
 	// Unmounted, the input stays with the folder.
 	expect(edit.getSnapshot()).toMatchObject({
 		isDirty: true,
-		content: { body: 'Three litres\n' },
+		content: { body: 'Four litres\n' },
 	});
 });
 
 test('each accepted change re-runs a reader once, and commands reach the folder', async () => {
 	const { counted, folder } = await setup();
-	const adapter = createFileEdit(counted);
+	const adapter = reactiveDocument(counted);
 	const bodies = follow(() => adapter.content?.body);
 	cleanup.push(bodies.stop);
 	flushSync();
 	await until(() => bodies.values.at(-1) === 'Two litres\n');
 	const runs = bodies.values.length;
-	expectOk(adapter.replaceText('---\ntitle: Milk\n---\nOne litre\n'));
+	expectOk(adapter.replace('---\ntitle: Milk\n---\nOne litre\n'));
 	flushSync();
 	expect(bodies.values.length).toBe(runs + 1);
-	expectOk(adapter.replaceText('---\ntitle: Milk\n---\nOne litre\n'));
+	expectOk(adapter.replace('---\ntitle: Milk\n---\nOne litre\n'));
 	flushSync();
 	expect(bodies.values.length).toBe(runs + 1);
 	const saving = follow(() => adapter.isSaving);
@@ -152,4 +163,22 @@ test('each accepted change re-runs a reader once, and commands reach the folder'
 		'One litre\n',
 	);
 	expect(adapter.discard()).toBeUndefined();
+});
+
+test('adapting a document inside a reactive read does not rebuild subscriptions on input', async () => {
+	const { counted, calls, edit } = await setup();
+	expectOk(await edit.refresh());
+	const bodies = follow(() => reactiveDocument(counted).content?.body);
+	flushSync();
+	for (const body of ['One\n', 'Two\n', 'Three\n', 'Four\n', 'Five\n']) {
+		expectOk(edit.patch({ body }));
+		flushSync();
+		await tick();
+		expect(bodies.values.at(-1)).toBe(body);
+	}
+	expect(calls.filter((call) => call === 'subscribe')).toHaveLength(1);
+	expect(calls.filter((call) => call === 'unsubscribe')).toHaveLength(0);
+	bodies.stop();
+	await tick();
+	expect(calls.filter((call) => call === 'unsubscribe')).toHaveLength(1);
 });

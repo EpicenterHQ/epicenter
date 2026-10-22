@@ -148,9 +148,9 @@ test('the pause a window folder is opened with saves its held input, through eit
 		await writeFile(join(root, 'notes/milk.md'), '---\ntitle: Milk\n---\n');
 		shell = createGrantedShell(root);
 		const folder = expectOk(await open({ tables: { notes }, saveAfterMs: 5 }));
-		const edit = folder.tables.notes.edit('milk');
+		const edit = folder.tables.notes.document('milk');
 		expectOk(await edit.refresh());
-		expectOk(edit.change({ fields: { title: 'Oat' } }));
+		expectOk(edit.patch({ fields: { title: 'Oat' } }));
 		expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
 		for (
 			let turn = 0;
@@ -187,14 +187,18 @@ test('an acquired row set publishes one unconditional put even over a racing out
 	const { folder } = await granted({
 		'notes/milk.md': '---\ntitle: Milk\n---\nBody\n',
 	});
-	expectOk(await folder.tables.notes.edit('milk').refresh());
+	expectOk(await folder.tables.notes.document('milk').refresh());
 	let overtaken = false;
 	shell.control.beforeChange = async (change) => {
 		if (overtaken || change.path !== 'notes/milk.md') return;
 		overtaken = true;
 		await shell.write('notes/milk.md', '---\ntitle: Oat\n---\nTheir body\n');
 	};
-	expectOk(await folder.tables.notes.set('milk', { fields: { title: 'Soy' } }));
+	expectOk(
+		await folder.tables.notes
+			.document('milk')
+			.save({ fields: { title: 'Soy' } }),
+	);
 	// Composed over what it read; a write landing after that read is replaced whole.
 	expect(await shell.text('notes/milk.md')).toBe(
 		'---\ntitle: Soy\n---\nBody\n',
@@ -204,7 +208,7 @@ test('an acquired row set publishes one unconditional put even over a racing out
 	// The editor of the row knows the composed text without reading again.
 	const reads = shell.calls.filter((call) => call.cmd === 'read_folder_file');
 	expect(
-		folder.tables.notes.edit('milk').getSnapshot().content?.fields,
+		folder.tables.notes.document('milk').getSnapshot().content?.fields,
 	).toEqual({ title: 'Soy' });
 	expect(
 		shell.calls.filter((call) => call.cmd === 'read_folder_file'),

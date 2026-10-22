@@ -88,7 +88,7 @@ test('text held by the Folder prompts; Cancel retains it', async () => {
 	const window = await openWindow();
 	const { path, text } = await recordAsText(window);
 	const typed = `${text.draft}Typed just before closing.\n`;
-	text.view.replaceText(typed);
+	text.view.replace(typed);
 
 	await requestClose();
 
@@ -96,7 +96,7 @@ test('text held by the Folder prompts; Cancel retains it', async () => {
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(text.view.content?.text).toBe(typed);
 	expect(text.view.isDirty).toBe(true);
-	await window.whispering.edit(path).save();
+	await window.whispering.document(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);
@@ -108,8 +108,8 @@ test('a failed save keeps the window until another save attempt saves the text',
 	const before = text.draft;
 	const typed = `${before}Typed but not saved.\n`;
 	window.control.refuse = true;
-	text.view.replaceText(typed);
-	await window.whispering.edit(path).save();
+	text.view.replace(typed);
+	await window.whispering.document(path).save();
 
 	await requestClose();
 
@@ -121,7 +121,7 @@ test('a failed save keeps the window until another save attempt saves the text',
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(before);
 
 	window.control.refuse = false;
-	await window.context.folder.files.edit(path).save();
+	await window.context.folder.files.document(path).save();
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
@@ -133,15 +133,15 @@ test('a thrown file write leaves a failed draft that can save again', async () =
 	const { path, text } = await recordAsText(window);
 	const typed = `${text.draft}Retained after throw.\n`;
 	window.control.throwWrite = true;
-	text.view.replaceText(typed);
-	await window.whispering.edit(path).save();
+	text.view.replace(typed);
+	await window.whispering.document(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(text.view.content?.text).toBe(typed);
 	expect(text.view.isDirty).toBe(true);
 	expect(window.whispering.unsaved).toBe(true);
 	window.control.throwWrite = false;
-	await window.context.folder.files.edit(path).save();
+	await window.context.folder.files.document(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);

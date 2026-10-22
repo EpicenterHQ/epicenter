@@ -55,7 +55,7 @@
 	 * One file edit supplies fields, body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = whispering.edit(RECORDINGS, own);
+	const fileEdit = whispering.document(RECORDINGS, own);
 	/** The recording as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
@@ -99,7 +99,7 @@
 			{@const shown = row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => shown.fields.title, (value) => toastOnError(fileEdit.change({ fields: { title: value } }), 'That change was not made')}
+				bind:value={() => shown.fields.title, (value) => toastOnError(fileEdit.patch({ fields: { title: value } }), 'That change was not made')}
 				placeholder="Title"
 				aria-label="Recording title"
 			/>
@@ -200,7 +200,7 @@
 						class="min-h-28 resize-y font-sans"
 						bind:value={
 							() => shown.body,
-						(value) => toastOnError(fileEdit.change({ body: value }), 'That change was not made')
+						(value) => toastOnError(fileEdit.patch({ body: value }), 'That change was not made')
 						}
 
 						placeholder="Notes in Markdown, saved in the recording’s file"
@@ -263,7 +263,7 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replaceText(withFileNewlines(value, shown)), 'That change was not made')}
+					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replace(withFileNewlines(value, shown)), 'That change was not made')}
 					{@attach () => { whispering.editSource(path); }}
 
 					aria-label="Markdown source"

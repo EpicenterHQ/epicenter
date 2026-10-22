@@ -50,7 +50,7 @@ export function observe(vocab: Vocab) {
 			if (index !== 0 || !Array.isArray(result.data)) return;
 			for (const row of result.data) {
 				if (edits.has(row.id)) continue;
-				const edit = vocab.folder.tables.entries.edit(row.id);
+				const edit = vocab.folder.tables.entries.document(row.id);
 				edits.set(
 					row.id,
 					edit.subscribe(() => {}),
@@ -74,7 +74,9 @@ export async function quiet(vocab: Vocab) {
 		!vocab.entries.repair.view()?.isSaving &&
 		vocab.queryClient.isFetching() === 0 &&
 		rows(vocab).every((row) => {
-			const snapshot = vocab.folder.tables.entries.edit(row.id).getSnapshot();
+			const snapshot = vocab.folder.tables.entries
+				.document(row.id)
+				.getSnapshot();
 			return snapshot.content !== undefined || snapshot.loadError !== undefined;
 		});
 	for (let tries = 0; tries < 400; tries++) {

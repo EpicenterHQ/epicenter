@@ -67,9 +67,11 @@ schema only interprets (ADR-0632): a row that does not fit comes back with its
 exact source and its issues, and a save never validates, so a field another
 program added survives every edit. A table owns exactly one Markdown file per
 row; any other file is an ordinary file reached through `folder.files`.
-`FileEdit` owns one cached snapshot per path. Its content supplies exact text,
-fields, body, and interpretation issues. `createFileEdit` exposes tracked getters
-for Svelte; input uses commands through function bindings. Views hold no copy
+Folder owns one working source per path; each schema-bound `FileDocument`
+provides a cached snapshot of its interpretation. Content supplies exact text,
+fields, body, and issues. `reactiveDocument(handle)` from
+`@epicenter/svelte/document` exposes tracked getters for Svelte; input uses
+commands through function bindings. Views hold no copy
 of the document. Acquired text survives unmount, deletion, binary replacement,
 and failed reads. Only accepted local input initiates autosave. All file and
 table publications share the folder's per-path lane and the last publication
@@ -503,11 +505,12 @@ recording, the time, the model, and the transcription connection's base URL.
 Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
 
 1. Its result row is saved with those fields and an empty body
-   (`table.set(id, …)`) before the request goes out. A row that cannot
+   (`folder.tables.recordings.write(id, document)`) before the request goes out. A row that cannot
    be saved refuses, and nothing is sent.
 2. The request goes out. While it is out the row shows as running.
-3. The answer is saved into the current row with `table.set(id, { body })`.
-   A row already absent when checked is left absent. The read and publication
+3. The answer is saved into the acquired current document with
+   `document.save({ body })`, after an explicit refresh that preserves local
+   input. A row already absent when checked is left absent. The read and publication
    are separate operations; a deletion racing a later admitted answer may be
    followed by that publication. A failed publication is retried after a wait
    that doubles from half a second to thirty seconds while the window is open.
@@ -564,22 +567,31 @@ Folder owns accepted file edits and their persistence ([ADR 0656](../../docs/adr
 and creates the UI context; `WhisperingApp` installs that same context for
 `getFolder()`. Its TanStack Query cache holds saved rows and file reads
 (ADR-0528). Folder also owns each editable document and its retained input;
-the Svelte edits expose tracked properties over its read methods. A read never replaces unfinished input.
+the Svelte document adapters expose tracked properties over its read methods.
+A read never replaces unfinished input.
 
 - **Reads** use the context's generated queries. One Folder change listener
-  invalidates affected representations, and visible queries poll for outside
-  edits. Save completion and closing do not wait for display refresh.
-- **One file editor** comes from `folder.tables.recordings.edit(id)` or
-  `folder.files.edit(path)`. Its cached `getSnapshot()` contains `content`,
+  invalidates affected representations. Browser broadcasts and directory
+  watches report outside changes; visibility reconciliation covers missed hints.
+  Save completion and closing do not wait for display refresh.
+- **One working document** is observed through
+  `folder.tables.recordings.document(id)` or `folder.files.document(path)`. Its
+  cached `getSnapshot()` contains `content`,
   `loadError`, `isDirty`, `isSaving`, and `saveError`. Content carries exact text,
   interpreted fields and body, and issues. `subscribe` emits immediately and
-  activates initial reading. `createFileEdit(handle)` exposes tracked getters
-  over this same snapshot. Function bindings call `change` or `replaceText`.
-  Switching views requires no save or reread. Autosave continues after unmount.
+  requests acquisition when source is unknown or invalidated.
+  `reactiveDocument(handle)` exposes tracked getters over this same snapshot.
+  Function bindings call `patch({ fields?, body? })` or `replace(text)`.
+  `save(input?)` returns the exact immutable captured Markdown content or an
+  error. Its optional input is accepted and publication admitted before
+  observers run. Switching views requires no save or reread. Each adapter owns
+  its subscription; the Folder retains source, autosave, and failures after
+  unmount. Only Folder close releases them, without flushing or draining work.
 - **A failed save** keeps its accepted input and error. Aggregate status carries
-  immutable `{ path, error }` metadata only. Whispering acquires that path's
-  editor once for the notice, and Copy samples its current dirty text at the
-  click; after success or discard there is nothing to copy. The status offers
+  immutable `{ path, error }` metadata only. Whispering obtains that path's
+  passive document handle for the notice. Copy samples its current dirty text
+  with `getSnapshot()` at the click, without acquiring source; after success or
+  discard there is nothing to copy. The status offers
   **Try again** and **Discard**. New typing may autosave; only a successful
   publication or explicit discard clears the save failure. A run captures held input
   without publishing it. Discard drops unsubmitted intent and returns

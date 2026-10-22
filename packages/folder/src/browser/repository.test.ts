@@ -230,21 +230,28 @@ test('table and row-folder writes share the structural collision protection', as
 		notes: { type: 'object' },
 	});
 	const folder = folderOver(repository, { notes: { type: 'object' } });
-	const notes = folder.tables.notes!;
 	try {
-		expectOk(await notes.write('one', { fields: { title: 'Keep row' } }));
+		expectOk(
+			await folder.tables.notes!.write('one', {
+				fields: { title: 'Keep row' },
+			}),
+		);
 		expect(
 			expectErr(
 				await folder.files.write('notes/one.md/attachment.txt', 'collision'),
 			).name,
 		).toBe('Occupied');
-		expect(expectOk(await notes.get('one'))!.fields).toEqual({
+		expect(expectOk(await folder.tables.notes!.get('one'))!.fields).toEqual({
 			title: 'Keep row',
 		});
-		expectOk(await notes.write('one.md', { fields: { title: 'Suffix row' } }));
-		expectOk(await notes.delete('one.md'));
-		expect(expectOk(await notes.get('one.md'))).toBeUndefined();
-		expect(expectOk(await notes.get('one'))!.fields).toEqual({
+		expectOk(
+			await folder.tables.notes!.write('one.md', {
+				fields: { title: 'Suffix row' },
+			}),
+		);
+		expectOk(await folder.tables.notes!.delete('one.md'));
+		expect(expectOk(await folder.tables.notes!.get('one.md'))).toBeUndefined();
+		expect(expectOk(await folder.tables.notes!.get('one'))!.fields).toEqual({
 			title: 'Keep row',
 		});
 		expectOk(
@@ -254,14 +261,17 @@ test('table and row-folder writes share the structural collision protection', as
 			),
 		);
 		expect(
-			expectErr(await notes.write('two', { fields: { title: 'collision' } }))
-				.name,
+			expectErr(
+				await folder.tables.notes!.write('two', {
+					fields: { title: 'collision' },
+				}),
+			).name,
 		).toBe('Occupied');
 		expect(expectOk(await folder.files.list('notes/two.md/'))).toEqual([
 			'notes/two.md/attachment.txt',
 		]);
 		// No row file is there: the row is already gone, and its folder stays.
-		expectOk(await notes.delete('two'));
+		expectOk(await folder.tables.notes!.delete('two'));
 		expect(expectOk(await folder.files.list('notes/two.md/'))).toEqual([
 			'notes/two.md/attachment.txt',
 		]);
@@ -297,7 +307,7 @@ test('restoring committed bytes restores the same root and creates no additional
 	}
 });
 
-test('direct row sets patch the known row, keep other values, and refuse fields over a broken header', async () => {
+test('document saves patch the known row, keep other values, and refuse fields over a broken header', async () => {
 	const schema = {
 		type: 'object',
 		properties: { title: { type: 'string' }, done: { type: 'boolean' } },
@@ -308,32 +318,45 @@ test('direct row sets patch the known row, keep other values, and refuse fields 
 	});
 	const folder = folderOver(repository, { todos: schema });
 	try {
-		const table = folder.tables.todos!;
 		const first = expectOk(
-			await table.write('one', {
+			await folder.tables.todos!.write('one', {
 				fields: { title: 'First', done: false, extra: 'untouched' },
 				body: 'Body\n',
 			}),
 		);
 		expect(first.issues).toBeNull();
-		expectOk(await table.edit('one').refresh());
-		const phone = expectOk(await table.set('one', { fields: { done: true } }));
+		expectOk(await folder.tables.todos!.document('one').refresh());
+		const phone = expectOk(
+			await folder.tables
+				.todos!.document('one')
+				.save({ fields: { done: true } }),
+		);
 		expect(phone.fields).toMatchObject({ done: true });
 		const laptop = expectOk(
-			await table.set('one', { fields: { title: 'Laptop' } }),
+			await folder.tables
+				.todos!.document('one')
+				.save({ fields: { title: 'Laptop' } }),
 		);
-		// A set answers the row it stored: the patch over what was known.
+		// A save answers the content it stored: the patch over what was known.
 		expect(laptop.fields).toMatchObject({ done: true });
 		expect(laptop.body).toBe('Body\n');
-		expectOk(await table.set('one', { fields: { title: 'Laptop again' } }));
-		const landed = expectOk(await table.get('one'))!;
+		expectOk(
+			await folder.tables
+				.todos!.document('one')
+				.save({ fields: { title: 'Laptop again' } }),
+		);
+		const landed = expectOk(await folder.tables.todos!.get('one'))!;
 		expect(landed.fields).toEqual({
 			title: 'Laptop again',
 			done: true,
 			extra: 'untouched',
 		});
-		expectOk(await table.set('one', { fields: { title: 12 } }));
-		const raw = expectOk(await table.get('one'))!;
+		expectOk(
+			await folder.tables
+				.todos!.document('one')
+				.save({ fields: { title: 12 } }),
+		);
+		const raw = expectOk(await folder.tables.todos!.get('one'))!;
 		expect(raw.issues?.[0]?.kind).toBe('schema');
 		expect(raw.fields).toMatchObject({ title: 12 });
 		expectOk(
@@ -342,13 +365,19 @@ test('direct row sets patch the known row, keep other values, and refuse fields 
 				'---\ntitle: [broken\n---\nKeep body\n',
 			),
 		);
-		const malformed = expectOk(await table.get('one'))!;
+		const malformed = expectOk(await folder.tables.todos!.get('one'))!;
 		expect(malformed.issues?.[0]?.kind).toBe('frontmatter');
 		expect(
-			expectErr(await table.set('one', { fields: { title: 'repair?' } })).name,
+			expectErr(
+				await folder.tables
+					.todos!.document('one')
+					.save({ fields: { title: 'repair?' } }),
+			).name,
 		).toBe('InvalidFields');
-		// The body of a broken header stays editable.
-		expectOk(await table.set('one', { body: 'New body\n' }));
+		// The body of a broken header stays edifolder.tables.todos!.
+		expectOk(
+			await folder.tables.todos!.document('one').save({ body: 'New body\n' }),
+		);
 		expect(await text(repository, 'todos/one.md')).toBe(
 			'---\ntitle: [broken\n---\nNew body\n',
 		);
@@ -358,9 +387,13 @@ test('direct row sets patch the known row, keep other values, and refuse fields 
 				'---\ntitle: Repaired\ndone: true\n---\nKeep body\n',
 			),
 		);
-		expect(expectOk(await table.get('one'))!.issues).toBeNull();
-		expect(expectOk(await table.list()).map((row) => row.id)).toEqual(['one']);
-		expect(expectErr(await table.set('../bad', {})).name).toBe('InvalidId');
+		expect(expectOk(await folder.tables.todos!.get('one'))!.issues).toBeNull();
+		expect(
+			expectOk(await folder.tables.todos!.list()).map((row) => row.id),
+		).toEqual(['one']);
+		expect(expectErr(await folder.tables.todos!.write('../bad', {})).name).toBe(
+			'InvalidId',
+		);
 	} finally {
 		await folder.close();
 	}
@@ -372,8 +405,9 @@ test('row deletion removes the row as stored and keeps adjacent files', async ()
 	});
 	const folder = folderOver(repository, { notes: { type: 'object' } });
 	try {
-		const table = folder.tables.notes!;
-		expectOk(await table.write('one', { fields: { title: 'Before' } }));
+		expectOk(
+			await folder.tables.notes!.write('one', { fields: { title: 'Before' } }),
+		);
 		expectOk(
 			await repository.files.write('notes/one/nested/a.txt', 'attachment'),
 		);
@@ -383,19 +417,23 @@ test('row deletion removes the row as stored and keeps adjacent files', async ()
 		expect(
 			await repository.storage.acknowledge(committed.base, committed.head),
 		).toBe(true);
-		expectOk(await table.edit('one').refresh());
-		expectOk(await table.set('one', { fields: { title: 'After' } }));
-		expectOk(await table.delete('one'));
+		expectOk(await folder.tables.notes!.document('one').refresh());
+		expectOk(
+			await folder.tables
+				.notes!.document('one')
+				.save({ fields: { title: 'After' } }),
+		);
+		expectOk(await folder.tables.notes!.delete('one'));
 		expect(expectOk(await repository.files.list('notes/one/'))).toEqual([
 			'notes/one/nested/a.txt',
 		]);
-		expectOk(await table.delete('one'));
+		expectOk(await folder.tables.notes!.delete('one'));
 		expect(expectOk(await repository.files.list())).toEqual([
 			'keep.md',
 			'notes/one/nested/a.txt',
 		]);
 		await prepareCommit(repository.storage, { ...author, timestamp: 2 });
-		expect(expectOk(await table.list())).toEqual([]);
+		expect(expectOk(await folder.tables.notes!.list())).toEqual([]);
 		expect(
 			expectErr(await repository.files.write('notes/../escape/x', 'no')).name,
 		).toBe('InvalidPath');
@@ -453,9 +491,9 @@ test('an editor save racing another connection lands its exact text, and the las
 	const original = `${header}one\r\ntwo\r\nthree\r\n`;
 	try {
 		expectOk(await folder.files.write(path, original));
-		const edit = folder.files.edit(path);
+		const edit = folder.files.document(path);
 		expectOk(await edit.refresh());
-		expectOk(edit.change({ body: 'one\r\ntwo\r\nTHREE\r\n' }));
+		expectOk(edit.patch({ body: 'one\r\ntwo\r\nTHREE\r\n' }));
 		const publish = a.storage.publish;
 		let attempts = 0;
 		a.storage.publish = async (input) => {

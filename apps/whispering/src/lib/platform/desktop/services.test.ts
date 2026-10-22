@@ -475,13 +475,18 @@ test('a row save whose reply the shell never sent is confirmed by what landed, a
 	const PATH = 'transformations/clean.md';
 	await granting.write(PATH, '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
 	const { services, folder: openedFolder } = await openDesktop();
-	const table = openedFolder.tables.transformations;
-	expectOk(await table.edit('clean').refresh());
+	expectOk(
+		await openedFolder.tables.transformations.document('clean').refresh(),
+	);
 
 	// The shell writes, and its reply never reaches the page. The page reads
 	// the file back, finds exactly what it wrote, and the save is confirmed.
 	granting.control.loseReplies = 1;
-	const confirmed = expectOk(await table.set('clean', { body: 'Tidy it.\n' }));
+	const confirmed = expectOk(
+		await openedFolder.tables.transformations
+			.document('clean')
+			.save({ body: 'Tidy it.\n' }),
+	);
 	expect(confirmed.body).toBe('Tidy it.\n');
 	expect(granting.kinds).toEqual(['write']);
 
@@ -492,14 +497,18 @@ test('a row save whose reply the shell never sent is confirmed by what landed, a
 		granting.control.beforeChange = undefined;
 		granting.control.failReads.add(PATH);
 	};
-	const lost = await table.set('clean', {
-		body: 'Tidy it again.\n',
-	});
+	const lost = await openedFolder.tables.transformations
+		.document('clean')
+		.save({
+			body: 'Tidy it again.\n',
+		});
 	expect(lost.error?.name).toBe('StorageFailed');
 	expect(granting.kinds).toEqual(['write', 'write']);
 
 	granting.control.failReads.delete(PATH);
-	const landed = expectOk(await table.get('clean'));
+	const landed = expectOk(
+		await openedFolder.tables.transformations.get('clean'),
+	);
 	expect(landed?.body).toBe('Tidy it again.\n');
 	await openedFolder.close();
 });

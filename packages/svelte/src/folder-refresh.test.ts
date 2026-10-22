@@ -78,7 +78,7 @@ async function setup(watching = false) {
 
 test('native events update queries and an editor without periodic reads or replacing input', async () => {
 	const { directory, folder, cached } = await setup(true);
-	const edit = folder.tables.notes.edit('milk');
+	const edit = folder.tables.notes.document('milk');
 	cleanup.push(edit.subscribe(() => {}));
 	await until(() => edit.getSnapshot().content !== undefined);
 	await writeFile(
@@ -90,7 +90,7 @@ test('native events update queries and an editor without periodic reads or repla
 	await until(
 		() => edit.getSnapshot().content?.body?.includes('Outside edit') === true,
 	);
-	expectOk(edit.change({ fields: { title: 'Typed here' } }));
+	expectOk(edit.patch({ fields: { title: 'Typed here' } }));
 	await writeFile(
 		join(directory, 'notes/milk.md'),
 		initial.replace('two', 'Second outside edit'),
@@ -110,7 +110,7 @@ test('native events update queries and an editor without periodic reads or repla
 
 test('without a delivered hint there is no polling; becoming visible reconciles sources and queries', async () => {
 	const { directory, reads, cached, folder } = await setup();
-	const edit = folder.tables.notes.edit('milk');
+	const edit = folder.tables.notes.document('milk');
 	cleanup.push(edit.subscribe(() => {}));
 	await until(() => edit.getSnapshot().content !== undefined);
 	visibility('hidden');
@@ -195,10 +195,10 @@ test('a save lands without waiting for a slow scan, whose older rows never repla
 	cleanup.push(() => gate.resolve());
 	const refreshing = context.refresh(['notes']);
 	await until(() => held);
-	const edit = folder.tables.notes.edit('milk');
+	const edit = folder.tables.notes.document('milk');
 	expectOk(await edit.refresh());
 	const before = cached();
-	expectOk(edit.change({ fields: { title: 'Saved while reading' } }));
+	expectOk(edit.patch({ fields: { title: 'Saved while reading' } }));
 	expectOk(await edit.save());
 	expect(edit.getSnapshot().isDirty).toBe(false);
 	expect(folder.getStatus().saving).toBe(false);

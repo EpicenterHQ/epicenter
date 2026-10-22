@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { FileEdit } from '@epicenter/folder/edits';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import type { FileDocument } from '@epicenter/folder/document';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import * as Popover from '@epicenter/ui/popover';
@@ -50,7 +50,7 @@
 		onRefuse,
 	}: {
 		/** The note as shown: its draft while an edit is held, else the cache's. */
-		fileEdit: FileEdit<HoneycrispTables['notes']>;
+		fileEdit: FileDocument<HoneycrispTables['notes']>;
 		focusRequest: number;
 		closing: boolean;
 		onOpenSource: () => void;
@@ -74,7 +74,7 @@
 	 */
 	// The parent keys this editor by its file path.
 	// svelte-ignore state_referenced_locally
-	const trackedEdit = createFileEdit(fileEdit);
+	const trackedEdit = reactiveDocument(fileEdit);
 	const body = $derived(noteBody(trackedEdit.content));
 	/** The body as a document, or why it cannot be one. */
 	const rich = $derived(body === undefined ? undefined : bodyCodec.decode(body));

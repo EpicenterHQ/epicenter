@@ -332,7 +332,7 @@ test('a transformation with no instructions, or a transcript with no text, sends
 		join(root, transcript.path),
 		transcriptText.replace(transcript.row.body, ' \n'),
 	);
-	expectOk(await context.folder.files.edit(transcript.path).refresh());
+	expectOk(await context.folder.files.document(transcript.path).refresh());
 	expect(await whispering.transform(transcript.path, editor.path)).toContain(
 		'no text',
 	);
@@ -363,7 +363,7 @@ test('an observed outside transcript edit is sent without rewriting its source',
 	expect(
 		whispering.resultsFor(transcript.row.fields.recordingId)[0]!.row.body,
 	).toBe('um so a steady tone\n');
-	expectOk(await context.folder.files.edit(transcript.path).refresh());
+	expectOk(await context.folder.files.document(transcript.path).refresh());
 
 	expect(
 		await whispering.transform(transcript.path, editor.path),
@@ -390,7 +390,7 @@ test('invalid acquired transcript source refuses even after its file is deleted'
 
 	const broken = '---\nrecordingId: *missing\n---\nStill some text\n';
 	await writeFile(join(root, transcript.path), broken);
-	expectOk(await context.folder.files.edit(transcript.path).refresh());
+	expectOk(await context.folder.files.document(transcript.path).refresh());
 	expect(await whispering.transform(transcript.path, editor.path)).toContain(
 		'needs repair',
 	);
@@ -442,10 +442,10 @@ test('a transformation captures accepted transcript input without publishing it'
 	const { context, whispering, root, transformed } = await open();
 	const { transcript } = await transcribed(whispering, context, root);
 	const recipe = await cleanupProfile(whispering, context);
-	const edit = context.folder.tables.transcriptions.edit(transcript.stem);
+	const edit = context.folder.tables.transcriptions.document(transcript.stem);
 	expectOk(await edit.refresh());
 	const before = await readFile(join(root, transcript.path), 'utf8');
-	expectOk(edit.change({ body: 'Accepted in memory.\n' }));
+	expectOk(edit.patch({ body: 'Accepted in memory.\n' }));
 	expect(
 		await whispering.transform(transcript.path, recipe.path),
 	).toBeUndefined();
@@ -480,7 +480,7 @@ test('a transformation captures failed transcript input without retrying its pub
 	expect(transformed).toHaveLength(1);
 	expect(transformed[0]?.input).toBe('Mine.\n');
 	expect(await readFile(join(root, transcript.path), 'utf8')).toBe(before);
-	expect(whispering.edit(transcript.path).saveError).toBeDefined();
+	expect(whispering.document(transcript.path).saveError).toBeDefined();
 });
 
 // ============================================================================
@@ -878,15 +878,20 @@ async function fillRace(typed: string) {
 	await eventually(() => transformed.length === 1);
 	const { output } = await newestResult(whispering, context, transcript.stem);
 	const path = join(root, output.path);
-	const table = folder.tables.transformation_runs;
-	const set = table.set;
+	const acquire = folder.tables.transformation_runs.document;
 	let filled = false;
-	table.set = async (stem, change) => {
-		if (stem === output.stem && !filled) {
-			filled = true;
-			await writeFile(path, `${await readFile(path, 'utf8')}${typed}`);
-		}
-		return set(stem, change);
+	folder.tables.transformation_runs.document = (stem) => {
+		const document = acquire(stem);
+		return {
+			...document,
+			async save(change) {
+				if (stem === output.stem && !filled) {
+					filled = true;
+					await writeFile(path, `${await readFile(path, 'utf8')}${typed}`);
+				}
+				return document.save(change);
+			},
+		};
 	};
 
 	answer.resolve(Ok({ text: 'from the endpoint' }));
@@ -934,14 +939,13 @@ async function openHoldingReads(
 ) {
 	const test = await openTestServices(options);
 	const reads: { hold?: Promise<void>; waiting: number } = { waiting: 0 };
-	const { tables } = test.folder;
-	const table = tables[held];
+	const acquire = test.folder.tables[held].document;
 	const { whispering, context } = await createTestWhispering({
 		folder: replaceTables(test.folder, {
 			[held]: {
-				...table,
-				edit(stem: string) {
-					const edit = table.edit(stem);
+				...test.folder.tables[held],
+				document(stem: string) {
+					const edit = acquire(stem);
 					return {
 						...edit,
 						async refresh() {
@@ -1062,8 +1066,8 @@ test('a transformation uses clean retained recipe and transcript source without 
 	const { context, whispering, root, transformed } = await open();
 	const { transcript } = await transcribed(whispering, context, root);
 	const recipe = await cleanupProfile(whispering, context);
-	const input = context.folder.tables.transcriptions.edit(transcript.stem);
-	const instructions = context.folder.files.edit(recipe.path);
+	const input = context.folder.tables.transcriptions.document(transcript.stem);
+	const instructions = context.folder.files.document(recipe.path);
 	expectOk(await input.refresh());
 	expectOk(await instructions.refresh());
 	const capturedInput = input.getSnapshot().content?.body;
@@ -1098,7 +1102,9 @@ test('Run again refreshes clean inactive result text before deciding to contact 
 	).toBeUndefined();
 	const { output } = await newestResult(whispering, context, transcript.stem);
 	expectOk(
-		await context.folder.tables.transformation_runs.edit(output.stem).refresh(),
+		await context.folder.tables.transformation_runs
+			.document(output.stem)
+			.refresh(),
 	);
 	const path = join(root, output.path);
 	await writeFile(path, `${await readFile(path, 'utf8')}Answered outside.\n`);

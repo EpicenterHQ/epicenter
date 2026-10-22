@@ -108,7 +108,7 @@ test('a preview follows pending Markdown input across chat switches and disappea
 	const app = await setup();
 	await app.open('Maya Chen');
 	const id = await draftId(createDemoBackend(), 'demo-maya');
-	const edit = app.folder.tables.drafts.edit(id);
+	const edit = app.folder.tables.drafts.document(id);
 	await until(
 		() => app.context.queryClient.isFetching() === 0,
 		'the draft listing',
@@ -156,7 +156,7 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 	const demo = createDemoBackend();
 	const maya = await seedDraft(app.folder, demo, 'demo-maya');
 	expectOk(
-		await app.folder.tables.drafts.set(maya.id, {
+		await app.folder.tables.drafts.document(maya.id).save({
 			body: 'Saved in Markdown',
 		}),
 	);
@@ -166,7 +166,7 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 		'demo-garden',
 	);
 	expectOk(
-		await app.folder.tables.drafts.set(live.id, {
+		await app.folder.tables.drafts.document(live.id).save({
 			body: 'Live private draft',
 		}),
 	);
@@ -176,7 +176,7 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 		'demo-noah',
 	);
 	expectOk(
-		await app.folder.tables.drafts.set(other.id, {
+		await app.folder.tables.drafts.document(other.id).save({
 			body: 'Another account’s draft',
 		}),
 	);
@@ -222,7 +222,8 @@ test('failed autosave retains its preview, uncertain sends are distinct, and sen
 	await app.open('Community garden');
 	await until(
 		() =>
-			app.folder.tables.drafts.edit(id).getSnapshot().saveError !== undefined,
+			app.folder.tables.drafts.document(id).getSnapshot().saveError !==
+			undefined,
 		'the failed autosave',
 	);
 	expect(app.conversation('Maya Chen').textContent).toContain(
@@ -233,7 +234,7 @@ test('failed autosave retains its preview, uncertain sends are distinct, and sen
 	expect(app.composer()?.value).toBe('Keep this reply');
 	click(app.target, 'Save draft again');
 	await until(
-		() => !app.folder.tables.drafts.edit(id).getSnapshot().isDirty,
+		() => !app.folder.tables.drafts.document(id).getSnapshot().isDirty,
 		'the retry',
 	);
 	click(app.target, 'Simulate send failure');

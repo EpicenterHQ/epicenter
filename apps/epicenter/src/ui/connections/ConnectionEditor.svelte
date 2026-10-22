@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { getFolder } from './folder.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -16,7 +16,7 @@
 	/**
 	 * One AI connection: its row in `so.epicenter`, whose title and model are
 	 * edited in place through the folder's edit of the row
-	 * (`createFileEdit(folder.tables.connections.edit(id))`): what is typed shows at
+	 * (`reactiveDocument(folder.tables.connections.document(id))`): what is typed shows at
 	 * once and saves a second after the last keystroke, even after the editor
 	 * goes away. For an `openai-compatible` connection, the
 	 * endpoint and key this computer keeps for it are in the keychain
@@ -35,7 +35,7 @@
 	const id = row.id;
 	// The list keys each editor by its id, in one opened folder. The list's
 	// read answered the edit's document.
-	const fileEdit = createFileEdit(folder.tables.connections.edit(id));
+	const fileEdit = reactiveDocument(folder.tables.connections.document(id));
 	/** The connection with what is typed over it, or as the list read it while that is not known. */
 	const fields = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields : row.fields);
 	const failure = $derived(fileEdit.saveError);
@@ -61,7 +61,7 @@
 	let savingKey = $state(false);
 
 	function type(field: 'title' | 'model', text: string) {
-		const { error } = fileEdit.change({ fields: { [field]: text } });
+		const { error } = fileEdit.patch({ fields: { [field]: text } });
 		inputProblem = error?.message;
 	}
 

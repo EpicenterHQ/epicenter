@@ -23,7 +23,7 @@
 	<div class="mb-4">
 		<p class="font-medium">{item.text}</p>
 		{#if entry}
-			{@const fileEdit = entries.edit(item.entryId)}
+			{@const fileEdit = entries.document(item.entryId)}
 			{@const stage = fileEdit.content?.issues === null ? fileEdit.content.fields.stage : entry.row.fields.stage}
 			<div class="mt-1 flex flex-wrap gap-1" aria-label="Your stage for {item.text}">
 				{#each STAGES as option}

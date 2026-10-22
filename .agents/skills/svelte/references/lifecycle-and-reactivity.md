@@ -172,8 +172,8 @@ access alone does not justify another alias.
 {#each rowEdits as rowEdit (rowEdit.path)}
 	{@const row = rowEdit.content}
 	{#if row && row.issues === null}
-		<Input bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })} />
-		<Textarea bind:value={() => row.body, body => rowEdit.change({ body })} />
+		<Input bind:value={() => row.fields.title, title => rowEdit.patch({ fields: { title } })} />
+		<Textarea bind:value={() => row.body, body => rowEdit.patch({ body })} />
 	{/if}
 {/each}
 ```
@@ -309,7 +309,7 @@ value with `set(id, next)`.
 | Data Shape | Use | Example |
 |---|---|---|
 | Folder listings | Context query cache | saved notes and folders |
-| Editable file content | `createFileEdit` tracked getters | source, fields, body, save feedback |
+| Editable file content | `reactiveDocument` tracked getters | source, fields, body, save feedback |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
@@ -324,7 +324,7 @@ TanStack Table into an infinite loop. See
 # Folder reads and editing
 
 The opened Folder context owns the query cache for saved listings and derived
-views. Each path's editor owns its acquired working document and accepted input.
+views. Folder owns each path's working source and accepted input.
 Use the app's typed `getFolder()` during component initialization. In an app
 whose folder declares a `notes` table:
 
@@ -344,11 +344,13 @@ Do not copy query results into a second state array with a manual subscription.
 Filtering and sorting belong in `$derived` when several consumers need the
 computed view.
 
-Lists and raw file reads return stored data without acquiring or updating an
-editor. A tracked `createFileEdit` getter subscribes and starts the editor's
-initial read. For a one-off `set()` on an unopened or inactive clean editor,
-await its `refresh()` and check closing again before writing. A complete
-one-shot document uses `write()`. The [editor ownership guidance](component-ui-patterns.md#file-editor-views)
+Lists and raw file reads return stored data without acquiring or updating a
+working document. `reactiveDocument(handle)` reuses a passive adapter by handle,
+so repeated wrapping in derived collections is safe. A tracked getter subscribes
+and acquires unknown or invalidated source; the last tracking effect leaving
+releases that subscription. For a one-off `save(patch)` on an unopened or
+inactive clean document, await its `refresh()` and check closing again before
+writing. A complete one-shot document uses `write()`. The [editor ownership guidance](component-ui-patterns.md#file-editor-views)
 explains these boundaries and failed-save retention.
 
 The mounted app creates product state over that opened context. The context's
@@ -359,8 +361,8 @@ idempotent so it still releases its resources if the context closed first.
 
 Examples: `apps/honeycrisp/src/routes/components/NoteList.svelte` reads the
 context's queries; `apps/honeycrisp/src/routes/components/HoneycrispApp.svelte`
-creates the mounted product owner. The [Folder guide](../../../../packages/folder/README.md#editors)
-owns the current editor contract.
+creates the mounted product owner. The [Folder guide](../../../../packages/folder/README.md#working-documents)
+owns the current document contract.
 
 ### Template Props
 

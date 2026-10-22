@@ -18,7 +18,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { InstantString } from '@epicenter/definition';
 	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { folderIdOf, noteIdOf } from '$lib/data.js';
 	import { textRead } from '$lib/file-reads.js';
@@ -46,7 +46,7 @@
 	/**
 	 * What the file is: text, binary, or too large to open, with its size.
 	 * Only the whole-file presentation needs this classification. The note
-	 * list and FileEdit keep the source current in either presentation.
+	 * list and ReactiveDocument keep the source current in either presentation.
 	 */
 	const file = createQuery(() => ({
 		...notes.queries.file(path, textRead),
@@ -59,16 +59,16 @@
 	// svelte-ignore state_referenced_locally
 	const noteEdit = noteId === undefined
 		? undefined
-		: createFileEdit(notes.folder.tables.notes.edit(noteId));
+		: reactiveDocument(notes.folder.tables.notes.document(noteId));
 	// svelte-ignore state_referenced_locally
 	const sourceEdit = folderId !== undefined
-		? notes.folder.tables.folders.edit(folderId)
-		: notes.folder.files.edit(path);
-	// Both handles are fixed for this keyed view; the adapter memoizes acquisition.
+		? notes.folder.tables.folders.document(folderId)
+		: notes.folder.files.document(path);
+	// Both handles are fixed for this keyed view; observation starts acquisition.
 	// svelte-ignore state_referenced_locally
 	const fileEdit = noteEdit ?? (folderId !== undefined
-		? createFileEdit(notes.folder.tables.folders.edit(folderId))
-		: createFileEdit(notes.folder.files.edit(path)));
+		? reactiveDocument(notes.folder.tables.folders.document(folderId))
+		: reactiveDocument(notes.folder.files.document(path)));
 	const note = $derived(
 		noteEdit?.content?.issues === null ? noteEdit.content : undefined,
 	);
@@ -166,7 +166,7 @@
 						bind:value={
 							() => shown.replace(/\r\n?/g, '\n'),
 							(typed) => {
-								const changed = fileEdit.replaceText(withFileNewlines(typed.toWellFormed(), shown));
+								const changed = fileEdit.replace(withFileNewlines(typed.toWellFormed(), shown));
 								if (changed.error !== null) toast.warning('That change was not made', { description: changed.error.message });
 							}
 						}

@@ -164,9 +164,9 @@ before creating the callbacks:
 	{@const row = rowEdit.content}
 	{#if row && row.issues === null}
 		<Input
-			bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })}
+			bind:value={() => row.fields.title, title => rowEdit.patch({ fields: { title } })}
 		/>
-		<Textarea bind:value={() => row.body, body => rowEdit.change({ body })} />
+		<Textarea bind:value={() => row.body, body => rowEdit.patch({ body })} />
 	{/if}
 {/each}
 ```
@@ -189,7 +189,7 @@ Do not add an artificial loop, key, or conditional just to host `{@const}`;
 those blocks introduce structure or lifetimes unrelated to the binding.
 
 For optional text whose binding getter needs narrowing, capture
-`{@const content = fileEdit.content}` in the nearest supported scope, then gate
+`{@const content = fileDocument.content}` in the nearest supported scope, then gate
 the control with `content !== undefined`, then bind to `content.text`. An empty
 string is valid source. Use `?? ''` only when absence
 really means an empty editable value; it must not turn unread, missing, or
@@ -224,7 +224,7 @@ each other and which source information survives.
 
 ## File editor views
 
-Use [Folder editing](../../../../packages/folder/README.md#editors)
+Use [Folder editing](../../../../packages/folder/README.md#working-documents)
 for how an app edits files and [the input patterns](input-ownership.md) for the
 choice between immediate editing and explicit submission.
 
@@ -233,42 +233,30 @@ shows its reason and opens as text, as below; repairing text does not switch a
 mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
-The query cache owns saved listings. One folder-owned `FileEdit` retains source
-per path. Bind controls through the memoized Svelte 5 `createFileEdit` adapter:
-its tracked `content` getter contains exact `text`, interpreted `fields` and
-`body`, and `issues`. `issues === null` proves the typed interpretation is valid.
-`change()` patches the current source; `replaceText()` replaces it. Use function
-bindings, not `$fileEdit` store syntax or a mirrored component draft.
+The query cache owns saved listings; Folder owns each path's working source.
+Bind controls through `reactiveDocument(handle)` from
+`@epicenter/svelte/document`. Repeated wrapping reuses a passive adapter by
+handle, including inside derived collections; no caller-managed adapter cache
+is needed. Derive from a changing path prop to follow the selected document.
+Tracking starts observation, and the last tracking effect leaving releases it.
+Use function bindings: `patch({ fields: { title } })` patches a field and
+`replace(text)` replaces full source. Show immediate acceptance refusals at
+the control. Use `{@const content = fileDocument.content}` in the nearest
+template block to narrow fields with `content.issues === null`.
 
-Read `loadError`, `isDirty`, `isSaving`, and `saveError` independently. Dirty means
-accepted publication intent, while saving describes admitted text publications;
-they can coexist. Saving publishes the text captured at the call, including over
-outside changes. Observations never write, and acquired text remains available
-when a later read fails or finds deletion. Direct file/table operations share the
-per-path publication lane. Apps coordinate multi-step workflows and check
-disposal before late asynchronous writes.
+For an action that publishes a patch to an existing document, use
+`document.save(patch)` and check its result. Refresh an unopened or inactive
+clean document first, then check `closing` again after the await. Success
+returns the exact captured content; failure retains the accepted patch. Use
+`folder.tables.notes.write()` for a complete form submission that must leave no deferred
+input after failure. The [working document contract](../../../../packages/folder/README.md#working-documents)
+owns source acquisition, autosave, save results, and teardown behavior.
 
-Every ordinary edit of a row builds on its one working document, whoever
-makes it. Controls call the editor's `change()` or `replaceText()`; an app
-action or a fact the app records, such as a recording's length or a draft
-that finishes, calls `folder.tables.<name>.set()`, which changes the same
-document and saves that exact version. Typing that lands while either saves
-builds on it, so nothing is undone, and none of these needs the control to
-be read-only while it saves. A failed save leaves the change in the
-document, dirty, with its `saveError`, for the person to save again or
-discard; never report a failed `set` as though nothing changed. `set`
-refuses a document that was never acquired: await `edit.refresh()` first
-for a clean or unopened one, since retained text can be stale, and check
-`closing` again right after that await. Use `write()` for a complete
-one-shot document, such as creating a row from a submitted form: it
-publishes once and leaves nothing pending if it fails.
-
-Do not mirror the edit owner's draft in the query cache or a page store.
-`$state` can hold a new-item box, a search, or input that has not been accepted
-by the edit. Invalid source opens as text with its issues and is repaired
-through the same edit's `replaceText()`. A rich widget keeps its document,
-selection, and history; an unfinished Add, Send, or Save form owns a separate
-explicit-submission draft.
+Keep unsubmitted Add, Send, or Save form input with the form. A rich widget
+keeps its document, selection, and history; the Folder handle owns accepted
+file content. Do not mirror that content in a page store or the query cache.
+Invalid source opens as text with its issues and is repaired through the same
+handle's `replace(text)`.
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
 mounting, so do not repeat `tab === value` inside each panel. A disabled trigger

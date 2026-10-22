@@ -2,7 +2,7 @@
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { getFolder } from './context.js';
 
@@ -12,7 +12,7 @@
 	// The parent keys this view by path.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
-	const fileEdit = createFileEdit(folder.files.edit(path));
+	const fileEdit = reactiveDocument(folder.files.document(path));
 	const content = $derived(fileEdit.content);
 	let inputProblem = $state<string>();
 	/** A textarea would rewrite mixed line endings or lone carriage returns. */
@@ -65,7 +65,7 @@
 				aria-label="Text of {path}"
 				spellcheck="false"
 				bind:value={() => content.text.replaceAll('\r\n', '\n'), (value) => {
-					const { error } = fileEdit.replaceText(withFileNewlines(value, content.text));
+					const { error } = fileEdit.replace(withFileNewlines(value, content.text));
 					inputProblem = error?.message;
 				}}
 			/>

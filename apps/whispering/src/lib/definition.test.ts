@@ -85,18 +85,21 @@ test('a recipe names its model, or says “use the connection” with null; a fi
 			'---\ntitle: Clean up\nmodel: null\n---\nFix it.\n',
 		'transformations/silent.md': '---\ntitle: Clean up\n---\nFix it.\n',
 	});
-	const recipes = folder.tables.transformations;
 
-	expect(expectOk(await recipes.get('named'))).toMatchObject({
+	expect(
+		expectOk(await folder.tables.transformations.get('named')),
+	).toMatchObject({
 		fields: { title: 'Clean up', model: 'gpt-4o-mini' },
 		issues: null,
 	});
-	expect(expectOk(await recipes.get('connection'))).toMatchObject({
+	expect(
+		expectOk(await folder.tables.transformations.get('connection')),
+	).toMatchObject({
 		fields: { title: 'Clean up', model: null },
 		issues: null,
 	});
 	// The file says nothing about the model: it is listed for repair, as it is.
-	const silent = expectOk(await recipes.get('silent'));
+	const silent = expectOk(await folder.tables.transformations.get('silent'));
 	expect(silent?.issues).toHaveLength(1);
 	expect(silent?.body).toBe('Fix it.\n');
 });
@@ -114,13 +117,16 @@ test('audio lives beside its row and unknown fields survive', async () => {
 		'recordings/bad-time.md':
 			'---\ntitle: Take\nrecordedAt: yesterday\ncapture: microphone\n---\n',
 	});
-	const recordings = folder.tables.recordings;
-	const take = expectOk(await recordings.get('take'));
+	const take = expectOk(await folder.tables.recordings.get('take'));
 	expect(take?.issues).toBeNull();
 	expect(take?.fields).toMatchObject({
 		mood: 'calm',
 	});
-	expect(expectOk(await recordings.get('nameless'))?.issues).toBeNull();
+	expect(
+		expectOk(await folder.tables.recordings.get('nameless'))?.issues,
+	).toBeNull();
 	// An instant is a fixed-width UTC time, so its text sorts as time does.
-	expect(expectOk(await recordings.get('bad-time'))?.issues).not.toBeNull();
+	expect(
+		expectOk(await folder.tables.recordings.get('bad-time'))?.issues,
+	).not.toBeNull();
 });

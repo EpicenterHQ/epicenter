@@ -40,7 +40,9 @@ test('an uncertain attempt retains sent text separately and cannot repeat after 
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
 		const text = '---\nA draft with Markdown and "quotes".\n';
-		expectOk(await folder.tables.drafts.set(draft.id, { body: text }));
+		expectOk(
+			await folder.tables.drafts.document(draft.id).save({ body: text }),
+		);
 		backend.failNext();
 		expectErr(await sendDraft(folder, draft.id, 'demo-maya', backend));
 		expect(expectOk(await folder.tables.attempts.get(draft.id))?.body).toBe(
@@ -61,7 +63,7 @@ test('an uncertain attempt retains sent text separately and cannot repeat after 
 			),
 		);
 		expect(expectOk(await folder.tables.drafts.get(draft.id))?.body).toBe(text);
-		await folder.tables.attempts.edit(draft.id).refresh();
+		await folder.tables.attempts.document(draft.id).refresh();
 		expectOk(await sendDraft(folder, draft.id, 'demo-maya', backend));
 		expect(
 			expectOk(await folder.tables.attempts.get(draft.id))?.fields?.state,
@@ -85,9 +87,9 @@ test('demo and live drafts never share IDs and a held composer is saved before s
 			await draftId({ mode: 'live', profile: backend.profile }, 'same'),
 		);
 		const draft = await seedDraft(folder, backend, 'demo-maya');
-		const edit = folder.tables.drafts.edit(draft.id);
-		expectOk(edit.change({ body: 'Accepted input not saved yet' }));
-		await folder.tables.attempts.edit(draft.id).refresh();
+		const edit = folder.tables.drafts.document(draft.id);
+		expectOk(edit.patch({ body: 'Accepted input not saved yet' }));
+		await folder.tables.attempts.document(draft.id).refresh();
 		expectOk(await sendDraft(folder, draft.id, 'demo-maya', backend));
 		const answer = await backend.request({
 			action: 'messages',
@@ -135,7 +137,7 @@ test('a storage failure before the durable send fence prevents any backend send'
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
 		expectOk(
-			await folder.tables.drafts.set(draft.id, {
+			await folder.tables.drafts.document(draft.id).save({
 				body: 'Must not send',
 			}),
 		);
@@ -157,7 +159,7 @@ test('editing a draft destination cannot redirect a reply away from the displaye
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
 		expectOk(
-			await folder.tables.drafts.set(draft.id, {
+			await folder.tables.drafts.document(draft.id).save({
 				fields: { chatId: 'demo-noah' },
 				body: 'Private reply for Maya',
 			}),
@@ -200,7 +202,7 @@ test('closing during a send keeps its durable uncertain attempt for recovery', a
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
 		expectOk(
-			await folder.tables.drafts.set(draft.id, {
+			await folder.tables.drafts.document(draft.id).save({
 				body: 'Sent during close',
 			}),
 		);
@@ -246,7 +248,7 @@ test('two sends of one draft at once reach the backend once', async () => {
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
 		expectOk(
-			await folder.tables.drafts.set(draft.id, {
+			await folder.tables.drafts.document(draft.id).save({
 				body: 'Only once',
 			}),
 		);
@@ -272,7 +274,7 @@ test('a closed folder refuses a send before reading its draft', async () => {
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
 		expectOk(
-			await folder.tables.drafts.set(draft.id, {
+			await folder.tables.drafts.document(draft.id).save({
 				body: 'Entered before close',
 			}),
 		);
@@ -310,12 +312,12 @@ test('a receipt does not erase a new composition accepted during the backend rep
 	);
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
-		const edit = folder.tables.drafts.edit(draft.id);
-		expectOk(edit.change({ body: 'First reply' }));
+		const edit = folder.tables.drafts.document(draft.id);
+		expectOk(edit.patch({ body: 'First reply' }));
 		const sending = sendDraft(folder, draft.id, 'demo-maya', backend);
 		await reached.promise;
 		expectOk(
-			edit.change({
+			edit.patch({
 				body: 'Next reply',
 				fields: { state: 'draft', pendingId: '' },
 			}),
@@ -374,11 +376,15 @@ test.each(['Same reply', 'Different next reply'])(
 		);
 		try {
 			const draft = await seedDraft(first, backend, 'demo-maya');
-			expectOk(await first.tables.drafts.set(draft.id, { body: 'Same reply' }));
-			expectOk(await second.tables.drafts.edit(draft.id).refresh());
-			const stale = second.tables.drafts.edit(draft.id);
-			expectOk(stale.change({ body: next + '!' }));
-			expectOk(stale.change({ body: next }));
+			expectOk(
+				await first.tables.drafts
+					.document(draft.id)
+					.save({ body: 'Same reply' }),
+			);
+			expectOk(await second.tables.drafts.document(draft.id).refresh());
+			const stale = second.tables.drafts.document(draft.id);
+			expectOk(stale.patch({ body: next + '!' }));
+			expectOk(stale.patch({ body: next }));
 			const sending = sendDraft(first, draft.id, 'demo-maya', backend);
 			await reached.promise;
 			expectOk(await stale.save());
@@ -432,7 +438,9 @@ test('a stale recovery clicked during a live send cannot restore an accepted mes
 	);
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
-		expectOk(await folder.tables.drafts.set(draft.id, { body: 'One reply' }));
+		expectOk(
+			await folder.tables.drafts.document(draft.id).save({ body: 'One reply' }),
+		);
 		const sending = sendDraft(folder, draft.id, 'demo-maya', backend);
 		await reached.promise;
 		const recovering = recoverDraft(
@@ -466,7 +474,7 @@ test('existing unresolved draft records require checked recovery before sending'
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
 		expectOk(
-			await folder.tables.drafts.set(draft.id, {
+			await folder.tables.drafts.document(draft.id).save({
 				fields: { state: 'sending' },
 				body: 'Old uncertain reply',
 			}),
@@ -485,7 +493,7 @@ test('existing unresolved draft records require checked recovery before sending'
 		expect(
 			expectOk(await folder.tables.attempts.get(draft.id))?.fields?.state,
 		).toBe('acknowledged');
-		await folder.tables.attempts.edit(draft.id).refresh();
+		await folder.tables.attempts.document(draft.id).refresh();
 		expectOk(await sendDraft(folder, draft.id, 'demo-maya', backend));
 	} finally {
 		folder.close();
@@ -521,7 +529,9 @@ test('checked recovery for an older identical attempt cannot acknowledge a newer
 	);
 	try {
 		const draft = await seedDraft(first, backend, 'demo-maya');
-		expectOk(await first.tables.drafts.set(draft.id, { body: 'Same reply' }));
+		expectOk(
+			await first.tables.drafts.document(draft.id).save({ body: 'Same reply' }),
+		);
 		expectOk(await first.tables.drafts.get(draft.id));
 		expectErr(await sendDraft(first, draft.id, 'demo-maya', backend));
 		const oldCheck = await checkedAttempt(first, draft.id);
@@ -535,8 +545,8 @@ test('checked recovery for an older identical attempt cannot acknowledge a newer
 				true,
 			),
 		);
-		expectOk(await second.tables.drafts.edit(draft.id).refresh());
-		await second.tables.attempts.edit(draft.id).refresh();
+		expectOk(await second.tables.drafts.document(draft.id).refresh());
+		await second.tables.attempts.document(draft.id).refresh();
 		const sending = sendDraft(second, draft.id, 'demo-maya', backend);
 		await reached.promise;
 		expectErr(
@@ -561,6 +571,60 @@ test('checked recovery for an older identical attempt cannot acknowledge a newer
 	}
 });
 
+test('typing away from and back to the offered reply during attempt publication keeps the composer', async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'messages-retyped-reply-'));
+	const folder = expectOk(
+		await openFolder({
+			directory,
+			tables: messagesTables,
+			saveAfterMs: 60_000,
+		}),
+	);
+	const demo = createDemoBackend();
+	const sent: string[] = [];
+	const backend: Backend = {
+		...demo,
+		request(request) {
+			if (request.action === 'send') sent.push(request.text);
+			return demo.request(request);
+		},
+	};
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	try {
+		const draft = await seedDraft(folder, backend, 'demo-maya');
+		const document = folder.tables.drafts.document(draft.id);
+		expectOk(await document.save({ body: 'Prepared message' }));
+		const write = folder.files.write;
+		folder.files.write = async (path, content) => {
+			const result = await write(path, content);
+			if (path === `attempts/${draft.id}.md`) {
+				entered.resolve();
+				await release.promise;
+			}
+			return result;
+		};
+
+		const sending = sendDraft(folder, draft.id, 'demo-maya', backend);
+		await entered.promise;
+		expectOk(document.patch({ body: 'Next message' }));
+		expectOk(document.patch({ body: 'Prepared message' }));
+		release.resolve();
+		expectOk(await sending);
+
+		expect(sent).toEqual(['Prepared message']);
+		expect(document.getSnapshot().content?.body).toBe('Prepared message');
+		expectOk(await document.save());
+		expect(expectOk(await folder.tables.drafts.get(draft.id))?.body).toBe(
+			'Prepared message',
+		);
+	} finally {
+		release.resolve();
+		folder.close();
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test('close while sends wait for an attempt read and queue admission refuses both before sending', async () => {
 	const directory = await mkdtemp(join(tmpdir(), 'messages-close-queue-'));
 	const folder = expectOk(
@@ -579,7 +643,11 @@ test('close while sends wait for an attempt read and queue admission refuses bot
 	const release = Promise.withResolvers<void>();
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
-		expectOk(await folder.tables.drafts.set(draft.id, { body: 'Do not send' }));
+		expectOk(
+			await folder.tables.drafts
+				.document(draft.id)
+				.save({ body: 'Do not send' }),
+		);
 		const get = folder.tables.attempts.get;
 		folder.tables.attempts.get = async (id) => {
 			const result = await get(id);
@@ -632,15 +700,23 @@ test.each(['attempt', 'changed', 'clear'] as const)(
 		try {
 			const draft = await seedDraft(folder, backend, 'demo-maya');
 			expectOk(
-				await folder.tables.drafts.set(draft.id, { body: 'Prepared message' }),
+				await folder.tables.drafts
+					.document(draft.id)
+					.save({ body: 'Prepared message' }),
 			);
 			if (stage === 'clear') {
-				const set = folder.tables.drafts.set;
-				folder.tables.drafts.set = async (...args) => {
-					const result = await set(...args);
-					entered.resolve();
-					await release.promise;
-					return result;
+				const acquire = folder.tables.drafts.document;
+				folder.tables.drafts.document = (id) => {
+					const document = acquire(id);
+					return {
+						...document,
+						async save(change) {
+							const result = await document.save(change);
+							entered.resolve();
+							await release.promise;
+							return result;
+						},
+					};
 				};
 			} else {
 				const write = folder.files.write;
@@ -655,7 +731,9 @@ test.each(['attempt', 'changed', 'clear'] as const)(
 			await entered.promise;
 			if (stage === 'changed')
 				expectOk(
-					folder.tables.drafts.edit(draft.id).change({ body: 'Next message' }),
+					folder.tables.drafts
+						.document(draft.id)
+						.patch({ body: 'Next message' }),
 				);
 			folder.close();
 			release.resolve();
@@ -782,11 +860,13 @@ test('a failed composer clear retains accepted empty input and preserves the dur
 	try {
 		const draft = await seedDraft(folder, backend, 'demo-maya');
 		expectOk(
-			await folder.tables.drafts.set(draft.id, { body: 'Prepared reply' }),
+			await folder.tables.drafts
+				.document(draft.id)
+				.save({ body: 'Prepared reply' }),
 		);
 		refuseDrafts = true;
 		expectErr(await sendDraft(folder, draft.id, 'demo-maya', backend));
-		const snapshot = folder.tables.drafts.edit(draft.id).getSnapshot();
+		const snapshot = folder.tables.drafts.document(draft.id).getSnapshot();
 		expect(snapshot.content?.body).toBe('');
 		expect(snapshot.isDirty).toBe(true);
 		expect(snapshot.saveError?.name).toBe('StorageFailed');
@@ -815,12 +895,16 @@ test('typing as the cleared draft starts saving builds on the clear, and the sen
 		},
 	};
 	const folder = expectOk(
-		await openFolder({ directory, tables: messagesTables, saveAfterMs: 60_000 }),
+		await openFolder({
+			directory,
+			tables: messagesTables,
+			saveAfterMs: 60_000,
+		}),
 	);
 	try {
 		const draft = await seedDraft(folder, counting, 'demo-maya');
-		const edit = folder.tables.drafts.edit(draft.id);
-		expectOk(edit.change({ body: 'First reply' }));
+		const edit = folder.tables.drafts.document(draft.id);
+		expectOk(edit.patch({ body: 'First reply' }));
 		expectOk(await edit.save());
 		const path = `drafts/${draft.id}.md`;
 		// The person types the moment the clear's publication is admitted.
@@ -829,7 +913,7 @@ test('typing as the cleared draft starts saving builds on the clear, and the sen
 			if (typed || !savingPaths.includes(path)) return;
 			typed = true;
 			const body = edit.getSnapshot().content?.body ?? '';
-			expectOk(edit.change({ body: `${body}Next` }));
+			expectOk(edit.patch({ body: `${body}Next` }));
 		});
 		expectOk(await sendDraft(folder, draft.id, 'demo-maya', counting));
 		stop();
@@ -841,7 +925,9 @@ test('typing as the cleared draft starts saving builds on the clear, and the sen
 			content: { body: 'Next' },
 		});
 		expectOk(await edit.save());
-		expect(expectOk(await folder.tables.drafts.get(draft.id))?.body).toBe('Next');
+		expect(expectOk(await folder.tables.drafts.get(draft.id))?.body).toBe(
+			'Next',
+		);
 		expect(
 			expectOk(await folder.tables.attempts.get(draft.id))?.fields?.state,
 		).toBe('accepted');

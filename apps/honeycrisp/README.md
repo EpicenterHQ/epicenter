@@ -91,15 +91,17 @@ refreshes the file. Discard abandons pending local input; it does not
 cancel a publication already admitted or restore an earlier saved version.
 
 Structured and whole-file editing use one folder-owned source per path.
-`folder.tables.notes.edit(id)` interprets it as a note;
-`folder.files.edit(path)` exposes full text. `getSnapshot()` is a pure cached
+`folder.tables.notes.document(id)` interprets it as a note;
+`folder.files.document(path)` exposes full text. `getSnapshot()` is a pure cached
 read of `content`, `loadError`, `isDirty`, `isSaving`, and `saveError`.
 `content` holds exact `text` with interpreted `fields`, `body`, and `issues`.
 `issues === null` means the structured interpretation is valid.
-`change({ fields?, body? })` patches the known source; `replaceText(text)`
-replaces it completely. Svelte uses the memoized `createFileEdit(handle)`
-adapter's tracked getters, including `.content`. Observation starts the first
-read; no editor query or mirrored component content is needed. Folder-wide
+`patch({ fields?, body? })` patches acquired source; `replace(text)`
+replaces it completely, even before acquisition. Svelte uses
+`reactiveDocument(handle)` from `@epicenter/svelte/document`; its tracked
+getters, including `.content`, observe the shared source. Repeated wrapping
+reuses a passive adapter by handle; observation starts the first read, and the
+last tracking effect leaving releases its subscription; no editor query or mirrored component content is needed. Folder-wide
 save indicators read aggregate status without opening files.
 
 The rich-text view sends transactions through the neutral editor. Its own
@@ -146,11 +148,12 @@ removed only after another read finds no remaining members. This is not
 atomic: a note already moved stays moved if a later write fails, and another
 writer can move a note in after the final read.
 
-New notes and folders use `table.write`: the submitted fields and body form a
-complete document, and a failed creation leaves no deferred edit. Existing
+New notes use `folder.tables.notes.write`; folders use
+`folder.tables.folders.write`. The submitted fields and body form a complete
+document, and a failed creation leaves no deferred edit. Existing
 notes and folders use the shared working document. A list action refreshes clean source before editing, preserving pending local
-input; `table.set` then accepts the patch and publishes
-a snapshot. Typing during that publication builds on the accepted patch. A
+input; `document.save(patch)` then accepts the patch and publishes
+that exact captured content. Typing during that publication builds on the accepted patch. A
 failed publication returns its error and keeps the change available for retry.
 Lists and raw reads remain independent of editable text acquisition.
 

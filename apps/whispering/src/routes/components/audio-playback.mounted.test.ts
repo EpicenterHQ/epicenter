@@ -48,7 +48,7 @@ for (const view of ['home', 'detail', 'file'] as const) {
 		expect(app.reads).toEqual([]);
 		if (view === 'file')
 			expect(
-				context.folder.files.edit(path).getSnapshot().content,
+				context.folder.files.document(path).getSnapshot().content,
 			).toBeUndefined();
 		if (view !== 'file')
 			expect(
@@ -63,7 +63,7 @@ for (const view of ['home', 'detail', 'file'] as const) {
 		expect(app.reads).toEqual([]);
 		if (view === 'file')
 			expect(
-				context.folder.files.edit(path).getSnapshot().content,
+				context.folder.files.document(path).getSnapshot().content,
 			).toBeUndefined();
 		if (view !== 'file')
 			expect(

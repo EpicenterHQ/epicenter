@@ -22,7 +22,7 @@
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import { sweepStaleScratch } from '../directory-store.js';
-import { saveDelay } from '../edit-owner.js';
+import { saveDelay } from '../document-owner.js';
 import { OpenFolderError } from '../errors.js';
 import type { DirectoryFolderOptions, Folder } from '../folder.js';
 import { localRoot, scratchDirectory } from './directory.js';

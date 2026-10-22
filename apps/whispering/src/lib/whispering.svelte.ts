@@ -9,7 +9,7 @@
  * read are listed to edit; the rest are named, with why, for repair as text.
  *
  * Typing is never lost to a reread. Fields, body and whole text use one
- * FileEdit interface, selected through a typed table or file path. Each
+ * ReactiveDocument interface, selected through a typed table or file path. Each
  * failed save is reported. Folder saves a second after the last
  * change. The source draft remains owned by Folder after the view leaves.
  * Saves publish complete sources in call order. A failed publication keeps
@@ -31,9 +31,12 @@
 
 import { InstantString } from '@epicenter/definition';
 import type { Row } from '@epicenter/folder';
-import type { SaveFailure } from '@epicenter/folder/edits';
+import type { SaveFailure } from '@epicenter/folder/document';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
-import { createFileEdit, type FileEdit } from '@epicenter/svelte/edits';
+import {
+	type ReactiveDocument,
+	reactiveDocument,
+} from '@epicenter/svelte/document';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
@@ -443,21 +446,22 @@ export function createWhispering(context: WhisperingContext) {
 	// --- editing ---------------------------------------------------------------
 
 	/** One tracked file edit; table access also binds its read schema. */
-	function editAt(path: string): FileEdit;
-	function editAt<T extends RowTable>(
+	function documentAt(path: string): ReactiveDocument;
+	function documentAt<T extends RowTable>(
 		table: T,
 		path: string,
-	): FileEdit<WhisperingTables[T]>;
-	function editAt(tableOrPath: string, path?: string): FileEdit {
+	): ReactiveDocument<WhisperingTables[T]>;
+	function documentAt(tableOrPath: string, path?: string): ReactiveDocument {
 		const target = path ?? tableOrPath;
 		const table =
 			path === undefined ? rowTableOf(target) : (tableOrPath as RowTable);
-		if (table === undefined) return createFileEdit(folder.files.edit(target));
+		if (table === undefined)
+			return reactiveDocument(folder.files.document(target));
 		const id = rowIdOf(table, target);
 		if (id === undefined)
 			throw new Error(`${target} is not a file in the ${table} table.`);
-		return createFileEdit<WhisperingTables[RowTable]>(
-			folder.tables[table].edit(id),
+		return reactiveDocument<WhisperingTables[RowTable]>(
+			folder.tables[table].document(id),
 		);
 	}
 	// Each failed publication is told once. Its editor remains the only owner
@@ -467,7 +471,7 @@ export function createWhispering(context: WhisperingContext) {
 		for (const failure of failures) {
 			if (told.has(failure)) continue;
 			told.add(failure);
-			const edit = folder.files.edit(failure.path);
+			const edit = folder.files.document(failure.path);
 			notify({
 				path: failure.path,
 				error: failure.error,
@@ -497,7 +501,7 @@ export function createWhispering(context: WhisperingContext) {
 		if (table === undefined) return true;
 		if (asText.has(path)) return true;
 		const stem = rowIdOf(table, path) as string;
-		const edit = editAt(table, path);
+		const edit = documentAt(table, path);
 		const saved = listed(table)?.find((item) => item.id === stem);
 		const row = edit.isDirty ? edit.content : (saved ?? edit.content);
 		return row !== undefined && row.issues !== null;
@@ -701,12 +705,13 @@ export function createWhispering(context: WhisperingContext) {
 				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
 			// A Stop that finishes after context close writes no length.
 			if (context.closing) return undefined;
-			const loaded = await folder.tables.recordings.edit(id).refresh();
+			const document = folder.tables.recordings.document(id);
+			const loaded = await document.refresh();
 			// Acquiring never discards pending input; a deleted row stays deleted.
 			if (loaded.error?.name === 'Missing' || context.closing) return undefined;
 			if (loaded.error !== null)
 				return `The recording is saved, but its length could not be written: ${describeError(loaded.error)}`;
-			const { error: saveError } = await folder.tables.recordings.set(id, {
+			const { error: saveError } = await document.save({
 				fields: { durationMs: stopped.durationMs },
 			});
 			return saveError === null
@@ -937,7 +942,7 @@ export function createWhispering(context: WhisperingContext) {
 				read !== undefined &&
 				!read.paths.has(path) &&
 				!context.getStatus().unsaved.includes(path) &&
-				folder.files.edit(path).getSnapshot().content === undefined
+				folder.files.document(path).getSnapshot().content === undefined
 			)
 				return undefined;
 			return {
@@ -959,7 +964,7 @@ export function createWhispering(context: WhisperingContext) {
 				read !== undefined &&
 				!read.paths.has(path) &&
 				!context.getStatus().unsaved.includes(path) &&
-				folder.files.edit(path).getSnapshot().content === undefined
+				folder.files.document(path).getSnapshot().content === undefined
 			)
 				return undefined;
 			return {
@@ -975,7 +980,7 @@ export function createWhispering(context: WhisperingContext) {
 		// ------------------------------------------------------------------
 
 		/** The current file edit; a table argument binds typed fields and diagnostics. */
-		edit: editAt,
+		document: documentAt,
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText,
 		/** Hear each save of a file's text that failed, which the person is told. */
@@ -998,7 +1003,7 @@ export function createWhispering(context: WhisperingContext) {
 		 * undefined when no unsubmitted input was held.
 		 */
 		discard(path: string): string | undefined {
-			return folder.files.edit(path).discard();
+			return folder.files.document(path).discard();
 		},
 		/** Whether a save runs, or typing waits to be sent; read reactively. */
 		get saving() {
@@ -1026,7 +1031,7 @@ export function createWhispering(context: WhisperingContext) {
 		useForm(path: string): string | undefined {
 			const why = refused();
 			if (why !== undefined) return why;
-			const fileEdit = editAt(path);
+			const fileEdit = documentAt(path);
 			if (fileEdit.content?.issues !== null) return STILL_TEXT;
 			asText.delete(path);
 			return undefined;
@@ -1361,7 +1366,7 @@ export function createWhispering(context: WhisperingContext) {
 			)
 				return TRANSCRIPT_NAME;
 			if (taken(to)) return TAKEN;
-			const sourceEdit = folder.files.edit(path);
+			const sourceEdit = folder.files.document(path);
 			const before = sourceEdit.getSnapshot();
 			const captured = before.isDirty ? before.content : undefined;
 

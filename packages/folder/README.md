@@ -32,14 +32,14 @@ const stop = folder.onChange((change) => refresh(change.paths)); // subscribe, t
 const saved = await folder.tables.notes.write('milk', { fields: { title: 'Milk' } });
 if (saved.error !== null) return show(saved.error.message);      // publication was not confirmed
 
-// The folder's editor of one path, interpreted through the notes schema.
-const fileEdit = folder.tables.notes.edit('milk');
-const acquired = await fileEdit.refresh();
+// One shared document, interpreted through the notes schema.
+const fileDocument = folder.tables.notes.document('milk');
+const acquired = await fileDocument.refresh();
 if (acquired.error !== null) return show(acquired.error.message);
-const stopEditing = fileEdit.subscribe((snapshot) => render(snapshot)); // starts the first read
-const changed = fileEdit.change({ fields: { done: true }, body: 'Two litres\n' });
+const stopObserving = fileDocument.subscribe((snapshot) => render(snapshot)); // snapshot now; follows changes
+const changed = fileDocument.patch({ fields: { done: true }, body: 'Two litres\n' });
 if (changed.error !== null) return show(changed.error.message); // accepted in memory; autosave follows
-fileEdit.getSnapshot();              // { content, loadError, isDirty, isSaving, saveError }
+fileDocument.getSnapshot();              // { content, loadError, isDirty, isSaving, saveError }
 folder.getStatus();                  // { saving, savingPaths, storageFailure, unsaved, failures, closing }
 folder.flush();                      // submit held input now, without waiting
 folder.close();                      // release synchronously; unfinished input may be lost
@@ -56,7 +56,7 @@ folder.close();                      // release synchronously; unfinished input 
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
 | `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, saved-view types, and the pure view transform. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
 | `@epicenter/folder/documents` | Saved Markdown documents with optional schema diagnostics, including root and nested paths. | Generic file, grid, board, or SQL interpretation. |
-| `@epicenter/folder/edits` | The vocabulary of the editors over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#editors)): `FileEdit`, `EditorSnapshot`, `MarkdownContent`, `DocumentChange`, `LoadError`, `ChangeError`, `SaveRefusal`, `ActionError`, `SaveFailure`, `SAVE_AFTER_MS`. Opens nothing. | Code that names those types. |
+| `@epicenter/folder/document` | Live document vocabulary for `folder.tables.<name>.document(id)` and `folder.files.document(path)` ([working documents](#working-documents)): `FileDocument`, `DocumentSnapshot`, `MarkdownContent`, `DocumentPatch`, `LoadError`, `ChangeError`, `ActionError`, `SaveFailure`, `SAVE_AFTER_MS`. Opens nothing. | Code that names those types. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
 type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
@@ -87,12 +87,12 @@ the saved files.
 
 | Member | Contract |
 | --- | --- |
-| `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, content)`; `delete(path)`; `edit(path, schema?)`, the path's editor. |
-| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, change)`, `write(id, document)`, `delete(id)`, and `edit(id)`, the path's editor through the table schema. Adjacent files are available through `folder.files`. |
+| `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, content)`; `delete(path)`; `document(path, schema?)`, a handle to the path's working source. |
+| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `write(id, document)`, `delete(id)`, and `document(id)`, a handle to the path's working source through the table schema. Adjacent files are available through `folder.files`. |
 | `onChange(listener)` | Runs after a write commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A write of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
-| `getStatus()`, `onStatusChange(listener)` | `{ saving, savingPaths, storageFailure, unsaved, failures, closing }`: whether writes or deletes are unsettled, and their paths; the last storage failure; the paths holding accepted input; held input whose last publication failed, as `{ path, error }`; whether close was called. The text lives in the editor snapshot. |
+| `getStatus()`, `onStatusChange(listener)` | `{ saving, savingPaths, storageFailure, unsaved, failures, closing }`: whether writes or deletes are unsettled, and their paths; the last storage failure; the paths holding accepted input; held input whose last publication failed, as `{ path, error }`; whether close was called. The text lives in the document snapshot. |
 | `flush()` | Best-effort submission of held input no admitted command owns, failed input included. Returns nothing and does not wait. |
-| `close()` | Synchronously refuses new work, stops autosave, and releases listeners and storage. Submits no held input and waits for no writes. Returns nothing; repeated calls do nothing. Editors stay readable. |
+| `close()` | Synchronously refuses new work, stops autosave, and releases listeners and storage. Submits no held input and waits for no writes. Returns nothing; repeated calls do nothing. Documents stay readable. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
 saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
@@ -100,7 +100,7 @@ number of milliseconds from 0 up; any other value throws a `RangeError`
 before anything opens.
 
 The writes and deletes of one path through one handle run one at a time, in
-call order, direct ones and editors' alike; writes of different paths run
+call order, direct ones and documents' alike; writes of different paths run
 side by side.
 
 Await the actual write or editor save you started when you need durable bytes.
@@ -148,13 +148,14 @@ from, and the last one to land wins.
   byte-order mark; a byte array is copied when the method is called.
 - `files.delete(path)` removes the file. A file that is not there is
   already deleted, which is success.
-- `tables.<name>.set(id, { fields?, body? })` changes the acquired working
-  document immediately and publishes its exact captured text. It returns
-  `Result<Row, ChangeError | SaveError>`: `NoContent` refuses before acquisition;
-  accepted patches remain pending with `saveError` after publication fails.
-  `undefined` removes a field; `body` replaces the body. Later typing builds on
-  the accepted patch. A field edit of broken frontmatter is `InvalidFields`;
-  a body edit can still land. The schema never refuses a save.
+- `tables.<name>.document(id).save({ fields?, body? })` patches acquired
+  working text and publishes its exact captured content. Its awaited result is
+  `Result<MarkdownContent<Schema>, ChangeError | SaveError>`: `NoContent`
+  refuses before acquisition; accepted patches remain pending with `saveError`
+  after publication fails. `undefined` removes a field; `body` replaces the
+  body. Later typing builds on the accepted patch. A field edit of broken
+  frontmatter is `InvalidFields`; a body edit can still land. The schema
+  never refuses a save.
 - `tables.<name>.write(id, { fields?, body? })` publishes a complete new row,
   creating or replacing the file unconditionally. Omitted fields and body are
   empty, and the id must be nonempty. It returns `Result<Row, SaveError>` with the exact published row and
@@ -162,7 +163,7 @@ from, and the last one to land wins.
   keep the same chosen id for retry. It has no create-only or conflict guard.
 - `tables.<name>.delete(id)` removes only the row file. Adjacent files stay.
 
-Every write and delete of a path through one handle, the editors' included,
+Every write and delete of a path through one handle, document saves included,
 runs in one lane in call order, and each reports its own outcome; writes of
 different paths run side by side. Sync and history keep their own
 conditional publication (`write.ts`, `git/history.ts`), which merges by the
@@ -171,8 +172,8 @@ shared content rules (`shared/merge.ts`, ADR-0622).
 A raw write, row `write`, or delete acknowledges only the input it captured,
 after success. Failure leaves that original input held and never accepts the
 replacement payload as input; an interrupted autosave resumes with the original
-input. A row `set` shares the editor's input workflow: it accepts its patch,
-captures it, and admits publication before observers can change the document.
+input. A document `save(input)` accepts its input, captures its interpreted
+content, and admits publication before observers can change the document.
 Success confirms that exact snapshot, even if newer input is already pending.
 Failure retains the accepted patch for explicit save or flush, without an
 unbounded automatic retry.
@@ -192,29 +193,39 @@ successful write on this handle. `status.saving` is true while any write or
 delete is admitted and not settled. Structural refusals are the caller's to
 show, not status.
 
-### Editors
+### Working documents
 
-The opened folder owns one source per path for its whole life.
-`folder.files.edit(path, schema?)` and `folder.tables.notes.edit(id)` return
-an editor of it; a table binds its schema, and `tables.notes.edit(id)` is
-the same editor as `files.edit('notes/<id>.md', notesSchema)`. Acquiring one
-is synchronous and reads nothing. The same path and schema answer the same
-editor; every schema views the same source.
+The opened Folder owns one working source and one command lane per path for
+its whole lifetime. `folder.files.document(path, schema?)` and
+`folder.tables.notes.document(id)` return stable `FileDocument` handles to it.
+A table binds its schema: `tables.notes.document(id)` is the same handle as
+`files.document('notes/<id>.md', notesSchema)`. Repeated calls with the same path
+and schema return that handle. Different schemas interpret the same source.
+Obtaining a handle performs no I/O and installs no listeners.
+
+`folder.files.document(path)` and `folder.tables.notes.document(id)` synchronously throw `RangeError`
+for structurally unreadable addresses, before creating document state. A table
+ID names one row stem: `folder.tables.notes.document('a/b')` is refused; use
+`files.document('notes/a/b.md')` for that nested path. The check does not inspect
+storage or enforce portability for a new name. Legacy IDs such as `''` and
+`'a: b'` remain addressable; saving applies the existing publication rules.
 
 ```ts
-const edit = folder.tables.notes.edit(id);
-const stop = edit.subscribe((snapshot) => render(snapshot)); // called now, and on each change
-const { content, loadError, isDirty, isSaving, saveError } = edit.getSnapshot();
+const document = folder.tables.notes.document(id);
+const stop = document.subscribe((snapshot) => render(snapshot)); // snapshot now, then changes
+const { content, loadError, isDirty, isSaving, saveError } = document.getSnapshot();
 // content: { text, body, fields, issues } | undefined
-const changed = edit.change({ fields: { done: true }, body: 'Two litres\n' });
-if (changed.error !== null) return show(changed.error.message);
-const saved = await edit.save(); // or wait saveAfterMs after the last change
+const acquired = await document.refresh();
+if (acquired.error !== null) return show(acquired.error.message);
+const saved = await document.save({ fields: { done: true }, body: 'Two litres\n' });
 if (saved.error !== null) return show(saved.error.message);
-const dropped = edit.discard(); // the text dropped, if any; writes nothing
+renderPublished(saved.data); // exact captured Markdown content, without a row id
+const dropped = document.discard(); // the text dropped, if any; writes nothing
+stop(); // stop this observation; the folder retains the source and accepted work
 ```
 
 ```ts
-type EditorSnapshot<Schema> = {
+type DocumentSnapshot<Schema> = {
   content: MarkdownContent<Schema> | undefined;
   loadError: LoadError | undefined; // Missing | NotText | ReadFailed
   isDirty: boolean;
@@ -226,66 +237,94 @@ type EditorSnapshot<Schema> = {
 `getSnapshot()` is pure and cached: it reads nothing, and answers the same
 frozen object until something in it changes. `subscribe(listener)` calls the
 listener with the current snapshot at once, then with each new one, and the
-first subscription reads the file when nothing has been read yet or it
-changed while nobody watched. Unsubscribing cancels no accepted work.
+first subscription establishes read demand when nothing has been read yet or
+the source was invalidated while nobody watched. Each subscriber owns its own
+observation. The last unsubscribe stops further read demand after any ongoing
+read, while the Folder retains acquired text, input, timers, saves, and failures.
+There is no per-component document session to close.
+
 `refresh()` reads after the path's admitted writes and answers
 `Result<void, LoadError>` with what the first read to start after the call
 found; a read already running never answers it, and a file that keeps
 changing cannot hold it off. A read overtaken by a newer change still shows
 its text when that is newer than anything installed, superseding an older
-`loadError`, and subscribed editors read again until one applies. If the folder closes before a refresh answers, it reports `ReadFailed`
+`loadError`, and subscribed documents read again until one applies. If the folder closes before a refresh answers, it reports `ReadFailed`
 when its pending I/O returns. Close neither waits for nor cancels that I/O.
 
 `content` is the latest accepted input, or the last text read. Its `text` is
 the exact source; `fields`, `body` and `issues` interpret it through the
-editor's schema, with `issues === null` proving valid typed fields. Absent
+document's schema, with `issues === null` proving valid typed fields. Absent
 content with no `loadError` means text is awaited; absent with a `loadError`,
 acquisition failed. Once acquired, text stays for the folder's life: after
 unmounting, a delete, a binary replacement, or a failed read, each reported
 as the latest `loadError`. A successful text read clears it; input does not.
 
 Lists, row gets, and raw file reads return stored data without acquiring or
-updating working documents. Only an editor's own read or a successful command
-of this handle updates its known text. Each visible editor therefore reads its
-path on first subscription, even after a list returned the row. Acquire and
-await `edit.refresh()` before a one-off `set` on an unopened row or an inactive
-clean editor: retained text may be stale even when present. Refresh preserves
-dirty input. Keep a subscribed editor for interactive use. Fresh list rows take
+updating working documents. Only a document's own read or a successful command
+of this handle updates its known text. A subscription acquires an unknown or
+invalidated source even if a list already returned the row. Await
+`document.refresh()` before a one-off patch on an unopened row or an inactive
+clean document: retained text may be stale even when present. Refresh preserves
+dirty input. Keep a subscription for interactive use. Fresh list rows take
 precedence over clean inactive snapshots; only dirty input overrides them.
 
-`replaceText(text)` accepts complete source, even before the first read.
-`change({ fields?, body? })` patches the current text, local or read, and
-refuses with `NoContent` before there is any, or `InvalidFields` when it
+Use separate commands for complete source and structured patches:
+
+```ts
+document.replace(completeSource);
+document.patch({ fields: { title: 'Milk' }, body: 'Two litres\n' });
+```
+
+`replace(text)` accepts complete source, even before the first read.
+`patch({ fields?, body? })` applies a `DocumentPatch<Schema>` to acquired text.
+It refuses with `NoContent` before there is text, or `InvalidFields` when it
 cannot identify the region (fields of broken frontmatter). Both return
-`Result<void, ChangeError>` for acceptance into memory. Invalid text (NUL or
-unpaired surrogates) refuses before acceptance. Callers show these immediate
-refusals at the input boundary; they do not become `loadError` or `saveError`.
-The same text again changes nothing. With no opening fence, the entire source
-is body with empty fields
+synchronous `Result<void, ChangeError>` for acceptance into memory and start
+autosave. Invalid text (NUL or unpaired surrogates) refuses before acceptance.
+Show immediate refusals at the input boundary; they do not become `loadError`
+or `saveError`. Repeating unchanged text does not replace accepted input.
+With no opening fence, the entire source is body with empty fields
 ([ADR-0665](../../docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md));
 adding a field creates a fence.
+
+`save(input?)` accepts a complete source string or a structured patch. With
+input, it applies that input synchronously, captures immutable interpreted
+content, and admits publication before notifying observers. It returns
+`Promise<Result<MarkdownContent<Schema>, ChangeError | SaveError>>`. Success
+returns the captured publication's exact content, even if later typing or a
+reentrant observer has changed the working document. It does not return a row
+ID or reread the latest snapshot. Use `save(text)` for an atomic full-source
+action and `save(patch)` for an atomic structured action. Without input,
+`save()` publishes current content, even when clean, or retries held input.
+It refuses with `ChangeError.NoContent` without text and `ChangeError.Closing`
+after close.
+
+When a control needs synchronous acceptance feedback, call `replace(text)` or
+`patch(patch)`, check its Result, and then `void document.save()` to publish
+the then-current source. This permits an action such as clearing a form after
+acceptance. Use `save(input)` when the action needs the exact version captured
+with that input.
 
 `isDirty` is accepted input that no publication or delete has acknowledged
 yet; it is never inferred from comparing with storage. Only accepted input
 saves automatically, `saveAfterMs` after the last change. Reads, listings,
-and reported outside changes never write. `save()` publishes the exact
-current text even when clean, and answers that publication's outcome, or
-`SaveRefusal.NoContent` without text. `isSaving` is true while text
+and reported outside changes never write. `isSaving` is true while text
 publications of the path are admitted and not settled; deletes do not count.
 
 A save-only indicator observes `folder.getStatus()` through `onStatusChange`,
-or the Svelte context's reactive `getStatus()`, without subscribing to an editor.
+or the Svelte context's reactive `getStatus()`, without subscribing to a document.
 `savingPaths` lists paths with queued or running writes or deletes; `saving`
 is whether that list is nonempty. `unsaved` lists accepted input awaiting
 acknowledgement, and `failures` lists held input whose save failed and is not
 being retried. Filter each by path for a per-file label. These reads start no
-file I/O. An editor subscription, including tracking any Svelte editor getter,
+file I/O. A document subscription, including tracking any Svelte adapter getter,
 demands content and is appropriate for an editing view.
 
 Status is a read-only projection of the existing command lanes and held input.
 `savingPaths` is derived from those lanes, not maintained as a second registry.
 No caller registers a path for a save indicator or keeps its list in sync.
-The edit owner builds one cached `FolderStatus` and notifies its status readers;
+The document owner builds one cached `FolderStatus` and notifies its status
+readers;
 the handle exposes that same snapshot. There is no intermediate aggregate or
 second status cache. Unchanged save metadata retains snapshot identity, even
 when the text changes. The Svelte context adds subscription tracking to the
@@ -302,7 +341,7 @@ forgets the failure, writes nothing, and cancels no admitted publication;
 a publication admitted before it cannot bring its failure back.
 
 `folder.files.delete(path)` and `tables.<name>.delete(id)` capture the
-editor's current input and defer its pending automatic save, never blocking
+document's current input and defer its pending automatic save, never blocking
 new input. Success acknowledges only that captured input, which stays held as
 the content; newer input saves afterwards and recreates the path. Failure
 leaves pending input pending and resumes its automatic save while open. After
@@ -312,35 +351,38 @@ an earlier publication already acknowledged never becomes dirty again.
 `folder.flush()` submits held input no admitted command owns, failed input
 included, without waiting. Editing stays open. `getStatus().failures` exposes
 immutable in-session `SaveFailure` values, `{ path, error }`. Copyable text
-lives in the editor snapshot.
+lives in the document snapshot.
 
 `folder.close()` synchronously refuses new work, stops autosave, publishes
 `closing: true` once, and releases listeners and storage. It neither submits
 held input nor waits for admitted commands. Those commands may finish or fail
-and keep their own Results. Editors stay readable; subscribing after close
+and keep their own Results. Documents stay readable; subscribing after close
 reports the current snapshot once without reading or registering a listener.
-Editor `save()` refuses with `SaveRefusal.Closed`.
+Document `save()` refuses with `ChangeError.Closing`.
 
 Await the actual write or save you started when durable bytes are required.
 Confirmed departure accepts losing unfinished work. Application workflows
 waiting on reads, network requests, or other tasks do not keep storage open;
 apps refuse new work and late results through their own closing state.
 
-Editors learn of outside changes through folder-wide storage hints: browser
+Documents learn of outside changes through folder-wide storage hints: browser
 broadcasts, native directory watching, and sync. Hints identify affected paths
 or any path, never publication receipts. The owner reads subscribed sources;
 inactive acquired sources reread when subscribed again. Directory hints include
 descendants. Receiving a hint never causes a write.
 
-`folder.refresh(paths?)` reconciles current editor readers and marks inactive
+`folder.refresh(paths?)` reconciles current document readers and marks inactive
 sources stale. Omitted paths mean all, `[]` means none. Manual refresh and window
 visibility reconciliation complement best-effort notifications without polling.
-Table and raw file reads leave working documents untouched. Visible editor
+Table and raw file reads leave working documents untouched. Document
 subscriptions acquire their own source; save-status readers acquire no content.
 
-Svelte's `createFileEdit(edit)` exposes the snapshot as tracked getters;
-React's `useFileEdit(edit)` answers the snapshot through
-`useSyncExternalStore`. Commands stay on the editor.
+Svelte's `reactiveDocument(document)` from `@epicenter/svelte/document` exposes
+the snapshot as tracked getters. React's `useDocument(document)` from
+`@epicenter/react/document` reads the cached snapshot through
+`useSyncExternalStore`. Each view observes the Folder-owned document; commands
+stay on the handle.
+
 ## Browser storage
 
 A browser origin has one default local folder, kept in IndexedDB by the
@@ -484,10 +526,9 @@ views. Assignments replace the current target without a source precondition.
 Malformed containers, duplicate keys, and numeric values that cannot round-trip
 are refused with the source still available for repair.
 
-A caller reads its current `folder.files.edit('epicenter.json')` content, applies
-the transform, and calls `replaceText` followed immediately by `save`, without an
-await between these steps. The file editor owns the composed input, failures,
-and publication order alongside raw Files edits. There is no separate saved-view
+A caller reads its current `folder.files.document('epicenter.json')` content,
+applies the transform, and calls `save(transformedSource)`. The
+document owns the composed input, failures, and publication order alongside raw Files edits. There is no separate saved-view
 writer or native storage capability. A first explicit save can create a source
 containing only `views` after the editor reports the path missing. Opening and
 browsing write nothing.
@@ -624,7 +665,7 @@ neither loads until a folder is opened. No engine carries isomorphic-git.
 | `src/check-folder.ts`, `query-folder.ts`, `read-folder.ts`, `projection.ts`, `declaration.ts`, `definition.ts`, `row-text.ts`, `generate-declaration.ts` | The CLI's readers of `epicenter.json`; `row-text.ts` uses the shared row codec. |
 | `src/git/`, `history-wire.ts`, `write.ts` | Shared Git object and tree rules, the directory history engine `runHistory` runs, and the one write its Sync publishes through. |
 | `src/file-browser.ts` | File-browser helpers. |
-| `src/edit-owner.ts`, `edits.ts` | The owner of typed row, text and field input over one handle for its whole life, and the vocabulary entry. |
+| `src/document-owner.ts`, `document.ts` | The owner of typed row, text and field input over one handle for its whole life, and the vocabulary entry. |
 | `evidence/` | Bundle and dependency-closure tests, and recorded browser-engine experiments. |
 | `smoke/` | Browser smoke runs of the IndexedDB engine (`bun run smoke:local`, `bun run smoke:sync:local`). |
 
@@ -650,5 +691,5 @@ Git lab development commands; neither is in the package's exports.
 Browser data reaches a disk tool through synchronization or export, not
 through an IndexedDB key. Each save changes one file; there is no multi-file
 transaction, so a caller that keeps a row beside a media file saves the media
-first. A Bun folder hears no other program's edits. File bytes cross the
+first. Directory change hints are best effort. File bytes cross the
 desktop bridge whole. Older OPFS folders are not read by the current opener.

@@ -8,7 +8,7 @@
  * Plain module: a store imports it without loading Svelte components.
  */
 import type { SaveError } from '@epicenter/folder';
-import type { ActionError } from '@epicenter/folder/edits';
+import type { ActionError } from '@epicenter/folder/document';
 
 /** The errors `describeWriteError` words by name. */
 export type DescribedError = SaveError | ActionError;

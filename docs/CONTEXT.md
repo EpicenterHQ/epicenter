@@ -148,15 +148,20 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | Transaction or publication | Atomic storage work that acknowledges local state. This publication is unrelated to the retired app-owned schema publication. |
 | Cache | Data rebuilt without losing saved work. Unsent edits and uncertain pending commits are not caches. |
 
-File writes and editor saves publish a complete file unconditionally. Public
-`files.write(path, content)` and `tables.<name>.set(id, change)` take no observed
-source argument. Table changes preserve the current held source, including
-unknown fields, before publication. This makes no merge promise against outside
-writers. Git sync retains its separate three-way merge and conditional storage
-publication rules.
+File writes and document saves publish a complete file unconditionally.
+`files.write(path, content)` submits complete content; `folder.tables.notes.write(id, document)`
+does the same for a row without accepting pending input on failure.
+`folder.tables.notes.document(id).save(input)` accepts local input and admits its captured
+publication before notifying observers. A structured patch preserves unrelated
+source, including unknown fields. None of these operations makes a merge
+promise against outside writers. Git sync retains its separate three-way merge
+and conditional storage publication rules.
 
-One `FileEdit` source belongs to the folder for each path. Schema-bound views
-interpret that same source. `getSnapshot()` returns cached content, `loadError`,
+One working source belongs to the folder for each path. Stable `FileDocument`
+handles interpret that source through their schemas. `document()` is passive;
+subscriptions or explicit refresh acquire content. `replace(text)` replaces
+source, while `patch({ fields?, body? })` patches acquired source; both accept
+input synchronously and schedule autosave. `getSnapshot()` returns cached content, `loadError`,
 `isDirty`, `isSaving`, and `saveError`. Dirty means accepted publication intent;
 saving means admitted unsettled text publications. Both may be true. A save
 captures current text at the call and resolves for that publication, even if
@@ -164,7 +169,7 @@ newer input arrives. Reads never replace pending local input and never cause
 writes. All acquired text remains available through unmounts, deletion, binary
 replacement, and failed refresh, until the folder closes. Explicit local input
 can recreate a missing file. Holding text in memory does not provide crash
-recovery. See [Folder editing](../packages/folder/README.md#editors).
+recovery. See [Working documents](../packages/folder/README.md#working-documents).
 
 During sync, the same merge roles describe a base tree, the fetched remote
 tree, and the local tree being merged. These are roles in Epicenter's merge, not Git's

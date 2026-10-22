@@ -8,7 +8,7 @@
 	import * as Table from '@epicenter/ui/table';
 	import * as Alert from '@epicenter/ui/alert';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { applyView, boardLanes } from './view';
 	import TableControls from './TableControls.svelte';
 	import type { TableView } from './views.svelte';
@@ -67,7 +67,7 @@
 	// Query structural sharing retains equal portable schema identities across refreshes.
 	const edits = $derived(documents.map((doc) => ({
 		doc,
-		fileEdit: createFileEdit(folder.files.edit(doc.path, tableFor(doc.path))),
+		fileEdit: reactiveDocument(folder.files.document(doc.path, tableFor(doc.path))),
 	})));
 	const rows = $derived(
 		edits.map(({ doc, fileEdit }) => {
@@ -110,7 +110,7 @@
 						: newValue;
 		if (newKind === 'number' && (newValue === '' || !Number.isFinite(value)))
 			return;
-		toastOnError(row.fileEdit.change({ fields: { [view.groupBy]: value } }), 'That change was not made');
+		toastOnError(row.fileEdit.patch({ fields: { [view.groupBy]: value } }), 'That change was not made');
 	}
 	function tableSchema() {
 		return Object.hasOwn(reading.data?.tables ?? {}, directory)
@@ -279,7 +279,7 @@
 												view.type === 'board' &&
 												destination?.editable
 											)
-												toastOnError(row.fileEdit.change({ fields: {
+												toastOnError(row.fileEdit.patch({ fields: {
 													[view.groupBy]: destination.value,
 												} }), 'That change was not made');
 										}}
@@ -407,7 +407,7 @@
 											disabled={!canEdit}
 											bind:checked={
 												() => fieldValue(shown.fields, column) === true,
-												(value) => toastOnError(fileEdit.change({ fields: { [column]: value } }), 'That change was not made')
+												(value) => toastOnError(fileEdit.patch({ fields: { [column]: value } }), 'That change was not made')
 											}
 										/>
 									{:else if kind === 'string' || kind === 'number' || kind === 'integer'}
@@ -427,7 +427,7 @@
 															!Number.isFinite(Number(value)))
 													)
 														return;
-													toastOnError(fileEdit.change({ fields: {
+													toastOnError(fileEdit.patch({ fields: {
 														[column]:
 															kind === 'number' || kind === 'integer'
 																? Number(value)

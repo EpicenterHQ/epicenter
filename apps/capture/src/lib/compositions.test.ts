@@ -55,9 +55,9 @@ async function setup(drafts: Record<string, string>) {
 
 /** The draft `stem`, read, with `raw` typed over it. */
 async function typeInto(t: CapturesHarness, stem: string, raw: string) {
-	const edit = t.folder.tables.captures.edit(stem);
+	const edit = t.folder.tables.captures.document(stem);
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: raw }));
+	expectOk(edit.patch({ body: raw }));
 	return { stem, path: `captures/${stem}.md`, edit };
 }
 
@@ -165,7 +165,7 @@ test('failed autosave keeps raw input and deletion removes it without a save req
 
 test('a failed promotion retains finalized input for explicit retry without appending Thoughts twice', async () => {
 	const t = await setup({ one: 'Still composing\n' });
-	const edit = t.folder.tables.captures.edit('one');
+	const edit = t.folder.tables.captures.document('one');
 	expectOk(await edit.refresh());
 	const restore = t.failSaves();
 	expect(expectErr(await t.captures.finishDraft('one')).name).toBe(
@@ -212,7 +212,7 @@ test('close may fail an admitted finish and refuses new input', async () => {
 	);
 	const finishing = t.captures.finishDraft(stem);
 	const closing = t.context.close();
-	expectErr(edit.change({ body: 'Late input' }));
+	expectErr(edit.patch({ body: 'Late input' }));
 	expect(expectErr(await finishing).name).toBe('StorageFailed');
 	expect(closing).toBeUndefined();
 	expect(await t.text(path)).toContain('draft: true');
@@ -224,20 +224,20 @@ test('finishing refuses currently acquired invalid source', async () => {
 		'captures/one.md',
 		'---\ncapturedAt: broken\ndraft: true\n---\nRaw text',
 	);
-	expectOk(await t.folder.tables.captures.edit('one').refresh());
+	expectOk(await t.folder.tables.captures.document('one').refresh());
 	expect(expectErr(await t.captures.finishDraft('one')).name).toBe('Refused');
 	expect(await t.text('captures/one.md')).toContain('draft: true');
 });
 
 test("another tab's finish preserves held input and a later save replaces the complete file", async () => {
 	const t = await setup({ one: 'Before' });
-	const edit = t.folder.tables.captures.edit('one');
+	const edit = t.folder.tables.captures.document('one');
 	expectOk(await edit.refresh());
 	const other = expectOk(await openFolder({ tables: captureTables }));
 	const otherContext = createFolderContext(other);
 	cleanup.push(() => otherContext.close());
 	const otherCaptures = createCaptures(otherContext);
-	expectOk(edit.replaceText(draftFile('Typed here')));
+	expectOk(edit.replace(draftFile('Typed here')));
 	const held = edit.getSnapshot().content?.text;
 	expectOk(await otherCaptures.finishDraft('one'));
 	const finished = await t.text('captures/one.md');
@@ -254,7 +254,7 @@ test("another tab's finish preserves held input and a later save replaces the co
 
 test('finishing refreshes a clean inactive draft before composing it', async () => {
 	const t = await setup({ one: 'Earlier writing' });
-	expectOk(await t.folder.tables.captures.edit('one').refresh());
+	expectOk(await t.folder.tables.captures.document('one').refresh());
 	await t.writeElsewhere('captures/one.md', draftFile('Outside writing'));
 	expectOk(await t.captures.finishDraft('one'));
 	expect(await t.text('captures/one.md')).toContain('Outside writing');
@@ -263,7 +263,7 @@ test('finishing refreshes a clean inactive draft before composing it', async () 
 
 test('typing as Add starts saving builds on the finished capture, never the draft', async () => {
 	const t = await setup({ one: 'Hello' });
-	const edit = t.folder.tables.captures.edit('one');
+	const edit = t.folder.tables.captures.document('one');
 	expectOk(await edit.refresh());
 	const path = 'captures/one.md';
 	// The person types the moment Add's publication is admitted.
@@ -272,7 +272,7 @@ test('typing as Add starts saving builds on the finished capture, never the draf
 		if (typed || !savingPaths.includes(path)) return;
 		typed = true;
 		const text = edit.getSnapshot().content?.text ?? '';
-		expectOk(edit.replaceText(`${text}- typed while adding\n`));
+		expectOk(edit.replace(`${text}- typed while adding\n`));
 	});
 	expectOk(await t.captures.finishDraft('one'));
 	stop();
@@ -280,7 +280,9 @@ test('typing as Add starts saving builds on the finished capture, never the draf
 	const working = edit.getSnapshot();
 	expect(working.isDirty).toBe(true);
 	expect(working.content?.fields?.draft).toBeUndefined();
-	expect(working.content?.text).toContain('## Thoughts\n- typed while adding\n');
+	expect(working.content?.text).toContain(
+		'## Thoughts\n- typed while adding\n',
+	);
 	expectOk(await edit.save());
 	const row = expectOk(await t.folder.tables.captures.get('one'));
 	expect(row?.fields?.draft).toBeUndefined();

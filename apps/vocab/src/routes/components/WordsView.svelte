@@ -33,7 +33,7 @@
 	const listing = createQuery(() => entries.entriesQuery());
 	// Membership comes from the listing; interpretation follows each path's current edit.
 	const currentRows = $derived((listing.data ?? []).map((listed): EntryRows[number] => {
-		const markdown = entries.edit(listed.id).content;
+		const markdown = entries.document(listed.id).content;
 		if (markdown === undefined) return listed;
 		return markdown.issues === null
 			? { id: listed.id, ...markdown }
@@ -137,7 +137,7 @@
 			<!-- Typing that did not save for a word no longer listed as one: kept to copy until the learner lets it go. -->
 			<section class="space-y-3 rounded-lg border border-destructive/50 p-3 text-xs" aria-label="Unsaved changes">
 				{#each orphaned as draft (draft.path)}
-					{@const held = entries.edit(draft.path.slice('entries/'.length, -'.md'.length))}
+					{@const held = entries.document(draft.path.slice('entries/'.length, -'.md'.length))}
 					{@const saving = held.isSaving}
 					{@const content = held.content}
 					{#if content}

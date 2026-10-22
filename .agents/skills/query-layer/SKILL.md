@@ -166,9 +166,14 @@ const saveVersion = createMutation(() => store.saveVersion.options);
 const deleteTodo  = createMutation(() => store.deleteTodo.options);
 ```
 
-A folder app's writes and typed text go through its edit layer
-(`@epicenter/svelte/edits`), not through TanStack mutations; an app action
-over it, such as Save version, is a mutation like any other.
+A folder app edits accepted file content through Folder-owned working
+documents, observed with `reactiveDocument(handle)` from
+`@epicenter/svelte/document`. Keep document commands outside TanStack mutations;
+an app action over them, such as Save version, is a mutation like any other.
+Accept complete source with `replace(text)` and acquired fields/body with
+`patch(patch)`. Use `save(textOrPatch?)` when acceptance and publication must
+capture one exact input; keep synchronous acceptance followed by `void save()`
+when a control must clear its own form immediately.
 
 A query holds a value, so `todos.data` reads as the data. A mutation performs
 an action, so `deleteTodo.mutate(...)` reads as the action, and the handle

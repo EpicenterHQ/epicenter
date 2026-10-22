@@ -78,15 +78,14 @@ type Hooks = {
 async function open(options: TestServicesOptions = {}) {
 	const test = await openTestServices(options);
 	const hooks: Hooks = {};
-	const { tables } = test.folder;
-	const textRuns = tables.text_runs;
+	const list = test.folder.tables.text_runs.list;
 	const { whispering, context } = await openTestWhispering({
 		services: test.services,
 		folder: replaceTables(test.folder, {
 			text_runs: {
-				...textRuns,
+				...test.folder.tables.text_runs,
 				async list() {
-					return (await hooks.list?.()) ?? textRuns.list();
+					return (await hooks.list?.()) ?? list();
 				},
 			},
 		}),

@@ -105,17 +105,17 @@ test('saved words stay shown when the reread fails, and typing on keeps them', a
 	});
 	type(input(), 'Committed words');
 	flushSync();
-	await notes.folder.files.edit('draft.txt').save();
+	await notes.folder.files.document('draft.txt').save();
 	await local.refresh(['draft.txt']);
 	flushSync();
-	expect(folder.files.edit('draft.txt').getSnapshot().isDirty).toBe(false);
+	expect(folder.files.document('draft.txt').getSnapshot().isDirty).toBe(false);
 	expect(await text('draft.txt')).toBe('Committed words');
 	expect(input()?.value).toBe('Committed words');
 	expect(input()?.readOnly).toBe(false);
 
 	type(input(), 'Committed words, and more');
 	flushSync();
-	await notes.folder.files.edit('draft.txt').save();
+	await notes.folder.files.document('draft.txt').save();
 	expect(await text('draft.txt')).toBe('Committed words, and more');
 	folder.files.read = read;
 	await local.refresh(['draft.txt']);
@@ -128,7 +128,7 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	type(input(), 'Keep this unsaved text');
 	flushSync();
 	failSaves();
-	await notes.folder.files.edit('draft.txt').save();
+	await notes.folder.files.document('draft.txt').save();
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
 	failSaves(false);
@@ -139,9 +139,9 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	await local.refresh(['draft.txt']);
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
-	expect(notes.folder.files.edit('draft.txt').getSnapshot().content?.text).toBe(
-		'Keep this unsaved text',
-	);
+	expect(
+		notes.folder.files.document('draft.txt').getSnapshot().content?.text,
+	).toBe('Keep this unsaved text');
 });
 
 test('failed row changes remain editable after deletion and Save again recreates the file', async () => {
@@ -149,10 +149,10 @@ test('failed row changes remain editable after deletion and Save again recreates
 	const { notes, folder, otherTab, failSaves, local, target, text } =
 		await open(path, noteText());
 	notes.folder.tables.notes
-		.edit(path.slice('notes/'.length, -3))
-		.change({ body: 'Keep my row changes\n' });
+		.document(path.slice('notes/'.length, -3))
+		.patch({ body: 'Keep my row changes\n' });
 	failSaves();
-	await folder.files.edit(path).save();
+	await folder.files.document(path).save();
 	failSaves(false);
 	const other = await otherTab();
 	const stored = expectOk(await other.files.read(path));
@@ -161,14 +161,14 @@ test('failed row changes remain editable after deletion and Save again recreates
 	await local.refresh([path]);
 	await until(() => {
 		flushSync();
-		return isMissing(folder.files.edit(path));
+		return isMissing(folder.files.document(path));
 	}, 'the missing note');
 	expect(inputForRecovery(target)).toContain('Keep my row changes');
 	expect(target.textContent).toContain('Save again');
 	expect(target.textContent).toContain('Discard changes');
 	click(target, 'Save again');
 	await until(
-		() => folder.files.edit(path).getSnapshot().isDirty === false,
+		() => folder.files.document(path).getSnapshot().isDirty === false,
 		'the explicit retry',
 	);
 	expect(await text(path)).toContain('Keep my row changes');
@@ -179,10 +179,10 @@ test('pending fields remain editable after broken stored source and Save again r
 	const { notes, folder, otherTab, failSaves, local, target, input, text } =
 		await open(path, noteText());
 	notes.folder.tables.notes
-		.edit(path.slice('notes/'.length, -3))
-		.change({ fields: { title: 'Keep this title' } });
+		.document(path.slice('notes/'.length, -3))
+		.patch({ fields: { title: 'Keep this title' } });
 	failSaves();
-	await folder.files.edit(path).save();
+	await folder.files.document(path).save();
 	failSaves(false);
 	const other = await otherTab();
 	const before = await text(path);
@@ -202,7 +202,7 @@ test('pending fields remain editable after broken stored source and Save again r
 	).toHaveLength(1);
 	click(target, 'Save again');
 	await until(
-		() => folder.files.edit(path).getSnapshot().isDirty === false,
+		() => folder.files.document(path).getSnapshot().isDirty === false,
 		'the explicit source replacement',
 	);
 	expect(await text(path)).toContain('Keep this title');
@@ -222,7 +222,9 @@ test.each(['missing', 'binary'] as const)(
 			expectOk(await other.files.write('draft.txt', new Uint8Array([0, 1, 2])));
 		await local.refresh(['draft.txt']);
 		flushSync();
-		expect(folder.files.edit('draft.txt').getSnapshot().isDirty).toBe(false);
+		expect(folder.files.document('draft.txt').getSnapshot().isDirty).toBe(
+			false,
+		);
 		expect(input()?.value).toBe('Original text');
 		expect(input()?.readOnly).toBe(false);
 		const retired = input();
@@ -247,14 +249,14 @@ test.each(['missing', 'binary'] as const)(
 		}, 'the retained clean text in a second view');
 		type(target.querySelector('textarea'), 'Typed after replacement');
 		flushSync();
-		expect(folder.files.edit('draft.txt').getSnapshot().content?.text).toBe(
+		expect(folder.files.document('draft.txt').getSnapshot().content?.text).toBe(
 			'Typed after replacement',
 		);
 		type(retired, 'Late input from a destroyed view');
-		expect(folder.files.edit('draft.txt').getSnapshot().content?.text).toBe(
+		expect(folder.files.document('draft.txt').getSnapshot().content?.text).toBe(
 			'Typed after replacement',
 		);
-		expectOk(await folder.files.edit('draft.txt').save());
+		expectOk(await folder.files.document('draft.txt').save());
 	},
 );
 
@@ -266,13 +268,13 @@ test('a clean missing file can be reread without a write, then explicitly restor
 	flushSync();
 	await until(() => {
 		flushSync();
-		return isMissing(folder.files.edit('draft.txt'));
+		return isMissing(folder.files.document('draft.txt'));
 	}, 'the missing editor acquisition');
 	const before = saves('draft.txt');
 	click(target, 'Try again');
-	expect(expectErr(await folder.files.edit('draft.txt').refresh()).name).toBe(
-		'Missing',
-	);
+	expect(
+		expectErr(await folder.files.document('draft.txt').refresh()).name,
+	).toBe('Missing');
 	expect(await text('draft.txt')).toBeUndefined();
 	expect(saves('draft.txt')).toBe(before);
 	click(target, 'Restore text');
@@ -292,7 +294,9 @@ test('classifying initial large UTF-8 text does not acquire or mount its editor'
 		fixture.notes.queries.file(path, textRead),
 	);
 	expect(classified.kind).toBe('tooLarge');
-	expect(fixture.folder.files.edit(path).getSnapshot().content).toBeUndefined();
+	expect(
+		fixture.folder.files.document(path).getSnapshot().content,
+	).toBeUndefined();
 	const target = document.createElement('main');
 	document.body.append(target);
 	const view = mount(Host, {
@@ -312,7 +316,9 @@ test('classifying initial large UTF-8 text does not acquire or mount its editor'
 		return target.textContent?.includes('larger than 1 MB') ?? false;
 	}, 'the initial file-size limit');
 	expect(target.querySelector('textarea')).toBeNull();
-	expect(fixture.folder.files.edit(path).getSnapshot().content).toBeUndefined();
+	expect(
+		fixture.folder.files.document(path).getSnapshot().content,
+	).toBeUndefined();
 	expect(fixture.saves(path)).toBe(0);
 });
 
@@ -347,7 +353,7 @@ test('a clean note deleted in another tab stays shown as a note beside its delet
 	await fixture.local.refresh([path]);
 	await until(() => {
 		flushSync();
-		return isMissing(fixture.folder.files.edit(path));
+		return isMissing(fixture.folder.files.document(path));
 	}, 'the deletion');
 	// The retained note stays editable, and the deletion shows beside it.
 	expect(title()?.value).toBe('Kept');
@@ -357,7 +363,8 @@ test('a clean note deleted in another tab stays shown as a note beside its delet
 	expect(target.textContent).toContain('Text kept here');
 	click(target, 'Restore text');
 	await until(
-		() => fixture.folder.files.edit(path).getSnapshot().loadError === undefined,
+		() =>
+			fixture.folder.files.document(path).getSnapshot().loadError === undefined,
 		'the restored note',
 	);
 	expect(await fixture.text(path)).toBe(noteText({ title: 'Kept' }));

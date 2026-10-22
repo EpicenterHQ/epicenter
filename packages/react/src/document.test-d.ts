@@ -2,19 +2,19 @@
 import { expectTypeOf } from 'bun:test';
 import type { Folder, SaveError } from '@epicenter/folder';
 import type {
-	EditorSnapshot,
+	DocumentSnapshot,
 	LoadError,
 	MarkdownContent,
-} from '@epicenter/folder/edits';
+} from '@epicenter/folder/document';
 import { Type } from 'typebox';
-import { useFileEdit } from './edits.js';
+import { useDocument } from './document.js';
 
 const notes = Type.Object({ title: Type.String(), done: Type.Boolean() });
 declare const folder: Folder<{ notes: typeof notes }>;
 export function useTypeAssertions() {
-	const edit = folder.tables.notes.edit('milk');
-	const snapshot = useFileEdit(edit);
-	expectTypeOf(snapshot).toEqualTypeOf<EditorSnapshot<typeof notes>>();
+	const edit = folder.tables.notes.document('milk');
+	const snapshot = useDocument(edit);
+	expectTypeOf(snapshot).toEqualTypeOf<DocumentSnapshot<typeof notes>>();
 	expectTypeOf(snapshot.content).toEqualTypeOf<
 		MarkdownContent<typeof notes> | undefined
 	>();
@@ -24,14 +24,14 @@ export function useTypeAssertions() {
 	expectTypeOf(snapshot.isSaving).toEqualTypeOf<boolean>();
 	if (snapshot.content?.issues === null)
 		expectTypeOf(snapshot.content.fields.title).toEqualTypeOf<string>();
-	edit.change({ fields: { title: 'Oat milk', done: true } });
+	edit.patch({ fields: { title: 'Oat milk', done: true } });
 	// @ts-expect-error A change names fields of this edit's schema.
-	edit.change({ fields: { titel: 'Oat milk' } });
+	edit.patch({ fields: { titel: 'Oat milk' } });
 	// @ts-expect-error Commands stay on the editor handle.
-	snapshot.replaceText('source');
+	snapshot.replace('source');
 	// @ts-expect-error The snapshot is immutable.
 	snapshot.isDirty = true;
-	const generic = useFileEdit(folder.files.edit('arbitrary.md'));
+	const generic = useDocument(folder.files.document('arbitrary.md'));
 	expectTypeOf(generic.content?.fields).toEqualTypeOf<
 		{ readonly [key: string]: unknown } | undefined
 	>();

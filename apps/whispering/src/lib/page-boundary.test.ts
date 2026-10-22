@@ -134,7 +134,7 @@ test('the page imports no Yjs store, sync, history, or account module', () => {
 				// the header status and the failed-save toast.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
-						'@epicenter/svelte/edits',
+						'@epicenter/svelte/document',
 						'@epicenter/svelte/folder',
 						'@epicenter/svelte/folder-app',
 						'@epicenter/svelte/folder-queries',

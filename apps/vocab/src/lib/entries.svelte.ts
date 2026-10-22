@@ -7,7 +7,7 @@
  * committed save under `entries/`, from this page or another tab.
  *
  * A note or a stage is typed through the word's edit handle
- * (`folder.tables.entries.edit(id)`): a note typed is saved a second after
+ * (`folder.tables.entries.document(id)`): a note typed is saved a second after
  * the last keystroke, a stage press at once. The folder holds every field
  * typed since the word last saved, so one word's saves run one at a time
  * and a stage press never undoes a note. Fields and body share one exact
@@ -21,8 +21,8 @@
  */
 
 import type { ReadError, SaveError } from '@epicenter/folder';
-import { ActionError, type SaveFailure } from '@epicenter/folder/edits';
-import { createFileEdit } from '@epicenter/svelte/edits';
+import { ActionError, type SaveFailure } from '@epicenter/folder/document';
+import { reactiveDocument } from '@epicenter/svelte/document';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -136,18 +136,18 @@ export function createEntries(local: VocabContext) {
 	}
 
 	/** The folder's edit of the word at `id`, read reactively, with the learner's two edits. */
-	function edit(id: string) {
-		const fileEdit = createFileEdit(folder.tables.entries.edit(id));
+	function document(id: string) {
+		const fileEdit = reactiveDocument(folder.tables.entries.document(id));
 		return Object.assign(fileEdit, {
 			/**
 			 * Type the note; it is saved a second after the last change. Half of
 			 * a surrogate pair is kept as U+FFFD, which the folder can save.
 			 */
 			setNote: (note: string) =>
-				fileEdit.change({ fields: { note: note.toWellFormed() } }),
+				fileEdit.patch({ fields: { note: note.toWellFormed() } }),
 			/** Press a stage; it is saved at once. */
 			setStage(stage: Stage) {
-				const changed = fileEdit.change({ fields: { stage } });
+				const changed = fileEdit.patch({ fields: { stage } });
 				if (changed.error !== null) return changed;
 				void fileEdit.save();
 				return changed;
@@ -165,7 +165,7 @@ export function createEntries(local: VocabContext) {
 		 * its row, acquired and observed by its mounted edit subscription;
 		 * `setNote` and `setStage` type over the word it shows now.
 		 */
-		edit,
+		document,
 
 		/**
 		 * Save a word or a captured phrase, and answer once the list holds it.
@@ -190,9 +190,10 @@ export function createEntries(local: VocabContext) {
 		 * Half of a surrogate pair is kept as U+FFFD, which the folder can
 		 * save. Answers the edit's acceptance result, including its refusal.
 		 */
-		setNote: (entry: Entry, note: string) => edit(entry.id).setNote(note),
+		setNote: (entry: Entry, note: string) => document(entry.id).setNote(note),
 		/** Press a stage of `entry`; it is saved at once. Answers the edit's acceptance result. */
-		setStage: (entry: Entry, stage: Stage) => edit(entry.id).setStage(stage),
+		setStage: (entry: Entry, stage: Stage) =>
+			document(entry.id).setStage(stage),
 		/** Delete the path without publishing an unsubmitted draft first. */
 		delete(entry: Entry) {
 			return folder.files.delete(rowPath('entries', entry.id));

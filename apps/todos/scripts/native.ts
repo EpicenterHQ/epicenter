@@ -70,13 +70,13 @@ try {
 		case 'complete': {
 			const id = args[0];
 			if (id === undefined) throw new Error('complete needs an id');
-			const read = await folder.tables.todos.edit(id).refresh();
+			const read = await folder.tables.todos.document(id).refresh();
 			if (read.error !== null) {
 				exitCode = 1;
 				print({ error: read.error.message });
 				break;
 			}
-			const saved = await folder.tables.todos.set(id, {
+			const saved = await folder.tables.todos.document(id).save({
 				fields: { done: true },
 			});
 			if (saved.error !== null) exitCode = 1;

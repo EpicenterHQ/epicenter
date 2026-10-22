@@ -51,7 +51,7 @@ calls by its window label ([Bundled apps](#bundled-apps)).
 
 The shell serves product bundles and holds no credential: the `epicenter`
 CLI holds the account and every key (ADR-0556). Folder owns product pages' accepted file edits. Settings creates connections
-with a one-shot `table.write`; its mounted connection editor then acquires the
+with a one-shot `folder.tables.connections.write`; its mounted connection editor then acquires the
 shared working document for subsequent edits. A failed creation leaves no
 pending autosave, while a failed edit retains its accepted input.
 
@@ -379,20 +379,24 @@ Boards group one field into distinct string, number, boolean, and null lanes.
 Enum and boolean schema hints retain empty destinations. **No value** represents
 an absent field. Object and array values appear in **Other**, which cannot be
 chosen as a move destination. Moving a card changes its grouping field through
-the same `FileEdit` (`folder.files.edit(path)`) as
+the same `FileDocument` (`folder.files.document(path)`) as
 grid and Files edits. Failed moves retain their input for retry or discard.
 Cards have no separate rank or drag-order record.
 
 The opened Folder owns acquired text and unfinished input for each path until
-close. Files, grid, and board use the memoized
-`createFileEdit(folder.files.edit(path, schema))` adapter and keep no separate
-save queue. Its tracked getters are `content`, `loadError`, `isDirty`,
+close. Files, grid, and board use
+`reactiveDocument(folder.files.document(path, schema))` from
+`@epicenter/svelte/document`. Repeated wrapping reuses a passive adapter by
+handle; tracked getters share its subscription until the last tracking effect
+leaves. The views keep no separate save queue. Its tracked getters are `content`, `loadError`, `isDirty`,
 `isSaving`, and `saveError`; `content` contains exact `text`, `fields`, `body`,
 and interpretation `issues`. The neutral editor exposes the same cached snapshot
 through `getSnapshot()` and `subscribe(listener)`. Subscription emits immediately
 and activates the first read.
 
-`replaceText(text)` and `change({ fields, body })` accept input immediately.
+`replace(text)` and `patch({ fields?, body? })` accept input immediately.
+Full text can be accepted before acquisition; structured patches need acquired
+text.
 Only accepted input starts autosaving; observations never publish. Input and its
 autosave timer survive view switches, and acquired clean text remains editable
 after deletion, binary replacement, or a failed refresh. A load failure appears
@@ -432,7 +436,7 @@ A saved view reads the current `epicenter.json` editor content. Editing its
 controls creates an unsubmitted form value retained across selections. **Reload
 settings** drops that form and refreshes the declaration. Saving transforms the
 current held declaration text, preserving unrelated JSON sections and other
-views, then immediately replaces and saves that same file editor. There is no
+views, then calls `document.save(text)` to capture and publish that source. There is no
 source precondition or separate native writer.
 
 A submitted copy gets its new key immediately, while the declaration owner keeps

@@ -68,16 +68,16 @@ async function guarded(saveAfterMs = MINUTE) {
 	cleanup.push(() => context.close());
 	desktop(true);
 	await context.guardWindowClose();
-	return { context, milk: folder.tables.notes.edit('milk'), observer };
+	return { context, milk: folder.tables.notes.document('milk'), observer };
 }
 
 type Notes = FolderContext<{ notes: typeof notes }>;
 
 /** Type `title` into `milk` over the row as stored. */
 async function typeTitle({ folder }: Notes, title: string) {
-	const edit = folder.tables.notes.edit('milk');
+	const edit = folder.tables.notes.document('milk');
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ fields: { title } }));
+	expectOk(edit.patch({ fields: { title } }));
 }
 
 async function until(check: () => boolean, what: string) {
@@ -128,9 +128,9 @@ test('whole text waiting to save prompts and Cancel retains it', async () => {
 	const { context } = await guarded();
 	const path = 'notes/source.md';
 	expectOk(await context.folder.files.write(path, 'saved'));
-	const text = context.folder.files.edit(path);
+	const text = context.folder.files.document(path);
 	expectOk(await text.refresh());
-	expectOk(text.replaceText('unsaved source'));
+	expectOk(text.replace('unsaved source'));
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
@@ -217,9 +217,9 @@ test('input is inert while destruction is pending and restored if it fails', asy
 	expect(document.documentElement.inert).toBe(false);
 	expect(nativeWindow.listeners).toBe(1);
 	await typeTitle(context, 'Still editable');
-	expect(context.folder.tables.notes.edit('milk').getSnapshot().isDirty).toBe(
-		true,
-	);
+	expect(
+		context.folder.tables.notes.document('milk').getSnapshot().isDirty,
+	).toBe(true);
 });
 
 test('a browser tab registers nothing, and closing the context stops listening', async () => {

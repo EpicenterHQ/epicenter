@@ -129,7 +129,7 @@ test('directory events reconcile subscribed descendants while retaining text and
 	folder.onChange((change) => {
 		if (change.origin === 'this-handle') own.push(change);
 	});
-	const edit = folder.files.edit('notes/a.md');
+	const edit = folder.files.document('notes/a.md');
 	cleanup.push(edit.subscribe(() => {}));
 	await until(() => edit.getSnapshot().content?.text === 'before');
 	await writeFile(join(root, 'notes/a.md'), 'outside');
@@ -141,7 +141,7 @@ test('directory events reconcile subscribed descendants while retaining text and
 		isDirty: false,
 		isSaving: false,
 	});
-	const moved = folder.files.edit('archive/a.md');
+	const moved = folder.files.document('archive/a.md');
 	const stop = moved.subscribe(() => {});
 	await until(() => moved.getSnapshot().content?.text === 'outside');
 	stop();

@@ -2,7 +2,7 @@
 
 Svelte state around an opened `@epicenter/folder` handle. The Folder package
 owns files, row parsing, whole-source drafts, storage, change reports, local save
-status, and unsaved input (`@epicenter/folder/edits`). This package owns the
+status, and unsaved input (`@epicenter/folder/document`). This package owns the
 page's query cache, Svelte tracking of that input, in-session recovery,
 and synchronous release. It also has separate agent conversation and
 status UI helpers.
@@ -132,8 +132,8 @@ view options such as `enabled` and `select` stay at the observer. Queries list
 and derive; the editable source of a row or file belongs to its editor (below),
 which acquires it on subscription or refresh. Lists and file queries return
 read results without loading an editor. An editing view subscribes to its own
-source; a programmatic action explicitly refreshes its editor before calling
-`table.set(id, change)`. `table.write(id, document)` publishes a complete new
+source; a programmatic action explicitly refreshes its document before calling
+`document.save(patch)`. `folder.tables.notes.write(id, document)` publishes a complete new
 row once, without retaining a failed creation as input. File queries can still
 classify size and audio before opening text. The key carries
 the decoded data type into `queryClient.getQueryData(options.queryKey)`. There is
@@ -151,7 +151,7 @@ descendants, omitted paths mean all, and `[]` means none. Active editor readers
 refresh now, while inactive acquired sources become stale for their next
 subscription. Returning to a visible window reconciles active queries and
 editors after missed events. These events are best effort, not a durable change
-log. `fileEdit.refresh()` returns an individual acquisition result. No query
+log. `fileDocument.refresh()` returns an individual acquisition result. No query
 reads for an editor.
 
 Every context has its own QueryClient and `['folder']` query prefix. Generated
@@ -182,38 +182,52 @@ A save indicator that needs no file contents reads `getStatus().unsaved` and
 read. An open editor reads its own `isDirty`, `isSaving` and `saveError`, so
 another file's failure is never shown as its.
 
-## File edits
+## Reactive documents
 
 The folder owns each path's source, accepted input, reads and write lane
-(`@epicenter/folder`, "Editors"). A table binds its schema to the same editor
-that `folder.files.edit(path, schema?)` returns. `saveAfterMs` belongs to the
-folder opener, not this adapter.
+([working documents](../folder/README.md#working-documents)). A table binds its
+schema to the same handle that `folder.files.document(path, schema?)` returns.
+`saveAfterMs` belongs to the folder opener, not this adapter.
 
 ```ts
-import { createFileEdit } from '@epicenter/svelte/edits';
+import { reactiveDocument } from '@epicenter/svelte/document';
 import { toastOnError } from '@epicenter/ui/sonner';
 
 // Fixed address, for example in a component keyed by its note.
-const fileEdit = createFileEdit(folder.tables.notes.edit(id));
-fileEdit.content; // { text, body, fields, issues } | undefined
-toastOnError(fileEdit.change({ fields: { done: true }, body: 'Two litres\n' }), 'That change was not made');
-toastOnError(fileEdit.replaceText(editedSource), 'That change was not made');
+const fileDocument = reactiveDocument(folder.tables.notes.document(id));
+fileDocument.content; // { text, body, fields, issues } | undefined
+toastOnError(fileDocument.patch({ fields: { done: true }, body: 'Two litres\n' }), 'That change was not made');
+toastOnError(fileDocument.replace(editedSource), 'That change was not made');
 
-// Derive the adapter from the address; the same editor answers the same adapter.
-const sourceEdit = $derived(createFileEdit(folder.files.edit(path)));
+// Follow a changing path prop; repeated wrapping reuses the passive adapter.
+const sourceDocument = $derived(reactiveDocument(folder.files.document(path)));
 ```
 
-The adapter exposes the editor's snapshot as tracked getters: `.content`,
-`.loadError`, `.isDirty`, `.isSaving` and `.saveError`. Commands stay methods:
-`replaceText`, `change`, `save`, `refresh` and `discard`. It is memoized by
-editor handle, so keyed widgets that acquire one editor share one adapter, and
-it keeps one folder subscription while any effect reads it, released when
-none does. Each snapshot change re-runs every reader of the adapter. The
-first tracked read subscribes before reading the snapshot, which starts the
-editor's first read; the subscription's synchronous first notification is
-skipped, as `fromStore` skips it. Construction and reads outside tracking
-subscribe to nothing. No `onMount(() => fileEdit.refresh())` is needed. The
-folder keeps input, timers and failures when every view unmounts.
+`reactiveDocument(handle)` returns a `ReactiveDocument` from
+`@epicenter/svelte/document`. It exposes the document's cached snapshot as
+tracked getters: `.content`, `.loadError`, `.isDirty`, `.isSaving`, and
+`.saveError`. Commands remain methods: `replace`, `patch`, `save`, `refresh`, and
+`discard`.
+
+`reactiveDocument` privately reuses a passive adapter by document handle through
+a WeakMap. Repeated wrapping is safe, including inside derived collections:
+unaffected documents keep their existing observations when the collection
+recomputes. Use the underlying document handle to identify a document; adapter
+equality is not a separate public contract. No whole-Folder wrapper is needed.
+
+Each adapter uses Svelte's `createSubscriber` to bridge its tracked getters to
+one document subscription while any effect reads it. The last effect leaving
+releases that subscription; retaining or reusing the adapter does not keep it
+active. Derive from a changing path prop so the view follows the selected
+handle. Caller-managed adapter caching is unnecessary.
+
+The first tracked getter read subscribes before reading the cached snapshot,
+starting acquisition when the source is unknown or invalidated. Every getter
+participates, including `.isDirty`. Construction and plain reads outside
+tracking subscribe to nothing. No `onMount(() => fileDocument.refresh())` is
+needed. The last observer leaving stops further read demand after any ongoing
+read. The Folder retains acquired source, input, timers, saves, and failures
+until `folder.close()`; unmounting a view does not close its document.
 
 Save-only UI reads the context's `getStatus().savingPaths`, `.unsaved`, and
 `.failures`, filtered by path. That subscription is passive. Reading any
@@ -230,24 +244,24 @@ read found no text, such as after another program deleted the file.
 identifies it. Keep exact source through `.content.text` for repair.
 
 ```svelte
-{#each fileEdits as fileEdit (fileEdit.path)}
-  {@const content = fileEdit.content}
+{#each fileDocuments as fileDocument (fileDocument.path)}
+  {@const content = fileDocument.content}
   {#if content}
-    <textarea bind:value={() => content.text, (text) => toastOnError(fileEdit.replaceText(text), 'That change was not made')}></textarea>
-    {#if fileEdit.loadError}
-      <p role="alert">{fileEdit.loadError.message}</p>
+    <textarea bind:value={() => content.text, (text) => toastOnError(fileDocument.replace(text), 'That change was not made')}></textarea>
+    {#if fileDocument.loadError}
+      <p role="alert">{fileDocument.loadError.message}</p>
     {/if}
-    {#if fileEdit.saveError}
-      <p role="alert">{fileEdit.saveError.message}</p>
-      <button onclick={() => fileEdit.save()}>Retry saving</button>
-    {:else if fileEdit.isSaving}
+    {#if fileDocument.saveError}
+      <p role="alert">{fileDocument.saveError.message}</p>
+      <button onclick={() => fileDocument.save()}>Retry saving</button>
+    {:else if fileDocument.isSaving}
       <p>Saving…</p>
-    {:else if fileEdit.isDirty}
+    {:else if fileDocument.isDirty}
       <p>Unsaved changes</p>
     {/if}
-  {:else if fileEdit.loadError}
-    <p role="alert">{fileEdit.loadError.message}</p>
-    <button onclick={() => fileEdit.refresh()}>Read again</button>
+  {:else if fileDocument.loadError}
+    <p role="alert">{fileDocument.loadError.message}</p>
+    <button onclick={() => fileDocument.refresh()}>Read again</button>
   {:else}
     <p>Loading…</p>
   {/if}
@@ -259,27 +273,38 @@ the nearest template block containing its controls, then narrow that local
 before creating the callbacks:
 
 ```svelte
-{#each fileEdits as fileEdit (fileEdit.path)}
-  {@const content = fileEdit.content}
+{#each fileDocuments as fileDocument (fileDocument.path)}
+  {@const content = fileDocument.content}
   {#if content && content.issues === null}
     <Input
-      bind:value={() => content.fields.title, (title) => fileEdit.change({ fields: { title } })}
-      onblur={() => void fileEdit.save()}
+      bind:value={() => content.fields.title, (title) => fileDocument.patch({ fields: { title } })}
+      onblur={() => void fileDocument.save()}
     />
   {/if}
 {/each}
 ```
 
-Avoid a script alias that merely repeats `fileEdit.content`. A plain script
-`const` captures a value instead of following it. Name the editing capability
-`fileEdit`.
+Avoid a script alias that merely repeats `fileDocument.content`. A plain script
+`const` captures a value instead of following it. Name the shared handle or its
+reactive adapter `fileDocument`.
 
-`change({ fields?, body? })` and `replaceText(text)` return
-`Result<void, ChangeError>`: success means accepted into memory, not saved.
-Multiple views share one source, so switching views shows the same text
-immediately. `save()` publishes the exact current text; `discard()` drops
-unpublished input, answers its text, and writes nothing. Writes are
-unconditional: the last publication wins, and nothing merges or conflicts.
+`patch({ fields?, body? })` and `replace(text)` return synchronous
+`Result<void, ChangeError>`: success means accepted into memory. Full text can
+be accepted before acquisition; a structured patch needs acquired text. Both
+autosave. Multiple views share one source, so switching views shows the same
+text immediately.
+
+`save(input?)` accepts a complete source string or a structured patch, applies
+that input synchronously, captures its immutable content, and admits
+publication before notifying observers. Its Promise returns
+`Result<MarkdownContent<Schema>, ChangeError | SaveError>` with that exact
+published content, without a row ID, even when newer input is pending. No-input
+`save()` publishes the then-current content, including clean content or a
+retry. A control that needs synchronous acceptance can check `replace(text)`
+or `patch(patch)` and then call `void fileDocument.save()`; this publishes the source after
+acceptance and any observer notification. `discard()` drops unpublished input,
+answers its text, and writes nothing. Writes are unconditional: the last
+publication wins.
 
 Context `close()` returns nothing and waits for no writes or application
 workflows. Retry and copying remain available while the folder is open.

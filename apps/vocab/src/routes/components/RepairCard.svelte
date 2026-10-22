@@ -38,7 +38,7 @@
 			<Textarea
 				class="min-h-32 font-mono text-xs"
 				aria-label="File text for {path}"
-				bind:value={() => stored.text, (next) => toastOnError(fileEdit.replaceText(withFileNewlines(next, stored.text)), 'That change was not made')}
+				bind:value={() => stored.text, (next) => toastOnError(fileEdit.replace(withFileNewlines(next, stored.text)), 'That change was not made')}
 			/>
 			{#if fileEdit.loadError}
 				<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>

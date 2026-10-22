@@ -2,7 +2,7 @@
 	/**
 	 * The files of the folder this window was opened on, inside the
 	 * `<FolderApp>` that owns its handle. What is typed is held by the folder
-	 * itself (`folder.files.edit(path)`), not by the file shown. Hiding the
+	 * itself (`folder.files.document(path)`), not by the file shown. Hiding the
 	 * window sends it. Pending saves prompt before departure; confirming
 	 * closes immediately and may discard unsaved input.
 	 *

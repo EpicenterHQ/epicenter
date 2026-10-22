@@ -240,10 +240,16 @@ export function withResultFailures<TTable extends FolderTable>(
 			failures.starts -= 1;
 			return refused();
 		},
-		async set(id, change) {
-			if (failures.answers === 0) return table.set(id, change);
-			failures.answers -= 1;
-			return refused();
+		document(id) {
+			const document = table.document(id);
+			return {
+				...document,
+				async save(change) {
+					if (failures.answers === 0) return document.save(change);
+					failures.answers -= 1;
+					return refused();
+				},
+			};
 		},
 	};
 }

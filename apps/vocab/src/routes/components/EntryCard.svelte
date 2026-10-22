@@ -32,7 +32,7 @@
 
 	/** The folder's edit of the word, the note and stage typed over it. */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = entries.edit(id);
+	const fileEdit = entries.document(id);
 	/** The word with what is typed over it, or as the list read it while that is not known. */
 	const shown = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields : entry.row.fields);
 

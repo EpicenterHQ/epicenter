@@ -234,14 +234,20 @@ test('a Stop pressed again joins the first, which ends once the length is writte
 	await whispering.startRecording();
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
-	const recordings = test.folder.tables.recordings;
+	const acquire = test.folder.tables.recordings.document;
 	replaceTables(test.folder, {
 		recordings: {
-			...recordings,
-			async set(id, change) {
-				reached.resolve();
-				await release.promise;
-				return recordings.set(id, change);
+			...test.folder.tables.recordings,
+			document(id) {
+				const document = acquire(id);
+				return {
+					...document,
+					async save(change) {
+						reached.resolve();
+						await release.promise;
+						return document.save(change);
+					},
+				};
 			},
 		},
 	});
@@ -325,12 +331,12 @@ test('a Stop whose row was still saving when closing began writes no length, aft
 	cleanups.push(async () => {
 		release.resolve();
 	});
-	const recordings = test.folder.tables.recordings;
+	const write = test.folder.tables.recordings.write;
 	replaceTables(test.folder, {
 		recordings: {
-			...recordings,
+			...test.folder.tables.recordings,
 			async write(id, change) {
-				const saved = await recordings.write(id, change);
+				const saved = await write(id, change);
 				// The row is on disk; its answer is held, so Stop still waits on it.
 				if (change.body === '') {
 					reached.resolve();
@@ -402,9 +408,9 @@ test('a failed duration save remains in the working document and later typing sa
 	await eventually(() => whispering.entries.length === 1);
 	const [name] = await rows(test.root);
 	const id = name!.slice(0, -'.md'.length);
-	const edit = test.folder.tables.recordings.edit(id);
+	const edit = test.folder.tables.recordings.document(id);
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: 'Notes before Stop.\n' }));
+	expectOk(edit.patch({ body: 'Notes before Stop.\n' }));
 	const directory = join(test.root, 'recordings');
 	chmodSync(directory, 0o555);
 	try {
@@ -415,7 +421,7 @@ test('a failed duration save remains in the working document and later typing sa
 	} finally {
 		chmodSync(directory, 0o755);
 	}
-	expectOk(edit.change({ body: 'Notes after Stop.\n' }));
+	expectOk(edit.patch({ body: 'Notes after Stop.\n' }));
 	expectOk(await edit.save());
 	const saved = await readFile(join(directory, name!), 'utf8');
 	expect(saved).toContain('durationMs: 1000');
@@ -429,7 +435,7 @@ test('a title typed while the length saves composes over it, and its save keeps 
 	await eventually(() => !test.folder.getStatus().saving);
 	const [name] = await rows(test.root);
 	const path = `recordings/${name!}`;
-	const edit = test.folder.tables.recordings.edit(
+	const edit = test.folder.tables.recordings.document(
 		name!.slice(0, -'.md'.length),
 	);
 	// The person types the moment the length's write is admitted, before it lands.
@@ -437,7 +443,7 @@ test('a title typed while the length saves composes over it, and its save keeps 
 	const stop = test.folder.onStatusChange(({ savingPaths }) => {
 		if (typed || !savingPaths.includes(path)) return;
 		typed = true;
-		expectOk(edit.change({ fields: { title: 'Typed while stopping' } }));
+		expectOk(edit.patch({ fields: { title: 'Typed while stopping' } }));
 	});
 	await whispering.stopRecording();
 	stop();

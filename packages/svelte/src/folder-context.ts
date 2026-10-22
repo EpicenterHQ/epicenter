@@ -2,8 +2,8 @@
  * A local folder (`openFolder({ tables })`) as a page's components read and
  * write it: the handle, the page's one query client over its files and rows,
  * whether everything is saved, and one close. The folder owns typed input
- * from the moment it opens (`folder.tables.<name>.edit(id)`,
- * `folder.files.edit(path)`, `folder.getStatus()`, `folder.flush()`,
+ * from the moment it opens (`folder.tables.<name>.document(id)`,
+ * `folder.files.document(path)`, `folder.getStatus()`, `folder.flush()`,
  * `folder.close()`); this context reads its status reactively and adds what
  * belongs to the page: shared reads and the window's close.
  *
@@ -193,8 +193,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		 * A browser tab keeps its own unload behavior.
 		 */
 		guardWindowClose(): Promise<void> {
-			if (closed)
-				return Promise.reject(new Error('The folder is closing'));
+			if (closed) return Promise.reject(new Error('The folder is closing'));
 			guarding ??= holdWindowClose(pendingSave, close).then((stop) => {
 				if (closed) stop();
 				else stopWindow = stop;

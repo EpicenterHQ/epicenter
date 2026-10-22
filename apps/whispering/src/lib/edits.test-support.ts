@@ -31,7 +31,7 @@ async function rowEditor<T extends RowTable>(
 	if (rowIdOf(table, path) === undefined)
 		throw new Error(`${path} is not a ${table} row`);
 	// One view of the row, kept as a mounted view keeps it.
-	const view = whispering.edit(table, path);
+	const view = whispering.document(table, path);
 	await view.refresh();
 	const shown = (): Shown<T> | undefined => {
 		const row = view.content;
@@ -61,7 +61,7 @@ async function rowEditor<T extends RowTable>(
 				)
 					set[name] = value;
 			if (Object.keys(set).length === 0 && next.body === before.body) return;
-			view.change({
+			view.patch({
 				fields: set as never,
 				...(next.body !== before.body ? { body: next.body } : {}),
 			});
@@ -89,7 +89,7 @@ export const transcriptEditor = (whispering: Whispering, path: string) =>
 /** The text of `path`, as a text view edits it; the file must be open as text. */
 export function textEditor(whispering: Whispering, path: string) {
 	// One view of the text, as a mounted view keeps it.
-	const view = whispering.edit(path);
+	const view = whispering.document(path);
 	whispering.editSource(path);
 	return {
 		view,
@@ -99,7 +99,7 @@ export function textEditor(whispering: Whispering, path: string) {
 			return text;
 		},
 		input(text: string) {
-			view.replaceText(text);
+			view.replace(text);
 			void view.save();
 		},
 	};
@@ -120,7 +120,7 @@ export async function openText(
 		context.queryClient,
 		context.queries.file(path, textRead),
 	).subscribe(() => {});
-	const edit = context.folder.files.edit(path);
+	const edit = context.folder.files.document(path);
 	edit.subscribe(() => {});
 	await edit.refresh();
 	return textEditor(whispering, path);

@@ -8,7 +8,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast, toastOnError } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { getFolder } from '$lib/folder.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { describeFailure, labelOf, todoPath } from '$lib/local-todos.js';
@@ -34,7 +34,7 @@
 	const id = shownId;
 	const path = todoPath(id);
 	/** The todo as stored, with what is typed over it; the folder keeps both after this view. */
-	const fileEdit = createFileEdit(folder.tables.todos.edit(id));
+	const fileEdit = reactiveDocument(folder.tables.todos.document(id));
 	const todo = $derived(fileEdit.content?.issues === null ? fileEdit.content : undefined);
 
 
@@ -96,7 +96,7 @@
 				bind:checked={
 					() => shown.fields.done,
 					(done) => {
-						const changed = toastOnError(fileEdit.change({ fields: { done } }), 'That change was not made');
+						const changed = toastOnError(fileEdit.patch({ fields: { done } }), 'That change was not made');
 						if (changed.error === null) void fileEdit.save();
 					}
 				}
@@ -106,7 +106,7 @@
 				placeholder="Title"
 				aria-label="Title"
 
-				bind:value={() => shown.fields.title, (title) => toastOnError(fileEdit.change({ fields: { title } }), 'That change was not made')}
+				bind:value={() => shown.fields.title, (title) => toastOnError(fileEdit.patch({ fields: { title } }), 'That change was not made')}
 			/>
 		</div>
 
@@ -128,7 +128,7 @@
 				placeholder="Notes in Markdown"
 				aria-label="Notes"
 
-					bind:value={() => shown.body, (body) => toastOnError(fileEdit.change({ body }), 'That change was not made')}
+					bind:value={() => shown.body, (body) => toastOnError(fileEdit.patch({ body }), 'That change was not made')}
 			/>
 		</div>
 

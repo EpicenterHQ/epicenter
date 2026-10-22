@@ -11,7 +11,7 @@
 		"./bun": "./src/bun.ts",
 		"./file-browser": "./src/file-browser.ts",
 		"./documents": "./src/documents.ts",
-		"./edits": "./src/edits.ts",
+		"./document": "./src/document.ts",
 		"./declaration": "./src/declaration/index.ts"
 	},
 	"scripts": {

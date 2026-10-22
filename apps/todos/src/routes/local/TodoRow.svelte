@@ -8,7 +8,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { toastOnError } from '@epicenter/ui/sonner';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { getFolder } from '$lib/folder.js';
 	import { labelOf, type Todo, todoPath } from '$lib/local-todos.js';
 
@@ -27,7 +27,7 @@
 
 	const id = $derived(todo.id);
 	// Tracking the checkbox acquires its own editable source; the list stays passive.
-	const fileEdit = $derived(createFileEdit(folder.tables.todos.edit(id)));
+	const fileEdit = $derived(reactiveDocument(folder.tables.todos.document(id)));
 	const done = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields.done : todo.fields.done);
 	const label = $derived(labelOf(todo));
 </script>
@@ -41,7 +41,7 @@
 		bind:checked={
 			() => done,
 			(next) => {
-				const changed = toastOnError(fileEdit.change({ fields: { done: next } }), 'That change was not made');
+				const changed = toastOnError(fileEdit.patch({ fields: { done: next } }), 'That change was not made');
 				if (changed.error === null) void fileEdit.save();
 			}
 		}

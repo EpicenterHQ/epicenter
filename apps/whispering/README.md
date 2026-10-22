@@ -29,15 +29,17 @@ native capture and inference through `#platform/services`.
 One Whispering owner holds capture, requests, selections and settings drafts.
 Folder owns each file's working document. Typing, recording length updates,
 and received result bodies all edit that document; subsequent typing includes
-accepted programmatic changes. Saving publishes a captured whole-file snapshot
+accepted programmatic changes. Structured controls call `document.patch(patch)`;
+Source calls `document.replace(text)`. Saving publishes a captured whole-file snapshot
 and reports success or failure. Failure retains accepted changes and their
 save error for retry. A read never initiates publication.
 
 Recording rows, transformation recipes, and result placeholders are created
-with `table.write`, a one-shot complete document publication. A failed creation
-leaves no accepted input for autosave. Existing rows use an acquired edit and
-`table.set`; lists and raw reads do not acquire text. Background completion
-refreshes the edit before applying its patch, preserving local input while
+through their named table, for example `folder.tables.recordings.write`, as
+one-shot complete document publications. A failed creation
+leaves no accepted input for autosave. Existing rows use an acquired document and
+`document.save(patch)`; lists and raw reads do not acquire text. Background completion
+refreshes the document before applying its patch, preserving local input while
 leaving a file already deleted on disk absent.
 Its startup maintains exclusions before recovery and reads. Its synchronous
 `dispose()` cleans up once without finishing recordings or waiting for workflows,

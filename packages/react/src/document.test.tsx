@@ -17,13 +17,13 @@ import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import type { FolderTable } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
-import type { FileEdit } from '@epicenter/folder/edits';
+import type { FileDocument } from '@epicenter/folder/document';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Window } from 'happy-dom';
 import { act, type ReactNode } from 'react';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
-import { useFileEdit } from './edits.js';
+import { useDocument } from './document.js';
 
 const window = new Window({ url: 'http://localhost/' });
 Object.assign(globalThis, {
@@ -115,13 +115,13 @@ async function until(done: () => boolean) {
 /** `table`, counting each editor's live subscriptions. */
 function counted(table: Notes) {
 	const live: Record<string, number> = {};
-	const edits = new Map<string, FileEdit<typeof notes>>();
+	const edits = new Map<string, FileDocument<typeof notes>>();
 	const wrapped: Notes = {
 		...table,
-		edit(id) {
+		document(id) {
 			let wrappedEdit = edits.get(id);
 			if (wrappedEdit !== undefined) return wrappedEdit;
-			const edit = table.edit(id);
+			const edit = table.document(id);
 			wrappedEdit = {
 				...edit,
 				subscribe(listener) {
@@ -142,8 +142,8 @@ function counted(table: Notes) {
 
 /** A title input over one row, as an app's detail view types it. */
 function Title({ table, id }: { table: Notes; id: string }) {
-	const edit = table.edit(id);
-	const { content, loadError, isDirty } = useFileEdit(edit);
+	const edit = table.document(id);
+	const { content, loadError, isDirty } = useDocument(edit);
 	if (content === undefined)
 		return <p>{loadError === undefined ? 'Loading' : loadError.name}</p>;
 	return (
@@ -151,7 +151,7 @@ function Title({ table, id }: { table: Notes; id: string }) {
 			<input
 				value={content.issues === null ? content.fields.title : ''}
 				onChange={(event) =>
-					edit.change({ fields: { title: event.currentTarget.value } })
+					edit.patch({ fields: { title: event.currentTarget.value } })
 				}
 			/>
 			<span>{isDirty ? 'Unsaved' : 'Saved'}</span>
@@ -175,7 +175,7 @@ test('typing shows at once; another handle updates a clean view and never replac
 	await act(async () => type(view.input(), 'Oat milk'));
 	expect(view.input().value).toBe('Oat milk');
 	expect(view.text()).toContain('Unsaved');
-	expectOk(await act(() => folder.tables.notes.edit('milk').save()));
+	expectOk(await act(() => folder.tables.notes.document('milk').save()));
 	expect(view.text()).toContain('Saved');
 	expectOk(
 		await other.tables.notes.write('milk', {
@@ -204,16 +204,16 @@ test('typing shows at once; another handle updates a clean view and never replac
 
 test('the last body replacement in one event determines the input', async () => {
 	const { folder } = await setup();
-	const edit = folder.tables.notes.edit('milk');
+	const edit = folder.tables.notes.document('milk');
 	function Body() {
-		const { content } = useFileEdit(edit);
+		const { content } = useDocument(edit);
 		if (content === undefined) return <p>Loading</p>;
 		return (
 			<input
 				value={content.body ?? ''}
 				onChange={(event) => {
-					edit.change({ body: event.currentTarget.value });
-					edit.change({ body: `${event.currentTarget.value}!` });
+					edit.patch({ body: event.currentTarget.value });
+					edit.patch({ body: `${event.currentTarget.value}!` });
 				}}
 			/>
 		);
@@ -234,7 +234,7 @@ test('a reused view follows its path, and the row it left keeps its input', asyn
 		view.root.render(<Title table={folder.tables.notes} id="bread" />),
 	);
 	await until(() => view.container.querySelector('input')?.value === 'Bread');
-	expect(folder.tables.notes.edit('milk').getSnapshot()).toMatchObject({
+	expect(folder.tables.notes.document('milk').getSnapshot()).toMatchObject({
 		isDirty: true,
 		content: { fields: { title: 'Oat milk' } },
 	});
@@ -255,6 +255,6 @@ test('unmounting lets go of the subscription while input stays with the folder',
 	expect(live.milk).toBe(0);
 	expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
 	expect(
-		folder.tables.notes.edit('milk').getSnapshot().content?.fields,
+		folder.tables.notes.document('milk').getSnapshot().content?.fields,
 	).toEqual({ title: 'Oat milk', done: false });
 });

@@ -89,14 +89,16 @@ describe.skipIf(!browser)('pending table documents', async () => {
 			const row = () => input()?.closest('tr');
 			await until(() => input()?.disabled === false);
 			expect(row()?.textContent).toContain('required');
-			expect(folder.files.edit(path).getSnapshot().content?.text).toBe(source);
+			expect(folder.files.document(path).getSnapshot().content?.text).toBe(
+				source,
+			);
 			holdRead = true;
-			const refreshing = folder.files.edit(path).refresh();
+			const refreshing = folder.files.document(path).refresh();
 			await until(() => waitingReads > 0);
 			type(input(), 'Repaired');
 			expect(input()?.value).toBe('Repaired');
 			await until(() => !row()?.textContent?.includes('required'));
-			expect(folder.files.edit(path).getSnapshot().content?.text).toContain(
+			expect(folder.files.document(path).getSnapshot().content?.text).toContain(
 				'title: Repaired',
 			);
 			expect(await readFile(join(directory, path), 'utf8')).toBe(source);
@@ -104,7 +106,7 @@ describe.skipIf(!browser)('pending table documents', async () => {
 			holdRead = false;
 			release.resolve();
 			expectOk(await refreshing);
-			await folder.files.edit(path).save();
+			await folder.files.document(path).save();
 			expect(await readFile(join(directory, path), 'utf8')).toContain(
 				'title: Repaired',
 			);

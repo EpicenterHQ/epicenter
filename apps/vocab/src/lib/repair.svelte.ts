@@ -4,13 +4,13 @@
  *
  * A file whose frontmatter does not read needs its whole text replaced, so
  * the repair types through the folder's edit of the file
- * (`createFileEdit(folder.tables.entries.edit(id))`), whose text is the file's
+ * (`reactiveDocument(folder.tables.entries.document(id))`), whose text is the file's
  * exact editable source. The folder holds what is typed, writes it a second after
  * the last keystroke and at once on `save()`, one write at a time, in call order. A reread never replaces pending local input. A failed write keeps the
  * text and its error; `save()` tries again, and so does further
  * typing. The repair itself holds only which file is open.
  */
-import { createFileEdit } from '@epicenter/svelte/edits';
+import { reactiveDocument } from '@epicenter/svelte/document';
 import type { VocabFolder } from './data.js';
 
 export function createRepair(folder: Pick<VocabFolder, 'tables'>) {
@@ -21,7 +21,7 @@ export function createRepair(folder: Pick<VocabFolder, 'tables'>) {
 	const fileEdit = $derived(
 		open === undefined
 			? undefined
-			: createFileEdit(folder.tables.entries.edit(open)),
+			: reactiveDocument(folder.tables.entries.document(open)),
 	);
 	const view = () => fileEdit;
 	return {

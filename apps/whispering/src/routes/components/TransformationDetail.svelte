@@ -54,7 +54,7 @@
 	 * One file edit supplies fields, body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = whispering.edit(TRANSFORMATIONS, own);
+	const fileEdit = whispering.document(TRANSFORMATIONS, own);
 	/** The transformation as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
@@ -215,7 +215,7 @@
 			{@const shown = row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => shown.fields.title, (value) => toastOnError(fileEdit.change({ fields: { title: value } }), 'That change was not made')}
+				bind:value={() => shown.fields.title, (value) => toastOnError(fileEdit.patch({ fields: { title: value } }), 'That change was not made')}
 				placeholder="Title"
 				aria-label="Transformation title"
 				data-testid="transformation-title"
@@ -284,7 +284,7 @@
 							class="min-h-36 resize-y font-sans"
 							bind:value={
 								() => shown.body,
-								(value) => toastOnError(fileEdit.change({ body: value }), 'That change was not made')
+								(value) => toastOnError(fileEdit.patch({ body: value }), 'That change was not made')
 							}
 
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
@@ -318,7 +318,7 @@
 										() => shown.fields.model ?? '',
 										(value) => {
 											// An empty model uses the text connection's model.
-											toastOnError(fileEdit.change({ fields: { model: value.trim() === '' ? null : value } }), 'That change was not made');
+											toastOnError(fileEdit.patch({ fields: { model: value.trim() === '' ? null : value } }), 'That change was not made');
 										}
 									}
 
@@ -489,7 +489,7 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replaceText(withFileNewlines(value, shown)), 'That change was not made')}
+					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replace(withFileNewlines(value, shown)), 'That change was not made')}
 					{@attach () => { whispering.editSource(path); }}
 
 					aria-label="Markdown source"

@@ -10,20 +10,20 @@
  *
  * A note's title, folder, pin, and body, a list action on any note, and a
  * folder's name are typed into the folder's edit of the row
- * (`folder.tables.notes.edit(id)`), acquired by a mounted subscription or
+ * (`folder.tables.notes.document(id)`), acquired by a mounted subscription or
  * explicit refresh: what is typed shows at once, saves a second
  * after the last change, and keeps it on screen
  * when a save fails. Accepted local input remains visible across storage observations;
  * publications replace the complete file in call order. A file
  * open as its exact text (Edit as file, repair, any other file) uses the
- * folder's edit of the file (`folder.files.edit(path)`). The folder keeps one
+ * folder's edit of the file (`folder.files.document(path)`). The folder keeps one
  * document, input, and publication queue per path for both.
  *
  * Create, delete, and deleting a folder are actions. The folder keeps no
  * history and has no rename or move, so Honeycrisp offers neither.
  */
 import { InstantString } from '@epicenter/definition';
-import { CLOSING } from '@epicenter/folder/edits';
+import { CLOSING } from '@epicenter/folder/document';
 import { ancestors, joinPath } from '@epicenter/folder/file-browser';
 import type { FolderContext } from '@epicenter/svelte/folder';
 import { SvelteSet } from 'svelte/reactivity';
@@ -145,7 +145,7 @@ export function createNotes(local: NotesFolder) {
 
 	/** The note the cache holds for `id`, if it reads as one. */
 	function storedNote(id: string): NoteMarkdown | undefined {
-		const snapshot = folder.tables.notes.edit(id).getSnapshot();
+		const snapshot = folder.tables.notes.document(id).getSnapshot();
 		const listed = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		const row = snapshot.isDirty
 			? snapshot.content
@@ -158,7 +158,7 @@ export function createNotes(local: NotesFolder) {
 		if (local.closing) return CLOSING;
 		const id = noteIdOf(path);
 		if (id === undefined) return NOT_LISTED;
-		const fileEdit = folder.tables.notes.edit(id);
+		const fileEdit = folder.tables.notes.document(id);
 		if (!fileEdit.getSnapshot().isDirty) {
 			const loaded = await fileEdit.refresh();
 			// The folder may have closed while this waited.
@@ -168,7 +168,7 @@ export function createNotes(local: NotesFolder) {
 		const content = fileEdit.getSnapshot().content;
 		if (content === undefined) return NOT_LISTED;
 		if (content.issues !== null) return NOT_A_NOTE;
-		const saved = await folder.tables.notes.set(id, {
+		const saved = await fileEdit.save({
 			fields:
 				fields.title === undefined
 					? fields
@@ -196,7 +196,7 @@ export function createNotes(local: NotesFolder) {
 	function defaultAs(path: string): OpenAs {
 		const id = noteIdOf(path);
 		if (id === undefined) return 'text';
-		const snapshot = folder.tables.notes.edit(id).getSnapshot();
+		const snapshot = folder.tables.notes.document(id).getSnapshot();
 		const listed = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		const row = snapshot.isDirty
 			? snapshot.content
@@ -242,7 +242,7 @@ export function createNotes(local: NotesFolder) {
 			}),
 		]);
 		return [...ids].flatMap((id) => {
-			const snapshot = folder.tables.notes.edit(id).getSnapshot();
+			const snapshot = folder.tables.notes.document(id).getSnapshot();
 			const content = snapshot.isDirty ? snapshot.content : undefined;
 			const row =
 				content === undefined
@@ -265,7 +265,7 @@ export function createNotes(local: NotesFolder) {
 		for (const note of notesOf(current)) {
 			// The final scan keeps the folder if a new member arrives meanwhile.
 			if (note.fields.folderId !== entry.id) continue;
-			const edit = folder.tables.notes.edit(note.id);
+			const edit = folder.tables.notes.document(note.id);
 			if (!edit.getSnapshot().isDirty) {
 				const loaded = await edit.refresh();
 				if (local.closing) return CLOSING;
@@ -274,7 +274,7 @@ export function createNotes(local: NotesFolder) {
 			const content = edit.getSnapshot().content;
 			if (content?.issues !== null || content.fields.folderId !== entry.id)
 				continue;
-			const saved = await folder.tables.notes.set(note.id, {
+			const saved = await edit.save({
 				fields: { folderId: null },
 			});
 			if (saved.error !== null) return describeFailure(saved.error);
@@ -402,7 +402,7 @@ export function createNotes(local: NotesFolder) {
 			if (local.closing) return CLOSING;
 			const id = folderIdOf(path);
 			if (id === undefined) return NOT_LISTED;
-			const fileEdit = folder.tables.folders.edit(id);
+			const fileEdit = folder.tables.folders.document(id);
 			if (!fileEdit.getSnapshot().isDirty) {
 				const loaded = await fileEdit.refresh();
 				// The folder may have closed while this waited.
@@ -410,7 +410,7 @@ export function createNotes(local: NotesFolder) {
 				if (loaded.error !== null) return describeFailure(loaded.error);
 			}
 			if (fileEdit.getSnapshot().content?.issues !== null) return NOT_LISTED;
-			const saved = await folder.tables.folders.set(id, { fields });
+			const saved = await fileEdit.save({ fields });
 			return saved.error === null ? undefined : describeFailure(saved.error);
 		},
 
@@ -472,7 +472,7 @@ export function createNotes(local: NotesFolder) {
 			const row =
 				id === undefined || storedNote(id) === undefined
 					? undefined
-					: folder.tables.notes.edit(id).getSnapshot().content;
+					: folder.tables.notes.document(id).getSnapshot().content;
 			return Ok({
 				path,
 				title:

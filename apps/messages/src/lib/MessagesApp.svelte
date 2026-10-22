@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type getFolder, setFolder } from './folder.js';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -40,13 +40,13 @@
 	const current = $derived(all.find((chat) => chat.id === selected));
 	const drafts = createQuery(() => queries.rows('drafts'));
 	const attempts = createQuery(() => queries.rows('attempts'));
-	// The query discovers saved Markdown; FileEdit supplies current input,
+	// The query discovers saved Markdown; ReactiveDocument supplies current input,
 	// including text still waiting for autosave or held after a failed save.
 	const draftEdits = $derived([...new Set([
 		...(drafts.data ?? []).map(row => row.id),
 		...getStatus().unsaved.filter(path => /^drafts\/[^/]+\.md$/.test(path)).map(path => path.slice('drafts/'.length, -'.md'.length)),
-	])].map(id => createFileEdit(folder.tables.drafts.edit(id))));
-	const attemptEdits = $derived((attempts.data ?? []).map(row => createFileEdit(folder.tables.attempts.edit(row.id))));
+	])].map(id => reactiveDocument(folder.tables.drafts.document(id))));
+	const attemptEdits = $derived((attempts.data ?? []).map(row => reactiveDocument(folder.tables.attempts.document(row.id))));
 	const draftPreviews = $derived.by(() => {
 		const previews = new Map<string, { label: string; text: string }>();
 		for (const edit of draftEdits) {

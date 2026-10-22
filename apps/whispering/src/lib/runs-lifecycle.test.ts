@@ -72,9 +72,9 @@ test('ambiguous sibling audio refuses transcription without sending a provider r
 
 test('transcribing captures accepted recording notes without publishing them', async () => {
 	const { whispering, folder, entry, transcribed } = await open();
-	const edit = folder.tables.recordings.edit(entry.stem);
+	const edit = folder.tables.recordings.document(entry.stem);
 	await edit.refresh();
-	expectOk(edit.change({ body: 'Notes accepted before transcription.\n' }));
+	expectOk(edit.patch({ body: 'Notes accepted before transcription.\n' }));
 	await whispering.transcribe(entry);
 	expect(expectOk(await folder.tables.recordings.get(entry.stem))?.body).toBe(
 		'',
@@ -95,25 +95,25 @@ for (const replacement of ['missing', 'malformed'] as const)
 		const source = await readFile(path, 'utf8');
 		if (replacement === 'missing') await rm(path);
 		else await writeFile(path, '---\ntitle: broken\n---\n');
-		await folder.tables.recordings.edit(entry.stem).refresh();
+		await folder.tables.recordings.document(entry.stem).refresh();
 		await whispering.transcribe(entry);
 		expect(transcribed).toEqual([]);
 		expect(whispering.transcriptionRun(entry.stem)).toMatchObject({
 			kind: 'failed',
 		});
 		await writeFile(path, source);
-		await folder.tables.recordings.edit(entry.stem).refresh();
+		await folder.tables.recordings.document(entry.stem).refresh();
 		await whispering.transcribe(entry);
 		expect(transcribed).toHaveLength(1);
 	});
 
 test('failed recording-note publication does not block a request whose own result record can save', async () => {
 	const { whispering, folder, root, entry, transcribed } = await open();
-	const edit = folder.tables.recordings.edit(entry.stem);
+	const edit = folder.tables.recordings.document(entry.stem);
 	await edit.refresh();
 	chmodSync(join(root, 'recordings'), 0o555);
 	try {
-		expectOk(edit.change({ body: 'Failed notes retained in memory.\n' }));
+		expectOk(edit.patch({ body: 'Failed notes retained in memory.\n' }));
 		await edit.save();
 	} finally {
 		chmodSync(join(root, 'recordings'), 0o755);
@@ -154,16 +154,17 @@ test('a deletion blocks new transcriptions while it reads the recording’s conf
 });
 
 test('context close while the recording is being read prevents its transcription request', async () => {
-	const { context, whispering, folder, root, entry, transcribed } = await open();
+	const { context, whispering, folder, root, entry, transcribed } =
+		await open();
 	const entered = deferred<void>();
 	const release = deferred<void>();
-	const recordings = folder.tables.recordings;
+	const get = folder.tables.recordings.get;
 	let armed = true;
 	replaceTables(folder, {
 		recordings: {
-			...recordings,
+			...folder.tables.recordings,
 			async get(id) {
-				const row = await recordings.get(id);
+				const row = await get(id);
 				if (armed) {
 					armed = false;
 					entered.resolve();
@@ -186,13 +187,13 @@ test('two transcription presses while the recording is being read send one reque
 	const { whispering, folder, entry, transcribed } = await open();
 	const entered = deferred<void>();
 	const release = deferred<void>();
-	const recordings = folder.tables.recordings;
+	const get = folder.tables.recordings.get;
 	let armed = true;
 	replaceTables(folder, {
 		recordings: {
-			...recordings,
+			...folder.tables.recordings,
 			async get(id) {
-				const row = await recordings.get(id);
+				const row = await get(id);
 				if (armed) {
 					armed = false;
 					entered.resolve();
@@ -211,15 +212,16 @@ test('two transcription presses while the recording is being read send one reque
 });
 
 test('context close while the initial result is saving prevents a later provider request', async () => {
-	const { context, whispering, folder, root, entry, transcribed } = await open();
+	const { context, whispering, folder, root, entry, transcribed } =
+		await open();
 	const entered = deferred<void>();
 	const release = deferred<void>();
-	const transcripts = folder.tables.transcriptions;
+	const write = folder.tables.transcriptions.write;
 	replaceTables(folder, {
 		transcriptions: {
-			...transcripts,
+			...folder.tables.transcriptions,
 			async write(id, change) {
-				const result = await transcripts.write(id, change);
+				const result = await write(id, change);
 				if (change.body === '') {
 					entered.resolve();
 					await release.promise;
@@ -266,9 +268,9 @@ test('running a failed result again refuses held answer input without publishing
 	await whispering.transcribe(entry);
 	await quiet(context);
 	const transcript = whispering.resultsFor(entry.stem)[0]!;
-	const edit = folder.tables.transcriptions.edit(transcript.stem);
+	const edit = folder.tables.transcriptions.document(transcript.stem);
 	await edit.refresh();
-	expectOk(edit.change({ body: 'An answer supplied by the person.\n' }));
+	expectOk(edit.patch({ body: 'An answer supplied by the person.\n' }));
 	expect(await whispering.runAgain(transcript.path)).toContain(
 		'already has its answer',
 	);

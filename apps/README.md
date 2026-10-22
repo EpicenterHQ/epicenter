@@ -24,7 +24,7 @@ schema file. In a desktop window the same call opens the one directory the
 shell bound to that window before it existed; the page names no path, scope,
 or window. Bun receives `{ directory, tables }` with an existing path. Native
 files use atomic directory writes with the same row interpretation and whole-file
-publication semantics as the browser. One folder-owned editor retains text per
+publication semantics as the browser. One Folder-owned source retains text per
 path. Raw and schema-bound views share it. A publication replaces the path;
 later publications may overwrite outside changes or recreate a deleted path.
 Outside observations never trigger automatic saves.
@@ -83,8 +83,10 @@ edit another folder, the shell opens another window. Neither a browser page
 nor an app chooses a native path, and no URL carries one. A refused open
 shows the refusal; the app does not open different storage as a fallback.
 
-Folder methods return the current source with every row. A view binds its own
-edit handle (`createFileEdit(folder.tables.todos.edit(id))`) and types over what it showed.
+Stored row reads return saved source without acquiring working documents. A view
+observes `reactiveDocument(folder.tables.todos.document(id))` from
+`@epicenter/svelte/document`; tracked getters acquire the shared source and
+controls send `patch({ fields })`, `patch({ body })`, or `replace(text)`.
 The shared folder context owns query keys and the one `onChange` listener that
 refreshes affected paths. The view reports "Saved on this device" only after
 the storage save succeeds and no input is held. Account, inference, and future Git exchange have separate

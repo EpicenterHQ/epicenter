@@ -75,10 +75,10 @@ test.each(['refusal', 'rejection'] as const)(
 
 		expect(calls).toBe(2);
 		expect(target.textContent).not.toContain('Could not open storage');
-		const notes = context?.folder.tables.notes;
-		if (notes === undefined)
+		const folder = context?.folder;
+		if (folder === undefined)
 			throw new Error('The supplied folder was not provided');
-		expect(expectOk(await notes.list())).toEqual([]);
+		expect(expectOk(await folder.tables.notes.list())).toEqual([]);
 	},
 );
 
@@ -222,9 +222,9 @@ test('document departure warns for accepted input until its save lands', async (
 		return !event.defaultPrevented;
 	};
 	expect(leaves()).toBe(true);
-	const edit = folder.tables.notes.edit('milk');
+	const edit = folder.tables.notes.document('milk');
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: 'Accepted, not published yet' }));
+	expectOk(edit.patch({ body: 'Accepted, not published yet' }));
 	expect(folder.getStatus().unsaved).toContain('notes/milk.md');
 	expect(leaves()).toBe(false);
 	expectOk(await edit.save());
@@ -252,8 +252,8 @@ test('pagehide and hidden visibility flush synchronously without waiting', async
 	});
 	cleanup.push(() => unmount(view));
 	await until(() => ready);
-	const edit = folder.files.edit('held.md');
-	expectOk(edit.replaceText('held'));
+	const edit = folder.files.document('held.md');
+	expectOk(edit.replace('held'));
 	window.dispatchEvent(new window.Event('pagehide'));
 	expect(flush).toHaveBeenCalledTimes(1);
 	expect(flush.mock.results[0]?.value).toBeUndefined();

@@ -690,7 +690,7 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 		kind: 'file',
 		path: TRANSCRIPT,
 	});
-	expect(whispering.edit('transcriptions', TRANSCRIPT).content?.body).toBe(
+	expect(whispering.document('transcriptions', TRANSCRIPT).content?.body).toBe(
 		'Yesterday I finished the importer. Today: the exporter.\n',
 	);
 });

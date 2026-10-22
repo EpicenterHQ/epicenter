@@ -77,8 +77,8 @@ are not text are listed apart and not opened.
 ## Editing
 
 - A capture's text and thoughts are its document, so an edit is the body
-  you typed, held by the folder's edit of the row
-  (`folder.tables.captures.edit(stem)`) over the capture as stored. What
+  you typed, held by the folder's shared row document
+  (`folder.tables.captures.document(stem)`) over the capture as stored. What
   the page reads from the folder never replaces it, and a failed reread never
   hides acquired text after a failed refresh. Every save replaces the whole
   file; the last whole-file publication wins. A thought you add, delete, or move is saved at
@@ -120,7 +120,7 @@ are not text are listed apart and not opened.
 New capture and Add a thought are explicit submissions: each text box's
 component owns its text (`$state`) until Add. Typing writes nothing, is not
 registered anywhere, and never prompts on reload or close. Add writes it once:
-`captures.create(text)` uses `table.write` to publish a new `captures/<stem>.md` to `capturedAt` and
+`captures.create(text)` uses `folder.tables.captures.write` to publish a new `captures/<stem>.md` to `capturedAt` and
 `composeBody(text).body`; `actions.addThought(text)` changes the open capture's
 row edit, which saves at once. The text box clears only when Add is taken.
 [ADR-0658](../../docs/adr/0658-capture-compositions-are-durable-markdown-records.md)
@@ -147,9 +147,9 @@ while promotion is saving stays current and is published afterward.
 Creation is a one-shot publication: failure leaves the form's text in the form,
 with no pending document that a later flush can create. Existing captures use
 one working document per path for typing, thoughts, and programmatic field
-changes. `table.set` patches an acquired document and saves its captured
+changes. `document.save(patch)` patches an acquired document and saves its captured
 snapshot; it reports success or failure, retaining an accepted patch if saving
-fails. List and raw reads do not acquire editable text; the mounted edit
+fails. List and raw reads do not acquire editable text; the mounted document
 subscription or explicit `refresh()` does.
 
 ## How it is wired
@@ -172,16 +172,16 @@ synchronously when the page goes away. Close submits no input and waits for no
 writes. Confirmed departure accepts losing unfinished work; callers needing
 durable bytes await the write or save they started.
 
-The folder owns one edit per capture path. Both the capture view and Edit as
-text use `createFileEdit(folder.tables.captures.edit(stem))` from
-`@epicenter/svelte/edits`. The adapter's `content` provides exact text with its interpreted fields,
+The folder owns one working source per capture path. Both the capture view and Edit as
+text use `reactiveDocument(folder.tables.captures.document(stem))` from
+`@epicenter/svelte/document`. The adapter's `content` provides exact text with its interpreted fields,
 body, and issues. Structured controls
-call `change({ fields, body })`; Edit as text calls `replaceText(text)`.
+call `patch({ fields, body })`; Edit as text calls `replace(text)`.
 Switching between valid views saves and refreshes nothing: both show the same
 unsaved input and any save failure. The current editable document determines
 whether it can be shown as a capture.
 
-The neutral editor's `getSnapshot()` is a pure cached read. Its Svelte
+The document's `getSnapshot()` is a pure cached read. Its Svelte
 adapter exposes tracked `content`, `loadError`, `isDirty`, `isSaving`, and
 `saveError` getters. Observation activates initial reading; there is no editor
 query or mirrored component state. Dirty publication intent and admitted

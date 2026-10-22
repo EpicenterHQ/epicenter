@@ -273,7 +273,7 @@ test('a read keeps accepted notes and a retry publishes that complete source', a
 		row.body = 'Mine.\n';
 	});
 	await settle(whispering, context);
-	const edit = context.folder.files.edit(editor.path);
+	const edit = context.folder.files.document(editor.path);
 	expect(edit.getSnapshot().isDirty).toBe(true);
 	const held = edit.getSnapshot().content?.text;
 	await writeElsewhere(root, editor.path, recordingText('Theirs'));
@@ -294,7 +294,7 @@ test('a field typed after reading an outside change keeps its body', async () =>
 		editor.path,
 		`${recordingText('Theirs')}Their notes.\n`,
 	);
-	expectOk(await context.folder.files.edit(editor.path).refresh());
+	expectOk(await context.folder.files.document(editor.path).refresh());
 
 	editor.edit((row) => {
 		row.fields.title = 'Mine';
@@ -314,7 +314,7 @@ test('a field another program added survives every edit of the row', async () =>
 		editor.path,
 		recordingText('Theirs').replace('---\n', '---\nspeaker: Ada\n'),
 	);
-	expectOk(await context.folder.files.edit(editor.path).refresh());
+	expectOk(await context.folder.files.document(editor.path).refresh());
 	await settle(whispering, context);
 
 	editor.edit((row) => {
@@ -361,7 +361,7 @@ test('Discard lets go of typing that did not save, hands it back, and leaves the
 
 	expect(whispering.isUnsaved(editor.path)).toBe(false);
 	expect(whispering.unsaved).toBe(false);
-	expect(whispering.edit(editor.path).isDirty).toBe(false);
+	expect(whispering.document(editor.path).isDirty).toBe(false);
 	failWrites();
 	await settle(whispering, context);
 	expect(await text(root, editor.path)).toBe(before);
@@ -372,10 +372,10 @@ test('discarded field input preserves removals, literal values and the body for 
 	const editor = await record(whispering, context);
 	const before = await text(root, editor.path);
 	// The listing read answered the edit's document.
-	const edit = whispering.edit('recordings', editor.path);
+	const edit = whispering.document('recordings', editor.path);
 	failWrites(editor.path);
 	expectOk(
-		edit.change({
+		edit.patch({
 			fields: { title: '[remove field]', durationMs: undefined },
 			body: 'Kept notes.\n',
 		}),
@@ -395,7 +395,7 @@ test('typing into a retained recording source recreates its deleted file', async
 	const { context, whispering, root } = await open();
 	const editor = await record(whispering, context);
 	await deleteElsewhere(root, editor.path);
-	const edit = context.folder.files.edit(editor.path);
+	const edit = context.folder.files.document(editor.path);
 	await edit.refresh();
 	expect(edit.getSnapshot().loadError?.name).toBe('Missing');
 	expect(edit.getSnapshot().content).toBeDefined();
@@ -418,7 +418,7 @@ test('a clean recording deleted elsewhere retains its selected source without re
 
 	expect(whispering.entries).toEqual([]);
 	expect(whispering.selection).toMatchObject({ kind: 'recording', path });
-	expect(whispering.edit(path).content?.text).toBeDefined();
+	expect(whispering.document(path).content?.text).toBeDefined();
 	expect(await text(root, path)).toBeUndefined();
 	expect(expectOk(await readBytes(context.folder, audioPath)).length).toBe(
 		32044,
@@ -435,7 +435,7 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	const { path } = editor;
 	const broken = '---\ntitle: Broken\n---\n';
 	await writeElsewhere(root, path, broken);
-	expectOk(await context.folder.files.edit(path).refresh());
+	expectOk(await context.folder.files.document(path).refresh());
 	await settle(whispering, context);
 
 	expect(whispering.repairs.map((item) => item.path)).toEqual([path]);
@@ -477,10 +477,10 @@ test('Source shows unsaved row input while its save is still running', async () 
 	});
 	await held;
 	expect(await whispering.editSource(path)).toBeUndefined();
-	expect(whispering.edit(path).content?.text).toEndWith(
+	expect(whispering.document(path).content?.text).toEndWith(
 		'---\nTyped in the fields.\n',
 	);
-	expect(whispering.edit(path).isSaving).toBe(true);
+	expect(whispering.document(path).isSaving).toBe(true);
 	release();
 	expect(whispering.showsText(path)).toBe(true);
 	const source = await openText(whispering, context, path);
@@ -508,8 +508,8 @@ test('switching between fields and Source preserves failed input and recovery in
 	expect(whispering.isUnsaved(path)).toBe(true);
 	expect(await whispering.editSource(path)).toBeUndefined();
 	expect(whispering.showsText(path)).toBe(true);
-	expect(whispering.edit(path).content?.text).toEndWith('Older body.\n');
-	expect(whispering.edit(path).saveError).toBeDefined();
+	expect(whispering.document(path).content?.text).toEndWith('Older body.\n');
+	expect(whispering.document(path).saveError).toBeDefined();
 	expect(whispering.discard(path)).toContain('Older body.\n');
 	expect(whispering.isUnsaved(path)).toBe(false);
 
@@ -531,7 +531,7 @@ test('switching between fields and Source preserves failed input and recovery in
 
 	// Once it can save, the source lands, and no older edit overwrites it.
 	failWrites();
-	await context.folder.files.edit(path).save();
+	await context.folder.files.document(path).save();
 	await settle(whispering, context);
 	expect(await text(root, path)).toEndWith('---\nNewer source.\n');
 	expect(await whispering.useForm(path)).toBeUndefined();
@@ -548,18 +548,18 @@ test('each failed publication is told once while text stays editor-owned', async
 	whispering.onWriteFailure((notice) => notices.push(notice));
 	await writeFile(join(root, 'notes.md'), 'first\n');
 	await settle(whispering, context);
-	const edit = context.folder.files.edit('notes.md');
+	const edit = context.folder.files.document('notes.md');
 	expectOk(await edit.refresh());
 
 	failWrites('notes.md');
-	expectOk(edit.replaceText('\uFEFFsecond\r\n'));
+	expectOk(edit.replace('\uFEFFsecond\r\n'));
 	expect((await edit.save()).error).not.toBeNull();
 	const [first] = context.folder.getStatus().failures;
 	if (first === undefined) throw new Error('Expected a failed publication');
 	expect(notices).toHaveLength(1);
 	expect(notices[0]?.getText()).toBe('\uFEFFsecond\r\n');
 
-	expectOk(edit.replaceText('\uFEFFnewer\r\n'));
+	expectOk(edit.replace('\uFEFFnewer\r\n'));
 	expect(context.folder.getStatus().failures[0]).toBe(first);
 	expect(notices).toHaveLength(1);
 	expect(notices[0]?.getText()).toBe('\uFEFFnewer\r\n');
@@ -568,7 +568,7 @@ test('each failed publication is told once while text stays editor-owned', async
 	expect(notices[0]?.save?.()).toBe(true);
 	await held;
 	expect(context.folder.getStatus().failures).toEqual([]);
-	expectOk(edit.replaceText('\uFEFFnewest\r\n'));
+	expectOk(edit.replace('\uFEFFnewest\r\n'));
 	expect(context.folder.getStatus().failures[0]).toBe(first);
 	expect(notices).toHaveLength(1);
 	release();
@@ -586,7 +586,7 @@ test('each failed publication is told once while text stays editor-owned', async
 	expect(notices[1]?.save?.()).toBe(false);
 
 	failWrites('notes.md');
-	expectOk(edit.replaceText('discard me\r\n'));
+	expectOk(edit.replace('discard me\r\n'));
 	expect((await edit.save()).error).not.toBeNull();
 	const discardedNotice = notices.at(-1);
 	expect(discardedNotice?.getText()).toBe('discard me\r\n');
@@ -697,7 +697,7 @@ test('close releases immediately while an admitted editor save finishes', async 
 test('save indicators and failure recovery do not demand file contents', async () => {
 	const { whispering, context } = await open();
 	const path = 'unopened.txt';
-	const edit = context.folder.files.edit(path);
+	const edit = context.folder.files.document(path);
 	expect(edit.getSnapshot().content).toBeUndefined();
 
 	expect(whispering.isSaving(path)).toBe(false);

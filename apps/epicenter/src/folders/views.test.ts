@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readSavedViews, type SavedView } from '@epicenter/folder/declaration';
-import { createFileEdit } from '@epicenter/svelte/edits';
+import { reactiveDocument } from '@epicenter/svelte/document';
 import { expectOk } from 'wellcrafted/testing';
 import { FileError } from '../../../../packages/folder/src/errors.js';
 import { createNativeFolder } from '../../../../packages/folder/src/native/engine.js';
@@ -39,9 +39,9 @@ async function setup(source: Record<string, unknown> = { views: { a: grid } }) {
 		directory,
 		saveAfterMs: 60_000,
 	});
-	const neutral = folder.files.edit('epicenter.json');
+	const neutral = folder.files.document('epicenter.json');
 	expectOk(await neutral.refresh());
-	const declaration = createFileEdit(neutral);
+	const declaration = reactiveDocument(neutral);
 	const views = createViews({
 		declaration,
 		saved: () =>
@@ -69,7 +69,7 @@ test('settings submission composes with current raw input and puts both in the d
 	try {
 		fixture.views.edit('saved:a', { ...grid, title: 'Typed settings' });
 		expectOk(
-			fixture.declaration.replaceText(
+			fixture.declaration.replace(
 				JSON.stringify({
 					views: { a: grid, future: { type: 'calendar' } },
 					metadata: { raw: 'unfinished source input' },
@@ -124,7 +124,7 @@ test('malformed current source refuses submission and keeps the unsubmitted form
 	const fixture = await setup();
 	try {
 		fixture.views.edit('saved:a', { ...grid, title: 'Held settings' });
-		expectOk(fixture.declaration.replaceText('{broken'));
+		expectOk(fixture.declaration.replace('{broken'));
 		expect(fixture.views.save('saved:a')).toBe('saved:a');
 		expect(fixture.views.error('saved:a')).toBeDefined();
 		expect(fixture.views.dirty('saved:a')).toBe(true);
@@ -142,7 +142,7 @@ test('form reset reads current owner values while submitted deletion composes wi
 		fixture.views.reload('saved:a');
 		expect(fixture.views.value('saved:a')).toEqual(grid);
 		expectOk(
-			fixture.declaration.replaceText(
+			fixture.declaration.replace(
 				JSON.stringify({
 					views: { a: grid, keep: { type: 'calendar' } },
 					title: 'Raw title',

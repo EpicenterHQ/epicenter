@@ -18,14 +18,14 @@ verify it against the code. The constraints below apply to every edit here.
   the shared opener owns saying so. Do not wrap a method the local folder
   does not have (rename, move, mkdir, Git) to bring it back.
 - Opening or listing a note must not write its file. Only an edit writes.
-- Keep editable documents and accepted input in the Folder's edit owner.
+- Keep editable documents and accepted input in the Folder's document owner.
   Queries list, derive, and schedule refreshes; do not add another document
   owner or save queue in the app. Local state holds unfinished forms,
   search, selection, and other UI state.
-- Send immediate note and folder changes through the shared Folder edit.
+- Send immediate note and folder changes through the shared Folder document.
   Preserve pending input across rereads and view changes. A failed save
   keeps that input and its error; a read must never replace it.
-- Whole-file input and row patches share one edit owner and one save
+- Whole-file input and row patches share one document owner and one save
   queue per path.
   Switching representations must preserve failed input for retry, copying,
   or explicit discard. Selecting another file does not release that input.
@@ -51,14 +51,14 @@ verify it against the code. The constraints below apply to every edit here.
 
 ## Editor ownership
 
-- The Folder's FileEdit owns the note's body.
-  ProseMirror's `EditorState` owns only what that edit has no place for: the
+- The Folder's `FileDocument` owns the note's body.
+  ProseMirror's `EditorState` owns only what that document has no place for: the
   cursor, pending formatting, undo history, and an empty paragraph Markdown
   cannot spell yet. Its document is never a third copy of the body.
 - Every ProseMirror transaction that changes the document goes through
   `stateAfter`: reconciliation with the body shown now, checked Markdown
-  serialization, then `FileEdit.change({ body })`, before it is shown. An edit that is
-  refused is not shown.
+  serialization, then `document.patch({ body })`, before it is shown. An edit
+  that is refused is not shown.
 - `stateShowing` follows the body shown by content: the same content keeps
   the state; different content (Source, another tab's change) replaces it.
 - Do not weaken `checkNoteDoc` to let an edit through. If Markdown cannot
@@ -78,12 +78,12 @@ verify it against the code. The constraints below apply to every edit here.
 
 ## Closing
 
-- `<FolderApp>` closes the folder when the page goes away: Folder refuses
-  new edit input, sends every draft, waits for the saves, then closes the
-  handle. FileEdit owns autosave after input blur and view departure; the
-  shared root sends pending edits when the page is hidden. App actions check `fenced`; FileEdit refuses new input itself. Controls in
-  menus, popovers, and dialogs must also be `disabled`, because those render
-  outside the inert root.
+- `<FolderApp>` closes the folder synchronously when the page goes away.
+  Close submits no held input and waits for no writes. Folder owns autosave
+  after input blur and view departure; the shared root calls best-effort
+  `flush()` when the page is hidden. App actions check `closing`; document
+  commands refuse new input after close. Controls in menus, popovers, and
+  dialogs must also be `disabled`, because those render outside the inert root.
 - Keep the browser unload guard in `FolderApp` and the in-page navigation
   guard (`beforeNavigate`) in `HoneycrispApp`. They ask before leaving only
   while the Folder has a pending save.

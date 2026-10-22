@@ -37,7 +37,7 @@
 	const asText = $derived(whispering.showsText(result.path));
 	/** This card's transcript row: the folder's edit of it, as stored with what is typed over it. */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = whispering.edit(TRANSCRIPTIONS, own);
+	const fileEdit = whispering.document(TRANSCRIPTIONS, own);
 	const row = $derived.by(() => {
 		const shown = fileEdit.content;
 		return shown?.issues === null ? shown : undefined;
@@ -79,7 +79,7 @@
 			class="min-h-32 resize-y font-sans"
 			bind:value={
 				() => shown.body,
-				(value) => toastOnError(fileEdit.change({ body: value }), 'That change was not made')
+				(value) => toastOnError(fileEdit.patch({ body: value }), 'That change was not made')
 			}
 
 			placeholder="This transcript has no text."

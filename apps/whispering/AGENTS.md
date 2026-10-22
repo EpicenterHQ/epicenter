@@ -62,7 +62,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   asking. A stopped Epicenter host does not stop saving: do not tell the
   person it does.
 - **Files are authoritative.** Keep editable documents and accepted input
-  in the Folder's edit owner. Queries list, derive, and schedule refreshes;
+  in the Folder's document owner. Queries list, derive, and schedule refreshes;
   do not add another document owner, save queue, mirror, or second store of
   recordings. Do not add Yjs, the
   `@epicenter/app` store, or accounts to this workflow.
@@ -77,9 +77,10 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   writes its length while the page lives. Native departure preserves the WAV
   without promising length metadata. Never add a status, pending, or interrupted
   field, and never hold desktop audio in the page to save later: Rust writes it
-  as it captures. Recorder commands never delete captured audio. Save a row
-  through its table (`set`) as a change from the row as read, never as text the
-  app serialized by hand.
+  as it captures. Recorder commands never delete captured audio. Create a row
+  with `folder.tables.recordings.write(id, document)`; update an acquired row through
+  `document.save({ fields, body })`, preserving the shared working source.
+  Never serialize row text by hand in the app.
 - **Fixture audio is debug-only, and failure injection is test-only.** Fixture
   audio is a development browser build's, and the UI says so while it is
   active. No build offers failure injection; a test that fails a recording

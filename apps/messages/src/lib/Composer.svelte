@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getFolder } from './folder.js';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -12,8 +12,8 @@
 	// The parent keys this composer by its durable draft ID.
 	// svelte-ignore state_referenced_locally
 	const draftId = id;
-	const fileEdit = createFileEdit(folder.tables.drafts.edit(draftId));
-	const attemptEdit = createFileEdit(folder.tables.attempts.edit(draftId));
+	const fileEdit = reactiveDocument(folder.tables.drafts.document(draftId));
+	const attemptEdit = reactiveDocument(folder.tables.attempts.document(draftId));
 	const ready = $derived(fileEdit.content !== undefined || fileEdit.loadError?.name === 'Missing');
 	const invalid = $derived(fileEdit.content !== undefined && fileEdit.content.issues !== null);
 	const attempted = $derived(attemptEdit.loadError?.name !== 'Missing' && attemptEdit.content?.issues === null ? attemptEdit.content : undefined);

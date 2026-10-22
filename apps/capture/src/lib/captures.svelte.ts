@@ -5,7 +5,7 @@
  *
  * The timeline reads the one rows query of the captures table. The capture
  * view and Edit as text share one file edit
- * (`createFileEdit(folder.tables.captures.edit(stem))`), read as a structured
+ * (`reactiveDocument(folder.tables.captures.document(stem))`), read as a structured
  * document or exact text. The
  * folder holds each capture as stored and what is typed over
  * it, one kind of input per path, and saves it a second after the last
@@ -38,8 +38,7 @@ import {
 	ActionError,
 	type ChangeError,
 	type LoadError,
-	type SaveRefusal,
-} from '@epicenter/folder/edits';
+} from '@epicenter/folder/document';
 import type { FolderContext } from '@epicenter/svelte/folder';
 import {
 	defineErrors,
@@ -109,8 +108,7 @@ export type Failure =
 	| ReadError
 	| LoadError
 	| ActionError
-	| CaptureError
-	| SaveRefusal;
+	| CaptureError;
 
 /** The file of the capture `stem`. */
 export const capturePath = (stem: string) => `${CAPTURES_TABLE}/${stem}.md`;
@@ -259,7 +257,7 @@ export function createCaptures(context: CaptureFolder) {
 	 */
 	function open(stem: string, mode: Mode, focus?: Focus) {
 		if (mode === 'capture') {
-			const snapshot = folder.tables.captures.edit(stem).getSnapshot();
+			const snapshot = folder.tables.captures.document(stem).getSnapshot();
 			const row = snapshot.isDirty
 				? snapshot.content
 				: (rowOf(stem) ?? snapshot.content);
@@ -366,7 +364,7 @@ export function createCaptures(context: CaptureFolder) {
 			const path = capturePath(stem);
 			if (context.closing) return ActionError.Closing();
 
-			const edit = folder.tables.captures.edit(stem);
+			const edit = folder.tables.captures.document(stem);
 			// Refresh clean content that may have been inactive since acquisition.
 			// Pending local input already supplies the document to finish.
 			if (!edit.getSnapshot().isDirty) {
@@ -388,7 +386,7 @@ export function createCaptures(context: CaptureFolder) {
 			if (row.fields.draft === true) {
 				if (row.body.trim() === '')
 					return CaptureError.Refused({ message: 'Write something first.' });
-				const saved = await folder.tables.captures.set(stem, {
+				const saved = await edit.save({
 					fields: { draft: undefined, capturedAt: new Date().toISOString() },
 					body: composeBody(row.body).body,
 				});
@@ -406,7 +404,7 @@ export function createCaptures(context: CaptureFolder) {
 		},
 		/** What deleting the capture at `stem` would remove, for the person to confirm. */
 		deletionFor(stem: string): Deletion {
-			const snapshot = folder.tables.captures.edit(stem).getSnapshot();
+			const snapshot = folder.tables.captures.document(stem).getSnapshot();
 			const row = snapshot.isDirty
 				? snapshot.content
 				: (rowOf(stem) ?? snapshot.content);

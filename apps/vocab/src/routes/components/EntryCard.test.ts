@@ -119,7 +119,7 @@ async function setup(text: string, { saveAfterMs = 60 } = {}) {
 
 /** What the folder holds typed into `lucid` and not saved yet. */
 const held = ({ folder, vocab }: Awaited<ReturnType<typeof setup>>) =>
-	folder.tables.entries.edit(cached(vocab, 'lucid').id).getSnapshot();
+	folder.tables.entries.document(cached(vocab, 'lucid').id).getSnapshot();
 
 test('the note is editable at once, and saved after a pause in typing', async () => {
 	await using context = await setup('lucid');
@@ -155,7 +155,7 @@ test('the typed note survives the list being read again before it is saved', asy
 	flushSync();
 	expect(context.note()?.value).toBe('mine');
 	await context.folder.tables.entries
-		.edit(cached(context.vocab, 'lucid').id)
+		.document(cached(context.vocab, 'lucid').id)
 		.save();
 	await quiet(context.vocab);
 	expect((await context.saved())?.note).toBe('mine');
@@ -274,7 +274,7 @@ test('a valid unsaved repair opens its structured controls even when saving fail
 		expect(
 			(await folder.tables.entries.get('broken')).data?.fields?.stage,
 		).toBe('invalid');
-		expect(folder.tables.entries.edit('broken').getSnapshot().isDirty).toBe(
+		expect(folder.tables.entries.document('broken').getSnapshot().isDirty).toBe(
 			true,
 		);
 	} finally {
@@ -290,7 +290,7 @@ test('an orphan failure card follows current editor text for Copy and Discard', 
 	await using opened = await openVocab(folder);
 	expectOk(await opened.vocab.entries.add('lucid'));
 	const id = cached(opened.vocab, 'lucid').id;
-	const edit = folder.tables.entries.edit(id);
+	const edit = folder.tables.entries.document(id);
 	const target = document.createElement('div');
 	document.body.append(target);
 	const { default: WordsViewHost } = await import(
@@ -307,14 +307,14 @@ test('an orphan failure card follows current editor text for Copy and Discard', 
 		IDBObjectStore.prototype.put = () => {
 			throw new DOMException('storage refused', 'QuotaExceededError');
 		};
-		expectOk(edit.replaceText('\uFEFForphan A\r\n'));
+		expectOk(edit.replace('\uFEFForphan A\r\n'));
 		expect((await edit.save()).error).not.toBeNull();
 		await until(
 			() => target.querySelector('[aria-label="Unsaved change"]') !== null,
 			'the orphan failure card',
 		);
 
-		expectOk(edit.replaceText('\uFEFForphan newest\r\n'));
+		expectOk(edit.replace('\uFEFForphan newest\r\n'));
 		flushSync();
 		expect(
 			target.querySelector('[aria-label="Unsaved change"]')?.textContent,
@@ -335,8 +335,7 @@ test('an orphan failure card follows current editor text for Copy and Discard', 
 		expect(edit.getSnapshot().isDirty).toBe(false);
 	} finally {
 		IDBObjectStore.prototype.put = put;
-		if (clipboard === undefined)
-			Reflect.deleteProperty(navigator, 'clipboard');
+		if (clipboard === undefined) Reflect.deleteProperty(navigator, 'clipboard');
 		else Object.defineProperty(navigator, 'clipboard', clipboard);
 		await unmount(view);
 		target.remove();
@@ -348,7 +347,7 @@ test('Save again publishes the current orphan text and clears its failure card',
 	const folder = await browser.open({ saveAfterMs: 60_000 });
 	await using opened = await openVocab(folder);
 	expectOk(await opened.vocab.entries.add('lucid'));
-	const edit = folder.tables.entries.edit(cached(opened.vocab, 'lucid').id);
+	const edit = folder.tables.entries.document(cached(opened.vocab, 'lucid').id);
 	const target = document.createElement('div');
 	document.body.append(target);
 	const { default: WordsViewHost } = await import(
@@ -363,13 +362,13 @@ test('Save again publishes the current orphan text and clears its failure card',
 		IDBObjectStore.prototype.put = () => {
 			throw new DOMException('storage refused', 'QuotaExceededError');
 		};
-		expectOk(edit.replaceText('orphan failed\n'));
+		expectOk(edit.replace('orphan failed\n'));
 		expect((await edit.save()).error).not.toBeNull();
 		await until(
 			() => target.querySelector('[aria-label="Unsaved change"]') !== null,
 			'the orphan failure card',
 		);
-		expectOk(edit.replaceText('orphan saved\n'));
+		expectOk(edit.replace('orphan saved\n'));
 		IDBObjectStore.prototype.put = put;
 		click(target, 'Save again');
 		await until(

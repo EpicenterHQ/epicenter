@@ -13,16 +13,16 @@ component draft and synchronize the two with effects.
 
 | Control | Read | Write |
 | --- | --- | --- |
-| Complete file text | Current editor text | `fileEdit.replaceText(text)` |
-| Structured field | Current valid Markdown fields | `fileEdit.change({ fields: { title } })` |
-| Markdown body | Current Markdown body | `fileEdit.change({ body })` |
+| Complete file text | Current editor text | `fileDocument.replace(text)` |
+| Structured field | Current valid Markdown fields | `fileDocument.patch({ fields: { title } })` |
+| Markdown body | Current Markdown body | `fileDocument.patch({ body })` |
 
 Render structured controls only while the current row is valid. Invalid rows
 show a reason and a Files repair action; do not invent empty field values.
 When a binding getter needs narrowed Markdown, capture it with `{@const}` in
 the nearest template scope, then narrow that local before creating the binding
-callbacks. The setter calls `fileEdit.change()` with the named change; the edit
-owner applies it to the live source in call order. Do not spread a render-time
+callbacks. The setter calls `fileDocument.replace(text)` or `fileDocument.patch(patch)`; the
+document owner applies it to the live source in call order. Do not spread a render-time
 row back into the source or merge it with outside changes in the control.
 These data-shape checks are not view permissions.
 

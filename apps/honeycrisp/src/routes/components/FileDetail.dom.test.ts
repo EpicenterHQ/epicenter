@@ -59,9 +59,9 @@ afterEach(async () => {
 test('failed changes share one recovery surface across note and whole-file presentations', async () => {
 	const { notes, target, failSaves } = await view({ saveAfterMs: 60_000 });
 	const body = 'Keep this body\n';
-	notes.folder.tables.notes.edit('a').change({ body });
+	notes.folder.tables.notes.document('a').patch({ body });
 	failSaves();
-	await notes.folder.files.edit(PATH).save();
+	await notes.folder.files.document(PATH).save();
 	expect(notes.isUnsaved(PATH)).toBe(true);
 	click(target, 'Edit as file');
 	await until(() => {
@@ -71,13 +71,15 @@ test('failed changes share one recovery surface across note and whole-file prese
 		);
 	}, 'the whole-file editor');
 	expect(notes.selected?.as).toBe('text');
-	expect(notes.folder.files.edit(PATH).getSnapshot().content?.text).toContain(
-		body,
-	);
-	expect(notes.folder.files.edit(PATH).getSnapshot().saveError).toBeDefined();
-	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
-		body,
-	);
+	expect(
+		notes.folder.files.document(PATH).getSnapshot().content?.text,
+	).toContain(body);
+	expect(
+		notes.folder.files.document(PATH).getSnapshot().saveError,
+	).toBeDefined();
+	expect(
+		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+	).toBe(body);
 	expect(
 		target.querySelector('[aria-label="Unsaved note changes"]'),
 	).toBeNull();
@@ -108,10 +110,10 @@ test('failed changes share one recovery surface across note and whole-file prese
 test('a finishing Edit as file save does not reopen a note after selecting another', async () => {
 	const { notes, target, write, folder } = await view({ saveAfterMs: 60_000 });
 	await write('notes/b.md', noteText({ title: 'Beta' }));
-	notes.folder.tables.notes.edit('a').change({ body: 'A pending body\n' });
+	notes.folder.tables.notes.document('a').patch({ body: 'A pending body\n' });
 	click(target, 'Edit as file');
 	notes.open('notes/b.md');
-	await folder.tables.notes.edit('a').save();
+	await folder.tables.notes.document('a').save();
 	await quiet(notes);
 	expect(notes.selected?.path).toBe('notes/b.md');
 	expect(notes.selected?.as).toBe('note');
@@ -229,7 +231,7 @@ test.each(['title', 'body source', 'whole-file source'] as const)(
 		}
 		blur(input);
 		flushSync();
-		const edit = folder.files.edit(PATH);
+		const edit = folder.files.document(PATH);
 		expect(edit.getSnapshot().isSaving).toBe(false);
 		const leaving = leave();
 		expect(edit.getSnapshot().isSaving).toBe(false);
@@ -260,7 +262,7 @@ test('typing a title saves it, and switching tabs or typing keeps the one rich-t
 	expect(rich.isConnected).toBe(true);
 });
 
-test('title and Source inputs replace lone surrogates before reaching FileEdit', async () => {
+test('title and Source inputs replace lone surrogates before reaching FileDocument', async () => {
 	const { notes, target, settle, text } = await view();
 	type(titleOf(target), 'Title\uD800');
 	blur(titleOf(target));
@@ -272,7 +274,9 @@ test('title and Source inputs replace lone surrogates before reaching FileEdit',
 	);
 	await tick();
 	await settle();
-	const markdown = notes.folder.tables.notes.edit('a').getSnapshot().content;
+	const markdown = notes.folder.tables.notes
+		.document('a')
+		.getSnapshot().content;
 	expect(markdown?.fields?.title).toBe('Title\uFFFD');
 	expect(markdown?.body).toBe('Body\uFFFD\n');
 	expect(await text(PATH)).toContain('Body\uFFFD\n');
@@ -282,9 +286,9 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 	const { notes, target, text, settle } = await view();
 	const rich = richOf(target);
 	await typeRich(rich, ' Typed');
-	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
-		'Body. Typed\n',
-	);
+	expect(
+		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+	).toBe('Body. Typed\n');
 	await settle();
 	expect(await text(PATH)).toContain('Body. Typed\n');
 	// A save never changes what is on screen: the same view and its history stay.
@@ -296,9 +300,9 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 		);
 		flushSync();
 	}
-	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
-		'Body.\n',
-	);
+	expect(
+		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+	).toBe('Body.\n');
 	expect(rich.textContent).toBe('Body.');
 	await settle();
 	expect(await text(PATH)).toContain('---\nBody.\n');
@@ -315,17 +319,17 @@ test('different Source text replaces the rich-text document, and typing goes on 
 		'Different\n',
 	);
 	await tick();
-	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
-		'Different\n',
-	);
+	expect(
+		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+	).toBe('Different\n');
 	click(target, 'Rich text');
 	flushSync();
 	expect(rich.textContent).toBe('Different');
 	expect(undoButton(target).disabled).toBe(true);
 	await typeRich(rich, ' again');
-	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
-		'Different again\n',
-	);
+	expect(
+		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+	).toBe('Different again\n');
 });
 
 test('changing presentation keeps rich-text input pending without requesting a save', async () => {
@@ -343,7 +347,7 @@ test('changing presentation keeps rich-text input pending without requesting a s
 	flushSync();
 	expect(richOf(target)).toBe(rich);
 	expect(undoButton(target).disabled).toBe(false);
-	expect(notes.folder.files.edit(PATH).getSnapshot().isDirty).toBe(true);
+	expect(notes.folder.files.document(PATH).getSnapshot().isDirty).toBe(true);
 	expect(await text(PATH)).not.toContain('Typed');
 });
 
@@ -372,9 +376,9 @@ test('changing the whole-file body replaces rich text without retaining stale Un
 	expect(rich.textContent).toBe('Different');
 	expect(undoButton(target).disabled).toBe(true);
 	await typeRich(rich, ' again');
-	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
-		'Different again\n',
-	);
+	expect(
+		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+	).toBe('Different again\n');
 });
 
 test('a title typed before another tab saves publishes the current complete file', async () => {
@@ -384,16 +388,18 @@ test('a title typed before another tab saves publishes the current complete file
 	type(titleOf(target), 'Mine');
 	await tick();
 	const tab = await otherTab();
-	expectOk(await tab.tables.notes.edit('a').refresh());
+	expectOk(await tab.tables.notes.document('a').refresh());
 
 	expectOk(
-		await tab.tables.notes.set('a', {
+		await tab.tables.notes.document('a').save({
 			fields: { title: 'Theirs' },
 			body: 'Their body.\n',
 		}),
 	);
-	await folder.tables.notes.edit('a').save();
-	expect(folder.tables.notes.edit('a').getSnapshot().saveError).toBeUndefined();
+	await folder.tables.notes.document('a').save();
+	expect(
+		folder.tables.notes.document('a').getSnapshot().saveError,
+	).toBeUndefined();
 	expect((await text(PATH)) ?? '').toContain('Body.\n');
 	await settle();
 	expect(local.getStatus().failures).toEqual([]);
@@ -407,10 +413,10 @@ test('a change another tab saved shows in the open note', async () => {
 	const { target, otherTab, settle } = await view();
 	const rich = richOf(target);
 	const tab = await otherTab();
-	expectOk(await tab.tables.notes.edit('a').refresh());
+	expectOk(await tab.tables.notes.document('a').refresh());
 
 	expectOk(
-		await tab.tables.notes.set('a', {
+		await tab.tables.notes.document('a').save({
 			fields: { title: 'Theirs' },
 			body: 'Their body.\n',
 		}),
@@ -454,7 +460,8 @@ test('once the notes are closing, the controls take no input', async () => {
 	type(titleOf(target), 'Typed while closing');
 	flushSync();
 	expect(
-		notes.folder.tables.notes.edit('a').getSnapshot().content?.fields?.title,
+		notes.folder.tables.notes.document('a').getSnapshot().content?.fields
+			?.title,
 	).toBe('Alpha');
 	// The editor stays mounted while the last saves land.
 	expect(richOf(target)).toBe(rich);

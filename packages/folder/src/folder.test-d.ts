@@ -11,7 +11,7 @@ import type { Result } from 'wellcrafted/result';
 import * as browser from './browser.js';
 import * as bun from './bun.js';
 import type * as contract from './contract.js';
-import type { ChangeError } from './edits.js';
+import type { ChangeError, MarkdownContent } from './document.js';
 import type {
 	Folder,
 	FolderFiles,
@@ -79,9 +79,17 @@ if (row.issues === null) {
 expectTypeOf(folder.tables.notes.get('a')).toEqualTypeOf<
 	Promise<Result<Row<typeof notes> | undefined, ReadError>>
 >();
-expectTypeOf(folder.tables.notes.set('a', { body: 'x' })).toEqualTypeOf<
-	Promise<Result<Row<typeof notes>, ChangeError | SaveError>>
+expectTypeOf(
+	folder.tables.notes.document('a').save({ body: 'x' }),
+).toEqualTypeOf<
+	Promise<Result<MarkdownContent<typeof notes>, ChangeError | SaveError>>
 >();
+// @ts-expect-error A patch accepts fields and body, not a source string.
+folder.tables.notes.document('a').patch('source');
+// @ts-expect-error A replacement accepts a source string, not a patch.
+folder.tables.notes.document('a').replace({ body: 'x' });
+// @ts-expect-error A full-source save accepts a string, not a text envelope.
+folder.tables.notes.document('a').save({ text: 'source' });
 expectTypeOf(folder.tables.notes.write('a', { body: 'x' })).toEqualTypeOf<
 	Promise<Result<Row<typeof notes>, SaveError>>
 >();
@@ -96,8 +104,12 @@ expectTypeOf(folder.files.delete('a.md')).toEqualTypeOf<
 >();
 // @ts-expect-error Writes carry no base content.
 folder.files.write('a.md', null, 'x');
-// @ts-expect-error A row set names a change, with no base row.
-folder.tables.notes.set('a', row, { body: 'x' });
+// @ts-expect-error A document save takes input, with no base row.
+folder.tables.notes.document('a').save(row, { body: 'x' });
+// @ts-expect-error Acquired changes are published through their document.
+folder.tables.notes.set('a', { body: 'x' });
+// @ts-expect-error Document acquisition does not start a private edit session.
+folder.tables.notes.edit('a');
 // @ts-expect-error Folder tracks submitted writes, not workflows.
 folder.run(async () => {});
 

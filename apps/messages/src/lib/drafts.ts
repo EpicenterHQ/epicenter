@@ -1,11 +1,10 @@
 import type { Folder, ReadError, SaveError } from '@epicenter/folder';
-import { documentChange } from '@epicenter/folder/documents';
 import {
 	ActionError,
 	type ChangeError,
 	type LoadError,
-	type SaveRefusal,
-} from '@epicenter/folder/edits';
+} from '@epicenter/folder/document';
+import { documentChange } from '@epicenter/folder/documents';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Backend } from './backend.js';
@@ -18,7 +17,6 @@ type DraftError = InferErrors<typeof DraftError>;
 export type MessagesFolder = Folder<typeof messagesTables>;
 type Failure =
 	| LoadError
-	| SaveRefusal
 	| ChangeError
 	| ReadError
 	| SaveError
@@ -52,13 +50,13 @@ export function changeDraft(
 	backend: Backend,
 	body: string,
 ): Result<void, ChangeError | DraftError> {
-	const edit = folder.tables.drafts.edit(id);
+	const edit = folder.tables.drafts.document(id);
 	const snapshot = edit.getSnapshot();
 	if (snapshot.content !== undefined) {
-		const attempt = folder.tables.attempts.edit(id).getSnapshot().content;
+		const attempt = folder.tables.attempts.document(id).getSnapshot().content;
 		if (snapshot.content.fields?.state === 'sending' && attempt === undefined)
 			return unresolved();
-		return edit.change({ body });
+		return edit.patch({ body });
 	}
 	if (snapshot.loadError?.name !== 'Missing')
 		return DraftError.Refused({
@@ -73,7 +71,7 @@ export function changeDraft(
 	);
 	if (created.error !== null)
 		return DraftError.Refused({ message: created.error.reason });
-	return edit.replaceText(created.data.text);
+	return edit.replace(created.data.text);
 }
 
 /** Only send/recovery workflows write attempts; composer autosave has no authority over them. */
@@ -147,13 +145,13 @@ export async function sendDraft(
 	backend: Backend,
 ): Promise<Result<string, Failure>> {
 	if (folder.getStatus().closing) return ActionError.Closing();
-	const edit = folder.tables.drafts.edit(id);
+	const edit = folder.tables.drafts.document(id);
 	const offered = edit.getSnapshot().content;
 	if (offered === undefined || offered.issues !== null)
 		return DraftError.Refused({
 			message: 'Wait for this draft to open, or repair it as Markdown.',
 		});
-	const knownAttempt = folder.tables.attempts.edit(id).getSnapshot();
+	const knownAttempt = folder.tables.attempts.document(id).getSnapshot();
 	const previousId =
 		knownAttempt.loadError?.name === 'Missing'
 			? undefined
@@ -230,7 +228,7 @@ export async function sendDraft(
 				if (saved.error !== null) return saved;
 				if (folder.getStatus().closing) return closedBeforeSend();
 				if (!changed && edit.getSnapshot().content?.text === row.text) {
-					const cleared = await folder.tables.drafts.set(id, {
+					const cleared = await edit.save({
 						body: '',
 						fields: { state: 'draft', pendingId: '' },
 					});
@@ -348,7 +346,7 @@ export async function recoverDraft(
 		);
 		if (checked.error !== null)
 			return DraftError.Refused({ message: checked.error.reason });
-		const edit = folder.tables.drafts.edit(id);
+		const edit = folder.tables.drafts.document(id);
 		if (!edit.getSnapshot().isDirty && draft.data !== undefined) {
 			const loaded = await edit.refresh();
 			if (loaded.error !== null) return loaded;
@@ -399,9 +397,7 @@ export async function recoverDraft(
 			);
 			if (restoredText.error !== null)
 				return DraftError.Refused({ message: restoredText.error.reason });
-			const accepted = edit.replaceText(restoredText.data.text);
-			if (accepted.error !== null) return accepted;
-			const restored = await edit.save();
+			const restored = await edit.save(restoredText.data.text);
 			return restored.error !== null ? restored : Ok(undefined);
 		} finally {
 			stop();

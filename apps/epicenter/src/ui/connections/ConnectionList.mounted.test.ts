@@ -76,7 +76,7 @@ describe.skipIf(!browser)('Settings folder context', async () => {
 			type(title, 'Edited first account');
 			await until(
 				() =>
-					!first.folder.tables.connections.edit('account').getSnapshot()
+					!first.folder.tables.connections.document('account').getSnapshot()
 						.isDirty,
 			);
 			const savedFirst = expectOk(

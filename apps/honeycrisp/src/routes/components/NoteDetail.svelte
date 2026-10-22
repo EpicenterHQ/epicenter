@@ -15,7 +15,7 @@
 	import * as Tabs from '@epicenter/ui/tabs';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import type { FileEdit } from '@epicenter/svelte/edits';
+	import type { ReactiveDocument } from '@epicenter/svelte/document';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { folderLabel, type HoneycrispTables, type NoteFields, noteIdOf } from '$lib/data.js';
 	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
@@ -30,7 +30,7 @@
 		notes: Notes;
 		/** Fixed for this component's lifetime, including presentation changes. */
 		path: string;
-		fileEdit: FileEdit<HoneycrispTables['notes']>;
+		fileEdit: ReactiveDocument<HoneycrispTables['notes']>;
 	} = $props();
 
 	// The parent keys this view by its path. While the parent replaces it,
@@ -43,7 +43,7 @@
 	}));
 	/** The note as the rich-text view reads and edits it, when it reads as one. */
 	// svelte-ignore state_referenced_locally
-	const sourceEdit = notes.folder.tables.notes.edit(noteIdOf(path) ?? '');
+	const sourceEdit = notes.folder.tables.notes.document(noteIdOf(path) ?? '');
 	const shownNote = $derived(fileEdit.content?.issues === null ? fileEdit.content : undefined);
 	/**
 	 * Edits wait once the notes are closing. Retained text stays editable
@@ -78,7 +78,7 @@
 		<div class="flex items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => row.fields.title, (typed) => toastOnError(fileEdit.change({ fields: { title: typed.toWellFormed() } }), 'That change was not made')}
+				bind:value={() => row.fields.title, (typed) => toastOnError(fileEdit.patch({ fields: { title: typed.toWellFormed() } }), 'That change was not made')}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Title"
@@ -133,7 +133,7 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => noteBody(row) ?? '', (typed) => toastOnError(fileEdit.change({ body: typed.toWellFormed() }), 'That change was not made')}
+						bind:value={() => noteBody(row) ?? '', (typed) => toastOnError(fileEdit.patch({ body: typed.toWellFormed() }), 'That change was not made')}
 						disabled={locked}
 						aria-label="Markdown source"
 						spellcheck={false}

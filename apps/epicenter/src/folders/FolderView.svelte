@@ -16,7 +16,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import FileEditor from './FileEditor.svelte';
 	import { fileTree } from './files';
-	import { createFileEdit } from '@epicenter/svelte/edits';
+	import { reactiveDocument } from '@epicenter/svelte/document';
 
 	/** Files, recipes and held input share one window and one open folder. */
 
@@ -39,7 +39,7 @@
 		selected = path;
 		view = 'files';
 	}
-	const declaration = createFileEdit(folder.files.edit('epicenter.json'));
+	const declaration = reactiveDocument(folder.files.document('epicenter.json'));
 	const saved = $derived(readSavedViews(declaration.content?.text ?? '{}'));
 	const loadProblem = $derived(declaration.loadError?.name === 'Missing' ? undefined : declaration.loadError?.message);
 	const views = createViews({

@@ -1,12 +1,11 @@
 /**
- * One owner per opened Folder: each path's one source, the editors that view
- * it through a schema, and the path's command lane, which every write and
- * delete of the path enters: editor saves, direct file writes, row sets and
- * deletes alike. The owner composes and publishes each of them.
+ * One owner per opened Folder: each path's working source, schema-specific
+ * document handles, and command lane. Document saves, detached writes and
+ * deletes all enter that lane. The owner composes and publishes each of them.
  *
  * A source holds two things: the last text known to be stored, kept for the
  * folder's whole life once known, and the latest accepted local input, an
- * intent with its own identity. An editor shows the intent's text, or the
+ * intent with its own identity. A document shows the intent's text, or the
  * known text when there is no intent. Only accepted local input starts an
  * automatic save; observations of storage never write. Structured changes
  * accept input before publishing, just like typing followed by save.
@@ -18,10 +17,10 @@
  * promise resolves.
  *
  * Each source orders its own reads against changes and publications. Lists,
- * row gets, and raw file reads return data without acquiring editor state.
+ * row gets, and raw file reads return data without acquiring working documents.
  * A read that something newer overtook still shows its text when it is newer
  * than anything installed, without claiming to be current, and subscribed
- * editors read again; `refresh` settles with the first read to start after
+ * documents read again; `refresh` settles with the first read to start after
  * it, so a file that keeps changing cannot hold either off.
  */
 import { type Static, type TSchema, Type } from 'typebox';
@@ -77,7 +76,7 @@ export const ChangeError = defineErrors({
 	Closing: () => ({ message: CLOSING }),
 	NoContent: () => ({
 		message:
-			'There is no text to change yet. It may still be loading, or it could not be read.',
+			'There is no text yet. It may still be loading, or it could not be read.',
 	}),
 	InvalidText: ({ reason }: { reason: string }) => ({
 		message: `The text cannot be saved: ${reason}`,
@@ -93,21 +92,14 @@ export type ChangeError = InferErrors<typeof ChangeError>;
 /** Accepted into memory, or refused. */
 export type ChangeResult = Result<void, ChangeError>;
 
-/** Why `save()` sent nothing. */
-export const SaveRefusal = defineErrors({
-	NoContent: () => ({ message: 'There is no text to save.' }),
-	Closed: () => ({ message: 'The folder is closed, so nothing was saved.' }),
-});
-export type SaveRefusal = InferErrors<typeof SaveRefusal>;
-
-/** Generic frontmatter, when no read schema is bound to an editor. */
+/** Generic frontmatter, when no read schema is bound to a document. */
 const anyFields = Type.Record(Type.String(), Type.Unknown());
 export type AnyFieldsSchema = typeof anyFields;
 
-/** Fields and body contributed together; undefined removes a field. */
-export type DocumentChange<TRowSchema extends TSchema = AnyFieldsSchema> = {
-	readonly fields?: DeepReadonly<Partial<Static<TRowSchema>>>;
-	readonly body?: string;
+/** Patch fields and body together. Undefined removes a field. */
+export type DocumentPatch<TRowSchema extends TSchema = AnyFieldsSchema> = {
+	fields?: DeepReadonly<Partial<Static<TRowSchema>>>;
+	body?: string;
 };
 
 /** `T` with every nested object and array readonly, as frozen content is. */
@@ -125,7 +117,7 @@ export type DeepReadonly<T> = T extends
 		: T;
 
 /**
- * The exact text and its interpretation by an editor's schema: `fields`,
+ * The exact text and its interpretation by a document's schema: `fields`,
  * `body` and `issues`, where `issues === null` proves valid typed fields.
  * Frozen all the way down, so no reader can change what another sees.
  */
@@ -133,10 +125,10 @@ export type MarkdownContent<TRowSchema extends TSchema = AnyFieldsSchema> =
 	DeepReadonly<MarkdownValue<TRowSchema>>;
 
 /**
- * What an editor shows, immutable and cached: the same object until
+ * What a document shows, immutable and cached: the same object until
  * something in it changes.
  */
-export type EditorSnapshot<TRowSchema extends TSchema = AnyFieldsSchema> = {
+export type DocumentSnapshot<TRowSchema extends TSchema = AnyFieldsSchema> = {
 	/**
 	 * The text to edit: the latest accepted input, or the last text known to
 	 * be stored. Absent with no `loadError` while awaiting text; absent with
@@ -149,7 +141,7 @@ export type EditorSnapshot<TRowSchema extends TSchema = AnyFieldsSchema> = {
 	readonly isDirty: boolean;
 	/** Publications of this path admitted and not yet settled, queued or running. */
 	readonly isSaving: boolean;
-	/** The editor's last applicable failed publication, until a success or `discard()`. */
+	/** The document's last applicable failed publication, until a success or `discard()`. */
 	readonly saveError: SaveError | undefined;
 };
 
@@ -159,11 +151,11 @@ export type SaveFailure = {
 	readonly error: SaveError;
 };
 
-/** One path's editor, viewed through one schema. */
-export type FileEdit<TRowSchema extends TSchema = AnyFieldsSchema> = {
+/** One path's shared working document, viewed through one schema. */
+export type FileDocument<TRowSchema extends TSchema = AnyFieldsSchema> = {
 	readonly path: string;
 	/** The current snapshot. Pure: reads nothing and starts nothing. */
-	getSnapshot(): EditorSnapshot<TRowSchema>;
+	getSnapshot(): DocumentSnapshot<TRowSchema>;
 	/**
 	 * Call `listener` with the current snapshot now and with each new one.
 	 * The first subscription reads the file when nothing is known yet, or
@@ -172,18 +164,25 @@ export type FileEdit<TRowSchema extends TSchema = AnyFieldsSchema> = {
 	 * or registering a listener.
 	 */
 	subscribe(
-		listener: (snapshot: EditorSnapshot<TRowSchema>) => void,
+		listener: (snapshot: DocumentSnapshot<TRowSchema>) => void,
 	): () => void;
-	/** Replace the whole text, even before anything is known. */
-	replaceText(text: string): ChangeResult;
-	/** Patch fields and body of the current text, held locally or known. */
-	change(change: DocumentChange<TRowSchema>): ChangeResult;
 	/**
-	 * Publish the exact current text, even when nothing is dirty. Settles
-	 * with that publication's outcome, after every command of the path
-	 * admitted before it.
+	 * Accept complete source, even before acquisition. Autosave follows changed
+	 * input. Refusal accepts nothing.
 	 */
-	save(): Promise<Result<void, SaveError | SaveRefusal>>;
+	replace(text: string): ChangeResult;
+	/** Patch acquired source. Autosave follows changed input; refusal accepts nothing. */
+	patch(patch: DocumentPatch<TRowSchema>): ChangeResult;
+	/**
+	 * Publish current content, even when clean. A string replaces complete source;
+	 * an object patches acquired source. Accept input and admit its publication
+	 * before observers run. Answers the exact captured content,
+	 * interpreted through this document's schema, even if newer input exists.
+	 * Refused input admits nothing; a failed publication retains accepted input.
+	 */
+	save(
+		input?: string | DocumentPatch<TRowSchema>,
+	): Promise<Result<MarkdownContent<TRowSchema>, ChangeError | SaveError>>;
 	/**
 	 * Read the file after the path's admitted commands. Settles with what the
 	 * first read to start after this call found; a file that keeps changing
@@ -272,8 +271,8 @@ type Ticket = {
 type Intent = {
 	readonly text: string;
 	/**
-	 * The latest admitted command that captured this input and owns it: an
-	 * editor save, a direct write or row set, or a delete. While one owns it,
+	 * The latest admitted command that captured this input and owns it: a
+	 * document save, a direct write, or a delete. While one owns it,
 	 * no automatic save or flush submits it again behind that command. Only
 	 * the owning command's failure gives it back; lanes run in call order, so
 	 * an older command failing never does. `undefined` when no command owns it.
@@ -296,15 +295,15 @@ type View = {
 	readonly schema: TSchema;
 	/** The source stamp `snapshot` was computed at. */
 	stamp: number;
-	snapshot: EditorSnapshot<TSchema> | undefined;
+	snapshot: DocumentSnapshot<TSchema> | undefined;
 	content: MarkdownContent<TSchema> | undefined;
-	handle: FileEdit<TSchema> | undefined;
+	handle: FileDocument<TSchema> | undefined;
 };
 
 type Subscription = {
 	readonly view: View;
-	readonly listener: (snapshot: EditorSnapshot<TSchema>) => void;
-	last: EditorSnapshot<TSchema> | undefined;
+	readonly listener: (snapshot: DocumentSnapshot<TSchema>) => void;
+	last: DocumentSnapshot<TSchema> | undefined;
 };
 
 type Source = {
@@ -357,7 +356,7 @@ const covers = (hint: string, path: string) =>
  * all writes; `announce` reports a successful command whose change the
  * engine did not report itself, so readers reread.
  */
-export function createEditOwner({
+export function createDocumentOwner({
 	read,
 	write,
 	saveAfterMs,
@@ -505,18 +504,23 @@ export function createEditOwner({
 		}
 	}
 
-	function snapshotOf(source: Source, view: View): EditorSnapshot<TSchema> {
-		const previous = view.snapshot;
-		if (previous !== undefined && view.stamp === source.stamp) return previous;
-		view.stamp = source.stamp;
+	/** Interpret current source independently of snapshot notification, including an unannounced input. */
+	function contentOf(source: Source, view: View) {
 		const text = textOf(source);
 		if (text === undefined) view.content = undefined;
 		else if (view.content?.text !== text)
 			view.content = deepFreeze(
 				readMarkdown(text, view.schema),
 			) as MarkdownContent<TSchema>;
-		const next: EditorSnapshot<TSchema> = {
-			content: view.content,
+		return view.content;
+	}
+
+	function snapshotOf(source: Source, view: View): DocumentSnapshot<TSchema> {
+		const previous = view.snapshot;
+		if (previous !== undefined && view.stamp === source.stamp) return previous;
+		view.stamp = source.stamp;
+		const next: DocumentSnapshot<TSchema> = {
+			content: contentOf(source, view),
 			loadError: source.loadError,
 			isDirty: source.intent !== undefined,
 			isSaving: (lanes.get(source.path)?.publications ?? 0) > 0,
@@ -802,7 +806,7 @@ export function createEditOwner({
 	/**
 	 * A command stored `stored` at `path`, `null` for no file, at tick `at`.
 	 * The source held then learns it, even one acquired while the command
-	 * ran; with no source held, no editor state is acquired.
+	 * ran; with no source held, no document state is acquired.
 	 */
 	function landedAt(
 		path: string,
@@ -869,7 +873,7 @@ export function createEditOwner({
 	}
 
 	/** Accept `text` as the latest local input. */
-	function accept(source: Source, text: string, notify = true): ChangeResult {
+	function accept(source: Source, text: unknown, notify = true): ChangeResult {
 		if (closed) return ChangeError.Closing();
 		if (typeof text !== 'string')
 			return ChangeError.InvalidText({ reason: 'it is not a string' });
@@ -883,13 +887,13 @@ export function createEditOwner({
 		return Ok(undefined);
 	}
 
-	function changeDocument(
+	function patchDocument(
 		source: Source,
-		change: DocumentChange<TSchema>,
+		patch: DocumentPatch<TSchema>,
 		notify = true,
 	): ChangeResult {
 		if (closed) return ChangeError.Closing();
-		const owned = ownFields(change.fields ?? {});
+		const owned = ownFields(patch.fields ?? {});
 		if (owned.error !== null)
 			return ChangeError.InvalidFields({ reason: owned.error.reason });
 		const text = textOf(source);
@@ -901,7 +905,7 @@ export function createEditOwner({
 				continue;
 			Object.defineProperty(fields, key, { value, enumerable: true });
 		}
-		const body = change.body === parsed.body ? undefined : change.body;
+		const body = patch.body === parsed.body ? undefined : patch.body;
 		if (Object.keys(fields).length === 0 && body === undefined)
 			return Ok(undefined);
 		const changed = changeMarkdown(parsed, {
@@ -915,11 +919,22 @@ export function createEditOwner({
 
 	function save(
 		source: Source,
-	): Promise<Result<void, SaveError | SaveRefusal>> {
-		if (closed) return Promise.resolve(SaveRefusal.Closed());
-		const text = textOf(source);
-		if (text === undefined) return Promise.resolve(SaveRefusal.NoContent());
-		return publish(source, text, source.intent);
+		view: View,
+		input?: string | DocumentPatch<TSchema>,
+	): Promise<Result<MarkdownContent<TSchema>, ChangeError | SaveError>> {
+		if (closed) return Promise.resolve(ChangeError.Closing());
+		if (input !== undefined) {
+			const changed =
+				typeof input === 'string'
+					? accept(source, input, false)
+					: patchDocument(source, input, false);
+			if (changed.error !== null) return Promise.resolve(changed);
+		}
+		const content = contentOf(source, view);
+		if (content === undefined) return Promise.resolve(ChangeError.NoContent());
+		return publish(source, content.text, source.intent).then((saved) =>
+			saved.error === null ? Ok(content) : saved,
+		);
 	}
 
 	function refresh(source: Source): Promise<Result<void, LoadError>> {
@@ -945,7 +960,7 @@ export function createEditOwner({
 	function subscribe(
 		source: Source,
 		view: View,
-		listener: (snapshot: EditorSnapshot<TSchema>) => void,
+		listener: (snapshot: DocumentSnapshot<TSchema>) => void,
 	) {
 		if (closed) {
 			callObserver('edit listener', listener, snapshotOf(source, view));
@@ -965,10 +980,10 @@ export function createEditOwner({
 		};
 	}
 
-	function edit<TRowSchema extends TSchema = AnyFieldsSchema>(
+	function document<TRowSchema extends TSchema = AnyFieldsSchema>(
 		path: string,
 		schema?: TRowSchema,
-	): FileEdit<TRowSchema> {
+	): FileDocument<TRowSchema> {
 		const readSchema: TSchema = schema ?? anyFields;
 		const source = sourceOf(path);
 		let view = source.views.get(readSchema);
@@ -984,16 +999,16 @@ export function createEditOwner({
 				path,
 				getSnapshot: () => snapshotOf(source, created),
 				subscribe: (listener) => subscribe(source, created, listener),
-				replaceText: (text) => accept(source, text),
-				change: (value) => changeDocument(source, value),
-				save: () => save(source),
+				replace: (text) => accept(source, text),
+				patch: (value) => patchDocument(source, value),
+				save: (value) => save(source, created, value),
 				refresh: () => refresh(source),
 				discard: () => discard(source),
-			} satisfies FileEdit<TSchema>);
+			} satisfies FileDocument<TSchema>);
 			source.views.set(readSchema, created);
 			view = created;
 		}
-		return view.handle as unknown as FileEdit<TRowSchema>;
+		return view.handle as unknown as FileDocument<TRowSchema>;
 	}
 
 	/**
@@ -1010,9 +1025,9 @@ export function createEditOwner({
 	}
 
 	return {
-		edit,
+		document,
 		/**
-		 * Reconcile known editors of `paths`, every one when omitted, `''` or a
+		 * Reconcile known documents of `paths`, every one when omitted, `''` or a
 		 * directory covering its descendants: subscribed ones read now, and
 		 * this answers once they did; others read when subscribed again.
 		 * Never publishes input.
@@ -1034,23 +1049,8 @@ export function createEditOwner({
 			}
 			await Promise.all(reads);
 		},
-		/** Accept a structured edit and admit its exact publication before observers run. */
-		set(
-			path: string,
-			change: DocumentChange,
-		): Promise<Result<string, ChangeError | SaveError>> {
-			if (closed) return Promise.resolve(ChangeError.Closing());
-			const source = sources.get(path);
-			if (source === undefined) return Promise.resolve(ChangeError.NoContent());
-			const changed = changeDocument(source, change, false);
-			if (changed.error !== null) return Promise.resolve(changed);
-			const text = textOf(source)!;
-			return publish(source, text, source.intent).then((saved) =>
-				saved.error === null ? Ok(text) : saved,
-			);
-		},
 		/**
-		 * Admit a raw write of `content` at `path`. On success a held editor
+		 * Admit a raw write of `content` at `path`. On success a held document
 		 * knows it before this resolves, and the input captured at the call is
 		 * acknowledged; newer input stays. A failure changes nothing held.
 		 */
@@ -1076,7 +1076,7 @@ export function createEditOwner({
 			);
 		},
 		/**
-		 * Admit a delete of `path`. It captures the editor's current intent and
+		 * Admit a delete of `path`. It captures the document's current intent and
 		 * defers its automatic save, never new input. Success acknowledges
 		 * only that captured intent and knows the file is missing before this
 		 * resolves; failure leaves whatever is pending.
@@ -1106,7 +1106,7 @@ export function createEditOwner({
 		 * The engine reported `paths` changed, `null` for any: files, or
 		 * directories covering their descendants, `''` the whole folder. This
 		 * is the observation seam for another handle, a sync, or a watcher.
-		 * Subscribed editors read again; passive ones are only marked.
+		 * Subscribed documents read again; passive ones are only marked.
 		 */
 		changed(paths: readonly string[] | null) {
 			if (paths === null) {
@@ -1156,5 +1156,3 @@ export function createEditOwner({
 		},
 	};
 }
-
-export type EditOwner = ReturnType<typeof createEditOwner>;

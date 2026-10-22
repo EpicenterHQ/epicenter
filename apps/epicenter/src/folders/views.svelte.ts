@@ -4,7 +4,7 @@ import {
 	type SavedView,
 	type SavedViewChange,
 } from '@epicenter/folder/declaration';
-import type { FileEdit } from '@epicenter/svelte/edits';
+import type { ReactiveDocument } from '@epicenter/svelte/document';
 import { SvelteMap } from 'svelte/reactivity';
 import { Err, Ok } from 'wellcrafted/result';
 import type { QueryAnswer } from '../ui/bindings.gen';
@@ -27,7 +27,7 @@ export function createViews({
 	declaration,
 }: {
 	saved: () => Record<string, SavedView>;
-	declaration: FileEdit;
+	declaration: ReactiveDocument;
 }) {
 	/** Unsubmitted form values; successful admission retires them before I/O. */
 	const forms = new SvelteMap<string, SavedView>([
@@ -64,7 +64,7 @@ export function createViews({
 			});
 		const changed = changeSavedView(content?.text ?? '{}', change);
 		if (changed.error !== null) return changed;
-		const replaced = declaration.replaceText(changed.data);
+		const replaced = declaration.replace(changed.data);
 		if (replaced.error !== null) return Err({ reason: replaced.error.message });
 		// The declaration owner retains the composed source and any save failure.
 		void declaration.save();

@@ -25,7 +25,7 @@ import type { TSchema as Schema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileRead, FolderStorage } from '../boundary.js';
 import type { FileError } from '../errors.js';
-import type { EditOptions, Folder, FolderChange } from '../folder.js';
+import type { DocumentOptions, Folder, FolderChange } from '../folder.js';
 import { type EngineFiles, type EngineTable, folderHandle } from '../handle.js';
 import { hashBytes } from '../hash.js';
 import { callObserver } from '../observer.js';
@@ -86,7 +86,7 @@ export function createNativeFolder<
 	readonly tables: TTables;
 	readonly directory: string;
 	readonly watch?: FolderWatch;
-} & EditOptions): Folder<TTables> {
+} & DocumentOptions): Folder<TTables> {
 	const listeners = new Set<(change: FolderChange) => void>();
 	function hear(change: FolderChange) {
 		for (const listener of [...listeners])

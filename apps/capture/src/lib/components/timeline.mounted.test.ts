@@ -110,7 +110,7 @@ async function openDraft(raw = '') {
 	}, 'the draft to open');
 	const box = fileField();
 	if (box === null) throw new Error('the draft did not open');
-	return { t, box, edit: t.folder.tables.captures.edit('draft') };
+	return { t, box, edit: t.folder.tables.captures.document('draft') };
 }
 
 test('New capture text writes nothing, and leaving the timeline clears it', async () => {
@@ -220,9 +220,9 @@ test('a capture whose save failed is named, with why, and opens from there', asy
 		'captures/one.md': `---\ncapturedAt: ${AT}\n---\n\nText\n`,
 	});
 	const restore = t.failSaves();
-	const edit = t.folder.tables.captures.edit('one');
+	const edit = t.folder.tables.captures.document('one');
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: '\nEdited\n' }));
+	expectOk(edit.patch({ body: '\nEdited\n' }));
 	await edit.save();
 	restore();
 	flushSync();
@@ -445,7 +445,7 @@ test('Finish composes pending whole-file content, keeping unknown frontmatter an
 		.replace('draft: true', 'draft: true\r\nunknown: kept')
 		.replace('Before', 'New\r\nbody');
 	type(box, typed);
-	const edit = t.folder.tables.captures.edit('draft');
+	const edit = t.folder.tables.captures.document('draft');
 	expect(edit.getSnapshot().content?.text).toBe(typed);
 	click(document, 'Add capture');
 	await until(() => {
@@ -488,11 +488,11 @@ test('input accepted after Finish writes remains current through its refresh', a
 		);
 		type(box, newer);
 		expect(
-			t.folder.tables.captures.edit('draft').getSnapshot().content?.text,
+			t.folder.tables.captures.document('draft').getSnapshot().content?.text,
 		).toBe(newer);
-		expect(t.folder.tables.captures.edit('draft').getSnapshot().isDirty).toBe(
-			true,
-		);
+		expect(
+			t.folder.tables.captures.document('draft').getSnapshot().isDirty,
+		).toBe(true);
 		release();
 		await until(() => {
 			flushSync();
@@ -508,10 +508,10 @@ test('input accepted after Finish writes remains current through its refresh', a
 
 test('a failed draft save reopens from the failure list in the full-file editor', async () => {
 	const t = await setup({ [DRAFT]: draftFile('Before') });
-	const edit = t.folder.tables.captures.edit('draft');
+	const edit = t.folder.tables.captures.document('draft');
 	expectOk(await edit.refresh());
 	const restore = t.failSaves();
-	expectOk(edit.replaceText(draftFile('Held here')));
+	expectOk(edit.replace(draftFile('Held here')));
 	await edit.save();
 	flushSync();
 	click(document, 'Open');
@@ -539,10 +539,10 @@ test('a capture that becomes a draft offers an explicit text editor that stays m
 	type(field('new-thought'), 'Not added yet');
 	const oldCaptureText = field('capture-text');
 	await t.writeElsewhere(DRAFT, draftFile('Before'));
-	expectOk(await t.folder.tables.captures.edit('draft').refresh());
+	expectOk(await t.folder.tables.captures.document('draft').refresh());
 	type(oldCaptureText, 'Stale structured input');
 	expect(
-		t.folder.tables.captures.edit('draft').getSnapshot().content?.body,
+		t.folder.tables.captures.document('draft').getSnapshot().content?.body,
 	).toBe('Before');
 	await until(() => {
 		flushSync();

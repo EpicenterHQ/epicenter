@@ -289,7 +289,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 				await page.context.refresh(['a.md']);
 				await until(
 					() =>
-						disk.folder.files.edit('a.md').getSnapshot().loadError?.name ===
+						disk.folder.files.document('a.md').getSnapshot().loadError?.name ===
 						(replacement === 'missing' ? 'Missing' : 'NotText'),
 					'the missing source',
 				);
@@ -304,7 +304,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 						.value.slice(page.box()!.selectionStart, page.box()!.selectionEnd),
 				).toBe('alpha\nmine\n');
 				blur(page.box());
-				expect(disk.folder.files.edit('a.md').getSnapshot().isDirty).toBe(
+				expect(disk.folder.files.document('a.md').getSnapshot().isDirty).toBe(
 					false,
 				);
 				expect(disk.held).toHaveLength(0);
@@ -314,7 +314,10 @@ describe.skipIf(!browser)('folder editor', async () => {
 				await until(() => disk.held.length === 1, 'the later publication');
 				expect(disk.held[0]?.content).toBe('alpha\nmine\nlater\n');
 				disk.held.shift()!.answer(Ok(undefined));
-				await until(() => !page.context.getStatus().saving, 'publication completion');
+				await until(
+					() => !page.context.getStatus().saving,
+					'publication completion',
+				);
 				expect(await disk.text('a.md')).toBe('alpha\nmine\nlater\n');
 			} finally {
 				await page.close();
@@ -355,8 +358,8 @@ describe.skipIf(!browser)('folder editor', async () => {
 				press(page.file('a.bin'));
 				await until(
 					() =>
-						disk.folder.files.edit('a.bin').getSnapshot().loadError?.name ===
-						'NotText',
+						disk.folder.files.document('a.bin').getSnapshot().loadError
+							?.name === 'NotText',
 					'the binary notice',
 				);
 				expect(page.box()).toBeNull();
@@ -429,8 +432,8 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await until(() => page.file('a.md') !== null, 'the file');
 			press(page.file('a.md'));
 			await until(() => page.box() !== null, 'the source');
-			const textEdit = disk.folder.files.edit('a.md');
-			expectOk(textEdit.change({ fields: { title: 'Typed' } }));
+			const textEdit = disk.folder.files.document('a.md');
+			expectOk(textEdit.patch({ fields: { title: 'Typed' } }));
 			await disk.put('a.md', '---\r\ntitle: A\n---\r\nbody\r\n');
 			await page.context.refresh(['a.md']);
 			await until(
@@ -487,9 +490,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await disk.put('a.md', 'alpha\nexternal\n');
 			await page.context.refresh(['a.md']);
 			type(page.box(), 'alpha\nmine\nlast\n');
-			expect(disk.folder.files.edit('a.md').getSnapshot().content?.text).toBe(
-				'alpha\r\nmine\r\nlast\r\n',
-			);
+			expect(
+				disk.folder.files.document('a.md').getSnapshot().content?.text,
+			).toBe('alpha\r\nmine\r\nlast\r\n');
 		} finally {
 			await page.close();
 			page.context.close();
@@ -617,9 +620,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await page.close();
 			expect(context.close()).toBeUndefined();
 			expect(held).toHaveLength(0);
-			expect(disk.folder.files.edit('a.md').getSnapshot().content?.text).toBe(
-				'alpha\nhidden\nshown\nlast\n',
-			);
+			expect(
+				disk.folder.files.document('a.md').getSnapshot().content?.text,
+			).toBe('alpha\nhidden\nshown\nlast\n');
 			expect(await disk.text('a.md')).toBe('alpha\nhidden\n');
 		} finally {
 			await page.close();
@@ -726,7 +729,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			) as HTMLInputElement;
 			type(cell, 'mine');
 			expect(
-				disk.folder.files.edit('todos/a.md').getSnapshot().content?.fields
+				disk.folder.files.document('todos/a.md').getSnapshot().content?.fields
 					?.title,
 			).toBe('mine');
 			blur(cell);
@@ -749,14 +752,14 @@ describe.skipIf(!browser)('folder editor', async () => {
 				page.box()!.value.replace('body', 'source after failure'),
 			);
 			await until(
-				() => disk.folder.files.edit('todos/a.md').getSnapshot().isDirty,
+				() => disk.folder.files.document('todos/a.md').getSnapshot().isDirty,
 				'source takeover',
 			);
 			expect(
-				disk.folder.files.edit('todos/a.md').getSnapshot().content?.text,
+				disk.folder.files.document('todos/a.md').getSnapshot().content?.text,
 			).toContain('title: mine');
 			expect(
-				disk.folder.files.edit('todos/a.md').getSnapshot().content?.text,
+				disk.folder.files.document('todos/a.md').getSnapshot().content?.text,
 			).toContain('source after failure');
 			press(button('SQL'));
 			await until(
@@ -826,7 +829,10 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await until(() => disk.held.length === 1, 'the declaration publication');
 			expect(disk.held[0]?.path).toBe('epicenter.json');
 			disk.held.shift()!.answer(Ok(undefined));
-			await until(() => !disk.folder.getStatus().saving, 'publication completion');
+			await until(
+				() => !disk.folder.getStatus().saving,
+				'publication completion',
+			);
 			await until(
 				() => page.target.querySelector('[aria-label="Saved views"]') !== null,
 				'saved recipe',
@@ -886,7 +892,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 				sql: 'SELECT path FROM documents',
 			});
 			expect(
-				disk.folder.files.edit('epicenter.json').getSnapshot().isDirty,
+				disk.folder.files.document('epicenter.json').getSnapshot().isDirty,
 			).toBe(false);
 		} finally {
 			await closeRefusing(page, disk);
@@ -945,7 +951,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 				.find((option) => option.textContent?.trim() === 'done')!
 				.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
 			expect(
-				disk.folder.files.edit('tasks/a.md').getSnapshot().content?.fields
+				disk.folder.files.document('tasks/a.md').getSnapshot().content?.fields
 					?.status,
 			).toBe('done');
 			await until(() => disk.held.length === 1, 'move save');
@@ -987,7 +993,10 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(disk.held[0]?.content).toContain('Body');
 			expect(disk.held[0]?.content).not.toContain('extra: kept');
 			disk.held.shift()!.answer(Ok(undefined));
-			await until(() => !page.context.getStatus().saving, 'publication completion');
+			await until(
+				() => !page.context.getStatus().saving,
+				'publication completion',
+			);
 			expect(await disk.text('tasks/a.md')).toBe(
 				'---\nstatus: done\n---\nBody\n',
 			);
@@ -1170,7 +1179,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 				page.context.queryClient.getQueryData<
 					import('@epicenter/folder/documents').DocumentReading
 				>(key)!;
-			const firstEdit = disk.folder.files.edit(
+			const firstEdit = disk.folder.files.document(
 				'notes/a.md',
 				before.tables.notes,
 			);
@@ -1180,7 +1189,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 					import('@epicenter/folder/documents').DocumentReading
 				>(key)!;
 			expect(after.tables.notes).toBe(before.tables.notes);
-			expect(disk.folder.files.edit('notes/a.md', after.tables.notes)).toBe(
+			expect(disk.folder.files.document('notes/a.md', after.tables.notes)).toBe(
 				firstEdit,
 			);
 			expect(cell()).toBe(original);
@@ -1227,7 +1236,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 						'the board',
 					);
 				}
-				const edit = disk.folder.files.edit('tasks/a.md');
+				const edit = disk.folder.files.document('tasks/a.md');
 				disk.reading.add('tasks/a.md');
 				await edit.refresh();
 				await until(() => button('Read again') !== null, 'the read retry');
@@ -1277,7 +1286,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			type(original, 'Typed here');
 			flushSync();
 			expect(
-				disk.folder.files.edit('todos/a.md').getSnapshot().content?.fields
+				disk.folder.files.document('todos/a.md').getSnapshot().content?.fields
 					?.title,
 			).toBe('Typed here');
 			disk.listing.failure = new Error('Folder temporarily unreadable');
@@ -1300,8 +1309,8 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await until(() => page.file('a.md') !== null, 'the file');
 			press(page.file('a.md'));
 			await until(() => page.box() !== null, 'the source');
-			const fileEdit = disk.folder.files.edit('a.md');
-			expectOk(fileEdit.change({ body: '---\ntitle: [broken\n---\nbody\n' }));
+			const fileEdit = disk.folder.files.document('a.md');
+			expectOk(fileEdit.patch({ body: '---\ntitle: [broken\n---\nbody\n' }));
 			await until(
 				() => page.box()?.value.includes('[broken') === true,
 				'the body input',

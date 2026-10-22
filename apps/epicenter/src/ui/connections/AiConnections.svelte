@@ -17,7 +17,7 @@
 	 * follows the folder's changes,
 	 * so an edit made in the Folders window, by an agent, or by a sync shows
 	 * here. What is typed is held by each row's edit handle until it saves
-	 * (`folder.tables.connections.edit(id)`); leaving Settings sends it
+	 * (`folder.tables.connections.document(id)`); leaving Settings sends it
 	 * before the folder closes.
 	 */
 	let local = $state.raw<FolderContext<typeof connectionTables>>();

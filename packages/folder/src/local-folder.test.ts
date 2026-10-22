@@ -191,9 +191,10 @@ test('a schema that does not fit never refuses a save or discards unknown fields
 	const row = expectOk(await first.tables.notes.get('a'))!;
 	expect(row.fields).toEqual({ '10': 'ten', title: 42, extra: 'kept' });
 	expect(row.issues?.map((issue) => issue.kind)).toEqual(['schema']);
-	expectOk(await first.tables.notes.edit('a').refresh());
+	expectOk(await first.tables.notes.document('a').refresh());
 	const sent = expectOk(
-		await first.tables.notes.set('a', { fields: { done: 'maybe' } }),
+		// @ts-expect-error Schemas interpret untyped input; they never refuse publication.
+		await first.tables.notes.document('a').save({ fields: { done: 'maybe' } }),
 	);
 	expect(sent.fields).toEqual({
 		'10': 'ten',
@@ -218,13 +219,13 @@ test('source with malformed frontmatter stays exact, readable as a file, and rep
 	const row = expectOk(await first.tables.notes.get('b'))!;
 	expect(row.text).toBe(broken);
 	expect(row.issues?.[0]?.kind).toBe('frontmatter');
-	expectOk(await first.tables.notes.edit('b').refresh());
+	expectOk(await first.tables.notes.document('b').refresh());
 	// Fields cannot be edited through broken frontmatter; the body can.
-	const refused = await first.tables.notes.set('b', {
+	const refused = await first.tables.notes.document('b').save({
 		fields: { title: 'x' },
 	});
 	expect(expectErr(refused).name).toBe('InvalidFields');
-	expectOk(await first.tables.notes.set('b', { body: 'New body' }));
+	expectOk(await first.tables.notes.document('b').save({ body: 'New body' }));
 	first.close();
 
 	const second = await open();
@@ -250,9 +251,11 @@ test('an acquired row set applies its fields after reading another writer', asyn
 				'---\ntitle: outside\n---\nbody\n',
 			),
 		);
-		expectOk(await first.tables.notes.edit('a').refresh());
+		expectOk(await first.tables.notes.document('a').refresh());
 		expectOk(
-			await first.tables.notes.set('a', { fields: { title: 'before' } }),
+			await first.tables.notes
+				.document('a')
+				.save({ fields: { title: 'before' } }),
 		);
 		expect(expectOk(await first.tables.notes.get('a'))?.fields?.title).toBe(
 			'before',
@@ -483,17 +486,21 @@ test('earlier nonportable browser paths remain readable for repair', async () =>
 	});
 	const raw = expectOk(await folder.tables.notes.get('a: b'))!;
 	expect(raw.fields).toEqual({ title: 'Kept' });
-	expectOk(await folder.tables.notes.edit('a: b').refresh());
+	expectOk(await folder.tables.notes.document('a: b').refresh());
 	// An existing nonportable row can be repaired and removed, never made.
-	expectOk(await folder.tables.notes.set('a: b', { body: 'Repaired\n' }));
+	expectOk(
+		await folder.tables.notes.document('a: b').save({ body: 'Repaired\n' }),
+	);
 	expect(
 		await expectOk(await folder.files.read('notes/a: b.md'))?.content.text(),
 	).toContain('Repaired');
 	expectOk(await folder.tables.notes.delete('a: b'));
 	expect(expectOk(await folder.tables.notes.get('a: b'))).toBeUndefined();
 	expect(
-		expectErr(await folder.tables.notes.set('a: b', { body: 'again' })).name,
-	).toBe('InvalidId');
+		expectErr(
+			await folder.tables.notes.document('a: b').save({ body: 'again' }),
+		).name,
+	).toBe('InvalidPath');
 	expect(
 		expectErr(await folder.files.write('notes/a: b.md', 'again')).name,
 	).toBe('InvalidPath');

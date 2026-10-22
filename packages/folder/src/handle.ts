@@ -1,6 +1,6 @@
 /**
  * The caller-facing `Folder` over an engine, the same on every host: its one
- * edit owner, whose per-path lane every write and delete enters and which
+ * document owner, whose per-path lane every write and delete enters and which
  * composes row changes, local save status, synchronous release, and the error
  * a released handle throws. The browser's default
  * local folder (`local-folder.ts`) and the native directory folder
@@ -8,19 +8,14 @@
  */
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
-import {
-	type ChangeError,
-	createEditOwner,
-	textProblem,
-} from './edit-owner.js';
+import { createDocumentOwner, textProblem } from './document-owner.js';
 import type {
-	EditOptions,
+	DocumentOptions,
 	FileContent,
 	Folder,
 	FolderChange,
 	FolderFileOperations,
 	FolderTableOperations,
-	Row,
 	RowChange,
 } from './folder.js';
 import { callObserver } from './observer.js';
@@ -64,29 +59,39 @@ const owned = (content: FileContent): FileContent =>
 	content instanceof Uint8Array ? content.slice() : content;
 
 /**
- * A row change the caller cannot change afterwards: its fields as the
- * canonical writer takes them, nested values and proxies included, or the
- * refusal the engine gives fields it cannot write.
+ * Serialize a row replacement, owning its fields as the canonical writer
+ * takes them, nested values and proxies included.
  */
-function ownChange(change: RowChange): Result<RowChange, SaveError> {
-	if (change.fields === undefined) return Ok({ body: change.body });
-	const fields = ownFields(change.fields);
+function rowText(change: RowChange): Result<string, SaveError> {
+	if (
+		change.body !== undefined &&
+		(typeof change.body !== 'string' || textProblem(change.body) !== undefined)
+	)
+		return SaveError.NotText();
+	const fields =
+		change.fields === undefined ? Ok(undefined) : ownFields(change.fields);
 	if (fields.error !== null)
 		return SaveError.Unparseable({ reason: fields.error.reason });
-	return Ok({ fields: fields.data, body: change.body });
+	const changed = changeMarkdown(null, {
+		fields: fields.data,
+		body: change.body,
+	});
+	return changed.error === null
+		? Ok(changed.data.text)
+		: SaveError.Unparseable({ reason: changed.error.reason });
 }
 
 /** The handle over `engine`, typed by `tables`, saving held input as `options` say. */
 export function folderHandle<const TTables extends Record<string, Schema>>(
 	engine: FolderEngine,
 	tables: TTables,
-	{ saveAfterMs }: EditOptions = {},
+	{ saveAfterMs }: DocumentOptions = {},
 ): Folder<TTables> {
 	const changeListeners = new Set<(change: FolderChange) => void>();
 
 	/** New storage calls, listeners, and flush refuse as soon as close is called. */
 	function assertOpen() {
-		if (edits.getStatus().closing) throw new Error('The folder is closed');
+		if (documents.getStatus().closing) throw new Error('The folder is closed');
 	}
 
 	function tell(change: FolderChange) {
@@ -96,22 +101,22 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	}
 
 	/**
-	 * Tell the edit owner what changed that no command of this handle
+	 * Tell the document owner what changed that no command of this handle
 	 * explains, then this handle's listeners. An engine reports a write's
 	 * change while that write runs, and only one command of a path runs at a
 	 * time, so an own notice of a path whose command runs is that command's.
 	 */
 	function hear(change: FolderChange) {
-		if (change.paths === null) edits.changed(null);
-		else if (change.origin === 'other-handle') edits.changed(change.paths);
+		if (change.paths === null) documents.changed(null);
+		else if (change.origin === 'other-handle') documents.changed(change.paths);
 		else {
-			const elsewhere = edits.heard(change.paths);
-			if (elsewhere.length > 0) edits.changed(elsewhere);
+			const elsewhere = documents.heard(change.paths);
+			if (elsewhere.length > 0) documents.changed(elsewhere);
 		}
 		tell(change);
 	}
 
-	const edits = createEditOwner({
+	const documents = createDocumentOwner({
 		read: (path) => engine.files.read(path),
 		write: (path, content) => engine.files.write(path, content),
 		saveAfterMs,
@@ -132,13 +137,19 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		write(path, content) {
 			assertOpen();
 			// A write queued behind another of its path keeps the bytes of its call.
-			return edits.write(path, owned(content));
+			return documents.write(path, owned(content));
 		},
 		delete(path) {
 			assertOpen();
-			return edits.remove(path, () => engine.files.delete(path));
+			return documents.remove(path, () => engine.files.delete(path));
 		},
-		edit: (path, schema) => edits.edit(path, schema),
+		document(path, schema) {
+			if (!readablePath(path))
+				throw new RangeError(
+					`Not a folder-relative file path: ${String(path)}`,
+				);
+			return documents.document(path, schema);
+		},
 	};
 
 	const folderTables = Object.fromEntries(
@@ -157,59 +168,30 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				},
 				write(id, change) {
 					assertOpen();
-					return writeRow(id, change);
-				},
-				set(id, change) {
-					assertOpen();
-					return setRow(id, change);
+					if (id === '' || !readableId(name, id))
+						return Promise.resolve(SaveError.InvalidId({ id }));
+					const text = rowText(change);
+					if (text.error !== null) return Promise.resolve(text);
+					return documents.write(rowPath(id), text.data).then((saved) => {
+						if (saved.error === null) return Ok(readRow(id, text.data, schema));
+						return saved.error.name === 'InvalidPath'
+							? SaveError.InvalidId({ id })
+							: saved;
+					});
 				},
 				delete(id) {
 					assertOpen();
 					if (!readableId(name, id))
 						return Promise.resolve(SaveError.InvalidId({ id }));
 					const path = rowPath(id);
-					return edits.remove(path, () => engine.files.delete(path));
+					return documents.remove(path, () => engine.files.delete(path));
 				},
-				edit: (id) => edits.edit(rowPath(id), tables[name]),
+				document(id) {
+					if (!readableId(name, id))
+						throw new RangeError(`Not a row ID in ${name}: ${String(id)}`);
+					return documents.document(rowPath(id), schema);
+				},
 			};
-			/** Patch acquired text, retaining accepted edits when publication fails. */
-			async function setRow(
-				id: string,
-				change: RowChange,
-			): Promise<Result<Row, ChangeError | SaveError>> {
-				if (!readableId(name, id)) return SaveError.InvalidId({ id });
-				const saved = await edits.set(rowPath(id), change);
-				if (saved.error === null) return Ok(readRow(id, saved.data, schema));
-				return saved.error.name === 'InvalidPath'
-					? SaveError.InvalidId({ id })
-					: saved;
-			}
-
-			/** Publish a complete replacement without accepting a pending edit. */
-			async function writeRow(
-				id: string,
-				change: RowChange,
-			): Promise<Result<Row, SaveError>> {
-				if (id === '' || !readableId(name, id))
-					return SaveError.InvalidId({ id });
-				if (
-					change.body !== undefined &&
-					(typeof change.body !== 'string' ||
-						textProblem(change.body) !== undefined)
-				)
-					return SaveError.NotText();
-				const owned = ownChange(change);
-				if (owned.error !== null) return owned;
-				const changed = changeMarkdown(null, owned.data);
-				if (changed.error !== null)
-					return SaveError.Unparseable({ reason: changed.error.reason });
-				const saved = await edits.write(rowPath(id), changed.data.text);
-				if (saved.error === null)
-					return Ok(readRow(id, changed.data.text, schema));
-				return saved.error.name === 'InvalidPath'
-					? SaveError.InvalidId({ id })
-					: saved;
-			}
 
 			return [name, operations];
 		}),
@@ -220,7 +202,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		tables: folderTables,
 		refresh(paths) {
 			assertOpen();
-			return edits.refreshKnown(paths);
+			return documents.refreshKnown(paths);
 		},
 		onChange(listener) {
 			assertOpen();
@@ -229,15 +211,15 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				changeListeners.delete(listener);
 			};
 		},
-		getStatus: edits.getStatus,
-		onStatusChange: edits.onStatusChange,
+		getStatus: documents.getStatus,
+		onStatusChange: documents.onStatusChange,
 		flush() {
 			assertOpen();
-			edits.flush();
+			documents.flush();
 		},
 		close() {
-			if (edits.getStatus().closing) return;
-			edits.close();
+			if (documents.getStatus().closing) return;
+			documents.close();
 			changeListeners.clear();
 			stopEngine();
 			engine.close();

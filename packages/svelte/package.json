@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for Epicenter: folder edits, query cache, recovery, agent conversations, and status.",
+	"description": "Svelte 5 bindings for Epicenter: working documents, query cache, recovery, agent conversations, and status.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -14,7 +14,7 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
-		"./edits": "./src/edits.ts",
+		"./document": "./src/document.ts",
 		"./folder": "./src/folder-context.ts",
 		"./folder-app": "./src/folder-app.svelte",
 		"./status-line": "./src/status-line.ts",

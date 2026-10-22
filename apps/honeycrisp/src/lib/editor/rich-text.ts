@@ -2,7 +2,7 @@
  * The rich-text view's editing: its commands and plugins, and the two rules
  * that keep its ProseMirror state the note's body.
  *
- * The note's body comes from `FileEdit.getSnapshot().content`, with line feeds for
+ * The note's body comes from `FileDocument.getSnapshot().content`, with line feeds for
  * presentation: the folder's edit includes what is typed (ADR-0548). The
  * view's `EditorState` adds only what the note has no place for: the
  * cursor, pending formatting, undo history, and an empty paragraph Markdown
@@ -27,7 +27,7 @@
  * Neither needs a DOM. The view calls both; tests drive them the same way.
  */
 
-import type { FileEdit, MarkdownContent } from '@epicenter/folder/edits';
+import type { FileDocument, MarkdownContent } from '@epicenter/folder/document';
 import {
 	baseKeymap,
 	chainCommands,
@@ -188,7 +188,7 @@ export function noteBody(
 export function stateAfter(
 	state: EditorState,
 	transaction: Transaction,
-	fileEdit: FileEdit<HoneycrispTables['notes']>,
+	fileEdit: FileDocument<HoneycrispTables['notes']>,
 	refuse: (reason: string) => void,
 ): EditorState | undefined {
 	if (transaction.before !== state.doc) return undefined;
@@ -214,7 +214,7 @@ export function stateAfter(
 	// An edit Markdown has no spelling for (a new empty paragraph) gives the
 	// same body back: it is shown, and nothing saves. The command still
 	// checks whether the folder accepts document edits.
-	const changed = fileEdit.change({ body: encoded });
+	const changed = fileEdit.patch({ body: encoded });
 	if (changed.error !== null) {
 		refuse(changed.error.message);
 		return undefined;

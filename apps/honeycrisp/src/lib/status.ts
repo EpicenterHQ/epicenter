@@ -11,7 +11,7 @@ import type {
 	ActionError,
 	ChangeError,
 	LoadError,
-} from '@epicenter/folder/edits';
+} from '@epicenter/folder/document';
 import type { StatusLine } from '@epicenter/svelte/status-line';
 import { extractErrorMessage } from 'wellcrafted/error';
 

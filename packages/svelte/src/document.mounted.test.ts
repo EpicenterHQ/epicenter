@@ -44,8 +44,8 @@ test('mounted row and text views follow each other and can revert held input', a
 			body: 'Other address\n',
 		}),
 	);
-	const edit = folder.tables.notes.edit('a');
-	const textEdit = folder.files.edit('b.md');
+	const edit = folder.tables.notes.document('a');
+	const textEdit = folder.files.document('b.md');
 	const target = document.createElement('div');
 	document.body.append(target);
 	const component = mount(EditViewsHost, { target, props: { folder } });
@@ -84,7 +84,7 @@ test('mounted row and text views follow each other and can revert held input', a
 	}
 	expect(field('Whole row text').value).toContain('one\ntwo\nTHREE\n');
 	expect(
-		target.querySelector('[aria-label="Shared adapter"]')?.textContent,
+		target.querySelector('[aria-label="Shared document"]')?.textContent,
 	).toBe('one');
 	expect(
 		target.querySelector('[aria-label="Shared pending"]')?.textContent,
@@ -177,7 +177,7 @@ test('unmounted views leave held input with the folder, and a new mount shows it
 	await unmount(first.component);
 	first.target.remove();
 	await tick();
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expect(edit.getSnapshot()).toMatchObject({
 		isDirty: true,
 		content: { body: 'typed before unmount\n' },

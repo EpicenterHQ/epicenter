@@ -1,7 +1,7 @@
 /**
- * Folder Editor Tests
+ * Folder Document Tests
  *
- * Drives `folder.files.edit(path)` over an engine whose reads, writes and
+ * Drives `folder.files.document(path)` over an engine whose reads, writes and
  * deletes a test can hold, release, or fail one at a time, so each async
  * sequence the editor contract names runs in an exact order. One case runs
  * the same editor over the real browser engine on an in-memory IndexedDB.
@@ -32,7 +32,7 @@ import { Type } from 'typebox';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder } from './browser.js';
-import type { EditorSnapshot } from './edits.js';
+import type { DocumentSnapshot } from './document.js';
 import type { FolderChange } from './folder.js';
 import { type FolderEngine, folderHandle } from './handle.js';
 import { ReadError, SaveError } from './shared/errors.js';
@@ -235,11 +235,11 @@ function record<T>(edit: {
 
 test('acquisition is passive and stable, and snapshots are pure, cached and frozen', async () => {
 	const { folder, log } = setup({ 'notes/a.md': '---\ntitle: A\n---\nbody\n' });
-	const edit = folder.files.edit('notes/a.md');
-	expect(folder.files.edit('notes/a.md')).toBe(edit);
-	const typed = folder.files.edit('notes/a.md', notes);
-	expect(folder.files.edit('notes/a.md', notes)).toBe(typed);
-	expect(folder.tables.notes.edit('a')).toBe(typed);
+	const edit = folder.files.document('notes/a.md');
+	expect(folder.files.document('notes/a.md')).toBe(edit);
+	const typed = folder.files.document('notes/a.md', notes);
+	expect(folder.files.document('notes/a.md', notes)).toBe(typed);
+	expect(folder.tables.notes.document('a')).toBe(typed);
 	expect(typed).not.toBe(edit);
 	const first = edit.getSnapshot();
 	expect(edit.getSnapshot()).toBe(first);
@@ -254,7 +254,7 @@ test('acquisition is passive and stable, and snapshots are pure, cached and froz
 	await flush();
 	expect(log).toEqual([]);
 	// Two views of one source: input through one shows in the other.
-	expectOk(typed.replaceText('---\ntitle: Typed\n---\nbody\n'));
+	expectOk(typed.replace('---\ntitle: Typed\n---\nbody\n'));
 	expect(edit.getSnapshot().content?.text).toBe(
 		'---\ntitle: Typed\n---\nbody\n',
 	);
@@ -266,7 +266,7 @@ test('acquisition is passive and stable, and snapshots are pure, cached and froz
 
 test('passive status follows overlapping writes and queued deletes without reading content', async () => {
 	const { folder, hold, reads } = setup({ 'cold.txt': 'Do not read this' });
-	const cold = folder.files.edit('cold.txt');
+	const cold = folder.files.document('cold.txt');
 	const seen: (readonly string[])[] = [];
 	const stop = folder.onStatusChange((status) => seen.push(status.savingPaths));
 	cleanup.push(stop);
@@ -301,14 +301,14 @@ test('passive status retains snapshot identity until save metadata changes', asy
 	const initial = folder.getStatus();
 	const seen: (typeof initial)[] = [];
 	cleanup.push(folder.onStatusChange((status) => seen.push(status)));
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expect(folder.getStatus()).toBe(initial);
-	expectOk(edit.replaceText('first'));
+	expectOk(edit.replace('first'));
 	const dirty = folder.getStatus();
 	expect(dirty.unsaved).toEqual(['a.md']);
 	expect(seen).toEqual([dirty]);
 	// Text changes while the same input remains outstanding need no metadata event.
-	expectOk(edit.replaceText('second'));
+	expectOk(edit.replace('second'));
 	expect(folder.getStatus()).toBe(dirty);
 	expect(seen).toEqual([dirty]);
 	const saving = edit.save();
@@ -330,7 +330,7 @@ test('status remembers storage write and delete failures without replacing them 
 		throw new Error('Expected a storage write failure');
 	expect(folder.getStatus().storageFailure).toBe(writeError);
 	const failingRead = hold('read');
-	const refreshing = folder.files.edit('unknown').refresh();
+	const refreshing = folder.files.document('unknown').refresh();
 	await failingRead.reached;
 	failingRead.fail();
 	expect(expectErr(await refreshing).name).toBe('ReadFailed');
@@ -349,7 +349,7 @@ test('status remembers storage write and delete failures without replacing them 
 
 test('subscribing emits the current snapshot at once and starts the first read once', async () => {
 	const { folder, reads } = setup({ 'a.md': 'alpha\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	const first = record(edit);
 	expect(first.seen).toEqual([edit.getSnapshot()]);
 	expect(first.seen[0]!.content).toBeUndefined();
@@ -363,13 +363,13 @@ test('subscribing emits the current snapshot at once and starts the first read o
 	expect(reads()).toEqual(['read a.md']);
 	// The same text again changes nothing a subscriber sees.
 	const count = first.seen.length;
-	expectOk(edit.replaceText('alpha\n'));
+	expectOk(edit.replace('alpha\n'));
 	expect(first.seen).toHaveLength(count);
 });
 
 test('a path that was never there answers Missing with no content', async () => {
 	const { folder } = setup();
-	const edit = folder.files.edit('new.md');
+	const edit = folder.files.document('new.md');
 	const refreshed = await edit.refresh();
 	expect(expectErr(refreshed).name).toBe('Missing');
 	expect(edit.getSnapshot()).toMatchObject({
@@ -377,13 +377,13 @@ test('a path that was never there answers Missing with no content', async () => 
 		loadError: { name: 'Missing', path: 'new.md' },
 	});
 	expect(expectErr(await edit.save()).name).toBe('NoContent');
-	expect(expectErr(edit.change({ body: 'x' })).name).toBe('NoContent');
+	expect(expectErr(edit.patch({ body: 'x' })).name).toBe('NoContent');
 });
 
 test('input is accepted before the first read, and a read does not replace it', async () => {
 	const { folder, hold, writes, text } = setup({ 'a.md': 'stored\n' });
-	const edit = folder.files.edit('a.md');
-	expectOk(edit.replaceText('typed first\n'));
+	const edit = folder.files.document('a.md');
+	expectOk(edit.replace('typed first\n'));
 	expect(edit.getSnapshot()).toMatchObject({
 		content: { text: 'typed first\n' },
 		isDirty: true,
@@ -404,14 +404,14 @@ test('input is accepted before the first read, and a read does not replace it', 
 
 test('only accepted input saves automatically; observations never write', async () => {
 	const { folder, writes, outside, text } = setup({ 'a.md': 'one\n' }, 5);
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	const { seen } = record(edit);
 	await flush();
 	outside('a.md', 'two\n');
 	await sleep(20);
 	expect(edit.getSnapshot().content?.text).toBe('two\n');
 	expect(writes()).toEqual([]);
-	expectOk(edit.replaceText('three\n'));
+	expectOk(edit.replace('three\n'));
 	await sleep(20);
 	expect(text('a.md')).toBe('three\n');
 	expect(writes()).toEqual(['write a.md three\n']);
@@ -421,7 +421,7 @@ test('only accepted input saves automatically; observations never write', async 
 
 test('text is held after unsubscribing, deletion, binary replacement and failed reads', async () => {
 	const { folder, outside, hold, disk, reads } = setup({ 'a.md': 'kept\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	const { stop } = record(edit);
 	await flush();
 	stop();
@@ -451,7 +451,7 @@ test('text is held after unsubscribing, deletion, binary replacement and failed 
 	expect(expectErr(await edit.refresh()).name).toBe('Missing');
 	expect(edit.getSnapshot().content?.text).toBe('changed\n');
 	// A local replacement does not clear the failure; a text read does.
-	expectOk(edit.replaceText('local\n'));
+	expectOk(edit.replace('local\n'));
 	expect(edit.getSnapshot().loadError?.name).toBe('Missing');
 	disk.set('a.md', encode('back\n'));
 	expectOk(await edit.refresh());
@@ -464,13 +464,13 @@ test('text is held after unsubscribing, deletion, binary replacement and failed 
 
 test('typing during a publication stays dirty and visible when the publication lands', async () => {
 	const { folder, hold, text } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('B\n'));
+	expectOk(edit.replace('B\n'));
 	const writing = hold('write');
 	const saving = edit.save();
 	await writing.reached;
-	expectOk(edit.replaceText('C\n'));
+	expectOk(edit.replace('C\n'));
 	writing.proceed();
 	expectOk(await saving);
 	expect(text('a.md')).toBe('B\n');
@@ -486,16 +486,16 @@ test('typing during a publication stays dirty and visible when the publication l
 
 test('identity, not text: new equal input survives an older publication and a delete that captured the old one', async () => {
 	const { folder, hold, text, writes } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('B\n'));
+	expectOk(edit.replace('B\n'));
 	const writing = hold('write');
 	const saving = edit.save();
 	await writing.reached;
 	const deleting = hold('delete');
 	const removed = folder.files.delete('a.md');
-	expectOk(edit.replaceText('C\n'));
-	expectOk(edit.replaceText('B\n'));
+	expectOk(edit.replace('C\n'));
+	expectOk(edit.replace('B\n'));
 	writing.proceed();
 	expectOk(await saving);
 	expect(edit.getSnapshot()).toMatchObject({
@@ -519,14 +519,14 @@ test('identity, not text: new equal input survives an older publication and a de
 
 test('a delete defers an unsubmitted automatic save; failure resumes it, success consumes it', async () => {
 	const { folder, hold, writes, text } = setup({ 'a.md': 'A\n' }, 10);
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('X\n'));
+	expectOk(edit.replace('X\n'));
 	const failing = hold('delete');
 	const refused = folder.files.delete('a.md');
 	await failing.reached;
 	// New input can admit its own automatic save behind the delete.
-	expectOk(edit.replaceText('Y\n'));
+	expectOk(edit.replace('Y\n'));
 	await sleep(40);
 	expect(writes()).toEqual([]);
 	expect(edit.getSnapshot().isSaving).toBe(true);
@@ -536,7 +536,7 @@ test('a delete defers an unsubmitted automatic save; failure resumes it, success
 	expect(writes()).toEqual(['write a.md Y\n']);
 	expect(edit.getSnapshot().isDirty).toBe(false);
 
-	expectOk(edit.replaceText('Z\n'));
+	expectOk(edit.replace('Z\n'));
 	const deleting = hold('delete');
 	const removed = folder.files.delete('a.md');
 	await deleting.reached;
@@ -556,9 +556,9 @@ test('a delete defers an unsubmitted automatic save; failure resumes it, success
 
 test('a failed delete never makes an already acknowledged intent dirty again', async () => {
 	const { folder, hold, writes } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('B\n'));
+	expectOk(edit.replace('B\n'));
 	const writing = hold('write');
 	const saving = edit.save();
 	await writing.reached;
@@ -577,7 +577,7 @@ test('a failed delete never makes an already acknowledged intent dirty again', a
 
 test('save publishes the exact current text even when clean, and missing deletes succeed', async () => {
 	const { folder, writes } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
 	expectOk(await edit.save());
 	expect(writes()).toEqual(['write a.md A\n']);
@@ -587,7 +587,7 @@ test('save publishes the exact current text even when clean, and missing deletes
 
 test('all writes and deletes of a path finish in call order; deletion is not saving', async () => {
 	const { folder, hold, text } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
 	const order: string[] = [];
 	const first = hold('write');
@@ -601,7 +601,7 @@ test('all writes and deletes of a path finish in call order; deletion is not sav
 		order.push('write');
 		return result;
 	});
-	expectOk(edit.replaceText('B\n'));
+	expectOk(edit.replace('B\n'));
 	const again = edit.save().then((result) => {
 		order.push('save again');
 		return result;
@@ -627,10 +627,10 @@ test('all writes and deletes of a path finish in call order; deletion is not sav
 
 test('a failed publication has stable identity through typing and a fresh identity after retry', async () => {
 	const { folder, hold, writeError } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
 	const typed = '\uFEFFB\r\n';
-	expectOk(edit.replaceText(typed));
+	expectOk(edit.replace(typed));
 	const failing = hold('write');
 	const saving = edit.save();
 	await failing.reached;
@@ -646,7 +646,7 @@ test('a failed publication has stable identity through typing and a fresh identi
 
 	const statuses: (typeof failedStatus)[] = [];
 	cleanup.push(folder.onStatusChange((status) => statuses.push(status)));
-	expectOk(edit.replaceText('\uFEFFC\r\n'));
+	expectOk(edit.replace('\uFEFFC\r\n'));
 	expect(folder.getStatus()).toBe(failedStatus);
 	expect(folder.getStatus().failures[0]).toBe(first);
 	expect(statuses).toEqual([]);
@@ -655,7 +655,7 @@ test('a failed publication has stable identity through typing and a fresh identi
 	const retry = edit.save();
 	await retrying.reached;
 	expect(folder.getStatus().failures).toEqual([]);
-	expectOk(edit.replaceText('\uFEFFD\r\n'));
+	expectOk(edit.replace('\uFEFFD\r\n'));
 	expect(folder.getStatus().failures[0]).toBe(first);
 	retrying.fail();
 	expect(expectErr(await retry).name).toBe('StorageFailed');
@@ -670,9 +670,9 @@ test.each(['discard', 'retry'] as const)(
 	'a status listener that starts %s prevents later listeners receiving the superseded failure',
 	async (action) => {
 		const { folder, hold } = setup({ 'a.md': 'A\n' });
-		const edit = folder.files.edit('a.md');
+		const edit = folder.files.document('a.md');
 		expectOk(await edit.refresh());
-		expectOk(edit.replaceText('B\n'));
+		expectOk(edit.replace('B\n'));
 		let acted = false;
 		let retry: ReturnType<typeof edit.save> | undefined;
 		cleanup.push(
@@ -700,9 +700,9 @@ test.each(['discard', 'retry'] as const)(
 
 test('discard fences an admitted retry from newer input and a later success clears failure', async () => {
 	const { folder, hold } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('failed\n'));
+	expectOk(edit.replace('failed\n'));
 	const first = hold('write');
 	const failed = edit.save();
 	await first.reached;
@@ -713,7 +713,7 @@ test('discard fences an admitted retry from newer input and a later success clea
 	const retry = edit.save();
 	await retrying.reached;
 	expect(edit.discard()).toBe('failed\n');
-	expectOk(edit.replaceText('newer\n'));
+	expectOk(edit.replace('newer\n'));
 	retrying.fail();
 	expectErr(await retry);
 	expect(edit.getSnapshot().content?.text).toBe('newer\n');
@@ -735,9 +735,9 @@ test('discard fences an admitted retry from newer input and a later success clea
 
 test('a read waits for admitted writes, so an acknowledgement never lands over a newer observation', async () => {
 	const { folder, hold, disk, log } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('B\n'));
+	expectOk(edit.replace('B\n'));
 	const writing = hold('write');
 	const saving = edit.save();
 	await writing.reached;
@@ -760,7 +760,7 @@ test.each(['success', 'failure'] as const)(
 	'a cold refresh acquires text while a later write awaits %s',
 	async (outcome) => {
 		const { folder, hold } = setup({ 'a.md': 'observed\n' });
-		const edit = folder.files.edit('a.md');
+		const edit = folder.files.document('a.md');
 		const reading = hold('read');
 		const refreshing = edit.refresh();
 		await reading.reached;
@@ -792,7 +792,7 @@ test.each(['success', 'failure'] as const)(
 
 test('a refresh is answered by a read that started after it, and a change reported meanwhile is read again', async () => {
 	const { folder, hold, outside, reads } = setup({ 'a.md': 'old\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	const first = hold('read');
 	const { seen } = record(edit);
 	await first.reached;
@@ -815,18 +815,18 @@ test('a refresh is answered by a read that started after it, and a change report
 	});
 	expect(reads()).toHaveLength(2);
 	// The overtaken answer showed first; nothing older followed the newer one.
-	expect(seen.map((snapshot: EditorSnapshot) => snapshot.content?.text)).toEqual(
-		[undefined, 'old\n', 'new\n'],
-	);
+	expect(
+		seen.map((snapshot: DocumentSnapshot) => snapshot.content?.text),
+	).toEqual([undefined, 'old\n', 'new\n']);
 });
 
 test('change patches fields and body of the current text, owns nested values, and refuses what it cannot apply', async () => {
 	const { folder } = setup({ 'notes/a.md': '---\ntitle: A\n---\nbody\n' });
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
 	const tags = ['x'];
 	expectOk(
-		edit.change({
+		edit.patch({
 			fields: { title: 'B', tags } as unknown as { title: string },
 			body: 'new body\n',
 		}),
@@ -836,16 +836,16 @@ test('change patches fields and body of the current text, owns nested values, an
 		'---\ntitle: B\ntags:\n  - x\n---\nnew body\n',
 	);
 	expect(edit.getSnapshot().content?.fields).toMatchObject({ title: 'B' });
-	expectOk(edit.replaceText('---\ntitle: [broken\n---\nbody\n'));
-	expect(expectErr(edit.change({ fields: { title: 'C' } })).name).toBe(
+	expectOk(edit.replace('---\ntitle: [broken\n---\nbody\n'));
+	expect(expectErr(edit.patch({ fields: { title: 'C' } })).name).toBe(
 		'InvalidFields',
 	);
-	expectOk(edit.change({ body: 'repaired body\n' }));
+	expectOk(edit.patch({ body: 'repaired body\n' }));
 	expect(edit.getSnapshot().content?.text).toBe(
 		'---\ntitle: [broken\n---\nrepaired body\n',
 	);
-	expect(expectErr(edit.replaceText('a\0b')).name).toBe('InvalidText');
-	expect(expectErr(edit.replaceText('a\uD800b')).name).toBe('InvalidText');
+	expect(expectErr(edit.replace('a\0b')).name).toBe('InvalidText');
+	expect(expectErr(edit.replace('a\uD800b')).name).toBe('InvalidText');
 });
 
 test('close releases synchronously with a blocked write and never submits held input', async () => {
@@ -856,10 +856,10 @@ test('close releases synchronously with a blocked write and never submits held i
 		closes++;
 		release();
 	};
-	const edit = folder.files.edit('held.md');
-	expectOk(edit.replaceText('held'));
+	const edit = folder.files.document('held.md');
+	expectOk(edit.replace('held'));
 	const { seen } = record(edit);
-	const receipt = folder.files.edit('receipt.md');
+	const receipt = folder.files.document('receipt.md');
 	expectErr(await receipt.refresh());
 	const receiptSnapshots = record(receipt).seen;
 	const statuses: boolean[] = [];
@@ -878,8 +878,8 @@ test('close releases synchronously with a blocked write and never submits held i
 		expect(folder.close()).toBeUndefined();
 		expect(closes).toBe(1);
 		expect(statuses.filter(Boolean)).toEqual([true]);
-		expect(expectErr(edit.replaceText('late')).name).toBe('Closing');
-		expect(expectErr(await edit.save()).name).toBe('Closed');
+		expect(expectErr(edit.replace('late')).name).toBe('Closing');
+		expect(expectErr(await edit.save()).name).toBe('Closing');
 		expect(() => folder.flush()).toThrow('The folder is closed');
 		const counts = [
 			seen.length,
@@ -915,8 +915,8 @@ test('close from a publication notice suppresses later change listeners', async 
 		{ saveAfterMs: 60_000 },
 	);
 	cleanup.push(() => folder.close());
-	const edit = folder.files.edit('a.md');
-	expectOk(edit.replaceText('saved\n'));
+	const edit = folder.files.document('a.md');
+	expectOk(edit.replace('saved\n'));
 	let notices = 0;
 	let later = 0;
 	folder.onChange(() => {
@@ -936,7 +936,7 @@ test('close refuses new storage calls and editor saves while an admitted write i
 	const { folder, hold, text, reads, writes } = setup({
 		'accepted.md': 'before',
 	});
-	const edit = folder.files.edit('accepted.md');
+	const edit = folder.files.document('accepted.md');
 	expectOk(await edit.refresh());
 	const held = hold('write');
 	const writing = folder.files.write('accepted.md', 'after');
@@ -949,9 +949,11 @@ test('close refuses new storage calls and editor saves while an admitted write i
 		expect(() => folder.files.delete('accepted.md')).toThrow(
 			'The folder is closed',
 		);
-		expect(() => folder.tables.notes.set('late', { body: 'late' })).toThrow(
-			'The folder is closed',
-		);
+		expect(
+			expectErr(
+				await folder.tables.notes.document('late').save({ body: 'late' }),
+			).name,
+		).toBe('Closing');
 		expect(() => folder.tables.notes.delete('late')).toThrow(
 			'The folder is closed',
 		);
@@ -965,9 +967,9 @@ test('close refuses new storage calls and editor saves while an admitted write i
 		await expect(folder.tables.notes.list()).rejects.toThrow(
 			'The folder is closed',
 		);
-		expect(expectErr(await edit.save()).name).toBe('Closed');
+		expect(expectErr(await edit.save()).name).toBe('Closing');
 		expect(expectErr(await edit.refresh()).name).toBe('ReadFailed');
-		expect(expectErr(edit.replaceText('too late')).name).toBe('Closing');
+		expect(expectErr(edit.replace('too late')).name).toBe('Closing');
 		record(edit).stop();
 		expect(reads()).toEqual(['read accepted.md']);
 	} finally {
@@ -981,7 +983,7 @@ test('close refuses new storage calls and editor saves while an admitted write i
 
 test('a refresh waiting when the folder closes reports the close and starts no further read', async () => {
 	const { folder, hold, outside, reads } = setup({ 'a.md': 'before\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	const held = hold('read');
 	const reading = edit.refresh();
 	await held.reached;
@@ -1004,16 +1006,16 @@ test('a refresh waiting when the folder closes reports the close and starts no f
 
 test('flush submits held and failed input immediately without waiting', async () => {
 	const { folder, hold, text } = setup();
-	const a = folder.files.edit('a.md');
-	const b = folder.files.edit('b.md');
-	expectOk(a.replaceText('A'));
+	const a = folder.files.document('a.md');
+	const b = folder.files.document('b.md');
+	expectOk(a.replace('A'));
 	const failing = hold('write');
 	const saving = a.save();
 	await failing.reached;
 	failing.fail();
 	expectErr(await saving);
 	expect(folder.getStatus().failures).toHaveLength(1);
-	expectOk(b.replaceText('B'));
+	expectOk(b.replace('B'));
 	const blocked = hold('write');
 	try {
 		expect(folder.flush()).toBeUndefined();
@@ -1030,8 +1032,8 @@ test('flush submits held and failed input immediately without waiting', async ()
 
 test('subscribe after close reports one current snapshot and installs no listener or read', async () => {
 	const { folder, hold, reads } = setup();
-	const edit = folder.files.edit('a.md');
-	expectOk(edit.replaceText('A'));
+	const edit = folder.files.document('a.md');
+	expectOk(edit.replace('A'));
 	const blocked = hold('write');
 	const saving = edit.save();
 	await blocked.reached;
@@ -1071,7 +1073,7 @@ test('over the browser engine an editor saves automatically and learns of anothe
 	const other = expectOk(await openFolder({ tables: { notes } }));
 	cleanup.push(() => other.close());
 	expectOk(await other.tables.notes.write('a', { fields: { title: 'A' } }));
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	const { seen } = record(edit);
 	for (
 		let turn = 0;
@@ -1080,7 +1082,7 @@ test('over the browser engine an editor saves automatically and learns of anothe
 	)
 		await sleep(5);
 	expect(edit.getSnapshot().content?.fields).toEqual({ title: 'A' });
-	expectOk(edit.change({ fields: { title: 'Mine' } }));
+	expectOk(edit.patch({ fields: { title: 'Mine' } }));
 	for (let turn = 0; turn < 50 && edit.getSnapshot().isDirty; turn++)
 		await sleep(5);
 	expect(expectOk(await other.tables.notes.get('a'))?.fields).toEqual({
@@ -1112,10 +1114,11 @@ test('lists return stored rows without acquiring working documents', async () =>
 	expect(
 		expectOk(await folder.tables.notes.list()).map((found) => found.id),
 	).toEqual(['a', 'b']);
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expect(edit.getSnapshot().content).toBeUndefined();
 	expect(
-		expectErr(await folder.tables.notes.set('a', { body: 'refused' })).name,
+		expectErr(await folder.tables.notes.document('a').save({ body: 'refused' }))
+			.name,
 	).toBe('NoContent');
 	expect(reads()).toEqual([]);
 	const { stop } = record(edit);
@@ -1123,14 +1126,16 @@ test('lists return stored rows without acquiring working documents', async () =>
 	stop();
 	expect(reads()).toEqual(['read notes/a.md']);
 	expect(edit.getSnapshot().content?.text).toBe(row('A', 'one\n'));
-	expect(folder.tables.notes.edit('b').getSnapshot().content).toBeUndefined();
+	expect(
+		folder.tables.notes.document('b').getSnapshot().content,
+	).toBeUndefined();
 });
 
 test('row gets return data and errors without changing working documents', async () => {
 	const { folder, hold, disk } = setup({ 'notes/a.md': row('A', 'one\n') });
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: 'typed\n' }));
+	expectOk(edit.patch({ body: 'typed\n' }));
 	const before = edit.getSnapshot();
 	disk.set('notes/a.md', encode(row('Outside', 'outside\n')));
 	expect(expectOk(await folder.tables.notes.get('a'))?.fields).toEqual({
@@ -1138,7 +1143,7 @@ test('row gets return data and errors without changing working documents', async
 	});
 	expect(expectOk(await folder.tables.notes.get('gone'))).toBeUndefined();
 	expect(
-		folder.tables.notes.edit('gone').getSnapshot().loadError,
+		folder.tables.notes.document('gone').getSnapshot().loadError,
 	).toBeUndefined();
 	const failing = hold('get');
 	const getting = folder.tables.notes.get('a');
@@ -1150,12 +1155,12 @@ test('row gets return data and errors without changing working documents', async
 
 test('a list that started before a publication never installs over it', async () => {
 	const { folder, hold, text } = setup({ 'notes/a.md': row('A', 'old\n') });
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
 	const listing = hold('list');
 	const listed = folder.tables.notes.list();
 	await listing.reached;
-	expectOk(edit.replaceText(row('A', 'new\n')));
+	expectOk(edit.replace(row('A', 'new\n')));
 	expectOk(await edit.save());
 	expect(text('notes/a.md')).toBe(row('A', 'new\n'));
 	listing.proceed();
@@ -1166,22 +1171,22 @@ test('a list that started before a publication never installs over it', async ()
 	const second = hold('list');
 	const listing2 = folder.tables.notes.list();
 	await second.reached;
-	const other = folder.tables.notes.edit('b');
+	const other = folder.tables.notes.document('b');
 	expect(other.getSnapshot().content).toBeUndefined();
 	second.proceed();
 	await listing2;
 	expect(edit.getSnapshot().content?.text).toBe(row('A', 'new\n'));
 });
 
-test('a direct set composes over held input, publishes it, and acknowledges only that input', async () => {
+test('a direct patch save composes over held input, publishes it, and acknowledges only that input', async () => {
 	const { folder, text, writes } = setup({
 		'notes/a.md': row('Old', 'Original\n'),
 	});
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText(row('Old', 'Typed\n')));
+	expectOk(edit.replace(row('Old', 'Typed\n')));
 	const stored = expectOk(
-		await folder.tables.notes.set('a', { fields: { title: 'New' } }),
+		await folder.tables.notes.document('a').save({ fields: { title: 'New' } }),
 	);
 	expect(stored.text).toBe(row('New', 'Typed\n'));
 	expect(text('notes/a.md')).toBe(row('New', 'Typed\n'));
@@ -1195,15 +1200,17 @@ test('a direct set composes over held input, publishes it, and acknowledges only
 	expect(writes()).toEqual([`write notes/a.md ${row('New', 'Typed\n')}`]);
 });
 
-test('a failed set retains the accepted patch and reports its save error until explicit retry', async () => {
+test('a failed patch save retains the accepted patch and reports its save error until explicit retry', async () => {
 	const { folder, hold, writes } = setup({
 		'notes/a.md': row('Old', 'Original\n'),
 	});
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: 'Typed\n' }));
+	expectOk(edit.patch({ body: 'Typed\n' }));
 	const failing = hold('write');
-	const setting = folder.tables.notes.set('a', { fields: { title: 'New' } });
+	const setting = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'New' } });
 	expect(edit.getSnapshot().content?.text).toBe(row('New', 'Typed\n'));
 	await failing.reached;
 	failing.fail();
@@ -1219,18 +1226,20 @@ test('a failed set retains the accepted patch and reports its save error until e
 	expect(writes()).toEqual([`write notes/a.md ${row('New', 'Typed\n')}`]);
 });
 
-test('typing during a set builds on its metadata and the result describes its captured row', async () => {
+test('typing during a patch save builds on its metadata and the result describes its captured row', async () => {
 	const { folder, hold, text } = setup({
 		'notes/a.md': row('Old', 'Original\n'),
 	});
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: 'B\n' }));
+	expectOk(edit.patch({ body: 'B\n' }));
 	const writing = hold('write');
-	const setting = folder.tables.notes.set('a', { fields: { title: 'New' } });
+	const setting = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'New' } });
 	await writing.reached;
 	expect(edit.getSnapshot().content?.text).toBe(row('New', 'B\n'));
-	expectOk(edit.change({ body: 'C\n' }));
+	expectOk(edit.patch({ body: 'C\n' }));
 	writing.proceed();
 	expect(expectOk(await setting).text).toBe(row('New', 'B\n'));
 	expect(text('notes/a.md')).toBe(row('New', 'B\n'));
@@ -1242,7 +1251,7 @@ test('typing during a set builds on its metadata and the result describes its ca
 	expect(text('notes/a.md')).toBe(row('New', 'C\n'));
 });
 
-test('a cold set refuses without reading or publishing even behind a pending raw write', async () => {
+test('a cold patch save refuses without reading or publishing even behind a pending raw write', async () => {
 	const { folder, hold, reads, text } = setup({
 		'notes/a.md': row('Old', 'Original\n'),
 	});
@@ -1250,21 +1259,29 @@ test('a cold set refuses without reading or publishing even behind a pending raw
 	const written = folder.files.write('notes/a.md', row('Raw', 'Written\n'));
 	await writing.reached;
 	expect(
-		expectErr(await folder.tables.notes.set('a', { fields: { title: 'Set' } }))
-			.name,
+		expectErr(
+			await folder.tables.notes
+				.document('a')
+				.save({ fields: { title: 'Set' } }),
+		).name,
 	).toBe('NoContent');
 	for (const legacyId of ['', 'a: b'])
 		expect(
-			expectErr(await folder.tables.notes.set(legacyId, { body: 'x' })).name,
+			expectErr(
+				await folder.tables.notes.document(legacyId).save({ body: 'x' }),
+			).name,
 		).toBe('NoContent');
 	expect(reads()).toEqual([]);
 	writing.proceed();
 	expectOk(await written);
 	// Explicit acquisition supplies text; the refused set acquired nothing.
-	expectOk(await folder.tables.notes.edit('a').refresh());
+	expectOk(await folder.tables.notes.document('a').refresh());
 	expect(
-		expectOk(await folder.tables.notes.set('a', { fields: { title: 'Set' } }))
-			.text,
+		expectOk(
+			await folder.tables.notes
+				.document('a')
+				.save({ fields: { title: 'Set' } }),
+		).text,
 	).toBe(row('Set', 'Written\n'));
 	expect(text('notes/a.md')).toBe(row('Set', 'Written\n'));
 	expect(
@@ -1274,19 +1291,19 @@ test('a cold set refuses without reading or publishing even behind a pending raw
 
 test('a raw write acknowledges only the input captured at its call and is known before it resolves', async () => {
 	const { folder, hold } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('typed\n'));
+	expectOk(edit.replace('typed\n'));
 	expectOk(await folder.files.write('a.md', 'raw\n'));
 	expect(edit.getSnapshot()).toMatchObject({
 		isDirty: false,
 		content: { text: 'raw\n' },
 	});
-	expectOk(edit.replaceText('B\n'));
+	expectOk(edit.replace('B\n'));
 	const writing = hold('write');
 	const written = folder.files.write('a.md', 'raw again\n');
 	await writing.reached;
-	expectOk(edit.replaceText('C\n'));
+	expectOk(edit.replace('C\n'));
 	writing.proceed();
 	expectOk(await written);
 	expect(edit.getSnapshot()).toMatchObject({
@@ -1312,7 +1329,7 @@ test('raw reads never decode or change editor sources', async () => {
 		'large.wav': large,
 		'a.md': 'A\n',
 	});
-	const wav = folder.files.edit('large.wav');
+	const wav = folder.files.document('large.wav');
 	const read = expectOk(await folder.files.read('large.wav'));
 	expect(read?.content.size).toBe(large.length);
 	expect(decoded.count).toBe(0);
@@ -1320,7 +1337,7 @@ test('raw reads never decode or change editor sources', async () => {
 		content: undefined,
 		loadError: undefined,
 	});
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
 	disk.set('a.md', encode('changed\n'));
 	const before = reads().length;
@@ -1332,7 +1349,7 @@ test('raw reads never decode or change editor sources', async () => {
 
 test('a file that keeps changing shows each newer answer, settles a refresh, and is read until one applies', async () => {
 	const { folder, hold, outside, reads } = setup({ 'a.md': '0' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	const first = hold('read');
 	const { stop } = record(edit);
 	cleanup.push(stop);
@@ -1367,7 +1384,7 @@ test('a file that keeps changing shows each newer answer, settles a refresh, and
 
 test('while a file keeps changing, pending input stays shown and dirty, and load errors stay truthful', async () => {
 	const { folder, hold, outside } = setup({ 'a.md': 'v0\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	const { stop } = record(edit);
 	cleanup.push(stop);
 	await flush();
@@ -1392,7 +1409,7 @@ test('while a file keeps changing, pending input stays shown and dirty, and load
 		loadError: undefined,
 		isDirty: false,
 	});
-	expectOk(edit.replaceText('typed\n'));
+	expectOk(edit.replace('typed\n'));
 	held = hold('read');
 	outside('a.md', 'v3\n');
 	next.proceed();
@@ -1415,14 +1432,16 @@ test('while a file keeps changing, pending input stays shown and dirty, and load
 		loadError: undefined,
 		isDirty: true,
 	});
-	expect(folder.files.edit('a.md').getSnapshot().content?.text).toBe('typed\n');
+	expect(folder.files.document('a.md').getSnapshot().content?.text).toBe(
+		'typed\n',
+	);
 });
 
 test('snapshot content is frozen all the way down', async () => {
 	const { folder } = setup({
 		'notes/a.md': '---\ntitle: A\ntags:\n  - x\n---\nbody\n',
 	});
-	const edit = folder.files.edit('notes/a.md');
+	const edit = folder.files.document('notes/a.md');
 	expectOk(await edit.refresh());
 	const content = edit.getSnapshot().content!;
 	const tags = (content.fields as { tags: string[] }).tags;
@@ -1431,18 +1450,18 @@ test('snapshot content is frozen all the way down', async () => {
 		title: 'A',
 		tags: ['x'],
 	});
-	expectOk(edit.replaceText('---\ntitle: [x\n---\nbody\n'));
+	expectOk(edit.replace('---\ntitle: [x\n---\nbody\n'));
 	const issues = edit.getSnapshot().content!.issues!;
 	expect(Object.isFrozen(issues)).toBe(true);
 	expect(Object.isFrozen(issues[0]!.path)).toBe(true);
-	const missing = folder.files.edit('gone.md');
+	const missing = folder.files.document('gone.md');
 	await missing.refresh();
 	expect(Object.isFrozen(missing.getSnapshot().loadError)).toBe(true);
 });
 
 test('a discard supersedes the failure of a clean save admitted before it', async () => {
 	const { folder, hold } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
 	const failing = hold('write');
 	const saving = edit.save();
@@ -1459,11 +1478,11 @@ test('reported directory changes reach subscribed editors below them; passive on
 		'notes/deep/b.md': 'b\n',
 		'other.md': 'o\n',
 	});
-	const a = folder.files.edit('notes/a.md');
-	const b = folder.files.edit('notes/deep/b.md');
-	const other = folder.files.edit('other.md');
+	const a = folder.files.document('notes/a.md');
+	const b = folder.files.document('notes/deep/b.md');
+	const other = folder.files.document('other.md');
 	cleanup.push(record(a).stop, record(b).stop, record(other).stop);
-	const passive = folder.files.edit('notes/passive.md');
+	const passive = folder.files.document('notes/passive.md');
 	await flush();
 	const count = () => reads().length;
 	expect(count()).toBe(3);
@@ -1493,9 +1512,9 @@ test('folder.refresh reads current subscribers in scope, marks the rest, and lis
 		'other.md': 'o\n',
 	});
 	expectOk(await folder.tables.notes.list());
-	const watched = folder.tables.notes.edit('a');
-	const resting = folder.tables.notes.edit('b');
-	const other = folder.files.edit('other.md');
+	const watched = folder.tables.notes.document('a');
+	const resting = folder.tables.notes.document('b');
+	const other = folder.files.document('other.md');
 	cleanup.push(record(watched).stop, record(other).stop);
 	await flush();
 	// Lists do not acquire editor text: each visible editor reads its path.
@@ -1525,7 +1544,7 @@ test('an editor acquired while a raw write runs learns it before the write resol
 	const writing = hold('write');
 	const written = folder.files.write('a.md', 'new\n');
 	await writing.reached;
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	writing.proceed();
 	expectOk(await written);
 	expect(edit.getSnapshot().content?.text).toBe('new\n');
@@ -1545,11 +1564,11 @@ test('close during a direct promotion never queues the input that promotion capt
 			body: 'raw\n',
 		}),
 	);
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: 'raw input\n' }));
+	expectOk(edit.patch({ body: 'raw input\n' }));
 	const writing = hold('write');
-	const promotion = folder.tables.notes.set('a', {
+	const promotion = folder.tables.notes.document('a').save({
 		fields: { draft: undefined } as never,
 		body: 'composed\n',
 	});
@@ -1565,16 +1584,18 @@ test('close during a direct promotion never queues the input that promotion capt
 	expect(edit.getSnapshot().isDirty).toBe(false);
 });
 
-test('an automatic save coming due during a direct set never publishes its captured input after it', async () => {
+test('an automatic save coming due during a direct patch save never publishes its captured input after it', async () => {
 	const { folder, hold, text, writes } = setup(
 		{ 'notes/a.md': row('Old', 'Original\n') },
 		10,
 	);
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText(row('Old', 'Typed\n')));
+	expectOk(edit.replace(row('Old', 'Typed\n')));
 	const writing = hold('write');
-	const setting = folder.tables.notes.set('a', { fields: { title: 'New' } });
+	const setting = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'New' } });
 	await writing.reached;
 	await sleep(40);
 	writing.proceed();
@@ -1589,12 +1610,14 @@ test('an older command failing gives captured input back only if no later comman
 	const { folder, hold, writes } = setup({
 		'notes/a.md': row('Old', 'Original\n'),
 	});
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText(row('Old', 'I\n')));
+	expectOk(edit.replace(row('Old', 'I\n')));
 	const first = hold('write');
 	const second = hold('write');
-	const setting = folder.tables.notes.set('a', { fields: { title: 'New' } });
+	const setting = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'New' } });
 	const saving = edit.save();
 	await first.reached;
 	first.fail();
@@ -1607,9 +1630,11 @@ test('an older command failing gives captured input back only if no later comman
 	expect(settling).toBeUndefined();
 	expect(writes()).toEqual([`write notes/a.md ${row('New', 'I\n')}`]);
 	// The last owner failing does give it back, for a later explicit save or flush.
-	expectOk(edit.replaceText(row('Old', 'J\n')));
+	expectOk(edit.replace(row('Old', 'J\n')));
 	const failing = hold('write');
-	const failed = folder.tables.notes.set('a', { fields: { title: 'Newer' } });
+	const failed = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'Newer' } });
 	await failing.reached;
 	failing.fail();
 	await failed;
@@ -1620,9 +1645,9 @@ test('an older command failing gives captured input back only if no later comman
 
 test('close during a raw write never queues the input it captured', async () => {
 	const { folder, hold, text, writes } = setup({ 'a.md': 'A\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('typed\n'));
+	expectOk(edit.replace('typed\n'));
 	const writing = hold('write');
 	const written = folder.files.write('a.md', 'raw\n');
 	const closing = folder.close();
@@ -1634,15 +1659,17 @@ test('close during a raw write never queues the input it captured', async () => 
 	expect(writes()).toEqual(['write a.md raw\n']);
 });
 
-test('a failed set after close retains its accepted edit without retrying', async () => {
+test('a failed patch save after close retains its accepted edit without retrying', async () => {
 	const { folder, hold, text, writes } = setup({
 		'notes/a.md': row('Old', 'Original\n'),
 	});
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText(row('Old', 'I\n')));
+	expectOk(edit.replace(row('Old', 'I\n')));
 	const failing = hold('write');
-	const setting = folder.tables.notes.set('a', { fields: { title: 'New' } });
+	const setting = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'New' } });
 	const closing = folder.close();
 	await failing.reached;
 	failing.fail();
@@ -1654,17 +1681,19 @@ test('a failed set after close retains its accepted edit without retrying', asyn
 	expect(writes()).toEqual([]);
 });
 
-test('failed raw replacement followed by failed set leaves only the accepted set pending', async () => {
+test('failed raw replacement followed by failed patch save leaves only the accepted patch save pending', async () => {
 	const { folder, hold, writes, text } = setup({
 		'notes/a.md': row('Old', 'original\n'),
 	});
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: 'input\n' }));
+	expectOk(edit.patch({ body: 'input\n' }));
 	const first = hold('write');
 	const second = hold('write');
 	const raw = folder.files.write('notes/a.md', row('Raw', 'command\n'));
-	const set = folder.tables.notes.set('a', { fields: { title: 'Set' } });
+	const set = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'Set' } });
 	await first.reached;
 	first.fail();
 	expectErr(await raw);
@@ -1685,9 +1714,9 @@ test('failed raw replacement followed by failed set leaves only the accepted set
 
 test('a failed command does not autonomously retry input whose own save already failed', async () => {
 	const { folder, hold, writes } = setup({ 'a.md': 'original\n' });
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText('input\n'));
+	expectOk(edit.replace('input\n'));
 	const input = hold('write');
 	const saving = edit.save();
 	await input.reached;
@@ -1707,34 +1736,36 @@ test('a failed command does not autonomously retry input whose own save already 
 	expect(writes()).toEqual([]);
 });
 
-test('new equal input typed during a direct set is still published after it', async () => {
+test('new equal input typed during a direct patch save is still published after it', async () => {
 	const { folder, hold, text } = setup({
 		'notes/a.md': row('Old', 'Original\n'),
 	});
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText(row('Old', 'B\n')));
+	expectOk(edit.replace(row('Old', 'B\n')));
 	const writing = hold('write');
-	const setting = folder.tables.notes.set('a', { fields: { title: 'New' } });
+	const setting = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'New' } });
 	await writing.reached;
-	expectOk(edit.replaceText(row('Old', 'C\n')));
-	expectOk(edit.replaceText(row('Old', 'B\n')));
+	expectOk(edit.replace(row('Old', 'C\n')));
+	expectOk(edit.replace(row('Old', 'B\n')));
 	writing.proceed();
 	expectOk(await setting);
 	expectOk(await edit.save());
 	expect(text('notes/a.md')).toBe(row('Old', 'B\n'));
 });
 
-test('over the browser engine a direct set composes over held input, and a failure keeps it', async () => {
+test('over the browser engine a direct patch save composes over held input, and a failure keeps it', async () => {
 	globalThis.indexedDB = new FakeIndexedDB() as unknown as IDBFactory;
 	const folder = expectOk(
 		await openFolder({ tables: { notes }, saveAfterMs: 60_000 }),
 	);
 	cleanup.push(() => folder.close());
 	expectOk(await folder.files.write('notes/a.md', row('Old', 'Original\n')));
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.replaceText(row('Old', 'Typed\n')));
+	expectOk(edit.replace(row('Old', 'Typed\n')));
 	const put = IDBObjectStore.prototype.put;
 	IDBObjectStore.prototype.put = () => {
 		throw new DOMException('Disk is full', 'QuotaExceededError');
@@ -1742,7 +1773,9 @@ test('over the browser engine a direct set composes over held input, and a failu
 	try {
 		expect(
 			expectErr(
-				await folder.tables.notes.set('a', { fields: { title: 'New' } }),
+				await folder.tables.notes
+					.document('a')
+					.save({ fields: { title: 'New' } }),
 			).name,
 		).toBe('StorageFailed');
 	} finally {
@@ -1753,8 +1786,10 @@ test('over the browser engine a direct set composes over held input, and a failu
 		saveError: { name: 'StorageFailed' },
 		content: { text: row('New', 'Typed\n') },
 	});
-	const setting = folder.tables.notes.set('a', { fields: { title: 'New' } });
-	expectOk(edit.replaceText(row('Old', 'Later\n')));
+	const setting = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'New' } });
+	expectOk(edit.replace(row('Old', 'Later\n')));
 	expectOk(await setting);
 	expect(expectOk(await folder.tables.notes.get('a'))?.text).toBe(
 		row('New', 'Typed\n'),
@@ -1789,11 +1824,11 @@ test('an admitted command that throws after close resolves with StorageFailed', 
 	}
 });
 
-test('a set admits its captured publication before a reentrant observer edits and saves', async () => {
+test('a patch save admits its captured publication before a reentrant observer edits and saves', async () => {
 	const { folder, hold, text, writes } = setup({
 		'notes/a.md': row('Old', 'B\n'),
 	});
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
 	const blocked = hold('write');
 	let later: ReturnType<typeof edit.save> | undefined;
@@ -1804,10 +1839,12 @@ test('a set admits its captured publication before a reentrant observer edits an
 		)
 			return;
 		expect(snapshot.isSaving).toBe(true);
-		expectOk(edit.change({ body: 'C\n' }));
+		expectOk(edit.patch({ body: 'C\n' }));
 		later = edit.save();
 	});
-	const setting = folder.tables.notes.set('a', { fields: { title: 'New' } });
+	const setting = folder.tables.notes
+		.document('a')
+		.save({ fields: { title: 'New' } });
 	await blocked.reached;
 	expect(later).toBeDefined();
 	blocked.proceed();
@@ -1823,7 +1860,7 @@ test('a set admits its captured publication before a reentrant observer edits an
 
 test('reentrant status listeners never receive an older status after a newer publication status', async () => {
 	const { folder } = setup();
-	const edit = folder.files.edit('a.md');
+	const edit = folder.files.document('a.md');
 	let saving: ReturnType<typeof edit.save> | undefined;
 	folder.onStatusChange((status) => {
 		if (status.unsaved.length > 0 && !status.saving && saving === undefined)
@@ -1831,7 +1868,7 @@ test('reentrant status listeners never receive an older status after a newer pub
 	});
 	const seen: boolean[] = [];
 	folder.onStatusChange((status) => seen.push(status.saving));
-	expectOk(edit.replaceText('A'));
+	expectOk(edit.replace('A'));
 	expect(seen).toEqual([true]);
 	expectOk(await saving!);
 	// Acknowledgement can publish clean-but-still-settling status before lane release.
@@ -1840,13 +1877,13 @@ test('reentrant status listeners never receive an older status after a newer pub
 
 test('table write publishes a complete replacement and reports its exact row despite newer input', async () => {
 	const { folder, hold, text } = setup({ 'notes/a.md': row('Old', 'B\n') });
-	const edit = folder.tables.notes.edit('a');
+	const edit = folder.tables.notes.document('a');
 	expectOk(await edit.refresh());
-	expectOk(edit.change({ body: 'pending\n' }));
+	expectOk(edit.patch({ body: 'pending\n' }));
 	const blocked = hold('write');
 	const writing = folder.tables.notes.write('a', { body: 'replacement\n' });
 	await blocked.reached;
-	expectOk(edit.change({ body: 'newer\n' }));
+	expectOk(edit.patch({ body: 'newer\n' }));
 	blocked.proceed();
 	const stored = expectOk(await writing);
 	expect(stored.fields).toEqual({});
@@ -1881,4 +1918,74 @@ test('failed table creation retains no autosave payload and retry writes the sam
 		).text,
 	).toBe(row('New', 'created\n'));
 	expect(writes()).toEqual([`write notes/new.md ${row('New', 'created\n')}`]);
+});
+
+test('complete source can be accepted and published before acquisition, with its exact schema interpretation', async () => {
+	const { folder, reads, text } = setup();
+	const document = folder.tables.notes.document('new');
+	const source = '\uFEFF---\r\ntitle: New\r\n---\r\nBody\r\n';
+	const saved = expectOk(await document.save(source));
+	expect(reads()).toEqual([]);
+	expect(saved).toMatchObject({
+		text: source,
+		fields: { title: 'New' },
+		body: 'Body\r\n',
+		issues: null,
+	});
+	expect(Object.isFrozen(saved)).toBe(true);
+	expect(Object.isFrozen(saved.fields)).toBe(true);
+	expect(text('notes/new.md')).toBe(source);
+	expect(document.getSnapshot()).toMatchObject({
+		isDirty: false,
+		content: saved,
+	});
+});
+
+test.each(['current', 'text'] as const)(
+	'a %s save returns its captured content when an admission observer changes the document',
+	async (input) => {
+		const { folder, hold, text } = setup({
+			'notes/a.md': row('A', 'Original\n'),
+		});
+		const document = folder.tables.notes.document('a');
+		expectOk(await document.refresh());
+		let changed = false;
+		const stop = document.subscribe((snapshot) => {
+			if (changed || !snapshot.isSaving) return;
+			changed = true;
+			expectOk(document.patch({ body: 'Later\n' }));
+		});
+		const blocked = hold('write');
+		const captured =
+			input === 'text'
+				? row('Replacement', 'Captured\n')
+				: row('A', 'Original\n');
+		const publishing =
+			input === 'text' ? document.save(captured) : document.save();
+		await blocked.reached;
+		expect(changed).toBe(true);
+		blocked.proceed();
+		expect(expectOk(await publishing).text).toBe(captured);
+		expect(text('notes/a.md')).toBe(captured);
+		expect(document.getSnapshot()).toMatchObject({
+			isDirty: true,
+			content: { body: 'Later\n' },
+		});
+		stop();
+	},
+);
+
+test('document acquisition rejects invalid addresses before acquiring source or doing I/O', async () => {
+	const { folder, reads, writes } = setup();
+	for (const id of ['a/b', '../x', 'a\\b', 'a\0b'])
+		expect(() => folder.tables.notes.document(id)).toThrow(RangeError);
+	for (const path of ['', '/bad', '../x', 'a//b', '.git/config', 'a\\b'])
+		expect(() => folder.files.document(path)).toThrow(RangeError);
+	for (const id of ['', 'a: b'])
+		expect(folder.tables.notes.document(id).path).toBe(`notes/${id}.md`);
+	// Nested paths remain addressable explicitly through files, not as row IDs.
+	expect(folder.files.document('notes/a/b.md').path).toBe('notes/a/b.md');
+	expect(reads()).toEqual([]);
+	expect(writes()).toEqual([]);
+	expect(folder.getStatus()).toMatchObject({ unsaved: [], saving: false });
 });

@@ -13,7 +13,8 @@ import {
 	WHISPERING_CONNECTION_IDS,
 	type WhisperingConnection,
 } from '@epicenter/ai/connection-table';
-import { type Folder, openFolder, type Row } from '@epicenter/folder/bun';
+import { type Folder, openFolder } from '@epicenter/folder/bun';
+import type { MarkdownContent } from '@epicenter/folder/document';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -50,7 +51,7 @@ export const ConnectionRowError = defineErrors({
 });
 export type ConnectionRowError = InferErrors<typeof ConnectionRowError>;
 
-type StoredRow = Row<(typeof connectionsTables)['connections']>;
+type StoredContent = MarkdownContent<(typeof connectionsTables)['connections']>;
 
 function connectionOf(
 	operation: string,
@@ -94,7 +95,7 @@ async function withConnections<T>(
 }
 
 /** A stored row as the command answers it: source, issues, and the schema's fields. */
-function answerOf(row: StoredRow): ConnectionRow {
+function answerOf(row: StoredContent): ConnectionRow {
 	if (row.issues !== null)
 		return { text: row.text, issues: row.issues, fields: null };
 	const { kind, title, model } = row.fields;
@@ -159,8 +160,8 @@ export async function setConnectionRow(
 		});
 	const id = WHISPERING_CONNECTION_IDS[connection];
 	return withConnections(directory, async (folder) => {
-		const table = folder.tables.connections;
-		const acquired = await table.edit(id).refresh();
+		const document = folder.tables.connections.document(id);
+		const acquired = await document.refresh();
 		if (acquired.error !== null && acquired.error.name !== 'Missing')
 			return ConnectionRowError.SaveFailed({
 				path: `${directory}/connections/${id}.md`,
@@ -168,8 +169,8 @@ export async function setConnectionRow(
 			});
 		const { data, error: saveError } =
 			acquired.error?.name === 'Missing'
-				? await table.write(id, { fields })
-				: await table.set(id, { fields });
+				? await folder.tables.connections.write(id, { fields })
+				: await document.save({ fields });
 		if (saveError !== null)
 			return ConnectionRowError.SaveFailed({
 				path: `${directory}/connections/${WHISPERING_CONNECTION_IDS[connection]}.md`,
