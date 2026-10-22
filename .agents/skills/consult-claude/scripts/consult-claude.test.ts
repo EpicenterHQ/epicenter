@@ -61,6 +61,17 @@ console.log(JSON.stringify({ cwd: process.cwd(), args, env:selectedEnv, input, s
 	return {
 		source,
 		root,
+		clone() {
+			const workspace = join(root, 'worker');
+			const result = spawnSync('git', [
+				'clone',
+				'--no-local',
+				source,
+				workspace,
+			]);
+			if (result.status !== 0) throw new Error('Fixture clone failed.');
+			return workspace;
+		},
 		launch(
 			args: string[] = [],
 			input = 'Review this.',
@@ -125,8 +136,7 @@ test('new and resumed turns preserve the brief and enforce the same access bound
 
 test('both accounts share a sanitized environment across new and resumed consultation and delegation', () => {
 	using fixture = setup();
-	const workspace = join(fixture.root, 'worker');
-	expect(spawnSync('git', ['init', '-q', workspace]).status).toBe(0);
+	const workspace = fixture.clone();
 	const trace = join(fixture.root, 'calls.jsonl');
 	const overrides = {
 		ANTHROPIC_API_KEY: 'secret-key',
@@ -203,6 +213,7 @@ test('wrong identity, billing method, provider, missing subscription and invalid
 		{ authMethod: 'api_key' },
 		{ apiProvider: 'bedrock' },
 		{ subscriptionType: null },
+		{ subscriptionType: 'unknown-plan' },
 		{ subscriptionType: ['max'] },
 		{ configDirectory: '/other/profile' },
 	]) {
@@ -231,21 +242,21 @@ test('wrong identity, billing method, provider, missing subscription and invalid
 		{ CONSULT_TEST_STATUS: 'not-json' },
 		{ CONSULT_TEST_STATUS_EXIT: '1' },
 	]) {
-		expect(
-			fixture.launch(
-				[
-					'--model',
-					'sonnet',
-					'--account',
-					'work',
-					'--account-email',
-					'expected@example.com',
-				],
-				'Brief.',
-				false,
-				env,
-			).status,
-		).not.toBe(0);
+		writeFileSync(trace, '');
+		const result = fixture.launch(
+			[...personalAccount, '--model', 'sonnet'],
+			'Never send this.',
+			false,
+			{ ...env, CONSULT_TEST_TRACE: trace },
+		);
+		expect(result.status).not.toBe(0);
+		expect(result.stdout).toBe('');
+		const calls = readFileSync(trace, 'utf8')
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line));
+		expect(calls).toHaveLength(1);
+		expect(calls[0].args).toContain('auth');
 	}
 });
 
@@ -380,8 +391,7 @@ test('rejects empty briefs, malformed session IDs, and obsolete laboratory optio
 
 test('delegation applies work in the current checkout by default or a selected standalone clone and reapplies the execution boundary on resume', () => {
 	using fixture = setup();
-	const workspace = join(fixture.root, 'worker');
-	expect(spawnSync('git', ['init', '-q', workspace]).status).toBe(0);
+	const workspace = fixture.clone();
 	writeFileSync(join(fixture.source, 'unrelated.txt'), 'dirty');
 	for (const [target, workspaceArgs] of [
 		[fixture.source, []],
@@ -429,6 +439,14 @@ test('delegation applies work in the current checkout by default or a selected s
 			expect(settings.permissions.blockReadsOutsideWorkingDirectories).toBe(
 				true,
 			);
+			expect(settings.sandbox.credentials.envVars).toContainEqual({
+				name: 'CONSULT_TEST_FAIL',
+				mode: 'deny',
+			});
+			expect(settings.sandbox.credentials.envVars).not.toContainEqual({
+				name: 'PATH',
+				mode: 'deny',
+			});
 		}
 	}
 	expect(readdirSync(fixture.source).sort()).toEqual(['.git', 'unrelated.txt']);
@@ -439,8 +457,7 @@ test('delegation applies work in the current checkout by default or a selected s
 
 test('delegation overrides defaults and preserves explicit choices on resume', () => {
 	using fixture = setup();
-	const workspace = join(fixture.root, 'worker');
-	expect(spawnSync('git', ['init', '-q', workspace]).status).toBe(0);
+	const workspace = fixture.clone();
 	for (const resume of [[], ['--resume', sessionId]]) {
 		for (const overrides of [
 			['--effort', 'medium'],
@@ -512,10 +529,32 @@ test('refuses delegation inside or containing the checkout, in external linked w
 		expect(fixture.launch([...personalAccount, ...args]).status).not.toBe(0);
 });
 
+test('external delegation requires the coordinating checkout as its absolute local origin', () => {
+	using fixture = setup();
+	const workspace = fixture.clone();
+	const trace = join(fixture.root, 'calls.jsonl');
+	writeFileSync(trace, '');
+	for (const origin of ['https://github.com/example/live', '.']) {
+		expect(
+			spawnSync('git', ['-C', workspace, 'remote', 'set-url', 'origin', origin])
+				.status,
+		).toBe(0);
+		const result = fixture.launch(
+			[...personalAccount, '--mode', 'delegate', '--workspace', workspace],
+			'Do not edit an unrelated repository.',
+			false,
+			{ CONSULT_TEST_TRACE: trace },
+		);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain('cloned from the coordinating checkout');
+		expect(result.stdout).toBe('');
+	}
+	expect(readFileSync(trace, 'utf8')).toBe('');
+});
+
 test('Codex assistance is an explicit host-selected capability with one writer on new and resumed turns', () => {
 	using fixture = setup();
-	const workspace = join(fixture.root, 'worker');
-	expect(spawnSync('git', ['init', '-q', workspace]).status).toBe(0);
+	const workspace = fixture.clone();
 	for (const options of [
 		['--model', 'sonnet'],
 		['--mode', 'delegate'],
@@ -592,6 +631,16 @@ test('the current checkout can be a linked worktree or launched from a subdirect
 	).toBe(0);
 	const linked = join(fixture.root, 'linked');
 	expect(git(['worktree', 'add', '--detach', linked]).status).toBe(0);
+	const primary = fixture.launch(
+		[...personalAccount, '--mode', 'delegate', '--workspace', fixture.source],
+		'Do not edit the primary checkout from a linked worktree.',
+		false,
+		{},
+		linked,
+	);
+	expect(primary.status).toBe(1);
+	expect(primary.stderr).toContain('cloned from the coordinating checkout');
+	expect(primary.stdout).toBe('');
 	for (const options of [
 		[],
 		['--workspace', linked],
@@ -696,8 +745,7 @@ test('skill write roots require helper-backed delegation and resolve inside the 
 		expect(result.status).not.toBe(0);
 		expect(result.stdout).toBe('');
 	}
-	const worker = join(fixture.root, 'worker');
-	expect(spawnSync('git', ['init', '-q', worker]).status).toBe(0);
+	const worker = fixture.clone();
 	mkdirSync(join(worker, '.agents/skills/gamma'), { recursive: true });
 	const args = [
 		...personalAccount,

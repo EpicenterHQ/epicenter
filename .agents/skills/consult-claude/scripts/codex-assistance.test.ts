@@ -26,10 +26,10 @@ function setup() {
 	const worker = join(root, 'worker');
 	const bin = join(root, 'bin');
 	const trace = join(root, 'trace.jsonl');
-	for (const cwd of [source, worker]) {
-		mkdirSync(cwd);
-		expect(spawnSync('git', ['init', '-q', cwd]).status).toBe(0);
-	}
+	expect(spawnSync('git', ['init', '-q', source]).status).toBe(0);
+	expect(spawnSync('git', ['clone', '--no-local', source, worker]).status).toBe(
+		0,
+	);
 	mkdirSync(bin);
 	writeFileSync(trace, '');
 	writeFileSync(

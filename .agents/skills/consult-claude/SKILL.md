@@ -128,6 +128,8 @@ Resume the same session for the same assignment in the same checkout and
 account. New evidence or a correction does not need a new conversation; state
 source changes and new evidence in the follow-up. Use a fresh session for an
 independent review of Claude-authored work or a materially different frame.
+The launcher reapplies read-only tools but does not verify the native session's
+assignment or original workspace; verify that identity before resuming.
 For review of a delivered result, first supply the desired behavior, source
 baseline, actual callers, and cumulative diff from the idle assigned checkout or
 a snapshot containing that evidence. For a clone delivery, invoke the launcher
@@ -138,6 +140,10 @@ system. Resuming retains context and does not restore independence.
 The launcher reapplies the access boundary on every turn. If the shell tool
 yields a running process, keep monitoring it and provide progress updates.
 There is no interactive attach step.
+
+The launcher sends one fixed brief per turn and provides no mid-turn instruction
+channel. Steer at completed-turn boundaries: state what remains accepted, what
+changed, and the question the next turn should answer.
 
 The shared launcher owns launch defaults. New consultations, delegations and
 resumes use Opus 5.5 high unless explicit `--model` or `--effort` flags override

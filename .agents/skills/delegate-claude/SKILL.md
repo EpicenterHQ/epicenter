@@ -55,6 +55,14 @@ changed paths or artifacts, commands and actual results, and unresolved issues.
 It should report a blocker with concrete partial work rather than inventing a
 contract or requesting broader access.
 
+Keep the destination and the reasons it is worth pursuing in the brief. For
+greenfield experiments, acceptance is evidence that distinguishes designs, not
+proof that the preferred design is right. Claude surfaces discoveries that
+suggest a better destination; the resulting decision returns to the
+coordinator and, where it changes the design, to [rethink](../rethink/SKILL.md).
+A convenient implementation must not silently replace the vision or the
+assignment.
+
 ## Choose the checkout
 
 Omit `--workspace` to deliver into the current checkout: the Git root containing
@@ -71,9 +79,11 @@ commit, or reset.
 
 Select an external standalone clone with `--workspace` only when isolation earns
 its cost, such as Codex continuing to edit the live checkout in parallel or an
-experiment that should not touch it. Only this route needs a transfer: use `git
-clone --no-local <source> <workspace>` outside the current checkout, select the
-intended commit, and copy the relevant uncommitted and untracked task files,
+experiment that should not touch it. Create a fresh disposable clone so the
+worker cannot overwrite valuable unfinished work in an existing clone. Only
+this route needs a transfer: use
+`git clone --no-local /absolute/source/checkout /absolute/worker/clone` outside
+the current checkout, select the intended commit, and copy the relevant uncommitted and untracked task files,
 including intended deletions; exclude unrelated changes and secrets. Record the
 baseline and transferred paths. A clone's result reaches the live checkout only
 when the coordinator applies it. Do not use the shared stash or stage files in
@@ -81,8 +91,10 @@ the coordinating checkout to manufacture a snapshot.
 
 `--workspace` accepts the current checkout root or an external standalone clone.
 The launcher refuses paths inside or containing the current checkout, external
-linked worktrees, and non-repositories. Consultation never accepts
-`--workspace`.
+linked worktrees, non-repositories, and external clones whose origin is not the
+coordinating checkout's absolute local path. These checks establish source
+provenance, not whether an existing clone is disposable. Consultation never
+accepts `--workspace`.
 
 Prepare required dependencies before launch. This route provides no task-network
 allowlist or local server binding. Before dispatch, identify checks Claude can
@@ -111,8 +123,12 @@ Add `--workspace /absolute/path/to/standalone-clone` to select a clone.
 
 Without `--codex`, the launcher supplies Read, Glob, Grep, Edit, Write, and Bash;
 disables hooks and MCP tools; confines file-tool access; and explicitly approves
-Bash under a required sandbox with no unsandboxed retry. Missing sandbox support
-fails instead of silently widening execution. Normal temporary-file writes
+Bash under a required sandbox with no unsandboxed retry. The sandbox unsets
+inherited application variables before each shell command while leaving
+standard shell variables such as `PATH`, `HOME`, and `TMPDIR` available; the
+Claude process itself keeps the verified native profile. Prepare checks that
+do not require credentials or network access. Missing sandbox support fails
+instead of silently widening execution. Normal temporary-file writes
 remain available. It does not create clones, stage or commit changes, or copy
 them between checkouts. Claude's instructions prohibit child agents, commits,
 remote changes, publishing, and access changes.
@@ -160,6 +176,10 @@ bun .agents/skills/consult-claude/scripts/consult-claude.ts \
 FOLLOWUP
 ```
 
+State what remains accepted and what changed, and retain useful partial work.
+Keep one writer per checkout: parallel workers need separate clones and
+independently reviewable results.
+
 The launcher reapplies Opus 5.5 high on resumes while retaining the native
 conversation history, so an older Sonnet session continues as Opus unless
 `--model` repeats Sonnet. Repeat any deliberate nondefault `--model` or
@@ -186,8 +206,13 @@ execution and helper-backed delivery.
 ## Accept the delivery
 
 The coordinating Codex accepts the result in the assigned checkout. Inspect the
-actual diff against the recorded baseline and allowed paths, check the consumer
-contract, and reproduce the checks that decide acceptance, especially those
+artifact or diff against the recorded baseline before executing worker code.
+Git metadata is also untrusted: inspect with
+`git -c core.fsmonitor= -c core.hooksPath=/dev/null diff --no-ext-diff --no-textconv <recorded-baseline>`
+to cover staged and unstaged tracked changes. List untracked artifacts with
+`git -c core.fsmonitor= -c core.hooksPath=/dev/null ls-files --others --exclude-standard`
+and inspect their contents before running checks with the coordinator's
+authority. Check the allowed paths and consumer contract, and reproduce the checks that decide acceptance, especially those
 Claude could not run. Identify which evidence came from Claude and which Codex
 reproduced. Do not repeat the full investigation. Return a focused failure to
 the same session rather than editing alongside Claude or commissioning another

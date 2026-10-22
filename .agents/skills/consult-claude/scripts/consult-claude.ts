@@ -107,23 +107,6 @@ async function main() {
 		values['codex-write-root'] ?? [],
 	);
 	const directExecution = delegating && !values.codex;
-	const settings = {
-		disableAllHooks: true,
-		permissions: { blockReadsOutsideWorkingDirectories: true },
-		...(directExecution
-			? {
-					sandbox: {
-						enabled: true,
-						failIfUnavailable: true,
-						autoAllowBashIfSandboxed: true,
-						allowUnsandboxedCommands: false,
-						excludedCommands: [],
-						filesystem: { disabled: false },
-						network: { allowedDomains: [], allowLocalBinding: false },
-					},
-				}
-			: {}),
-	};
 	// Native Claude owns credentials and refresh. Personal preserves the existing
 	// unset/default Keychain service; explicitly setting ~/.claude is a different login.
 	const env = { ...process.env };
@@ -150,6 +133,40 @@ async function main() {
 		}
 	}
 	if (values.account === 'work') env.CLAUDE_CONFIG_DIR = configDirectory;
+	const shellEnvironment = new Set([
+		'PATH',
+		'HOME',
+		'USER',
+		'LOGNAME',
+		'SHELL',
+		'TMPDIR',
+		'LANG',
+		'LC_ALL',
+		'LC_CTYPE',
+		'TERM',
+	]);
+	const settings = {
+		disableAllHooks: true,
+		permissions: { blockReadsOutsideWorkingDirectories: true },
+		...(directExecution
+			? {
+					sandbox: {
+						enabled: true,
+						failIfUnavailable: true,
+						autoAllowBashIfSandboxed: true,
+						allowUnsandboxedCommands: false,
+						excludedCommands: [],
+						filesystem: { disabled: false },
+						network: { allowedDomains: [], allowLocalBinding: false },
+						credentials: {
+							envVars: Object.keys(env)
+								.filter((name) => !shellEnvironment.has(name))
+								.map((name) => ({ name, mode: 'deny' })),
+						},
+					},
+				}
+			: {}),
+	};
 	const helperTools = values.codex
 		? ['mcp__codex__evidence', ...(delegating ? ['mcp__codex__implement'] : [])]
 		: [];
