@@ -270,6 +270,32 @@ test('a Stop pressed again joins the first, which ends once the length is writte
 	).toContain('durationMs: 1000');
 });
 
+test('a title typed while the length saves keeps both', async () => {
+	const opened = await open();
+	const { whispering, test } = opened;
+	await whispering.startRecording();
+	await eventually(() => !test.folder.getStatus().saving);
+	const [name] = await rows(test.root);
+	const path = `recordings/${name!}`;
+	const edit = test.folder.tables.recordings.edit(
+		name!.slice(0, -'.md'.length),
+	);
+	// The person types the moment the length's write is admitted, before it lands.
+	let typed = false;
+	const stop = test.folder.onStatusChange(({ savingPaths }) => {
+		if (typed || !savingPaths.includes(path)) return;
+		typed = true;
+		expectOk(edit.change({ fields: { title: 'Typed while stopping' } }));
+	});
+	await whispering.stopRecording();
+	stop();
+	expect(typed).toBe(true);
+	await closeTestWhispering(opened);
+	const saved = await readFile(join(test.root, path), 'utf8');
+	expect(saved).toContain('durationMs: 1000');
+	expect(saved).toContain('Typed while stopping');
+});
+
 test('closing leaves a recording under way to the page’s departure: nothing is stopped, deleted, or written', async () => {
 	const { context, whispering, test, end, stops } = await open();
 	// Answers once the row written at start is saved.

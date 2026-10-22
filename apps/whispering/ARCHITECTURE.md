@@ -351,8 +351,9 @@ asks the capture device to record into
 time and capture source. A native start interrupted before that row lands can
 leave audio without a Markdown row; Files still exposes the audio. The device
 adds its format extension; the row stores no path. `stopRecording` stops the
-device and writes the length (`durationMs`) onto the row it reads again, so a
-title typed meanwhile is kept. Stop reports separately when audio was saved
+device, reads the row again, and changes its length (`durationMs`) as the
+row editor's input before saving it, so a title typed before or while it
+saves composes over the length instead of replacing it. Stop reports separately when audio was saved
 but its row could not be created. Capture has no discard operation.
 Closing Whispering neither stops nor deletes a running recording: leaving
 the page ends it. On the desktop the shell finalizes its WAV and frees the

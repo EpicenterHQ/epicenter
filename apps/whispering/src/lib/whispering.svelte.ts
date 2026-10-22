@@ -719,9 +719,18 @@ export function createWhispering(context: WhisperingContext) {
 					return `The recording is saved, but its length could not be written: ${describeError(error)}`;
 				// A row deleted meanwhile stays deleted.
 				if (stored === undefined) return undefined;
-				const { error: saveError } = await folder.tables.recordings.set(id, {
+				// The length joins the row's input rather than racing it as a
+				// command: a title typed while it saves composes over it, and a
+				// failed save keeps both for the person to retry.
+				const edit = folder.tables.recordings.edit(id);
+				const changed = edit.change({
 					fields: { durationMs: stopped.durationMs },
 				});
+				// Closing began meanwhile: like any Stop the close overtakes, no length.
+				if (changed.error?.name === 'Closing') return undefined;
+				if (changed.error !== null)
+					return `The recording is saved, but its length could not be written: ${changed.error.message}`;
+				const { error: saveError } = await edit.save();
 				return saveError === null
 					? undefined
 					: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
