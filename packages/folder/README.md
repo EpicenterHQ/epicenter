@@ -503,7 +503,9 @@ app-version ledger, or first-use flag.
 Sync merges by the same rules on every host. Its merge commit's tree uses
 `src/git/tree-merge.ts` over the merge base, the
 remote's tree as current, and this device's as the change, with each file
-both sides changed merged by the content rules direct writes use (`shared/merge.ts`).
+both sides changed merged by the shared content rules (`shared/merge.ts`).
+These merge rules belong to sync and history; public local writes publish
+unconditionally.
 A delete never erases an edit it did not see. No rename is followed: a move
 on one side against an edit on the other keeps both paths. A file against a
 directory takes this device's entry whole. JSON, `epicenter.json` included,

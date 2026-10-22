@@ -13,18 +13,20 @@ not create a second implementation assignment.
 
 ## Current plan
 
-Reviewed against committed source and the engineering chats on 2026-10-21.
-The unified FileEdit, app migrations, Whispering app owner, Folder-owned action
-admission, and the current Close/Quit policy have landed. Their source, tests,
-READMEs and ADRs own the implementation and acceptance evidence. Do not resume
-the obsolete createRowEdit/createTextEdit migration or recreate a page action
-registry.
+Architecture entries reviewed against committed source on 2026-10-22; the
+other chat continuations retain their recorded assignments. Folder-owned
+sources, unconditional local publication, app migrations, Whispering app owner,
+and the current Close/Quit policy have landed.
+Their source, tests, READMEs and ADRs own the implementation and acceptance
+evidence. Do not resume the obsolete createRowEdit/createTextEdit migration or
+recreate a page action registry. Commit `bd78bfb52b` replaced guarded edit
+conflicts and direct-write merging; Git sync and history retain content merging.
 
 | State | Remaining outcome | Continuation |
 | --- | --- | --- |
-| Reproduced; implementation not assigned | [Preserve newer input when an older save receipt arrives](#preserve-newer-input-when-an-older-save-receipt-arrives) | “Tighten Markdown File Contracts”, `01a15d59-b44b-79d2-8f6d-58de231dc6fe`, holds the editing-model discussion. The independent reproduction came from “Improve adversary skill conflict tri”, `01a15dd6-e3c3-7d31-8f48-2c38c97fa989`. Preserve the selected whole-source draft contract; direct-write merging remains separate. |
-| Implementation under review | One Markdown interpretation and whole-source drafts | [ADR-0665](docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) and [ADR-0666](docs/adr/0666-one-source-draft-per-path-saves-against-its-observed-source.md). The current implementation pins one source draft and reports whole-file conflicts on outside changes; direct writes still merge. The decisions remain Proposed. Neither proposal authorizes a second editor owner. |
-| Independent design review | Challenge nested Folder work scopes | “Explain editing queue collapse”, `01a15ad0-b196-7660-840b-c7b9565eac43`, is reviewing one scope for a whole action. The committed Folder.run contract remains current until an authorized replacement is delivered. |
+| Remaining verification | [Preserve newer input when an older save receipt arrives](#preserve-newer-input-when-an-older-save-receipt-arrives) | The earlier reproduction came from “Improve adversary skill conflict tri”, `01a15dd6-e3c3-7d31-8f48-2c38c97fa989`; “Tighten Markdown File Contracts”, `01a15d59-b44b-79d2-8f6d-58de231dc6fe`, holds the model discussion. The owner now acknowledges input by identity, with core regressions. Additional storage-engine and mounted coverage remains the bounded verification task. |
+| Implementation under review | One Markdown interpretation and folder-owned sources | [ADR-0665](docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) records framing; the [Folder guide](packages/folder/README.md#editors) describes retained sources and unconditional local publication. The guarded-source proposal in ADR-0666 and the buffer interface in ADR-0667 are historical implementation context. No second editor owner is needed. |
+| Underway | Remove workflow admission that no surviving-runtime app flow needs | “Explain the run() function”, `01a160f9-7a63-77b3-a9ab-2ba237f4348a`, owns the removal of `folder.run()` and its wrappers after tracing actual app disposal. “Explain editing queue collapse”, `01a15ad0-b196-7660-840b-c7b9565eac43`, holds the earlier scope review. Preserve draining writes already submitted and app checks before late asynchronous writes; do not restore path reservations or implicit input flushing. |
 | Underway | Messages draft previews and send recovery | “Rethink Epicenter’s content model”, `01a15c9c-a592-7b50-9ded-f8d4b9e0a5d7`, owns the Messages app integration. Keep checks on fictional data and preserve uncertain-send recovery. |
 | Underway | Evaluate an unparented application Quit alert | “Review native save-close flow”, `01a15c9a-215d-7222-86b9-5e0f2670d9af`, owns the disposable native experiment and any authorized adoption. Keep startup and other work separate. |
 | Remaining investigation | [Bound browser Git transfer costs](#preserve-local-only-files-during-git-exchange) | Preserve the delivered ignore and retry behavior; measure before replacing transport. |
@@ -43,18 +45,19 @@ another chat and does not create an implementation assignment.
 - Desired result: A save acknowledges only the input it submitted. A later
   assignment remains pending even if its value equals an earlier submitted
   value. Failed input and typing during saves remain available.
-- Reproduction: Submit title A and delay its completion receipt. An outside
+- Earlier reproduction: Submit title A and delay its completion receipt. An outside
   writer stores B; this handle reads B and explicitly assigns A again. Deliver
-  the old receipt. The current owner clears the newer assignment by comparing
-  values, and another explicit save does nothing.
-- Evidence boundary: The independent review reproduced this with the real edit
-  owner over in-memory storage and a delayed receipt. Full storage-engine and
-  mounted regressions are still needed before calling a repair verified.
-- Finish: Add a regression at the submitted-input acknowledgment boundary and
-  preserve the newer assignment through another save, failure/retry, and close.
-  A bounded reducer experiment may inform the broader proposed model, but the
-  current bug does not require adopting that redesign. Do not silently change
-  automatic merge behavior while fixing acknowledgment.
+  the old receipt. The owner before `bd78bfb52b` cleared the newer assignment
+  by comparing values, and another explicit save did nothing.
+- Delivered boundary: The owner acknowledges captured input by identity.
+  [Editor tests](packages/folder/src/edits.test.ts) cover newer equal input,
+  publication/delete ordering, failure/retry, and close. The earlier reproduction
+  is historical evidence, not a claim that the replacement still has that bug.
+- Remaining verification: Exercise this identity boundary through real storage
+  and mounted controls, including newer equal input during publication,
+  failure/retry, and close. Existing general storage and mounted tests do not
+  establish that exact interleaving. Preserve unconditional local publication
+  and the separate Git merge rules while extending coverage.
 
 ### Preserve local-only files during Git exchange
 

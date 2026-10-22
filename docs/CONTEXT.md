@@ -131,7 +131,7 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 
 | Name | Meaning |
 | --- | --- |
-| Draft or unsaved input | One complete source the person is editing before an acknowledged local save, pinned against the exact source observed when editing began. |
+| Draft or unsaved input | One complete source accepted by the folder for publication. A save acknowledges only the input it captured, by identity; newer input stays dirty even when its text equals an earlier submission. |
 | Save | Acknowledged local persistence of an edit. It does not promise a Git commit or remote receipt. |
 | Write | A file or storage operation, as in `files.write`. It is not a second kind of dataset or an automatic upload. |
 | Commit or version | A fixed Git snapshot. Prefer commit in technical text; version can explain it in a UI. |
