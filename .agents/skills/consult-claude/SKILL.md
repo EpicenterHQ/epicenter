@@ -53,14 +53,14 @@ observed facts, proposals, assumptions, and preferences. Give enough concrete
 evidence to judge the decision; Claude can read further to verify your account.
 
 For a requested adversarial design review, have Claude apply
-[adversarial-review](../adversarial-review/SKILL.md) itself without commissioning
-another reviewer. Its coordinator owns staffing and the starting questions;
-this consultation supplies the review's Claude seat or a standalone opinion.
-For other design questions, answer the bounded question from source evidence;
-a complete architectural review is not implied. Treat the implementer's reasoning
-as contestable evidence. Ask for a concrete smaller alternative when that would
-decide the question; keeping the design is valid when its guarantees earn their
-cost.
+[adversarial-review](../adversarial-review/SKILL.md) itself without
+commissioning another reviewer. Its coordinator owns staffing, the starting
+questions, and relaying exchanges between reviewers; this consultation supplies
+the review's Claude seat or a standalone opinion. For other design questions,
+answer the bounded question from source evidence; a complete architectural
+review is not implied. Treat the implementer's reasoning as contestable
+evidence. Ask for a concrete smaller alternative when that would decide the
+question; keeping the design is valid when its guarantees earn their cost.
 
 ## Send a brief
 
@@ -144,7 +144,10 @@ There is no interactive attach step.
 
 The launcher sends one fixed brief per turn and provides no mid-turn instruction
 channel. Steer at completed-turn boundaries: state what remains accepted, what
-changed, and the question the next turn should answer.
+changed, and the question the next turn should answer. As a review-group seat,
+Claude receives other reviewers' findings, questions, and objections the same
+way: the coordinator resumes the session with them attributed to their authors,
+and Claude replies, revises its position, or holds its objection.
 
 The shared launcher owns launch defaults. New consultations, delegations and
 resumes use Opus 5.5 high unless explicit `--model` or `--effort` flags override
@@ -212,8 +215,12 @@ user's authorized scope. Do not turn an advice-only request into execution.
 Return artifacts and evidence, including limitations. A longer report or more
 objections does not establish that a consultation was useful.
 
-Return the recommendation, supporting evidence, and remaining disagreement.
-Stop when the bounded decision has enough evidence; consensus is not required.
+For a standalone consultation, return the recommendation, supporting evidence,
+and remaining disagreement. Stop when the bounded decision has enough evidence;
+consensus is not required. As a seat in an adversarial review group, Claude
+keeps answering relayed findings and objections until it can explicitly
+support the group's direction or names the objection that still stands.
+Adversarial-review owns closure.
 
 Read [the example and evaluation cases](references/example-workflow.md) when
 evaluating this workflow or revising the skills. For launcher changes, verify

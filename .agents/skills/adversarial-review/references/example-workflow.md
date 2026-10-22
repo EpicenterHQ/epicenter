@@ -4,17 +4,17 @@ These hypothetical examples capture the response style accepted by the user.
 They are not evidence about Epicenter's implementation, and the verification
 results below are imagined. Real reviews must establish those facts
 from the implementation. The example illustrates judgment and presentation;
-it does not require every review to find a reload, deletion, or agreement.
+it does not require every review to find a reload or deletion.
 
 ## The request
 
 > **You:** Review this account-switching design. It keeps the app open while
 > subscriptions, caches, and pending saves move to the new account.
 
-## Independent review
+## Initial accounts
 
-Three reviewers inspect the same evidence independently: two fresh Codex
-subagents and a Claude Opus reviewer.
+Three fresh reviewers inspect the same evidence: two Codex subagents and a
+Claude Opus reviewer. Each forms its account before seeing the others.
 
 Codex reviewer one asks:
 
@@ -23,7 +23,8 @@ Codex reviewer one asks:
 > it with the design under review. Which problems disappear under that account,
 > and what work, guarantees, or costs remain?
 
-It proposes reloading on account change: one page lifetime belongs to one account.
+It proposes reloading on account change: one page lifetime belongs to one
+account.
 
 Codex reviewer two asks:
 
@@ -50,60 +51,71 @@ It challenges the premise that a pending save belongs to whichever account is
 current. If each edit records its owning account when it is created, a reload
 cannot send it to the wrong account.
 
+## Working toward a direction
+
+The coordinator shares the three accounts with every reviewer and relays their
+replies; Claude receives each exchange in a resumed turn.
+
+Codex reviewer two objects to the reload: an edit still waiting in the upload
+queue would be lost, and Claude's account tag helps only if it is persisted
+with the edit. Reviewer one answers that flushing saves before reloading would
+cover it. Claude replies that a flush keeps the save-before-switch transition
+the reload was meant to remove. The three agree that the disputed claim is
+whether pending edits are already persisted under their account before they
+enter the queue.
+
+The coordinator traces persistence and runs a focused recovery check. In this
+imagined case, edits are persisted locally under their original account, and
+the check passes after a reload, including offline. Every reviewer receives the
+trace and result, and reviewer two withdraws its objection.
+
+The trace also shows that a second tab can stay open on the old account. How
+tabs share an account lifetime is a question none of the initial accounts
+addressed, so the coordinator adds a fourth reviewer focused on it. That
+reviewer forms its own account from the evidence before reading the group's
+direction, then proposes broadcasting the account change so every tab reloads.
+The others test that against an upload in progress in the second tab. Because
+the edit is persisted under its account, the upload resumes after the reload.
+
+Each of the four reviewers then states support for the same direction: reload
+every tab on account change, and upload each persisted edit under the account
+that created it. Their reasons differ; the direction is shared.
+
 ## What the user receives
 
-The coordinating agent checks the findings against the code and presents one
-recommendation. The user does not have to reconstruct it from the three reports.
+The coordinating agent presents the agreed direction. The user does not have to
+reconstruct it from four reports and their exchange.
 
-> The strongest simplification is to replace the current account-switching
-> machinery with a page reload. One page lifetime belongs to one account.
+> All four reviewers support replacing the account-switching machinery with a
+> reload of every open tab. One page lifetime belongs to one account.
 >
-> The deletion prize is the account-switching machinery: subscription rebinding,
-> cache replacement, and intermediate switching states.
+> The deletion prize is subscription rebinding, cache replacement, intermediate
+> switching states, and the save-before-switch transition.
 >
-> The cost is losing unsaved work. Flushing pending saves before reloading could
-> preserve it, but some transition coordination would remain.
->
-> I recommend exploring the reload approach. The deciding question is whether
-> existing persistence already records each pending edit under its account;
-> that determines how much machinery we can actually remove.
-
-## Resolving the deciding question
-
-> **You:** Check the persistence. I like the reload approach if we can preserve
-> edits.
-
-The agent traces persistence and runs a focused recovery check. In this imagined
-case, it establishes that edits survive the reload under the original account.
-
-> **Agent:** Edits are already persisted locally under the original account before
-> entering the upload queue. The recovery check passes after a reload, including
-> offline.
->
-> That makes the deletion prize larger: we can remove subscription rebinding,
-> cache replacement, and the save-before-switch transition. The remaining cost
-> is that switching accounts reloads the page.
+> The guarantee survives: edits are already persisted locally under their
+> original account, and a recovery check passes after a reload, including
+> offline. The remaining cost is that switching accounts reloads the page.
 >
 > I recommend implementing it.
 
 > **You:** Go ahead.
 
-This request began as a review, so implementation follows the user's instruction.
-An existing implementation request would already authorize repairs within its
-accepted outcome; this exchange is not a mandatory approval sequence.
+This request began as a review, so implementation follows the user's
+instruction. An existing implementation request would already authorize repairs
+within its accepted outcome; this exchange is not a mandatory approval sequence.
 
-No additional reviewer is needed here: the focused persistence trace settled
-the deciding question. Had it instead shown that edits are stored without their
-account, choosing between tagging edits and keeping the switching machinery
-would be a distinct design question. The coordinator would add a reviewer
-focused on it without waiting for the user to ask.
+Had the reviewers divided over whether reloading on every switch is acceptable
+to the people using the app, the evidence could not settle it. The coordinator
+would bring that product question to the user with both options rather than
+report an agreed direction.
 
 ## When the current design wins
 
 In this separate hypothetical case, the system already uses deletion markers to
 prevent offline devices from restoring deleted records. All three reviewers
-examine alternatives and recommend retaining that mechanism. The coordinator
-verifies their findings and gives the user the result:
+examine alternatives, test one another's objections, and each explicitly
+supports retaining that mechanism. The coordinator verifies the deciding claims
+and gives the user the result:
 
 > All three reviewers recommend leaving the current design in place, including
 > its deletion markers.
@@ -124,7 +136,9 @@ the coordinator still checks the evidence rather than treating agreement as proo
 In another hypothetical case, checkout, cart, and admin flows each implement
 their own checks and timers to keep two people from buying the same seat.
 A reviewer proposes one reservation authority through which every flow claims
-a seat for a bounded time. The coordinator presents the model:
+a seat for a bounded time. The others test it against admin overrides and
+agree to pursue it, conditional on atomic acquisition. The coordinator presents
+the agreed direction:
 
 > I recommend making a reservation own the claim and its expiry. Checkout,
 > cart, and admin would use the same acquisition and release operations.
