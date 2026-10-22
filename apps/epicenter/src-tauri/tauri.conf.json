@@ -46,6 +46,11 @@
 		}
 	},
 	"plugins": {
+		"updater": {
+			"pubkey": "",
+			"endpoints": ["https://updates.epicenter.so/epicenter/stable.json"],
+			"requireSignedVersion": true
+		},
 		"deep-link": {
 			"desktop": {
 				"schemes": ["epicenter"]

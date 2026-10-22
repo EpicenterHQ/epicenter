@@ -1,0 +1,16 @@
+[package]
+name = "epicenter-release-check"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "epicenter-release-check"
+path = "src/main.rs"
+
+[dependencies]
+tauri = { version = "=2.12.1", default-features = false, features = ["test"] }
+tauri-plugin-updater = { version = "=2.14.0", default-features = false, features = ["rustls-tls", "zip"] }
+serde_json = "1"
+
+[workspace]

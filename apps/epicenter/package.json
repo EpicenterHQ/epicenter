@@ -17,6 +17,8 @@
 		"dev": "bun run dev:desktop",
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"tauri": "tauri",
+		"release:build": "bun scripts/release.ts build",
+		"release:rehearse": "bun scripts/rehearse-release.ts",
 		"test": "bun test",
 		"test:mounted": "bun test --conditions=browser --conditions=svelte src/folders/*.mounted.test.ts src/ui/connections/*.mounted.test.ts",
 		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"

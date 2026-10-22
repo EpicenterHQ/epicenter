@@ -648,6 +648,11 @@ native recording finalization keep their existing guarantees.
 
 ## Build and verify
 
+Signed distribution builds, the native update action, the draft release and
+publication workflows, and an isolated packaged Epicenter-to-Epicenter update
+rehearsal are documented in [Releasing](RELEASING.md). Bundled pages ship with
+Epicenter; standalone products have no release workflow here.
+
 ```bash
 # Build Settings, the Folders window, the bundled apps, and the epicenter binary
 bun run --cwd apps/epicenter build:desktop

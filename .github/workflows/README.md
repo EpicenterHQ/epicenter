@@ -12,19 +12,28 @@ All workflows live flat in `.github/workflows/` (GitHub Actions requirement). We
 | `ci.{name}` | Code quality checks | Whole repo |
 | `meta.{name}` | Repo housekeeping | Whole repo |
 
-Tauri desktop apps get **separate per-app workflows** when their native release
-matrix earns one. Epicenter is the desktop shell for Whispering, which installs
-into it like any app (ADR-0493); neither has a release workflow yet.
+Standalone products get separate release workflows. Epicenter's own release
+includes its CLI and fixed bundled app pages; those pages update with Epicenter.
+Its tag workflow builds signed macOS drafts, and a separate manual workflow
+publishes a selected draft and its update feed. Standalone app releases are
+not added. See [Epicenter releases](../../apps/epicenter/RELEASING.md).
 
 Web apps (Cloudflare Workers) deploy **together in one workflow** because deploys are fast (~2 min on a single runner) and share the same runtime setup. Each worker's build lives in its own `wrangler.jsonc` `build.command`, which Wrangler runs for both `deploy` and `versions upload`, so production, previews, and local `wrangler deploy` build through one definition. Repo-wide lint, typecheck, and unrelated package builds belong to CI.
 
 ## Workflows
 
+### Desktop releases
+
+| File | Trigger | What it does |
+| --- | --- | --- |
+| `release.epicenter.yml` | `epicenter-v*` tag, manual tag selection | Builds macOS Apple Silicon and Intel artifacts, then assembles one complete draft release. |
+| `release.epicenter-publish.yml` | Manual tag selection | Publishes the selected release and advances only Epicenter's static update feed. |
+
 ### Web Deployment (Cloudflare Workers)
 
 | File | Trigger | What it does |
 |---|---|---|
-| `deploy.cloudflare.yml` | Push to `main`, manual | Deploys Whispering, Landing, and API to Cloudflare Workers. Each `wrangler deploy` runs that worker's `build.command` first, so a deploy can never ship stale assets. Posts Discord notification. |
+| `deploy.cloudflare.yml` | Push to `main`, manual | Deploys Landing and API to Cloudflare Workers. Each `wrangler deploy` runs that worker's `build.command` first, so a deploy can never ship stale assets. Posts Discord notification. |
 | `deploy.cloudflare-preview.yml` | Pull requests touching `apps/whispering/**`, `apps/landing/**`, `packages/**` | Uploads preview versions via `wrangler versions upload --preview-alias`. Posts PR comment with preview URLs. No cleanup needed (aliases auto-expire at 1000). |
 
 ### CI
@@ -65,4 +74,5 @@ endpoint gets its own workflow on its own trigger, as the two below do.
 
 **Web apps**: Revert the commit on `main` and push, or for immediate rollback: `bunx wrangler rollback --name <worker-name>`.
 
-**Desktop releases**: Follow the owning Tauri app's release workflow. Whispering has no desktop release workflow yet, so there is nothing to roll back.
+**Desktop releases**: Publish a higher patch version for the affected product.
+Changing a feed to an older version does not downgrade installed apps.

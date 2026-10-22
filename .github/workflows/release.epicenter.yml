@@ -1,0 +1,111 @@
+name: Build Epicenter release draft
+on:
+  push:
+    tags: ['epicenter-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Epicenter release tag to build
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  # Share the publication queue so a draft retry cannot overwrite assets
+  # between the publisher's validation and its public release transition.
+  group: epicenter-stable-release
+  cancel-in-progress: false
+  queue: max
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-aarch64
+          - runner: macos-15-intel
+            target: darwin-x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bun install --frozen-lockfile
+      - name: Import distribution certificate into a temporary keychain
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate="$RUNNER_TEMP/epicenter.p12"
+          keychain="$RUNNER_TEMP/epicenter.keychain-db"
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security default-keychain -s "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security set-keychain-settings -t 7200 -u "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          rm "$certificate"
+      - name: Build signed and notarized Epicenter
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          EPICENTER_UPDATER_PUBLIC_KEY: ${{ vars.EPICENTER_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.EPICENTER_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.EPICENTER_UPDATER_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bun run --cwd apps/epicenter release:build "$RELEASE_TAG" "$GITHUB_WORKSPACE/.artifacts/release/${{ matrix.target }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: epicenter-${{ matrix.target }}
+          path: .artifacts/release/${{ matrix.target }}/
+          if-no-files-found: error
+      - name: Remove temporary keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/epicenter.keychain-db" || true
+  draft:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: epicenter-darwin-*
+          path: .artifacts/release
+      - name: Assemble one complete feed and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          bun apps/epicenter/scripts/release.ts collect "$RELEASE_TAG" .artifacts/release
+          if gh release view "$RELEASE_TAG" --json isDraft > "$RUNNER_TEMP/release.json"; then
+            jq -e '.isDraft == true' "$RUNNER_TEMP/release.json"
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Epicenter ${RELEASE_TAG#epicenter-v}" --notes "Epicenter development release. Review the bundled apps before publication."
+          fi
+          find .artifacts/release -type f \( -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' -o -name 'stable.json' \) -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber

@@ -1,0 +1,13 @@
+{
+	"$schema": "../../../node_modules/wrangler/config-schema.json",
+	"name": "epicenter-updates",
+	"compatibility_date": "2026-10-22",
+	"send_metrics": false,
+	"workers_dev": false,
+	"routes": [{ "pattern": "updates.epicenter.so", "custom_domain": true }],
+	"assets": {
+		"directory": "./public",
+		"html_handling": "none",
+		"not_found_handling": "none"
+	}
+}

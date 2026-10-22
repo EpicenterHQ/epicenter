@@ -45,6 +45,7 @@ use download::{cancel_download, DownloadManager};
 pub mod timing;
 
 mod shell;
+mod updates;
 
 // Native dictation, which no page reaches yet: compiled, registered, and
 // started only with the `dictation` feature (Cargo.toml).
@@ -343,10 +344,12 @@ pub fn run() {
         // Rust owns the folder picker and application Quit confirmation.
         // Pages confirm their own window close; none may open the file picker.
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingHomeSection::default())
         .manage(folder_opening::FolderOpenings::default())
         .manage(cli::CliChildren::default())
         .manage(shell::QuitRequest::default())
+        .manage(updates::Updates::default())
         .manage(DownloadManager::default());
 
     // Only native dictation uses these plugins; no capability grants them.
@@ -378,7 +381,7 @@ pub fn run() {
         .setup(move |app| {
             specta_builder.mount_events(app);
             #[cfg(target_os = "macos")]
-            macos_tabs::install(app.handle())?;
+            macos_tabs::install(app.handle()).context("install native window menu")?;
 
             let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
             match data_folders::watch_data_folders(
@@ -393,9 +396,14 @@ pub fn run() {
             }
             // Git's configuration runs `~/.local/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
-            cli::spawn_command_link_refresh(&desktop_paths);
+            // A packaged release rehearsal must not replace the person's PATH link.
+            if app.config().identifier == "so.epicenter" {
+                cli::spawn_command_link_refresh(&desktop_paths);
+            }
             // Every window's page comes from the scheme, which reads it.
-            app.manage(scheme::Pages(scheme::pages_dir(app.handle())?));
+            app.manage(scheme::Pages(
+                scheme::pages_dir(app.handle()).context("locate packaged pages")?,
+            ));
             // The active local model and the unload policy are device-local host
             // state (ADR-0180), so they live in the app's data directory, never
             // in a folder that could carry them to a machine without the model
@@ -412,14 +420,17 @@ pub fn run() {
             #[cfg(all(desktop, feature = "dictation"))]
             app.manage(keyboard::TapController::new());
 
-            shell::create_tray(app.handle())?;
+            shell::create_tray(app.handle()).context("create native application menu and tray")?;
 
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 open_deep_links(&handle, &event.urls());
             });
 
-            let current = app.deep_link().get_current()?;
+            let current = app
+                .deep_link()
+                .get_current()
+                .context("read launch deep links")?;
             let mut opened_window = false;
             if let Some(urls) = current {
                 for url in &urls {
@@ -433,6 +444,7 @@ pub fn run() {
             if !opened_window {
                 request_window(app.handle(), BuiltInApp::Folders);
             }
+            log::info!("Epicenter {} ready", app.package_info().version);
             Ok(())
         })
         .build(tauri::generate_context!())
