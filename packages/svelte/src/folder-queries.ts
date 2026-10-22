@@ -2,12 +2,10 @@
  * Query identity and readers for one opened folder. No query options are
  * retained here.
  *
- * Queries list and derive; they own no editable document and no editor
- * read. The folder's editor of a row or file owns that
- * (`@epicenter/svelte/edits`), and reads it itself. A row list or file read
- * through these queries that finds different content tells the editors of
- * those paths to read again, which is how they learn of outside edits until
- * the folder watches its directory.
+ * Queries list and derive; they own no editable document and acquire no
+ * editor text. The folder's editor of a row or file reads its own source
+ * (`@epicenter/svelte/edits`). The context invalidates queries from Folder
+ * change notifications; active editors reconcile those hints independently.
  */
 import type { Folder, FolderFiles, Row } from '@epicenter/folder';
 import { readDocuments } from '@epicenter/folder/documents';
