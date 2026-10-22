@@ -32,12 +32,12 @@ lifetimes.
 
 **Rust serves installed static builds through Epicenter's existing scheme.**
 
-The CLI acquires source and builds a chosen target. A separate activation
-changes its active-build record. The CLI runs no persistent server for an
-installed page. Rust reads that record and serves files from its completed
-build with the scheme handler's
-existing containment, fallback, and response policy. The handler never serves
-the checkout's mutable `dist/` directory. A build is a set of static files;
+The CLI acquires source and builds a chosen target. A successful build
+atomically changes its active-build record. The CLI runs no persistent server
+for an installed page. Rust reads that record and serves files from its
+completed build with the scheme handler's existing containment, fallback, and
+response policy. The handler never serves the checkout's mutable `dist/`
+directory. A build is a set of static files;
 an app that requires its own long-running server is outside this runner.
 
 **Each local installation has a separate origin and a host-chosen identity.**
@@ -56,14 +56,15 @@ another installation's build through a different host from its own window.
 At window creation Rust resolves the active build and binds its output
 directory to that window before its WebView loads. The scheme resolves
 requests from the requesting WebView's label to that pinned directory. A
-later CLI activation changes the active pointer for future windows, not files
-under an open window. Rust rejects a missing, incomplete, or incompatible
-build instead of falling back to source files or another app's output.
-Installing, building, and activating an app do not restart Epicenter or reload
-its open windows. Rust reads the active build when opening a window, so a
-window opened after activation uses the new build while an existing window
-continues on its pinned build. Reloading an existing window does not change
-that binding.
+later successful CLI build changes the active pointer for newly constructed
+windows, not files under an open window. Rust rejects a missing, incomplete,
+or incompatible build instead of falling back to source files or another
+app's output.
+Installing and building an app do not restart Epicenter or reload its open
+windows. A request to open the same installation on the same canonical data
+folder reveals the existing window on its pinned build. A newly constructed
+window uses the active build. Reloading an existing window does not change
+its binding; closing and reopening it selects the active build.
 
 **Installed pages start with one fixed, narrow native grant.**
 
@@ -80,7 +81,9 @@ does not claim a fixed first-party default folder.
 A CLI command may ask the installed Epicenter desktop app to open an app
 window through a handoff. That command does not start a server or turn a
 regular browser into the native host. Source management and building remain
-usable from the CLI when Epicenter is not running.
+usable from the CLI when Epicenter is not running. If the handoff cannot return
+the native window's outcome, the CLI reports only that the request was sent;
+it does not claim that a window opened successfully.
 
 ## Consequences
 
@@ -122,7 +125,7 @@ usable from the CLI when Epicenter is not running.
 - **Serve the checkout's latest build directly.** An agent or build command
   can replace those files while a window is using them. Pinned completed
   builds make activation and rollback independent of source editing.
-- **Restart Epicenter after every activation and read installed apps only at
+- **Restart Epicenter after every successful build and read installed apps only at
   startup.** A restart would prevent old and new windows from coexisting, but
   it would not remove the need for per-window admission, immutable builds,
   atomic activation, or recovery. It would close unrelated app windows and

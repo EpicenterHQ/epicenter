@@ -83,6 +83,19 @@ tracked files in the checkout, not from dependencies or generated output.
 Missing checkouts remain visible as unavailable sources; an existing active
 build can still open.
 
+The installation key is a native identity, not the normal CLI address. A
+terminal build or open command selects the exact registered app directory,
+defaulting to the current directory when no path is given. It does not infer a
+target from a repository root, display name, manifest identifier, or Git
+remote. The CLI resolves that directory to its installation key before
+building or asking Rust to open a window. An explicit `--id` selector supports
+scripts and opening a completed build when source is missing; it cannot be
+combined with a directory argument. Desktop rows use the key internally. One
+canonical app directory has at most one installation, so adding it again
+reuses its key; distinct worktrees have distinct keys. Moving source never
+silently transfers an installation. Preserving its origin and builds after a
+move requires an explicit source rebind.
+
 **The checkout's branch belongs to the person and agent, not to Epicenter.**
 
 A new clone starts from the remote's chosen ref; no branch name such as
@@ -127,38 +140,38 @@ the person or agent merges the selected upstream commit into their branch and ru
 in the ordinary checkout. Epicenter does not silently resolve conflicts or
 rewrite the person's commits. An unfinished merge stays visible as source
 work; it does not become an installed build. The selected upstream ref may
-move, but each built app records the exact commit that supplied its files.
+move, but each build records the checkout's HEAD and whether local edits were
+included. A dirty build cannot be attributed to HEAD alone.
 
-**Building source does not automatically change which built page opens.**
+**A successful build becomes active without replacing an open page.**
 
 Epicenter builds each chosen app into a new, immutable output directory in
 its machine-local application data, separate from the checkout and from
-disposable caches. A build records the source commit, app target, and host API
-version that supplied it. Building alone does not change the target's
-active-build pointer. A separate activation action verifies a completed,
-compatible build and atomically changes that pointer. Epicenter's UI may
-offer building and activation as one visible workflow, but it uses the same
-two CLI operations. Rust opens only a compatible active build and keeps an
-open window on the build it started with, even if the CLI activates another
-one. Two apps from the same checkout may have different active builds. A
-commit identifies source, not built bytes: rebuilding the same commit can
-produce a distinct build.
+disposable caches. A build may include uncommitted working-tree changes. It
+records the source HEAD, whether local changes were present, the app target,
+and the host API version; HEAD alone does not identify a dirty build's input
+or the resulting bytes. Once the completed build passes compatibility checks,
+the CLI atomically makes it active. A failed or cancelled build leaves the
+previous active build in place. Rust opens only a compatible active build and
+keeps an open window on the build it started with. Two apps from the same
+checkout may have different active builds. Builds sharing a checkout must
+serialize where dependency installation or generated output can overlap.
 
-Clone, build, and activation do not restart Epicenter or replace open windows.
-Rust reads the active build when it opens an installed app window; a later
-activation affects only windows opened afterward. Reloading an open window
-still uses its pinned build. Closing and reopening it selects the current
-active build. Epicenter does not need a startup-only inventory snapshot or a
-file watcher to replace running pages. The installed-app list can refresh
-after an install action or when the person explicitly requests it.
+Clone and build do not restart Epicenter or replace open windows. Rust reads
+the active build when it constructs an installed app window. Asking to open
+the same installation on the same data folder reveals its existing window,
+even if that window is pinned to an older build. Reloading it keeps the pinned
+build; closing and reopening it constructs a window on the current active
+build. Epicenter does not need a startup-only inventory snapshot or a file
+watcher to replace running pages. The installed-app list can refresh after an
+install action or when the person explicitly requests it.
 
 A successful build does not prove that the page works correctly. A failed
-build reports its error and leaves the source available for repair. The
-earlier built page remains available as a practical recovery path, not as a
-prohibition on editing or trying an incomplete build. A development preview
-may build uncommitted source, but an installed version names a commit. No
-background fetch starts a build or activates an author's new code without
-the person's or agent's update action.
+build reports its error and leaves the source available for repair. Earlier
+completed builds remain available for recovery, though selecting an older
+build does not roll back the app's data or browser storage. No background
+fetch starts a build or activates an author's new code without the person's
+or agent's update action.
 
 **Installing source is an explicit trust decision, not an account grant.**
 
@@ -166,9 +179,9 @@ The host does not pass Epicenter account tokens to an installed page, a
 third-party Git remote, or a build environment. It supplies Epicenter Git
 credentials only to Epicenter's Git origin; other remotes use the person's
 configured Git helpers. Installed pages receive only the native operations
-they need for their admitted data, not the host's account operations. An
-install or update action identifies the source address and candidate commit
-before new code runs, whether a person or agent invokes the action.
+they need for their admitted data, not the host's account operations. Before
+build scripts run, the person or agent can see the source checkout, HEAD, and
+whether local edits are included.
 
 A build script still executes as a local process under the person's operating
 system account. It can reach files and credentials available to that account,
@@ -211,7 +224,8 @@ a catalog.
   with today's fixed bundled apps; replacing those bundles is a later
   decision.
 - Completed builds are not automatically deleted in the first implementation.
-  An older build may still be serving an open window even after activation.
+  An older build may still be serving an open window after a newer build
+  becomes active.
   Later cleanup needs to account for open windows and preserve a recovery
   build.
 - External repositories can build against Epicenter's app API only after
