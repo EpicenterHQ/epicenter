@@ -420,9 +420,8 @@ test("a folder's name is a set of its row, saved at once", async () => {
 		'folders/work.md': '---\nname: Work\nicon: null\ncolor: red\n---\n',
 	});
 	expect(
-		notes.patchFolder('folders/work.md', { name: 'Play' }),
+		await notes.setFolder('folders/work.md', { name: 'Play' }),
 	).toBeUndefined();
-	await until(() => !notes.isWriting('folders/work.md'), 'the name to save');
 	expect(await text('folders/work.md')).toBe(
 		'---\nname: Play\nicon: null\ncolor: red\n---\n',
 	);
@@ -527,24 +526,35 @@ test('reading a file never sends pending body changes', async () => {
 	);
 });
 
-test('a folder rename patches held text instead of requiring it to save first', async () => {
+test('a folder rename from the list sets over held text, and a failed one leaves that text held', async () => {
 	const path = 'folders/f.md';
 	const source = folderText('First');
-	const { notes, observe, failSaves } = await setup({
+	const { notes, observe, failSaves, text } = await setup({
 		[A]: noteText(),
-		[path]: source,
+		[path]: source.replace('icon: null', 'icon: null\ncolor: red'),
 	});
 	notes.open(path, 'text');
 	observe(path);
 	await quiet(notes);
-	typeInto(notes, path, source.replace('First', 'Keep this name'));
-	failSaves();
-	await notes.folder.files.edit(path).save();
+	const typed = source.replace('First', 'Typed name').replace('icon: null', 'icon: null\ncolor: blue');
+	typeInto(notes, path, typed);
 	notes.open(A);
-	expect(notes.patchFolder(path, { name: 'Other name' })).toBeUndefined();
-	expect(notes.folder.files.edit(path).getSnapshot().content?.text).toContain(
-		'Other name',
-	);
+	// The rename is its own command, refused as a whole when storage fails.
+	failSaves();
+	expect(await notes.setFolder(path, { name: 'Other name' })).toBeDefined();
+	expect(notes.folder.files.edit(path).getSnapshot()).toMatchObject({
+		isDirty: true,
+		content: { text: typed },
+	});
+	failSaves(false);
+	// It composes over the typed text held at its call, which it publishes.
+	expect(await notes.setFolder(path, { name: 'Other name' })).toBeUndefined();
+	const stored = typed.replace('Typed name', 'Other name');
+	expect(await text(path)).toBe(stored);
+	expect(notes.folder.files.edit(path).getSnapshot()).toMatchObject({
+		isDirty: false,
+		content: { text: stored },
+	});
 });
 
 test('save indicators leave an unopened file unread', async () => {
@@ -565,4 +575,19 @@ test('save indicators leave an unopened file unread', async () => {
 	expect(notes.isWriting('unopened.txt')).toBe(false);
 	expect(notes.isUnsaved('unopened.txt')).toBe(false);
 	expect(edit.getSnapshot().content).toBeUndefined();
+});
+
+test('a list action sets over the note as stored, and never brings back a deleted one', async () => {
+	const { notes, otherTab, text } = await setup();
+	// The list read retained the note's text; another tab then changes it,
+	// and the action runs before this page rereads.
+	const other = await otherTab();
+	expectOk(await other.files.write(A, noteText({ body: 'Their body.\n' })));
+	expect(await notes.setNote(A, { pinned: true })).toBeUndefined();
+	const stored = await text(A);
+	expect(stored).toContain('pinned: true');
+	expect(stored).toEndWith('---\nTheir body.\n');
+	expectOk(await other.files.delete(A));
+	expect(await notes.trashNote(A)).toContain('no longer in the folder');
+	expect(await text(A)).toBeUndefined();
 });

@@ -184,7 +184,7 @@
 							</ContextMenu.Item>
 						{:else}
 							<ContextMenu.Item
-								onSelect={() => void report('pin the note', notes.patchNote(path, { pinned: !isPinned(note) }))}
+								onSelect={() => void report('pin the note', notes.setNote(path, { pinned: !isPinned(note) }))}
 							>
 								{isPinned(note) ? 'Unpin' : 'Pin'}
 							</ContextMenu.Item>
@@ -192,7 +192,7 @@
 								<ContextMenu.SubTrigger>Move to folder</ContextMenu.SubTrigger>
 								<ContextMenu.SubContent class="w-48 max-h-(--bits-menu-content-available-height) overflow-y-auto">
 									<ContextMenu.Item
-										onSelect={() => void report('move the note', notes.patchNote(path, { folderId: null }))}
+										onSelect={() => void report('move the note', notes.setNote(path, { folderId: null }))}
 									>
 										No folder
 									</ContextMenu.Item>
@@ -200,7 +200,7 @@
 									{#each folders as folder (folder.id)}
 										<ContextMenu.Item
 											onSelect={() =>
-												void report('move the note', notes.patchNote(path, { folderId: folder.id }))}
+												void report('move the note', notes.setNote(path, { folderId: folder.id }))}
 										>
 											{folderLabel(folder)}
 										</ContextMenu.Item>

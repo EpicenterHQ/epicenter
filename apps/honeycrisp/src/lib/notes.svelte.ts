@@ -73,6 +73,7 @@ export type Deletion = {
 };
 
 const NOT_LISTED = 'This file is not in the list, so nothing was changed.';
+const GONE = 'This file is no longer in the folder, so nothing was changed.';
 const NOT_A_NOTE =
 	'This file does not read as a note. Repair it as text first.';
 const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
@@ -162,8 +163,10 @@ export function createNotes(local: NotesFolder) {
 	}
 
 	/**
-	 * Set fields of a note and save at once: pin, move to a folder, trash,
-	 * restore. Each patches the current acquired content.
+	 * Set fields of the open note and save at once: the detail's folder, pin,
+	 * trash and restore. It changes the note's input, so the change shows at
+	 * once and saves with anything typed. Actions on a listed note that may
+	 * not be open use `setNote`.
 	 */
 	function patchNote(path: string, fields: Partial<NoteFields>) {
 		const id = noteIdOf(path);
@@ -185,6 +188,37 @@ export function createNotes(local: NotesFolder) {
 	async function runAction(action: () => Promise<string | undefined>) {
 		const result = await folder.run(action);
 		return result.error === null ? result.data : describeFailure(result.error);
+	}
+
+	/**
+	 * Change fields of a listed row that may not be open: a command composed
+	 * over the file as stored at its turn, or over input held for it, never
+	 * over the list's older read. A row deleted since it was listed stays
+	 * deleted. Answers why not, if not.
+	 */
+	function setListed(
+		table: typeof NOTES | typeof FOLDERS,
+		id: string,
+		fields: Partial<NoteFields> | Partial<FolderFields>,
+	) {
+		return runAction(async () => {
+			const rows = folder.tables[table];
+			const stored = await rows.get(id);
+			if (stored.error !== null) return describeFailure(stored.error);
+			if (stored.data === undefined) return GONE;
+			if (stored.data.issues !== null)
+				return table === NOTES ? NOT_A_NOTE : NOT_LISTED;
+			const saved = await rows.set(id, { fields });
+			return saved.error === null ? undefined : describeFailure(saved.error);
+		});
+	}
+
+	/** Set fields of the listed note at `path`; answers why not, if not. */
+	function setNote(path: string, fields: Partial<NoteFields>) {
+		const id = noteIdOf(path);
+		return id === undefined
+			? Promise.resolve(NOT_LISTED)
+			: setListed(NOTES, id, fields);
 	}
 
 	/**
@@ -392,21 +426,17 @@ export function createNotes(local: NotesFolder) {
 		// ------------------------------------------------------------------
 
 		patchNote,
-		/** Move a note to Recently Deleted. The file stays; `deletedAt` is set. */
+		setNote,
+		/** Move a note to Recently Deleted from the list. The file stays; `deletedAt` is set. */
 		trashNote: (path: string) =>
-			patchNote(path, { deletedAt: InstantString.now() }),
-		restoreNote: (path: string) => patchNote(path, { deletedAt: null }),
-		/** Set a folder's fields and save at once; answers why not, if not. */
-		patchFolder(path: string, fields: Partial<FolderFields>) {
-			if (local.closing) return CLOSING;
+			setNote(path, { deletedAt: InstantString.now() }),
+		restoreNote: (path: string) => setNote(path, { deletedAt: null }),
+		/** Set fields of the listed folder at `path`; answers why not, if not. */
+		setFolder(path: string, fields: Partial<FolderFields>) {
 			const id = folderIdOf(path);
-			if (id === undefined) return NOT_LISTED;
-			const fileEdit = folder.tables.folders.edit(id);
-			if (fileEdit.getSnapshot().content?.issues !== null) return NOT_LISTED;
-			const changed = fileEdit.change({ fields });
-			if (changed.error !== null) return changed.error.message;
-			void fileEdit.save();
-			return undefined;
+			return id === undefined
+				? Promise.resolve(NOT_LISTED)
+				: setListed(FOLDERS, id, fields);
 		},
 
 		// ------------------------------------------------------------------
