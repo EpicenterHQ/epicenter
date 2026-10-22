@@ -47,18 +47,16 @@ discovers its app targets; the person chooses which targets to build and open.
 
 Epicenter can clone a remote into an ordinary, user-accessible source
 directory or register an existing local checkout without moving it. The UI
-shows the proposed destination before cloning, and the person can change it.
-On macOS, the proposed parent is `~/Developer`, giving
-`~/Developer/<repository>`; it is not an `Epicenter` subdirectory that could
-nest inside a person's existing Epicenter checkout. The default destination
-must not be inside another Git worktree. An occupied destination is never
-overwritten or silently renamed: an existing checkout can be registered in
-place, or the person can choose another destination. The checkout is outside
-both the local-data library and Epicenter's application-data directory so the
-person and agent can find and edit it as ordinary source. Each Git worktree
-is a separate checkout when its branch must differ. Epicenter does not
-extract one app's files into a pretend repository or keep one hidden clone
-per app.
+shows a suggested destination in the install confirmation and lets the person
+change it or select an existing checkout. The suggestion is a convenience,
+not a required source root such as `~/Developer`. It must be outside the
+local-data library, Epicenter's application-data directory, and another Git
+worktree. An occupied destination is never overwritten or silently renamed:
+an existing checkout can be registered in place, or the person can choose
+another destination. Epicenter reuses a registered checkout when the person
+adds another app target from that repository. Each Git worktree is a separate
+checkout when its branch must differ. Epicenter does not extract one app's
+files into a pretend repository or keep one hidden clone per app.
 Removing an app entry or its built output does not delete the checkout or
 the app's data. Epicenter never silently removes a checkout it created;
 deleting source is a separate, explicit file operation.
@@ -146,6 +144,14 @@ one. Two apps from the same checkout may have different active builds. A
 commit identifies source, not built bytes: rebuilding the same commit can
 produce a distinct build.
 
+Clone, build, and activation do not restart Epicenter or replace open windows.
+Rust reads the active build when it opens an installed app window; a later
+activation affects only windows opened afterward. Reloading an open window
+still uses its pinned build. Closing and reopening it selects the current
+active build. Epicenter does not need a startup-only inventory snapshot or a
+file watcher to replace running pages. The installed-app list can refresh
+after an install action or when the person explicitly requests it.
+
 A successful build does not prove that the page works correctly. A failed
 build reports its error and leaves the source available for repair. The
 earlier built page remains available as a practical recovery path, not as a
@@ -204,6 +210,10 @@ a catalog.
   separate, explicit operation. The first source-installed target can coexist
   with today's fixed bundled apps; replacing those bundles is a later
   decision.
+- Completed builds are not automatically deleted in the first implementation.
+  An older build may still be serving an open window even after activation.
+  Later cleanup needs to account for open windows and preserve a recovery
+  build.
 - External repositories can build against Epicenter's app API only after
   that API is distributable. The current `@epicenter/folder` package is
   private, so the first implementation can validate this model in this
@@ -232,5 +242,7 @@ a catalog.
   process that runs the downloaded build script.
 - **Keep editable source in application data.** That would hide the ordinary
   checkout from the person and make it too easy to confuse authored source
-  with replaceable host state. Application data holds the inventory and
+  with replaceable host state. Resetting or uninstalling Epicenter could then
+  delete unpushed commits, and development and release installations could
+  create separate source copies. Application data holds the inventory and
   installed build copies instead.
