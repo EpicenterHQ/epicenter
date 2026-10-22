@@ -100,8 +100,8 @@ type Options = {
 	beforeFileWrite?: (path: string, created: boolean) => Promise<void>;
 	/** Runs before each new recording row is saved. */
 	beforeRowCreate?: () => Promise<void>;
-	/** Runs below the Folder before each file's bytes reach the disk, as a slow disk would. */
-	beforeDiskWrite?: (path: string) => Promise<void>;
+	/** Before bytes reach disk, answer why the disk refuses, or nothing. */
+	beforeDiskWrite?: (path: string) => Promise<unknown>;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Parameters<typeof testConnections>[0];
 };
@@ -827,7 +827,7 @@ test('a row that cannot be written when the run starts sends nothing, and says w
 	expect(await transcripts(root)).toEqual([]);
 });
 
-test('an answer whose write fails is written again while the page lives, and does not hold the page open', async () => {
+test('an answer not yet accepted is delivered again while the page lives', async () => {
 	const { context, whispering, root } = await open({ failAnswerWrites: 2 });
 	await record(whispering, context);
 	await settle(whispering, context);
@@ -853,6 +853,54 @@ test('an answer whose write fails is written again while the page lives, and doe
 	expect(await transcripts(root)).toHaveLength(1);
 	expect(status(whispering).tone).toBe('good');
 });
+
+test.each(['typing', 'discard'] as const)(
+	'retrying a failed answer publication respects later %s',
+	async (action) => {
+		const answer =
+			Promise.withResolvers<
+				Awaited<ReturnType<WhisperingServices['transcribe']>>
+			>();
+		let refuse = false;
+		const { context, whispering, root, transcribed } = await open({
+			transcribe: () => answer.promise,
+			beforeDiskWrite: async (path) =>
+				refuse && path.startsWith('transcriptions/')
+					? new Error('the disk refused the answer')
+					: undefined,
+		});
+		await record(whispering, context);
+		const entry = whispering.entries[0]!;
+		const transcribing = whispering.transcribe(entry);
+		await eventually(() => transcribed.length === 1);
+		await settle(whispering, context);
+		const { transcript } = newest(whispering, entry.stem);
+		refuse = true;
+		answer.resolve(Ok({ text: 'a steady tone' }));
+		await transcribing;
+		expect(newest(whispering, entry.stem).state).toMatchObject({
+			kind: 'writing',
+			message: expect.stringContaining('the disk refused the answer'),
+		});
+		const document = context.folder.tables.transcriptions.document(
+			transcript.stem,
+		);
+		expect(document.getSnapshot().isDirty).toBe(true);
+		if (action === 'typing')
+			expectOk(document.patch({ body: 'a steady tone\nmine\n' }));
+		else document.discard();
+		refuse = false;
+		await eventually(() => whispering.unwrittenAnswers === 0);
+		await settle(whispering, context);
+		expect(transcribed).toHaveLength(1);
+		expect(newest(whispering, entry.stem).transcript.row.body).toBe(
+			action === 'typing' ? 'a steady tone\nmine\n' : '',
+		);
+		expect(await readFile(join(root, transcript.path), 'utf8')).toEndWith(
+			action === 'typing' ? 'a steady tone\nmine\n' : '---\n',
+		);
+	},
+);
 
 test('after a reload, a row whose answer was never written is unfinished, and running it again fills it', async () => {
 	const first = await open({ failAnswerWrites: 100 });

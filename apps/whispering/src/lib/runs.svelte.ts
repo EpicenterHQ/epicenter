@@ -10,8 +10,9 @@
  * row; deleting it discards it.
  *
  * What lives only in this window is what is happening: a request under way,
- * why one failed, and an answer whose write failed. Such an answer is written
- * again while the page lives; a reload drops it and its row stays unfinished.
+ * why one failed, and an answer not yet delivered to the Folder. After the
+ * Folder accepts an answer, retries publish its current input, including later
+ * typing. A reload loses input that never reached disk.
  * Waiting for an endpoint is never folder work, so closing does not wait for
  * a request. Writing its answer is: once the folder is closing, an answer
  * that arrives, or a retry that comes due, writes nothing.
@@ -19,7 +20,7 @@
  * checked is left absent; admitted publications finish in call order.
  */
 import type { Row } from '@epicenter/folder';
-import type { FileDocument } from '@epicenter/folder/document';
+import { ChangeError, type FileDocument } from '@epicenter/folder/document';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -283,29 +284,44 @@ export function createRuns({
 	/**
 	 * Publish the answer into the current row body. A row already absent when
 	 * checked is left absent; admitted publications finish in call order.
+	 * Once accepted, retry current input rather than delivering the answer again.
 	 */
-	async function fill(target: Target, body: string) {
+	async function fill(target: Target, body: string | undefined) {
 		try {
 			const document = folder.tables[target.table].document(target.stem);
 			const loaded = await document.refresh();
 			if (loaded.error?.name === 'Missing' || refused() !== undefined)
 				return undefined;
-			if (loaded.error !== null) return describeError(loaded.error);
-			const { error: writeError } = await document.save({
-				body,
-			});
-			return writeError === null ? undefined : describeError(writeError);
+			if (loaded.error !== null)
+				return { message: describeError(loaded.error), body };
+			if (body === undefined && !document.getSnapshot().isDirty)
+				return undefined;
+			const { error } = await document.save(
+				body === undefined ? undefined : { body },
+			);
+			return error === null
+				? undefined
+				: {
+						message: describeError(error),
+						body: Object.hasOwn(ChangeError, error.name) ? body : undefined,
+					};
 		} catch (cause) {
-			return describe(cause);
+			return { message: describe(cause), body };
 		}
 	}
 
 	/**
 	 * Write a received answer into its row. Each attempt checks the app's closing
 	 * state before reading or saving. A failed write is retried in the background
-	 * until it lands or this window closes.
+	 * until it lands or this window closes. `body` is held only until acceptance;
+	 * the original `text` remains available for display and copying.
 	 */
-	async function write(target: Target, text: string, attempt: number) {
+	async function write(
+		target: Target,
+		text: string,
+		attempt: number,
+		body: string | undefined,
+	) {
 		const path = pathOf(target);
 		retries.delete(path);
 		const before = live.get(path)?.state;
@@ -315,17 +331,17 @@ export function createRuns({
 			message: before?.kind === 'writing' ? before.message : undefined,
 		});
 		if (refused() !== undefined) return;
-		const error = await writeOf(target, () => fill(target, resultBody(text)));
+		const error = await writeOf(target, () => fill(target, body));
 		if (error === undefined) {
 			live.delete(path);
 			return;
 		}
-		setLive(target, { kind: 'writing', text, message: error });
+		setLive(target, { kind: 'writing', text, message: error.message });
 		if (refused() !== undefined) return;
 		const wait = Math.min(RETRY_FIRST_MS * 2 ** attempt, RETRY_LAST_MS);
 		retries.set(
 			path,
-			setTimeout(() => void write(target, text, attempt + 1), wait),
+			setTimeout(() => void write(target, text, attempt + 1, error.body), wait),
 		);
 	}
 
@@ -356,7 +372,7 @@ export function createRuns({
 			setLive(target, { kind: 'failed', message: answer.error.message });
 			return;
 		}
-		await write(target, answer.data.text, 0);
+		await write(target, answer.data.text, 0, resultBody(answer.data.text));
 	}
 
 	/** Capture the recipe exactly as held, including accepted unpublished input. */

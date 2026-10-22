@@ -204,7 +204,7 @@ export type TestServicesOptions = {
 	transform?: WhisperingServices['transform'];
 	/** Fail this many result rows written when a run starts, in any result table. */
 	failResultStarts?: number;
-	/** Fail this many answers written into result rows, in any result table. */
+	/** Fail this many answer deliveries before the Folder accepts input. */
 	failAnswerWrites?: number;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Partial<Record<Operation, StoredConnection>>;
@@ -219,9 +219,10 @@ export type ResultFailures = { starts: number; answers: number };
 
 /**
  * A result table whose next new rows fail before writing, as many times as
- * `failures.starts` says, and whose next answers fail the same way, as many
- * times as `failures.answers` says. A run writes its row from none, and
- * fills it from the row it wrote. A test may arm more after opening.
+ * `failures.starts` says. The next `failures.answers` calls to save an answer
+ * throw before reaching the Folder and accepting input. To fail a publication
+ * after acceptance, use `openGatedTestFolder` below the handle. A test may arm
+ * more failures after opening.
  */
 export function withResultFailures<TTable extends FolderTable>(
 	table: TTable,
@@ -247,7 +248,11 @@ export function withResultFailures<TTable extends FolderTable>(
 				async save(change) {
 					if (failures.answers === 0) return document.save(change);
 					failures.answers -= 1;
-					return refused();
+					// A failure before calling the Folder has accepted no input.
+					// Storage failures after acceptance belong below the handle.
+					throw new Error(
+						'Repository save failed: the disk refused the result',
+					);
 				},
 			};
 		},
