@@ -1,12 +1,30 @@
 ---
 name: testing
-description: Apply Epicenter test-file conventions for setup, factories, Result assertions, type tests, naming, and pruning. Use when writing, reviewing, deleting, or reorganizing tests, especially `*.test.ts` files.
+description: Choose useful regression coverage and apply Epicenter test conventions for setup, Result assertions, type tests, naming, and pruning. Use when writing, reviewing, deleting, or reorganizing tests, especially `*.test.ts` files.
 metadata:
   author: epicenter
   version: '2.0'
 ---
 
 # Test File Conventions
+
+## Choose useful coverage
+
+Before adding a test, name the plausible regression it detects and confirm
+that its setup can expose that failure. Check existing coverage before adding
+another scenario. Overlap can earn its cost through different inputs, real
+dependency boundaries, faster diagnosis, or reliable execution.
+
+When simplifying a suite, use challenge, response, and resolution around a
+meaningful opportunity: a behavior, shared fixture, or inherited promise.
+The challenge names a deletion prize and what would replace it; the response
+checks what the smaller shape would lose; the resolution chooses the shape
+whose regression confidence earns its cost. Keeping a test is a valid result.
+These are reasoning moves, not paperwork for every test.
+
+For the evidence, safeguards, and a concrete example, read
+[the test deletion grill](references/test-deletion-grill.md). Use it before
+writing substantial new coverage as well as when pruning existing tests.
 
 ## References
 
@@ -16,7 +34,7 @@ Load these on demand based on what you're working on:
 - If working with **test setup architecture** (`setup()` patterns, composable setup, `beforeEach` avoidance, shared schemas), read [references/setup-pattern.md](references/setup-pattern.md)
 - If working with **test organization structure** (flat tests, `describe()` boundaries, helper-over-nesting), read [references/test-structure.md](references/test-structure.md)
 - If **auditing existing tests** for hedged assertions, pass-through getters, stalled fakes, dead fake surface, or docstrings that contradict the code, read [references/honest-tests.md](references/honest-tests.md)
-- If **deleting or pruning tests** that may not earn their keep, read [references/test-deletion-grill.md](references/test-deletion-grill.md)
+- If **choosing new coverage or pruning existing tests** that may not earn their keep, read [references/test-deletion-grill.md](references/test-deletion-grill.md)
 
 External reading:
 

@@ -7,11 +7,11 @@ green tests that "feel" hollow, or whenever you add a fake/mock/stub.
 
 If the job is to delete low-value tests across a file or package, read
 [test-deletion-grill.md](test-deletion-grill.md) first. It defines the
-deletion taxonomy, commit discipline, and final report shape.
+challenge, response, and resolution workflow and its coverage safeguards.
 
-The pattern: a green test is not proof of value. A test only earns its
-line count if it can fail for a real reason, and a fake only earns its
-line count if some assertion path actually drives it.
+A green test is not proof of value. A useful test detects a plausible
+production regression. Fake behavior must support an exercised scenario;
+interface-required members can remain without implying behavioral coverage.
 
 ## The Two Questions
 
@@ -82,9 +82,10 @@ dispatch result routing, URL query wrapping, or disconnect settling.
 
 If a fake declares `addEventListener`, `removeEventListener`, `send`,
 `onmessage`, `onerror`, `binaryType` and so on, every one of those
-properties should be hit by some assertion path. Walk the production
-code and confirm. Unused fake surface is scaffolding that lies about
-what's covered.
+properties should support an exercised behavior or satisfy a real interface
+requirement. Trace the production paths, including teardown. Remove unused
+behavior, but keep members whose presence the interface or exercised code
+requires. A required member is not evidence that its behavior is covered.
 
 ```typescript
 // Minimal honest fake for the parked-supervisor case
@@ -143,30 +144,17 @@ Keep only when the wrapper is documented contract (here:
 `[Symbol.dispose]() === ydoc.destroy()`) that consumers rely on. If
 the wrapper is implementation detail subject to change, skip the test.
 
-## The Audit Pass
+## The audit pass
 
-For each `*.test.ts` you touch, walk this four-step check before
-adding new tests or signing off on existing ones.
+Read the cases and production paths they exercise. Ask the two questions above
+for each case, including setup and teardown. Use the
+[test deletion grill](test-deletion-grill.md) to judge meaningful opportunities;
+do not write a separate audit record for every test or fake property.
 
-```
-[1] List every test() block in the file.
-
-[2] For each block, answer in writing:
-    - What production change would make this fail?
-    - Does the setup make that change reachable?
-    - If both "real" and "yes" -> keep.
-    - If "trivial" or "no"     -> trim, fold, or delete.
-
-[3] For every fake/mock declared in the file, list its properties.
-    - Walk the production code paths the tests reach.
-    - Cross out each property that gets touched.
-    - Anything left uncrossed is dead scaffolding -> delete.
-
-[4] Re-read the file docstring against the trimmed body.
-    - Every claim must match the code.
-    - Name what is deliberately out of scope so the next reader
-      doesn't mistake silence for coverage.
-```
+Remove fake behavior and shared setup that surviving cases no longer need.
+Re-read the file docstring and test names against what the suite actually
+exercises. Repair a real but unreachable scenario rather than treating its
+weak setup as permission to lose the required coverage.
 
 ## What Honest Looks Like
 
@@ -176,6 +164,6 @@ tests pin documented contract pass-throughs. The fake's three
 properties are all reached on the teardown path. The docstring names
 both what's in scope and what isn't.
 
-A file that passes the audit is shorter, names what it doesn't test,
-and would fail loudly if any of its assertions stopped reflecting the
-code. That's the bar.
+An honest suite would fail for the required production regressions, and its
+setup makes those failures reachable. A shorter file is useful only when that
+confidence survives.
