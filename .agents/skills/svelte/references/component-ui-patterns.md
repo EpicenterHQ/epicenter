@@ -172,7 +172,8 @@ before creating the callbacks:
 ```
 
 `{@const}` stays reactive within its template block. Use `$derived(rowEdit.content)`
-when script code also needs the row; a plain script `const row = rowEdit.content`
+when script code also needs the row or no existing template scope supports
+`{@const}` before the guard; a plain script `const row = rowEdit.content`
 captures only the initial value. Narrow absent or invalid rows outside the
 control instead of putting `?.` and an empty fallback into every binding.
 Use the source's actual sentinel (`undefined` or `null`); a Folder row is valid
@@ -182,6 +183,10 @@ Share one local across the controls that use it instead of creating one per
 input. If only one control needs it, place the declaration beside that control
 in its enclosing block. `{@const}` must be an immediate child of a supported
 template block or component, not an arbitrary HTML element.
+For a control at the component root or directly inside ordinary HTML, capture
+the value with a script `$derived`, then narrow that local in the template.
+Do not add an artificial loop, key, or conditional just to host `{@const}`;
+those blocks introduce structure or lifetimes unrelated to the binding.
 
 For optional text whose binding getter needs narrowing, capture
 `{@const content = fileEdit.content}` in the nearest supported scope, then gate
@@ -240,8 +245,8 @@ accepted publication intent, while saving describes admitted text publications;
 they can coexist. Saving publishes the text captured at the call, including over
 outside changes. Observations never write, and acquired text remains available
 when a later read fails or finds deletion. Direct file/table operations share the
-per-path publication lane. `folder.run(action)` admits workflow lifetime without
-reserving paths or flushing input.
+per-path publication lane. Apps coordinate multi-step workflows and check
+disposal before late asynchronous writes.
 
 Do not mirror the edit owner's draft in the query cache or a page store.
 `$state` can hold a new-item box, a search, or input that has not been accepted
@@ -267,7 +272,8 @@ selected-tab conditions inside shared `Tabs.Content`. Classify state by its
 actual owner before removing it. Keep path-operation facts and edit identities;
 name who preserves their information before removing an owner. Use the
 [search recipes](input-ownership.md#search-recipes), then verify repair
-navigation and that a failed write rolls back with a visible notice.
+navigation and that a failed save retains accepted input and shows a visible
+failure. Synchronous input refusals remain distinct from publication failures.
 
 ## Inline Simple Props Types
 

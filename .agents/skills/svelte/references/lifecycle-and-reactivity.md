@@ -158,14 +158,14 @@ narrowing inside a deferred callback, or when a useful computation needs a
 name. An already-narrowed local needs no extra alias. A reactive local is not
 a second draft or a mount-time snapshot.
 
-Place `{@const}` in the nearest template block containing the controls that
+Place `{@const}` in the nearest supported template scope containing the controls that
 need it. Capture the optional value, narrow that local, then create the binding
 callbacks. Several controls in that scope share one local; nested property
 access alone does not justify another alias.
 
 ```svelte
 {#each rowEdits as rowEdit (rowEdit.path)}
-	{@const row = rowEdit.row}
+	{@const row = rowEdit.content}
 	{#if row && row.issues === null}
 		<Input bind:value={() => row.fields.title, title => rowEdit.change({ fields: { title } })} />
 		<Textarea bind:value={() => row.body, body => rowEdit.change({ body })} />
@@ -178,8 +178,10 @@ Folder rows are absent as `undefined`, and valid when `issues === null`.
 The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
 explains event-time composition through the current owner.
 
-Use `const row = $derived(rowEdit.row)` if script code also needs it. Do not
-replace either reactive form with a component-level `const row = rowEdit.row`:
+Use `const row = $derived(rowEdit.content)` if script code also needs it or no
+existing template scope supports `{@const}` before the guard. Do not add a
+block solely to host the local. Do not replace either reactive form with a
+component-level `const row = rowEdit.content`:
 that captures only the initial value. A simple display that needs no shared
 narrowing may read `session.current` directly; do not add an alias just to
 rename it, and do not remove a useful local merely because its initializer
