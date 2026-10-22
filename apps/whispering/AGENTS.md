@@ -78,8 +78,10 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   without promising length metadata. Never add a status, pending, or interrupted
   field, and never hold desktop audio in the page to save later: Rust writes it
   as it captures. Recorder commands never delete captured audio. Save a row
-  through its table (`set`) as a change from the row as read, never as text the
-  app serialized by hand.
+  as a change from the row as read, never as text the app serialized by hand:
+  through its table (`set`) when a failure must mean nothing changed, or as its
+  editor's `change` and `save` when the person may be typing in the same row,
+  as the recording length does.
 - **Fixture audio is debug-only, and failure injection is test-only.** Fixture
   audio is a development browser build's, and the UI says so while it is
   active. No build offers failure injection; a test that fails a recording

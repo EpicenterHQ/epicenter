@@ -248,6 +248,15 @@ when a later read fails or finds deletion. Direct file/table operations share th
 per-path publication lane. Apps coordinate multi-step workflows and check
 disposal before late asynchronous writes.
 
+A direct `set` is a command: it composes in the lane over the input held at
+its call, or the file it reads there, and a failure changes nothing. Typing
+that lands while it waits composes over the older text and replaces the
+command's change when that typing saves. Choose by who starts the write. A
+person's finalize action (Add, Send) keeps the text read-only until its write
+lands. A fact the app records beside the person's typing, such as a length,
+goes through the row's editor as `change` then `save`, so later typing
+composes over it.
+
 Do not mirror the edit owner's draft in the query cache or a page store.
 `$state` can hold a new-item box, a search, or input that has not been accepted
 by the edit. Invalid source opens as text with its issues and is repaired
