@@ -46,14 +46,19 @@ the app and its desktop-host build and output locations. Adding a repository
 discovers its app targets; the person chooses which targets to build and open.
 
 Epicenter can clone a remote into an ordinary, user-accessible source
-directory or register an existing local checkout without moving it. On
-macOS, a new clone defaults to `~/Developer/Epicenter/<repository>`; a person
-can choose another directory for that clone. An occupied destination is
-never overwritten or silently renamed. The checkout is outside both the
-local-data library and Epicenter's application-data directory so the person
-and agent can find and edit it as ordinary source. Each Git worktree is a
-separate checkout when its branch must differ. Epicenter does not extract one
-app's files into a pretend repository or keep one hidden clone per app.
+directory or register an existing local checkout without moving it. The UI
+shows the proposed destination before cloning, and the person can change it.
+On macOS, the proposed parent is `~/Developer`, giving
+`~/Developer/<repository>`; it is not an `Epicenter` subdirectory that could
+nest inside a person's existing Epicenter checkout. The default destination
+must not be inside another Git worktree. An occupied destination is never
+overwritten or silently renamed: an existing checkout can be registered in
+place, or the person can choose another destination. The checkout is outside
+both the local-data library and Epicenter's application-data directory so the
+person and agent can find and edit it as ordinary source. Each Git worktree
+is a separate checkout when its branch must differ. Epicenter does not
+extract one app's files into a pretend repository or keep one hidden clone
+per app.
 Removing an app entry or its built output does not delete the checkout or
 the app's data. Epicenter never silently removes a checkout it created;
 deleting source is a separate, explicit file operation.

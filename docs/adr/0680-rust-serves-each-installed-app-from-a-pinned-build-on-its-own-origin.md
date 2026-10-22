@@ -19,10 +19,14 @@ capability files admit only the apps shipped with Epicenter.
 A source-installed app needs the same static-file service, but its code can
 change independently of the Epicenter release. Serving it below another path
 on `localhost` would share that browser origin's storage with Settings and
-the bundled apps. Giving its CLI build command a loopback web-server lifetime
-would add a resident process, port ownership, and a second file-serving and
-permission path. The CLI already runs as a short-lived child for fixed
-operations; it does not own WebView or window lifetimes.
+the bundled apps. Separate origins prevent accidental storage-key collisions
+and limit what a page compromised while running can read from other pages.
+They do not make downloaded source safe to build: its build scripts already
+run as the person's operating-system user. Giving a CLI build command a
+loopback web-server lifetime would add a resident process, port ownership,
+and a second file-serving and permission path. The CLI currently runs as a
+short-lived child for fixed operations; it does not own WebView or window
+lifetimes.
 
 ## Decision
 
@@ -87,22 +91,29 @@ usable from the CLI when Epicenter is not running.
 - A narrow WebView grant does not sandbox the CLI's build process. Building
   downloaded source still executes code as the person's operating-system user.
 - Origin isolation must be verified with current Tauri and WebView versions
-  before installed pages ship. The historical macOS probe established only
-  separate `localStorage` keys in one run. It did not establish IndexedDB,
-  OPFS, `BroadcastChannel`, persistence after relaunch, or other platforms.
+  before installed pages ship. The historical macOS probe established
+  separate `localStorage` keys, a secure context, and local-capability IPC
+  within one run. It did not establish IndexedDB, OPFS,
+  `BroadcastChannel`, persistence after relaunch, or other platforms.
   Windows and Linux support remains unbuilt until the same admission and
   isolation properties are demonstrated there.
 
 ## Considered alternatives
 
-- **Have the CLI serve each build on a loopback port.** An installed page
-  would need a resident child, stable port ownership for browser storage,
-  remote-page permissions, and another reviewed server. A loopback preview
-  for ordinary browser development is a different tool, not the installed
-  page's runtime.
+- **Have the CLI serve each build on a loopback port.** A page loaded from
+  a loopback URL can call Tauri commands when the host grants that remote
+  origin and window explicitly. File serving and origin isolation are
+  separate choices: one server and port with paths for each app would still
+  be one origin; distinct ports would create origins tied to port numbers.
+  The CLI would need a resident child, port ownership, remote-page grants,
+  and another reviewed file server. A loopback preview for ordinary browser
+  development is a different tool, not the installed page's runtime. If a
+  required WebView feature fails on the custom scheme, serving through a
+  host-owned loopback server is a separate decision to revisit.
 - **Serve every installed app under a path on `localhost`.** Paths do not
-  divide a browser origin. A third-party page would share origin storage
-  with Epicenter's own pages and other apps.
+  divide a browser origin. A source-installed page would share origin storage
+  with Epicenter's own pages and other apps, even though their native grants
+  still differ by window.
 - **Serve the checkout's latest build directly.** An agent or build command
   can replace those files while a window is using them. Pinned completed
   builds make activation and rollback independent of source editing.
