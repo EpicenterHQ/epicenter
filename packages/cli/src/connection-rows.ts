@@ -22,8 +22,7 @@ import {
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type AppPaths, resolveAppPaths } from './app-paths.js';
 import { epicenterDirectory } from './folders.js';
-import { EXIT, writeErr, writeJson, writeOut } from './output.ts';
-import { finishBeforeExit } from './stop.ts';
+import { EXIT, writeErr, writeJson, writeOut } from './output.js';
 
 export const ConnectionRowError = defineErrors({
 	/** The operation or the input is not one this command takes. */
@@ -176,8 +175,8 @@ export async function setConnectionRow(
  * `epicenter whispering-connection read|set <transcription|text>`. `read`
  * answers `{"row": <row> | null}`; `set` reads `ConnectionRowSetInput` as
  * JSON on stdin and answers `{"row": <row as sent>}`. A refusal is
- * `{"error", "name"}` and exit 2; the file is as it was. A save a stop
- * signal interrupts finishes first (`finishBeforeExit`).
+ * `{"error", "name"}` and exit 2; the file is as it was. The command awaits
+ * its save before answering. A stop signal may interrupt ordinary work.
  */
 export async function whisperingConnection(
 	action: 'read' | 'set',
@@ -194,9 +193,7 @@ export async function whisperingConnection(
 		} catch {
 			input = undefined;
 		}
-		answered = await finishBeforeExit(() =>
-			setConnectionRow(paths, operation, input),
-		);
+		answered = await setConnectionRow(paths, operation, input);
 	}
 	const { data: row, error } = answered;
 	if (error !== null) {
