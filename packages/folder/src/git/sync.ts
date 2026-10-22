@@ -1,5 +1,5 @@
 /**
- * The plain data `folder.sync` exchanges with its caller (ADR-0576).
+ * The plain data one history sync request answers (ADR-0576).
  *
  * Sync never asks a person: the device syncing is the writer acting, and a
  * unit both sides changed takes its side. What lost is named in the merge
@@ -20,7 +20,8 @@ export type SyncOutcome =
 			readonly kind: 'saved';
 			readonly head: string | undefined;
 			readonly push: PushOutcome | undefined;
-			/** A save landed after the run captured the folder. */
+			/** This run observed a local change after its latest successfully recorded capture.
+			 * False means no such change was observed, not that the files are clean. */
 			readonly changedSince: boolean;
 	  };
 

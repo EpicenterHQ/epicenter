@@ -1,40 +1,23 @@
 /**
- * History Ordering and Ownership Tests
- *
- * Counterexamples for how the history coordinator orders captures, owns
- * explicit Git work until close, reacts to incoming changes that landed only
- * partly, and decides which commits push.
- *
- * Key behaviors:
- * - A checkpoint waiting for the Git lock pins its parent and captures files
- *   inside the lock, so it cannot commit an older capture over a newer
- *   incoming head
- * - An external branch move between that pin and publication is retried
- *   onto, never overwritten
- * - A Sync whose files landed but whose branch did not move never leaves a
- *   fresh clean observation behind
- * - Explicit `commit()` never pushes; Sync does, once
- * - An index another program holds does not fail a Sync whose files and
- *   branch landed
- * - An explicit request made during a pass waits and takes its own pass
- *
- * See also:
- * - `history.test.ts` for cancellation of outgoing work on close
+ * Request-owned history ordering and receipts.
+ * Real Git objects and files expose branch races, partial publication, and
+ * failures after acknowledged effects. Each mutation uses the history lock.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { expectOk } from 'wellcrafted/testing';
+import { createLogger, memorySink } from 'wellcrafted/logger';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { LockingStorage } from '../boundary.js';
 import { rawDirectoryFolder } from '../directory-history.test-support.js';
 import { GIT_ENV } from '../git-http.test-support.js';
+import type { HistoryRequest } from '../history-wire.js';
+import { holdingHistoryLock } from '../native/directory.js';
 import { overwrite } from '../put.test-support.js';
 import type { GitBackend } from './backend.js';
-import { createHistory } from './history.js';
+import { executeHistoryRequest } from './history.js';
 import { writeCommitObject, writeFilesTree } from './objects.js';
 
 const author = { name: 'History', email: 'history@example.test' };
-const encoder = new TextEncoder();
 const originalGlobal = process.env.GIT_CONFIG_GLOBAL;
-
 beforeAll(() => {
 	process.env.GIT_CONFIG_GLOBAL = GIT_ENV.GIT_CONFIG_GLOBAL;
 });
@@ -42,53 +25,65 @@ afterAll(() => {
 	if (originalGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
 	else process.env.GIT_CONFIG_GLOBAL = originalGlobal;
 });
-
 function gate() {
-	let open!: () => void;
-	const opened = new Promise<void>((resolve) => {
-		open = resolve;
-	});
-	return { opened, open };
+	const { promise, resolve } = Promise.withResolvers<void>();
+	return { opened: promise, open: resolve };
 }
-
 async function setup(
 	overrides: (real: GitBackend) => Partial<GitBackend> = () => ({}),
-	options: { boundary?: (base: LockingStorage) => LockingStorage } = {},
+	wrap: (base: LockingStorage) => LockingStorage = (base) => base,
 ) {
-	const raw = await rawDirectoryFolder('ordering-');
-	const base = raw.boundary;
+	const raw = await rawDirectoryFolder('history-request-');
 	const real = await raw.backend({
-		remote: { url: 'https://unused.test/remote.git', branch: 'main' },
+		remote: { url: 'https://unused.test/r.git', branch: 'main' },
 	});
-	let pushStarts = 0;
+	let pushes = 0;
 	const backend: GitBackend = {
 		...real,
 		async push() {
-			pushStarts++;
-			return 'pushed';
+			pushes++;
+			return { status: 'pushed', trackingWarning: undefined };
 		},
 		...overrides(real),
 	};
-	const boundary = options.boundary?.(base) ?? base;
-	const history = createHistory({ backend, boundary, author });
-	async function write(path: string, text: string) {
-		await overwrite(base, path, text);
+	const { sink, events } = memorySink();
+	const boundary = wrap(raw.boundary);
+	function request<TRequest extends HistoryRequest>(
+		request: TRequest,
+		signal?: AbortSignal,
+	) {
+		const execute = () =>
+			executeHistoryRequest(
+				{
+					backend,
+					boundary,
+					getAuthor: () => author,
+					signal,
+					log: createLogger('test/history', sink),
+				},
+				request,
+			);
+		return request.op === 'status' || request.op === 'log'
+			? execute()
+			: holdingHistoryLock(raw.root, execute);
 	}
-	/** A commit another owner writes: `files` on top of `parent`. */
-	function commitOf(parent: string | undefined, files: Record<string, string>) {
+	async function commitOf(
+		parent: string | undefined,
+		files: Record<string, string>,
+	) {
 		return real.withObjects(async (access) =>
 			writeCommitObject(access, {
 				tree: await writeFilesTree(
 					access,
 					new Map(
-						Object.entries(files).map(([path, text]) => [
-							path,
-							encoder.encode(text),
+						Object.entries(files).map(([p, text]) => [
+							p,
+							new TextEncoder().encode(text),
 						]),
 					),
 				),
 				parents: parent === undefined ? [] : [parent],
-				message: 'Another owner',
+				message: 'Other owner',
 				author,
 			}),
 		);
@@ -96,22 +91,25 @@ async function setup(
 	return {
 		raw,
 		real,
-		base,
-		history,
-		write,
+		request,
 		commitOf,
-		pushes: () => pushStarts,
+		events,
+		pushes: () => pushes,
+		write: (path: string, text: string | null) =>
+			overwrite(raw.boundary, path, text),
 	};
 }
 
-test('a checkpoint waiting for the Git lock cannot revert files and a head that landed meanwhile', async () => {
-	const { real, history, write, commitOf } = await setup();
+test('a waiting request pins its parent and captures after the history lock is acquired', async () => {
+	const { raw, real, request, write, commitOf } = await setup();
 	await write('a.txt', 'one');
-	expect((await history.commit()).status).toBe('committed');
-
+	expect((await request({ op: 'saveVersion' })).result.status).toBe(
+		'committed',
+	);
 	const held = gate();
-	// Another owner holds the lock and publishes files and branch together, as a pull does.
-	const owner = real.exclusive(async () => {
+	const entered = gate();
+	const owner = holdingHistoryLock(raw.root, async () => {
+		entered.open();
 		await held.opened;
 		await write('a.txt', 'two');
 		const parent = await real.readBranch();
@@ -119,22 +117,23 @@ test('a checkpoint waiting for the Git lock cannot revert files and a head that 
 		expect((await real.casBranch(parent, incoming)).ok).toBe(true);
 		return incoming;
 	});
-	const pending = history.commit();
-	// Before the fix, the pass captured `one` here, outside the lock.
-	await Bun.sleep(20);
+	await entered.opened;
+	const pending = request({ op: 'saveVersion' });
 	held.open();
 	const incoming = await owner;
-	const outcome = await pending;
-	expect(outcome.status).toBe('unchanged');
+	expect((await pending).result).toMatchObject({
+		status: 'unchanged',
+		head: incoming,
+	});
 	expect(await real.readBranch()).toBe(incoming);
-	await history.close();
 });
 
-test('an external branch move after the parent is pinned is retried onto it, not overwritten', async () => {
+test('an external branch move after capture is retried from a fresh capture', async () => {
 	let arm = false;
 	let competitor: string | undefined;
-	const { real, history, write, commitOf } = await setup(() => ({}), {
-		boundary: (base) => ({
+	const { real, request, write, commitOf } = await setup(
+		() => ({}),
+		(base) => ({
 			...base,
 			async list() {
 				const captured = await base.list();
@@ -147,240 +146,450 @@ test('an external branch move after the parent is pinned is retried onto it, not
 				return captured;
 			},
 		}),
-	});
+	);
 	await write('a.txt', 'one');
-	await history.commit();
+	await request({ op: 'saveVersion' });
 	await write('b.txt', 'local');
 	arm = true;
-	const outcome = await history.commit();
-	// The retry captured the folder again and committed it on the competitor.
-	expect(outcome).toMatchObject({ status: 'committed', parent: competitor });
-	if (outcome.status === 'committed')
-		expect(await real.readBranch()).toBe(outcome.oid);
-	await history.close();
+	const { result } = await request({ op: 'saveVersion' });
+	expect(result).toMatchObject({ status: 'committed', parent: competitor });
+	if (result.status === 'committed')
+		expect(await real.readBranch()).toBe(result.oid);
 });
 
-test('a Sync whose files landed but whose branch did not move invalidates the clean observation', async () => {
+test('files that landed before a failed branch CAS remain visible in the reply', async () => {
 	let incoming: string | undefined;
-	const { real, history, write, commitOf } = await setup((backend) => ({
+	const { real, request, write, commitOf } = await setup((base) => ({
 		fetch: async () => incoming,
-		// Files land, then the branch step finds another program moved it.
-		async casBranch(expected, next) {
-			if (next === incoming) return { ok: false, actual: 'f'.repeat(40) };
-			return backend.casBranch(expected, next);
-		},
+		casBranch: (expected, next) =>
+			next === incoming
+				? Promise.resolve({ ok: false, actual: 'f'.repeat(40) })
+				: base.casBranch(expected, next),
 	}));
 	await write('a.txt', 'one');
-	await history.commit();
-	const head = await real.readBranch();
-	incoming = await commitOf(head, { 'a.txt': 'two' });
-	const { data: before, error: beforeError } = await history.status();
-	expect(beforeError).toBeNull();
-	expect(before?.changes).toEqual([]);
-
-	const { error: syncError } = await history.sync.run();
-	expect(syncError?.name).toBe('Blocked');
-	const files = history.snapshot.files;
-	const freshClean =
-		files.state === 'observed' &&
-		!files.stale &&
-		files.value.changes.length === 0;
-	expect(freshClean).toBe(false);
-	// The branch did not move; the landed bytes are uncommitted changes.
-	expect(await real.readBranch()).toBe(head);
-	const { data: after, error: afterError } = await history.status();
-	expect(afterError).toBeNull();
-	expect(after?.changes).toEqual([{ path: 'a.txt', kind: 'modify' }]);
-	// Sync's checkpoint found nothing to record before it published.
-	expect(history.snapshot.lastCommit?.status).toBe('unchanged');
-	await history.close();
+	await request({ op: 'saveVersion' });
+	const parent = await real.readBranch();
+	incoming = await commitOf(parent, { 'a.txt': 'two' });
+	const reply = await request({ op: 'sync' });
+	expect(expectErr(reply.result).name).toBe('Blocked');
+	expect(await real.readBranch()).toBe(parent);
+	expect(reply.state.files?.changes).toEqual([
+		{ path: 'a.txt', kind: 'modify' },
+	]);
+	expect(reply.state.lastCommit?.status).toBe('unchanged');
+	expect(reply.landed).toEqual(['a.txt']);
 });
 
-test('explicit commit stays local; a commit requested during a held pass waits and takes its own; Sync pushes once', async () => {
-	const held = gate();
-	const reached = gate();
-	let holdNext = false;
-	const { history, write, pushes } = await setup((real) => ({
-		// An empty remote, so Sync's next step is a push.
+test('save-version stays local and requests waiting behind it capture their own files', async () => {
+	const held = gate(),
+		entered = gate();
+	let hold = false;
+	const { request, write, pushes } = await setup((base) => ({
 		fetch: async () => undefined,
-		// Hold a pass after it captured files, just before it publishes.
 		async casBranch(expected, next) {
-			if (holdNext) {
-				holdNext = false;
-				reached.open();
+			if (hold) {
+				hold = false;
+				entered.open();
 				await held.opened;
 			}
-			return real.casBranch(expected, next);
+			return base.casBranch(expected, next);
 		},
 	}));
 	await write('a.txt', 'one');
-	expect((await history.commit()).status).toBe('committed');
-	await Bun.sleep(20);
+	await request({ op: 'saveVersion' });
 	expect(pushes()).toBe(0);
-
-	// An explicit pass is held after its capture. A second request waits for
-	// it and then captures what was saved meanwhile.
 	await write('a.txt', 'three');
-	holdNext = true;
-	const explicit = history.commit();
-	await reached.opened;
+	hold = true;
+	const first = request({ op: 'saveVersion' });
+	await entered.opened;
 	await write('a.txt', 'four');
-	const second = history.commit();
+	const second = request({ op: 'saveVersion' });
 	held.open();
-	expect((await explicit).status).toBe('committed');
-	expect(await second).toMatchObject({
+	expect((await first).result.status).toBe('committed');
+	expect((await second).result).toMatchObject({
 		status: 'committed',
 		message: 'Update a.txt',
 	});
-	await Bun.sleep(20);
 	expect(pushes()).toBe(0);
-
-	await write('a.txt', 'five');
-	expect(expectOk(await history.sync.run()).kind).toBe('synced');
+	expect(expectOk((await request({ op: 'sync' })).result).kind).toBe('synced');
 	expect(pushes()).toBe(1);
-	await history.close();
 });
 
-test('a published checkpoint keeps its receipt when the following observation fails', async () => {
-	let failRead = false;
-	let publications = 0;
-	const { real, history, write } = await setup((base) => ({
+test('a committed receipt survives final inspection failure without reporting clean files', async () => {
+	let failRead = false,
+		publications = 0;
+	const { real, request, write } = await setup((base) => ({
 		async casBranch(expected, next) {
-			const result = await base.casBranch(expected, next);
-			if (result.ok) {
+			const moved = await base.casBranch(expected, next);
+			if (moved.ok) {
 				publications++;
 				failRead = true;
 			}
-			return result;
+			return moved;
 		},
-		async readBranch() {
-			if (failRead) throw new Error('post-publication observation unavailable');
-			return base.readBranch();
-		},
+		readBranch: () =>
+			failRead
+				? Promise.reject(new Error('inspection unavailable'))
+				: base.readBranch(),
 	}));
-	try {
-		await write('saved.md', 'the save remains readable');
-		expectOk(await history.status());
-		const outcome = await history.commit();
-		expect(outcome.status).toBe('committed');
-		if (outcome.status !== 'committed')
-			throw new Error('Expected commit receipt');
-		expect(await real.readBranch()).toBe(outcome.oid);
-		expect(outcome.indexWarning).toBeUndefined();
-		expect(history.snapshot.lastCommit).toMatchObject(outcome);
-		expect(history.snapshot.files).toMatchObject({
-			state: 'observed',
-			stale: true,
-			error: 'post-publication observation unavailable',
-		});
-		expect(history.snapshot.sync).toMatchObject({
-			state: 'observed',
-			stale: true,
-		});
-		expect(publications).toBe(1);
-		failRead = false;
-		const observed = expectOk(await history.status());
-		expect(observed.head).toBe(outcome.oid);
-		expect(observed.changes).toEqual([]);
-		expect(history.snapshot.files).toMatchObject({
-			stale: false,
-			error: undefined,
-		});
-		expect((await history.commit()).status).toBe('unchanged');
-		expect(publications).toBe(1);
-	} finally {
-		await history.close();
-	}
+	await write('saved.md', 'saved');
+	const reply = await request({ op: 'saveVersion' });
+	expect(reply.result.status).toBe('committed');
+	if (reply.result.status !== 'committed')
+		throw new Error('Expected a receipt');
+	expect(await real.readBranch()).toBe(reply.result.oid);
+	expect(reply.state.lastCommit).toMatchObject(reply.result);
+	expect(reply.state.files).toBeUndefined();
+	expect(reply.state.sync).toBeUndefined();
+	failRead = false;
+	expect(expectOk((await request({ op: 'status' })).result).changes).toEqual(
+		[],
+	);
+	expect((await request({ op: 'saveVersion' })).result.status).toBe(
+		'unchanged',
+	);
+	expect(publications).toBe(1);
 });
 
-test('a published fast-forward stays successful when its observation cannot be refreshed', async () => {
-	let incoming: string | undefined;
-	let failRead = false;
-	const { real, base, history, write, commitOf } = await setup((backend) => ({
+test('a published fast-forward survives failed observation and index reconciliation', async () => {
+	let incoming: string | undefined,
+		failRead = false;
+	const { real, raw, request, write, commitOf } = await setup((base) => ({
 		fetch: async () => incoming,
 		async casBranch(expected, next) {
-			const result = await backend.casBranch(expected, next);
-			if (result.ok && next === incoming) failRead = true;
-			return result;
+			const moved = await base.casBranch(expected, next);
+			if (moved.ok && next === incoming) failRead = true;
+			return moved;
 		},
-		async readBranch() {
-			if (failRead) throw new Error('post-pull observation unavailable');
-			return backend.readBranch();
-		},
+		readBranch: () =>
+			failRead
+				? Promise.reject(new Error('post-pull inspection failed'))
+				: base.readBranch(),
+		reconcileIndex: (commit) =>
+			commit === incoming
+				? Promise.reject(new Error('index.lock exists'))
+				: base.reconcileIndex(commit),
 	}));
-	try {
-		await write('saved.md', 'before');
-		await history.commit();
-		const parent = await real.readBranch();
-		incoming = await commitOf(parent, { 'saved.md': 'after' });
-		expectOk(await history.status());
-		expect(expectOk(await history.sync.run())).toEqual({
-			kind: 'synced',
-			head: incoming,
-		});
-		expect(
-			new TextDecoder().decode(expectOk(await base.read('saved.md')).bytes),
-		).toBe('after');
-		// What follows the publish could not read the branch, so nothing
-		// claims the folder is clean.
-		const files = history.snapshot.files;
-		expect(files.state === 'observed' && !files.stale).toBe(false);
-		failRead = false;
-		expect(await real.readBranch()).toBe(incoming);
-	} finally {
-		await history.close();
-	}
+	await write('saved.md', 'before');
+	await request({ op: 'saveVersion' });
+	incoming = await commitOf(await real.readBranch(), { 'saved.md': 'after' });
+	const reply = await request({ op: 'sync' });
+	expect(expectOk(reply.result)).toEqual({ kind: 'synced', head: incoming });
+	expect(await real.readBranch()).toBe(incoming);
+	expect(
+		new TextDecoder().decode(
+			expectOk(await raw.boundary.read('saved.md')).bytes,
+		),
+	).toBe('after');
+	expect(reply.state.files).toBeUndefined();
+	expect(reply.state.sync).toBeUndefined();
+	expect(reply.landed).toEqual(['saved.md']);
 });
 
 test('a branch read failure before publication remains a failed checkpoint', async () => {
-	let failRead = false;
 	let publications = 0;
-	const { real, history, write } = await setup((base) => ({
-		async readBranch() {
-			if (failRead) throw new Error('pre-publication branch unavailable');
-			return base.readBranch();
+	const { real, request, write } = await setup((base) => ({
+		readBranch: async () => {
+			throw new Error('pre-publication branch unavailable');
 		},
 		async casBranch(expected, next) {
 			publications++;
 			return base.casBranch(expected, next);
 		},
 	}));
-	try {
-		await write('saved.md', 'saved without a commit');
-		failRead = true;
-		expect(await history.commit()).toEqual({
-			status: 'failed',
-			error: 'pre-publication branch unavailable',
-		});
-		expect(await real.readBranch()).toBeUndefined();
-		expect(publications).toBe(0);
-	} finally {
-		await history.close();
-	}
+	await write('saved.md', 'saved without commit');
+	expect((await request({ op: 'saveVersion' })).result).toEqual({
+		status: 'failed',
+		error: 'pre-publication branch unavailable',
+	});
+	expect(await real.readBranch()).toBeUndefined();
+	expect(publications).toBe(0);
 });
 
-test('an index another program holds does not fail a Sync whose files and branch landed', async () => {
-	let incoming: string | undefined;
-	const { real, base, history, write, commitOf } = await setup((backend) => ({
-		fetch: async () => incoming,
-		async reconcileIndex(commit) {
-			if (commit === incoming) throw new Error('index.lock exists');
-			return backend.reconcileIndex(commit);
-		},
-	}));
-	try {
-		await write('saved.md', 'before');
-		await history.commit();
-		incoming = await commitOf(await real.readBranch(), { 'saved.md': 'after' });
-		expect(expectOk(await history.sync.run())).toEqual({
-			kind: 'synced',
+test.each(['edit', 'delete'] as const)(
+	'a stale removal records the intervening %s even when no path lands and inspection fails',
+	async (mode) => {
+		let incoming: string | undefined,
+			arm = false,
+			failRead = false;
+		const { real, raw, request, write, commitOf } = await setup(
+			(base) => ({
+				fetch: async () => incoming,
+				async casBranch(expected, next) {
+					const moved = await base.casBranch(expected, next);
+					if (moved.ok && next === incoming) failRead = true;
+					return moved;
+				},
+				readBranch: () =>
+					failRead
+						? Promise.reject(new Error('inspection failed'))
+						: base.readBranch(),
+			}),
+			(base) => ({
+				...base,
+				lock: (work) =>
+					base.lock((held) =>
+						work({
+							...held,
+							async put(path, bytes, expected) {
+								if (arm && bytes === null) {
+									arm = false;
+									await overwrite(
+										base,
+										path,
+										mode === 'edit' ? 'new local edit' : null,
+									);
+								}
+								return held.put(path, bytes, expected);
+							},
+						}),
+					),
+			}),
+		);
+		await write('a.md', 'before');
+		await request({ op: 'saveVersion' });
+		incoming = await commitOf(await real.readBranch(), {});
+		arm = true;
+		const reply = await request({ op: 'sync' });
+		expect(expectOk(reply.result)).toMatchObject({
+			kind: 'saved',
+			changedSince: true,
 			head: incoming,
 		});
-		expect(await real.readBranch()).toBe(incoming);
-		expect(
-			new TextDecoder().decode(expectOk(await base.read('saved.md')).bytes),
-		).toBe('after');
-	} finally {
-		await history.close();
-	}
+		expect(reply.landed).toEqual([]);
+		expect(reply.state.files).toBeUndefined();
+		const live = await raw.boundary.read('a.md');
+		if (mode === 'edit')
+			expect(new TextDecoder().decode(expectOk(live).bytes)).toBe(
+				'new local edit',
+			);
+		else expect(expectErr(live).name).toBe('NotFound');
+	},
+);
+
+test('a kept edit remains changedSince when the final inspection succeeds', async () => {
+	let incoming: string | undefined,
+		arm = false;
+	const { real, request, write, commitOf } = await setup(
+		() => ({ fetch: async () => incoming }),
+		(base) => ({
+			...base,
+			lock: (work) =>
+				base.lock(async (held) => {
+					if (arm) {
+						arm = false;
+						await overwrite(base, 'a.md', 'local');
+					}
+					return work(held);
+				}),
+		}),
+	);
+	await write('a.md', 'before');
+	await request({ op: 'saveVersion' });
+	incoming = await commitOf(await real.readBranch(), { 'a.md': 'remote' });
+	arm = true;
+	const reply = await request({ op: 'sync' });
+	expect(expectOk(reply.result)).toMatchObject({
+		kind: 'saved',
+		changedSince: true,
+	});
+	expect(reply.state.files?.changes).toEqual([
+		{ path: 'a.md', kind: 'modify' },
+	]);
+});
+
+test('a stale deletion keeps changedSince when the preserved local file is ignored by final inspection', async () => {
+	let incoming: string | undefined,
+		arm = false;
+	const { real, raw, request, write, commitOf } = await setup(
+		() => ({ fetch: async () => incoming }),
+		(base) => ({
+			...base,
+			lock: (work) =>
+				base.lock((held) =>
+					work({
+						...held,
+						async put(path, bytes, expected) {
+							if (arm && path === 'audio.wav' && bytes === null) {
+								arm = false;
+								await overwrite(base, path, 'new local recording');
+							}
+							return held.put(path, bytes, expected);
+						},
+					}),
+				),
+		}),
+	);
+	await write('audio.wav', 'original recording');
+	await request({ op: 'saveVersion' });
+	await write('.gitignore', '*.wav\n');
+	await request({ op: 'saveVersion' });
+	incoming = await commitOf(await real.readBranch(), {
+		'.gitignore': '*.wav\n',
+	});
+	arm = true;
+	const reply = await request({ op: 'sync' });
+	expect(expectOk(reply.result)).toMatchObject({
+		kind: 'saved',
+		head: incoming,
+		changedSince: true,
+	});
+	expect(reply.state.files).toEqual({ head: incoming, changes: [] });
+	expect(reply.landed).toEqual([]);
+	expect(
+		new TextDecoder().decode(
+			expectOk(await raw.boundary.read('audio.wav')).bytes,
+		),
+	).toBe('new local recording');
+});
+
+test('recording an edit found before deletion resets changedSince and sends that edit', async () => {
+	let incoming: string | undefined,
+		arm = false;
+	const { real, request, write, commitOf, pushes } = await setup(() => ({
+		async fetch() {
+			if (arm) {
+				arm = false;
+				await write('a.md', 'local edit');
+			}
+			return incoming;
+		},
+	}));
+	await write('a.md', 'base');
+	await request({ op: 'saveVersion' });
+	incoming = await commitOf(await real.readBranch(), {
+		'remote.md': 'remote addition',
+	});
+	arm = true;
+	const reply = await request({ op: 'sync' });
+	expect(expectOk(reply.result).kind).toBe('synced');
+	expect(reply.state.files?.changes).toEqual([]);
+	expect(pushes()).toBe(1);
+	expect(reply.landed).toEqual(['remote.md']);
+});
+
+test('failed marker cleanup preserves publication and the next checkpoint repairs it', async () => {
+	let incoming: string | undefined,
+		failCleanup = false;
+	const { real, request, write, commitOf, events } = await setup((base) => ({
+		fetch: async () => incoming,
+		writePublishing: (oid) =>
+			failCleanup && oid === undefined
+				? Promise.reject(new Error('marker cleanup failed'))
+				: base.writePublishing(oid),
+	}));
+	await write('a.md', 'base');
+	await request({ op: 'saveVersion' });
+	incoming = await commitOf(await real.readBranch(), { 'a.md': 'incoming' });
+	failCleanup = true;
+	const reply = await request({ op: 'sync' });
+	expect(expectOk(reply.result)).toEqual({ kind: 'synced', head: incoming });
+	expect(await real.readBranch()).toBe(incoming);
+	expect(await real.readPublishing()).toBeDefined();
+	expect(events.some((event) => event.level === 'warn')).toBe(true);
+	failCleanup = false;
+	expect((await request({ op: 'saveVersion' })).result.status).toBe(
+		'unchanged',
+	);
+	expect(await real.readPublishing()).toBeUndefined();
+});
+
+test('an acknowledged push with failed tracking repair keeps its receipt and omits sync metadata', async () => {
+	const { request, write } = await setup(() => ({
+		fetch: async () => undefined,
+		push: async () => ({
+			status: 'pushed',
+			trackingWarning: 'tracking ref unavailable',
+		}),
+	}));
+	await write('a.md', 'saved');
+	const reply = await request({ op: 'sync' });
+	expect(expectOk(reply.result).kind).toBe('synced');
+	expect(reply.state.lastPush?.status).toBe('pushed');
+	expect(reply.state.sync).toBeUndefined();
+});
+
+test('a mutation waits for final inspection and returns the published head', async () => {
+	const entered = gate(),
+		released = gate();
+	let inspect = false;
+	const { request, write } = await setup(
+		(base) => ({
+			async casBranch(expected, next) {
+				const moved = await base.casBranch(expected, next);
+				if (moved.ok) inspect = true;
+				return moved;
+			},
+		}),
+		(base) => ({
+			...base,
+			async list() {
+				if (inspect) {
+					entered.open();
+					await released.opened;
+				}
+				return base.list();
+			},
+		}),
+	);
+	await write('a.md', 'saved');
+	let settled = false;
+	const pending = request({ op: 'saveVersion' }).then((reply) => {
+		settled = true;
+		return reply;
+	});
+	await entered.opened;
+	expect(settled).toBe(false);
+	released.open();
+	const reply = await pending;
+	expect(reply.result.status).toBe('committed');
+	if (reply.result.status !== 'committed')
+		throw new Error('Expected committed receipt');
+	expect(reply.state.files).toEqual({ head: reply.result.oid, changes: [] });
+});
+
+test('a later fetch restores tracking observations after a pushed merge finds another edit', async () => {
+	let incoming: string | undefined,
+		tracking: string | undefined,
+		remote: string | undefined;
+	let fetches = 0,
+		pushes = 0;
+	const { real, request, write, commitOf } = await setup(() => ({
+		async fetch() {
+			fetches++;
+			if (fetches === 2)
+				await write(
+					'remote-dir',
+					'a newer local file blocks the incoming directory',
+				);
+			tracking = fetches === 1 ? incoming : remote;
+			return tracking;
+		},
+		readRemoteTracking: async () => tracking,
+		async push(oid) {
+			pushes++;
+			remote = oid;
+			// This edit lands after the merge's preflight and before local publication.
+			await write('a.md', 'local edit during push');
+			return { status: 'pushed', trackingWarning: 'tracking ref unavailable' };
+		},
+	}));
+	await write('a.md', 'base');
+	await write('b.md', 'base');
+	await request({ op: 'saveVersion' });
+	incoming = await commitOf(await real.readBranch(), {
+		'b.md': 'remote',
+		'remote-dir/file.md': 'incoming',
+	});
+	await write('b.md', 'local');
+	const reply = await request({ op: 'sync' });
+	expect(expectErr(reply.result).name).toBe('Blocked');
+	expect(fetches).toBe(2);
+	expect(pushes).toBe(1);
+	// The successful fetch restored the tracking basis before publication was blocked.
+	expect(reply.state.sync).toMatchObject({
+		head: await real.readBranch(),
+		remote: tracking,
+	});
+	expect(tracking).toBe(remote);
 });

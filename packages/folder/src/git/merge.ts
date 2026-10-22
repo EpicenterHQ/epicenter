@@ -46,13 +46,13 @@ export async function chooseBase(
 ): Promise<string | undefined> {
 	const bases = await git.findMergeBase({ ...access, oids: [ours, theirs] });
 	if (bases.length <= 1) return bases[0];
-	const timed = await Promise.all(
-		bases.map(async (oid) => ({
+	const timed = [];
+	for (const oid of bases)
+		timed.push({
 			oid,
 			time: (await git.readCommit({ ...access, oid })).commit.committer
 				.timestamp,
-		})),
-	);
+		});
 	timed.sort((left, right) =>
 		right.time !== left.time
 			? right.time - left.time
@@ -85,11 +85,9 @@ export async function mergeHistories(
 		readonly theirs: string;
 	},
 ): Promise<HistoryMerge> {
-	const [b, current, change] = await Promise.all([
-		base === undefined ? null : commitTree(access, base),
-		commitTree(access, theirs),
-		commitTree(access, ours),
-	]);
+	const b = base === undefined ? null : await commitTree(access, base);
+	const current = await commitTree(access, theirs);
+	const change = await commitTree(access, ours);
 	const read = async (oid: string): Promise<GitObject> => {
 		// Every repository names the empty tree without storing it.
 		if (oid === EMPTY_TREE) return { type: 'tree', bytes: new Uint8Array() };

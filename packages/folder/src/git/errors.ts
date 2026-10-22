@@ -15,7 +15,6 @@ export const GitError = defineErrors({
 		operation,
 		cause,
 	}),
-	Closed: () => ({ message: 'The folder is closed' }),
 	NoRemote: () => ({ message: 'No remote is configured for this folder' }),
 	/**
 	 * No usable `git` was found, so history cannot run; files still read and
@@ -49,7 +48,6 @@ export type GitInstall =
  * decide, or a step that failed, and each carries what that step reported.
  */
 export const SyncError = defineErrors({
-	Closed: () => ({ message: 'The folder is closed' }),
 	NoRemote: () => ({ message: 'No remote is configured for this folder' }),
 	/**
 	 * The remote's history shares no commit with this folder's. Nothing was

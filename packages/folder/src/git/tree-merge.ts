@@ -61,21 +61,17 @@ export async function mergeTrees({
 	): Promise<string | null> {
 		if (c === n || n === b) return c;
 		if (c === b) return n;
-		const maps = await Promise.all(
-			[b, c, n].map(
-				async (oid) =>
-					new Map(
-						(oid === null ? [] : readTree(await load(oid, 'tree'))).map(
-							(entry) => [keyOf(entry.name), entry],
-						),
-					),
-			),
-		);
-		const [bm, cm, nm] = maps as [
-			Map<string, TreeEntry>,
-			Map<string, TreeEntry>,
-			Map<string, TreeEntry>,
-		];
+		async function entriesOf(oid: string | null) {
+			return new Map(
+				(oid === null ? [] : readTree(await load(oid, 'tree'))).map((entry) => [
+					keyOf(entry.name),
+					entry,
+				]),
+			);
+		}
+		const bm = await entriesOf(b);
+		const cm = await entriesOf(c);
+		const nm = await entriesOf(n);
 		const entries: TreeEntry[] = [];
 		for (const key of new Set([...bm.keys(), ...cm.keys(), ...nm.keys()])) {
 			const be = bm.get(key),

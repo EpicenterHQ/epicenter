@@ -1,28 +1,21 @@
 /**
- * Test helper: one directory's history over the system `git`, held open
- * across a test's steps. It is the engine `runHistory` runs one operation of
- * (`bun.ts`), with the directory's files saved through the public native
- * Folder. No `Folder` holds Git (ADR-0636); this is
- * the smallest whole a history test drives.
- *
- * `git` and `sync` are the history; `write` saves a file and marks the
- * history's observations stale, as a save the history did not make does.
- * This process is the directory's only writer, so Sync's save lock is no
- * lock at all.
+ * Native history requests over a disposable directory. Each request constructs
+ * its own backend and holds the production history lock. File saves use the
+ * native Folder independently; there is no history handle or edit notification.
  */
 import { realpath } from 'node:fs/promises';
 import { Err, Ok } from 'wellcrafted/result';
-import { type Expectation, mayHaveChanged } from './boundary.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
 import { createDirectoryStorage } from './directory-store.js';
 import type { GitBackend, GitRemote } from './git/backend.js';
 import type { GitCredentials } from './git/http.js';
 import { createNativeGitBackend } from './git/native-backend.js';
-import { nativeHistory } from './git/native-history.js';
+import { runNativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
 import type { Author } from './git/objects.js';
 import { scratch } from './git-http.test-support.js';
+import type { HistoryRequest } from './history-wire.js';
 import { scratchDirectory } from './native/directory.js';
 import { createNativeFolder } from './native/engine.js';
 import type { FileContent } from './shared/merge.js';
@@ -54,34 +47,24 @@ export async function openDirectoryHistory({
 		await beforeGit?.(args);
 		return system(args, options);
 	};
-	const landed: string[] = [];
-	const history = await nativeHistory({
-		rootPath: root,
-		host: { run, files },
-		boundary: storage,
-		author,
-		credentials,
-		landed: (paths) => landed.push(...paths),
-	});
-	const noting = {
-		async put(path: string, bytes: Uint8Array | null, expected: Expectation) {
-			const result = await storage.put(path, bytes, expected);
-			if (mayHaveChanged(result)) history.noteEdit();
-			return result;
-		},
-	};
 	const folder = createNativeFolder({
-		storage: { ...storage, put: noting.put },
+		storage,
 		tables: {},
 		directory: root,
 	});
 	return {
 		root,
 		storage,
-		git: history,
-		sync: history.sync,
-		/** Every path a Sync of this history wrote or removed, in order. */
-		landed,
+		request<TRequest extends HistoryRequest>(request: TRequest) {
+			return runNativeHistory({
+				rootPath: root,
+				host: { run, files },
+				boundary: storage,
+				author,
+				credentials,
+				request,
+			});
+		},
 		/** Replace the file at `path` with `to`, or remove it for `null`. */
 		write: async (path: string, to: FileContent | null) => {
 			const saved =
@@ -93,7 +76,6 @@ export async function openDirectoryHistory({
 		files: { read: (path: string) => storage.read(path) },
 		close: async () => {
 			await folder.close();
-			await history.close();
 		},
 	};
 }

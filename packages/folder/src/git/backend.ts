@@ -1,14 +1,4 @@
-/**
- * What the shared history coordinator needs from a folder's Git storage.
- *
- * The browser backend keeps objects, refs, and the index in the folder's
- * private `.git` in the origin private file system and uses isomorphic-git. The native backend writes objects with
- * isomorphic-git but leaves index and ref mutation to the real `git` CLI,
- * whose lock files other native Git processes respect.
- *
- * Backend methods throw on failure; the coordinator turns failures into
- * reported outcomes.
- */
+/** Native Git storage needed by one history request. Methods throw on failure. */
 import type { CommitSummary, ObjectAccess } from './objects.js';
 
 /**
@@ -40,10 +30,8 @@ export type CasResult =
 export type GitBackend = {
 	/**
 	 * Create the repository if there is none yet. A directory backend has
-	 * this; history calls it inside `exclusive` before a whole-folder commit,
-	 * and setting a remote creates it too. The browser backend
-	 * creates its own with its first Git write. No backend creates one when
-	 * the folder opens.
+	 * this; history calls it under the request history lock before a checkpoint,
+	 * and setting a remote creates it too. Reading history creates no repository.
 	 * Answers why no repository may be created here, having created nothing.
 	 */
 	createRepository?(): Promise<string | undefined>;
@@ -60,15 +48,8 @@ export type GitBackend = {
 	 * repository if the folder has none yet. Transfers nothing.
 	 */
 	setRemote(url: string): Promise<GitRemote>;
-	/** Run object work. The browser flushes new objects durably before returning. */
+	/** Supply object access. The callback owns and awaits every operation it starts. */
 	withObjects<T>(work: (access: ObjectAccess) => Promise<T>): Promise<T>;
-	/**
-	 * Serialize this folder's index and branch work. Network work never runs
-	 * inside. A `signal` that aborts while `work` is still waiting rejects with
-	 * the signal's reason and `work` never runs; once `work` has started, the
-	 * signal changes nothing.
-	 */
-	exclusive<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T>;
 	readBranch(): Promise<string | undefined>;
 	readRemoteTracking(): Promise<string | undefined>;
 	/** Move the branch only if it still names `expected`. */
@@ -99,10 +80,10 @@ export type GitBackend = {
 	 * additions and deletions. Working files are not touched.
 	 */
 	reconcileIndex(commit: string): Promise<void>;
-	/** Which untracked candidates `.gitignore` (and native excludes) ignore. */
+	/** Which untracked candidates captured `.gitignore` bytes and native excludes ignore. */
 	ignoredPaths(
 		candidates: readonly string[],
-		current: ReadonlyMap<string, Uint8Array>,
+		rules: ReadonlyMap<string, Uint8Array>,
 	): Promise<ReadonlySet<string>>;
 	log(depth: number): Promise<CommitSummary[]>;
 	/**
@@ -110,7 +91,12 @@ export type GitBackend = {
 	 * `'rejected'` when the remote branch moved on and the commit does not
 	 * descend from it. Throws for any other failure.
 	 */
-	push(oid: string, signal: AbortSignal): Promise<'pushed' | 'rejected'>;
+	push(
+		oid: string,
+		signal: AbortSignal,
+	): Promise<
+		{ status: 'pushed'; trackingWarning: string | undefined } | 'rejected'
+	>;
 	/** Fetch the configured remote branch; returns its commit, or undefined if absent. */
 	fetch(signal: AbortSignal): Promise<string | undefined>;
 };

@@ -120,7 +120,7 @@ test('a directory history passes its credential to `git` through configuration, 
 	});
 	try {
 		expectOk(await folder.write('language.txt', 'Chinese\n'));
-		expectOk(await folder.sync.run());
+		expectOk((await folder.request({ op: 'sync' })).result);
 		expect(await git(bare, 'rev-parse', 'main')).toBe(
 			await git(directory, 'rev-parse', 'main'),
 		);

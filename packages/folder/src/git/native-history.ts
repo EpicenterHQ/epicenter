@@ -6,7 +6,13 @@
  * `user.email`, with `author` for whichever is missing).
  */
 import type { LockingStorage } from '../boundary.js';
-import { createHistory, type FolderHistory } from './history.js';
+import type {
+	HistoryReply,
+	HistoryRequest,
+	HistoryResults,
+} from '../history-wire.js';
+import { holdingHistoryLock } from '../native/directory.js';
+import { executeHistoryRequest } from './history.js';
 import type { GitCredentials } from './http.js';
 import {
 	createNativeGitBackend,
@@ -14,15 +20,15 @@ import {
 } from './native-backend.js';
 import type { Author } from './objects.js';
 
-export async function nativeHistory({
+export async function runNativeHistory<TRequest extends HistoryRequest>({
 	rootPath,
 	host,
 	boundary,
 	author,
 	credentials,
 	initProblem,
-	commits = true,
-	landed,
+	request,
+	signal,
 }: {
 	readonly rootPath: string;
 	/** The system `git` in `rootPath`, and the host's file system. */
@@ -35,14 +41,10 @@ export async function nativeHistory({
 	readonly credentials?: GitCredentials;
 	/** Why the first commit of a folder with no repository must not create one here. */
 	readonly initProblem?: () => Promise<string | undefined>;
-	/**
-	 * Whether this history may commit. Without it the person's Git identity
-	 * is not read: two `git` runs a status or a log does not need.
-	 */
-	readonly commits?: boolean;
-	/** Hears the paths an incoming update wrote. */
-	readonly landed: (paths: readonly string[]) => void;
-}): Promise<FolderHistory> {
+	request: TRequest;
+	signal?: AbortSignal;
+}): Promise<HistoryReply<HistoryResults[TRequest['op']]>> {
+	const commits = request.op === 'saveVersion' || request.op === 'sync';
 	const configured = async (key: string) => {
 		const { code, stdout } = await host.run(['config', '--get', key], {
 			allowFailure: true,
@@ -58,11 +60,7 @@ export async function nativeHistory({
 			email: (await configured('user.email')) ?? author.email,
 		};
 	};
-	// Two handles that commit a new folder at once may both run
-	// `git init`; the backend runs it again when the race fails it.
-	// Each handle orders its own index and branch work; other handles and
-	// processes meet Git's own lock files and the branch's
-	// compare-and-swap.
+	// Repository creation happens only during the request, under its history lock.
 	const backend = await createNativeGitBackend({
 		root: rootPath,
 		branch: 'main',
@@ -76,19 +74,10 @@ export async function nativeHistory({
 		(await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined
 	)
 		await readIdentity();
-	return createHistory({
-		backend,
-		boundary,
-		// Read at each commit, so a repository the first commit creates
-		// commits as the person's identity too.
-		author: {
-			get name() {
-				return identity.name;
-			},
-			get email() {
-				return identity.email;
-			},
-		},
-		landed,
-	});
+	const execute = () =>
+		executeHistoryRequest(
+			{ backend, boundary, getAuthor: () => identity, signal },
+			request,
+		);
+	return commits ? holdingHistoryLock(rootPath, execute) : execute();
 }

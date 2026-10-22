@@ -44,7 +44,7 @@ import {
 } from './directory-history.test-support.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
-import { createHistory } from './git/history.js';
+import { executeHistoryRequest } from './git/history.js';
 import { createNativeGitBackend } from './git/native-backend.js';
 import { createGitRunner } from './git/native-host.js';
 import { NEUTRAL_ATTRIBUTES } from './git/neutral-attributes.js';
@@ -122,7 +122,9 @@ describe('a directory history', () => {
 			'title: Buy milk',
 		);
 
-		expect((await folder.git.commit()).status).toBe('committed');
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		await git(root, 'fsck', '--strict');
 		expect(await git(root, 'log', '--format=%an <%ae>', '-1')).toBe(
@@ -143,7 +145,7 @@ describe('a directory history', () => {
 
 		const folder = await open(root);
 		await addTodo(folder, 'From Todos');
-		expect(await folder.git.commit()).toMatchObject({
+		expect((await folder.request({ op: 'saveVersion' })).result).toMatchObject({
 			status: 'committed',
 			parent: start,
 		});
@@ -170,7 +172,9 @@ describe('a directory history', () => {
 		try {
 			const folder = await open(root);
 			await addTodo(folder, 'First');
-			expect((await folder.git.commit()).status).toBe('committed');
+			expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+				'committed',
+			);
 			expect(await git(root, 'log', '--format=%an <%ae>', '-1')).toBe(
 				'Braden <braden@example.test>',
 			);
@@ -186,7 +190,7 @@ describe('a directory history', () => {
 		await git(root, 'gc', '--quiet');
 		const folder = await open(root);
 		await addTodo(folder, 'After gc');
-		expect(await folder.git.commit()).toMatchObject({
+		expect((await folder.request({ op: 'saveVersion' })).result).toMatchObject({
 			status: 'committed',
 			parent: start,
 		});
@@ -204,7 +208,7 @@ describe('a directory history', () => {
 		await git(root, 'commit', '--quiet', '-m', 'Native while open');
 		const native = await git(root, 'rev-parse', 'HEAD');
 		await addTodo(folder, 'After the native commit');
-		expect(await folder.git.commit()).toMatchObject({
+		expect((await folder.request({ op: 'saveVersion' })).result).toMatchObject({
 			status: 'committed',
 			parent: native,
 		});
@@ -219,11 +223,13 @@ describe('a directory history', () => {
 		await writeFile(join(root, '.git', 'index.lock'), '');
 		// The commit's objects and its compare-and-swap of the branch need no
 		// index; refreshing the index is refused, and the outcome says why.
-		const committed = await folder.git.commit();
+		const committed = (await folder.request({ op: 'saveVersion' })).result;
 		expect(committed).toMatchObject({ status: 'committed', parent: start });
 		expect(JSON.stringify(committed)).toContain('index.lock');
 		await Bun.file(join(root, '.git', 'index.lock')).delete();
-		expect((await folder.git.commit()).status).toBe('unchanged');
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'unchanged',
+		);
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		await git(root, 'fsck', '--strict');
 		await folder.close();
@@ -242,7 +248,9 @@ describe('a directory history', () => {
 		const before = await readFile(join(root, '.git', 'config'), 'utf8');
 		const folder = await open(root);
 		await addTodo(folder, 'Config untouched');
-		expect((await folder.git.commit()).status).toBe('committed');
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
 		expect(await readFile(join(root, '.git', 'config'), 'utf8')).toBe(before);
 		await folder.close();
 	});
@@ -258,7 +266,7 @@ describe('a directory history', () => {
 
 		const folder = await open(root);
 		await addTodo(folder, 'Beside a script');
-		const refused = await folder.git.commit();
+		const refused = (await folder.request({ op: 'saveVersion' })).result;
 		expect(refused.status).toBe('blocked');
 		expect(JSON.stringify(refused)).toContain('run.sh');
 		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
@@ -301,7 +309,9 @@ describe('a directory history', () => {
 				});
 				const created = await addTodo(folder, 'Line feeds');
 				// The first commit creates the repository.
-				expect((await folder.git.commit()).status).toBe('committed');
+				expect(
+					(await folder.request({ op: 'saveVersion' })).result.status,
+				).toBe('committed');
 				expect(await readFile(join(root, '.git/info/attributes'), 'utf8')).toBe(
 					`${NEUTRAL_ATTRIBUTES}\n`,
 				);
@@ -317,14 +327,22 @@ describe('a directory history', () => {
 					(await git(root, 'hash-object', '--no-filters', path));
 
 				expect(
-					(await folder.git.commit({ message: 'Keep line endings' })).status,
+					(
+						await folder.request({
+							op: 'saveVersion',
+							message: 'Keep line endings',
+						})
+					).result.status,
 				).toBe('committed');
 				for (const path of [created.path, 'windows.txt'])
 					expect([path, await stored('HEAD', path)]).toEqual([path, true]);
 
 				// A native checkout with no conversion of its own sends a file back.
 				const native = join(project, 'native');
-				expect(expectOk(await folder.sync.connect(bare)).kind).toBe('synced');
+				expect(
+					expectOk((await folder.request({ op: 'sync', connect: bare })).result)
+						.kind,
+				).toBe('synced');
 				await git(project, 'clone', '--quiet', bare, native);
 				await writeFile(join(native, 'incoming.txt'), 'a\nb\n');
 				await git(native, 'add', 'incoming.txt');
@@ -332,7 +350,9 @@ describe('a directory history', () => {
 				await git(native, 'push', '--quiet', 'origin', 'main');
 				await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\nthree\r\n');
 
-				expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+				expect(
+					expectOk((await folder.request({ op: 'sync' })).result).kind,
+				).toBe('synced');
 				expect(await readFile(join(root, 'incoming.txt'), 'utf8')).toBe(
 					'a\nb\n',
 				);
@@ -363,7 +383,7 @@ describe('a directory history', () => {
 		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
 		const folder = await open(root);
 		const created = await addTodo(folder, 'Plain bytes');
-		const committed = await folder.git.commit();
+		const committed = (await folder.request({ op: 'saveVersion' })).result;
 		expect(committed).toMatchObject({ status: 'committed', parent: start });
 		expect(await git(root, 'rev-parse', `HEAD:${created.path}`)).toBe(
 			await git(root, 'hash-object', '--no-filters', created.path),
@@ -375,7 +395,7 @@ describe('a directory history', () => {
 			'*.md text eol=crlf\n*.wav filter=lfs\n',
 		);
 		await addTodo(folder, 'Beside a filter');
-		const refused = await folder.git.commit();
+		const refused = (await folder.request({ op: 'saveVersion' })).result;
 		expect(refused.status).toBe('blocked');
 		expect(JSON.stringify(refused)).toContain(
 			'.gitattributes line 2 (*.wav filter=lfs) names a Git filter',
@@ -392,7 +412,7 @@ describe('a directory history', () => {
 			'* filter=lfs\n',
 		);
 		await writeFile(join(root, 'node_modules/pkg/index.js'), 'x\n');
-		const unaffected = await folder.git.commit();
+		const unaffected = (await folder.request({ op: 'saveVersion' })).result;
 		expect(unaffected.status).toBe('committed');
 		const next = await git(root, 'rev-parse', 'HEAD');
 
@@ -401,7 +421,7 @@ describe('a directory history', () => {
 		await writeFile(join(root, 'local/kept.md'), 'kept\n');
 		await git(root, 'add', '--force', 'local/kept.md');
 		await writeFile(join(root, 'local/.gitattributes'), '* filter=lfs\n');
-		const ignored = await folder.git.commit();
+		const ignored = (await folder.request({ op: 'saveVersion' })).result;
 		expect(ignored.status).toBe('blocked');
 		expect(JSON.stringify(ignored)).toContain(
 			'local/.gitattributes line 1 (* filter=lfs) names a Git filter',
@@ -491,7 +511,9 @@ describe('a directory history', () => {
 		const root = await scratch('directory-history-race-');
 		const [a, b] = await Promise.all([open(root), open(root)]);
 		await addTodo(a, 'From one window');
-		expect((await b.git.commit()).status).toBe('committed');
+		expect((await b.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
 		expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('1');
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		await git(root, 'fsck', '--strict');
@@ -503,8 +525,10 @@ describe('a directory history', () => {
 		const root = await scratch('directory-history-commit-race-');
 		const a = await open(root);
 		await addTodo(a, 'First');
-		expect((await a.git.commit()).status).toBe('committed');
-		// Handle A commits after B captured and before B moves the branch,
+		expect((await a.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
+		// Native Git commits after B captured and before B moves the branch,
 		// then saves once more: B's retry must record that save.
 		let interleave = true;
 		const b = await open(root, {
@@ -512,13 +536,14 @@ describe('a directory history', () => {
 				if (!interleave || args[0] !== 'update-ref') return;
 				interleave = false;
 				await addTodo(a, 'Committed by A');
-				expect((await a.git.commit()).status).toBe('committed');
+				await git(root, 'add', '--all');
+				await git(root, 'commit', '--quiet', '-m', 'External competitor');
 				await addTodo(a, 'Saved after A committed');
 			},
 		});
 		await addTodo(b, 'Saved by B');
 		const before = await git(root, 'rev-parse', 'HEAD');
-		const outcome = await b.git.commit();
+		const outcome = (await b.request({ op: 'saveVersion' })).result;
 		const fromA = await git(root, 'rev-parse', 'HEAD^');
 		expect(outcome).toMatchObject({ status: 'committed', parent: fromA });
 		expect(await git(root, 'rev-parse', 'HEAD^^')).toBe(before);
@@ -554,7 +579,10 @@ describe('a directory history', () => {
 		const b = await open(root);
 		for (let round = 0; round < 5; round++) {
 			await Promise.all([addTodo(a, `A ${round}`), addTodo(b, `B ${round}`)]);
-			const outcomes = await Promise.all([a.git.commit(), b.git.commit()]);
+			const outcomes = await Promise.all([
+				a.request({ op: 'saveVersion' }).then((reply) => reply.result),
+				b.request({ op: 'saveVersion' }).then((reply) => reply.result),
+			]);
 			for (const outcome of outcomes)
 				expect(['committed', 'unchanged']).toContain(outcome.status);
 		}
@@ -577,7 +605,7 @@ describe('a directory history', () => {
 		await git(root, 'remote', 'add', 'origin', bare);
 		const first = await open(root);
 		await addTodo(first, 'Shared');
-		expectOk(await first.sync.run());
+		expectOk((await first.request({ op: 'sync' })).result);
 		await first.close();
 
 		// Another checkout adds two todos and pushes.
@@ -597,7 +625,7 @@ describe('a directory history', () => {
 			},
 		};
 		const interrupted = await open(root, { primitives: stopping });
-		const stopped = await interrupted.sync.run();
+		const stopped = (await interrupted.request({ op: 'sync' })).result;
 		expect(stopped.error).not.toBeNull();
 		await interrupted.close();
 		// The remote changes a file that already landed before the interruption.
@@ -609,7 +637,7 @@ describe('a directory history', () => {
 		const latest = await git(native, 'rev-parse', 'HEAD');
 
 		const reopened = await open(root);
-		expectOk(await reopened.sync.run());
+		expectOk((await reopened.request({ op: 'sync' })).result);
 		expect(await readFile(join(root, 'todos/a.md'), 'utf8')).toContain(
 			'title: New remote title',
 		);
@@ -643,7 +671,7 @@ describe('a directory history', () => {
 		};
 		const folder = await open(root, { primitives: raced });
 		const created = await addTodo(folder, 'Shared');
-		expectOk(await folder.sync.run());
+		expectOk((await folder.request({ op: 'sync' })).result);
 
 		// Another checkout renames the todo and pushes.
 		const native = join(project, 'native');
@@ -660,11 +688,11 @@ describe('a directory history', () => {
 		racing = theirs;
 		// Sync merges the save in, the save winning the title both changed,
 		// and says the folder changed since the version it published.
-		const first = expectOk(await folder.sync.run());
+		const first = expectOk((await folder.request({ op: 'sync' })).result);
 		expect(first).toMatchObject({ kind: 'saved', changedSince: true });
 		expect(await readFile(join(root, created.path), 'utf8')).toBe(theirs);
 
-		const next = expectOk(await folder.sync.run());
+		const next = expectOk((await folder.request({ op: 'sync' })).result);
 		expect(next.kind).toBe('synced');
 		expect(await readFile(join(root, created.path), 'utf8')).toBe(theirs);
 		expect(await git(bare, 'show', `main:${created.path}`)).toContain(
@@ -677,11 +705,18 @@ describe('a directory history', () => {
 		const { root } = await nativeRepository('directory-history-version-');
 		const folder = await open(root);
 		await addTodo(folder, 'Versioned');
-		expect((await folder.git.commit({ message: 'Add one todo' })).status).toBe(
-			'committed',
-		);
+		expect(
+			(
+				await folder.request({
+					op: 'saveVersion',
+					message: 'Add one todo',
+				})
+			).result.status,
+		).toBe('committed');
 		expect(await git(root, 'log', '--format=%s', '-1')).toBe('Add one todo');
-		const log = expectOk(await folder.git.log(5));
+		const log = expectOk(
+			(await folder.request({ op: 'log', depth: 5 })).result,
+		);
 		expect(log[0]?.message.trim()).toBe('Add one todo');
 		await git(root, 'fsck', '--strict');
 		await folder.close();
@@ -696,7 +731,7 @@ describe('a directory history', () => {
 		await git(root, 'remote', 'add', 'origin', bare);
 		const folder = await open(root);
 		const created = await addTodo(folder, 'Synced');
-		expectOk(await folder.sync.run());
+		expectOk((await folder.request({ op: 'sync' })).result);
 		expect(await git(bare, 'log', '--format=%s', '-1', 'main')).not.toBe('');
 
 		// A native checkout edits the same todo and pushes.
@@ -711,7 +746,7 @@ describe('a directory history', () => {
 		await git(native, 'commit', '--quiet', '-am', 'Done natively');
 		await git(native, 'push', '--quiet', 'origin', 'main');
 
-		expectOk(await folder.sync.run());
+		expectOk((await folder.request({ op: 'sync' })).result);
 		expect(await readFile(join(root, created.path), 'utf8')).toContain(
 			'done: true',
 		);
@@ -730,7 +765,9 @@ describe('a directory history', () => {
 		const folder = await open(root);
 		try {
 			expectOk(await folder.write('saved.txt', 'saved'));
-			expect(await folder.git.commit()).toMatchObject({
+			expect(
+				(await folder.request({ op: 'saveVersion' })).result,
+			).toMatchObject({
 				status: 'blocked',
 				reason: 'HEAD is not on main',
 			});
@@ -750,11 +787,11 @@ describe('a directory history', () => {
 		try {
 			await writeFile(join(root, 'external.md'), 'external');
 			expectOk(await folder.write('saved.md', 'saved'));
-			expect(folder.git.snapshot.lastCommit).toBeUndefined();
-			expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
 			// Saving creates no repository; the first commit does.
 			expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
-			expect((await folder.git.commit()).status).toBe('committed');
+			expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+				'committed',
+			);
 			expect(await git(root, 'show', 'HEAD:external.md')).toBe('external');
 			expect(await git(root, 'show', 'HEAD:saved.md')).toBe('saved');
 			expect(await git(root, 'status', '--porcelain')).toBe('');
@@ -764,7 +801,9 @@ describe('a directory history', () => {
 			await writeFile(join(root, 'saved.md'), 'saved\nexternal line\n');
 			expectOk(await folder.write('saved.md', 'saved\nmine\n'));
 			expect(await git(root, 'status', '--porcelain')).toBe('M saved.md');
-			expect((await folder.git.commit()).status).toBe('committed');
+			expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+				'committed',
+			);
 			expect(await git(root, 'log', '-1', '--format=%s')).toBe(
 				'Update saved.md',
 			);
@@ -786,7 +825,9 @@ describe('a directory history', () => {
 		const root = join(project, 'local');
 		await git(project, 'clone', '--quiet', bare, root);
 		const folder = await open(root);
-		expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+		expect(expectOk((await folder.request({ op: 'sync' })).result).kind).toBe(
+			'synced',
+		);
 		// An ignored local file, and the remote adding its other spelling.
 		await writeFile(join(root, '.git/info/exclude'), 'notes.md\n');
 		await writeFile(join(root, 'notes.md'), 'mine, ignored\n');
@@ -797,7 +838,7 @@ describe('a directory history', () => {
 		const head = await git(root, 'rev-parse', 'HEAD');
 		// Names compare folded on every disk, so a case-sensitive one stops
 		// too: the directory must open on a case-insensitive one.
-		const synced = await folder.sync.run();
+		const synced = (await folder.request({ op: 'sync' })).result;
 		expect(synced.error?.name).toBe('Blocked');
 		expect(synced.error?.message).toContain("'Notes.md'");
 		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
@@ -817,10 +858,10 @@ describe('a directory history', () => {
 			branch: 'main',
 			host: { run: createGitRunner(root), files: nodeDirectoryPrimitives },
 		});
-		const history = createHistory({
+		const context = {
 			backend: {
 				...backend,
-				async casBranch(expected, next) {
+				async casBranch(expected: string | undefined, next: string) {
 					await git(
 						root,
 						'commit',
@@ -833,10 +874,12 @@ describe('a directory history', () => {
 				},
 			},
 			boundary,
-			author,
-		});
+			getAuthor: () => author,
+		};
 		await writeFile(join(root, 'a.txt'), 'a');
-		const outcome = await history.commit();
+		const { result: outcome } = await executeHistoryRequest(context, {
+			op: 'saveVersion',
+		});
 		expect(outcome.status).toBe('branchMoved');
 		// The first move was retried once; the second is reported.
 		expect(await git(root, 'log', '--format=%s')).toBe(
@@ -849,7 +892,6 @@ describe('a directory history', () => {
 			);
 			expect(outcome.actual).toBe(await git(root, 'rev-parse', 'HEAD'));
 		}
-		await history.close();
 	});
 
 	test('a merge another Git program began blocks commits and Sync until Git finishes it', async () => {
@@ -857,19 +899,23 @@ describe('a directory history', () => {
 		await git(root, 'init', '--quiet', '--initial-branch=main');
 		const folder = await open(root);
 		await folder.write('a.md', 'one\n');
-		expect((await folder.git.commit()).status).toBe('committed');
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
 		const head = await git(root, 'rev-parse', 'main');
 		await writeFile(join(root, '.git/MERGE_HEAD'), `${head}\n`);
 		await writeFile(join(root, 'a.md'), 'two\n');
 
-		const commit = await folder.git.commit();
+		const commit = (await folder.request({ op: 'saveVersion' })).result;
 		expect(commit).toMatchObject({ status: 'blocked' });
 		if (commit.status === 'blocked')
 			expect(commit.reason).toContain(
 				'a Git operation is in progress (MERGE_HEAD)',
 			);
 		await git(root, 'remote', 'add', 'origin', join(root, 'none.git'));
-		expect(expectErr(await folder.sync.run()).name).toBe('Checkpoint');
+		expect(expectErr((await folder.request({ op: 'sync' })).result).name).toBe(
+			'Checkpoint',
+		);
 		expect(await git(root, 'rev-parse', 'main')).toBe(head);
 		await folder.close();
 	});
@@ -880,12 +926,15 @@ describe('a directory history', () => {
 		const root = join(project, 'desktop');
 		await git(project, 'init', '--quiet', '--initial-branch=main', root);
 		const folder = await open(root);
-		expect(folder.git.snapshot.remote).toBeUndefined();
+		expect(
+			(await folder.request({ op: 'status' })).state.remote,
+		).toBeUndefined();
 		await addTodo(folder, 'Connected');
-		const synced = expectOk(await folder.sync.connect(bare));
+		const connected = await folder.request({ op: 'sync', connect: bare });
+		const synced = expectOk(connected.result);
 		expect(synced.kind).toBe('synced');
 		expect(await git(root, 'config', '--get', 'remote.origin.url')).toBe(bare);
-		expect(folder.git.snapshot.remote).toEqual({ url: bare, branch: 'main' });
+		expect(connected.state.remote).toEqual({ url: bare, branch: 'main' });
 		expect(await git(bare, 'rev-parse', 'main')).toBe(
 			await git(root, 'rev-parse', 'main'),
 		);

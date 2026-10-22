@@ -516,13 +516,37 @@ the file is `NotDataFolder`; absent or unusable tables are `InvalidDefinition`.
 Unusable views stay with their own reader. It writes nothing, takes no lock, and follows no link.
 
 Git is not on a `Folder`'s lifetime (ADR-0636). The history engine under
-`src/git/` stays for exchange: `runHistory` opens a directory's history for
-one operation and holds the history lock across a save version or a sync.
+`src/git/` stays for exchange: `runHistory` owns one complete request, with no
+history handle, subscriptions, background scans, or close step. A save version
+or a sync holds the history lock through its final reply inspection.
 It requires no declaration and interprets no table schema. Tracked files remain
 tracked; untracked files enter a commit unless Git ignores them. Ignore rules
 come from captured repository `.gitignore` files. Native Git also honors
 its machine-specific excludes. The browser engine's own Git exchange is in
 `src/browser/` ([its README](src/browser/README.md)).
+
+Each request answers its own operation receipt and optional final observations.
+A later inspection failure leaves a successful commit or publication successful;
+`state.files` or `state.sync` is absent when it could not be established.
+The final inspection lists the folder again and reads every tracked or included
+file, rather than inferring that a checkpoint left it clean. Each capture reads
+its `.gitignore` files first and reuses those bytes for selection and recording;
+captures skip untracked ignored payloads, such as audio. Tracked files are read
+even when an ignore rule matches them. A log request does not scan files.
+
+`synced` acknowledges the captured version reaching the remote. Files can
+change afterwards. `saved.changedSince` records a local change this request
+observed after its latest successfully recorded capture, including a stale
+conditional removal. It remains true even if a later inspection is clean or
+fails. False means no such event was observed, not that the files are clean.
+A subsequent successful checkpoint absorbs that information. Landed paths stay
+in the reply across checkpoints and partial failures.
+
+Acknowledged publication survives a later failure to clear its repair marker,
+reconcile the index, or update remote tracking. These failures are diagnostics;
+a checkpoint still reports its `indexWarning`. Unconfirmed remote tracking
+makes `state.sync` absent in that reply. Later status requests read the tracking
+ref as last recorded; a later fetch repairs it.
 
 A missing `.gitignore` is valid. To keep new recordings local, save
 `/audio/` in the root `.gitignore` before the audio is committed.

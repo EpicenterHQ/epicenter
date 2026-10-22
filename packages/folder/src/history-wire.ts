@@ -31,14 +31,15 @@ export type HistoryRequest =
 	| { readonly op: 'saveVersion'; readonly message?: string }
 	| {
 			readonly op: 'sync';
-			/** Make this the folder's remote first (`folder.sync.connect`). */
+			/** Make this the folder's remote before syncing. */
 			readonly connect?: string;
 			readonly allowUnrelatedHistories?: boolean;
 	  };
 
 /**
- * What the history knew when the operation ended, for the page's snapshot.
- * `files` and `sync` are absent when the operation did not observe them.
+ * Final observations and effect receipts from one request.
+ * `files` and `sync` are absent when not inspected or inspection failed.
+ * An observation failure never revokes a successful operation receipt.
  */
 export type HistoryState = {
 	readonly branch: string;

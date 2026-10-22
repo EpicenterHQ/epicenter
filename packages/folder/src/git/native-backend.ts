@@ -26,7 +26,6 @@ import { resolve as resolvePath } from 'node:path';
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { type GitBackend, type GitRemote, REMOTE_MOVED } from './backend.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
-import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
 import { neutralizeAttributes } from './neutral-attributes.js';
 import type { CommitSummary, ObjectAccess } from './objects.js';
@@ -228,11 +227,6 @@ export async function createNativeGitBackend({
 	}
 	let remote = await configuredRemote();
 
-	// This handle's own work only. Another handle or process is met at Git's
-	// lock files, where a held lock fails the command instead of delaying it,
-	// and at the branch's compare-and-swap (ADR-0541).
-	const serialized: GitBackend['exclusive'] = createMutex().run;
-
 	async function resolve(ref: string): Promise<string | undefined> {
 		if (!(await exists())) return undefined;
 		const result = await run(
@@ -280,7 +274,6 @@ export async function createNativeGitBackend({
 		async withObjects(work) {
 			return work(access);
 		},
-		exclusive: serialized,
 		readBranch: () => resolve(branchRef),
 		readRemoteTracking: () => resolve(trackingRef),
 		readPublishing: () => resolve(PUBLISHING_REF),
@@ -479,8 +472,14 @@ export async function createNativeGitBackend({
 					return 'rejected';
 				throw new GitCommandError(['push'], pushed.code, pushed.stderr);
 			}
-			await run(['update-ref', trackingRef, oid]);
-			return 'pushed';
+			let trackingWarning: string | undefined;
+			try {
+				await run(['update-ref', trackingRef, oid]);
+			} catch (cause) {
+				trackingWarning =
+					cause instanceof Error ? cause.message : String(cause);
+			}
+			return { status: 'pushed', trackingWarning };
 		},
 		async fetch(signal) {
 			if (remote === undefined) throw new Error('No remote is configured');

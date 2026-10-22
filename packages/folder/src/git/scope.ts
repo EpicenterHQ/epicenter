@@ -38,25 +38,3 @@ export function gitignoreMatcher(
 		return false;
 	};
 }
-
-/**
- * Keep tracked files and untracked files that are not ignored.
- */
-export async function sourceFiles(
-	current: ReadonlyMap<string, Uint8Array>,
-	tracked: ReadonlyMap<string, unknown>,
-	ignoredPaths: (
-		candidates: readonly string[],
-		current: ReadonlyMap<string, Uint8Array>,
-	) => Promise<ReadonlySet<string>>,
-): Promise<Map<string, Uint8Array>> {
-	const candidates = [...current.keys()].filter((path) => !tracked.has(path));
-	const ignored =
-		candidates.length === 0
-			? new Set<string>()
-			: await ignoredPaths(candidates, current);
-	const source = new Map<string, Uint8Array>();
-	for (const [path, bytes] of current)
-		if (!ignored.has(path)) source.set(path, bytes);
-	return source;
-}

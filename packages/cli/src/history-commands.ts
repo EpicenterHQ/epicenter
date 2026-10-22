@@ -162,9 +162,20 @@ function describeReply(
 		case 'sync': {
 			const { data, error } = reply.result as HistoryResults['sync'];
 			if (error !== null) return error.message;
-			return data.kind === 'synced'
-				? `Synced at ${short(data.head)}.`
-				: `Saved at ${short(data.head)}; the remote does not hold it yet${data.push?.status === 'failed' ? `: ${data.push.error}` : ''}.`;
+			if (data.kind === 'synced') return `Synced at ${short(data.head)}.`;
+			const details: string[] = [];
+			if (data.changedSince)
+				details.push('local files changed since that version');
+			if (data.push?.status === 'pushed')
+				details.push(
+					`sent ${short(data.push.oid)}${data.push.oid === data.head ? '' : '; this folder has moved on since'}`,
+				);
+			if (data.push?.status === 'failed')
+				details.push(`sending was not confirmed: ${data.push.error}`);
+			if (data.push?.status === 'cancelled')
+				details.push('sending was cancelled');
+			if (details.length === 0) details.push('no version was sent');
+			return `Saved at ${short(data.head)}; ${details.join('; ')}.`;
 		}
 	}
 }

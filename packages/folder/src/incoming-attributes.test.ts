@@ -138,7 +138,9 @@ async function incoming() {
 	const untouched = () => dumpDirectory(local);
 	opened.push(folder);
 	// Seed the initial remote tree before testing later incoming attributes.
-	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+	expect(expectOk((await folder.request({ op: 'sync' })).result).kind).toBe(
+		'synced',
+	);
 
 	const text = async (path: string) =>
 		decoder.decode(expectOk(await folder.files.read(path)).bytes);
@@ -159,25 +161,34 @@ async function incoming() {
 		 * file, no index entry, no ref.
 		 */
 		async refusedUntouched(path: string, reasonHolds: string) {
-			const head = expectOk(await folder.git.log(1))[0]?.oid;
+			const head = expectOk(
+				(await folder.request({ op: 'log', depth: 1 })).result,
+			)[0]?.oid;
 			// Looking at status may refresh the index's stat cache, as `git
 			// status` does. Look once first, so the comparison below sees only
 			// what the refused Sync itself wrote: nothing.
-			expect(expectOk(await folder.git.status()).changes).toEqual([]);
+			expect(
+				expectOk((await folder.request({ op: 'status' })).result).changes,
+			).toEqual([]);
 			const before = await untouched();
-			const landedBefore = folder.landed.length;
 
-			const refused = expectErr(await folder.sync.run());
+			const reply = await folder.request({ op: 'sync' });
+			const refused = expectErr(reply.result);
 
-			const heard = folder.landed.slice(landedBefore);
+			const heard = reply.landed;
 			expect(refused.name).toBe('Unrepresentable');
 			if (refused.name !== 'Unrepresentable') return;
 			expect(refused.paths).toEqual([path]);
 			expect(refused.reason).toContain(reasonHolds);
 			expect(refused.reason).toContain('names a Git filter');
 			expect(await untouched()).toEqual(before);
-			expect(expectOk(await folder.git.log(1))[0]?.oid).toBe(head);
-			expect(expectOk(await folder.git.status()).changes).toEqual([]);
+			expect(
+				expectOk((await folder.request({ op: 'log', depth: 1 })).result)[0]
+					?.oid,
+			).toBe(head);
+			expect(
+				expectOk((await folder.request({ op: 'status' })).result).changes,
+			).toEqual([]);
 			expect(heard).toEqual([]);
 			expect(await text('rec/take.wav')).toBe('RIFF real audio bytes');
 			expect(await text('rec/nested/deep.wav')).toBe('RIFF deeper audio');
@@ -220,7 +231,9 @@ describe('directory incoming attributes', () => {
 		);
 		const head = await converting.publish('normalize markdown line endings');
 
-		expect(expectOk(await converting.folder.sync.run())).toEqual({
+		expect(
+			expectOk((await converting.folder.request({ op: 'sync' })).result),
+		).toEqual({
 			kind: 'synced',
 			head,
 		});
@@ -228,7 +241,10 @@ describe('directory incoming attributes', () => {
 		expect(await converting.text('.gitattributes')).toBe(
 			'* text=auto\n*.md text eol=crlf\n',
 		);
-		expect(expectOk(await converting.folder.git.status()).changes).toEqual([]);
+		expect(
+			expectOk((await converting.folder.request({ op: 'status' })).result)
+				.changes,
+		).toEqual([]);
 	});
 
 	test("the folder's own attribute file does not mask the incoming commit's", async () => {
@@ -236,14 +252,18 @@ describe('directory incoming attributes', () => {
 		const masked = await incoming();
 		expectOk(await masked.folder.write('.gitattributes', '*.wav -filter\n'));
 		// Ignored by the committed `.gitignore`, so the folder is still clean.
-		expect(expectOk(await masked.folder.git.status()).changes).toEqual([]);
+		expect(
+			expectOk((await masked.folder.request({ op: 'status' })).result).changes,
+		).toEqual([]);
 		await writeFile(
 			join(masked.upstream, '.gitattributes'),
 			'*.wav filter=lfs\n',
 		);
 		await masked.publish('filter audio');
 
-		const refused = expectErr(await masked.folder.sync.run());
+		const refused = expectErr(
+			(await masked.folder.request({ op: 'sync' })).result,
+		);
 		expect(refused.name).toBe('Unrepresentable');
 		if (refused.name === 'Unrepresentable')
 			expect(refused.reason).toContain('filter=lfs');
@@ -262,21 +282,26 @@ describe('directory incoming attributes', () => {
 			'*.wav -text diff=audio\n*.md linguist-documentation\n',
 		);
 		const head = await plain.publish('keep a pointer as plain text');
-		const landedBefore = plain.folder.landed.length;
+		const reply = await plain.folder.request({ op: 'sync' });
 
-		expect(expectOk(await plain.folder.sync.run())).toEqual({
+		expect(expectOk(reply.result)).toEqual({
 			kind: 'synced',
 			head,
 		});
 		// An update that landed reports the paths it reached.
-		expect(plain.folder.landed.slice(landedBefore).sort()).toEqual([
+		expect(reply.landed).toEqual([
 			'.gitattributes',
 			'example-pointer.txt',
 			'rec/take.wav',
 		]);
 		for (const path of ['rec/take.wav', 'example-pointer.txt'])
 			expect(await plain.text(path)).toBe(LFS_POINTER);
-		expect(expectOk(await plain.folder.git.log(1))[0]?.oid).toBe(head);
-		expect(expectOk(await plain.folder.git.status()).changes).toEqual([]);
+		expect(
+			expectOk((await plain.folder.request({ op: 'log', depth: 1 })).result)[0]
+				?.oid,
+		).toBe(head);
+		expect(
+			expectOk((await plain.folder.request({ op: 'status' })).result).changes,
+		).toEqual([]);
 	});
 });

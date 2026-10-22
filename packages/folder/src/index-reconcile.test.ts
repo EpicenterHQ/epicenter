@@ -65,7 +65,7 @@ test('an unchanged checkpoint repairs HEAD B, files B, index A (MM)', async () =
 		root,
 		git: { author },
 	});
-	const outcome = await folder.git.commit();
+	const outcome = (await folder.request({ op: 'saveVersion' })).result;
 	expect(outcome).toMatchObject({
 		status: 'unchanged',
 		indexWarning: undefined,
@@ -91,7 +91,7 @@ test('staged-only additions and deletions do not survive a checkpoint', async ()
 		root,
 		git: { author },
 	});
-	const outcome = await folder.git.commit();
+	const outcome = (await folder.request({ op: 'saveVersion' })).result;
 	// The ignored file is not source, and kept.md is unchanged: no new commit.
 	expect(outcome.status).toBe('unchanged');
 	expect(await git(root, 'status', '--porcelain')).toBe('');
@@ -109,7 +109,7 @@ test('an index lock after the branch moved keeps the commit and a later commit-a
 	});
 	await folder.write('b.md', 'new\n');
 	await writeFile(join(root, '.git', 'index.lock'), '');
-	const locked = await folder.git.commit();
+	const locked = (await folder.request({ op: 'saveVersion' })).result;
 	expect(locked.status).toBe('committed');
 	if (locked.status !== 'committed') throw new Error('expected a commit');
 	expect(locked.indexWarning).toContain('index.lock');
@@ -118,7 +118,7 @@ test('an index lock after the branch moved keeps the commit and a later commit-a
 	await rm(join(root, '.git', 'index.lock'));
 	// The unrepaired index shows the committed file as a staged deletion.
 	expect(await git(root, 'status', '--porcelain')).toContain('D  b.md');
-	const repaired = await folder.git.commit();
+	const repaired = (await folder.request({ op: 'saveVersion' })).result;
 	expect(repaired).toMatchObject({
 		status: 'unchanged',
 		indexWarning: undefined,

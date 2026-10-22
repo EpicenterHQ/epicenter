@@ -20,9 +20,8 @@ import { lstat, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { sweepStaleScratch } from './directory-store.js';
-import type { FolderHistory } from './git/history.js';
 import type { GitCredentials } from './git/http.js';
-import { nativeHistory } from './git/native-history.js';
+import { runNativeHistory } from './git/native-history.js';
 import {
 	createGitRunner,
 	gitLayoutProblem,
@@ -30,12 +29,8 @@ import {
 	locateGit,
 } from './git/native-host.js';
 import type { Author } from './git/objects.js';
-import type {
-	HistoryReply,
-	HistoryRequest,
-	HistoryState,
-} from './history-wire.js';
-import { holdingHistoryLock, scratchDirectory } from './native/directory.js';
+import type { HistoryReply, HistoryRequest } from './history-wire.js';
+import { scratchDirectory } from './native/directory.js';
 import { nativeStorage, savingPrimitives } from './native/storage.js';
 
 export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
@@ -133,10 +128,10 @@ export type HistoryOptions = {
  * would write elsewhere, a remote that is not a network URL, or no `git` on
  * this computer (`GitMissingError`).
  *
- * The folder's history is opened for this one operation: its file storage,
- * which stages in `.<name>.epicenter-scratch` beside the folder as a Bun
- * folder does, using ordinary Git ignore and tracked-file rules. No schema
- * declaration is required. Saves never enter this history lifecycle.
+ * This request owns all Git work and its final inspection. File writes stage
+ * in `.<name>.epicenter-scratch` beside the folder, as a Bun folder's do.
+ * Ordinary Git ignore and tracked-file rules select source; no schema
+ * declaration is required. Ordinary saves run independently.
  */
 export async function runHistory(
 	root: string,
@@ -167,64 +162,15 @@ export async function runHistory(
 	// What a stopped write staged an hour or more ago goes before anything
 	// is staged, as at a Bun folder's open.
 	if (commits) await sweepStaleScratch(scratch, savingPrimitives(resolved));
-	const landed: string[] = [];
-	const history = await nativeHistory({
+	return runNativeHistory({
 		rootPath: resolved,
 		host: { run: createGitRunner(resolved), files: savingPrimitives(resolved) },
 		boundary,
 		author,
 		credentials,
 		initProblem: application ? undefined : () => enclosingRepository(resolved),
-		// Status and the log record nothing, so they skip reading who commits.
-		commits,
-		landed: (paths) => landed.push(...paths),
+		request,
 	});
-	try {
-		const result = await (async (): Promise<unknown> => {
-			switch (request.op) {
-				case 'status':
-					return history.status();
-				case 'log':
-					return history.log(request.depth);
-				case 'saveVersion':
-					return holdingHistoryLock(resolved, () =>
-						history.commit({ message: request.message }),
-					);
-				case 'sync': {
-					const options = {
-						allowUnrelatedHistories: request.allowUnrelatedHistories,
-					};
-					const { connect } = request;
-					return holdingHistoryLock(resolved, () =>
-						connect === undefined
-							? history.sync.run(options)
-							: history.sync.connect(connect, options),
-					);
-				}
-			}
-		})();
-		return {
-			result,
-			state: stateOf(history),
-			landed: [...new Set(landed)].sort(),
-		};
-	} finally {
-		await history.close();
-	}
-}
-
-/** The history's state as a reply carries it. */
-function stateOf(history: FolderHistory): HistoryState {
-	const { branch, remote, files, sync, lastCommit, lastPush } =
-		history.snapshot;
-	return {
-		branch,
-		remote,
-		files: files.state === 'observed' ? files.value : undefined,
-		sync: sync.state === 'observed' ? sync.value : undefined,
-		lastCommit,
-		lastPush,
-	};
 }
 
 /**
