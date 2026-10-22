@@ -70,11 +70,10 @@ try {
 		case 'complete': {
 			const id = args[0];
 			if (id === undefined) throw new Error('complete needs an id');
-			const edit = folder.tables.todos.edit(id);
-			const read = await edit.refresh();
-			if (read.error !== null || edit.getSnapshot().content === undefined) {
+			const read = await folder.tables.todos.edit(id).refresh();
+			if (read.error !== null) {
 				exitCode = 1;
-				print({ error: read.error?.message ?? `No todo named ${id}` });
+				print({ error: read.error.message });
 				break;
 			}
 			const saved = await folder.tables.todos.set(id, {

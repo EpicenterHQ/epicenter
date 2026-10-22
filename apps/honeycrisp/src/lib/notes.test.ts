@@ -311,6 +311,72 @@ test('deleting a folder moves its notes out first, then deletes its file', async
 	expect(notes.view.folderId).toBeNull();
 });
 
+test('deleting a folder acquires only its listed members', async () => {
+	const fixture = await openNotes();
+	cleanup.push(() => fixture.close());
+	const { notes, folder, write, text } = fixture;
+	await write('folders/work.md', folderText('Work'));
+	await write(A, noteText({ folderId: 'work' }));
+	await write('notes/b.md', noteText({ title: 'Unrelated' }));
+	await notes.load();
+
+	expect(await notes.deleteFolder(folderEntry(notes, 'work'))).toBeUndefined();
+	expect(folder.tables.notes.edit('b').getSnapshot().content).toBeUndefined();
+	expect(await text(A)).toContain('folderId: null');
+	expect(await text('notes/b.md')).toBe(noteText({ title: 'Unrelated' }));
+	expect(await text('folders/work.md')).toBeUndefined();
+});
+
+test('a note moved into a folder during deletion keeps that folder for another attempt', async () => {
+	const fixture = await openNotes();
+	cleanup.push(() => fixture.close());
+	const { notes, folder, write, text } = fixture;
+	await write('folders/work.md', folderText('Work'));
+	await write(A, noteText({ folderId: 'work' }));
+	await write('notes/b.md', noteText({ title: 'Moved in' }));
+	await notes.load();
+	const list = folder.tables.notes.list;
+	let scans = 0;
+	folder.tables.notes.list = async () => {
+		if (++scans === 2)
+			await write(
+				'notes/b.md',
+				noteText({ title: 'Moved in', folderId: 'work' }),
+			);
+		return list();
+	};
+
+	expect(await notes.deleteFolder(folderEntry(notes, 'work'))).toContain(
+		'Some notes are still in this folder',
+	);
+	expect(await text('folders/work.md')).toBe(folderText('Work'));
+	expect(await text(A)).toContain('folderId: null');
+	expect(await text('notes/b.md')).toContain('folderId: work');
+});
+
+test.each([1, 2])(
+	'closing during folder deletion scan %s refuses without a late storage call',
+	async (closingScan) => {
+		const fixture = await openNotes();
+		cleanup.push(() => fixture.close());
+		const { notes, folder, write, text } = fixture;
+		await write('folders/work.md', folderText('Work'));
+		await write(A, noteText({ folderId: 'work' }));
+		await notes.load();
+		const list = folder.tables.notes.list;
+		let scans = 0;
+		folder.tables.notes.list = async () => {
+			const found = await list();
+			if (++scans === closingScan) folder.close();
+			return found;
+		};
+
+		expect(await notes.deleteFolder(folderEntry(notes, 'work'))).toBe(CLOSING);
+		expect(await text('folders/work.md')).toBe(folderText('Work'));
+		if (closingScan === 1) expect(await text(A)).toContain('folderId: work');
+	},
+);
+
 test('a folder deletion keeps notes already moved when a later note cannot save', async () => {
 	const { notes, failSaves, text } = await setup({
 		'folders/work.md': folderText('Work'),

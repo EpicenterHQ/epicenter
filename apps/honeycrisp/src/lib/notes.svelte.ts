@@ -256,15 +256,19 @@ export function createNotes(local: NotesFolder) {
 	async function deleteFolder(entry: FolderEntry) {
 		if (local.closing) return CLOSING;
 		const listed = await folder.tables.notes.list();
+		if (local.closing) return CLOSING;
 		if (listed.error !== null) return describeFailure(listed.error);
-		if (!local.closing) queryClient.setQueryData(rowsKey(NOTES), listed.data);
+		queryClient.setQueryData(rowsKey(NOTES), listed.data);
 		const current = notesWithInput(listed.data);
 		const unknown = unknownRelations(current);
 		if (unknown !== undefined) return unknown;
 		for (const note of notesOf(current)) {
+			// The final scan keeps the folder if a new member arrives meanwhile.
+			if (note.fields.folderId !== entry.id) continue;
 			const edit = folder.tables.notes.edit(note.id);
 			if (!edit.getSnapshot().isDirty) {
 				const loaded = await edit.refresh();
+				if (local.closing) return CLOSING;
 				if (loaded.error !== null) return describeFailure(loaded.error);
 			}
 			const content = edit.getSnapshot().content;
@@ -276,6 +280,7 @@ export function createNotes(local: NotesFolder) {
 			if (saved.error !== null) return describeFailure(saved.error);
 		}
 		const reread = await folder.tables.notes.list();
+		if (local.closing) return CLOSING;
 		if (reread.error !== null) return describeFailure(reread.error);
 		const remaining = notesWithInput(reread.data);
 		const unreadable = unknownRelations(remaining);
