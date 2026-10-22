@@ -1,20 +1,24 @@
 # Standalone desktop verification
 
-> **Historical record.** This file describes the desktop as it ran under the
-> shell's Rust folder owner, a design retired on 2026-10-15 by
-> [ADR-0531](../../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md).
-> The page now runs the folder engine over a directory the shell grants. Read
-> this file as what was checked then, not as current behavior.
+> **Historical record.** The dated sections below describe earlier desktop
+> architectures. The current page owns its Folder engine over a directory granted
+> by the shell ([ADR-0531](../../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
+> Current departure evidence is separated here from those older checks.
 
 ## Closing and quitting inside Epicenter (October 21, 2026)
 
-### Current policy: always-confirm Quit and unsaved-only Close
+### Current policy
 
-**Standalone Quit alert update:** Application Quit now uses an unparented native
-alert. The user inspected its appearance in the isolated macOS app and accepted
-it. Computer use cannot capture or control its
-`com.apple.UserNotificationCenter` surface, so the user clicked the alert's
-buttons and computer use independently checked the resulting app state:
+Window Close warns only for unfinished Folder saves. A recording-only window
+closes silently and native cleanup keeps its audio. Application Quit always
+confirms and mentions active capture. It uses a standalone native alert with no
+window parent. No page reports save status or reads native recording status for
+departure. See [ADR-0663](../../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md).
+
+The user inspected and accepted the standalone alert's appearance. Computer use
+cannot capture or control its macOS UserNotificationCenter surface, so the user
+clicked its buttons and computer use independently checked the resulting app
+state. The final standalone-alert build was verified on macOS:
 
 - Cancel left both the saved Todos window and the Folders launcher open. Computer
   use opened the saved todo's details, confirmed both windows in the Window menu,
@@ -25,34 +29,73 @@ buttons and computer use independently checked the resulting app state:
 
 This run used saved windows with no active capture. It establishes standalone
 Quit Cancel, retry, and confirmed exit; the recording evidence below comes from
-the preceding attached-sheet build. The isolated build succeeded and its native
-suite passed 143 tests, with one ignored. Window Close and the native recording
-warning remain unchanged. The attached-sheet parent and stale-attempt checks
-below describe the superseded design.
+the preceding attached-sheet build. The isolated native suite passed 143 tests
+with one ignored.
 
-Epicenter application Quit always confirms and mentions an active recording.
-Window Close confirms only for unsaved edits. Closing a saved recording window
-ends capture silently and keeps its audio. No page reports save status or reads
-native recording status for departure.
+### October 22 source reconciliation
 
-**Live macOS verification of this policy:**
+The folder-owned-source change in `bd78bfb52b` keeps the Close and Quit policy
+above. `folder.run(action)` admits lifetime only, with no path reservation or
+automatic input flush. Ordinary file and table operations stay usable while
+Folder close drains; writes started before final storage release are waited
+for. Folder lifetime tracking alone does not mean a file is saving and adds
+no departure warning. Native destruction and browser unload do not wait for
+that drain.
 
-- Saved application Quit shows one native confirmation; repeated Cmd-Q adds no
-  sheet, and Cancel returns to a usable launcher.
-- Closing a saved recording window shows no warning and finalizes readable
-  16 kHz PCM16 audio (183,979 frames, 11.499 seconds).
-- A permission-denied title save still shows the unsaved-edit Close warning.
-  Cancel retains the complete title and running capture.
-- Application Quit adds the active-recording warning. Repeated requests share
-  its sheet; Cancel keeps capture and input. Quit Anyway exits and finalizes
-  readable audio (911,019 frames, 56.939 seconds); the failed title stays
-  unwritten. Fixture permissions were restored and the isolated app exited.
+The page's Stop/finalization flow can write recording length, including after
+an interruption, while its write is admitted. Native departure keeps audio
+without promising length metadata. This reconciliation checks source and
+automated coverage; it repeats no macOS UI or microphone acceptance. The
+143-test result and manual standalone Quit checks above belong to October 21.
 
-Source checks confirm that the page-status events, timeout, and page-facing
-recording command are removed. Shared close tests and native Quit tests cover
-failure recovery and stale answers. Windows and Linux remain unverified.
+### Verified before the standalone-alert change
 
-### Earlier native checks
+These isolated packaged macOS checks exercised the same local Close and native
+audio rules, with the previous application Quit sheet:
+
+- Saved application Quit showed a confirmation; repeated Cmd-Q kept one prompt,
+  and Cancel returned to a usable launcher.
+- Closing a saved recording window showed no warning and finalized readable
+  16 kHz PCM16 audio: 183,979 frames, 11.499 seconds.
+- A permission-denied title save triggered the local Close warning. Cancel
+  retained the complete title and running capture.
+- Application Quit added the recording warning. Cancel kept input and capture;
+  Quit Anyway exited and finalized readable audio: 911,019 frames, 56.939 seconds.
+  The failed title stayed unwritten. Fixture permissions were restored.
+- Standalone Todos' Cmd-Q and app-menu Quit used its ordinary window close.
+  Pending and failed saves warned, Cancel retained exact input, and a saved
+  window left silently. A real SQLite save lock exercised pending work.
+- A native group of two dirty Todos tabs prompted independently. Cancel retained
+  both complete titles and each tab could prompt again. Selecting the native
+  tab through the Window menu restored usable focus after computer use selected
+  an inactive alert surface.
+
+An earlier attached-Quit-sheet run reproduced a stuck Quit after its parent
+window closed. Parent/attempt tracking repaired it. That lifecycle and its test
+are superseded by the standalone alert, which has no parent dependency.
+Recording-only Close warnings, cross-window status collection, and silent saved
+application Quit also belong to earlier policies and are not current behavior.
+
+### Automated coverage and remaining limits
+
+Shared close tests cover duplicate requests, Cancel/retry, registration and
+destruction failures, and old callbacks or cleanup acting on a replacement guard.
+Folder and mounted app tests cover accepted input, failed saves, admitted work
+through close, retained capture paths through held Stop, repeated Stop joining
+metadata, and route changes preserving the app. Confirmed native departure does
+not wait for page workflows and does not promise recording length metadata.
+
+The newer current-policy capture checks used an isolated app, disposable copied
+data, and a silent virtual input. The older-policy record below also includes
+real microphone runs. No user recordings moved or provider requests were sent.
+Windows/Linux presentation, physical microphone unplugging, and abrupt process
+termination remain unverified. The browser still warns for unsaved Folder input
+and can lose an in-memory recording on departure.
+
+The historical sections retain their original evidence and architecture claims.
+They do not establish current behavior.
+
+### Historical policy: recording-aware Close and status-based Quit
 
 The checks below record the preceding policy. Silent saved application Quit and
 recording-only Close warnings are superseded by the current policy above.
@@ -111,12 +154,6 @@ Windows and Linux presentation remain unverified. Quit samples status without
 freezing input across windows. macOS Dock Quit and logout are outside the custom
 menu/tray route. Dialog/destroy failure recovery has automated coverage without
 live permission fault injection. No check moved user data.
-
-This file has four dated parts. The first records moving the desktop folder to
-the shell's Rust owner, which has TypeScript checks only and an uncompiled
-shell. The second records the adoption of the shared folder package, which has
-automated checks only. The third records the restored pages and
-transformations. The fourth retains the earlier single-window acceptance.
 
 ## Desktop folder moved to the shell's owner (October 2, 2026)
 

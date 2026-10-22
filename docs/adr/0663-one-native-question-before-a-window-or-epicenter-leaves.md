@@ -2,9 +2,111 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
-- **Amends:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) to warn about a native recording as well as unfinished saves.
+- **Amends:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) at desktop window Close and application Quit, and [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) at departure metadata and the removed recorder cancel operation.
+- **Lifecycle:** [ADR-0664](0664-folder-close-drains-admitted-work-through-one-owner.md), as amended by [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md), owns orderly Folder closure and lifetime-only action admission.
+- **Source reconciliation:** 2026-10-22, against `bd78bfb52b` and current callers. The native runs below remain October 21 evidence, not a new acceptance of the latest editor build.
 
-## Amendment: application Quit uses a standalone native alert
+## Context
+
+Folder knows whether its window has accepted input that has not saved. The
+native recorder knows whether capture is active and owns WAV finalization.
+Window Close and application Quit have different scopes. Page workflow teardown
+cannot promise to finish when the native host destroys the WebView.
+
+Earlier versions combined Close and Quit in one native departure coordinator,
+then used independent window confirmation and a window-attached Quit sheet.
+An independent window close could remove that sheet's parent and strand Quit;
+parent and attempt tracking repaired the reproduced case. The user accepted a
+standalone native Quit alert instead, removing that parent dependency.
+
+## Decision
+
+**Window Close warns only for unfinished Folder saves.** Each page uses its
+current local save status and awaits one native confirmation. A recording alone
+closes silently and keeps captured audio. A single status snapshot determines
+whether to ask; a save finishing while the question opens does not withdraw it.
+Cancel keeps input and the window. Confirmation dispatches destruction without
+waiting for page workflows. A successful dispatch keeps the page inert until
+it is gone; a failed dispatch restores input and permits retry. A retired guard
+cannot act on, unlock, or release a replacement guard. Other windows answer
+independently, including members of native tab groups.
+
+**Epicenter always confirms application Quit.** Its standalone alert mentions
+active capture, using the native recorder directly, and warns that unsaved input
+may be lost. It has no window parent. Repeated Quit requests share that alert;
+Cancel returns to Ready, and confirmation sets Approved so Tauri's next exit
+request can proceed. QuitState has only Ready, Prompting and Approved. There
+are no parent labels, attempt IDs, counters, destruction hooks, page status
+query/reply events, timeouts or page-facing recording-status command.
+
+On macOS the installed dialog backend uses CFUserNotificationDisplayAlert for
+the unparented alert. The user accepted its appearance and manually clicked
+Cancel and Quit Anyway in the final isolated build. Computer use verified that
+Cancel retained both windows and usable navigation, and an independent process
+check confirmed exit after a fresh Quit request and Quit Anyway. The alert's
+system-owned surface remains unavailable to computer use.
+
+**Native departure finalizes captured audio.** Recorder page/window/exit cleanup
+keeps the WAV; recorder commands do not delete captured audio. A file whose
+capture never started can still be removed. The page's Stop/finalization flow
+writes `durationMs` while it remains active and the Folder admits that write.
+An interruption can enter the same flow; repeated Stop joins its completion
+through the metadata write.
+Departure preserves audio without promising duration metadata. Browser departure
+can lose an in-memory recording and adds no recording-only unload warning.
+
+**Product disposal is synchronous.** Whispering refuses new work and late
+answers, aborts a starting capture, releases microphone tests and subscriptions,
+and starts Folder closure without awaiting it. It neither calls Stop on active
+capture nor drains provider workflows. Folder.close independently refuses fresh
+input and actions, submits held input once, and drains admitted actions and
+writes through the ordinary Folder. `run(action)` admits lifetime only: it
+reserves no paths, flushes no input, and locks nothing. File and table calls
+remain usable until storage is released; writes started by any caller while
+draining prolong close. Confirmed native destruction does not wait for those
+page promises. No second Folder, save owner or shutdown queue is introduced.
+
+Standalone Todos' app-menu Quit and Cmd-Q continue to request its one window's
+ordinary guarded close. That custom menu route does not establish coverage
+for macOS Dock Quit or logout. Startup, selected folders, schemas, stored formats
+and unsubmitted forms do not change.
+
+## Evidence and limits
+
+Before the standalone-alert change, isolated macOS runs verified conditional
+window Close, independent dirty tabs, failed and pending input, Cancel retaining
+exact input and capture, repeated requests, and readable WAVs after confirmed
+Close or application Quit. Those capture and local Close rules remain unchanged.
+The standalone alert's appearance was accepted; its isolated native suite passed
+143 tests with one hardware test ignored. Manual checks of the final build
+verified Cancel, retry, and Quit Anyway with saved Todos and Folders windows.
+No capture was active in that run; the recording evidence remains from the
+preceding attached-sheet build.
+
+Shared tests cover local confirmation, stale guard cleanup, rejection recovery
+and Folder closure. Capture tests cover held Stop, retained audio paths, repeated
+Stop and synchronous disposal. The [desktop verification record](../../apps/whispering/docs/desktop-verification.md)
+separates current evidence from historical policies and lists remaining checks.
+Windows/Linux presentation, physical microphone interruption and abrupt process
+termination remain outside this native acceptance.
+
+## Built
+
+`apps/epicenter/src-tauri/src/shell.rs`, shared `window-close.ts` and
+`folder-context.ts`, Whispering's single app owner, and the native recorder.
+The former shared Departure protocol, recorder cancellation API, page recording
+read and parented-Quit lifecycle are removed. Their earlier decisions and
+superseded tests remain in Git history.
+
+## Historical decisions before source reconciliation
+
+The following decision text and amendments are preserved from `4a2b61c25b`.
+Only their heading level changes. They record the transitions from recording-aware
+Close and status-based Quit to unsaved-only Close and a standalone Quit alert.
+The current policy above governs; references below to removed commands,
+parent tracking, and rejected alternatives describe those earlier designs.
+
+### Amendment: application Quit uses a standalone native alert
 
 Application Quit has no window parent. The unparented native alert belongs to
 the application and remains pending when any individual window closes. Its
@@ -26,7 +128,7 @@ with no active capture; recording evidence remains from the preceding
 attached-sheet build. The attached-sheet and stale-parent checks below describe
 the superseded design. Startup does not change.
 
-## Amendment: always confirm Quit; Close warns only for unsaved edits
+### Amendment: always confirm Quit; Close warns only for unsaved edits
 
 Application Quit always asks one native question. The native recorder adds a
 recording warning when capture is active. No folder page reports save status:
@@ -47,7 +149,7 @@ Startup, folder selection, and stored formats do not change.
 The following sections describe the prior policy and its evidence. This
 amendment supersedes their Close and Quit selection rules.
 
-## Decision
+### Decision
 
 Each page answers its own window close through an awaited native `confirm(...)`.
 The Folder owns accepted input and pending or failed saves. Epicenter exposes
@@ -82,7 +184,7 @@ window's ordinary close, so the same page confirmation applies. AppKit's default
 Quit bypasses this guard; macOS Dock Quit and logout remain outside the custom
 menu/tray route. Startup and fixed-default folder selection do not change.
 
-## Alternatives
+### Alternatives
 
 A shared native departure coordinator would need to queue independent window
 requests or drop them. Closing each window in turn for application Quit would
@@ -94,7 +196,7 @@ An unparented application Quit alert could remove parent tracking, but changes
 the chosen native sheet appearance. Always warning could remove status checks,
 but adds a prompt for saved windows. Neither presentation change is adopted.
 
-## Evidence
+### Evidence
 
 Installed Tauri, dialog-plugin, rfd, and Tao sources establish close-event
 prevention, dispatch-only destruction, invoking-window dialog parenting, and
