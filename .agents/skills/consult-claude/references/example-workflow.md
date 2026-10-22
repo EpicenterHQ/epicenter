@@ -5,7 +5,10 @@ or a transcript of executed tests. The named example files belong to a fictional
 fixture. A real brief includes excerpts and paths from the actual checkout.
 
 This is a standalone Claude consultation, so the proposal appears in the first
-brief. An explicitly blind review withholds the proposal for its initial pass; adversarial-review owns that choice.
+brief. An explicitly blind review withholds the proposal for its initial pass;
+adversarial-review owns that choice. When an adversarial review is requested,
+this exchange is its Claude seat; adversarial-review also staffs two Codex
+reviewers, omitted here.
 
 ## User to Codex
 
@@ -171,19 +174,20 @@ above illustrates the target; it is not a measured result or an answer key.
 | Advice-only request | Codex returns the proposed check without silently authorizing implementation. |
 | Follow-up with new evidence | Existing task notes preserve the native session locator, account, checkout, model and effort. The same native session recalls the assignment; capability and source changes are stated explicitly. An older Sonnet session can continue as Opus without a new conversation. |
 | Claude-owned evidence gathering | With explicit host-provided Codex assistance, Claude asks a bounded source question, inspects deciding sources, and returns its own judgment. The consultation cannot request implementation. |
-| Claude-owned delivery with Codex implementation | In the current checkout or an explicitly selected standalone clone, Claude briefs, inspects and corrects Codex work. Only the Codex helper has code-writing tools; the coordinating Codex pauses its edits and performs focused acceptance. Current-checkout delivery needs no copy step; only a clone delivery requires transferring accepted changes. |
+| Substantial Claude-owned delivery | Uses Codex assistance by default. In the current checkout or an explicitly selected standalone clone, Claude briefs, inspects and corrects Codex work. Only the Codex helper has code-writing tools; the coordinating Codex pauses its edits and performs focused acceptance. Current-checkout delivery needs no copy step; only a clone delivery requires transferring accepted changes. |
 | Named personal/work subscription | Native preflight verifies the selected profile and expected Claude email; conflicting API/provider overrides cannot send the brief under another billing method. Claude resolves resumes in the selected profile and rejects missing sessions; the launcher does not inspect transcript layout. |
-| Adversarial design review without a reviewer restriction | Coordinator uses the reviewer setup defined by adversarial-review. This example does not choose reviewer models or duplicate that workflow. |
-| Ordinary final code check | Uses post-implementation-review locally; does not launch the reviewer pair. |
+| Adversarial design review without a reviewer restriction | Coordinator staffs the seats defined by adversarial-review, normally including Claude without the user naming it. This example does not duplicate that workflow. |
+| Ordinary final code check | Uses post-implementation-review locally; does not launch independent reviewers. |
 | Bounded read-only caller map or documentation draft | Claude returns the finished artifact with source evidence; Codex checks decisive claims without launching a panel. |
-| Explicit implementation or benchmark delegation | Uses delegate-claude in the current checkout by default; Claude applies changes and runs checks; Codex inspects the diff and reproduces deciding checks without repeating the investigation. |
+| Explicit implementation or benchmark delegation | Uses delegate-claude in the current checkout by default. For substantial changes Claude directs and inspects a Codex helper that writes the code; a small tightly coupled edit stays direct. Codex inspects the diff and reproduces deciding checks without repeating the investigation. |
 | Delegation target inside or containing the checkout, an external linked worktree, or consultation with `--workspace` | The launcher refuses before sending the brief. |
 | Helper-backed skill edit | The coordinator selects `--codex-write-root` for each assigned skill directory on every turn; consultation, direct delegation, paths outside `.agents/skills` and symlink escapes are refused before launch. |
 | Standalone request for Claude's opinion | Consults Claude without automatically launching a Codex reviewer. |
 | Explicit Codex-only adversarial review | Honors the restriction and does not enlist Claude. |
-| Reviewers agree without evidence of a shared blind spot | Coordinator verifies and reconciles findings; agreement alone does not trigger a third review. |
+| Reviewers agree without evidence of a shared blind spot | Coordinator verifies and reconciles findings; agreement alone does not trigger an additional review. |
 | Opportunity for a different organizing idea without a known defect | Coordinator can commission a fresh exploration, names what it could improve, and compares concrete use, guarantees, deletion prizes, and introduced complexity. |
-| Reviews share a consequential unsupported premise | Coordinator commissions a focused challenge or fresh exploration and verifies the deciding claims; it can challenge its own synthesis. |
+| Reviews share a consequential unsupported premise | Coordinator names the suspected assumption and adds a reviewer focused on it without waiting for user permission. |
+| Findings expose a distinct unresolved question | Coordinator settles it with a focused trace or counterexample when that suffices, or adds a reviewer for that question within task scope; no seat cap. Stops when the decision is supported. |
 | Reviewer drifts into local cleanup | Coordinator redirects a completed-turn follow-up toward the ownership, lifetime, representation, or interaction that makes the machinery necessary, without prescribing a verdict. |
 | New evidence changes an execution assignment | Delegate-claude sends a fresh brief in the same idle clone with the full assignment, changed evidence, and acceptance criteria, retains useful partial work, and keeps one writer per clone. |
 

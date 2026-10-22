@@ -1,36 +1,38 @@
 ---
 name: delegate-claude
-description: Delegate a bounded implementation, prototype, benchmark, or file artifact to Claude Code, which owns the reasoning and applies the result in the current checkout or a selected standalone clone. Use when asked to delegate execution to Claude or when a task-specific benefit justifies a separately owned Claude assignment. Answer-only investigations, recommendations, and text drafts belong to consult-claude.
+description: Delegate a bounded implementation, prototype, benchmark, or file artifact to Claude Code, which owns the reasoning and delivery in the current checkout or a selected standalone clone, directing a Codex helper as sole code writer for substantial changes. Use when an authorized task benefits from Claude's reasoning, design judgment, or taste, or when asked to delegate execution to Claude. Answer-only investigations, recommendations, and text drafts belong to consult-claude.
 ---
 
 # Delegate Claude
 
-Claude owns the reasoning and delivery of a completed assignment, including
-applying its changes in the assigned checkout. By default that is the current
-checkout. The coordinating Codex owns overall continuity and focused acceptance.
-It pauses its own edits to that checkout until Claude returns, and it does not
-repeat Claude's investigation or copy the result into another checkout. Name
-the benefit of assigning delivery to Claude, such as a user-requested division
-of work or a bounded experiment that can proceed separately from the parent
-task. Reasoning, design judgment, or taste alone does not require delegation.
-Once delegation is selected, give Claude a coherent outcome and observable
-acceptance criteria, including the investigation needed to deliver it. Codex
-need not solve the assignment before handing it over.
+Claude owns the reasoning and delivery of a completed assignment in the assigned
+checkout, by default the current checkout. For substantial changes, Claude
+investigates, decides, briefs, inspects, and directs corrections while a Codex
+helper writes the code. A small edit tightly coupled to Claude's reasoning can
+stay with Claude directly. The coordinating Codex owns overall continuity and
+focused acceptance. It pauses its own edits to that checkout until Claude
+returns, and it does not repeat Claude's investigation or copy the result into
+another checkout. Prefer Claude when reasoning, design judgment, or taste can
+improve the delivered result. Codex need not solve the question before assigning
+delivery, and a small change can warrant Claude when the choice matters. Keep
+purely mechanical changes with Codex. Give Claude a coherent outcome and
+observable acceptance criteria, including the investigation needed to deliver
+it.
 
 Choose the execution route before launching. For substantial implementation,
 default to `--codex --codex-model <selected-model>`. Claude owns the design
 judgment, assigns bounded investigation and implementation to Codex, inspects
 the resulting changes, and directs corrections. For a small edit tightly
-coupled to Claude's reasoning, keep the direct route. Use direct delivery when
-handing off would require repeating most of the investigation.
+coupled to Claude's reasoning, keep the direct route.
 
 Respect the user's priorities for speed, attention, and usage. When speed
 matters, minimize serial handoffs and repeated investigation while preserving
 required verification. Additional agents must earn their coordination cost.
 
 The user's request to delegate, or authorization to complete the parent task,
-bounds the assignment. Delegation does not authorize publishing, deploying,
-sending messages, changing credentials, or expanding the product outcome.
+bounds the assignment; that authorization already covers bounded delegation.
+Delegation does not authorize publishing, deploying, sending messages, changing
+credentials, or expanding the product outcome.
 Use [consult-claude](../consult-claude/SKILL.md) when the requested result is an
 answer, recommendation, or text draft. When the user authorizes a delivered
 change, give Claude the investigation, design judgment, and implementation in
@@ -119,7 +121,10 @@ until Codex performs it.
 ## Dispatch and continue
 
 Requires Bun, Git, and authenticated Claude Code 2.1.285 or later with access to
-the selected model and a working native Bash sandbox. Use the same launcher as
+the selected model. Codex-assisted delivery also requires the authenticated
+Codex CLI and protocol dependency described in
+[Codex assistance](../consult-claude/references/codex-assistance.md). Direct
+delivery requires a working native Bash sandbox. Use the same launcher as
 consultation. New and resumed delegations default to Opus 5.5 high; explicit
 `--model` and `--effort` flags override that. Codex helpers use the selected
 helper model at medium reasoning. Sonnet is an explicit choice for routine
@@ -249,8 +254,8 @@ Claude's output. Run it from the idle assigned checkout or a snapshot containing
 the reviewed evidence; give it the desired behavior, baseline, callers, and
 cumulative diff before the worker's justification. From a worker clone, invoke
 the launcher by its absolute path in the coordinating checkout, with the clone
-as the working directory. Adversarial-review owns the pair for a consequential
-checkpoint.
+as the working directory. Adversarial-review owns reviewer staffing for a
+consequential checkpoint.
 
 Keep acceptance review proportional to the consequence. Tests establish their
 covered behaviors; direct caller inspection and counterexamples can expose

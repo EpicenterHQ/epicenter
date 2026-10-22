@@ -95,8 +95,9 @@ For implementation, Claude supplies accepted requirements, affected consumers,
 allowed changes, checks and a stop condition. Codex returns changed paths,
 commands and actual results, and unresolved issues. Claude inspects the actual
 result and returns focused corrections. Do not forward the parent assignment
-unchanged or ask a worker to invent an unresolved product contract. Small edits
-Claude already understands usually belong in the direct route.
+unchanged or ask a worker to invent an unresolved product contract. Substantial
+Claude-owned delivery uses this route by default; a small edit tightly coupled
+to Claude's reasoning usually belongs in the direct route.
 
 Each tool accepts `prompt` and an optional `session_id`. Within one launcher
 run, a tool can resume a helper session it returned; an evidence session cannot

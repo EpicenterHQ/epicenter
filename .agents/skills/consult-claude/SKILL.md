@@ -1,6 +1,6 @@
 ---
 name: consult-claude
-description: Obtain a bounded read-only opinion, investigation, recommendation, or text draft from Claude Code. Use when asked to consult Claude, when a task-specific need for an independent Claude perspective is identified, or when a review workflow assigns Claude a role. Completed edits and executable experiments belong to delegate-claude.
+description: Give Claude Opus 5.5 responsibility for reasoning, design judgment, read-only investigations, recommendations, or finished text drafts. Use when the result benefits from thoughtful reasoning or taste, when asked to consult Claude, or when supplying the Claude seat of an independent review. Completed edits and executable experiments belong to delegate-claude.
 ---
 
 # Consult Claude
@@ -14,18 +14,19 @@ run an experiment. If the user already authorizes a delivered change, assign
 the investigation and implementation together through that route; do not add
 an initial consultation merely because the approach is unresolved.
 
-Identify what the consultation adds: a requested Claude opinion, an independent
-challenge to a consequential assumption, or a role assigned by a review
-workflow. Reasoning, design judgment, or taste alone does not require a handoff.
-Once consultation is selected, brief Claude before resolving the assigned
-question yourself. Give it the desired outcome, raw source evidence, and enough
-ownership to finish the answer. A standalone consultation does not automatically
-launch the adversarial reviewer pair.
+Use Claude early when the result depends on reasoning, design judgment, taste,
+or choosing between competing interpretations. Codex need not solve the question
+before briefing Claude or wait until it is stuck. Give Claude the desired
+outcome and raw source evidence, and enough
+ownership to finish the answer. A short but consequential question can warrant
+consultation; routine mechanical work stays in Codex. A standalone
+consultation does not automatically launch an adversarial review.
 
-Use Codex assistance for supporting evidence that Claude can inspect without
-giving up its understanding of the problem. Judge the answer by its reasoning,
-evidence, and quality of judgment. Elapsed time and usage are context, not the
-objective.
+Choose Claude for the quality of its reasoning and judgment, including on a
+small question when the choice matters. Use Codex assistance for supporting
+evidence that Claude can inspect without giving up its understanding of the
+problem. Judge the answer by its reasoning, evidence, and quality of judgment.
+Elapsed time and usage are context, not the objective.
 
 ## Define the result
 
@@ -58,12 +59,13 @@ evidence to judge the decision; Claude can read further to verify your account.
 
 For a requested adversarial design review, have Claude apply
 [adversarial-review](../adversarial-review/SKILL.md) itself without commissioning
-another reviewer. Its coordinator owns staffing; this consultation supplies a
-Claude reviewer or a standalone opinion. For other design questions, answer the
-bounded question from source evidence; a complete architectural review is not
-implied. Treat the implementer's reasoning as contestable evidence. Ask for a
-concrete smaller alternative when that would decide the question; keeping the
-design is valid when its guarantees earn their cost.
+another reviewer. Its coordinator owns staffing and the starting questions;
+this consultation supplies the review's Claude seat or a standalone opinion.
+For other design questions, answer the bounded question from source evidence;
+a complete architectural review is not implied. Treat the implementer's reasoning
+as contestable evidence. Ask for a concrete smaller alternative when that would
+decide the question; keeping the design is valid when its guarantees earn their
+cost.
 
 ## Send a brief
 
@@ -201,8 +203,9 @@ results, and source state. An advice-only request does not authorize edits.
 Ask before materially expanding the task; prior authorization still applies.
 
 This route remains read-only. When the assignment requires Claude to own
-implementation or experimental execution, use delegate-claude only with the
-user's explicit authorization for Claude execution.
+implementation or experimental execution, use delegate-claude within the
+parent task's authorization. Substantial delivery uses Codex assistance by
+default, with Claude directing and inspecting the implementation.
 Return artifacts and evidence, including limitations. A longer report or more
 objections does not establish that a consultation was useful.
 
