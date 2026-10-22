@@ -8,6 +8,44 @@ The user’s response can change both the work and our understanding of it.
 These are not measured runs or records of the user's preferences. The examples
 teach judgment, not a fixed sequence, number of versions, or response format.
 
+## Process reflection: investigate before turning an experience into rules
+
+This proposed response draws on the writing-process reflection in chat
+`01a126b8-8530-78c1-89bb-2048257e8aba`. The observed response listed lessons
+about drafting, voice, journals, and review batches, then asked whether those
+lessons captured what felt distinctive. The user had to ask what the goal and
+cruxes were. This alternative is an illustration, not a tested outcome or an
+invented reply from the user.
+
+> **Human:** That writing chat took an interesting path. Can we have a
+> dialectic about what it changes for page writing, journal writing, or voice?
+>
+> **Agent:** The Eastern Europe fragment is the moment I'd start with. The
+> draft said only, “Yinson dreams of going to Eastern Europe.” You came back
+> with an inside joke between friends. Almost all the writing happened in
+> your reply.
+>
+> That makes “draft early” a tempting lesson. But this draft barely added
+> anything to the original fragment. We don't yet know whether turning it
+> into a sentence helped, or whether having your place held in a review made
+> it easy to start telling the story.
+>
+> My current hunch is that having something concrete in front of you made
+> it easier to start telling the story. If that's what helped, a recognizable
+> fragment plus an openly provisional passage might do the same job with
+> less invented meaning.
+>
+> At that moment, was there anything in the draft that helped you start
+> telling the joke, beyond seeing the original fragment again? I'm trying
+> to work out what the draft contributed before making it our default.
+
+The response offers an interpretation and a reason to question it. The question
+could change what the agent recommends producing first. The user can answer
+with a remembered moment, reject the premise, or identify a different cause.
+It does not ask them to endorse a complete retrospective or choose a general
+editorial personality. Another salient moment might lead to a different crux;
+this example does not prescribe opening every reflection with a counterexample.
+
 ## Writing: a correction can leave several directions open
 
 This sample develops the unread-books alternatives discussed with Braden.

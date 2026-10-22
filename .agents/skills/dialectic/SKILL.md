@@ -1,9 +1,13 @@
 ---
 name: dialectic
-description: Work out an unsettled idea together through its intent, proposed form, and consequences in practice. Use when the user asks for a dialectic, wants to explore what a skill or workflow should do, is finding a direction for writing, wants to think through an uncertain model or decision, or needs help articulating a thought they cannot quite express. Do not use for routine execution of a settled request, a standalone explanation of settled material, or a code review.
+description: Work out an unsettled idea together through its intent, proposed form, and consequences in practice. Use when the user explicitly requests standalone dialectic, or another active skill invokes it within its task.
 ---
 
 # Dialectic
+
+Standalone dialectic begins with the user's explicit request. Within an
+existing task, another active skill may invoke this method when its guidance
+calls for it. Keep that use within the task the user requested.
 
 Dialectic develops a shared understanding of what the user is reaching for
 and how it could take shape. The agent contributes by clarifying intent,
@@ -24,13 +28,16 @@ or show the change alongside an example of its use. Let the user’s response
 develop both the work and our understanding of it.**
 
 Draw on the user's words and the available context to understand what they
-want the conversation to help them understand, decide, or express. When that
-intent needs clarification, offer one clear reading they can recognize,
-correct, or sharpen. Develop that understanding together before building
-further on an uncertain premise. Proposed work or an example of its use may
-help us discover what the user means.
+want the conversation to help them understand, decide, or express. Offer a
+substantive attempt with enough reasoning for them to react to, so your current
+understanding is visible and open to correction. When the intent needs
+clarification, offer one clear reading they can recognize, correct, or sharpen.
+Develop that understanding together before building further on an uncertain
+premise. Proposed work or an example of its use may help us discover what the
+user means.
 
-Carry forward what the user recognized, and revise what their questions,
+Use the user's response to develop your understanding and shape the next
+attempt. Carry forward what they recognized, and revise what their questions,
 examples, and corrections reveal needs to change. The conversation may clarify
 a thought the user already held or discover one neither participant had fully
 formed. Let the shared intent guide which questions, comparisons, and
@@ -61,20 +68,19 @@ When a distinction is hard to answer abstractly, show what its different
 answers would produce. Leave room for the user's thought to fall outside your
 categories.
 
-Use the evidence already available before asking the user to reconstruct it.
-Questions should uncover what the record cannot establish, not make the user
-repeat it or complete an intake form. Follow what their response reveals rather
-than attaching the same unresolved question to another paraphrase. A clearer
-attempt can advance the conversation without a closing question.
+Build on the evidence already available. Ask questions that uncover information
+needed to understand the thought or shape the next attempt. Use what each
+response reveals to develop that attempt. Give the user a clearer reading,
+proposal, or example of its use to react to, adding a question when its answer
+would help develop the thought.
 
 ## Make the developing thought judgeable
 
-Offer enough reasoning, proposed work, or examples of use for the user to
-engage with the current thought. Let what is unresolved determine how much to
-develop: a broad design question may need a substantial comparison, while a
-correction may need only the revised idea and its consequence. Carry settled
-context forward without presenting it again. Avoid making the user pull an
-explanation out of a sequence of small replies or leading questions.
+Let what is unresolved determine how much reasoning, proposed work, or examples
+of use to develop. A broad design question may need a substantial comparison;
+a correction may need the revised idea and its consequence. Build on settled
+context and give the user enough in the current turn to understand, judge, and
+respond to the thought.
 
 **Make the proposal easy to find and react to.** This may be your current
 reading of the user's intent, the actual wording or design you propose,
@@ -107,7 +113,8 @@ practical to its intended final form: the affected code, revised passage,
 proposed interface, or actual skill instructions. When behavior or consequences
 need judgment, show the relevant use: caller code using the interface or a
 conversation following the skill. The same material may serve both purposes;
-a revised passage may already make its meaning and effect clear.
+a revised passage may already make its meaning and effect clear. Add a separate
+explanation where it gives the user reasoning they need to judge the attempt.
 
 For appearance or movement, show the rendered result. When judging how a blog
 reads on the site, render the proposed writing there and show screenshots.
@@ -153,26 +160,25 @@ Treat the user's response as evidence about what you understood and what the
 attempt reveals, including where the thought needs to move. They may recognize
 the intent but dislike the proposed wording or design. Seeing it in use may
 expose a consequence neither of you had considered and change the intent
-itself. Locate what needs to change through the conversation rather than
-asking the user to classify their reaction. Revise at the scope it illuminates;
-a reaction to one passage does not establish a universal preference.
+itself. Use their words, examples, and corrections to locate what needs to
+change. Revise at the scope their response illuminates, and treat a reaction
+to one passage as evidence about that passage.
 
 Carry what you learn into the next coherent attempt. If the user recognizes
-parts of different versions, do the synthesis rather than making them assemble
-fragments. If their response changes the premise, reconsider the relevant
-whole as if that understanding had been known from the beginning.
+parts of different versions, combine those parts into one coherent version.
+If their response changes the premise, reconsider the relevant whole as if that
+understanding had been known from the beginning.
 
-Work through the consequences of a challenged assumption before building more
-design on it. Introduce names, schemas, workflows, or further examples when
-they help the current judgment; premature detail makes the user untangle
-decisions they have not made yet.
+Use the next concrete attempt to explore the consequences of a challenged
+assumption. Focus the attempt on what turns on that assumption, and introduce
+names, schemas, workflows, or further examples as they help the user judge it.
 
 Leave the user's reaction open, including rejection of your framing. Judge
 against their intent, evidence, constraints, and consequences; stay willing
-to disagree and explain why. Ask a focused question when it helps resolve
-something, not to solicit approval after every attempt. In a sample exchange,
-label invented replies as samples; in the live conversation, leave the user's
-next reply to them.
+to disagree and explain why. Ask focused questions to resolve uncertainty that
+affects the next attempt, and carry work forward under the user's existing
+authorization. In a sample exchange, label invented replies as samples; in the
+live conversation, leave the user's next reply to them.
 
 “That’s right” names recognition of what the user is responding to, not a
 required phrase or approval of every part of a proposal. Let it settle the
