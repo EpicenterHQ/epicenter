@@ -864,7 +864,10 @@ test('close releases synchronously with a blocked write and never submits held i
 	const receiptSnapshots = record(receipt).seen;
 	const statuses: boolean[] = [];
 	let changes = 0;
-	folder.onStatusChange((status) => statuses.push(status.closing));
+	folder.onStatusChange((status) => {
+		statuses.push(status.closing);
+		if (status.closing) folder.close();
+	});
 	folder.onChange(() => changes++);
 	const held = hold('write');
 	const writing = folder.files.write('receipt.md', 'sent');

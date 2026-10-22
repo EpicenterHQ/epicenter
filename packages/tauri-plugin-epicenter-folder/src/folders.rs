@@ -85,9 +85,6 @@ impl Folders {
         };
         // Keep the retiring label reserved until no old callback can emit to
         // it. Other windows remain available while this callback fence waits.
-        if let Some(watch) = watch.as_ref() {
-            watch.stop();
-        }
         drop(watch);
         self.state().bindings.remove(label);
     }
@@ -172,9 +169,6 @@ impl Folders {
                 .filter_map(|binding| binding.watch.take())
                 .collect::<Vec<_>>()
         };
-        for watch in &watches {
-            watch.stop();
-        }
         drop(watches);
     }
 }

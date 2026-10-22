@@ -60,6 +60,8 @@ pub async fn open_meter<R: Runtime>(
     let recorders = webview.state::<Recorders<R>>();
     let page = recorders.lock().page(&owner);
     let access = recorders.access;
+    let opening_app = app.clone();
+    let opening_owner = owner.clone();
     let id = crate::recorder::next_id();
     let gone_app = app.clone();
     let gone_id = id.clone();
@@ -73,6 +75,15 @@ pub async fn open_meter<R: Runtime>(
     };
     let (meter, device) = tauri::async_runtime::spawn_blocking(move || {
         access()?;
+        // Permission may outlive the page. Like recording start, keep the
+        // ownership check and microphone opening under the recorder lock.
+        let recorders = opening_app.state::<Recorders<R>>();
+        let recorder = recorders.lock();
+        if recorder.page(&opening_owner) != page {
+            return Err(RecorderError::not_recording(
+                "the page that asked to open a meter has gone",
+            ));
+        }
         crate::meter::open(device.as_deref(), levels, on_gone)
     })
     .await

@@ -82,12 +82,11 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	tables: TTables,
 	{ saveAfterMs }: EditOptions = {},
 ): Folder<TTables> {
-	let closed = false;
 	const changeListeners = new Set<(change: FolderChange) => void>();
 
 	/** New storage calls, listeners, and flush refuse as soon as close is called. */
 	function assertOpen() {
-		if (closed) throw new Error('The folder is closed');
+		if (edits.getStatus().closing) throw new Error('The folder is closed');
 	}
 
 	function tell(change: FolderChange) {
@@ -237,8 +236,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			edits.flush();
 		},
 		close() {
-			if (closed) return;
-			closed = true;
+			if (edits.getStatus().closing) return;
 			edits.close();
 			changeListeners.clear();
 			stopEngine();

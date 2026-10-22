@@ -13,6 +13,7 @@
 //!   an open microphone while it is open.
 //! - Without microphone access no meter or recording resolves a device;
 //!   listing asks for nothing.
+//! - Permission granted after page departure resolves no device for that page.
 //! - `start` records only into the folder bound to the calling window, at a
 //!   data path the shared path rule accepts, with nothing at it yet. A page
 //!   names no folder; a window with no binding, or a page whose folders have shut down, is refused.
@@ -329,6 +330,51 @@ fn without_microphone_access_no_meter_or_recording_resolves_a_device() {
     assert!(!fixture.root.join("recordings/a.wav").exists());
     // Listing asks for nothing.
     assert!(invoke(&main, "inputs", json!({})).is_ok());
+}
+
+#[test]
+fn permission_granted_after_page_departure_resolves_no_device() {
+    use std::sync::{mpsc, Mutex};
+    use std::time::Duration;
+
+    // The existing permission seam is a function pointer. Keep this gate local
+    // to this test, and take it before waiting so departure holds no test lock.
+    static PERMISSION: Mutex<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>> = Mutex::new(None);
+
+    for command in ["open_meter", "start"] {
+        let (asking, asked) = mpsc::channel();
+        let (grant, granted) = mpsc::channel();
+        *PERMISSION.lock().unwrap() = Some((asking, granted));
+        let fixture = fixture_with_access(|| {
+            let (asking, granted) = PERMISSION.lock().unwrap().take().unwrap();
+            asking.send(()).unwrap();
+            granted.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(())
+        });
+        let main = window(&fixture.app, "main");
+        let args = match command {
+            "open_meter" => json!({ "device": "not an id", "levels": "__CHANNEL__:1" }),
+            _ => {
+                json!({ "path": "recordings/a", "device": "not an id", "signals": "__CHANNEL__:1" })
+            }
+        };
+        let calling = std::thread::spawn(move || invoke(&main, command, args));
+
+        asked.recv_timeout(Duration::from_secs(5)).unwrap();
+        crate::page_ended(fixture.app.handle(), "main");
+        grant.send(()).unwrap();
+
+        let refused = calling.join().unwrap().unwrap_err();
+        // Resolving the deliberately invalid id would answer InputUnavailable.
+        // Page ownership must be checked first, without attempting a microphone.
+        assert_eq!(name(&refused), "NotRecording", "{command}: {refused}");
+        assert!(!fixture
+            .app
+            .state::<Recorders<MockRuntime>>()
+            .lock()
+            .is_capturing());
+        assert!(!fixture.root.join("recordings/a.wav").exists());
+    }
 }
 
 #[test]

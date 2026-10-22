@@ -125,3 +125,7 @@ Microphone access is the plugin's own (`src/permission.rs`): `open_meter` and
 yet asked sees the system prompt; a denial is `PermissionDenied` and nothing
 opens. `inputs` asks for nothing. A meter or a recording counts as an open
 microphone for `on_capturing`.
+
+If the page leaves while permission is pending, granting it does not open a
+microphone for that page. Both meter opening and recording start recheck page
+ownership after permission, before resolving a device.

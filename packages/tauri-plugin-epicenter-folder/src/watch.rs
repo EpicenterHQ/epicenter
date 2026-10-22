@@ -56,20 +56,17 @@ impl FolderWatch {
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = true;
     }
-
-    /// Wait for a callback already emitting, then prevent every later emission.
-    /// Call outside Folders' lock; reporting may synchronously invoke listeners.
-    pub(crate) fn stop(&self) {
-        *self
-            .active
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = false;
-    }
 }
 
 impl Drop for FolderWatch {
     fn drop(&mut self) {
-        self.stop();
+        // Wait for an emitting callback, then fence later emissions before the
+        // native watcher drops. Drop outside Folders' lock: reporting may call
+        // listeners, and notify's macOS destructor joins its watcher thread.
+        *self
+            .active
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = false;
     }
 }
 

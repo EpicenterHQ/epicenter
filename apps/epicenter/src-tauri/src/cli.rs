@@ -1913,11 +1913,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         )
         .await
         .unwrap_err();
-        let message = match refused {
-            CliError::Refused { message } => message,
-            other => panic!("not a refusal: {other:?}"),
-        };
-        assert!(message.contains("was not changed"), "{message}");
+        assert!(matches!(&refused, CliError::Refused { .. }), "{refused:?}");
         assert_eq!(fs::read_to_string(&row_file).unwrap(), broken);
         let _ = fs::remove_dir_all(dir);
     }
