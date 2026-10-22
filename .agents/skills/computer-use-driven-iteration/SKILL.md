@@ -97,9 +97,10 @@ product improved.
 Choose another wave while there is a grounded improvement worth executing
 within the authorized outcome. Stop when the intended journeys pass, accepted
 findings are resolved, and remaining candidates lack evidence or require a new
-product decision. Do not repeat reviews to obtain a deletion or unanimous
-approval. Carry unresolved checks forward explicitly when access or external
-conditions prevent completion.
+product decision. For an open adversarial review, follow
+[adversarial-review](../adversarial-review/SKILL.md)'s group discussion and
+agreement process. Carry unresolved checks forward explicitly when access or
+external conditions prevent completion.
 
 For work spanning waves, retain enough working evidence to resume: accepted
 outcome, source and app baseline, observed failures, accepted and rejected
