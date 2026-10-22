@@ -46,19 +46,39 @@ the app and its desktop-host build and output locations. Adding a repository
 discovers its app targets; the person chooses which targets to build and open.
 
 Epicenter can clone a remote into an ordinary, user-accessible source
-directory or register an existing local checkout. The source directory is
-separate from the data folders that apps open. It does not extract one
-app's files into a pretend repository, keep one hidden clone per app, or
-place source inside the local-data library. Removing an app entry or its
-built output does not delete the checkout or the app's data. Epicenter never
-silently removes a checkout it created; deleting source is a separate,
-explicit file operation. A catalog entry supplies a repository URL and
-optionally an app path; it owns neither the checkout nor access to the remote.
-The local installed inventory refers to a checkout,
-app path, and built output, not to catalog membership. A public HTTPS
+directory or register an existing local checkout without moving it. On
+macOS, a new clone defaults to `~/Developer/Epicenter/<repository>`; a person
+can choose another directory for that clone. An occupied destination is
+never overwritten or silently renamed. The checkout is outside both the
+local-data library and Epicenter's application-data directory so the person
+and agent can find and edit it as ordinary source. Each Git worktree is a
+separate checkout when its branch must differ. Epicenter does not extract one
+app's files into a pretend repository or keep one hidden clone per app.
+Removing an app entry or its built output does not delete the checkout or
+the app's data. Epicenter never silently removes a checkout it created;
+deleting source is a separate, explicit file operation.
+
+A catalog entry supplies a repository URL and optionally an app path; it
+owns neither the checkout nor access to the remote. A public HTTPS
 repository can be cloned without an Epicenter or GitHub account; building
 it also requires access to its dependencies. Private fetches use credentials
 configured for that Git remote.
+
+**The CLI owns installed-source state; the desktop reads it.**
+
+The installed inventory is `<dataDir>/installed-apps.json`, where `dataDir`
+is Epicenter's machine-local application-data directory. Completed builds
+live under `<dataDir>/app-builds/<installation-key>/<build-id>/`. The
+inventory names each checkout, target path, opaque local installation key,
+and active build. The installation key is assigned locally; a manifest's
+name or identifier cannot select another app's runtime identity. The CLI is
+the only writer of this inventory and its built outputs. It serializes
+competing changes from terminal and desktop invocations. Epicenter's UI
+reaches those same CLI operations through fixed host commands, while Rust
+reads the inventory to open an installed page. Manifests are discovered from
+tracked files in the checkout, not from dependencies or generated output.
+Missing checkouts remain visible as unavailable sources; an existing active
+build can still open.
 
 **The checkout's branch belongs to the person and agent, not to Epicenter.**
 
@@ -108,17 +128,26 @@ move, but each built app records the exact commit that supplied its files.
 
 **Building source does not automatically change which built page opens.**
 
-Epicenter builds each chosen app into its own output location and changes
-that app's active build only after the build command succeeds and its
-expected output exists. Two apps from the same checkout may still have
-different active build commits. This does not prove that the page works
-correctly. A failed build reports
-its error and leaves the source available for repair. The earlier built
-page remains available as a practical recovery path, not as a prohibition
-on editing or trying an incomplete build. A development preview may build
-uncommitted source, but an installed version names a commit. No background
-fetch starts a build or activates an author's new code without the person's or agent's
-update action.
+Epicenter builds each chosen app into a new, immutable output directory in
+its machine-local application data, separate from the checkout and from
+disposable caches. A build records the source commit, app target, and host API
+version that supplied it. Building alone does not change the target's
+active-build pointer. A separate activation action verifies a completed,
+compatible build and atomically changes that pointer. Epicenter's UI may
+offer building and activation as one visible workflow, but it uses the same
+two CLI operations. Rust opens only a compatible active build and keeps an
+open window on the build it started with, even if the CLI activates another
+one. Two apps from the same checkout may have different active builds. A
+commit identifies source, not built bytes: rebuilding the same commit can
+produce a distinct build.
+
+A successful build does not prove that the page works correctly. A failed
+build reports its error and leaves the source available for repair. The
+earlier built page remains available as a practical recovery path, not as a
+prohibition on editing or trying an incomplete build. A development preview
+may build uncommitted source, but an installed version names a commit. No
+background fetch starts a build or activates an author's new code without
+the person's or agent's update action.
 
 **Installing source is an explicit trust decision, not an account grant.**
 
@@ -165,6 +194,15 @@ a catalog.
   stronger isolation decision or an honest trust requirement.
 - Browser apps keep their separate deployment and data-sync model. They do
   not acquire this source installer by sharing an app's Git repository.
+- Source checkouts, built output, and data folders have different lifetimes.
+  Removing an installed target cannot erase any of the other two without a
+  separate, explicit operation. The first source-installed target can coexist
+  with today's fixed bundled apps; replacing those bundles is a later
+  decision.
+- External repositories can build against Epicenter's app API only after
+  that API is distributable. The current `@epicenter/folder` package is
+  private, so the first implementation can validate this model in this
+  monorepo or a fork without claiming arbitrary third-party compatibility.
 
 ## Considered alternatives
 
@@ -187,3 +225,7 @@ a catalog.
 - **Treat page capabilities as a complete account sandbox.** They constrain
   WebView-to-host calls, but they do not constrain the operating system
   process that runs the downloaded build script.
+- **Keep editable source in application data.** That would hide the ordinary
+  checkout from the person and make it too easy to confuse authored source
+  with replaceable host state. Application data holds the inventory and
+  installed build copies instead.
