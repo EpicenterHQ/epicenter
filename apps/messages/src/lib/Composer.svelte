@@ -65,8 +65,13 @@
 		<p class="text-sm">Check this existing send before composing another reply.</p>
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
+		<!-- While a send or recovery writes the draft, typing would compose over the text it replaces and bring that text back. -->
 		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000}
-			bind:value={() => fileEdit.content?.body ?? '', body => { message = changeDraft(folder, draftId, chatId, backend, body).error?.message ?? ''; }} />
+			readonly={send.isPending || recover.isPending}
+			bind:value={() => fileEdit.content?.body ?? '', body => {
+				if (send.isPending || recover.isPending) return;
+				message = changeDraft(folder, draftId, chatId, backend, body).error?.message ?? '';
+			}} />
 		<div class="flex items-center justify-between gap-3">
 			<span class="text-xs text-muted-foreground">{fileEdit.saveError ? 'Draft could not be saved' : fileEdit.isDirty || fileEdit.isSaving ? 'Saving draft…' : 'Draft saved on this device'}</span>
 			<Button disabled={send.isPending || recover.isPending || pending || !fileEdit.content?.body?.trim()} onclick={() => send.mutate()}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>

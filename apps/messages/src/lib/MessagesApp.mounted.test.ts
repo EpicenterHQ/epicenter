@@ -285,3 +285,43 @@ test('failed autosave retains its preview, uncertain sends are distinct, and sen
 	);
 	expect(expectOk(await app.folder.tables.drafts.get(id))?.body).toBe('');
 });
+
+test('the composer takes no typing while a send writes the draft, and the sent text never comes back', async () => {
+	const app = await setup();
+	await app.open('Maya Chen');
+	const id = await draftId(createDemoBackend(), 'demo-maya');
+	type(app.composer(), 'Sent once');
+	await until(
+		() => app.folder.tables.drafts.edit(id).getSnapshot().content?.body === 'Sent once',
+		'the typed draft',
+	);
+	// Hold the send where it clears the draft.
+	const set = app.folder.tables.drafts.set;
+	const held = Promise.withResolvers<void>();
+	app.folder.tables.drafts.set = async (...args) => {
+		await held.promise;
+		return set(...args);
+	};
+	click(app.target, 'Send demo reply');
+	await until(() => {
+		flushSync();
+		return app.composer()?.readOnly === true;
+	}, 'the send to run');
+	type(app.composer(), 'Sent once, and more');
+	expect(app.folder.tables.drafts.edit(id).getSnapshot().content?.body).toBe(
+		'Sent once',
+	);
+	app.folder.tables.drafts.set = set;
+	held.resolve();
+	await until(
+		() => app.target.textContent?.includes('Demo message sent.') === true,
+		'the accepted reply',
+	);
+	await until(() => {
+		flushSync();
+		return app.composer()?.readOnly === false;
+	}, 'the composer to open again');
+	expect(app.composer()?.value).toBe('');
+	expect(app.folder.tables.drafts.edit(id).getSnapshot().isDirty).toBe(false);
+	expect(expectOk(await app.folder.tables.drafts.get(id))?.body).toBe('');
+});
