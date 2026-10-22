@@ -309,10 +309,10 @@ type Source = {
 	/** Bumped by `discard()`: older publications no longer touch `failure`. */
 	epoch: number;
 	timer: ReturnType<typeof setTimeout> | undefined;
-	/** The tick of the observation or command whose answer is installed. */
-	knownAt: number;
-	/** The tick of the last change or refresh request an observation must follow. */
-	changedAt: number;
+	/** A read is needed, or the running read was invalidated. */
+	stale: boolean;
+	/** A successful command superseded the running read's answer. */
+	overwritten: boolean;
 	/** Whether the read loop runs. */
 	reading: boolean;
 	/** Callers waiting for the next read to start, settled once it is taken. */
@@ -380,8 +380,6 @@ export function createDocumentOwner({
 	const statusListeners = new Set<(status: FolderStatus) => void>();
 	let closed = false;
 
-	/** The private order of observations and what overtakes them. */
-	let clock = 0;
 	function sourceOf(path: string): Source {
 		let source = sources.get(path);
 		if (source === undefined) {
@@ -393,8 +391,8 @@ export function createDocumentOwner({
 				failure: undefined,
 				epoch: 0,
 				timer: undefined,
-				knownAt: 0,
-				changedAt: 0,
+				stale: true,
+				overwritten: false,
 				reading: false,
 				nextRead: undefined,
 				subscriptions: new Set(),
@@ -556,7 +554,6 @@ export function createDocumentOwner({
 			lane.running = undefined;
 			lane.pending--;
 			if (command.payload !== null) lane.publications--;
-			const at = ++clock;
 			if (result.error === null) storageFailure = null;
 			else if (result.error.name === 'StorageFailed')
 				storageFailure = result.error;
@@ -564,7 +561,7 @@ export function createDocumentOwner({
 			try {
 				if (result.error === null) {
 					if (source !== undefined)
-						landed(source, command, observationOf(path, command.payload), at);
+						landed(source, command, observationOf(path, command.payload));
 				} else {
 					if (command.ofInput && command.captured !== undefined)
 						command.captured.failed = true;
@@ -596,15 +593,8 @@ export function createDocumentOwner({
 		return running;
 	}
 
-	/** Whether an observation started at `at` may install into `source`. */
-	const applies = (source: Source, at: number) =>
-		!busy(source.path) && source.changedAt < at && source.knownAt < at;
-
 	/** Whether what `source` knows already answers everything asked of it. */
-	const current = (source: Source) =>
-		!busy(source.path) &&
-		source.knownAt > 0 &&
-		source.changedAt < source.knownAt;
+	const current = (source: Source) => !busy(source.path) && !source.stale;
 
 	/**
 	 * Something may have changed what `source` would read. A running read
@@ -612,36 +602,29 @@ export function createDocumentOwner({
 	 * next subscription. A passive source is only marked.
 	 */
 	function invalidate(source: Source) {
-		source.changedAt = ++clock;
+		source.stale = true;
 		if (source.subscriptions.size > 0) keepReading(source);
 	}
 
-	/** Install what an observation started at `at` found, as what is stored. */
-	function install(
-		source: Source,
-		observation: Result<string, LoadError>,
-		at: number,
-	) {
+	/** Install the current observation as what is stored. */
+	function install(source: Source, observation: Result<string, LoadError>) {
 		if (observation.error === null) source.known = observation.data;
 		const error = observation.error ?? undefined;
 		if (!sameError(source.loadError, error))
 			source.loadError = error === undefined ? undefined : Object.freeze(error);
-		source.knownAt = at;
 	}
 
 	/**
-	 * Text a read started at `at` found after something newer overtook it.
-	 * It is newer than anything installed, so it shows and supersedes an older
-	 * load error, but it does not claim to be current: `knownAt` stays, and
-	 * subscribers read again. Overtaken non-text answers wait for a read that
-	 * applies, so a file briefly missing while it is replaced reports nothing.
+	 * Text an invalidated read found before another read is needed. It can show
+	 * unless a successful command installed newer text. Overtaken non-text
+	 * answers wait for a read that applies, so a file briefly missing while it
+	 * is replaced reports nothing.
 	 */
 	function showOvertaken(
 		source: Source,
 		observation: Result<string, LoadError>,
-		at: number,
 	) {
-		if (observation.error !== null || source.knownAt >= at) return;
+		if (observation.error !== null || source.overwritten) return;
 		source.known = observation.data;
 		source.loadError = undefined;
 		touch(source);
@@ -702,22 +685,24 @@ export function createDocumentOwner({
 			const waiting = source.nextRead;
 			source.nextRead = undefined;
 			if (waiting === undefined && current(source)) break;
-			const at = ++clock;
+			source.stale = false;
+			source.overwritten = false;
 			const observation = await observe(source.path);
 			if (isClosed()) {
 				waiting?.resolve(closedRead(source));
 				break;
 			}
 			let result: Result<void, LoadError>;
-			if (applies(source, at)) {
-				install(source, observation, at);
+			if (current(source)) {
+				install(source, observation);
 				result =
 					source.loadError === undefined
 						? Ok(undefined)
 						: Err(source.loadError);
 				touch(source);
 			} else {
-				showOvertaken(source, observation, at);
+				if (busy(source.path)) source.stale = true;
+				showOvertaken(source, observation);
 				result =
 					observation.error === null ? Ok(undefined) : Err(observation.error);
 			}
@@ -738,7 +723,7 @@ export function createDocumentOwner({
 
 	/**
 	 * A command of `source` stored `text` (or removed the file, for `null`)
-	 * at tick `at`: know it, acknowledge `captured` when it is still the
+	 * as stored: know it, acknowledge `captured` when it is still the
 	 * input, and supersede the last failure unless a discard came between.
 	 * Then ask subscribers for a fresh observation.
 	 */
@@ -746,7 +731,6 @@ export function createDocumentOwner({
 		source: Source,
 		command: Command,
 		observation: Result<string, LoadError>,
-		at: number,
 	) {
 		if (command.captured !== undefined && source.intent === command.captured) {
 			// A delete leaves its input held as the content, as a save would.
@@ -756,7 +740,8 @@ export function createDocumentOwner({
 			source.intent = undefined;
 			clearTimer(source);
 		}
-		install(source, observation, at);
+		install(source, observation);
+		source.overwritten = true;
 		if (source.epoch === command.epoch) source.failure = undefined;
 		invalidate(source);
 		touch(source);
@@ -885,7 +870,7 @@ export function createDocumentOwner({
 	async function refresh(source: Source): Promise<Result<void, LoadError>> {
 		if (closed) return closedRead(source);
 		// What is known, or a read already running, predates this request.
-		source.changedAt = ++clock;
+		source.stale = true;
 		return readAfterNow(source);
 	}
 
@@ -986,7 +971,7 @@ export function createDocumentOwner({
 					!scope.some((hint) => covers(hint, source.path))
 				)
 					continue;
-				source.changedAt = ++clock;
+				source.stale = true;
 				if (source.subscriptions.size > 0) {
 					reads.push(readAfterNow(source));
 				}

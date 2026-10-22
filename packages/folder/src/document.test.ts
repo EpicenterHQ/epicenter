@@ -798,6 +798,27 @@ test('a read waits for admitted writes, so an acknowledgement never lands over a
 	expect(edit.getSnapshot().content?.text).toBe('theirs\n');
 });
 
+test('a read overtaken by a pending write is retried when that write fails', async () => {
+	const { folder, hold, outside, reads } = setup({ 'a.md': 'A\n' });
+	const edit = folder.files.document('a.md');
+	const { stop } = record(edit);
+	cleanup.push(stop);
+	await flush();
+	const reading = hold('read');
+	outside('a.md', 'B\n');
+	await reading.reached;
+	const writing = hold('write');
+	const pending = folder.files.write('a.md', 'C\n');
+	await writing.reached;
+	reading.proceed();
+	await flush();
+	writing.fail();
+	expectErr(await pending);
+	await flush();
+	expect(edit.getSnapshot().content?.text).toBe('B\n');
+	expect(reads()).toHaveLength(3);
+});
+
 test.each(['success', 'failure'] as const)(
 	'a cold refresh acquires text while a later write awaits %s',
 	async (outcome) => {
