@@ -12,9 +12,10 @@ the agent would otherwise miss. More instructions are not evidence of progress.
 ## Find the instruction's owner
 
 Use [dialectic](../dialectic/SKILL.md) when the purpose or desired behavior is
-unsettled: articulate the proposed model alongside a sample of the behavior it
-would produce. Use reactions to both to develop the instructions. Settled edits
-do not require another discovery conversation.
+unsettled. Let the current question determine whether to clarify intent,
+propose instructions, or show an example of their behavior. Use the user's
+responses to develop the instructions. Settled edits do not require another
+discovery conversation.
 
 Ground the guidance in actual work, source material, or the user's corrections.
 Extract the judgment behind an accepted interaction, not its topic, layout, or
