@@ -296,6 +296,8 @@ reentrant observer has changed the working document. It does not return a row
 ID or reread the latest snapshot. Use `save(text)` for an atomic full-source
 action and `save(patch)` for an atomic structured action. Without input,
 `save()` publishes current content, even when clean, or retries held input.
+An explicit save of clean content is held as unsaved until storage acknowledges
+it; if the write fails, the content remains in `unsaved` for retry or discard.
 It refuses with `ChangeError.NoContent` without text and `ChangeError.Closing`
 after close.
 

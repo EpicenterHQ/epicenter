@@ -585,6 +585,48 @@ test('save publishes the exact current text even when clean, and missing deletes
 	expectOk(await folder.files.delete('a.md'));
 });
 
+test('a failed clean restore keeps its text unsaved for retry', async () => {
+	const { folder, hold, text } = setup({ 'a.md': 'A\n' });
+	const edit = folder.files.document('a.md');
+	expectOk(await edit.refresh());
+	expectOk(await folder.files.delete('a.md'));
+	expect(edit.getSnapshot()).toMatchObject({
+		content: { text: 'A\n' },
+		loadError: { name: 'Missing' },
+		isDirty: false,
+	});
+
+	const failing = hold('write');
+	const restoring = edit.save();
+	await failing.reached;
+	failing.fail();
+	expect(expectErr(await restoring).name).toBe('StorageFailed');
+	expect(edit.getSnapshot()).toMatchObject({
+		content: { text: 'A\n' },
+		isDirty: true,
+		saveError: { name: 'StorageFailed' },
+	});
+	expect(folder.getStatus().unsaved).toEqual(['a.md']);
+	expect(folder.getStatus().failures.map(({ path }) => path)).toEqual(['a.md']);
+
+	expectOk(await edit.save());
+	expect(text('a.md')).toBe('A\n');
+	expect(folder.getStatus().unsaved).toEqual([]);
+	expect(folder.getStatus().failures).toEqual([]);
+});
+
+test('a document acquired during a failed raw write stops reporting saving', async () => {
+	const { folder, hold } = setup();
+	const failing = hold('write');
+	const writing = folder.files.write('a.md', 'A\n');
+	await failing.reached;
+	const edit = folder.files.document('a.md');
+	expect(edit.getSnapshot().isSaving).toBe(true);
+	failing.fail();
+	expect(expectErr(await writing).name).toBe('StorageFailed');
+	expect(edit.getSnapshot().isSaving).toBe(false);
+});
+
 test('all writes and deletes of a path finish in call order; deletion is not saving', async () => {
 	const { folder, hold, text } = setup({ 'a.md': 'A\n' });
 	const edit = folder.files.document('a.md');
@@ -596,7 +638,7 @@ test('all writes and deletes of a path finish in call order; deletion is not sav
 		return result;
 	});
 	await first.reached;
-	expect(edit.getSnapshot()).toMatchObject({ isDirty: false, isSaving: true });
+	expect(edit.getSnapshot()).toMatchObject({ isDirty: true, isSaving: true });
 	const direct = folder.files.write('a.md', 'direct\n').then((result) => {
 		order.push('write');
 		return result;
@@ -1466,7 +1508,7 @@ test('a discard supersedes the failure of a clean save admitted before it', asyn
 	const failing = hold('write');
 	const saving = edit.save();
 	await failing.reached;
-	expect(edit.discard()).toBeUndefined();
+	expect(edit.discard()).toBe('A\n');
 	failing.fail();
 	expect(expectErr(await saving).name).toBe('StorageFailed');
 	expect(edit.getSnapshot().saveError).toBeUndefined();
@@ -1736,6 +1778,26 @@ test('a failed command does not autonomously retry input whose own save already 
 	expect(writes()).toEqual([]);
 });
 
+test('a queued raw command cannot resume input after its earlier save fails', async () => {
+	const { folder, hold, writes } = setup({ 'a.md': 'original\n' });
+	const edit = folder.files.document('a.md');
+	expectOk(await edit.refresh());
+	expectOk(edit.replace('input\n'));
+	const first = hold('write');
+	const second = hold('write');
+	const saving = edit.save();
+	const raw = folder.files.write('a.md', 'raw\n');
+	await first.reached;
+	first.fail();
+	expect(expectErr(await saving).name).toBe('StorageFailed');
+	await second.reached;
+	second.fail();
+	expect(expectErr(await raw).name).toBe('StorageFailed');
+	await flush();
+	expect(writes()).toEqual([]);
+	expect(folder.getStatus().unsaved).toEqual(['a.md']);
+});
+
 test('new equal input typed during a direct patch save is still published after it', async () => {
 	const { folder, hold, text } = setup({
 		'notes/a.md': row('Old', 'Original\n'),
@@ -1817,6 +1879,7 @@ test('an admitted command that throws after close resolves with StorageFailed', 
 		blocked.resolve();
 		expect(expectErr(await writing).name).toBe('StorageFailed');
 		expect(folder.getStatus().saving).toBe(false);
+		expect(folder.getStatus().storageFailure?.name).toBe('StorageFailed');
 	} finally {
 		blocked.resolve();
 		await writing;

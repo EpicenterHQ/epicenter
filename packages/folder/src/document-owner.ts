@@ -235,19 +235,15 @@ function decode(bytes: Uint8Array): string | undefined {
 	return textProblem(text) === undefined ? text : undefined;
 }
 
-/** What one observation of a path found. */
-export type Observation =
-	| { readonly kind: 'text'; readonly text: string }
-	| { readonly kind: 'missing' }
-	| { readonly kind: 'not-text' }
-	| { readonly kind: 'failed'; readonly cause: unknown };
-
 /** An observation of `content`, `null` for no file. */
-export const observationOf = (content: FileContent | null): Observation => {
-	if (content === null) return { kind: 'missing' };
+function observationOf(
+	path: string,
+	content: FileContent | null,
+): Result<string, LoadError> {
+	if (content === null) return LoadError.Missing({ path });
 	const text = typeof content === 'string' ? content : decode(content);
-	return text === undefined ? { kind: 'not-text' } : { kind: 'text', text };
-};
+	return text === undefined ? LoadError.NotText({ path }) : Ok(text);
+}
 
 /** `value` and everything it holds, frozen; a copy no caller holds. */
 function deepFreeze<T>(value: T): T {
@@ -263,21 +259,20 @@ function deepFreeze<T>(value: T): T {
  * Accepted local input. Its identity, not its text, is what a command
  * acknowledges.
  */
-type Ticket = {
-	/** Resume the input's interrupted autosave if this command fails. */
-	readonly resume: boolean;
-};
-
 type Intent = {
 	readonly text: string;
-	/**
-	 * The latest admitted command that captured this input and owns it: a
-	 * document save, a direct write, or a delete. While one owns it,
-	 * no automatic save or flush submits it again behind that command. Only
-	 * the owning command's failure gives it back; lanes run in call order, so
-	 * an older command failing never does. `undefined` when no command owns it.
-	 */
-	ticket: Ticket | undefined;
+	/** Its last admitted owner, used so an older command cannot release it. */
+	owner: Command | undefined;
+	/** Its own publication failed, so only an explicit retry or flush submits it. */
+	failed: boolean;
+};
+
+type Command = {
+	readonly captured: Intent | undefined;
+	readonly epoch: number;
+	readonly payload: FileContent | null;
+	readonly ofInput: boolean;
+	heard: boolean;
 };
 
 type Lane = {
@@ -288,13 +283,11 @@ type Lane = {
 	/** Of those, the ones that publish: every write but a delete. */
 	publications: number;
 	/** The command running now, and whether the engine reported its change. */
-	running: { heard: boolean } | undefined;
+	running: Command | undefined;
 };
 
 type View = {
 	readonly schema: TSchema;
-	/** The source stamp `snapshot` was computed at. */
-	stamp: number;
 	snapshot: DocumentSnapshot<TSchema> | undefined;
 	content: MarkdownContent<TSchema> | undefined;
 	handle: FileDocument<TSchema> | undefined;
@@ -324,8 +317,6 @@ type Source = {
 	reading: boolean;
 	/** Callers waiting for the next read to start, settled once it is taken. */
 	nextRead: PromiseWithResolvers<Result<void, LoadError>> | undefined;
-	/** Bumped with every change a snapshot shows. */
-	stamp: number;
 	readonly subscriptions: Set<Subscription>;
 	readonly views: WeakMap<TSchema, View>;
 };
@@ -391,44 +382,6 @@ export function createDocumentOwner({
 
 	/** The private order of observations and what overtakes them. */
 	let clock = 0;
-	/**
-	 * Give captured input `intent` to a command admitted now: it owns it
-	 * until it settles, and its pending automatic save is cancelled, as an
-	 * explicit save cancels it. Answers the command's ticket.
-	 */
-	function own(
-		source: Source | undefined,
-		intent: Intent | undefined,
-		kind: 'input' | 'command',
-	) {
-		if (intent === undefined) return undefined;
-		const ticket: Ticket = {
-			resume:
-				kind === 'command' &&
-				source?.intent === intent &&
-				(source.timer !== undefined || intent.ticket?.resume === true),
-		};
-		if (source?.intent === intent) clearTimer(source);
-		intent.ticket = ticket;
-		return ticket;
-	}
-
-	/** A command that owned `intent` failed: give it back only if it still owns it. */
-	function disown(
-		source: Source | undefined,
-		intent: Intent | undefined,
-		ticket: Ticket | undefined,
-	) {
-		if (
-			intent !== undefined &&
-			ticket !== undefined &&
-			intent.ticket === ticket
-		) {
-			intent.ticket = undefined;
-			if (ticket.resume && source?.intent === intent) autosave(source);
-		}
-	}
-
 	function sourceOf(path: string): Source {
 		let source = sources.get(path);
 		if (source === undefined) {
@@ -444,7 +397,6 @@ export function createDocumentOwner({
 				changedAt: 0,
 				reading: false,
 				nextRead: undefined,
-				stamp: 0,
 				subscriptions: new Set(),
 				views: new WeakMap(),
 			};
@@ -455,17 +407,6 @@ export function createDocumentOwner({
 
 	const textOf = (source: Source) => source.intent?.text ?? source.known;
 
-	/** Remember actual storage outcomes; notify after the command acknowledges its input. */
-	async function recorded<T extends Result<unknown, SaveError>>(
-		writing: Promise<T>,
-	): Promise<T> {
-		const result = await writing;
-		if (result.error === null) storageFailure = null;
-		else if (result.error.name === 'StorageFailed')
-			storageFailure = result.error;
-		return result;
-	}
-
 	function publishStatus() {
 		const unsaved = [...dirty].sort();
 		const failures = unsaved.flatMap((path) => {
@@ -473,7 +414,7 @@ export function createDocumentOwner({
 			if (
 				source.failure === undefined ||
 				source.intent === undefined ||
-				source.intent.ticket !== undefined
+				source.intent.owner !== undefined
 			)
 				return [];
 			return [source.failure];
@@ -504,44 +445,40 @@ export function createDocumentOwner({
 		}
 	}
 
-	/** Interpret current source independently of snapshot notification, including an unannounced input. */
-	function contentOf(source: Source, view: View) {
+	function snapshotOf(source: Source, view: View): DocumentSnapshot<TSchema> {
+		const previous = view.snapshot;
 		const text = textOf(source);
 		if (text === undefined) view.content = undefined;
 		else if (view.content?.text !== text)
 			view.content = deepFreeze(
 				readMarkdown(text, view.schema),
 			) as MarkdownContent<TSchema>;
-		return view.content;
-	}
-
-	function snapshotOf(source: Source, view: View): DocumentSnapshot<TSchema> {
-		const previous = view.snapshot;
-		if (previous !== undefined && view.stamp === source.stamp) return previous;
-		view.stamp = source.stamp;
-		const next: DocumentSnapshot<TSchema> = {
-			content: contentOf(source, view),
-			loadError: source.loadError,
-			isDirty: source.intent !== undefined,
-			isSaving: (lanes.get(source.path)?.publications ?? 0) > 0,
-			saveError: source.failure?.error,
-		};
+		const content = view.content;
+		const isDirty = source.intent !== undefined;
+		const isSaving = (lanes.get(source.path)?.publications ?? 0) > 0;
+		const saveError = source.failure?.error;
 		if (
 			previous !== undefined &&
-			previous.content === next.content &&
-			previous.loadError === next.loadError &&
-			previous.isDirty === next.isDirty &&
-			previous.isSaving === next.isSaving &&
-			previous.saveError === next.saveError
+			previous.content === content &&
+			previous.loadError === source.loadError &&
+			previous.isDirty === isDirty &&
+			previous.isSaving === isSaving &&
+			previous.saveError === saveError
 		)
 			return previous;
+		const next: DocumentSnapshot<TSchema> = {
+			content,
+			loadError: source.loadError,
+			isDirty,
+			isSaving,
+			saveError,
+		};
 		view.snapshot = Object.freeze(next);
 		return view.snapshot;
 	}
 
 	/** Something a snapshot of `source` shows may have changed: tell its subscribers. */
 	function touch(source: Source) {
-		source.stamp++;
 		if (source.intent === undefined) dirty.delete(source.path);
 		else dirty.add(source.path);
 		for (const subscription of [...source.subscriptions]) {
@@ -580,23 +517,33 @@ export function createDocumentOwner({
 	}
 
 	/**
-	 * Admit `work` to the lane of `path`, behind every command admitted
-	 * before it. `settle` runs in the lane, before the next command starts and
-	 * before the command's promise resolves, with the tick the command settled at.
+	 * Admit `work` to the lane of `path`, capturing its current input. The
+	 * command owns that input until it settles, including across later commands.
 	 */
 	function enqueue<T extends Result<unknown, SaveError>>(
 		path: string,
-		kind: 'publication' | 'delete',
+		payload: FileContent | null,
 		work: () => Promise<T>,
-		settle: (result: T, at: number) => void,
+		ofInput: boolean,
 	): Promise<T> {
+		const admittedSource = sources.get(path);
+		const command: Command = {
+			captured: admittedSource?.intent,
+			epoch: admittedSource?.epoch ?? 0,
+			payload,
+			ofInput,
+			heard: false,
+		};
+		if (admittedSource !== undefined && command.captured !== undefined) {
+			clearTimer(admittedSource);
+			command.captured.owner = command;
+		}
 		const lane = laneOf(path);
 		const previous = lane.tail;
 		lane.pending++;
-		if (kind === 'publication') lane.publications++;
+		if (command.payload !== null) lane.publications++;
 		const running = (async () => {
 			await previous;
-			const command = { heard: false };
 			lane.running = command;
 			let result: T;
 			try {
@@ -604,14 +551,35 @@ export function createDocumentOwner({
 			} catch (cause) {
 				result = SaveError.StorageFailed({ cause }) as T;
 			}
+			// A synthesized notice observes the command before its settlement.
+			if (result.error === null && !command.heard) announce(path);
 			lane.running = undefined;
 			lane.pending--;
-			if (kind === 'publication') lane.publications--;
+			if (command.payload !== null) lane.publications--;
 			const at = ++clock;
-			// `settle` tells the source held at settlement what landed.
+			if (result.error === null) storageFailure = null;
+			else if (result.error.name === 'StorageFailed')
+				storageFailure = result.error;
+			const source = sources.get(path);
 			try {
-				if (result.error === null && !command.heard) announce(path);
-				settle(result, at);
+				if (result.error === null) {
+					if (source !== undefined)
+						landed(source, command, observationOf(path, command.payload), at);
+				} else {
+					if (command.ofInput && command.captured !== undefined)
+						command.captured.failed = true;
+					if (command.ofInput && source?.epoch === command.epoch)
+						source.failure = Object.freeze({
+							path,
+							error: Object.freeze(result.error),
+						});
+					if (command.captured?.owner === command) {
+						command.captured.owner = undefined;
+						if (!command.captured.failed && source?.intent === command.captured)
+							autosave(source);
+					}
+					if (source !== undefined) touch(source);
+				}
 			} finally {
 				// Keep the lane through settlement so observers see the command order.
 				if (lane.pending === 0 && lanes.get(path) === lane) lanes.delete(path);
@@ -623,8 +591,7 @@ export function createDocumentOwner({
 			() => {},
 			() => {},
 		);
-		const source = sources.get(path);
-		if (source !== undefined) touch(source);
+		if (admittedSource !== undefined) touch(admittedSource);
 		else publishStatus();
 		return running;
 	}
@@ -649,31 +616,17 @@ export function createDocumentOwner({
 		if (source.subscriptions.size > 0) keepReading(source);
 	}
 
-	/** Why `observation` supplied no text, or `undefined` when it found text. */
-	function loadErrorOf(
-		path: string,
-		observation: Observation,
-	): LoadError | undefined {
-		switch (observation.kind) {
-			case 'text':
-				return undefined;
-			case 'missing':
-				return LoadError.Missing({ path }).error;
-			case 'not-text':
-				return LoadError.NotText({ path }).error;
-			case 'failed':
-				return LoadError.ReadFailed({ path, cause: observation.cause }).error;
-		}
-	}
-
 	/** Install what an observation started at `at` found, as what is stored. */
-	function install(source: Source, observation: Observation, at: number) {
-		if (observation.kind === 'text') source.known = observation.text;
-		const error = loadErrorOf(source.path, observation);
+	function install(
+		source: Source,
+		observation: Result<string, LoadError>,
+		at: number,
+	) {
+		if (observation.error === null) source.known = observation.data;
+		const error = observation.error ?? undefined;
 		if (!sameError(source.loadError, error))
 			source.loadError = error === undefined ? undefined : Object.freeze(error);
 		source.knownAt = at;
-		touch(source);
 	}
 
 	/**
@@ -683,15 +636,16 @@ export function createDocumentOwner({
 	 * subscribers read again. Overtaken non-text answers wait for a read that
 	 * applies, so a file briefly missing while it is replaced reports nothing.
 	 */
-	function showOvertaken(source: Source, observation: Observation, at: number) {
-		if (observation.kind !== 'text' || source.knownAt >= at) return;
-		source.known = observation.text;
+	function showOvertaken(
+		source: Source,
+		observation: Result<string, LoadError>,
+		at: number,
+	) {
+		if (observation.error !== null || source.knownAt >= at) return;
+		source.known = observation.data;
 		source.loadError = undefined;
 		touch(source);
 	}
-
-	const outcomeOf = (source: Source): Result<void, LoadError> =>
-		source.loadError === undefined ? Ok(undefined) : Err(source.loadError);
 
 	/** A read refused because the folder closed before it could answer. */
 	const closedRead = (source: Source) =>
@@ -700,16 +654,18 @@ export function createDocumentOwner({
 			cause: new Error('The folder is closed'),
 		});
 
-	async function observe(path: string): Promise<Observation> {
+	async function observe(path: string): Promise<Result<string, LoadError>> {
 		try {
 			const found = await read(path);
-			if (found.error !== null) return { kind: 'failed', cause: found.error };
-			if (found.data === undefined) return { kind: 'missing' };
+			if (found.error !== null)
+				return LoadError.ReadFailed({ path, cause: found.error });
+			if (found.data === undefined) return LoadError.Missing({ path });
 			return observationOf(
+				path,
 				new Uint8Array(await found.data.content.arrayBuffer()),
 			);
 		} catch (cause) {
-			return { kind: 'failed', cause };
+			return LoadError.ReadFailed({ path, cause });
 		}
 	}
 
@@ -755,11 +711,15 @@ export function createDocumentOwner({
 			let result: Result<void, LoadError>;
 			if (applies(source, at)) {
 				install(source, observation, at);
-				result = outcomeOf(source);
+				result =
+					source.loadError === undefined
+						? Ok(undefined)
+						: Err(source.loadError);
+				touch(source);
 			} else {
 				showOvertaken(source, observation, at);
-				const error = loadErrorOf(source.path, observation);
-				result = error === undefined ? Ok(undefined) : Err(error);
+				result =
+					observation.error === null ? Ok(undefined) : Err(observation.error);
 			}
 			waiting?.resolve(result);
 			if (source.subscriptions.size === 0 && source.nextRead === undefined)
@@ -784,84 +744,40 @@ export function createDocumentOwner({
 	 */
 	function landed(
 		source: Source,
-		observation: Observation,
-		captured: Intent | undefined,
-		epoch: number,
+		command: Command,
+		observation: Result<string, LoadError>,
 		at: number,
 	) {
-		if (captured !== undefined && source.intent === captured) {
+		if (command.captured !== undefined && source.intent === command.captured) {
 			// A delete leaves its input held as the content, as a save would.
-			if (observation.kind !== 'text') {
-				source.known = captured.text;
+			if (observation.error !== null) {
+				source.known = command.captured.text;
 			}
 			source.intent = undefined;
 			clearTimer(source);
 		}
 		install(source, observation, at);
-		if (source.epoch === epoch) source.failure = undefined;
+		if (source.epoch === command.epoch) source.failure = undefined;
 		invalidate(source);
 		touch(source);
 	}
 
 	/**
-	 * A command stored `stored` at `path`, `null` for no file, at tick `at`.
-	 * The source held then learns it, even one acquired while the command
-	 * ran; with no source held, no document state is acquired.
-	 */
-	function landedAt(
-		path: string,
-		stored: FileContent | null,
-		captured: Intent | undefined,
-		epoch: number,
-		at: number,
-	) {
-		const source = sources.get(path);
-		if (source === undefined) return;
-		landed(
-			source,
-			stored === null ? { kind: 'missing' } : observationOf(stored),
-			captured,
-			epoch,
-			at,
-		);
-	}
-
-	/**
-	 * Publish `text` from `source`. It owns `intent` from now, and
-	 * acknowledges it if it is still the input when it lands.
+	 * Publish the accepted input; its command acknowledges only that identity.
 	 */
 	function publish(
 		source: Source,
-		text: string,
-		intent: Intent | undefined,
+		intent: Intent,
 	): Promise<Result<void, SaveError>> {
-		const epoch = source.epoch;
-		const ticket = own(source, intent, 'input');
-		return enqueue(
-			source.path,
-			'publication',
-			() => recorded(write(source.path, text)),
-			(result, at) => {
-				if (result.error === null)
-					landedAt(source.path, text, intent, epoch, at);
-				else {
-					if (source.epoch === epoch)
-						source.failure = Object.freeze({
-							path: source.path,
-							error: Object.freeze(result.error),
-						});
-					disown(source, intent, ticket);
-					touch(source);
-				}
-			},
-		);
+		const text = intent.text;
+		return enqueue(source.path, text, () => write(source.path, text), true);
 	}
 
 	/** Submit the current input, unless an admitted command already owns it. */
 	function autosave(source: Source) {
 		const intent = source.intent;
-		if (intent === undefined || intent.ticket !== undefined || closed) return;
-		void publish(source, intent.text, intent);
+		if (intent === undefined || intent.owner !== undefined || closed) return;
+		void publish(source, intent);
 	}
 
 	function schedule(source: Source) {
@@ -872,27 +788,38 @@ export function createDocumentOwner({
 		}, pause);
 	}
 
-	/** Accept `text` as the latest local input. */
-	function accept(source: Source, text: unknown, notify = true): ChangeResult {
-		if (closed) return ChangeError.Closing();
+	/** Validate complete source before any input changes. */
+	function composeText(text: unknown): Result<string, ChangeError> {
 		if (typeof text !== 'string')
 			return ChangeError.InvalidText({ reason: 'it is not a string' });
 		const problem = textProblem(text);
 		if (problem !== undefined)
 			return ChangeError.InvalidText({ reason: problem });
-		if (text === textOf(source)) return Ok(undefined);
-		source.intent = { text, ticket: undefined };
+		return Ok(text);
+	}
+
+	/** Accept source without deciding when observers see it or when it saves. */
+	function commitInput(source: Source, text: string): boolean {
+		if (text === textOf(source)) return false;
+		source.intent = { text, owner: undefined, failed: false };
+		return true;
+	}
+
+	function replace(source: Source, text: unknown): ChangeResult {
+		if (closed) return ChangeError.Closing();
+		const composed = composeText(text);
+		if (composed.error !== null) return composed;
+		if (!commitInput(source, composed.data)) return Ok(undefined);
 		schedule(source);
-		if (notify) touch(source);
+		touch(source);
 		return Ok(undefined);
 	}
 
-	function patchDocument(
+	/** Compose a structured edit over the currently held source. */
+	function composePatch(
 		source: Source,
 		patch: DocumentPatch<TSchema>,
-		notify = true,
-	): ChangeResult {
-		if (closed) return ChangeError.Closing();
+	): Result<string, ChangeError> {
 		const owned = ownFields(patch.fields ?? {});
 		if (owned.error !== null)
 			return ChangeError.InvalidFields({ reason: owned.error.reason });
@@ -906,39 +833,57 @@ export function createDocumentOwner({
 			Object.defineProperty(fields, key, { value, enumerable: true });
 		}
 		const body = patch.body === parsed.body ? undefined : patch.body;
-		if (Object.keys(fields).length === 0 && body === undefined)
-			return Ok(undefined);
+		if (Object.keys(fields).length === 0 && body === undefined) return Ok(text);
 		const changed = changeMarkdown(parsed, {
 			fields: Object.keys(fields).length === 0 ? undefined : fields,
 			body,
 		});
 		if (changed.error !== null)
 			return ChangeError.InvalidFields({ reason: changed.error.reason });
-		return accept(source, changed.data.text, notify);
+		return composeText(changed.data.text);
 	}
 
-	function save(
+	function patchDocument(
+		source: Source,
+		patch: DocumentPatch<TSchema>,
+	): ChangeResult {
+		if (closed) return ChangeError.Closing();
+		const composed = composePatch(source, patch);
+		if (composed.error !== null) return composed;
+		if (!commitInput(source, composed.data)) return Ok(undefined);
+		schedule(source);
+		touch(source);
+		return Ok(undefined);
+	}
+
+	async function save(
 		source: Source,
 		view: View,
 		input?: string | DocumentPatch<TSchema>,
 	): Promise<Result<MarkdownContent<TSchema>, ChangeError | SaveError>> {
-		if (closed) return Promise.resolve(ChangeError.Closing());
+		if (closed) return ChangeError.Closing();
 		if (input !== undefined) {
-			const changed =
+			const composed =
 				typeof input === 'string'
-					? accept(source, input, false)
-					: patchDocument(source, input, false);
-			if (changed.error !== null) return Promise.resolve(changed);
+					? composeText(input)
+					: composePatch(source, input);
+			if (composed.error !== null) return composed;
+			commitInput(source, composed.data);
 		}
-		const content = contentOf(source, view);
-		if (content === undefined) return Promise.resolve(ChangeError.NoContent());
-		return publish(source, content.text, source.intent).then((saved) =>
-			saved.error === null ? Ok(content) : saved,
-		);
+		const content = snapshotOf(source, view).content;
+		if (content === undefined) return ChangeError.NoContent();
+		// Keep an explicit clean save as held input until storage acknowledges it.
+		const intent = (source.intent ??= {
+			text: content.text,
+			owner: undefined,
+			failed: false,
+		});
+		const saved = await publish(source, intent);
+		return saved.error === null ? Ok(content) : saved;
 	}
 
-	function refresh(source: Source): Promise<Result<void, LoadError>> {
-		if (closed) return Promise.resolve(closedRead(source));
+	async function refresh(source: Source): Promise<Result<void, LoadError>> {
+		if (closed) return closedRead(source);
 		// What is known, or a read already running, predates this request.
 		source.changedAt = ++clock;
 		return readAfterNow(source);
@@ -990,7 +935,6 @@ export function createDocumentOwner({
 		if (view === undefined) {
 			const created: View = {
 				schema: readSchema,
-				stamp: -1,
 				snapshot: undefined,
 				content: undefined,
 				handle: undefined,
@@ -999,7 +943,7 @@ export function createDocumentOwner({
 				path,
 				getSnapshot: () => snapshotOf(source, created),
 				subscribe: (listener) => subscribe(source, created, listener),
-				replace: (text) => accept(source, text),
+				replace: (text) => replace(source, text),
 				patch: (value) => patchDocument(source, value),
 				save: (value) => save(source, created, value),
 				refresh: () => refresh(source),
@@ -1019,8 +963,8 @@ export function createDocumentOwner({
 		for (const path of [...dirty]) {
 			const source = sources.get(path)!;
 			const intent = source.intent;
-			if (intent === undefined || intent.ticket !== undefined) continue;
-			void publish(source, intent.text, intent);
+			if (intent === undefined || intent.owner !== undefined) continue;
+			void publish(source, intent);
 		}
 	}
 
@@ -1058,22 +1002,7 @@ export function createDocumentOwner({
 			path: string,
 			content: FileContent,
 		): Promise<Result<void, SaveError>> {
-			const source = sources.get(path);
-			const captured = source?.intent;
-			const epoch = source?.epoch ?? 0;
-			const ticket = own(source, captured, 'command');
-			return enqueue(
-				path,
-				'publication',
-				() => recorded(write(path, content)),
-				(result, at) => {
-					// A source acquired while it ran learns it too.
-					if (result.error === null)
-						return landedAt(path, content, captured, epoch, at);
-					disown(source, captured, ticket);
-					if (source !== undefined) touch(source);
-				},
-			);
+			return enqueue(path, content, () => write(path, content), false);
 		},
 		/**
 		 * Admit a delete of `path`. It captures the document's current intent and
@@ -1085,22 +1014,7 @@ export function createDocumentOwner({
 			path: string,
 			work: () => Promise<T>,
 		): Promise<T> {
-			const source = sources.get(path);
-			const intent = source?.intent;
-			const epoch = source?.epoch ?? 0;
-			const ticket = own(source, intent, 'command');
-			return enqueue(
-				path,
-				'delete',
-				() => recorded(work()),
-				(result, at) => {
-					if (result.error === null) landedAt(path, null, intent, epoch, at);
-					else {
-						disown(source, intent, ticket);
-						if (source !== undefined) touch(source);
-					}
-				},
-			);
+			return enqueue(path, null, work, false);
 		},
 		/**
 		 * The engine reported `paths` changed, `null` for any: files, or
