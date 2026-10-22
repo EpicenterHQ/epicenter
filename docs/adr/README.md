@@ -876,3 +876,4 @@ When you add an ADR, add its row here.
 | [0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) | Folder actions track lifetime without reserving paths | Proposed (historical lifetime-only admission; removed by the write-only closure amendment in 0664) |
 | [0670](0670-native-shells-share-explicit-machine-local-app-homes.md) | Native shells share explicit machine-local app homes | Accepted (amends 0649 and 0660) |
 | [0671](0671-the-launcher-lists-directories-from-all-current-references.md) | The launcher lists directories from all current references | Accepted (amends 0537, 0641, and 0670) |
+| [0674](0674-standalone-apps-release-independently-from-one-monorepo.md) | Standalone apps release independently from one monorepo | Accepted |
