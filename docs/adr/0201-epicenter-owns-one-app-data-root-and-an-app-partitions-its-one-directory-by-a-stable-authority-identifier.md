@@ -14,6 +14,12 @@
   What stands: one application-data root per machine, one directory per trusted
   app named by its id, and the rule that the directory is a place and never an
   inter-app API.
+- **Proposed amendment:** [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md)
+  would let the native host execute SQL that an app requests through its own
+  scoped database handle. The host would still not enumerate, inspect, reclaim,
+  or migrate app databases on its own. Browser SQLite runs in the page's own
+  worker and needs no host exception. The amendment is unaccepted and unbuilt;
+  its fictional-data prototypes do not change this record.
 - **Amended by:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) at the open question this record left, "a
   separate question about who tells the recorder where blobs live, and it is not
   decided here": [ADR-0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md)
