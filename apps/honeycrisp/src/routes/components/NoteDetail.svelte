@@ -45,7 +45,10 @@
 	// svelte-ignore state_referenced_locally
 	const sourceEdit = notes.folder.tables.notes.edit(noteIdOf(path) ?? '');
 	const shownNote = $derived(fileEdit.content?.issues === null ? fileEdit.content : undefined);
-	/** Edits wait once the notes are closing, and while this file is deleted. */
+	/**
+	 * Edits wait once the notes are closing. Retained text stays editable
+	 * after a delete or failed read; `FileDetail` shows why beside it.
+	 */
 	const locked = $derived(notes.fenced);
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
