@@ -149,6 +149,64 @@ Folder selection does not select the device root, and `Folder` gains no SQLite
 method. No second top-level app-facing `openSqlite({ account })` is introduced.
 Package placement is independent of these resource lifetimes.
 
+## Mail database names and data ownership
+
+**Use provider-qualified names for independently rebuildable account mirrors,
+and keep authored records out of a catch-all private database.** A hypothetical
+Mail app can use this flat native layout within its private root:
+
+```text
+state.sqlite                  optional private transactional state
+google.<key>.sqlite            one Google account's mailbox mirror
+microsoft.<key>.sqlite         one Microsoft account's mailbox mirror
+```
+
+The provider prefixes are `google` and `microsoft`. Within a Mail app these
+identify the provider without adding another product-name vocabulary. Periods
+separate readable parts of a flat name; they do not create folders. The app
+derives each database name from its connection record rather than parsing the
+filename to select a provider or schema. Each key is stable and distinct within
+its provider, not the displayed email address. The complete name must fit the
+owning capability's admission rules. This example prescribes neither an ID
+allocation scheme nor a hash algorithm.
+
+The data has distinct owners:
+
+| Data | Owner |
+| --- | --- |
+| Non-secret connection definitions, account labels, drafts, and ordinary app preferences | The app's authored Folder; records intended to travel are eligible for its synchronization policy |
+| This installation's connection activation and mirror references, plus private execution state with a justified local transaction invariant | The optional `state` database |
+| Downloaded mailbox data and the sync position describing that copy | The corresponding `google.<key>` or `microsoft.<key>` database |
+| Provider credentials | The appropriate secret store |
+
+A synchronized connection definition does not activate or authorize another
+installation. Private activation records refer to the definition and retain the
+identity needed to name and clean up their mirrors; they are not a second
+authority for user-authored labels or preferences. This decision prescribes no
+particular Folder table or shared Epicenter connection catalog. Ordinary
+settings do not require SQLite merely because they are device-specific.
+
+`state` names private runtime state more clearly than `local`, because every
+database here is local. It is not a required main database. An app with no
+justified private transactional state need not create it. When SQL does own
+pending work, the app names the invariant, retention, and recovery path;
+rebuilding a mailbox must preserve that work.
+
+A private transaction does not coordinate independent installations. Recovery
+records that must prevent a second action on shared authored data belong with
+those records or require an explicit cross-runtime protocol, as ADR-0660
+requires. Moving send recovery into private `state` solely because it is
+operational would not supply that coordination.
+
+Google and Microsoft mirrors can use different schemas. In this Mail layout,
+each database records its schema version internally, and the app owns upgrades
+without renaming the database. Resetting one mirror resets its sync position
+and preserves other mirrors, authored records, and retained private intent.
+
+This is an app layout decision, not a required database catalog or account
+hierarchy for every app. Keeping connection definitions in the Folder does not
+make the database file part of Folder synchronization.
+
 ## Consequences
 
 Pages stop repeating app identifiers, native paths, and browser storage choices
