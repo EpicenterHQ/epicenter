@@ -1,154 +1,62 @@
-# Yjs Document Design
+# Yjs document design
 
-This reference covers how a row document is shaped: which shared types to reach
-for, how conflicts resolve, and the three patterns whose behavior is hard to
-change after data exists.
+Use the installed `@y/y` 14 source and declarations when a conflict or API
+detail affects the design. This release exports one shared type, `Y.Type`,
+which is map, list, and rich text at once. Yjs 13 map/text/array classes do not
+apply to Epicenter.
 
-## Core Concepts
+The store owns the layout: a database is one document whose table roots hold
+each row as a nested type, and a row's rich content is a nested type on the row
+(ADR-0295, ADR-0296). Features read and write through the table API and bind
+editors to the live type the store hands out; they do not construct or repair
+that structure themselves.
 
-### Shared Types
+## Choose the conflict unit deliberately
 
-Yjs provides six shared types. You'll mostly use three:
+An attribute set with `setAttr(key, value)` replaces that entire value.
+Concurrent writes to different keys merge; concurrent writes to the same key
+select one winner. A JSON array or object remains one value, even if two
+devices edit different members. Use rows for independently editable records,
+and do not expose extra nested shapes to work around a whole-value field.
 
-- `Y.Map` - Key-value pairs (like JavaScript Map)
-- `Y.Array` - Ordered lists (like JavaScript Array)
-- `Y.Text` - Rich text with formatting
-
-The other three (`Y.XmlElement`, `Y.XmlFragment`, `Y.XmlText`) are for rich text editor integrations.
-
-### Client ID
-
-Every Y.Doc gets a random `clientID` on creation. Raw Yjs conflict ordering can
-use this id, so concurrent writes to the same raw map key are not "latest
-timestamp wins" unless the data structure adds its own timestamp policy.
-
-```typescript
-const doc = new Y.Doc();
-console.log(doc.clientID); // Random number like 1090160253
-```
-
-From dmonad (Yjs creator):
+Client IDs participate in deterministic conflict ordering; this is not
+wall-clock last-write-wins. From dmonad (Yjs creator):
 
 > "The 'winner' is decided by `ydoc.clientID` of the document (which is a generated number). The higher clientID wins."
 >
 > Source: [GitHub issue #520](https://github.com/yjs/yjs/issues/520)
 
-The actual comparison in source ([updates.js#L357](https://github.com/yjs/yjs/blob/main/src/utils/updates.js#L357)):
+A later edit can therefore lose. Design around that fact rather than assuming
+the most recent write survives.
 
-```javascript
-return dec2.curr.id.client - dec1.curr.id.client; // Higher clientID wins
-```
+A counter implemented as read-plus-one loses concurrent increments. A
+per-writer count avoids that conflict only if each writer owns its key and
+increments it serially. Client IDs are replica-session identifiers, not user
+identities; do not use them for durable identity or authorization.
 
-This is deterministic (all clients converge to the same state) but not
-intuitive: a later edit can lose. Design document roots around that fact.
+User ordering belongs in an explicit sortable value. Deleting and reinserting
+an integrated type is not a move and cannot preserve its identity. Prefer
+string fractional keys, such as those from
+[fractional-indexing](https://github.com/rocicorp/fractional-indexing), over a
+numeric midpoint, which runs out of precision under repeated insertion.
 
-It is also why a row's document container and its named roots are allocated when
-the row is created rather than on first access: a write at a well-known address
-lets two devices each mint their own type there, and map LWW discards one along
-with everything written into it.
+## Root identity and nested identity differ
 
-### Shared Types Cannot Move
+`doc.get(name)` creates a root on miss and converges by name. A nested type
+converges by its struct identity. Two devices independently creating types at
+the same row key can discard one subtree. The store prevents that by minting
+row IDs and allocating a row's structure when the row is created, never lazily
+on read.
 
-Once you add a shared type to a document, **it can never be moved**. "Moving" an item in an array is actually delete + insert. Yjs doesn't know these operations are related.
+## Persistence is not just serialization
 
-## Critical Patterns
+Transmit and replay V2 updates through the store's sync boundary. A state
+vector does not encode deletion knowledge. Re-encoding a live document is not
+proof that all tombstone overhead vanished. The store's acknowledged-history
+fold replays updates into a fresh GC-enabled document, while owed updates stay
+individual so they can still be offered and acknowledged by id. Preserve that
+distinction.
 
-### 1. Single-Writer Keys (Counters, Votes, Presence)
-
-**Problem**: Multiple writers updating the same key causes lost writes.
-
-```typescript
-// BAD: Both clients read 5, both write 6, one click lost
-function increment(ymap) {
-	const count = ymap.get('count') || 0;
-	ymap.set('count', count + 1);
-}
-```
-
-**Solution**: Partition by clientID. Each writer owns their key.
-
-```typescript
-// GOOD: Each client writes to their own key
-function increment(ymap) {
-	const key = ymap.doc.clientID;
-	const count = ymap.get(key) || 0;
-	ymap.set(key, count + 1);
-}
-
-function getCount(ymap) {
-	let sum = 0;
-	for (const value of ymap.values()) {
-		sum += value;
-	}
-	return sum;
-}
-```
-
-### 2. Fractional Indexing (Reordering)
-
-**Problem**: Drag-and-drop reordering with delete+insert causes duplicates and lost updates.
-
-```typescript
-// BAD: "Move" = delete + insert = broken
-function move(yarray, from, to) {
-	const [item] = yarray.delete(from, 1);
-	yarray.insert(to, [item]);
-}
-```
-
-**Solution**: Add an `index` property. Sort by index. Reordering = updating a property.
-
-```typescript
-// GOOD: Reorder by changing index property
-function move(yarray, from, to) {
-	const sorted = [...yarray].sort((a, b) => a.get('index') - b.get('index'));
-	const item = sorted[from];
-
-	const earlier = from > to;
-	const before = sorted[earlier ? to - 1 : to];
-	const after = sorted[earlier ? to : to + 1];
-
-	const start = before?.get('index') ?? 0;
-	const end = after?.get('index') ?? 1;
-
-	// Add randomness to prevent collisions
-	const index = (end - start) * (Math.random() + Number.MIN_VALUE) + start;
-	item.set('index', index);
-}
-```
-
-### 3. Nested Structures for Conflict Avoidance
-
-**Problem**: Storing entire objects under one key means any property change conflicts with any other.
-
-```typescript
-// BAD: Alice changes nullable, Bob changes default, one loses
-schema.set('title', {
-	type: 'text',
-	nullable: true,
-	default: 'Untitled',
-});
-```
-
-**Solution**: Use nested Y.Maps so each property is a separate key.
-
-```typescript
-// GOOD: Each property is independent
-const titleSchema = schema.get('title'); // Y.Map
-titleSchema.set('type', 'text');
-titleSchema.set('nullable', true);
-titleSchema.set('default', 'Untitled');
-// Alice and Bob edit different keys = no conflict
-```
-
-### Epoch-Based Compaction
-
-If your architecture uses versioned snapshots, you get free compaction:
-
-```typescript
-// Compact a Y.Doc by re-encoding current state
-const snapshot = Y.encodeStateAsUpdateV2(doc);
-const freshDoc = new Y.Doc({ guid: doc.guid });
-Y.applyUpdateV2(freshDoc, snapshot);
-// freshDoc has same content, no history overhead
-```
+See [ADR-0295](../../../../docs/adr/0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md)
+and [ADR-0296](../../../../docs/adr/0296-rich-content-is-a-declared-field-and-a-table-owns-its-file-codec.md)
+for the current decisions.
