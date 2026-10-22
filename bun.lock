@@ -117,7 +117,7 @@
     },
     "apps/epicenter": {
       "name": "@epicenter/epicenter",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@epicenter/ai": "workspace:*",
         "@epicenter/cli": "workspace:*",

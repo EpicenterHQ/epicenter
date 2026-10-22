@@ -1,7 +1,7 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "Epicenter",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"identifier": "so.epicenter",
 	"build": {
 		"beforeBuildCommand": "bun run build:desktop",

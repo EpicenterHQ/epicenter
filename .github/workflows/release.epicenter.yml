@@ -91,6 +91,8 @@ jobs:
           rm "$certificate"
       - name: Build signed and notarized Epicenter
         env:
+          # Opus in audiopus_sys predates CMake 4's policy compatibility floor.
+          CMAKE_POLICY_VERSION_MINIMUM: '3.5'
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           EPICENTER_UPDATER_PUBLIC_KEY: ${{ vars.EPICENTER_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.EPICENTER_UPDATER_PRIVATE_KEY }}

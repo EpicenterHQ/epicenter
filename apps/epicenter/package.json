@@ -2,7 +2,7 @@
 	"name": "@epicenter/epicenter",
 	"description": "The Epicenter desktop app: Rust serves its pages and the apps it bundles from one origin.",
 	"private": true,
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"type": "module",
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",
