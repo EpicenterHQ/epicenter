@@ -8,6 +8,7 @@ import {
 	type ReleasePart,
 	releaseVersion,
 	requireNewer,
+	verifyAssets,
 } from './release.js';
 
 function part(target: string): ReleasePart {
@@ -65,4 +66,36 @@ test('an older build finishing late or a retry cannot move the feed backward', (
 	expect(() => requireNewer('0.0.2', '0.0.4')).toThrow();
 	expect(() => requireNewer('0.0.4', '0.0.4')).toThrow();
 	expect(() => requireNewer('0.1.0', '0.0.9')).not.toThrow();
+});
+
+test('receipts cannot complete a draft with missing assets or different signatures', () => {
+	const parts = targets.map(part);
+	const manifest = collect(parts, 'epicenter-v0.0.2', targets);
+	const assets = parts.flatMap((build) => [
+		{ name: build.archive },
+		{ name: `${build.archive}.sig` },
+		{ name: build.dmg! },
+	]);
+	const signatures = Object.fromEntries(
+		parts.map((build) => [`${build.archive}.sig`, build.signature]),
+	);
+	expect(() =>
+		verifyAssets(manifest, 'epicenter-v0.0.2', assets, signatures),
+	).not.toThrow();
+	for (const missing of assets) {
+		expect(() =>
+			verifyAssets(
+				manifest,
+				'epicenter-v0.0.2',
+				assets.filter((asset) => asset !== missing),
+				signatures,
+			),
+		).toThrow();
+	}
+	expect(() =>
+		verifyAssets(manifest, 'epicenter-v0.0.2', assets, {
+			...signatures,
+			[`${parts[0]!.archive}.sig`]: 'different signature',
+		}),
+	).toThrow();
 });

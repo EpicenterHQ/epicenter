@@ -17,7 +17,36 @@ concurrency:
   cancel-in-progress: false
   queue: max
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - name: Prepare one private draft for both builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[]' | jq -s --arg tag "$RELEASE_TAG" '[.[] | select(.tag_name == $tag)]' > "$RUNNER_TEMP/releases.json"
+          count="$(jq length "$RUNNER_TEMP/releases.json")"
+          if [ "$count" = 0 ]; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Epicenter ${RELEASE_TAG#epicenter-v}" --notes "Internal build in progress. Do not publish."
+          else
+            jq -e 'length == 1 and .[0].draft == true' "$RUNNER_TEMP/releases.json"
+            if jq -e '.[0].assets | any(.name == "stable.json")' "$RUNNER_TEMP/releases.json"; then
+              gh release delete-asset "$RELEASE_TAG" stable.json --yes
+            fi
+            gh release edit "$RELEASE_TAG" --notes "Internal build in progress. Do not publish."
+          fi
   build:
+    needs: prepare
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -71,11 +100,22 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: bun run --cwd apps/epicenter release:build "$RELEASE_TAG" "$GITHUB_WORKSPACE/.artifacts/release/${{ matrix.target }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: epicenter-${{ matrix.target }}
-          path: .artifacts/release/${{ matrix.target }}/
-          if-no-files-found: error
+      # Actions artifacts in a public repository are readable by repository
+      # readers. Transfer these internal binaries through the draft instead.
+      - name: Upload signed files to the private draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          # A partial rerun must not replace files under a completed manifest.
+          # Re-run all jobs to let prepare remove that completion marker first.
+          gh release view "$RELEASE_TAG" --json isDraft,assets | jq -e '.isDraft == true and all(.assets[]; .name != "stable.json")'
+          directory=".artifacts/release/$RELEASE_TARGET"
+          gh release upload "$RELEASE_TAG" "$directory"/*.dmg "$directory"/*.tar.gz "$directory"/*.sig --clobber
+          cp "$directory/part.json" "$directory/$RELEASE_TARGET.part.json"
+          gh release upload "$RELEASE_TAG" "$directory/$RELEASE_TARGET.part.json" --clobber
       - name: Remove temporary keychain
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/epicenter.keychain-db" || true
@@ -92,20 +132,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: epicenter-darwin-*
-          path: .artifacts/release
-      - name: Assemble one complete feed and draft release
+      - name: Verify draft assets and complete its feed
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          bun apps/epicenter/scripts/release.ts collect "$RELEASE_TAG" .artifacts/release
-          if gh release view "$RELEASE_TAG" --json isDraft > "$RUNNER_TEMP/release.json"; then
-            jq -e '.isDraft == true' "$RUNNER_TEMP/release.json"
-          else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Epicenter ${RELEASE_TAG#epicenter-v}" --notes "Epicenter development release. Review the bundled apps before publication."
-          fi
-          find .artifacts/release -type f \( -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' -o -name 'stable.json' \) -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber
+          bun apps/epicenter/scripts/release.ts collect-draft "$RELEASE_TAG" .artifacts/release
+          gh release upload "$RELEASE_TAG" .artifacts/release/stable.json --clobber
+          gh release edit "$RELEASE_TAG" --notes "Signed and notarized internal Epicenter development build. Review the bundled apps before publication."

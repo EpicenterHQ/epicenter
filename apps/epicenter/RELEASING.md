@@ -71,13 +71,26 @@ release version.
 
 The **Build Epicenter release draft** workflow runs on that tag or a manual
 dispatch naming an existing tag. Native Apple Silicon and Intel runners each
-build their own CLI sidecar and full application, sign and notarize them, and
-upload their outputs. One final job verifies both architectures, their version,
-source commit, signatures, and required artifacts before creating the draft.
+build their own CLI sidecar and full application, and sign and notarize them.
+A preparation job creates one unpublished draft before either build starts.
+Each build uploads its binaries directly to that draft, followed by its build
+receipt. Signed binaries never pass through Actions artifacts, which repository
+readers can download in a public repository.
+
+The final job verifies both architectures, their version, checked-out source
+commit, signature files, and required assets before adding `stable.json`.
+Only a successful final job marks the draft complete. A failed build can leave
+an incomplete draft. Use **Re-run all jobs** on the original tag's run to retry.
+For a manual dispatch, select the release tag as the workflow ref, for example
+`gh workflow run release.epicenter.yml --ref epicenter-v0.0.1 -f tag=epicenter-v0.0.1`.
+Dispatching an older workflow from another ref can restore public Actions
+artifact uploads. A full retry first removes
+`stable.json`, so an incomplete retry cannot retain a previous completion marker.
 Retries can replace draft assets; a published release is not overwritten.
+Rerunning an individual build cannot replace assets under a completed manifest.
 
 Each draft contains a DMG, signed updater archive, and signature for each
-architecture, plus the assembled `stable.json`. URLs in that manifest name
+architecture, both build receipts, and the assembled `stable.json`. URLs in that manifest name
 the exact release tag. The build publishes no feed and sends no update to
 existing installations. Review the bundled apps' readiness before publication.
 

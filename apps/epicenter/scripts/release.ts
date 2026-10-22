@@ -79,6 +79,41 @@ export function requireNewer(candidate: string, current: string) {
 		throw new Error(`Feed stays at ${current}: ${candidate} is not newer`);
 }
 
+/** Check the actual uploaded files before completing a draft or publishing it. */
+export function verifyAssets(
+	manifest: ReturnType<typeof collect>,
+	tag: string,
+	assets: readonly { name: string }[],
+	signatures: Readonly<Record<string, string>>,
+) {
+	const version = releaseVersion(tag);
+	const targets = ['darwin-aarch64', 'darwin-x86_64'];
+	if (
+		manifest.version !== version ||
+		Object.keys(manifest.platforms).sort().join() !== targets.join()
+	)
+		throw new Error('Feed must contain both matching macOS architectures');
+	for (const target of targets) {
+		const filename = `Epicenter_${version}_${target}.app.tar.gz`;
+		const platform = manifest.platforms[target];
+		if (
+			platform?.url !==
+				`https://github.com/EpicenterHQ/epicenter/releases/download/${tag}/${filename}` ||
+			!platform.signature.trim() ||
+			platform.signature !== signatures[`${filename}.sig`]?.trim()
+		)
+			throw new Error('Feed differs from the signed release artifacts');
+		for (const name of [
+			filename,
+			`${filename}.sig`,
+			`Epicenter_${version}_${target}.dmg`,
+		]) {
+			if (!assets.some((asset) => asset.name === name))
+				throw new Error(`Release is missing ${name}`);
+		}
+	}
+}
+
 async function run(args: string[], cwd = repoDir, inherit = false) {
 	const child = Bun.spawn(args, {
 		cwd,
@@ -249,10 +284,45 @@ export async function buildRelease(
 if (import.meta.main) {
 	const [operation, tag, directory] = process.argv.slice(2);
 	if (!tag || !directory)
-		throw new Error('Usage: release.ts build|collect|publish TAG OUTPUT');
+		throw new Error(
+			'Usage: release.ts build|collect|collect-draft|publish TAG OUTPUT',
+		);
 	if (operation === 'build') {
 		await buildRelease(tag, directory);
-	} else if (operation === 'collect') {
+	} else if (operation === 'collect' || operation === 'collect-draft') {
+		let draft: { isDraft: boolean; assets: { name: string }[] } | undefined;
+		if (operation === 'collect-draft') {
+			draft = JSON.parse(
+				await run([
+					'gh',
+					'release',
+					'view',
+					tag,
+					'--repo',
+					'EpicenterHQ/epicenter',
+					'--json',
+					'isDraft,assets',
+				]),
+			);
+			if (!draft?.isDraft)
+				throw new Error('Only an unpublished draft can be completed');
+			await mkdir(directory, { recursive: true });
+			await run([
+				'gh',
+				'release',
+				'download',
+				tag,
+				'--repo',
+				'EpicenterHQ/epicenter',
+				'--pattern',
+				'*.part.json',
+				'--pattern',
+				'*.sig',
+				'--dir',
+				directory,
+				'--clobber',
+			]);
+		}
 		const parts = await Promise.all(
 			(await readdir(directory, { recursive: true }))
 				.filter((name) => name.endsWith('part.json'))
@@ -262,6 +332,22 @@ if (import.meta.main) {
 				),
 		);
 		const manifest = collect(parts, tag, ['darwin-aarch64', 'darwin-x86_64']);
+		if (draft) {
+			const commit = await run(['git', 'rev-parse', 'HEAD']);
+			if (parts.some((part) => part.commit !== commit))
+				throw new Error(
+					'Draft artifacts do not match the checked-out release commit',
+				);
+			const signatures = Object.fromEntries(
+				await Promise.all(
+					parts.map(async (part) => [
+						`${part.archive}.sig`,
+						await Bun.file(join(directory, `${part.archive}.sig`)).text(),
+					]),
+				),
+			);
+			verifyAssets(manifest, tag, draft.assets, signatures);
+		}
 		await Bun.write(
 			join(directory, 'stable.json'),
 			JSON.stringify(manifest, null, 2),
@@ -283,9 +369,6 @@ if (import.meta.main) {
 		const manifest = await Bun.file(join(directory, 'stable.json')).json();
 		if (release.isPrerelease || manifest.version !== version)
 			throw new Error('Publish a matching stable release');
-		const targets = ['darwin-aarch64', 'darwin-x86_64'];
-		if (Object.keys(manifest.platforms).sort().join() !== targets.join())
-			throw new Error('Feed must contain both verified macOS architectures');
 		await run([
 			'gh',
 			'release',
@@ -299,27 +382,15 @@ if (import.meta.main) {
 			directory,
 			'--clobber',
 		]);
-		for (const target of targets) {
-			const filename = `Epicenter_${version}_${target}.app.tar.gz`;
-			const platform = manifest.platforms[target];
-			const url = `https://github.com/EpicenterHQ/epicenter/releases/download/${tag}/${filename}`;
-			if (
-				platform.url !== url ||
-				platform.signature !==
-					(await Bun.file(join(directory, `${filename}.sig`)).text()).trim()
-			)
-				throw new Error('Feed differs from the signed release artifacts');
-			for (const name of [
-				filename,
-				`${filename}.sig`,
-				`Epicenter_${version}_${target}.dmg`,
-			]) {
-				if (
-					!release.assets.some((asset: { name: string }) => asset.name === name)
-				)
-					throw new Error(`Release is missing ${name}`);
-			}
-		}
+		const signatures = Object.fromEntries(
+			await Promise.all(
+				['darwin-aarch64', 'darwin-x86_64'].map(async (target) => {
+					const filename = `Epicenter_${version}_${target}.app.tar.gz.sig`;
+					return [filename, await Bun.file(join(directory, filename)).text()];
+				}),
+			),
+		);
+		verifyAssets(manifest, tag, release.assets, signatures);
 		let response: Response | undefined;
 		try {
 			response = await fetch(UPDATE_FEED, {
