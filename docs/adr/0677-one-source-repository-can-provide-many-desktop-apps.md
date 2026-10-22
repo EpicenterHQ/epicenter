@@ -1,0 +1,189 @@
+# 0677. One source repository can provide many desktop apps
+
+- **Status:** Proposed
+- **Date:** 2026-10-22
+- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) (the present, narrower desktop runner); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) (standalone releases and fixed bundled pages); historical [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (a retired source-install and merge design).
+- **Unbuilt:** Source installation, app manifest discovery, user-owned checkout registration, installed builds, update discovery, agent-assisted merge workflow, and native admission for installed pages. The desktop currently bundles fixed app pages; it does not install their source.
+
+## Context
+
+Epicenter desktop builds its fixed app pages when Epicenter itself is built.
+ADR-0611 and ADR-0635 describe a possible personal-tool runner for built
+local pages, but no arbitrary runner is implemented. Those decisions
+explicitly removed the former source installer. ADR-0674 gives standalone
+products independent releases; their installers are separate from pages
+served by Epicenter.
+
+That arrangement makes a source-editable app inside Epicenter impossible to
+install from a public Git URL. A person who wants an agent to change Todos's
+layout needs a Git checkout and a build, whether Epicenter manages those or
+the person does. A browser deployment has a different job: it serves an
+already built site and may use Git to synchronize data, but it need not clone
+and build its own application source.
+
+The retired [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)
+allowed an app to live inside a repository, but installed two apps from one
+repository as two whole clones. The retired ADR-0605 treated an app's clone
+as the person's fork, let an update merge the author's commits with local
+commits, and kept a previous successful build. This record reopens editable
+source without equating one app with one clone or inheriting the old paths,
+commands, and permission grants.
+If accepted, it would amend ADR-0611 and ADR-0635 at the prohibition on
+source acquisition and builds in the desktop runner. Replacing the fixed
+first-party bundles would also amend ADR-0674's bundled-page release rule;
+standalone products would retain their independent releases.
+
+## Decision
+
+**One Git checkout can provide several desktop app targets.**
+
+The source repository is the unit a person and agent edit. Each app target
+has a tracked `epicenter.app.json` in its own directory, including the
+repository root when the repository contains only one app. Epicenter finds
+those manifests wherever they occur; `apps/` is a convention in this
+monorepo, not a required path in other repositories. A manifest identifies
+the app and its desktop-host build and output locations. Adding a repository
+discovers its app targets; the person chooses which targets to build and open.
+
+Epicenter can clone a remote into an ordinary, user-accessible source
+directory or register an existing local checkout. The source directory is
+separate from the data folders that apps open. It does not extract one
+app's files into a pretend repository, keep one hidden clone per app, or
+place source inside the local-data library. Removing an app entry or its
+built output does not delete the checkout or the app's data. Epicenter never
+silently removes a checkout it created; deleting source is a separate,
+explicit file operation. A catalog entry supplies a repository URL and
+optionally an app path; it owns neither the checkout nor access to the remote.
+The local installed inventory refers to a checkout,
+app path, and built output, not to catalog membership. A public HTTPS
+repository can be cloned without an Epicenter or GitHub account; building
+it also requires access to its dependencies. Private fetches use credentials
+configured for that Git remote.
+
+**The checkout's branch belongs to the person and agent, not to Epicenter.**
+
+A new clone starts from the remote's chosen ref; no branch name such as
+`main` is required. The checkout's working branch and the upstream ref
+that Epicenter checks for updates are separate choices. An agent may edit,
+commit, inspect history, and merge the author's changes on the person's
+branch. Epicenter does not switch or rewrite that branch during background
+update discovery. Cloning an author's repository does not create a remote
+fork or give the person permission to push there. Local commits can be merged
+with later upstream commits without a fork, but they remain only on that
+computer until pushed to a remote or backed up separately. A personal fork,
+private Git remote, or other backup is optional for local editing; people
+who want their customizations available after device loss or on another
+computer must publish or back them up themselves. Epicenter should make
+that local-only state visible, not imply that a commit was backed up.
+If two apps need different source branches, the person can use separate Git
+worktrees or checkouts rather than pretending one working tree has two current
+branches.
+
+**A new remote checkout starts with limited history, not a permanently limited Git repository.**
+
+When the remote supports it, installation fetches the selected ref shallowly
+to avoid transferring older commits most people will not inspect. Normal
+future fetches bring in new commits and preserve the installation commit as
+the base for local edits when upstream retains that ancestry. An agent can
+deepen the repository when older history or another branch is needed.
+Repeating a depth-one fetch for every update is not the update rule.
+Shallow history does not omit current files or dependencies. Sparse checkout
+and partial clone may reduce monorepo file
+transfer after the required build paths are known, but neither is part of
+the app identity or required for a correct install.
+
+**Updating source is an explicit Git operation, followed by a separate build.**
+
+Epicenter can fetch the selected upstream ref and report that a newer commit
+is available without changing the checkout or active build. It exposes the
+current and candidate commits and their diff so a person or agent can
+propose the update. For a clean checkout, advancing to that commit can be a
+direct update. Uncommitted work must be preserved or committed before an
+update changes the checkout. When the person has committed customizations,
+the person or agent merges the selected upstream commit into their branch and runs checks
+in the ordinary checkout. Epicenter does not silently resolve conflicts or
+rewrite the person's commits. An unfinished merge stays visible as source
+work; it does not become an installed build. The selected upstream ref may
+move, but each built app records the exact commit that supplied its files.
+
+**Building source does not automatically change which built page opens.**
+
+Epicenter builds each chosen app into its own output location and changes
+that app's active build only after the build command succeeds and its
+expected output exists. Two apps from the same checkout may still have
+different active build commits. This does not prove that the page works
+correctly. A failed build reports
+its error and leaves the source available for repair. The earlier built
+page remains available as a practical recovery path, not as a prohibition
+on editing or trying an incomplete build. A development preview may build
+uncommitted source, but an installed version names a commit. No background
+fetch starts a build or activates an author's new code without the person's or agent's
+update action.
+
+**Installing source is an explicit trust decision, not an account grant.**
+
+The host does not pass Epicenter account tokens to an installed page, a
+third-party Git remote, or a build environment. It supplies Epicenter Git
+credentials only to Epicenter's Git origin; other remotes use the person's
+configured Git helpers. Installed pages receive only the native operations
+they need for their admitted data, not the host's account operations. An
+install or update action identifies the source address and candidate commit
+before new code runs, whether a person or agent invokes the action.
+
+A build script still executes as a local process under the person's operating
+system account. It can reach files and credentials available to that account,
+including by invoking installed command-line tools. Narrow Tauri page
+capabilities and a cleaned build environment do not make that process a
+sandbox. Epicenter must not claim that it safely runs untrusted source until
+a real build and runtime isolation boundary is designed and verified. Source
+installation is an explicit action, not an automatic consequence of browsing
+a catalog.
+
+## Consequences
+
+- A coding agent can work on an app through ordinary Git commits, merges,
+  build commands, and test commands. Epicenter does not need its own merge
+  algorithm or conflict editor for app source.
+- The first-party monorepo can remain the source of Todos and other apps.
+  One checkout exposes their app targets while each build uses the
+  repository's lockfile and workspace packages. Building one target does
+  not require building every app. Clone, dependency, and build costs still
+  need measurement.
+- Shallow cloning can reduce the first Git transfer, not the size of the
+  current working tree, dependency downloads, or compilation. Agent work
+  that needs older history may fetch it on demand.
+- A failed build can leave the checkout broken while the last built page
+  still opens. This separates an agent's source work from the user's ability
+  to use the app; it does not hide build failures.
+- Sign-in is optional for public source installation and local edits. It is
+  useful for private repositories and for publishing a personal fork. A
+  fork by itself does not back up changes; the person's commits must be
+  pushed to it.
+- Source builds execute code with local process privileges. Per-window Tauri
+  grants cannot by themselves protect the account or filesystem from a
+  malicious build script. A general public app marketplace requires a
+  stronger isolation decision or an honest trust requirement.
+- Browser apps keep their separate deployment and data-sync model. They do
+  not acquire this source installer by sharing an app's Git repository.
+
+## Considered alternatives
+
+- **Copy an app directory out of its repository.** This loses workspace
+  dependencies and ordinary upstream Git merge history. It turns source
+  installation into an export format with its own update machinery.
+- **Require one repository per app or one clone per app.** This duplicates
+  a monorepo and hides the fact that shared package changes can affect
+  several app builds. A separate checkout remains available when branches
+  truly need to diverge.
+- **Require every app under `apps/`.** A tracked manifest at each app root
+  handles single-app repositories and other monorepo layouts with one rule.
+- **Use `git pull` on the working branch for every update.** This combines
+  fetching, merging, and checkout mutation before Epicenter can inspect the
+  candidate or build it. Explicit fetch, merge, and build steps keep agent
+  work visible and make failures easier to repair.
+- **Require a successful build before allowing source edits or merges.** This
+  would turn a runtime recovery measure into a restriction on development.
+  The source may be incomplete while an agent is working on it.
+- **Treat page capabilities as a complete account sandbox.** They constrain
+  WebView-to-host calls, but they do not constrain the operating system
+  process that runs the downloaded build script.
