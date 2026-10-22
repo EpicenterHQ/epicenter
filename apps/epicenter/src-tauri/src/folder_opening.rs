@@ -10,7 +10,7 @@
 //!
 //! Accepting resolves an existing directory and opens its own bound editor
 //! window. The launcher stays unbound. An accepted path absent from the folder
-//! root listing is remembered in `folders.json`; a visible direct child is
+//! root listing is remembered in `bookmarks.json`; a visible direct child is
 //! already discoverable there. Bookmarks are shortcuts, never permissions.
 //! Bookmarks and this-run acceptances join the one derived folder listing.
 //! Opening a row rechecks current membership and its directory.
@@ -29,8 +29,8 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_epicenter_folder::Directory;
 
 use crate::data_folders::overlaps_epicenter_files;
-use crate::folders_config;
 use crate::{BuiltInApp, DesktopAppHandle};
+use epicenter_folder_core::bookmarks;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 
 /// The event the Folders window hears when the pending requests changed. It
@@ -114,7 +114,7 @@ pub struct FolderOpenings(Mutex<Openings>);
 struct Openings {
     /// Requested and not yet accepted or dismissed, oldest first, each once.
     pending: Vec<String>,
-    /// Accepted this run but not persisted, in order. Saved shortcuts live only in folders.json.
+    /// Accepted this run but not persisted, in order. Saved shortcuts live only in bookmarks.json.
     temporary: Vec<String>,
 }
 
@@ -205,7 +205,7 @@ fn admit(paths: &DesktopPaths, directory: &str) -> Result<Directory, String> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AcceptedOpening {
-    /// Why `folders.json` was not updated; the folder is open regardless.
+    /// Why `bookmarks.json` was not updated; the folder is open regardless.
     pub remember_problem: Option<String>,
 }
 
@@ -240,7 +240,7 @@ fn remember_accepted(
     let remember_problem = if listed_by_root {
         None
     } else {
-        folders_config::add(&paths.data_dir, directory).err()
+        bookmarks::add(&paths.data_dir, directory).err()
     };
     if let Some(problem) = &remember_problem {
         openings.keep_temporarily(directory);
@@ -294,7 +294,7 @@ pub fn dismiss_folder_opening(app: DesktopAppHandle, path: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::folders_config::DEFAULT_EPICENTER_FOLDER;
+    use epicenter_folder_core::library;
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
@@ -374,7 +374,7 @@ mod tests {
             data_dir: root.join("Application Support/so.epicenter"),
             folder_dir: root.join("Epicenter"),
         };
-        fs::create_dir_all(paths.folder_dir.join(DEFAULT_EPICENTER_FOLDER)).unwrap();
+        fs::create_dir_all(paths.folder_dir.join(library::RECORDS.id)).unwrap();
         fs::create_dir_all(&paths.data_dir).unwrap();
         let elsewhere = root.join("Application Support/so.epicenter.todos");
         fs::create_dir_all(elsewhere.join("todos")).unwrap();
@@ -489,7 +489,7 @@ mod tests {
         assert!(f.openings.take(f.elsewhere.to_str().unwrap()));
         assert!(f.accept(&f.elsewhere).is_err());
         assert!(!missing.exists());
-        assert!(!folders_config::file(&f.paths.data_dir).exists());
+        assert!(!bookmarks::file(&f.paths.data_dir).exists());
         assert!(f.app.webview_windows().is_empty());
     }
     #[test]
@@ -521,7 +521,7 @@ mod tests {
         );
         assert!(f.app.folders().bound("home").is_err());
         assert_eq!(
-            folders_config::read(&f.paths.data_dir).unwrap().folders,
+            bookmarks::read(&f.paths.data_dir).unwrap(),
             [f.elsewhere.to_str().unwrap()]
         );
     }
@@ -544,7 +544,7 @@ mod tests {
         f.request(&todos);
         assert_eq!(f.accept(&todos).unwrap().remember_problem, None);
         assert!(f.listed().folders.is_empty());
-        assert!(!folders_config::file(&f.paths.data_dir).exists());
+        assert!(!bookmarks::file(&f.paths.data_dir).exists());
         assert!(f.openings.temporary().is_empty());
     }
     #[test]
@@ -581,7 +581,7 @@ mod tests {
     #[test]
     fn handoffs_preserve_the_protected_overlap_policy() {
         let f = fixture();
-        let own = f.paths.folder_dir.join(DEFAULT_EPICENTER_FOLDER);
+        let own = f.paths.folder_dir.join(library::RECORDS.id);
         fs::create_dir(own.join("connections")).unwrap();
         for path in [
             &own,
@@ -597,7 +597,7 @@ mod tests {
                 .contains("Epicenter's own files"));
         }
         assert!(f.app.webview_windows().is_empty());
-        assert!(!folders_config::file(&f.paths.data_dir).exists());
+        assert!(!bookmarks::file(&f.paths.data_dir).exists());
     }
     #[cfg(unix)]
     #[test]
@@ -619,7 +619,7 @@ mod tests {
         assert!(f
             .reopen(&path)
             .unwrap_err()
-            .contains("Epicenter's own files"));
+            .contains("application data"));
         assert!(f.listed().folders[0].problem.is_some());
         let second_parent = f.temp.path().join("another-app");
         let second = second_parent.join("so.epicenter.todos");
@@ -645,7 +645,7 @@ mod tests {
         assert!(f.reopen(&f.elsewhere).is_ok());
         fs::remove_dir_all(&f.elsewhere).unwrap();
         assert!(f.listed().folders[0].problem.is_some());
-        folders_config::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
+        bookmarks::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
         assert!(f.listed().folders.is_empty());
         assert!(!f.elsewhere.exists());
     }
@@ -656,7 +656,7 @@ mod tests {
         f.request(&f.elsewhere);
         f.accept(&f.elsewhere).unwrap();
         let label = f.reopen(&f.elsewhere).unwrap();
-        folders_config::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
+        bookmarks::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
         assert!(f.listed().folders.is_empty());
         assert!(f.reopen(&f.elsewhere).is_err());
         assert_eq!(f.root(&label), f.elsewhere);
@@ -664,7 +664,7 @@ mod tests {
     #[test]
     fn a_failed_bookmark_write_keeps_the_editor_and_this_run_shortcut() {
         let f = fixture();
-        let list = folders_config::file(&f.paths.data_dir);
+        let list = bookmarks::file(&f.paths.data_dir);
         fs::write(&list, "{\"not\":\"a list\"}").unwrap();
         f.request(&f.elsewhere);
         let accepted = f.accept(&f.elsewhere).unwrap();
@@ -689,9 +689,9 @@ mod tests {
     #[test]
     fn hand_edited_bookmarks_are_checked_before_opening() {
         let f = fixture();
-        let own = f.paths.folder_dir.join(DEFAULT_EPICENTER_FOLDER);
+        let own = f.paths.folder_dir.join(library::RECORDS.id);
         fs::write(
-            folders_config::file(&f.paths.data_dir),
+            bookmarks::file(&f.paths.data_dir),
             serde_json::to_string(&[
                 "relative/notes",
                 own.to_str().unwrap(),

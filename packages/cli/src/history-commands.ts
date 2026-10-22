@@ -35,14 +35,15 @@ type Options = Record<string, string | true>;
 const AUTHOR = { name: 'Epicenter', email: 'epicenter@localhost' };
 
 /**
- * Whether `dir` is the selected Epicenter records folder. Its directory
- * name does not grant the nested-repository exception.
+ * Whether `dir` is Epicenter's records folder, the fixed
+ * `<folderDir>/so.epicenter`, by directory identity: another directory with
+ * that name elsewhere does not grant the nested-repository exception.
  */
 export async function isEpicenterFolder(
 	dir: string,
 	paths: AppPaths = resolveAppPaths(),
 ): Promise<boolean> {
-	// An unreadable selection grants no exception for nested repositories.
+	// A records location that cannot be admitted grants no exception.
 	const directory = await epicenterDirectory(paths, false).catch(
 		() => undefined,
 	);

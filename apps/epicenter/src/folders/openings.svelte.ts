@@ -9,7 +9,7 @@
  * and remember the path. The launcher never owns a folder or its drafts.
  * Existing editors keep their own input while another window opens.
  *
- * Root children, homes, and accepted shortcuts appear in the unified folder list.
+ * Root children and accepted shortcuts appear in the unified folder list.
  */
 import type { commands } from '../ui/bindings.gen';
 

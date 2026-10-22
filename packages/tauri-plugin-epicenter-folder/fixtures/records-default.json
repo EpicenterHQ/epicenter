@@ -1,0 +1,75 @@
+{
+	"legacyConfig": "{\"homes\":{\"epicenter\":\"/elsewhere/records\"},\"folders\":[\"relative/keep\"]}",
+	"cases": [
+		{
+			"name": "a missing root and records child are created",
+			"root": "new/root",
+			"allowed": true
+		},
+		{
+			"name": "an existing records child is reused with its files",
+			"root": "root",
+			"directories": ["root/so.epicenter"],
+			"files": ["root/so.epicenter/keep.md"],
+			"allowed": true
+		},
+		{
+			"name": "a file at the records child is refused and kept",
+			"root": "root",
+			"files": ["root/so.epicenter"],
+			"allowed": false
+		},
+		{
+			"name": "a linked records child is refused",
+			"root": "root",
+			"directories": ["elsewhere"],
+			"files": ["elsewhere/keep.md"],
+			"links": {
+				"root/so.epicenter": "elsewhere"
+			},
+			"allowed": false
+		},
+		{
+			"name": "a linked root opens its real child",
+			"root": "alias",
+			"directories": ["real"],
+			"links": {
+				"alias": "real"
+			},
+			"allowed": true
+		},
+		{
+			"name": "a root inside application data is refused",
+			"root": "machine/library",
+			"allowed": false
+		},
+		{
+			"name": "a root equal to application data is refused",
+			"root": "machine",
+			"allowed": false
+		},
+		{
+			"name": "records containing application data are refused",
+			"data": "root/so.epicenter/machine",
+			"root": "root",
+			"allowed": false
+		},
+		{
+			"name": "records staging containing application data is refused",
+			"data": "root/.so.epicenter.epicenter-scratch/machine",
+			"root": "root",
+			"allowed": false
+		},
+		{
+			"name": "a root inside a save staging directory is refused",
+			"root": ".Notes.epicenter-scratch/root",
+			"allowed": false
+		},
+		{
+			"name": "application data beside the root is ordinary",
+			"data": "root-machine",
+			"root": "root",
+			"allowed": true
+		}
+	]
+}

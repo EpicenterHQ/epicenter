@@ -165,7 +165,7 @@ export const commands = {
 	 */
 	whisperingConnectionSet: (connection: WhisperingConnection, fields: ConnectionRowAssignment_Deserialize) => typedError<ConnectionRow_Serialize, CliError>(__TAURI_INVOKE("whispering_connection_set", { connection, fields })),
 	/**
-	 *  Open bundled app `app` on its selected home, or with `folder`, on
+	 *  Open bundled app `app` on its fixed default, or with `folder`, on
 	 *  the folder identified by a current row in the combined listing. A window
 	 *  already open on the folder is revealed.
 	 */
@@ -227,7 +227,7 @@ export const events = {
 /* Types */
 /**  A successful native opening, with a separate persistence failure if any. */
 export type AcceptedOpening = {
-	/**  Why `folders.json` was not updated; the folder is open regardless. */
+	/**  Why `bookmarks.json` was not updated; the folder is open regardless. */
 	rememberProblem: string | null,
 };
 
@@ -536,8 +536,8 @@ export type ListedFolder = {
 	path: string,
 	/**  Protected directories remain editable, but cannot open in ordinary apps. */
 	protected: boolean,
-	/**  Display titles of apps whose ordinary launch uses this directory. */
-	homes: string[],
+	/**  The title of the app whose fixed default this directory is, if any. */
+	defaultFor: string | null,
 	/**  Original shortcut spellings, removed together by Forget bookmark. */
 	bookmarks: string[],
 	temporary: boolean,

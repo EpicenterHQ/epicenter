@@ -1,6 +1,6 @@
 //! Root-child discovery and launcher invalidation. The combined folder list
 //! lives in folder_listing; listing never registers or allocates a directory.
-//! The root and its child declarations are watched alongside folders.json.
+//! The root and its child declarations are watched alongside bookmarks.json.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -15,27 +15,21 @@ use tauri_plugin_epicenter_folder::Directory;
 
 #[cfg(test)]
 use crate::folder_windows;
-use crate::folders_config;
 use crate::BuiltInApp;
+use epicenter_folder_core::{bookmarks, library};
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 
 /// The optional declaration supplying a title while listing files.
 const DECLARATION: &str = "epicenter.json";
 
 /// Whether `directory` overlaps Epicenter's own files, so that neither a
-/// bundled app nor a handoff may bind it: Settings' folder, its sibling save
-/// staging directory, or the app data, anything inside them, or a directory
-/// holding them. The folder root and its parents hold Settings' folder, so
-/// they are refused while that root contains the selected records. The
-/// listed-folder editor does not ask, and may open Settings' folder.
+/// bundled app nor a handoff may bind it: Settings' folder, the fixed
+/// `<folder_dir>/so.epicenter`, its sibling save staging directory, or the
+/// app data, anything inside them, or a directory holding them, such as the
+/// folder root. No configuration is read. The listed-folder editor does not
+/// ask, and may open Settings' folder.
 pub fn overlaps_epicenter_files(paths: &DesktopPaths, directory: &Directory) -> bool {
-    // Broken preferences must stay repairable without blocking unrelated
-    // folder editors. Settings itself requires a readable selection.
-    let records = folders_config::read(&paths.data_dir)
-        .ok()
-        .and_then(|config| folders_config::protected_records(&config, &paths.folder_dir));
-    folders_config::check_app_directory(&paths.data_dir, records.as_deref(), directory.root())
-        .is_err()
+    library::check_app_directory(&paths.data_dir, &paths.folder_dir, directory.root()).is_err()
 }
 
 /// One visible child discovered under the configured root.
@@ -46,27 +40,6 @@ pub(crate) struct RootFolder {
     pub name: String,
     /// `epicenter.json`'s `title` when it is a string, else the directory name.
     pub title: String,
-}
-
-/// Discover a real directory directly under `folder_dir`. A name that is
-/// not one directory entry, a dot entry, a link, or a directory that is gone
-/// is refused, and nothing is made.
-pub fn listed_folder(folder_dir: &Path, name: &str) -> Result<PathBuf, String> {
-    let mut components = Path::new(name).components();
-    let one_name = matches!(
-        (components.next(), components.next()),
-        (Some(Component::Normal(_)), None)
-    );
-    if !one_name || name.starts_with('.') || name.contains(['/', '\\', '\0']) {
-        return Err("That folder is not in the list of folders.".to_string());
-    }
-    let path = folder_dir.join(name);
-    // `symlink_metadata` does not follow a link, so a linked directory is
-    // refused, as the listing skips one.
-    if !fs::symlink_metadata(&path).is_ok_and(|stats| stats.is_dir()) {
-        return Err(format!("The folder \"{name}\" is not there anymore."));
-    }
-    Ok(path)
 }
 
 pub(crate) fn list_in(folder_dir: &Path) -> Result<Vec<RootFolder>, String> {
@@ -81,7 +54,7 @@ pub(crate) fn list_in(folder_dir: &Path) -> Result<Vec<RootFolder>, String> {
             continue;
         };
         // `file_type` does not follow links, so a linked directory is skipped.
-        let is_directory = listed_folder(folder_dir, &name).is_ok();
+        let is_directory = entry.file_type().is_ok_and(|kind| kind.is_dir());
         if name.starts_with('.') || !is_directory {
             continue;
         }
@@ -126,15 +99,16 @@ pub struct DataFoldersWatch {
 /// when what `list_in` reads may have changed: an entry directly under the
 /// root, or a folder's optional `epicenter.json` title. The watch is recursive
 /// because a declaration is one level down; every deeper change, such as a row saved
-/// in a folder, is ignored. A rescan or a watch error is reported too. A
-/// An unavailable root does not prevent configuration watching or startup.
+/// in a folder, is ignored. A rescan or a watch error is reported too, and so
+/// is a change to `bookmarks.json`. An unavailable root does not prevent
+/// bookmark watching or startup.
 pub fn watch_data_folders<R: Runtime>(
     app: &AppHandle<R>,
     folder_dir: &Path,
     data_dir: &Path,
 ) -> Result<DataFoldersWatch, String> {
     let root = folder_dir.to_path_buf();
-    let config = folders_config::file(data_dir);
+    let bookmark_file = bookmarks::file(data_dir);
     fs::create_dir_all(data_dir).map_err(|error| error.to_string())?;
     let app = app.clone();
     let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher, NoCache>(
@@ -148,7 +122,7 @@ pub fn watch_data_folders<R: Runtime>(
                             && debounced
                                 .paths
                                 .iter()
-                                .any(|path| changes_listing(&root, path) || *path == config))
+                                .any(|path| changes_listing(&root, path) || *path == bookmark_file))
                 }),
                 // Some events could not be delivered.
                 Err(_) => true,
@@ -165,7 +139,7 @@ pub fn watch_data_folders<R: Runtime>(
         .watch(data_dir, RecursiveMode::NonRecursive)
         .map_err(|error| format!("{} could not be watched: {error}", data_dir.display()))?;
     // Creating the discovery root enables first-use watching, but is never a
-    // prerequisite for saved homes and bookmarks elsewhere on the machine.
+    // prerequisite for bookmarks elsewhere on the machine.
     if let Err(error) = fs::create_dir_all(folder_dir)
         .map_err(|error| error.to_string())
         .and_then(|()| {
@@ -211,7 +185,6 @@ mod tests {
     //! The listing over a real directory, and the editor window the folder
     //! plugin's real commands reach on the mock runtime.
 
-    use crate::folders_config::DEFAULT_EPICENTER_FOLDER;
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
@@ -221,6 +194,8 @@ mod tests {
     use tauri_plugin_epicenter_folder::FolderExt;
 
     use super::*;
+
+    const RECORDS: &str = library::RECORDS.id;
 
     struct Fixture {
         app: App<MockRuntime>,
@@ -365,9 +340,9 @@ mod tests {
     }
 
     #[test]
-    fn the_launcher_hears_external_config_writes() {
+    fn the_launcher_hears_external_bookmark_writes() {
         use tauri::Listener;
-        let fixture = fixture("config-watch");
+        let fixture = fixture("bookmark-watch");
         let data = fixture.folder_dir.join(".app-data");
         let window =
             WebviewWindowBuilder::new(&fixture.app, BuiltInApp::Folders.id(), Default::default())
@@ -380,14 +355,14 @@ mod tests {
         let _watch = watch_data_folders(fixture.app.handle(), &fixture.folder_dir, &data).unwrap();
         std::thread::sleep(Duration::from_millis(300));
         while hearing.try_recv().is_ok() {}
-        folders_config::add(&data, "/another/folder").unwrap();
+        bookmarks::add(&data, "/another/folder").unwrap();
         hearing
             .recv_timeout(Duration::from_secs(5))
-            .expect("configuration writes refresh the launcher");
+            .expect("bookmark writes refresh the launcher");
     }
 
     #[test]
-    fn an_unavailable_root_does_not_prevent_config_watching() {
+    fn an_unavailable_root_does_not_prevent_bookmark_watching() {
         use tauri::Listener;
         let fixture = fixture("blocked-root-watch");
         let data = fixture.folder_dir.join(".app-data");
@@ -404,68 +379,58 @@ mod tests {
         let _watch = watch_data_folders(fixture.app.handle(), &occupied, &data).unwrap();
         std::thread::sleep(Duration::from_millis(300));
         while hearing.try_recv().is_ok() {}
-        folders_config::add(&data, "/outside/root").unwrap();
+        bookmarks::add(&data, "/outside/root").unwrap();
         hearing
             .recv_timeout(Duration::from_secs(5))
-            .expect("configuration remains watched");
+            .expect("bookmarks remain watched");
         assert_eq!(fs::read_to_string(occupied).unwrap(), "keep");
     }
 
+    /// Settings' folder is the fixed `so.epicenter` child. An earlier build's
+    /// records selection names an ordinary directory now, and stays unread.
     #[test]
-    fn the_selected_directory_has_the_settings_role_regardless_of_its_name() {
-        let fixture = fixture("renamed-settings");
+    fn records_are_the_fixed_child_whatever_an_old_selection_names() {
+        let fixture = fixture("fixed-records");
         let data = fixture.folder_dir.join(".app-data");
         fs::create_dir(&data).unwrap();
         let selected = fixture.folder_dir.join("My setup");
         fs::create_dir(&selected).unwrap();
-        fs::create_dir(fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER)).unwrap();
-        fs::write(
-            folders_config::file(&data),
-            serde_json::to_vec(&folders_config::FoldersConfig {
-                homes: [("epicenter".into(), selected.to_str().unwrap().into())].into(),
-                folders: vec![],
-            })
-            .unwrap(),
-        )
+        let config = data.join("folders.json");
+        let contents = serde_json::to_string(&json!({
+            "homes": { "epicenter": selected },
+            "folders": [],
+        }))
         .unwrap();
+        fs::write(&config, &contents).unwrap();
         let paths = DesktopPaths {
-            data_dir: data,
+            data_dir: data.clone(),
             folder_dir: fixture.folder_dir.clone(),
         };
-        assert_eq!(
-            paths.open_home(folders_config::EPICENTER).unwrap().root(),
-            selected
-        );
-        assert!(overlaps_epicenter_files(
-            &paths,
-            &Directory::existing(&selected).unwrap()
-        ));
+        let records = paths.open_default(library::RECORDS).unwrap();
+        assert_eq!(records.root(), fixture.folder_dir.join(RECORDS));
+        assert!(overlaps_epicenter_files(&paths, &records));
         assert!(!overlaps_epicenter_files(
             &paths,
-            &Directory::existing(&fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER)).unwrap()
+            &Directory::existing(&selected).unwrap()
         ));
         let listed =
             crate::folder_listing::list(&paths, &crate::folder_opening::FolderOpenings::default())
                 .folders;
-        assert!(
+        let row = |path: &Path| {
             listed
                 .iter()
-                .find(|folder| folder.path == selected.to_str().unwrap())
+                .find(|folder| folder.path == path.to_str().unwrap())
                 .unwrap()
-                .protected
+        };
+        assert!(row(records.root()).protected);
+        assert_eq!(
+            row(records.root()).default_for.as_deref(),
+            Some("Epicenter")
         );
-        assert!(
-            !listed
-                .iter()
-                .find(|folder| folder.path
-                    == fixture
-                        .folder_dir
-                        .join(DEFAULT_EPICENTER_FOLDER)
-                        .to_str()
-                        .unwrap())
-                .unwrap()
-                .protected
-        );
+        assert!(!row(&selected).protected);
+        assert_eq!(row(&selected).default_for, None);
+        assert_eq!(fs::read_to_string(&config).unwrap(), contents);
+        assert_eq!(fs::read_dir(&data).unwrap().count(), 1);
     }
 
     #[test]
@@ -541,11 +506,7 @@ mod tests {
         );
         data_folder(&fixture, "numbered", r#"{ "title": 7 }"#);
         data_folder(&fixture, "broken", "not json");
-        data_folder(
-            &fixture,
-            DEFAULT_EPICENTER_FOLDER,
-            r#"{ "title": "Epicenter" }"#,
-        );
+        data_folder(&fixture, RECORDS, r#"{ "title": "Epicenter" }"#);
 
         let titles: Vec<(String, String)> = fixture
             .list()
@@ -556,7 +517,7 @@ mod tests {
             titles,
             [
                 ("broken".into(), "broken".into()),
-                (DEFAULT_EPICENTER_FOLDER.into(), "Epicenter".into()),
+                (RECORDS.into(), "Epicenter".into()),
                 ("numbered".into(), "numbered".into()),
                 ("reading".into(), "Reading list".into()),
             ]
@@ -604,8 +565,8 @@ mod tests {
             data_dir: fixture.folder_dir.join(".app-data"),
             folder_dir: fixture.folder_dir.clone(),
         };
-        let settings = paths.open_home(folders_config::EPICENTER).unwrap();
-        assert!(fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER).is_dir());
+        let settings = paths.open_default(library::RECORDS).unwrap();
+        assert!(fixture.folder_dir.join(RECORDS).is_dir());
         assert!(overlaps_epicenter_files(&paths, &settings));
         fs::write(fixture.folder_dir.join("so.epicenter/notes.md"), "").unwrap();
 
@@ -619,7 +580,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(root_names(&home), ["notes.md"]);
-        let (editor, _) = fixture.open_editor(DEFAULT_EPICENTER_FOLDER).unwrap();
+        let (editor, _) = fixture.open_editor(RECORDS).unwrap();
         assert_eq!(root_names(&fixture.window(&editor)), ["notes.md"]);
     }
 
@@ -636,55 +597,39 @@ mod tests {
         };
         assert!(!fixture.folder_dir.join("absent").exists());
 
-        fs::write(
-            folders_config::file(&private),
-            serde_json::to_vec(&folders_config::FoldersConfig {
-                homes: [(
-                    "epicenter".into(),
-                    fixture
-                        .folder_dir
-                        .join(DEFAULT_EPICENTER_FOLDER)
-                        .to_str()
-                        .unwrap()
-                        .into(),
-                )]
-                .into(),
-                folders: vec![],
-            })
-            .unwrap(),
-        )
-        .unwrap();
-        let selected_paths = DesktopPaths {
-            data_dir: private.clone(),
-            ..paths.clone()
-        };
-        let directory = Directory::existing(&scratch).unwrap();
-        assert!(overlaps_epicenter_files(&selected_paths, &directory));
-
-        for protected in [&private] {
+        // Records need not exist for their staging sibling to be protected.
+        for protected in [&scratch, &private] {
             let directory = Directory::existing(protected).unwrap();
-            assert!(overlaps_epicenter_files(&paths, &directory));
+            assert!(
+                overlaps_epicenter_files(&paths, &directory),
+                "{protected:?}"
+            );
         }
         let ordinary = fixture.folder_dir.join("ordinary");
         fs::create_dir(&ordinary).unwrap();
         let directory = Directory::existing(&ordinary).unwrap();
         assert!(!overlaps_epicenter_files(&paths, &directory));
+        assert!(!fixture.folder_dir.join(RECORDS).exists());
     }
 
+    /// Admission reads no configuration, so a corrupt earlier file neither
+    /// blocks ordinary folders nor admits protected ones, and stays as it was.
     #[test]
-    fn unreadable_home_configuration_keeps_ordinary_folders_available_for_repair() {
-        let fixture = fixture("repair-homes");
+    fn a_corrupt_old_configuration_changes_no_admission() {
+        let fixture = fixture("corrupt-config");
         let paths = DesktopPaths {
             data_dir: fixture.folder_dir.join(".app-data"),
             folder_dir: fixture.folder_dir.clone(),
         };
         fs::create_dir(&paths.data_dir).unwrap();
-        let config = folders_config::file(&paths.data_dir);
+        let config = paths.data_dir.join("folders.json");
         fs::write(&config, "needs repair").unwrap();
         let ordinary = Directory::create(&fixture.folder_dir.join("ordinary")).unwrap();
         let private = Directory::existing(&paths.data_dir).unwrap();
+        let records = paths.open_default(library::RECORDS).unwrap();
         assert!(!overlaps_epicenter_files(&paths, &ordinary));
         assert!(overlaps_epicenter_files(&paths, &private));
+        assert!(overlaps_epicenter_files(&paths, &records));
         assert_eq!(fs::read_to_string(config).unwrap(), "needs repair");
     }
 

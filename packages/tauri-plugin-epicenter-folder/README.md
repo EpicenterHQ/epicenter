@@ -18,10 +18,11 @@ bound to the calling WebView's label
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, and the page's storage (`storage.rs`). No Tauri; its tests need only `git` and `bun`. |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), the fixed app defaults (`library.rs`), and bookmarks (`bookmarks.rs`). No Tauri; its tests need only `git` and `bun`. |
 | `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
+| `fixtures/records-default.json` | Where the records default is admitted and refused. `core/src/library.rs` and `records-default.test.ts` in the CLI both run it. |
 | `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
 
 This crate has no JavaScript package of its own. A page reaches it through
@@ -35,13 +36,13 @@ the directory before building the WebView:
 
 ```rust
 use tauri::{Manager, WebviewUrl};
-use tauri_plugin_epicenter_folder::{defaults::DesktopPaths, homes::TODOS, FolderExt};
+use tauri_plugin_epicenter_folder::{defaults::DesktopPaths, library::TODOS, FolderExt};
 
 tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
         let paths = DesktopPaths::resolve(app.handle())?;
-        let directory = paths.open_home(TODOS)?;
+        let directory = paths.open_default(TODOS)?;
         app.manage(paths);
         app.open_folder_window("todos", directory, WebviewUrl::default(), |builder| {
             Ok(builder.title("Todos"))
@@ -50,36 +51,55 @@ tauri::Builder::default()
     })
 ```
 
-`defaults::DesktopPaths::resolve(app)` resolves one shared configuration
-directory and initial authored root. Both shells use Epicenter's machine-local
-`folders.json`, including when Epicenter is not installed. Release uses the
-`so.epicenter` scope; development uses `so.epicenter.dev`. A nonempty absolute
-`EPICENTER_DATA_DIR` overrides that shared directory, and
-`EPICENTER_FOLDER_DIR` overrides the initial root suggestion.
+`defaults::DesktopPaths::resolve(app)` resolves Epicenter's machine-local
+application data directory and the library root once at startup. Both shells
+use Epicenter's scope, including when Epicenter is not installed: release uses
+`so.epicenter` and `~/Epicenter`; development uses `so.epicenter.dev` and
+`~/Epicenter Dev`. A nonempty absolute `EPICENTER_DATA_DIR` or
+`EPICENTER_FOLDER_DIR` overrides either.
 
-`DesktopPaths::open_home` selects and remembers the initial child on first
-use. Saved homes must exist, regardless of later root changes.
-`homes::select_home` selects an existing directory under the same
-cross-process configuration lock; it moves no files or bindings.
-`home_menu::install` exposes that operation for ordinary app homes in the
-native menu; shells must also register the dialog plugin. Epicenter records
-relocation requires quitting the host and changing its selection manually.
-Picker-selected
-one-time directories bypass home allocation and must exist.
+`library` (ADR-0672) is the one table of native app defaults, shared by both
+shells: each `LibraryDefault` is a permanent reverse-DNS child of the root
+and a display title that never names storage.
 
-`homes::check_app_directory` owns the protected-folder rule for both app homes
-and one-time launches. The host can omit unreadable records configuration to
-keep unrelated folders available for repair; machine application data stays
-protected. Both the authored root and its sibling save staging directory
-are checked. An existing unselected records default remains protected for
-older installations, while saved app homes take precedence over that fallback.
-Authored roots cannot be staging directories or their descendants. Native and CLI
-records allocation run the same cases from
-`fixtures/home-allocation.json`, including rejected selections leaving
-configuration and existing files unchanged.
+```txt
+<library>/
+  so.epicenter/              RECORDS     Epicenter
+  so.epicenter.todos/        TODOS       Todos
+  so.epicenter.capture/      CAPTURE     Capture
+  so.epicenter.honeycrisp/   HONEYCRISP  Honeycrisp
+  so.epicenter.whispering/   WHISPERING  Whispering
+  so.epicenter.messages/     MESSAGES    Messages
+```
+
+`DesktopPaths::open_default(definition)` computes `<root>/<id>`, admits it,
+then creates it when missing or reuses the directory already there with its
+files. It reads and writes no configuration and claims no ownership: a
+default that was moved or deleted is made again by the next ordinary launch,
+and two apps may open one directory. A file or a link at the path is refused
+and kept; no alternative name is allocated. Picker-chosen and listed
+directories bypass the defaults and must exist.
+
+Admission is `library::check_editable_directory` for a folder editor and for
+records: never a save staging directory or anything in one, and never
+overlapping application data through the directory or its staging sibling.
+`library::check_app_directory`, for ordinary apps, one-time launches, and
+handoffs, also refuses records, its staging sibling, anything in them, and
+any directory holding them, such as the root. Overlap compares canonical
+paths and directory identity, so a linked parent or another spelling of a
+protected directory is no route around it. A root override is admitted before
+anything is made. Native and CLI records admission run the same cases from
+`fixtures/records-default.json`, each with an earlier build's `folders.json`
+present that neither reads.
+
+`bookmarks` is the machine's remembered folders: a JSON array of path
+strings in `<AppData>/bookmarks.json`, changed under the exclusive lock
+`.bookmarks.json.epicenter-save-lock` by native shells and the CLI alike. A
+bookmark is a shortcut, never a permission or a default. Contents in another
+shape are reported and left as they are.
 
 `Directory::create(path)` prepares a fixed default computed by the shell,
-creating it when missing and retaining its canonical root.
+creating it and its parents when missing and retaining its canonical root.
 `Directory::existing(path)` resolves a directory a person selected without
 creating anything: a missing one is `Missing`, a file or a link is
 `Unavailable`, and nothing is made. The directory itself must be a real

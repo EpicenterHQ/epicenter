@@ -1,18 +1,21 @@
 //! Authored-folder launch defaults shared by standalone and hosted shells.
-//! The shell chooses a root once at startup; window binding and explicitly
-//! chosen directories do not depend on this policy.
+//! The shell resolves the library root once at startup; window binding and
+//! explicitly chosen directories do not depend on this policy.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use epicenter_folder_core::homes::{self, Home};
+use epicenter_folder_core::library::{self, LibraryDefault};
 use tauri::{AppHandle, Manager, Runtime};
 
-/// Shared machine configuration and the root used for initial suggestions.
-/// A standalone shell deliberately uses Epicenter's scope, not its own bundle's.
+/// Shared machine-local application data and the library root whose fixed
+/// children are the app defaults. A standalone shell deliberately uses
+/// Epicenter's scope, not its own bundle's.
 #[derive(Debug, Clone)]
 pub struct DesktopPaths {
     pub data_dir: PathBuf,
+    /// The library root: `~/Epicenter`, `~/Epicenter Dev`, or
+    /// `EPICENTER_FOLDER_DIR`.
     pub folder_dir: PathBuf,
 }
 
@@ -38,8 +41,10 @@ impl DesktopPaths {
         })
     }
 
-    pub fn open_home(&self, home: Home) -> Result<crate::Directory, String> {
-        homes::open_home(&self.data_dir, &self.folder_dir, home)
+    /// Create or reuse `<folder_dir>/<id>` after admitting it. Writes no
+    /// configuration.
+    pub fn open_default(&self, definition: LibraryDefault) -> Result<crate::Directory, String> {
+        library::open_default(&self.data_dir, &self.folder_dir, definition)
     }
 }
 
@@ -84,8 +89,8 @@ fn resolve_directory(
 /// Resolve the authored root before opening any app windows. A nonempty,
 /// absolute `EPICENTER_FOLDER_DIR` wins without looking up the home directory.
 /// Otherwise the bundle's storage environment selects `~/Epicenter` or
-/// `~/Epicenter Dev`. This computes a path; allocation creates the initial
-/// child it opens, or admits an existing directory selected by the person.
+/// `~/Epicenter Dev`. This computes a path; `open_default` admits and creates
+/// the fixed child an ordinary launch opens.
 fn folder_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     resolve_folder_root(
         &app.config().identifier,
@@ -171,8 +176,8 @@ mod tests {
                 for value in [None, Some(OsStr::new(""))] {
                     let root = resolve_folder_root(identifier, value, || Ok(home.clone())).unwrap();
                     assert_eq!(
-                        root.join(homes::TODOS.folder_name),
-                        home.join(name).join("Todos")
+                        library::TODOS.path(&root),
+                        home.join(name).join("so.epicenter.todos")
                     );
                 }
                 let elsewhere = home.join("elsewhere");
@@ -180,7 +185,10 @@ mod tests {
                     panic!("an explicit root does not need the home directory")
                 })
                 .unwrap();
-                assert_eq!(root.join(homes::TODOS.folder_name), elsewhere.join("Todos"));
+                assert_eq!(
+                    library::TODOS.path(&root),
+                    elsewhere.join("so.epicenter.todos")
+                );
             }
         }
     }

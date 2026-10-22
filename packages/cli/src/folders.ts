@@ -1,18 +1,13 @@
 /**
- * This machine's folder choices. The desktop reads the same folders.json
- * object and uses the same SQLite save lock before replacing it.
+ * Epicenter's records folder and this machine's folder bookmarks.
+ *
+ * Records are the fixed `<folderDir>/so.epicenter`, the directory the desktop
+ * binds for Settings (`library::RECORDS` in `epicenter-folder-core`). Nothing
+ * selects, saves, or locks the location, and no configuration is read: an
+ * earlier build's `folders.json` is ignored. Bookmarks live in
+ * `bookmarks.ts`.
  */
-import {
-	lstat,
-	mkdir,
-	mkdtemp,
-	open,
-	readFile,
-	realpath,
-	rename,
-	rm,
-	stat,
-} from 'node:fs/promises';
+import { lstat, mkdir, realpath, stat } from 'node:fs/promises';
 import {
 	basename,
 	dirname,
@@ -23,168 +18,49 @@ import {
 	resolve,
 	sep,
 } from 'node:path';
-import { holdingFileLock } from '@epicenter/folder/bun';
 import type { AppPaths } from './app-paths.js';
 import { resolveAppPaths } from './app-paths.js';
+import { readBookmarks, updateBookmarks } from './bookmarks.js';
 import { EXIT, writeJson, writeOut } from './output.js';
 
-type FoldersConfig = {
-	homes: Record<string, string>;
-	folders: string[];
-};
+/** The records default's permanent name under the folder root. */
+const RECORDS = 'so.epicenter';
 
-/** Read without creating a file or selecting a records folder. */
-async function readFoldersConfig(dataDir: string): Promise<FoldersConfig> {
-	const path = join(dataDir, 'folders.json');
-	try {
-		const kind = await lstat(path).catch((cause: NodeJS.ErrnoException) => {
-			if (cause.code === 'ENOENT') return undefined;
-			throw cause;
-		});
-		if (kind === undefined) return { homes: {}, folders: [] };
-		if (!kind.isFile()) throw new Error('it is not a regular file');
-		const value: unknown = JSON.parse(
-			new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
-				await readFile(path),
-			),
-		);
-		// Existing desktop installations stored only the shortcuts. Convert
-		// those arrays on a real change, preserving every original spelling.
-		if (
-			Array.isArray(value) &&
-			value.every((entry) => typeof entry === 'string')
-		)
-			return { homes: {}, folders: value };
-		// Preserve an existing records selection when reading the previous format.
-		if (
-			typeof value === 'object' &&
-			value !== null &&
-			!Array.isArray(value) &&
-			'epicenter' in value &&
-			'folders' in value &&
-			Object.keys(value).every(
-				(key) => key === 'epicenter' || key === 'folders',
-			) &&
-			(value.epicenter === null ||
-				(typeof value.epicenter === 'string' && isAbsolute(value.epicenter))) &&
-			Array.isArray(value.folders) &&
-			value.folders.every((entry) => typeof entry === 'string')
-		)
-			return {
-				homes: value.epicenter === null ? {} : { epicenter: value.epicenter },
-				folders: value.folders,
-			};
-		if (
-			typeof value !== 'object' ||
-			value === null ||
-			Array.isArray(value) ||
-			Object.keys(value).some((key) => key !== 'homes' && key !== 'folders') ||
-			!('homes' in value) ||
-			typeof value.homes !== 'object' ||
-			value.homes === null ||
-			Array.isArray(value.homes) ||
-			!Object.values(value.homes).every(
-				(path) => typeof path === 'string' && isAbsolute(path),
-			) ||
-			!('folders' in value) ||
-			!Array.isArray(value.folders) ||
-			!value.folders.every((entry) => typeof entry === 'string')
-		)
-			throw new Error(
-				'expected {"homes": {<app>: <absolute path>}, "folders": [<paths>]}',
-			);
-		return {
-			homes: value.homes as Record<string, string>,
-			folders: value.folders,
-		};
-	} catch (cause) {
-		throw new Error(
-			`${path} was left unchanged: ${cause instanceof Error ? cause.message : String(cause)}. Repair folders.json to use folder configuration again.`,
-		);
-	}
-}
-
-/** Read/change/replace under the desktop's lock, so another writer's fields survive. */
-async function updateFolders<T>(
-	dataDir: string,
-	change: (config: FoldersConfig) => Promise<T>,
-) {
-	const path = join(dataDir, 'folders.json');
-	return holdingFileLock(
-		join(dataDir, '.folders.json.epicenter-save-lock'),
-		{
-			waitMs: 10_000,
-			held: `${path} was not updated: another writer held its save lock. Try again.`,
-		},
-		async () => {
-			const config = await readFoldersConfig(dataDir);
-			const before = JSON.stringify(config);
-			const answer = await change(config);
-			if (JSON.stringify(config) === before) return answer;
-			const staged = await mkdtemp(join(dataDir, '.folders.json.'));
-			try {
-				const file = join(staged, 'staged');
-				const output = await open(file, 'wx');
-				try {
-					await output.writeFile(`${JSON.stringify(config, null, 2)}\n`);
-					await output.sync();
-				} finally {
-					await output.close();
-				}
-				await rename(file, path);
-			} finally {
-				await rm(staged, { recursive: true, force: true });
-			}
-			return answer;
-		},
-	);
-}
-
-/** Select the initial default only on first use. A selected missing path is an error. */
+/**
+ * The records folder's canonical path, or `undefined` when it is not there
+ * and `create` is not set. A noncreating read makes nothing; a creating one
+ * makes the root and the folder when missing and reuses one that is there.
+ * Either way the location is admitted first, and a file or a link there is
+ * refused.
+ */
 export async function epicenterDirectory(
 	paths: AppPaths,
 	create: boolean,
 ): Promise<string | undefined> {
-	async function directory(config: FoldersConfig) {
-		const path =
-			config.homes.epicenter ?? join(paths.folderDir, 'so.epicenter');
-		await checkRecordsDirectory(config, paths.dataDir, path);
-		let kind = await lstat(path).catch((cause: NodeJS.ErrnoException) => {
-			if (cause.code === 'ENOENT') return undefined;
-			throw cause;
-		});
-		if (kind === undefined && config.homes.epicenter !== undefined)
-			throw new Error(
-				`The Epicenter data folder ${path} is not there. Repair its path in folders.json.`,
-			);
-		if (kind === undefined && create) {
-			await mkdir(dirname(path), { recursive: true });
-			await mkdir(path).catch((cause: NodeJS.ErrnoException) => {
-				if (cause.code !== 'EEXIST') throw cause;
-			});
-			kind = await lstat(path);
-		}
-		if (kind !== undefined && !kind.isDirectory())
-			throw new Error(`${path} is a link or not a directory.`);
-		return kind === undefined ? undefined : realpath(path);
-	}
-	if (!create) return directory(await readFoldersConfig(paths.dataDir));
-	return updateFolders(paths.dataDir, async (config) => {
-		const path = await directory(config);
-		if (path !== undefined) config.homes.epicenter = path;
-		return path;
+	const path = join(paths.folderDir, RECORDS);
+	await checkRecordsDirectory(paths.dataDir, path);
+	let kind = await lstat(path).catch((cause: NodeJS.ErrnoException) => {
+		if (cause.code === 'ENOENT') return undefined;
+		throw cause;
 	});
+	if (kind === undefined && create) {
+		await mkdir(dirname(path), { recursive: true });
+		await mkdir(path).catch((cause: NodeJS.ErrnoException) => {
+			if (cause.code !== 'EEXIST') throw cause;
+		});
+		kind = await lstat(path);
+	}
+	if (kind !== undefined && !kind.isDirectory())
+		throw new Error(`${path} is a link or not a directory.`);
+	return kind === undefined ? undefined : realpath(path);
 }
 
-/** Same admission rules as native homes::validate_home for Epicenter records.
- * Shared home-allocation fixtures exercise both implementations before a
- * directory is created or a selection is persisted.
+/**
+ * The same admission as native `library::check_editable_directory` for the
+ * records default. The shared `records-default.json` cases exercise both
+ * implementations before anything is created.
  */
-async function checkRecordsDirectory(
-	config: FoldersConfig,
-	dataDir: string,
-	path: string,
-) {
+async function checkRecordsDirectory(dataDir: string, path: string) {
 	const candidate = await directoryPaths(path);
 	if (
 		candidate[0]
@@ -202,20 +78,8 @@ async function checkRecordsDirectory(
 	for (const path of candidate) {
 		if (await overlaps(path, data))
 			throw new Error(
-				"A home folder cannot overlap Epicenter's machine-local application data.",
+				"This folder holds Epicenter's machine-local application data, so it cannot be opened.",
 			);
-	}
-	for (const [key, path] of Object.entries(config.homes)) {
-		if (key === 'epicenter') continue;
-		const other = await directoryPaths(path);
-		for (const own of candidate) {
-			for (const location of other) {
-				if (await overlaps(own, location))
-					throw new Error(
-						`Epicenter's records folder cannot overlap the ${key} home.`,
-					);
-			}
-		}
 	}
 }
 
@@ -276,7 +140,7 @@ async function overlaps(left: string, right: string) {
 	return false;
 }
 
-/** CLI folder commands edit shortcuts only; none moves files or changes Git. */
+/** CLI folder commands edit bookmarks only; none moves files or changes Git. */
 export async function foldersCommand(
 	action: 'add' | 'list' | 'forget',
 	input: string | undefined,
@@ -284,9 +148,8 @@ export async function foldersCommand(
 ) {
 	const { dataDir } = resolveAppPaths();
 	if (action === 'list') {
-		const config = await readFoldersConfig(dataDir);
 		const folders = await Promise.all(
-			config.folders.map(async (path) => {
+			(await readBookmarks(dataDir)).map(async (path) => {
 				let problem: string | null = null;
 				try {
 					if (!isAbsolute(path))
@@ -299,12 +162,7 @@ export async function foldersCommand(
 				return { path, problem };
 			}),
 		);
-		if (json)
-			writeJson({
-				epicenter: config.homes.epicenter ?? null,
-				homes: config.homes,
-				folders,
-			});
+		if (json) writeJson({ folders });
 		else
 			for (const { path, problem } of folders)
 				writeOut(problem === null ? path : `${path}\t${problem}`);
@@ -316,16 +174,11 @@ export async function foldersCommand(
 	let path = resolve(supplied);
 	if (action === 'add' && !(await lstat(path)).isDirectory())
 		throw new Error(`${path} is a link or not a folder.`);
-	const changed = await updateFolders(dataDir, async (config) => {
-		const before = config.folders.length;
-		if (action === 'forget' && config.folders.includes(supplied))
-			path = supplied;
-		if (action === 'add') {
-			if (!config.folders.includes(path)) config.folders.push(path);
-		} else {
-			config.folders = config.folders.filter((entry) => entry !== path);
-		}
-		return config.folders.length !== before;
+	const changed = await updateBookmarks(dataDir, (bookmarks) => {
+		if (action === 'forget' && bookmarks.includes(supplied)) path = supplied;
+		if (action === 'add')
+			return bookmarks.includes(path) ? bookmarks : [...bookmarks, path];
+		return bookmarks.filter((entry) => entry !== path);
 	});
 	if (json) writeJson({ path, changed });
 	else writeOut(`${action === 'add' ? 'Added' : 'Forgot'} ${path}`);

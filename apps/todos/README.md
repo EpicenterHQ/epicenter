@@ -38,22 +38,22 @@ From the repository root:
 bun dev:todos:desktop
 ```
 
-This builds the host page into `apps/todos/dist` (`build:host`) and runs the Tauri shell in `src-tauri/`, which needs a Rust toolchain. The development identifier `so.epicenter.todos.dev` selects `~/Epicenter Dev/Todos`; release builds select `~/Epicenter/Todos`. The window opens without an account or network.
+This builds the host page into `apps/todos/dist` (`build:host`) and runs the Tauri shell in `src-tauri/`, which needs a Rust toolchain. The development identifier `so.epicenter.todos.dev` opens `~/Epicenter Dev/so.epicenter.todos`; release builds open `~/Epicenter/so.epicenter.todos`. The window opens without an account or network.
 
 <!-- doc-path-check: ignore-next-line (generated Tauri bundle output, not a tracked source file) -->
 To build a local macOS app that you can quit and reopen from Finder, run `bun build:todos:desktop` from the repository root. The result is `apps/todos/src-tauri/target/release/bundle/macos/Todos.app`. This local build is not a signed distribution.
 
-Standalone and hosted Todos share one home in Epicenter's machine-local `folders.json`. Before first use, the suggestion is `~/Epicenter/Todos`, or `~/Epicenter Dev/Todos` in development. `EPICENTER_FOLDER_DIR` changes that initial root. The first ordinary launch creates the suggested directory if needed and remembers its canonical path. A selected home must exist; changing the root or deleting the folder never creates replacement work. Todos rows land at `todos/<id>.md` inside the bound folder. The save lock and scratch directory sit beside it.
+Standalone and hosted Todos open one fixed default, `<library>/so.epicenter.todos`, where the library is `~/Epicenter`, `~/Epicenter Dev` in development, or `EPICENTER_FOLDER_DIR`. An ordinary launch creates it when missing and otherwise reuses it as it is; nothing is saved, so a default that was moved or deleted is made again empty by the next launch, and no other folder is searched for. Todos rows land at `todos/<id>.md` inside the bound folder. The save lock and scratch directory sit beside it.
 
-Startup opens the shared home directly. It does not inspect or migrate former AppData folders.
+Startup reads no configuration and never looks for, reads, or moves data in an earlier location such as `~/Epicenter/Todos` or a saved home in `folders.json`. Such a folder still opens explicitly in Epicenter's launcher.
 
-Both native shells use `defaults::DesktopPaths::open_home(homes::TODOS)`
-from the folder plugin. One allocator and one shared configuration select
-their home; app-specific runtime state remains in each shell's AppData.
+Both native shells use `defaults::DesktopPaths::open_default(library::TODOS)`
+from the folder plugin, one row of its shared default table; app-specific
+runtime state remains in each shell's AppData.
 
-Both shells call the folder plugin's `open_folder_window("todos", directory, url, configure)`. The plugin computes the window label from the app key and canonical directory, binds before construction, reuses an existing matching window, and cleans up on destruction. Todos's shell supplies its selected home; Epicenter supplies the folder chosen in its launcher. The page receives neither path.
+Both shells call the folder plugin's `open_folder_window("todos", directory, url, configure)`. The plugin computes the window label from the app key and canonical directory, binds before construction, reuses an existing matching window, and cleans up on destruction. Todos's shell supplies its fixed default; Epicenter supplies its default or the folder chosen in its launcher. The page receives neither path.
 
-Standalone Todos has one window and no recent-folder list or extra-folder windows. **Home Folders > Change Todos Home Folder…** selects an existing directory for future ordinary launches in either shell. It moves no files and leaves the current window bound to its original folder. Epicenter need not be installed: the shared native allocator reads `~/Library/Application Support/so.epicenter/folders.json` on macOS, or its development scope `so.epicenter.dev`. `EPICENTER_DATA_DIR` overrides this complete shared directory for both shells. For a one-time opening without changing home, use Epicenter's launcher. Both wrappers load the same static host build; its `openFolder({ tables })` call reaches the directory its native shell already bound to the invoking window.
+Standalone Todos has one window and no folder picker, recent-folder list, or extra-folder windows. When its default cannot be opened, for example because a file or a link is at that path, a native dialog names the failure and offers only Quit. Epicenter need not be installed. For any other folder, use Epicenter's launcher. Both wrappers load the same static host build; its `openFolder({ tables })` call reaches the directory its native shell already bound to the invoking window.
 
 On macOS, the app menu's Quit and Cmd-Q request that window's ordinary close.
 The page awaits a native confirmation only while a Folder save is pending or

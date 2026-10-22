@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-22
+- **Amended by:** [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) replaces saved app-home selection with fixed reverse-DNS defaults in the current implementation.
 - **Amends:** [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md)'s permanent default-child allocation and [ADR-0649](0649-folders-json-selects-this-machines-folder-locations.md)'s records-only selection.
 
 ## Context

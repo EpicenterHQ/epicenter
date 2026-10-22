@@ -1,18 +1,19 @@
 //! Standalone Todos opens one directory in one window.
 //!
-//! The native wrapper selects the same machine-local home as Epicenter,
-//! initially `~/Epicenter/Todos`, and binds it before loading the page.
-//! The page calls `openFolder({ tables })` and never selects or discovers a
-//! path. Epicenter can load the same page
-//! over another folder selected by its own launcher. Standalone Todos has
-//! a native home picker, but no recent-folder list or extra-folder windows.
+//! The native wrapper opens the same fixed default as Epicenter's Todos,
+//! `~/Epicenter/so.epicenter.todos` (`library::TODOS`), creating it when
+//! missing, and binds it before loading the page. The page calls
+//! `openFolder({ tables })` and never selects or discovers a path. Epicenter
+//! can load the same page over another folder chosen in its own launcher.
+//! Standalone Todos has no folder picker, recent-folder list, or
+//! extra-folder windows.
 
 use std::error::Error;
 
 use tauri::{AppHandle, Manager, WebviewUrl};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
-use tauri_plugin_epicenter_folder::homes::TODOS;
+use tauri_plugin_epicenter_folder::library::TODOS;
 use tauri_plugin_epicenter_folder::{FolderExt, Folders};
 use tauri_plugin_opener::OpenerExt;
 
@@ -26,7 +27,6 @@ pub fn run() {
         .setup(|app| {
             let paths = DesktopPaths::resolve(app.handle())?;
             app.manage(paths);
-            tauri_plugin_epicenter_folder::home_menu::install(app.handle(), &[TODOS])?;
             if let Err(error) = open_default(app.handle()) {
                 report_open_error(app.handle(), error.to_string());
             }
@@ -84,9 +84,9 @@ fn quit_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu
     Ok(menu)
 }
 
-/// Open and bind the shared home before constructing the app's window.
+/// Open and bind the fixed default before constructing the app's window.
 fn open_default(app: &AppHandle) -> Result<(), Box<dyn Error>> {
-    let directory = app.state::<DesktopPaths>().open_home(TODOS)?;
+    let directory = app.state::<DesktopPaths>().open_default(TODOS)?;
     // Keep WebView runtime files outside the authored Folder.
     let webview_data = app.path().app_cache_dir()?.join("webview");
     app.open_folder_window("todos", directory, WebviewUrl::default(), move |builder| {
@@ -99,25 +99,16 @@ fn open_default(app: &AppHandle) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Name the failure and offer only Quit: no other folder is searched for or
+/// opened in place of the default.
 fn report_open_error(app: &AppHandle, message: String) {
     let handle = app.clone();
     app.dialog()
-        .message(format!("{message}\n\nChoose an existing home folder or quit. No replacement folder was created."))
+        .message(message)
         .title("Todos could not open its folder")
         .kind(MessageDialogKind::Error)
-        .buttons(MessageDialogButtons::OkCancelCustom("Choose Home Folder…".into(), "Quit".into()))
-        .show(move |choose| {
-            if !choose { handle.exit(1); return; }
-            tauri::async_runtime::spawn_blocking(move || {
-                match tauri_plugin_epicenter_folder::home_menu::choose_home(&handle, TODOS) {
-                    Ok(Some(_)) => {
-                        if let Err(error) = open_default(&handle) { report_open_error(&handle, error.to_string()); }
-                    }
-                    Ok(None) => handle.exit(1),
-                    Err(error) => report_open_error(&handle, error),
-                }
-            });
-        });
+        .buttons(MessageDialogButtons::OkCustom("Quit".into()))
+        .show(move |_| handle.exit(1));
 }
 
 /// Ask the operating system to open Epicenter on the directory the calling
@@ -190,7 +181,11 @@ mod tests {
 
     impl Fixture {
         fn launch(&self) -> String {
-            let directory = self.app.state::<DesktopPaths>().open_home(TODOS).unwrap();
+            let directory = self
+                .app
+                .state::<DesktopPaths>()
+                .open_default(TODOS)
+                .unwrap();
             self.app
                 .open_folder_window("todos", directory, Default::default(), |builder| {
                     Ok(builder)
@@ -209,7 +204,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(temp.path())
             .unwrap()
-            .join("Epicenter/Todos");
+            .join("Epicenter/so.epicenter.todos");
 
         let mut context = mock_context(noop_assets());
         for command in tauri_plugin_epicenter_folder::COMMANDS {
@@ -323,52 +318,59 @@ mod tests {
         assert_eq!(todo_files(&todos), json!(["milk.md"]));
     }
 
-    /// A selected home is never silently replaced with an empty directory.
+    /// A removed default is refused to the open page, which keeps its bound
+    /// path, and made again by the next ordinary launch. No other folder is
+    /// opened instead.
     #[test]
-    fn a_removed_home_is_refused_by_the_page_and_the_next_native_launch() {
+    fn a_removed_default_is_refused_by_the_page_and_made_again_by_the_next_launch() {
         let fixture = fixture();
-        let todos = fixture.window(&fixture.launch());
+        let label = fixture.launch();
+        let todos = fixture.window(&label);
         fs::remove_dir(&fixture.root).unwrap();
         assert_eq!(
             invoke(&todos, "open_folder", json!({})).unwrap_err(),
             json!({ "name": "Missing" })
         );
         assert!(!fixture.root.exists());
-        assert!(fixture
-            .app
-            .state::<DesktopPaths>()
-            .open_home(TODOS)
-            .is_err());
-        assert!(!fixture.root.exists());
-        fs::create_dir(&fixture.root).unwrap();
+        assert_eq!(fixture.launch(), label);
         assert!(fixture.root.is_dir());
+        assert!(entries(&fixture.root).is_empty());
         invoke(&todos, "open_folder", json!({})).unwrap();
-    }
-
-    #[test]
-    fn standalone_uses_the_shared_selection_without_changing_a_live_window() {
-        let fixture = fixture();
-        let original = fixture.launch();
-        let paths = fixture.app.state::<DesktopPaths>();
-        let chosen = fixture._temp.path().join("different");
-        fs::create_dir(&chosen).unwrap();
-        tauri_plugin_epicenter_folder::homes::select_home(
-            &paths.data_dir,
-            &paths.folder_dir,
-            TODOS,
-            &chosen,
-        )
-        .unwrap();
-        let next = fixture.launch();
-        assert_ne!(original, next);
         assert_eq!(
-            fixture.app.folders().bound(&original).unwrap().root(),
+            fixture.app.folders().bound(&label).unwrap().root(),
             fixture.root
         );
+    }
+
+    /// An earlier build's `folders.json` naming another Todos home neither
+    /// redirects nor blocks the launch, and nothing is written to AppData.
+    #[test]
+    fn an_old_home_selection_is_ignored_and_no_configuration_is_written() {
+        let fixture = fixture();
+        let paths = fixture.app.state::<DesktopPaths>().inner().clone();
+        let chosen = fixture._temp.path().join("different");
+        fs::create_dir_all(&chosen).unwrap();
+        fs::create_dir_all(&paths.data_dir).unwrap();
+        let config = paths.data_dir.join("folders.json");
+        let contents = json!({ "homes": { "todos": chosen }, "folders": [] }).to_string();
+        fs::write(&config, &contents).unwrap();
+        let label = fixture.launch();
         assert_eq!(
-            fixture.app.folders().bound(&next).unwrap().root(),
-            fs::canonicalize(chosen).unwrap()
+            fixture.app.folders().bound(&label).unwrap().root(),
+            fixture.root
         );
+        assert_eq!(entries(&paths.data_dir), ["folders.json"]);
+        assert_eq!(fs::read_to_string(&config).unwrap(), contents);
+        assert!(entries(&chosen).is_empty());
+    }
+
+    /// Standalone and hosted Todos name the same row of the shared table.
+    #[test]
+    fn standalone_opens_the_shared_todos_default() {
+        assert_eq!(TODOS.id, "so.epicenter.todos");
+        let fixture = fixture();
+        let paths = fixture.app.state::<DesktopPaths>();
+        assert_eq!(TODOS.path(&paths.folder_dir), fixture.root);
     }
 
     #[test]

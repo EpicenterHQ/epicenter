@@ -24,7 +24,7 @@ mod folder_listing;
 mod folder_opening;
 mod folder_query;
 mod folder_windows;
-use epicenter_folder_core::homes as folders_config;
+use epicenter_folder_core::library;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 #[cfg(target_os = "macos")]
 mod macos_tabs;
@@ -404,11 +404,6 @@ pub fn run() {
                 desktop_paths.data_dir.join("local-transcription.json"),
             );
             app.manage(desktop_paths);
-            let homes: Vec<_> = bundled_apps::BundledApp::ALL
-                .into_iter()
-                .map(|app| app.home())
-                .collect();
-            tauri_plugin_epicenter_folder::home_menu::install(app.handle(), &homes)?;
 
             let cache = ModelCache::new(settings);
             cache.start_idle_watcher();
@@ -650,8 +645,8 @@ fn open_account_website<R: Runtime>(app: &AppHandle<R>, url: &tauri::Url) -> New
 ///
 /// The window label is the app's ID, which is what every capability file in
 /// `src-tauri/capabilities/` selects on. One built-in app has one window.
-/// Settings binds the selected records directory before its WebView exists.
-/// An unselected installation first chooses its default records directory.
+/// Settings binds Epicenter's records, `<library>/so.epicenter`, before its
+/// WebView exists, creating the directory when it is missing.
 /// The Folders window is a launcher and is bound to no folder.
 fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     if let Some(window) = app.get_webview_window(built_in.id()) {
@@ -676,7 +671,7 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
         BuiltInApp::Home => {
             let paths = app.state::<DesktopPaths>();
             let directory = paths
-                .open_home(folders_config::EPICENTER)
+                .open_default(library::RECORDS)
                 .map_err(anyhow::Error::msg)?;
             app.folders()
                 .bind_while_building(built_in.id(), directory, build)?

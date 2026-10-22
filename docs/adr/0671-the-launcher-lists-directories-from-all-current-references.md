@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-22
+- **Amended by:** [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) removes selected homes as a listing source while retaining library children and bookmarks in the current implementation.
 - **Amends:** [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md)'s root-only listing, [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md)'s separate remembered-folder surface, and [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md)'s discovery experience.
 
 ## Context

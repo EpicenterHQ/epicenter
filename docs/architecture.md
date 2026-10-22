@@ -77,20 +77,23 @@ pages and serves them from one `epicenter-app://localhost` origin. It does
 not install or run app source from a repository. Old installer clones and
 build caches remain on disk, unused.
 
-The Folders window lists direct child directories of the Epicenter folder
-root. Opening a bundled app normally assigns its named default there, such
-as `~/Epicenter/Todos`. Choosing **Open with** assigns an existing listed
-directory to that app's new window. The shell records the assignment and
-grants that window the folder plugin's scoped file commands before the
-window loads. A selected directory that disappeared is refused; the shell
-does not recreate it as an empty default. The Folders window can open the
-same files as a text editor.
+The Folders window lists direct child directories of the Epicenter library
+root (`~/Epicenter`) and bookmarked directories elsewhere. Opening a bundled
+app normally opens its fixed reverse-DNS default there, such as
+`~/Epicenter/so.epicenter.todos`, creating it when missing and reusing it
+otherwise; nothing saves or selects that location (ADR-0672). Choosing
+**Open with** assigns an existing listed directory to that app's new window.
+The shell binds the directory and grants that window the folder plugin's
+scoped file commands before the window loads. A listed or chosen directory
+that disappeared is refused and never created. Epicenter's own records are
+always `~/Epicenter/so.epicenter`. The Folders window can open the same files
+as a text editor.
 
-Standalone Todos uses its whole platform application-data directory as
-its folder. Its shell computes and assigns that location at launch, so the
+Standalone Todos opens the same `so.epicenter.todos` default through the same
+shared table. Its shell computes and binds that location at launch, so the
 page still calls `openFolder({ tables })`. Its rows land directly under
-`todos/` there. The path choice belongs to the launch context, not to an
-app ID or a path supplied by the WebView.
+`todos/` there. The path choice belongs to the launch context, not to a path
+supplied by the WebView.
 
 Each window owns its Folder handle, query cache, retained input, and close
 coordination. The shell owns directory permission and atomic file publication.

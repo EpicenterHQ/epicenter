@@ -46,15 +46,18 @@ different origins meet through Git synchronization.
 
 `openFolder({ tables })` opens the browser origin's local default or the
 existing directory bound to a native window. Bun receives an explicit
-`directory` path. Standalone Todos uses its application data directory;
-Epicenter chooses each hosted window's directory. A missing bound or explicitly
-chosen directory is refused. Current launch policy can create fixed defaults;
-first-use tracking across launches remains separate work.
+`directory` path. Native defaults are fixed reverse-DNS children of one library
+root, `~/Epicenter` in release and `~/Epicenter Dev` in development. Standalone
+and hosted Todos share `so.epicenter.todos`; Epicenter's records use
+`so.epicenter`. Ordinary launch creates or reuses that default. A missing bound
+or explicitly chosen directory is refused. There is no first-use path selection
+or independently configurable app home (ADR-0672).
 
-AppData's machine-local `folders.json` stores an `epicenter` records-location
-pointer and a `folders` shortcut list. `epicenter folders add|list|forget` edits
-that list under the same save lock as desktop. Scanned root children need no
-shortcut. Forgetting removes no data and changes no Git remote or live editor.
+AppData's machine-local `bookmarks.json` stores a JSON array of folder paths.
+`epicenter folders add|list|forget` edits that list under the same save lock as
+desktop. Earlier `folders.json` selections and shortcuts are not read or
+migrated. Scanned library children need no bookmark. Forgetting removes no data
+and changes no Git remote or live editor.
 A CLI `open <directory>` command remains unbuilt. A data folder's
 `epicenter.json` has the separate portable declaration role described next.
 

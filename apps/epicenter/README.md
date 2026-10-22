@@ -130,11 +130,14 @@ caches belong to this device. `EPICENTER_DATA_DIR` overrides the complete
 path and must be absolute.
 
 Development uses `so.epicenter.dev` for data and settings.
-Production's authored folder root is `~/Epicenter`; development's is `~/Epicenter Dev`.
-`EPICENTER_FOLDER_DIR` overrides the authored folder root and must be absolute.
+Production's library, the authored folder root, is `~/Epicenter`; development's
+is `~/Epicenter Dev`. `EPICENTER_FOLDER_DIR` overrides the library at startup
+and must be absolute; changing it opens another library and moves no files.
 Native locations live in `tauri_plugin_epicenter_folder::defaults::DesktopPaths`,
-shared with standalone Todos. Both shells use the durable `homes::TODOS` definition;
-changing the app's display name does not redirect its authored work.
+shared with standalone Todos. Each app's default is a fixed reverse-DNS child
+from the shared `library` table (ADR-0672), the same `library::TODOS` row for
+both Todos shells; changing an app's display name does not redirect its
+authored work.
 The shell resolves both directories once and sets `EPICENTER_DATA_DIR` and
 `EPICENTER_FOLDER_DIR` on every `epicenter` command it runs, so the CLI
 writes where the shell reads. A terminal's `epicenter` uses the same
@@ -145,26 +148,35 @@ Files split by what they cost to lose (ADR-0539):
 
 ```txt
 ~/Epicenter/                                  read, edited, and versioned as files
-  so.epicenter/                               initial default for Epicenter’s portable records
+  so.epicenter/                               Epicenter’s portable records (Settings)
     epicenter.json                            optional older declaration, retained if present
     connections/<id>.md                       one row per AI connection
-  Todos/, so.epicenter.todos/, ...            data folders, each listed and opened as files
+  so.epicenter.todos/                         Todos's default
+  so.epicenter.capture/                       Capture's default
+  so.epicenter.honeycrisp/                    Honeycrisp's default
+  so.epicenter.whispering/                    Whispering's default
+  so.epicenter.messages/                      Messages's default
+  Notes/, ...                                 other data folders, each listed and opened as files
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   auth/<grant>.lock                           the lock a sign-in refreshes under (the CLI writes it)
-  folders.json                                selected records path and added folder shortcuts
+  bookmarks.json                              bookmarked folder paths, a JSON array
   local-transcription.json                    the active local model and when to unload it
 ```
 
-Home paths live in `homes` in AppData's `folders.json`, shared with standalone
-Todos. Release and development configurations remain separate.
+Defaults are derived, never saved: an ordinary launch creates its missing
+default and reuses an existing one with its files, without an ownership
+claim. No configuration selects or remembers them. Ordinary launches ignore
+an earlier build's `folders.json` and earlier default names such as
+`~/Epicenter/Todos`. Those folders stay listed as root children and open
+explicitly; nothing moves their data. Release and development data remain separate.
 
 An earlier version installed apps from Git repositories. Its bare clones in
 `apps/<app-id>/` under the application-data directory, and its builds, logs,
 and lock under `~/Library/Caches/so.epicenter/` (or `EPICENTER_CACHE_DIR`),
 stay on disk. Epicenter never reads them and never removes them; delete them
-by hand to reclaim the space. The folders those apps opened, such as
-`~/Epicenter/so.epicenter.todos`, are data folders: listed, opened as files,
-and offered to every bundled app.
+by hand to reclaim the space. The folders those apps opened under the same
+reverse-DNS names, such as `~/Epicenter/so.epicenter.todos`, are now those
+apps' defaults, reused with their files.
 
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development starts signed out after
@@ -280,20 +292,24 @@ Its page source is `src/folders`, built by `build:folders` into
 capability grants no folder command.
 
 The page asks the shell for one derived listing: real non-hidden root
-children, selected app homes, saved bookmarks, and this-run openings whose
-bookmark could not be saved. References resolving to the same directory
-share one row. Each row shows its path and which apps use it as home.
-Different directories with the same name remain separate. An optional
-`epicenter.json` can supply a display title; opening needs no declaration.
-Missing homes and bookmarks remain visible with their problem. Listing
-creates no folders or registration records.
+children, saved bookmarks, and this-run openings whose bookmark could not be
+saved. References resolving to the same directory share one row. Each row
+shows its path. A row that is an existing app default, the same directory as
+`<root>/<id>` (on a disk that ignores case, any spelling of it), takes that
+app's title and reads **Default for Todos**; a directory elsewhere with a
+default's name is an ordinary folder. Different directories with the same
+name remain separate. An optional `epicenter.json` can supply another
+folder's display title; opening needs no declaration. Missing bookmarks remain
+visible with their problem. Listing creates no folders, lists no missing
+default, and writes no registration records.
 
 Rows have native IDs derived from resolved paths. Opening an editor or using
 **Open with…** passes that ID, and Rust rebuilds current membership and checks
 the directory before binding a window. A display name, supplied path, or stale
-row cannot select another directory. Epicenter's selected records directory
-can open in the generic editor, while bundled apps keep their existing
-protected-directory checks.
+row cannot select another directory. Epicenter's records directory,
+`<root>/so.epicenter`, can open in the generic editor, while bundled apps keep
+their protected-directory checks. No row can open application data or save
+staging.
 
 The shell watches the root from setup until exit (`watch_data_folders`). When
 an entry directly under it, or a folder's `epicenter.json`, is created,
@@ -301,7 +317,7 @@ changed, or removed, it sends `epicenter://data-folders-changed` to the
 `folders` window, which calls `list_data_folders` again. A rescan or a watch
 error is sent the same way. Deeper changes, such as a row saved in a folder,
 are not. The listing also refreshes when the launcher gains focus, so
-external homes and bookmarks are checked again.
+bookmarks outside the root are checked again.
 
 ### Incoming folders and remembered paths
 
@@ -309,36 +325,24 @@ A standalone app can ask Epicenter to open `epicenter://open?path=<percent-encod
 
 After the editor opens, a visible direct child of the Epicenter folder root
 is already in the Folders listing and needs no shortcut. For another folder,
-Epicenter adds the original path to `folders` in `<app data>/folders.json`.
-Failed persistence leaves the editor open and the shortcut available for this
-run, with the problem shown. They appear in the same list as root children
-and app homes. **Forget bookmark** removes every bookmark spelling merged
-into that row and its temporary shortcut. A root-discovered folder or saved
-home stays listed; existing editors and their drafts stay open.
+Epicenter adds the original path to the JSON array in
+`<app data>/bookmarks.json`. Failed persistence leaves the editor open and the
+shortcut available for this run, with the problem shown. They appear in the
+same list as root children. **Forget bookmark** removes every bookmark
+spelling merged into that row and its temporary shortcut. A root-discovered
+folder stays listed; existing editors and their drafts stay open.
 
-The same object's `homes` map holds selected home paths: `epicenter` for
-Epicenter's portable records, `todos` for Todos, and each other bundled app
-by its stable page key. Each home follows one rule: first ordinary use
-selects and remembers its suggested child of the folder root, creating it
-if missing. A saved home must exist, even after the root changes.
+App defaults are not in this file or any other: each is the fixed
+`<root>/<id>` the shell computes (ADR-0672), and choosing or bookmarking a
+folder never changes an app's default.
 
-**Home Folders** in the native menu selects an existing home for any
-bundled app. Standalone Todos offers the same action, reads the same
-configuration, and calls the same native allocator. Selecting moves no files
-and changes no existing window binding. The next ordinary app launch uses
-the selected home. Relocating Epicenter's records remains a manual operation
-with Epicenter quit; the menu does not expose it while Settings is bound to
-its current records. The selection stays in machine-local AppData rather than inside the
-portable records whose location it selects.
-
-The CLI's `epicenter folders add|list|forget` edits the same configuration.
-Both writers hold the file's save lock across read/change/replace, preserving
-concurrent updates. Malformed or unsupported contents remain untouched.
-The launcher watches the AppData directory and refreshes when the file
-changes. Root children are discovered directly and need no shortcut. The
-configuration stays local to this machine. Existing arrays convert on the
-next real update without losing their paths. See
-[folder locations](../../docs/adr/0649-folders-json-selects-this-machines-folder-locations.md).
+The CLI's `epicenter folders add|list|forget` edits the same array. Both
+writers hold `.bookmarks.json.epicenter-save-lock` across read/change/replace,
+preserving concurrent updates. Malformed or unsupported contents remain
+untouched. The launcher watches the AppData directory and refreshes when the
+file changes. Root children are discovered directly and need no shortcut. The
+bookmarks stay local to this machine. An earlier build's `folders.json` is
+never read; its shortcuts are not carried over.
 
 ### Folder editor windows
 
@@ -346,7 +350,7 @@ Choosing a listed folder calls `open_folder_editor(id)`. The shell rebuilds
 the combined list and requires a current, available row with that ID. It
 binds that exact directory to a window labelled `files:<digest of the
 canonical root>` and opens `/folders/editor/`. Choosing it again reveals
-the existing window. This works for homes and bookmarks outside the root
+the existing window. This works for bookmarks outside the root
 without copying or creating a directory.
 
 The editor mounts `<FolderApp>` with no table schemas, so Files, grid, board,
@@ -445,9 +449,10 @@ Manual refresh and returning to the window reconcile gaps without periodic polli
 
 ### Opening apps
 
-Beside each listed directory except the selected Epicenter records directory, "Open with…" offers every
-bundled app (`src/folders/openers.ts`). The Apps list offers Open, on the
-app's selected home, and Choose folder…, which asks the shell to show the
+Beside each listed directory except protected ones such as Epicenter's records
+directory, "Open with…" offers every bundled app (`src/folders/openers.ts`).
+The Apps list offers Open, on the app's fixed default, and Choose folder…,
+which asks the shell to show the
 native folder picker. The app interprets its files through its own schemas.
 The Folders view does not use `epicenter.json` to authorize any of them.
 
@@ -455,16 +460,16 @@ The Folders view does not use `epicenter.json` to authorize any of them.
 
 Epicenter bundles Todos, Capture, Honeycrisp, Whispering, and Messages
 (`src-tauri/src/bundled_apps.rs`). One closed table, `BundledApp`, names for
-each its page, its initial home-folder name, its window label and capability, and
-its build path:
+each its page, its shared `library` default, its window label and capability,
+and its build path:
 
 | Page | Default folder | Window label | Capability |
 | --- | --- | --- | --- |
-| `todos` | `<folderDir>/Todos` | `todos:<digest>` | `bundled-app.json` |
-| `capture` | `<folderDir>/Capture` | `capture:<digest>` | `bundled-app.json` |
-| `honeycrisp` | `<folderDir>/Honeycrisp` | `honeycrisp:<digest>` | `bundled-app.json` |
-| `whispering` | `<folderDir>/Whispering` | `whispering:<digest>` | `whispering.json` |
-| `messages` | `<folderDir>/Messages` | `messages:<digest>` | `messages.json` |
+| `todos` | `<folderDir>/so.epicenter.todos` | `todos:<digest>` | `bundled-app.json` |
+| `capture` | `<folderDir>/so.epicenter.capture` | `capture:<digest>` | `bundled-app.json` |
+| `honeycrisp` | `<folderDir>/so.epicenter.honeycrisp` | `honeycrisp:<digest>` | `bundled-app.json` |
+| `whispering` | `<folderDir>/so.epicenter.whispering` | `whispering:<digest>` | `whispering.json` |
+| `messages` | `<folderDir>/so.epicenter.messages` | `messages:<digest>` | `messages.json` |
 
 `build:bundled` (`apps/epicenter/scripts/build-bundled-apps.ts`) runs each app's own
 `build:host` (`EPICENTER_HOST=1`) in `apps/<page>` and copies its `dist/` to
@@ -477,16 +482,17 @@ Git action.
 The Folders window opens one in three ways, each deciding the folder in Rust:
 
 - **Open**, under Apps, calls `open_bundled_app(app, null)`. The shell opens
-  the app's saved home. On first use it selects `<folderDir>/Todos`, for
-  example `~/Epicenter/Todos` in production, creating it if needed. Once
-  selected, a missing home is refused rather than recreated. Its durable folder
-  name is independent of the displayed app title and app id. The app's rows
-  land directly in it, such as `todos/<id>.md`. A disk that stores the default
-  under another casing opens that directory.
+  the app's fixed default, such as `~/Epicenter/so.epicenter.todos` in
+  production, creating it when missing and reusing it with its files
+  otherwise; nothing is saved, so a removed default is made again. Its
+  permanent directory name is independent of the displayed app title. The
+  app's rows land directly in it, such as `todos/<id>.md`. A disk that stores
+  the default under another casing opens that directory. A file or a link at
+  the path is refused; no other folder is opened instead.
 - **Open with…**, beside a listed folder, calls `open_bundled_app(app, id)`.
-  Rust rechecks membership in the combined list, including outside homes and
-  bookmarks. A missing, stale, or protected directory is refused. Nothing
-  is created and the app's home is never opened as a replacement.
+  Rust rechecks membership in the combined list, including outside bookmarks.
+  A missing, stale, or protected directory is refused. Nothing is created and
+  the app's default is never opened as a replacement.
 - **Choose folder…**, under Apps, calls `choose_folder_for_app(app)`. The
   shell shows the native folder picker and opens the app on what the person
   chose; cancelling opens nothing. The chosen directory must exist and be a
@@ -504,7 +510,8 @@ two directories with one name in different places are two windows. The page
 calls `openFolder({ tables })`, which opens the folder bound to its window;
 Whispering's recorder writes into the same folder, and no call names it. Two
 apps opened on one folder are two windows with separate bindings to one root, sharing its save lock. A folder removed after its window opened is refused `Missing` when
-the page opens it again; a later Open also refuses the selected missing home.
+the page opens it again; a later Open of a removed default makes it again,
+empty, and reveals that window on the same path.
 
 The native Folder reads ordinary files as they stand. File writes, table assignments,
 and editor saves publish without a source precondition. The last publication wins. Opening writes
@@ -527,7 +534,7 @@ them. Windows and Linux keep separate app-and-folder windows.
 Each native tab keeps its own window, page, directory binding, and save
 guard. Detaching or merging changes presentation without reopening the
 folder or transferring drafts. Tab membership lives in AppKit, never in
-`folders.json`.
+application data.
 
 Each folder page awaits a native close confirmation only for unfinished Folder
 saves (ADR-0663). A saved window closes silently, including while recording:
@@ -563,13 +570,14 @@ Whispering's page calls:
 - `ai_send`, `ai_key_set`, `ai_key_state`, and `auth_status`, for its AI
   connections (ADR-0557, ADR-0558);
 - `whispering_connection_read` and `whispering_connection_set`, for its two
-  connection rows in the selected Epicenter records folder. The page names
+  connection rows in Epicenter's records folder. The page names
   `transcription` or `text`; the shell runs
-  `epicenter whispering-connection read|set`, which reads the selection from
-  AppData's `folders.json`, opens that directory, reads or saves the row under
-  its save lock, and closes it. A save assigns only `kind`
-  (`openai-compatible`), `title`, and `model` to the current row. Settings
-  opens the same selected records folder.
+  `epicenter whispering-connection read|set`, which computes the same fixed
+  `<folderDir>/so.epicenter` from `EPICENTER_FOLDER_DIR`, opens that
+  directory, reads or saves the row under its save lock, and closes it. A read
+  creates nothing; a save creates the folder when missing. A save assigns only
+  `kind` (`openai-compatible`), `title`, and `model` to the current row.
+  Settings opens the same records folder.
 
 No bundled app's window is granted folder history (`status`, `history`,
 `save_version`, `sync`), `account_send`, `ai_key_remove`, or model
@@ -581,8 +589,8 @@ The save lock, `.<directory name>.epicenter-save-lock`, sits beside the folder
 in the folder root; WebView data and the page builds live in the application
 data and resource directories. The Folder engine stages a save's bytes in
 `.<directory name>.epicenter-scratch` beside the folder. Whispering's own
-folder was `so.epicenter.whispering` when it was installed; that folder stays
-listed and opens with "Open with…", and nothing moves or adopts it.
+folder was `so.epicenter.whispering` when it was installed; under that same
+name it is now Whispering's default and opens with its files.
 
 Each kind of window has one capability file, and every file is `"local": true`
 because its page is served on the scheme: `folders.json`, `home.json`,
@@ -684,9 +692,8 @@ makes each connection a row of a `connections` table in Epicenter's records
 folder, keeps its key in this machine's keychain bound to the endpoint it was saved for, and
 sends every AI request through `epicenter send`. Check that record's Unbuilt
 line for what has landed.
-[ADR-0649](../../docs/adr/0649-folders-json-selects-this-machines-folder-locations.md)
-makes that folder's location a machine-local selection; `so.epicenter` is the
-initial default name.
+[ADR-0672](../../docs/adr/0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md)
+fixes that folder at `<folderDir>/so.epicenter`; no configuration selects it.
 
 ### Messages and Beeper
 

@@ -72,9 +72,9 @@ test('refusal stays visible without a second open request', async () => {
 });
 test('failed remembering leaves the opened folder available this run and says why', async () => {
 	const f = fixture();
-	f.failRemembering('folders.json was left unchanged.');
+	f.failRemembering('bookmarks.json was left unchanged.');
 	await f.openings.accept(path);
-	expect(f.openings.notice).toContain('folders.json was left unchanged.');
+	expect(f.openings.notice).toContain('bookmarks.json was left unchanged.');
 });
 test('a second acceptance waits until the first completes', async () => {
 	const f = fixture();

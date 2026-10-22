@@ -96,6 +96,29 @@ first demonstration of the new browser contract; Capture, Honeycrisp, Vocab,
 and Whispering also use the Folder handle. Epicenter owns the Tauri shell and
 binds each window's folder; standalone Todos binds its own.
 
+## Where each app's folder lives
+
+A native ordinary launch opens a fixed reverse-DNS child of one library,
+`~/Epicenter` (`~/Epicenter Dev` in development, or `EPICENTER_FOLDER_DIR`),
+creating it when missing and reusing it as it is otherwise. Nothing saves or
+selects these locations, and earlier locations are never looked for or moved
+(ADR-0672). Any other folder opens explicitly from Epicenter's launcher.
+Browser pages open their origin's IndexedDB default instead.
+
+| App | Surfaces | Native default | Tables |
+| --- | --- | --- | --- |
+| Epicenter | Settings (host) | `so.epicenter` (records) | `connections`; the folder editor declares none |
+| [Todos](todos/README.md) | browser, hosted, standalone native | `so.epicenter.todos` | `todos` |
+| [Capture](capture/README.md) | browser, hosted | `so.epicenter.capture` | `captures` |
+| [Honeycrisp](honeycrisp/README.md) | browser, hosted | `so.epicenter.honeycrisp` | `folders`, `notes` |
+| [Whispering](whispering/README.md) | browser, hosted | `so.epicenter.whispering` | `recordings`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`; AI connections in records |
+| [Messages](messages/README.md) | browser, hosted | `so.epicenter.messages` | `drafts`, `attempts` |
+| [Vocab](vocab/README.md) | browser only | none | `entries`, `chats`, `messages` |
+
+Local Books keeps its QuickBooks replica in SQLite under
+`<AppData>/apps/so.epicenter.local-books`, outside the library. `api`,
+`landing`, and `posthog-reverse-proxy` are infrastructure and open no folder.
+
 ## Product root names
 
 Name each product root `<Product>App`: `TodosApp`, `CaptureApp`,

@@ -10,7 +10,7 @@
 //!     .plugin(tauri_plugin_epicenter_folder::init())
 //!     .setup(|app| {
 //!         let paths = defaults::DesktopPaths::resolve(app.handle())?;
-//!         let directory = paths.open_home(homes::TODOS)?;
+//!         let directory = paths.open_default(library::TODOS)?;
 //!         app.manage(paths);
 //!         app.open_folder_window("todos", directory, url, |builder| {
 //!             Ok(builder.title("Todos"))
@@ -41,14 +41,13 @@ use tauri::plugin::TauriPlugin;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 
 pub use epicenter_folder_core::directory::{Directory, DirectoryError};
-pub use epicenter_folder_core::homes;
 pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
+pub use epicenter_folder_core::{bookmarks, library};
 
 mod command_names;
 mod commands;
 pub mod defaults;
 mod folders;
-pub mod home_menu;
 mod watch;
 mod windows;
 

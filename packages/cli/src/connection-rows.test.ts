@@ -11,8 +11,9 @@
  *   that changes one field.
  * - A row whose frontmatter does not parse is answered with its issues, and
  *   a save of it is refused with its bytes untouched.
- * - Reading creates nothing; a save creates `so.epicenter` only inside an
- *   Epicenter folder that is there, and a link or file there is refused.
+ * - Reading creates nothing; a save creates the fixed `so.epicenter` when it
+ *   is missing, reads and writes no configuration, and a link or file there
+ *   is refused.
  *
  * They run `src/bin.ts` under Bun, or the binary `EPICENTER_BIN` names.
  */
@@ -269,19 +270,51 @@ test('a save makes so.epicenter inside the Epicenter folder, never the Epicenter
 	);
 });
 
-test('a connection save cannot select records inside an existing app home', async () => {
-	const { scratch, epicenter, settings, run } = await setup();
+test('a connection save uses the fixed records folder, reading and writing no configuration', async () => {
+	const { scratch, epicenter, rowFile, run } = await setup();
 	const data = join(scratch, 'data');
 	await mkdir(data);
 	const config = join(data, 'folders.json');
-	const original = JSON.stringify({ homes: { todos: epicenter }, folders: [] });
+	const original = JSON.stringify({
+		homes: { todos: epicenter, epicenter: join(scratch, 'Old records') },
+		folders: [],
+	});
 	await writeFile(config, original);
 	const result = await run(['set', 'text'], { fields: { model: 'm' } });
-	expect(result.code).toBe(2);
-	expect(result.reply.name).toBe('FolderUnusable');
-	expect(result.reply.error).toContain('cannot overlap the todos home');
+	expect(result.code).toBe(0);
+	expect(await readFile(rowFile(), 'utf8')).toBe('---\nmodel: m\n---\n');
+	expect(existsSync(join(scratch, 'Old records'))).toBe(false);
 	expect(await readFile(config, 'utf8')).toBe(original);
-	expect(existsSync(settings)).toBe(false);
+	expect(await readdir(data)).toEqual(['folders.json']);
+});
+
+test('a connection save refuses a records folder inside application data', async () => {
+	const { scratch } = await setup();
+	const epicenter = join(scratch, 'data', 'Epicenter');
+	await mkdir(epicenter, { recursive: true });
+	const child = Bun.spawn(
+		[...command, 'whispering-connection', 'set', 'text', '--json'],
+		{
+			env: {
+				PATH: process.env.PATH,
+				EPICENTER_FOLDER_DIR: epicenter,
+				EPICENTER_DATA_DIR: join(scratch, 'data'),
+				EPICENTER_API_URL: 'http://127.0.0.1:9',
+			},
+			stdin: new TextEncoder().encode(
+				JSON.stringify({ fields: { model: 'm' } }),
+			),
+			stdout: 'pipe',
+			stderr: 'pipe',
+		},
+	);
+	const [code, out] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+	]);
+	expect(code).toBe(2);
+	expect(JSON.parse(out).name).toBe('FolderUnusable');
+	expect(existsSync(join(epicenter, 'so.epicenter'))).toBe(false);
 });
 
 test('a link or a file at so.epicenter is refused, and nothing is read or written through it', async () => {

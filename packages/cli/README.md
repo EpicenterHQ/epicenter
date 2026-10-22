@@ -27,9 +27,9 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 
 | Command | Status | Wraps |
 | --- | --- | --- |
-| `epicenter folders add <directory>` | built | Machine-local `folders.json` under the shared save lock |
-| `epicenter folders list` | built | Added paths and availability, plus `epicenter` with `--json` |
-| `epicenter folders forget <directory>` | built | Remove only the matching shortcut |
+| `epicenter folders add <directory>` | built | Machine-local `bookmarks.json` under the shared save lock |
+| `epicenter folders list` | built | Bookmarked paths and their availability |
+| `epicenter folders forget <directory>` | built | Remove only the matching bookmark |
 | `epicenter schema export <dir>` | built | Export the declared `tables` as JSON |
 | `epicenter schema import <dir> <file\|-> [--replace]` | built | Import all tables from the source, preserving unrelated sections |
 | `epicenter documents-query <dir>` | built, hidden | Desktop saved-document SQL; statement on stdin |
@@ -82,48 +82,39 @@ projection. Both use the same read-only SQLite executor.
 
 ## Folder locations on this computer
 
-The desktop and CLI share `<AppData>/folders.json`. `EPICENTER_DATA_DIR`
-selects the same AppData directory for both; a terminal uses release storage
-by default, so set that override when working with development storage.
+Epicenter's portable records directory is always
+`<EPICENTER_FOLDER_DIR>/so.epicenter`, by default `~/Epicenter/so.epicenter`,
+the same directory the desktop binds for Settings (ADR-0672). No
+configuration selects it, and the CLI reads and writes none to find it. A
+read creates nothing; a save creates the root and the directory when missing
+and reuses one that is there. Before either, the location is admitted: it
+may not be or sit inside a save staging directory, overlap application data,
+or be a file or a link. The CLI and native admissions run the same cases
+from `records-default.json` in the folder plugin's fixtures.
+
+The desktop and CLI share bookmarks in `<AppData>/bookmarks.json`, one JSON
+array of path strings. `EPICENTER_DATA_DIR` selects the same AppData
+directory for both; a terminal uses release storage by default, so set that
+override when working with development storage.
 
 ```json
-{
-  "homes": {
-    "epicenter": "/Users/braden/Epicenter/My setup",
-    "todos": "/Users/braden/Code/Todos"
-  },
-  "folders": ["/Users/braden/Code/vault"]
-}
+["/Users/braden/Code/vault"]
 ```
-
-`homes.epicenter` selects Epicenter's portable records directory. An absent
-entry means Settings has not opened and no connection has been saved.
-Other entries select app homes, shared by standalone and hosted shells. That first use
-selects the existing default `<folder root>/so.epicenter`, creating it when
-needed. A stored selection must exist; a missing one is never recreated.
-The CLI and native allocators both prepare a missing initial root and refuse
-records that overlap application data, another app's home, or the discovery
-root. Shared allocation cases cover both implementations, including staging
-directories and linked parents. Refused selections leave configuration unchanged.
-To relocate the records, quit Epicenter, move or locate the directory, update
-this path, and reopen. Native **Home Folders** menus can select an existing
-home without moving files; restart Epicenter after changing its records home.
 
 `folders add` checks an existing directory and remembers its absolute path
 once. Relative arguments resolve against the current working directory.
-`folders list --json` returns `{"epicenter": <records path or null>, "homes":
-{<app>: <path>}, "folders":
-[{"path", "problem"}]}`; unavailable entries stay listed. `folders forget`
-removes a shortcut even when its target is gone. It deletes no files and
-changes neither the selected records folder nor Git configuration. Folders
-under the scanned root remain discoverable without a shortcut.
+`folders list --json` returns `{"folders": [{"path", "problem"}]}`;
+unavailable entries stay listed. `folders forget` removes a bookmark even
+when its target is gone. It deletes no files and changes no Git
+configuration. Folders under the scanned root remain discoverable without a
+bookmark, and an app's default never comes from this file.
 
-Listing creates nothing. Mutations read/change/replace under the same SQLite
-save lock as the native writer, preserving the other field and concurrent
-updates. Existing path arrays and the older `epicenter` field convert to `homes` on
-the next real change, preserving selected paths. Unsupported
-or malformed contents remain untouched. The launcher observes writes made
-by the CLI. This file is machine-local; the records directory can sync
+Listing creates nothing. Mutations read/change/replace under the SQLite lock
+`.bookmarks.json.epicenter-save-lock`, shared with the native writer,
+preserving concurrent updates. Contents in any other shape remain untouched
+and are reported. The launcher observes writes made by the CLI. An earlier
+build's `folders.json` is never read; its saved homes and shortcuts are not
+carried over. This file is machine-local; the records directory can sync
 through its own Git remote.
 
 ## Hosted repositories
@@ -162,11 +153,12 @@ desktop shell runs them for a page, one child per operation, with `--json`;
 the one reply line is `history-wire.ts`'s encoding, which the page decodes.
 Git's own configuration names the author, and otherwise it is
 `Epicenter <epicenter@localhost>`; history is recorded on `main`. Epicenter's
-selected records folder (`isEpicenterFolder`) may get a repository inside
+records folder, `<folder root>/so.epicenter` by directory identity
+(`isEpicenterFolder`), may get a repository inside
 another repository's
 working tree; any other folder may not. That includes a folder named by the
-id of an app an earlier build installed, such as `so.epicenter.todos`: it is
-a data folder now, so its first commit is refused while it sits inside
+id of an app an earlier build installed, such as `so.epicenter.todos`, now
+that app's default: it is a data folder, so its first commit is refused while it sits inside
 another repository's working tree. Its files read and open as before. When the shell ends the child (a page reloaded, or its
 window closed), the child ends every `git` it started, with their helpers
 (`src/stop.ts`).
@@ -214,7 +206,7 @@ the desktop grant (ADR-0558); `auth token`, `auth logout`,
 `auth git-credential`, and `send` act on that grant only with it.
 
 `auth key` and `send` are ADR-0557's. An AI connection is a row of
-the selected records directory’s `connections/`; its endpoint and key live in this computer's
+the records directory’s `connections/`; its endpoint and key live in this computer's
 keychain under the row's id, through `Bun.secrets` (service
 `so.epicenter.connections`). `auth key set <id>` reads `{"endpoint", "key"}`
 as JSON on stdin, never from the command line, and `state` prints the
@@ -241,10 +233,13 @@ Whispering's two rows of `so.epicenter/connections`,
 `whispering-transcription` or `whispering-text`
 (`WHISPERING_CONNECTION_IDS` in `@epicenter/ai/connection-table`), for the
 desktop shell's `whispering_connection_read` and `whispering_connection_set`.
-It takes no path: `homes.epicenter` selects the records, initially
-`so.epicenter` under `EPICENTER_FOLDER_DIR`'s folder. Each
+It takes no path: the records are the fixed `so.epicenter` under
+`EPICENTER_FOLDER_DIR`'s folder, and a save creates it when missing. Each
 run opens it with `connectionsTables`, reads or saves the one row, and closes
-it; a save takes the folder's save lock, as Settings' saves do. It needs no
+it; a save takes the folder's save lock, as Settings' saves do. The command
+awaits its save before answering, while a stop signal may interrupt that
+ordinary work. Token refresh keeps its separate persistence protection.
+It needs no
 account, keychain, network, Git, or `epicenter.json`. `read` answers
 `{"row": {"text", "issues", "fields"} | null}`: `text` is the file's exact
 source, and `fields` is the schema's `kind`, `title`, and `model`, or `null`

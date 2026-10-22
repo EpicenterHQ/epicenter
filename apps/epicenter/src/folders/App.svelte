@@ -136,7 +136,7 @@
 			<p class="px-4 text-sm text-muted-foreground">Reading…</p>
 		{:else if folders.length === 0}
 			<p class="px-4 text-sm text-muted-foreground">
-				No folders yet. Open an app to select its home, or add a folder under your Epicenter root.
+				No folders yet. Open an app to make its default folder, or add a folder under your Epicenter root.
 			</p>
 		{:else}
 			<ul class="flex flex-col gap-0.5 px-2" aria-label="Folders">
@@ -154,9 +154,9 @@
 							<span class="block truncate text-xs text-muted-foreground" title={folder.path}>
 								{folder.path}
 							</span>
-							{#if folder.homes.length > 0}
+							{#if folder.defaultFor !== null}
 								<span class="block text-xs text-muted-foreground">
-									Home for {folder.homes.join(', ')}
+									Default for {folder.defaultFor}
 								</span>
 							{/if}
 							{#if folder.problem !== null}

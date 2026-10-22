@@ -1,9 +1,9 @@
 /**
- * Whispering reads and saves two connection rows in the selected Epicenter
- * data folder. The operation names a row; folders.json supplies the location.
- * Reads create nothing. First writes select the default when no location is
- * configured; a missing selected directory is reported instead of recreated.
- * Row writes publish assignments to the current source.
+ * Whispering reads and saves two connection rows in Epicenter's records
+ * folder, the fixed `<folderDir>/so.epicenter` (`epicenterDirectory`). The
+ * operation names a row. Reads create nothing; a save creates the folder when
+ * it is missing. No configuration is read or written. Row writes publish
+ * assignments to the current source.
  */
 
 import {
@@ -30,7 +30,7 @@ export const ConnectionRowError = defineErrors({
 		message: reason,
 		reason,
 	}),
-	/** The selected Epicenter data folder cannot be used. */
+	/** Epicenter's records folder cannot be used. */
 	FolderUnusable: ({ reason }: { reason: string }) => ({
 		message: reason,
 		reason,
@@ -62,7 +62,7 @@ function connectionOf(
 	});
 }
 
-/** Resolve the selected records folder; configured missing folders are never created. */
+/** Resolve the records folder, creating it only for a save. */
 async function connectionsDirectory(paths: AppPaths, create: boolean) {
 	try {
 		return Ok(await epicenterDirectory(paths, create));
@@ -73,7 +73,7 @@ async function connectionsDirectory(paths: AppPaths, create: boolean) {
 	}
 }
 
-/** Open the selected directory with its `connections` table, run `work`, and close it. */
+/** Open the records directory with its `connections` table, run `work`, and close it. */
 async function withConnections<T>(
 	directory: string,
 	work: (
@@ -102,8 +102,8 @@ function answerOf(row: StoredRow): ConnectionRow {
 }
 
 /**
- * The row `operation` names in the selected records folder, or `null`
- * when no row exists. Reading creates nothing. A missing selection is an error.
+ * The row `operation` names in the records folder, or `null` when no row
+ * exists, including when the folder is not there. Reading creates nothing.
  */
 export async function readConnectionRow(
 	paths: AppPaths,

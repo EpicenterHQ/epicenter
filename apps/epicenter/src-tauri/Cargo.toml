@@ -55,8 +55,8 @@ required-features = ["native-tabs-smoke"]
 dunce = "1"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
-# The folder save lock, which also takes turns on `folders.json` with any
-# other writer of it (`epicenter_folder_core::homes`).
+# The fixed library defaults and `bookmarks.json`, whose save lock the CLI
+# takes too (`epicenter_folder_core::{library, bookmarks}`).
 epicenter-folder-core = { path = "../../../packages/tauri-plugin-epicenter-folder/core" }
 tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
 anyhow = "1"

@@ -7,7 +7,7 @@
  *
  * - `launch` opens an app Epicenter bundles, Todos, Capture, Honeycrisp, or
  *   Whispering, with `open_bundled_app`: on the folder the Folders window
- *   listed, or on its selected home;
+ *   listed, or on its fixed default folder;
  * - `choose` opens an app on a folder the person chooses in the native
  *   picker, which the shell opens and answers (`choose_folder_for_app`);
  * - `editFolder` opens a listed folder's own editor window
@@ -47,7 +47,7 @@ export function createLaunch() {
 		get failure() {
 			return failure;
 		},
-		/** Open `application` on the listed folder `folder`, or on its selected home. */
+		/** Open `application` on the listed folder `folder`, or on its fixed default. */
 		launch(application: Opener, folder?: string) {
 			return attempt(`${application.title} did not open`, () =>
 				commands.openBundledApp(application.app, folder ?? null),
@@ -65,7 +65,7 @@ export function createLaunch() {
 				commands.openFolderEditor(folder),
 			);
 		},
-		/** Remove shortcuts while retaining a home or root-discovered folder. */
+		/** Remove shortcuts while retaining a root-discovered folder. */
 		forgetBookmarks(folder: string, title: string) {
 			return attempt(`${title} bookmarks were not forgotten`, () =>
 				commands.forgetFolderBookmarks(folder),

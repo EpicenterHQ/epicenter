@@ -1,6 +1,6 @@
 /**
  * The launcher renders one native folder list and opens rows by their IDs.
- * Pending handoffs survive listener startup, home labels survive forgetting
+ * Pending handoffs survive listener startup, default labels survive forgetting
  * bookmarks, and focusing refreshes folders located outside the watched root.
  */
 import { describe, expect, mock, test } from 'bun:test';
@@ -51,7 +51,7 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 					folders: listing.folders.flatMap((folder) =>
 						folder.id !== id
 							? [folder]
-							: folder.homes.length > 0
+							: folder.defaultFor !== null
 								? [{ ...folder, bookmarks: [] }]
 								: [],
 					),
@@ -90,7 +90,7 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 		}
 	});
 
-	test('one folder list shows paths and homes, opens by ID, and retains a home after forgetting its bookmark', async () => {
+	test('one folder list shows paths and defaults, opens by ID, and retains a root default after forgetting its bookmark', async () => {
 		pending = [];
 		calls.length = 0;
 		listing = {
@@ -98,11 +98,11 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 			folders: [
 				{
 					id: 'folder:work',
-					title: 'Notes',
-					path: '/Code/Notes',
+					title: 'Todos',
+					path: '/Epicenter/so.epicenter.todos',
 					protected: false,
-					homes: ['Todos'],
-					bookmarks: ['/Code/Notes'],
+					defaultFor: 'Todos',
+					bookmarks: ['/Epicenter/so.epicenter.todos'],
 					temporary: false,
 					problem: null,
 				},
@@ -111,7 +111,7 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 					title: 'Notes',
 					path: '/Personal/Notes',
 					protected: true,
-					homes: [],
+					defaultFor: null,
 					bookmarks: [],
 					temporary: false,
 					problem: null,
@@ -131,9 +131,10 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 				target.querySelectorAll('ul[aria-label="Folders"] > li');
 			expect(rows().length).toBe(2);
 			expect(target.querySelector('[aria-label="Opened folders"]')).toBeNull();
-			expect(rows()[0]!.textContent).toContain('/Code/Notes');
-			expect(rows()[0]!.textContent).toContain('Home for Todos');
+			expect(rows()[0]!.textContent).toContain('/Epicenter/so.epicenter.todos');
+			expect(rows()[0]!.textContent).toContain('Default for Todos');
 			expect(rows()[1]!.textContent).toContain('/Personal/Notes');
+			expect(rows()[1]!.textContent).not.toContain('Default for');
 			expect(rows()[0]!.textContent).toContain('Open with…');
 			expect(rows()[1]!.textContent).not.toContain('Open with…');
 			expect(
@@ -155,7 +156,7 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 			}
 			expect(calls).toContain('forget:folder:work');
 			expect(rows().length).toBe(2);
-			expect(rows()[0]!.textContent).toContain('Home for Todos');
+			expect(rows()[0]!.textContent).toContain('Default for Todos');
 			expect(rows()[0]!.textContent).not.toContain('Forget bookmark');
 		} finally {
 			await unmount(view);
@@ -174,7 +175,7 @@ describe.skipIf(!browser)('folder launcher startup', async () => {
 					title: 'Missing',
 					path: '/Gone/Missing',
 					protected: false,
-					homes: [],
+					defaultFor: null,
 					bookmarks: ['/Gone/Missing'],
 					temporary: false,
 					problem: 'This folder is not there.',
