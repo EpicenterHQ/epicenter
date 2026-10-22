@@ -271,21 +271,19 @@ questions within one skill-editing conversation. All replies are illustrative.
 > want it to act like the decision is already settled.
 >
 > **Agent:** You want a judgment you can examine: what the agent would choose,
-> why, and what could make another choice better.
->
-> **Human:** Yes. What would the instruction actually say?
->
-> **Agent:** I'd replace “List the advantages and disadvantages of each option”
-> with:
+> why, and what could make another choice better. I'd replace “List the
+> advantages and disadvantages of each option” with:
 >
 >> Recommend a direction when you have grounds. Explain the reason that
 >> decides it for you and what could change your recommendation. Leave room
 >> for the user to challenge that judgment or introduce another possibility.
 >
-> **Human:** Show what that would produce if I were choosing between autosave
-> and a Save button for private notes.
+> **Human:** That last sentence sounds like it will add a disclaimer to every
+> answer.
 >
-> **Agent:** A sample response following that instruction:
+> **Agent:** Naming what could change the recommendation can already leave
+> room for disagreement. For a choice between autosave and a Save button for
+> private notes, it could read:
 >
 >> I'd use autosave here. Writing a private note shouldn't require a separate
 >> decision to keep it. I'd show whether changes are still saving so the user
@@ -294,12 +292,18 @@ questions within one skill-editing conversation. All replies are illustrative.
 >> I'd reconsider if saving also published the note or triggered another
 >> action. Then a Save button could give the user a useful moment of control.
 
-The first reply clarifies the intent. The next shows the actual instruction,
-which the user can judge as wording. The sample then exposes the behavior that
-wording could encourage. Each contribution answers the question at hand;
-the exchange does not establish a required order or require all three in
-every turn. The sample proposes behavior rather than proving an agent will
-reliably produce it.
+> **Agent:** I'd cut the last sentence from the instruction:
+>
+>> Recommend a direction when you have grounds. Explain the reason that
+>> decides it for you and what could change your recommendation.
+
+The first reply connects a reading of the intent with actual proposed wording.
+The user's concern then makes behavior the question, so the agent shows a
+sample and revises the instruction in light of it. The user can judge the
+wording and its possible effect without asking for each contribution in turn.
+The exchange does not establish a required order or require all three in every
+turn. The sample proposes behavior rather than proving an agent will reliably
+produce it.
 
 ## Product design: revise a visible model
 
