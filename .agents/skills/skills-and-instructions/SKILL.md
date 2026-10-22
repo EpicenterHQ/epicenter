@@ -13,9 +13,9 @@ the agent handle the work.
 ## Find the instruction's owner
 
 Use [dialectic](../dialectic/SKILL.md) when the purpose or desired behavior is
-unsettled: articulate the proposed model alongside a sample of the behavior it
-would produce. Use reactions to both to develop the instructions. Apply settled
-edits directly.
+unsettled. Let the current question determine whether to clarify intent,
+propose instructions, or show an example of their behavior. Use the user's
+responses to develop the instructions. Apply settled edits directly.
 
 Ground the guidance in actual work, source material, or the user's corrections.
 Extract the judgment that made an accepted interaction work so it transfers

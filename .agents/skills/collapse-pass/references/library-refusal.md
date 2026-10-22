@@ -24,7 +24,7 @@ The first symptom is duplication. The second symptom is silent feature loss.
 When a finding proposes a simplification that touches a library boundary, before editing:
 
 1. **Read the library's actual public surface** for the domain you are about to re-shape. For Epicenter the relevant references are listed below.
-2. **Ground against the upstream docs.** If the goal declares deepwiki citation is mandatory for this pass, use `mcp__deepwiki__ask_question` against the upstream repo. Cite the specific function or type that already does what your custom shape was doing.
+2. **Ground against the upstream docs.** If the user or goal requires a DeepWiki citation for this pass, use `mcp__deepwiki__ask_question` against the upstream repo. Cite the specific function or type that already does what your custom shape was doing.
 3. **Compare your model to the library's model.** If yours is strictly narrower with no extra invariant, the library wins; delete your model.
 4. **If yours encodes a real invariant the library does not**, name the invariant in one sentence. If you can't, the library still wins.
 

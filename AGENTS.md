@@ -59,6 +59,14 @@ Skip this for stable basics and repo-local patterns already documented in skills
 
 Do not use direct `console.*` in library code. Use `wellcrafted/logger`, except in CLIs, tests, and benchmarks.
 
+## Read APIs
+
+For new or deliberately redesigned APIs, prefer explicit read methods in
+ordinary JavaScript, TypeScript, and React. Svelte 5 reactive adapters are the
+getter exception. Choose by the API's role, not its file extension. Existing
+getters and upstream protocols are current contracts; change them only as part
+of an authorized redesign. See the `typescript` and `svelte` skills.
+
 ## Coherent edits
 
 Work toward the user's intended outcome. Treat their reactions as evidence

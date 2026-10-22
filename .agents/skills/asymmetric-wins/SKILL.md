@@ -41,7 +41,7 @@ simplification.
 - `one-sentence-test` detects the opportunity (the surface audit surfaces the
   convenience feature that forces a second product sentence). This skill owns
   the decision.
-- `refactoring` counts callers, fixtures, state branches, styling branches,
+- [Refactoring methods](../collapse-pass/references/refactoring-methods.md) guide caller counts, fixtures, state branches, styling branches,
   docs paths, and other code-family evidence before the refusal is executed.
 - `ui-design` owns visual direction, accessibility, brand, and whether a
   UI detail is load-bearing before pixel fidelity is refused.

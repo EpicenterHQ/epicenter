@@ -128,7 +128,7 @@ Minting a variant is not the same as publishing one. Two kinds:
 |---|---|---|
 | Who sees it | Consumers, who branch on `.name` | A log sink |
 | Export it? | Yes; renaming a variant is a breaking change | No, `const` at module scope |
-| Examples | `ReplicaError`, `DocumentPullError`, `DataReadError`, `ScalarProtocolError` | `SyncSupervisorError`, `BrowserWorkerError`, `ObservationCarrierError` |
+| Examples | `ReplicaError`, `DocumentPullError`, `DataReadError` | `SyncSupervisorError`, `BrowserWorkerError`, `ObservationCarrierError` |
 
 Exporting a log-only set publishes a name no one can import for a reason and freezes a string you should stay free to reword. `packages/data` and `packages/lens` keep theirs private for exactly this; only errors that leave in a `Result` are in the published failure surface. Export a log-only set solely when a second file in the same package logs the same failure, and even then, only within the package.
 
@@ -249,7 +249,6 @@ Custom sinks that serialize for the wire should convert `ts` to ISO-8601 and fla
 
 ## See also
 
-- `error-handling` skill: the `trySync`/`tryAsync` patterns the logger consumes
-- `define-errors` skill: how to mint the typed error variants the logger consumes
+- `error-handling` skill: `trySync`/`tryAsync` patterns and the [error variants reference](../error-handling/references/error-variants.md) for the typed failures the logger consumes
 - `rust-errors` skill: full `tracing` ↔ `Logger` mapping
 - `tapErr` (from `wellcrafted/result`): Result-chain combinator that logs on the Err branch and passes the Result through. Rare in epicenter, since most call sites branch on `result.error` directly to use the data on the Ok branch. Reach for it only when the Result flows out of the function in a `.then(...)` chain.

@@ -22,7 +22,7 @@ tests through the real boundary, type-level invariants, or deletion of a
 test that was insuring trivial branch logic at high seam cost.
 
 Related skills: [rethink](../rethink/SKILL.md) develops the replacement when a
-candidate reveals a flawed surrounding design; [refactoring](../refactoring/SKILL.md)
+candidate reveals a flawed surrounding design; [refactoring methods](../collapse-pass/references/refactoring-methods.md)
 owns caller counting and inlining mechanics; [testing](../testing/SKILL.md)
 for what the post-collapse tests should look like;
 [one-sentence-test](../one-sentence-test/SKILL.md) to confirm the inner

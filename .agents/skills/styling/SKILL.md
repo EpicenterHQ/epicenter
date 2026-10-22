@@ -40,7 +40,7 @@ This principle applies to all elements where the styling doesn't conflict with t
 
 ## Tailwind Best Practices
 
-- Use the `cn()` utility from `$lib/utils` for combining classes conditionally
+- Use `cn()` from `@epicenter/ui/utils` in apps and `../utils.js` inside the UI package for combining classes conditionally
 - Prefer utility classes over custom CSS for local layout and state
 - Prefer shared scale and semantic-token utilities over arbitrary bracketed values and raw colors
 - Use `tailwind-variants` for component variant systems

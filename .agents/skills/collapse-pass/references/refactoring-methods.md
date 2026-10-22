@@ -1,77 +1,96 @@
----
-name: refactoring
-description: Apply caller-aware, behavior-preserving code simplifications such as inlining, branch collapse, and typed access boundaries. Use when cleaning up code or planning focused refactor commits.
-metadata:
-  author: epicenter
-  version: '1.0'
----
+# Refactoring methods
 
-# Refactoring Methodology
+Read the sections relevant to a candidate: inlining and source visibility,
+caller evidence, typed access boundaries, duplicate branches, derivable state,
+file shape, straggler cleanup, or definition navigation. These methods also
+support focused reviews without starting an exploratory pass.
 
-Systematic approach to auditing and improving code. Every change is evidence-based: count callers, show diffs, commit surgically.
+[collapse-pass](../SKILL.md) owns execution, scope, authorization, and reporting.
+Use [control-flow](../../control-flow/SKILL.md) for linearizing conditionals,
+[factory composition](../../factory-function-composition/SKILL.md) for factory
+shape and [method documentation](../../factory-function-composition/references/method-documentation-and-sibling-calls.md),
+<!-- vocab-check: ignore-next-line (the code-prose skill name) -->
+and [code-prose](../../code-prose/SKILL.md) for identifiers and comments.
 
-> **Related Skills**: See `post-implementation-review` for the full second-read ritual after implementation. See `rethink` when the refactor changes public shape, ownership, naming, or lifecycle boundaries. See `control-flow` for linearizing conditionals and guard clauses. See `factory-function-composition` for the four-zone factory anatomy. See `method-shorthand-jsdoc` for when to use `this.method()` vs direct calls. See `code-prose` for the naming and comment pass over whatever the refactor leaves behind.
+## Keep source and action visible
 
-Use [asymmetric-wins](../asymmetric-wins/SKILL.md) when a refactor is preserving
-a small promise that owns a large code family: legacy aliases, fallback parsers,
-exact old fixtures, pixel-perfect UI reproduction, duplicate call shapes, or a
-rare mode with its own tests and docs. Refactors do not need to preserve every
-old promise. They need to preserve the product sentence and the load-bearing
-contracts.
+Keep the source and the action visible where they are used. Introduce a separate
+name or layer when it adds understanding or owns necessary behavior. Mentally inline a
+binding and ask: does the reader lose an explanation or necessary behavior, or
+just lose a jump?
 
-## The Audit: Count Callers First
+A shallow property alias or forwarding helper can hide ownership without
+explaining anything. A named operation can earn its place by expressing a
+non-obvious decision, enforcing an invariant, owning a lifecycle, or making a
+long phase understandable. Preserve evaluation timing, receiver binding,
+caching, and snapshot semantics when inlining; fewer names must not change behavior.
 
-Before changing anything, map every internal function with its exact call count.
+### Find same name property aliases
 
+When looking for shallow aliases, search a bounded area for `const a = b.a`,
+such as `const status = row.status` or `const row = editor.row`. From the repo
+root, use PCRE2 so the final property must match the captured variable name:
+
+```sh
+rg -n --pcre2 '\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.\1(?![\w$])(?=\s*(?:;|,|$))' apps packages -g '*.ts' -g '*.js' -g '*.mjs' -g '*.svelte'
 ```
-INTERNAL FUNCTIONS                          CALLERS
-────────────────────────────────────────────────
-lastEntry()                                 5  (currentType, validated, 3× replace*)
-validated()                                 6  (getter, read, appendText, asText, asRichText, asSheet)
-pushText(content)                           8  (write, appendText×3, asText×3, replace)
-replaceCurrentText(content)                 1  ← restoreFromSnapshot only ⚠️
-pushSheetFromSnapshot(cols, rows)           1  ← restoreFromSnapshot only ⚠️
-```
 
-**1 caller = inline candidate.** Always ask: does this function earn its name?
+Replace `apps packages` with the relevant paths. The search includes nested
+accesses like `const status = editor.row.status`; optional chaining, bracket
+access, and typed declarations need a different pattern. Comments and strings
+can match too.
 
-### Decision Table
+Treat matches as candidates, not automatic replacements. Trace each binding's
+uses and apply the source-and-action test above. Keep an intentional snapshot
+or single getter read; check whether later reads would observe a different value,
+especially across `await`. For method aliases, compare the receiver supplied by
+the extracted call with the object call. Inline when direct access improves
+clarity and preserves behavior, then verify the affected behavior.
 
-| Callers | Action |
-|---|---|
-| 0 | Dead code. Delete. |
-| 1 | Inline candidate. Keep only if: complex logic worth naming, part of a constructor family, or carries important JSDoc. |
-| 2-3 | Evaluate. If all callers are in the same method, might still inline. |
-| 4+ | Keep. |
+## The audit: count callers as evidence
+
+Trace the binding's actual callers before changing it. Delete unused internal
+code; check external consumers before deleting a public export. For a live
+binding, compare the explanation and behavior its definition contributes with
+the navigation and repetition it introduces. A single caller can justify a
+meaningful operation; several callers can repeat an unnecessary forwarding layer.
+
+Count callers when the number helps establish scope or maintenance cost. A
+local simplification does not require an inventory of every function in the file.
 
 ### When to Keep a Single-Caller Function
 
 Not every 1-caller function should be inlined. Keep it when:
 
-- **Part of a family**: `pushText`, `pushSheet`, `pushRichtext` all follow the same structure. Inlining one breaks the visual symmetry.
+- **Part of a meaningful family**: `pushText`, `pushSheet`, `pushRichtext` expose distinct typed constructors. Keep the shared vocabulary when it helps callers understand those operations; visual symmetry alone is insufficient.
 - **Complex logic worth naming**: Deep-clone operations, recursive tree walks, or multi-step parsing where the name documents intent.
-- **The calling method is already long**: Inlining 15 lines into a 50-line method hurts readability.
+- **A named phase makes the caller readable**: Extract a long imperative phase when its name explains the work. Length alone does not establish a useful boundary.
 
 ## Type Safety Boundaries
 
-All raw/untyped access should go through a single parsing boundary. Everything downstream uses typed results.
+For each stored or incoming shape, give raw access one parsing boundary.
+Downstream operations use its typed result rather than repeating casts.
 
 ```
 BAD: Multiple raw access points scattered across methods
 ─────────────────────────────────────────────────────────
-currentType getter  → entry.get('type') as ContentType     ← raw .get() + cast
+getCurrentType()    → entry.get('type') as ContentType     ← raw .get() + cast
 write()             → entry.get('columns') as Y.Map<...>   ← raw .get() + cast
 replaceCurrentText  → entry.get('content') as Y.Text       ← raw .get() + cast
 
-    GOOD: Single boundary, everything else uses typed discriminated union
-    ───────────────────────────────────────────────────────────────────
+GOOD: Single boundary, everything else uses typed discriminated union
+───────────────────────────────────────────────────────────────────
 readEntry()         → entry.get('type'), instanceof checks  ← THE boundary
-    currentEntry getter → readEntry(last)                       ← typed from here
-    write()             → this.currentEntry (discriminated)     ← typed
-read()              → this.currentEntry (discriminated)     ← typed
+getCurrentEntry()   → readEntry(last)                       ← typed from here
+write()             → getCurrentEntry() (discriminated)     ← typed
+read()              → getCurrentEntry() (discriminated)     ← typed
 ```
 
-    Fix: route all access through the typed getter. Public methods use `this.currentEntry` with type discrimination instead of raw `.get()`.
+Route access through the typed reader. Public methods discriminate
+`getCurrentEntry()` instead of repeating raw `.get()` calls. A Svelte reactive
+adapter may expose that read as a tracked property; the framework-neutral
+implementation keeps the explicit method. When the existing reader is a
+public getter, keep that contract unless the API is being redesigned.
 
 ## Collapsing Duplicate Branches
 
@@ -98,9 +117,9 @@ switch (entry.type) {
 }
 ```
 
- Also applies to `as*()` conversion methods. If every non-matching branch does "read as string → push as target type", collapse:
+Also applies to `as*()` conversion methods. If every non-matching branch does "read as string → push as target type", collapse:
 
-         ```typescript
+```typescript
 // BEFORE: 3 cases, 2 are near-identical
 asRichText(): Y.XmlFragment {
 	const entry = this.currentEntry;
@@ -145,8 +164,8 @@ function pushSheetFromCsv(csv: string): SheetEntry {
 	parseSheetFromCsv(csv, columns, rows);
 }
 
-    // AFTER: Compose
-    const result = pushSheet();
+// AFTER: Compose
+const result = pushSheet();
 parseSheetFromCsv(csv, result);
 ```
 
@@ -174,7 +193,7 @@ async createFolder(parentId: FileId | null, name: string) {
 	await fs.mkdir(path);
 }
 
-// BAD: Extracted for 2 callers in the same file.
+// Adds a helper name without explaining more than the local path construction.
 // Reader now has to find buildChildPath() to understand either function.
 function buildChildPath(parentId: FileId | null, name: string): string {
 	const parentPath = parentId ? (this.getPath(parentId) ?? '/') : '/';
@@ -200,16 +219,17 @@ Same principle in templates: a class string used twice is easier to scan inline 
 <TreeView.Folder class={itemClass} />
 ```
 
-### When extraction IS worth it
+### When extraction earns its place
 
-- The block is 5+ lines (the abstraction pays for itself)
-- It appears 4+ times (pattern, not coincidence)
-- The callers are in different files (no local context to rely on)
-- The logic is non-obvious and the function name documents intent
+Extract when the name explains non-obvious work, one owner must enforce a shared
+rule, or repeating a substantial operation would obscure callers and make changes
+harder. Block length, repetition count, and file distance are evidence of those
+costs, not automatic thresholds. A two-use parser can deserve extraction; a
+four-use alias can still deserve deletion.
 
 ## Inline Known-Behavior Calls
 
-    When a "smart" function branches internally but every caller already knows which branch it takes:
+When a "smart" function branches internally but every caller already knows which branch it takes:
 
 ```typescript
 // replaceCurrentText branches on type, but callers know the answer:
@@ -222,7 +242,7 @@ function replaceCurrentText(content, current) {
 // appendText() KNOWS it's NOT text → always takes the else-branch
 ```
 
-    Inline the known branch at each call site. Keep the branching function only for callers that genuinely don't know (e.g., `restoreFromSnapshot` where the live doc's type is unknown).
+Inline the known branch at each call site. Keep the branching function only for callers that genuinely don't know (e.g., `restoreFromSnapshot` where the live doc's type is unknown).
 
 ## Parameter Objects and Derivation
 
@@ -273,51 +293,12 @@ Removing derivable state often simplifies signatures, types, and control flow in
 Caller counts audit a function. These audit the file it lives in.
 
 1. **Inverted pyramid.** Lead with the exported or significant functions and push helpers below them. Don't bury the lead.
-2. **Related concepts over monoliths.** Break a large file into modules that each own one concept.
-3. **Combine overlapping concepts.** If two types, functions, or constants overlap significantly, merge them. The fewer distinct concepts a reader must hold in their head, the better.
-4. **Use shared code.** A common utility (file path parsing, say) may already exist. Check for it before writing the same thing inline.
-
-## Presenting Changes
-
-Always show the proposed change as a diff with tradeoffs before implementing:
-
-```
-Proposed: inline replaceCurrentSheet into write()
-
- write(text: string) {
-     ydoc.transact(() => {
--        if (type === 'sheet') replaceCurrentSheet(text);
-+        if (type === 'sheet') {
-+            entry.columns.forEach((_, key) => entry.columns.delete(key));
-+            entry.rows.forEach((_, key) => entry.rows.delete(key));
-    +            parseSheetFromCsv(text, entry);
-+        }
-
-Tradeoff: write() goes from 6 to 14 lines, but is now self-contained.
-```
-
-State what gets better AND what gets worse. Let the reviewer decide.
-
-## Surgical Commits
-
-One logical change per commit. Test between each.
-
-```
-    edit → diagnostics → test → commit → next edit
-    ```
-
-Never mix two unrelated refactors in one commit:
-
-```
-98fcabe  refactor: inline ValidatedEntry type and single-use write helpers
-af643fd  refactor: replace validated()/currentType() closures with this.currentEntry
-19d108a  refactor: remove pushSheetFromCsv, compose pushSheet + parseSheetFromCsv
-c4f8ddc  refactor: move SheetBinding to sheet.ts, accept as single param
-```
+2. **Responsibilities and lifetimes.** Split or combine files when actual callers become easier to understand or change. File count and overlapping names do not decide. For a broad model change, use the [concept inventory](concept-inventory.md) to explain the distinctions retained or removed.
+3. **Use shared code.** A common utility (file path parsing, say) may already exist. Check for it before writing the same thing inline.
 
 ## Post-Refactor Straggler Sweep
 
-After a refactor lands, immediately hunt for dead references the change left behind. Refactors that remove or move code create orphaned exports, stale JSDoc, and unnecessary indirection that won't trigger type errors: they compile fine but add confusion.
+Before handing off a refactor, hunt for dead references the change left behind. Refactors that remove or move code create orphaned exports, stale JSDoc, and unnecessary indirection that won't trigger type errors: they compile fine but add confusion.
 
 ### The Sweep Checklist
 
@@ -351,11 +332,13 @@ WorkspaceKeyResponse contract type             grep for the type → zero consum
 - After inlining a function (its callers may have stale comments)
 - After renaming (old name may linger in JSDoc, error messages, tests)
 
-The sweep is a separate commit from the refactor. Label it `refactor(scope): remove dead X` or `refactor(scope): fix stale JSDoc after Y`.
+Complete the sweep before handing off the refactor. When commits are authorized,
+include related stragglers with the change that created them; separate unrelated
+cleanup so it remains reviewable.
 
 ## Go-to-Definition Check
 
-After a refactor that moves, renames, or re-exports a symbol, press Go-to-Def from a real call site. The cursor should land on the actual definition, not on an alias line, a re-export passthrough, or a destructure-re-export of a module-level object. If it lands somewhere worse than before, the refactor regressed navigation: fix it before committing.
+After a refactor that moves, renames, or re-exports a symbol, press Go-to-Def from a real call site. The cursor should land on the actual definition, not on an alias line, a re-export passthrough, or a destructure-re-export of a module-level object. If it lands somewhere worse than before, the refactor regressed navigation: fix it before handing off the change.
 
 Common regressions introduced by refactors:
 
@@ -364,11 +347,11 @@ Common regressions introduced by refactors:
 - Wrapper / adapter functions inserted with no behavior change.
 - Hand-written interface annotation added to a factory whose `ReturnType<typeof ...>` already covered it.
 
-See `typescript` "Go-to-Definition Awareness" for the per-shape mechanics.
+See [typescript](../../typescript/SKILL.md) "Go-to-Definition Awareness" for the per-shape mechanics.
 
 ## Anti-Patterns
 
-- **Premature extraction**: Extracting a 1-3 line block used 2-3 times into a named helper. The indirection costs more than the duplication. See "Prefer Inline for Trivial Duplications" above.
+- **Premature extraction**: Naming already clear local work without adding an explanation or owning a shared rule. Repetition alone does not justify a helper. See "Prefer Inline for Trivial Duplications" above.
 - **Abstracting away differences**: Three push constructors with different fields share boilerplate, but a `pushEntry(type, fields: Record<string, unknown>)` helper loses all type safety. The duplication communicates structure.
 - **Type-erasing helpers**: Any helper that accepts `unknown` or `Record<string, any>` to "reduce duplication"
 - **Refactoring while fixing bugs**: Fix the bug at the owning boundary first, then use a separate commit for cleanup that is not required by that correction

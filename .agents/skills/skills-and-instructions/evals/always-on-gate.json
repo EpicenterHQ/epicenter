@@ -1,5 +1,5 @@
 {
-	"about": "Trigger corpus for the always-on routing gate in AGENTS.md, not for any one skill. `AGENTS.md` is loaded before a single description is weighed, and its 'Review gates' paragraph names five skills directly, so it is a routing surface. `audit-routing-collisions.ts` reads only `<skills>/*/SKILL.md`, which means nothing in the repository audits it. These cases split the gate's own vocabulary into the two classes that behave differently: phrases a description already owns, where the gate is a second claimant, and phrases no description owns, where the gate is the only routing signal there is. `expect` records what the gate promises, so a case failing is evidence the sentence is inert prose rather than evidence a skill is misdescribed. Run this corpus against AGENTS.md with and without the gate's skill-naming clauses; the difference is the gate's causal effect.",
+	"about": "Historical corpus for an older always-on gate experiment. Expectations describe that experiment, not current routing. Recorded runs preserve the original results; retired skills are omitted from forbidden lists so this corpus remains valid against the current catalog. Use evals/routing.json for current selection cases and references/evaluation.md for the measurement limits.",
 	"cases": [
 		{
 			"id": "gate-orphan-clean-up",
@@ -8,7 +8,7 @@
 			"anchors": ["clean up", "ship it"],
 			"expect": "post-implementation-review",
 			"forbid": [],
-			"why": "No description claims 'clean up' or 'ship it'. AGENTS.md routes a user request to clean up into post-implementation-review, so the gate is the only signal pointing anywhere. Passing means an always-on sentence can route a phrase the description layer left orphaned; failing means it cannot."
+			"why": "Historical expectation before code simplification moved to collapse-pass: no description claims 'clean up' or 'ship it'. AGENTS.md routes a user request to clean up into post-implementation-review, so the gate is the only signal pointing anywhere. Passing means an always-on sentence can route a phrase the description layer left orphaned; failing means it cannot."
 		},
 		{
 			"id": "gate-orphan-challenge",
@@ -33,7 +33,7 @@
 			"cluster": "gate-owned",
 			"prompt": "Treat this as greenfield and tell me what you would build instead.",
 			"anchors": ["greenfield"],
-			"expect": "greenfield-clean-breaks",
+			"expect": "rethink",
 			"forbid": [],
 			"why": "The gate sends this to post-implementation-review first and escalates second; the description owns 'greenfield' outright. Recording which one wins decides whether the gate's two-hop costs a correct one-hop route."
 		},
@@ -42,9 +42,9 @@
 			"cluster": "gate-owned",
 			"prompt": "We have no users yet. Make a clean break from the old mount API.",
 			"anchors": ["clean break"],
-			"expect": "greenfield-clean-breaks",
+			"expect": "rethink",
 			"forbid": [],
-			"why": "Second gate-owned case. AGENTS.md names 'make a clean break' as a post-implementation-review trigger while greenfield-clean-breaks claims the phrase in its description."
+			"why": "Second gate-owned case. AGENTS.md names 'make a clean break' as a post-implementation-review trigger while rethink claims the phrase in its description."
 		},
 		{
 			"id": "gate-everyday-clean-up-near-miss",
@@ -52,7 +52,7 @@
 			"prompt": "Clean up the stale temp files in my downloads folder.",
 			"anchors": ["clean up"],
 			"expect": null,
-			"forbid": ["post-implementation-review", "collapse-pass", "refactoring"],
+			"forbid": ["post-implementation-review", "collapse-pass"],
 			"why": "The cost side of an always-on gate. 'clean up' is ordinary English, and a gate that routes it unconditionally over-triggers on a request that touches no code. A gate strong enough to pass gate-orphan-clean-up and weak enough to pass this one is the only version worth keeping."
 		},
 		{

@@ -10,7 +10,7 @@ metadata:
 
 When refactoring complex control flow, mirror natural human reasoning patterns:
 
-> **Related Skills**: See `refactoring` for systematic code audit methodology including branch collapsing and caller counting.
+> **Related Skills**: See [refactoring methods](../collapse-pass/references/refactoring-methods.md) for branch collapse and caller evidence.
 
 ## Core Pattern
 

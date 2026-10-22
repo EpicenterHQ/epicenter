@@ -10,7 +10,7 @@ metadata:
 
 Recurring smell categories worth hunting periodically. Each category has a grep pattern, a real example from the repo (if one exists), and a "why it matters" so you know whether a hit is a real smell or expected.
 
-> **Related skills**: See `post-implementation-review` for the full second-read ritual after implementation. See `refactoring` for the methodology of fixing what you find. See `one-sentence-test` for the cohesion audit that frames whether an abstraction earns its keep.
+> **Related skills**: See `post-implementation-review` for the full second-read ritual after implementation. See [refactoring methods](../collapse-pass/references/refactoring-methods.md) for fixing what you find. See `one-sentence-test` for the cohesion audit that frames whether an abstraction earns its keep.
 
 The categories below were validated against the actual codebase by repeated agent audits. They're not generic style nits: each one signals a specific kind of contract problem in a TypeScript-heavy framework codebase.
 
@@ -170,7 +170,7 @@ grep -rn "\.error\.name === '" packages apps --include="*.ts" | grep -v test
 
 **Validated**: a sweep of `workspace`/`sync`/`cli`/`api` found four (`run-handler.ts`, `run.ts`, `list.ts`, `materializer.ts`), all fixed. Re-run after adding variants to a wire or IPC error union.
 
-**The pattern itself lives elsewhere**: the rule, the predicate/guard/fold triage, and the before/after are in the `define-errors` skill ("Consuming a Variant Union"). This entry is only the detection recipe: use it to find hits, use that skill to classify them.
+**The pattern itself lives elsewhere**: the rule, the predicate/guard/fold triage, and the before/after are in `error-handling`'s [error variants reference](../error-handling/references/error-variants.md). This entry is only the detection recipe: use it to find hits, then read that reference to classify them.
 
 ## What This Skill Doesn't Catch (Reject from the Hunt)
 

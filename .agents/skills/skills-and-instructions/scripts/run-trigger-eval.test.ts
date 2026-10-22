@@ -2,7 +2,7 @@
  * Trigger eval tests.
  *
  * Nothing here spawns the Claude CLI. `--live` costs quota and needs an
- * authenticated CLI, so the live path is covered the way `enlist-claude`
+ * authenticated CLI, so the live path is covered the way `consult-claude`
  * covers its runner: pin the arguments and the transcript parser, and leave
  * the call itself to a human who chose to pay for it.
  *
@@ -14,7 +14,7 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -420,12 +420,31 @@ test('the default invocation stays offline and says so', () => {
 	expect(result.stderr).toContain('Run --live to measure routing');
 });
 
-test('--strict turns the offline pass into a gate', () => {
-	const result = spawnSync('bun', [scriptPath, '--strict'], {
-		encoding: 'utf8',
-	});
-
-	expect(result.status).toBe(1);
+test('--strict turns an unowned fixture phrase into a gate failure', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'strict-trigger-eval-'));
+	try {
+		const corpus = join(root, 'routing.json');
+		await writeFile(
+			corpus,
+			JSON.stringify({
+				cases: [
+					makeCase({
+						prompt: 'zzz-no-description-claims-this-fixture',
+						anchors: ['zzz-no-description-claims-this-fixture'],
+					}),
+				],
+			}),
+		);
+		const result = spawnSync(
+			'bun',
+			[scriptPath, '--strict', '--corpus', corpus],
+			{ encoding: 'utf8' },
+		);
+		expect(result.status).toBe(1);
+		expect(result.stdout).toContain('NO_OWNER');
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 describe('fingerprintInstructions', () => {

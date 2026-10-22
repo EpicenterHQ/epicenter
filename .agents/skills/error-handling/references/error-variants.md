@@ -1,19 +1,10 @@
----
-name: define-errors
-description: 'defineErrors from wellcrafted: variant factories, extractErrorMessage, InferErrors/InferError, call site patterns. Use when creating error types or reviewing error patterns.'
-metadata:
-  author: epicenter
-  version: '3.1'
----
+# Error variants with defineErrors
 
-# defineErrors
-
-> **Related Skills**: See `error-handling` for trySync/tryAsync usage and toast-on-error patterns. See `services-layer` for service architecture and namespace exports.
+The [error-handling skill](../SKILL.md) owns Result composition and boundary decisions. This reference covers variant construction, fields, and types. See `services-layer` for service architecture and namespace exports.
 
 Ground API claims in the official `wellcrafted-dev/wellcrafted` source and
-tests for Epicenter's installed version. This skill owns variant construction,
-naming, fields, and type extraction. `error-handling` owns catch adaptation and
-Result consumption; `logging` owns diagnostic severity and sinks.
+tests for Epicenter's installed version. `logging` owns diagnostic severity
+and sinks.
 
 ## Import
 
@@ -256,20 +247,14 @@ type CallResult<T> = Result<T, CallError>;
 **Why**: Result consumers such as `isOk`, `isErr`, `unwrap`, `tapErr`, and the
 `wellcrafted/query` adapters expect `{ data, error }`. An ad hoc `{ ok }`
 return cannot use them and forces every consumer to learn another shape.
-`trySync` and `tryAsync` are exception adapters for plain values; do not wrap an
-existing Result with them. See `error-handling` for adaptation boundaries.
+`trySync` and `tryAsync` adapt throwing operations, while the [main skill](../SKILL.md)
+owns how existing Results compose.
 
 **Wire-format boundary**: an internal RPC or IPC surface that explicitly adopts
 Wellcrafted Result can serialize `{ data, error }` and the tagged
 `{ name, message, ...fields }` error directly. That does not make this the
 universal HTTP envelope. External protocols and existing routes keep their own
-wire contracts; see `error-handling/references/http-boundaries.md`.
-
-## Whispering RPC Boundary
-
-In Whispering, `$lib/rpc` preserves tagged errors. Do not convert service or operation errors into `{ title, description }` or another user-facing wrapper inside an RPC adapter. UI and operation code choose display copy with `$lib/report`, usually `report.error({ cause: error })`.
-
-Define an RPC-local `defineErrors` namespace only when the adapter itself owns a failure that no lower layer can own, such as a missing state lookup before calling an operation.
+wire contracts; see [HTTP boundaries](http-boundaries.md).
 
 **State machines are not Results**: discriminated unions like `{ state: 'in-use' | 'orphan' | 'clean' }` for a startup gate, or `{ outcome: 'graceful' | 'sigterm' }` for a shutdown, are genuine state enums and should stay as discriminated unions. The smell is *errors* dressed as `{ ok }` flags, not state enums.
 
@@ -305,4 +290,4 @@ A `defineErrors` variant factory returns `Err(...)` around a non-null tagged
 object. That makes the variant safe for Wellcrafted's `error !== null`
 discriminator. Choosing whether a caught value becomes that variant, a
 fallback, a selective rethrow, or an exception-based framework response belongs
-to `error-handling`.
+to the [main skill](../SKILL.md).

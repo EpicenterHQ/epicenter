@@ -40,4 +40,4 @@ State, in plain English, the constraint the code cannot show: why the **non-obvi
 
 Code must stand on its own. If a name or comment only makes sense to someone who watched it happen (this conversation, this PR), it is overfitted. Write for the reader who arrives with no history: rewrite it against the codebase's own vocabulary.
 
-For the structural half of the same discipline — file shape, derivable state, and compatibility with code that never shipped — use [refactoring](../refactoring/SKILL.md).
+For the structural half of the same discipline — file shape, derivable state, and compatibility with code that never shipped — use [refactoring methods](../collapse-pass/references/refactoring-methods.md).

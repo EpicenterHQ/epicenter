@@ -150,12 +150,42 @@ and mount lifetime.
 - `docs/articles/svelte-5-createsubscriber-pattern.md` covers `createSubscriber` for wrapping external event sources into reactive values: a different job than component-scoped handles.
 - `docs/articles/20260420T160000-state-handle-null-is-the-component-lifecycle-in-disguise.md` walks through why this rule exists and when Pattern B is still correct.
 
-# Shallow Template Aliases: Inline Direct Reads
+# Template locals: narrow reactive values before use
 
-Svelte template expressions already track reactive property reads. Do not add a `$derived` or `{@const}` whose only job is to rename a shallow property read for markup.
+Svelte template expressions already track reactive property reads. Introduce
+`{@const}` or `$derived` when a repeated optional property access loses its
+narrowing inside a deferred callback, or when a useful computation needs a
+name. An already-narrowed local needs no extra alias. A reactive local is not
+a second draft or a mount-time snapshot.
+
+Place `{@const}` in the nearest supported template scope containing the controls that
+need it. Capture the optional value, narrow that local, then create the binding
+callbacks. Several controls in that scope share one local; nested property
+access alone does not justify another alias.
 
 ```svelte
-<!-- Bad: the alias does not compute anything -->
+{#each items as item (item.id)}
+	{@const details = item.details}
+	{#if details}
+		<Input bind:value={() => details.title, (title) => item.update({ title })} />
+		<Textarea bind:value={() => details.notes, (notes) => item.update({ notes })} />
+	{/if}
+{/each}
+```
+
+Read the value once, then check its presence with the source's actual sentinel.
+The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
+explains event-time composition through the current owner.
+
+Use `const details = $derived(item.details)` if script code also needs it or no
+existing template scope supports `{@const}` before the guard. Do not add a
+block solely to host the local. Do not replace either reactive form with a
+component-level `const details = item.details`: that captures only the initial
+value. A simple display that needs no shared narrowing may read
+`session.current` directly:
+
+```svelte
+<!-- Bad: the alias does not compute or narrow anything -->
 <script lang="ts">
 	const current = $derived(session.current);
 </script>
@@ -172,45 +202,64 @@ Svelte template expressions already track reactive property reads. Do not add a 
 {/if}
 ```
 
-The same rule applies to block-local `{@const}` passthroughs:
+Do not add an alias just to rename a read, and do not remove a useful local
+merely because its initializer is a shallow property read. Other reasons to
+keep a local include a computed predicate, an expensive projection shared by
+several consumers, a change filter that skips downstream work when its value
+stays identical, or a dynamic component such as `{@const Icon = item.icon}`.
+Inspect the consumers before inlining.
 
-```svelte
-<!-- Bad -->
-{#await session.whenReady}
-	<Loading />
-{:then _}
-	{@const current = session.current}
-	{#if current}
-		<SignedInApp principal={current.principal} />
-	{/if}
-{/await}
-```
+An operation-local snapshot can keep a read-modify-write operation coherent.
+Capture it when the handler runs, and re-read or check the operation's
+validity after an `await` before writing.
 
-```svelte
-<!-- Good -->
-{#await session.whenReady}
-	<Loading />
-{:then _}
-	{#if session.current}
-		<SignedInApp principal={session.current.principal} />
-	{/if}
-{/await}
-```
-
-Keep the alias when it owns real work:
-
-- Computed predicates or values: `const isSelected = $derived(selectedId === item.id)`.
-- Values used by script logic, effects, or other derived values.
-- Expensive or noisy computations that should run once per block.
-- Dynamic component binding: `{@const Icon = item.icon}` before `<Icon />`.
-- Discriminated union payloads inside an `{#each}` branch when the alias improves narrowing and readability: `{@const bookmark = item.bookmark}`.
-
-Searches:
+Searches for candidate passthroughs:
 
 ```bash
 rg -n '\$derived\([^)]*\.[A-Za-z_$][A-Za-z0-9_$]*\)' --glob '*.svelte'
 rg -n '\{@const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*[^}\n]+\.[A-Za-z_$][A-Za-z0-9_$]*\s*\}' --glob '*.svelte'
 ```
+
+# Stable adapters and reactive reads
+
+Separate the adapter's identity from the values it exposes. For a read-through
+adapter whose getters participate in Svelte reactivity, construct it once when
+the source owner is fixed for the component instance:
+
+```svelte
+<!-- Parent: a new open item recreates the child. -->
+{#key item}
+	<RowView session={item.session} />
+{/key}
+```
+
+```svelte
+<!-- RowView.svelte -->
+<script lang="ts">
+	let { session } = $props();
+</script>
+
+<p>{session.draft.title}</p>
+```
+
+The session's getters are reactive, so changes to the draft or save state need
+no reconstruction. If the owner can be replaced while this component stays
+mounted, key the component on the owner, or derive from the prop. For an
+adapter that owns a disposable resource, use an explicit lifecycle boundary
+instead; `$derived` does not supply cleanup.
+
+Confirm owner stability at the caller before removing the wrapper. A keyed
+child can establish that stability when the key tracks the owner identity.
+The caller now owns that guarantee; removing its key can leave the child stale.
+Use `untrack` for this intentional initial prop capture to avoid Svelte's
+[state_referenced_locally warning](https://svelte.dev/docs/svelte/compiler-warnings#state_referenced_locally). It documents the capture, not a substitute
+for the caller's lifetime guarantee. Prefer deriving from the prop when the
+component must remain correct independently of its caller's mount policy.
+Svelte executes component initialization once, and a `{#key}` block recreates
+its contents when the key changes. See the official
+[`$derived`](https://svelte.dev/docs/svelte/$derived),
+[`$props`](https://svelte.dev/docs/svelte/$props), and
+[`{#key}`](https://svelte.dev/docs/svelte/key) documentation.
 
 # `$derived` Value Mapping: Use `satisfies Record`, Not Ternaries
 
@@ -278,7 +327,7 @@ value with `set(id, next)`.
 
 | Data Shape | Use | Example |
 |---|---|---|
-| Epicenter store table rows | `fromWorkspace` reactive tables | notes, folders |
+| Epicenter store table rows | `fromData` reactive tables | notes, folders |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
@@ -293,18 +342,20 @@ TanStack Table into an infinite loop. See
 # Reactive Table State Pattern
 
 Store reads are synchronous and return plain JSON, so the source of truth is a
-re-read, not a long-lived reactive collection. `fromWorkspace` from
-`@epicenter/svelte` packages that re-read once: it mirrors an opened
-workspace's declared `tables`/`kv` and makes every read verb reactive
-(`rows`, `nonconforming`, `list`, `get`, `ids`, `document`), while `create`,
-`update`, and `delete` pass through unchanged. The invalidation it rides fires
-after the projection commits (ADR-0221) for a local write, for prose typed
-into a row's document, and for bytes that arrived from another device alike.
+re-read, not a long-lived reactive collection. `fromData` from
+`@epicenter/svelte` packages that re-read once: it mirrors an opened data
+handle's declared `tables`/`kv` and makes the table read verbs reactive
+(`rows`, `nonconforming`, `list`, `get`, `ids`), while `create`, `update`, and
+`delete` pass through unchanged. The invalidation it rides fires when a commit
+touches the table (ADR-0221), for a local write and for bytes that arrived
+from another device alike. Prose typed inside a row's rich content is not a
+table-shape change; an editor binds that live nested type, and the table's
+`watch(rowId, field, listener)` is the signal for one field.
 
 ```typescript
-// Root of the surface: adapt the chosen document once, then layer app state.
-const workspace = fromWorkspace(data);
-const table = workspace.tables.notes;
+// Root of the surface: adapt the opened data once, then layer app state.
+const app = fromData(data);
+const table = app.tables.notes;
 
 // Derived views: filtering and sorting are cached here, not in the getter.
 const all = $derived(table.rows.filter((note) => note.deletedAt === null));
@@ -327,8 +378,8 @@ declared table nothing reads never subscribes at all. A read inside
 untracked. Do not hand-roll `db.<table>.subscribe(listener)` feeding
 `$state.raw` for table reads; that pattern is what the adapter replaced.
 
-Adapter: `packages/svelte/src/from-workspace.svelte.ts`. Full app
-exemplar: `apps/honeycrisp/src/lib/honeycrisp/notes.svelte.ts`.
+Adapter: `packages/svelte/src/from-data.svelte.ts`. Full app
+exemplar: `apps/honeycrisp/src/lib/app.svelte.ts`.
 
 See the `typescript` skill for iterator helpers (`.toArray()`, `.filter()`, `.find()` on `IteratorObject`).
 
