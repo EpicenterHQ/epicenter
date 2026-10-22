@@ -113,8 +113,8 @@ test('text is trimmed and otherwise exact in any script, and half of a surrogate
 test('adding the exact text of a saved word writes nothing and leaves its note and stage alone', async () => {
 	await using context = await setup();
 	const { entries } = context.vocab;
-	expect(entries.setStage(context.word(), 'usable')).toBe(true);
-	expect(entries.setNote(context.word(), 'clear')).toBe(true);
+	expectOk(entries.setStage(context.word(), 'usable'));
+	expectOk(entries.setNote(context.word(), 'clear'));
 	await context.folder.tables.entries.edit(context.word().id).save();
 	const saved = await fileText(context.folder, context.path);
 
@@ -186,7 +186,7 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 	const edit = context.folder.tables.entries.edit(context.word().id);
 	const before = await fileText(context.folder, context.path);
 
-	expect(vocab.entries.setNote(context.word(), 'clear and bright')).toBe(true);
+	expectOk(vocab.entries.setNote(context.word(), 'clear and bright'));
 	expect(edit.getSnapshot().isDirty).toBe(true);
 	expect(
 		vocab.folder.getStatus().saving ||
@@ -281,7 +281,7 @@ test('a saved stage stays shown when the reread fails, and pressing the old stag
 	try {
 		const card = vocab.entries.edit(word.id);
 		expect(card.content?.fields?.stage).toBe('new');
-		expect(card.setStage('usable')).toBe(true);
+		expectOk(card.setStage('usable'));
 		await folder.tables.entries.edit(word.id).save();
 		await quiet(vocab);
 		// The list still holds the word as read before the save.
@@ -289,7 +289,7 @@ test('a saved stage stays shown when the reread fails, and pressing the old stag
 		expect(card.isDirty).toBe(false);
 		expect(card.content?.fields?.stage).toBe('usable');
 
-		expect(card.setStage('new')).toBe(true);
+		expectOk(card.setStage('new'));
 		await folder.tables.entries.edit(word.id).save();
 		expect(card.content?.fields?.stage).toBe('new');
 	} finally {
@@ -429,9 +429,9 @@ test('delete consumes unsubmitted input and accepts newer input that may recreat
 	);
 	const word = cached(slow.vocab, 'lucid');
 	const edit = slow.vocab.folder.tables.entries.edit(word.id);
-	expect(slow.vocab.entries.setNote(word, 'clear')).toBe(true);
+	expectOk(slow.vocab.entries.setNote(word, 'clear'));
 	const deleting = slow.vocab.entries.delete(word);
-	expect(slow.vocab.entries.setNote(word, 'newer')).toBe(true);
+	expectOk(slow.vocab.entries.setNote(word, 'newer'));
 	expectOk(await deleting);
 	expect(edit.getSnapshot().isDirty).toBe(true);
 	expect(edit.getSnapshot().content?.fields?.note).toBe('newer');
@@ -483,7 +483,7 @@ test('close saves typing still waiting for its pause, and refuses input from the
 	vocab.entries.setNote(word, 'clear');
 
 	expect(await context.close()).toEqual([]);
-	expect(vocab.entries.setNote(word, 'more')).toBe(false);
+	expect(expectErr(vocab.entries.setNote(word, 'more')).name).toBe('Closing');
 	expect(expectErr(await vocab.entries.add('opaque')).name).toBe('Closing');
 	expect(
 		expectErr(await vocab.chats.start([{ entryId: word.id, text: 'lucid' }]))

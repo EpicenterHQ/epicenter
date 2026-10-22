@@ -1003,19 +1003,13 @@ export function createWhispering(context: WhisperingContext) {
 			noticeListeners.add(listener);
 			return () => noticeListeners.delete(listener);
 		},
-		/** Whether a text publication for this path is admitted and unsettled. */
+		/** Whether a write or delete for this path is admitted and unsettled; reads no content. */
 		isSaving(path: string) {
-			return editAt(path).isSaving;
-		},
-		/** The folder's latest failed publication for this path. */
-		getWriteFailure(path: string) {
-			return context
-				.getStatus()
-				.failures.find((failure) => failure.path === path);
+			return context.getStatus().savingPaths.includes(path);
 		},
 		/** Whether accepted local input remains to publish. */
 		isUnsaved(path: string) {
-			return editAt(path).isDirty;
+			return context.getStatus().unsaved.includes(path);
 		},
 
 		/**

@@ -10,6 +10,7 @@
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { Label } from '@epicenter/ui/label';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { toastOnError } from '@epicenter/ui/sonner';
 	import { cn } from '@epicenter/ui/utils';
 	import { type Entry, STAGE_LABELS, STAGES } from '$lib/data.js';
 	import type { Entries } from '$lib/entries.svelte.js';
@@ -53,13 +54,13 @@
 		aria-label="Your note for {entry.text}"
 		placeholder="Your note"
 
-		bind:value={() => shown.note, (typed) => fileEdit.setNote(typed)}
+		bind:value={() => shown.note, (typed) => toastOnError(fileEdit.setNote(typed), 'That change was not made')}
 	/>
 	{#if fileEdit.loadError}
 		<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>
 	{/if}
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
-		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option}  onclick={() => fileEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>{/each}
+		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option}  onclick={() => toastOnError(fileEdit.setStage(option), 'That change was not made')}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">
 			{#if fileEdit.saveError}
 				Not saved: {describeFailure(fileEdit.saveError)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>

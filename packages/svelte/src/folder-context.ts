@@ -197,9 +197,8 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		 * The folder's save status, held input included, read reactively: the
 		 * one record of whether what the person did is in this device's
 		 * storage. An admitted action is not in it; its writes are, from their
-		 * call until they land. A per-file label reads its own editor's
-		 * `isDirty` and `saveError` instead, so another file's failure is never
-		 * shown as its.
+		 * call until they land. A passive per-file label checks `savingPaths`,
+		 * `unsaved`, and `failures` here without subscribing to file content.
 		 */
 		getStatus(): FolderStatus {
 			trackStatus();

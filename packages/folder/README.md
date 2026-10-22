@@ -88,7 +88,7 @@ the saved files.
 | `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, content)`; `delete(path)`; `edit(path, schema?)`, the path's editor. |
 | `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, change)`, `delete(id)`, and `edit(id)`, the path's editor through the table schema. Adjacent files are available through `folder.files`. |
 | `onChange(listener)` | Runs after a write commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A write of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
-| `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a write or delete admitted and not settled; the last storage failure; the paths holding accepted input; held input whose last publication failed; whether close was called. |
+| `getStatus()`, `onStatusChange(listener)` | `{ saving, savingPaths, storageFailure, unsaved, failures, closing }`: whether writes or deletes are unsettled, and their paths; the last storage failure; the paths holding accepted input; held input whose last publication failed; whether close was called. |
 | `settle()` | Submits held input, failed input included, and drains admitted work. Reads are not waited for. Answers the input that did not save. |
 | `run(action)` | Admits an action into the folder's lifetime at the call: close waits for it. It reserves no path, sends no input, and locks nothing. Refused with `ActionError.Closing` once close was called. |
 | `close()` | At once, new input and actions are refused, and `onChange`, `onStatusChange` and `settle` throw. `files` and `tables` stay usable while close drains: held input is submitted once, and admitted actions and writes, including ones any caller starts during the drain, finish with their real outcome; reads still running are not waited for. Then listeners and storage are released, and `files` and `tables` throw from then on. Editors stay readable, and their `save()` refuses with `SaveRefusal.Closed`. Answers the input that did not save. Calling it again returns the same promise. |
@@ -196,6 +196,7 @@ const { content, loadError, isDirty, isSaving, saveError } = edit.getSnapshot();
 const changed = edit.change({ fields: { done: true }, body: 'Two litres\n' });
 if (changed.error !== null) return show(changed.error.message);
 const saved = await edit.save(); // or wait saveAfterMs after the last change
+if (saved.error !== null) return show(saved.error.message);
 const dropped = edit.discard(); // the text dropped, if any; writes nothing
 ```
 
@@ -229,9 +230,11 @@ as the latest `loadError`. A successful text read clears it; input does not.
 `change({ fields?, body? })` patches the current text, local or read, and
 refuses with `NoContent` before there is any, or `InvalidFields` when it
 cannot identify the region (fields of broken frontmatter). Both return
-`Result<void, ChangeError>` for acceptance into memory. The same text again
-changes nothing. With no opening fence, the entire source is body with empty
-fields
+`Result<void, ChangeError>` for acceptance into memory. Invalid text (NUL or
+unpaired surrogates) refuses before acceptance. Callers show these immediate
+refusals at the input boundary; they do not become `loadError` or `saveError`.
+The same text again changes nothing. With no opening fence, the entire source
+is body with empty fields
 ([ADR-0665](../../docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md));
 adding a field creates a fence.
 
@@ -242,6 +245,19 @@ and reported outside changes never write. `save()` publishes the exact
 current text even when clean, and answers that publication's outcome, or
 `SaveRefusal.NoContent` without text. `isSaving` is true while text
 publications of the path are admitted and not settled; deletes do not count.
+
+A save-only indicator observes `folder.getStatus()` through `onStatusChange`,
+or the Svelte context's reactive `getStatus()`, without subscribing to an editor.
+`savingPaths` lists paths with queued or running writes or deletes; `saving`
+is whether that list is nonempty. `unsaved` lists accepted input awaiting
+acknowledgement, and `failures` lists held input whose save failed and is not
+being retried. Filter each by path for a per-file label. These reads start no
+file I/O. An editor subscription, including tracking any Svelte editor getter,
+demands content and is appropriate for an editing view.
+
+Status is a read-only projection of the existing command lanes and held input.
+`savingPaths` is derived from those lanes, not maintained as a second registry.
+No caller registers a path for a save indicator or keeps its list in sync.
 
 A publication acknowledges only the input it captured, by identity: typing
 during a save stays dirty after it lands, even when the newer text equals the

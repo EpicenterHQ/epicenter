@@ -870,7 +870,7 @@ When you add an ADR, add its row here.
 | [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Accepted (always-confirm Quit; unsaved-only Close) |
 | [0664](0664-folder-close-drains-admitted-work-through-one-owner.md) | Folder close drains admitted work through one owner | Accepted (amends 0574, 0656, and 0657; admission amended by 0669) |
 | [0665](0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) | A Markdown file without frontmatter has empty fields and a body | Proposed |
-| [0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) | One source draft per path saves against its observed source | Proposed (historical guarded saves; replacement in 0668) |
+| [0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) | One source draft per path saves against its observed source | Superseded by 0668 |
 | [0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md) | A file edit's ready buffer contains its unsaved state | Superseded by 0668 |
-| [0668](0668-one-folder-owned-source-orders-file-publications.md) | One Folder-owned source orders file publications | Proposed (implemented in bd78bfb52b; supersedes 0667) |
+| [0668](0668-one-folder-owned-source-orders-file-publications.md) | One Folder-owned source orders file publications | Accepted (supersedes 0666 and 0667) |
 | [0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) | Folder actions track lifetime without reserving paths | Proposed (implemented in bd78bfb52b; amends 0664) |

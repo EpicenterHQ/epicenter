@@ -191,12 +191,13 @@ folder opener, not this adapter.
 
 ```ts
 import { createFileEdit } from '@epicenter/svelte/edits';
+import { toastOnError } from '@epicenter/ui/sonner';
 
 // Fixed address, for example in a component keyed by its note.
 const fileEdit = createFileEdit(folder.tables.notes.edit(id));
 fileEdit.content; // { text, body, fields, issues } | undefined
-fileEdit.change({ fields: { done: true }, body: 'Two litres\n' });
-fileEdit.replaceText(editedSource);
+toastOnError(fileEdit.change({ fields: { done: true }, body: 'Two litres\n' }), 'That change was not made');
+toastOnError(fileEdit.replaceText(editedSource), 'That change was not made');
 
 // Derive the adapter from the address; the same editor answers the same adapter.
 const sourceEdit = $derived(createFileEdit(folder.files.edit(path)));
@@ -214,6 +215,12 @@ skipped, as `fromStore` skips it. Construction and reads outside tracking
 subscribe to nothing. No `onMount(() => fileEdit.refresh())` is needed. The
 folder keeps input, timers and failures when every view unmounts.
 
+Save-only UI reads the context's `getStatus().savingPaths`, `.unsaved`, and
+`.failures`, filtered by path. That subscription is passive. Reading any
+tracked editor getter, even `.isDirty`, demands content. Keep immediate input
+refusals at the interaction boundary, using inline feedback or `toastOnError`;
+they are returned Results, not observable save failures.
+
 `.content` is absent while text is awaited (`.loadError` undefined) or when
 acquisition failed (`.loadError` set: `Missing`, `NotText` or `ReadFailed`).
 Present content is editable even with a `loadError`, which says the latest
@@ -226,7 +233,7 @@ identifies it. Keep exact source through `.content.text` for repair.
 {#each fileEdits as fileEdit (fileEdit.path)}
   {@const content = fileEdit.content}
   {#if content}
-    <textarea bind:value={() => content.text, (text) => fileEdit.replaceText(text)}></textarea>
+    <textarea bind:value={() => content.text, (text) => toastOnError(fileEdit.replaceText(text), 'That change was not made')}></textarea>
     {#if fileEdit.loadError}
       <p role="alert">{fileEdit.loadError.message}</p>
     {/if}

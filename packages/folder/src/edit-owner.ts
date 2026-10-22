@@ -335,7 +335,7 @@ type Source = {
 export type EditAggregate = {
 	readonly unsaved: readonly string[];
 	readonly failures: readonly Recovery[];
-	readonly working: boolean;
+	readonly savingPaths: readonly string[];
 };
 
 const sameList = <T>(left: readonly T[], right: readonly T[]) =>
@@ -392,8 +392,7 @@ export function createEditOwner({
 	const lanes = new Map<string, Lane>();
 	/** Paths with an intent, kept for the aggregate. */
 	const dirty = new Set<string>();
-	let commands = 0;
-	let aggregate: EditAggregate = { unsaved: [], failures: [], working: false };
+	let aggregate: EditAggregate = { unsaved: [], failures: [], savingPaths: [] };
 	let phase: 'open' | 'closing' | 'closed' = 'open';
 	const recoveries = new WeakMap<Intent, Recovery>();
 
@@ -559,14 +558,14 @@ export function createEditOwner({
 				return [];
 			return [recoveryOf(source)!];
 		});
-		const working = commands > 0;
+		const savingPaths = [...lanes.keys()].sort();
 		if (
 			sameList(unsaved, aggregate.unsaved) &&
 			sameList(failures, aggregate.failures) &&
-			working === aggregate.working
+			sameList(savingPaths, aggregate.savingPaths)
 		)
 			return;
-		aggregate = { unsaved, failures, working };
+		aggregate = { unsaved, failures, savingPaths };
 		onAggregate();
 	}
 
@@ -656,7 +655,6 @@ export function createEditOwner({
 		const previous = lane.tail;
 		lane.pending++;
 		if (kind === 'publication') lane.publications++;
-		commands++;
 		const running = (async () => {
 			await previous;
 			const command = { heard: false };
@@ -670,7 +668,6 @@ export function createEditOwner({
 			lane.running = undefined;
 			lane.pending--;
 			if (kind === 'publication') lane.publications--;
-			commands--;
 			if (lane.pending === 0 && lanes.get(path) === lane) lanes.delete(path);
 			const at = ++clock;
 			// `settle` tells held sources, or running observations, what landed.

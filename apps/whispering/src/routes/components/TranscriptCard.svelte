@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast, toastOnError } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';
@@ -79,7 +79,7 @@
 			class="min-h-32 resize-y font-sans"
 			bind:value={
 				() => shown.body,
-				(value) => fileEdit.change({ body: value })
+				(value) => toastOnError(fileEdit.change({ body: value }), 'That change was not made')
 			}
 
 			placeholder="This transcript has no text."

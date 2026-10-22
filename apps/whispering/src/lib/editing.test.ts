@@ -618,7 +618,9 @@ test('save indicators and failure recovery do not demand file contents', async (
 
 	expect(whispering.isSaving(path)).toBe(false);
 	expect(whispering.isUnsaved(path)).toBe(false);
-	expect(whispering.getWriteFailure(path)).toBeUndefined();
+	expect(
+		context.getStatus().failures.some((failure) => failure.path === path),
+	).toBe(false);
 	await Bun.sleep(0);
 
 	expect(edit.getSnapshot().content).toBeUndefined();

@@ -10,6 +10,7 @@
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { toastOnError } from '@epicenter/ui/sonner';
 	import { untrack } from 'svelte';
 	import { rowPath } from '$lib/data.js';
 	import type { Entries } from '$lib/entries.svelte.js';
@@ -37,7 +38,7 @@
 			<Textarea
 				class="min-h-32 font-mono text-xs"
 				aria-label="File text for {path}"
-				bind:value={() => stored.text, (next) => fileEdit.replaceText(withFileNewlines(next, stored.text))}
+				bind:value={() => stored.text, (next) => toastOnError(fileEdit.replaceText(withFileNewlines(next, stored.text)), 'That change was not made')}
 			/>
 			{#if fileEdit.loadError}
 				<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>

@@ -6,7 +6,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import { Loading } from '@epicenter/ui/loading';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast, toastOnError } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { getFolder } from '$lib/folder.js';
@@ -96,7 +96,8 @@
 				bind:checked={
 					() => shown.fields.done,
 					(done) => {
-						if (fileEdit.change({ fields: { done } }).error === null) void fileEdit.save();
+						const changed = toastOnError(fileEdit.change({ fields: { done } }), 'That change was not made');
+						if (changed.error === null) void fileEdit.save();
 					}
 				}
 			/>
@@ -105,7 +106,7 @@
 				placeholder="Title"
 				aria-label="Title"
 
-				bind:value={() => shown.fields.title, (title) => fileEdit.change({ fields: { title } })}
+				bind:value={() => shown.fields.title, (title) => toastOnError(fileEdit.change({ fields: { title } }), 'That change was not made')}
 			/>
 		</div>
 
@@ -127,7 +128,7 @@
 				placeholder="Notes in Markdown"
 				aria-label="Notes"
 
-				bind:value={() => shown.body, (body) => fileEdit.change({ body })}
+					bind:value={() => shown.body, (body) => toastOnError(fileEdit.change({ body }), 'That change was not made')}
 			/>
 		</div>
 

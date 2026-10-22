@@ -214,7 +214,11 @@ export function stateAfter(
 	// An edit Markdown has no spelling for (a new empty paragraph) gives the
 	// same body back: it is shown, and nothing saves. The command still
 	// checks whether the folder accepts document edits.
-	if (fileEdit.change({ body: encoded }).error !== null) return undefined;
+	const changed = fileEdit.change({ body: encoded });
+	if (changed.error !== null) {
+		refuse(changed.error.message);
+		return undefined;
+	}
 	return next;
 }
 

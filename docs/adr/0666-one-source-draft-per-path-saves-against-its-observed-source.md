@@ -1,6 +1,7 @@
 # 0666. One source draft per path saves against its observed source
 
-- **Status:** Proposed
+- **Status:** Superseded
+- **Superseded by:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md), unconditional local publications over one retained source.
 - **Date:** 2026-10-21
 - **Amended by:** [ADR-0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md), which replaces the public pending/read-status vocabulary with a nested buffer snapshot.
 - **Implementation history:** The guarded-source model was implemented in `bcf74b02b2`, then replaced by unconditional local publications in `bd78bfb52b`. [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md) records the replacement. The proposal below preserves the earlier save contract, not an outstanding integration task.

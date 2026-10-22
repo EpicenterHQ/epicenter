@@ -143,14 +143,14 @@ export function createEntries(local: VocabContext) {
 			 * Type the note; it is saved a second after the last change. Half of
 			 * a surrogate pair is kept as U+FFFD, which the folder can save.
 			 */
-			setNote: (note: string): boolean =>
-				fileEdit.change({ fields: { note: note.toWellFormed() } }).error ===
-				null,
+			setNote: (note: string) =>
+				fileEdit.change({ fields: { note: note.toWellFormed() } }),
 			/** Press a stage; it is saved at once. */
-			setStage(stage: Stage): boolean {
-				if (fileEdit.change({ fields: { stage } }).error !== null) return false;
+			setStage(stage: Stage) {
+				const changed = fileEdit.change({ fields: { stage } });
+				if (changed.error !== null) return changed;
 				void fileEdit.save();
-				return true;
+				return changed;
 			},
 		});
 	}
@@ -192,13 +192,11 @@ export function createEntries(local: VocabContext) {
 		/**
 		 * Type the note of `entry`; it is saved a second after the last change.
 		 * Half of a surrogate pair is kept as U+FFFD, which the folder can
-		 * save. Answers whether it was taken.
+		 * save. Answers the edit's acceptance result, including its refusal.
 		 */
-		setNote: (entry: Entry, note: string): boolean =>
-			edit(entry.id).setNote(note),
-		/** Press a stage of `entry`; it is saved at once. Answers whether it was taken. */
-		setStage: (entry: Entry, stage: Stage): boolean =>
-			edit(entry.id).setStage(stage),
+		setNote: (entry: Entry, note: string) => edit(entry.id).setNote(note),
+		/** Press a stage of `entry`; it is saved at once. Answers the edit's acceptance result. */
+		setStage: (entry: Entry, stage: Stage) => edit(entry.id).setStage(stage),
 		/** Delete the path without publishing an unsubmitted draft first. */
 		delete(entry: Entry) {
 			return folder.files.delete(rowPath('entries', entry.id));

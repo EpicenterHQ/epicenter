@@ -7,6 +7,7 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
+	import { toastOnError } from '@epicenter/ui/sonner';
 	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { getFolder } from '$lib/folder.js';
 	import { labelOf, type Todo, todoPath } from '$lib/local-todos.js';
@@ -40,7 +41,8 @@
 		bind:checked={
 			() => done,
 			(next) => {
-				if (fileEdit.change({ fields: { done: next } }).error === null) void fileEdit.save();
+				const changed = toastOnError(fileEdit.change({ fields: { done: next } }), 'That change was not made');
+				if (changed.error === null) void fileEdit.save();
 			}
 		}
 

@@ -607,6 +607,7 @@ test('structural refusals are results, and none is a storage failure', async () 
 	);
 	expect(folder.getStatus()).toEqual({
 		saving: false,
+		savingPaths: [],
 		storageFailure: null,
 		unsaved: [],
 		failures: [],
@@ -680,6 +681,7 @@ test('status shows saving and the last storage failure until a later success', a
 	expectOk(await saving);
 	expect(folder.getStatus()).toEqual({
 		saving: false,
+		savingPaths: [],
 		storageFailure: null,
 		unsaved: [],
 		failures: [],

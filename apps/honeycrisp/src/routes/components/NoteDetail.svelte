@@ -10,7 +10,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import { Loading } from '@epicenter/ui/loading';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast, toastOnError } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Tabs from '@epicenter/ui/tabs';
 	import PinIcon from '@lucide/svelte/icons/pin';
@@ -72,7 +72,7 @@
 		<div class="flex items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => row.fields.title, (typed) => fileEdit.change({ fields: { title: typed.toWellFormed() } })}
+				bind:value={() => row.fields.title, (typed) => toastOnError(fileEdit.change({ fields: { title: typed.toWellFormed() } }), 'That change was not made')}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Title"
@@ -127,7 +127,7 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => noteBody(row) ?? '', (typed) => fileEdit.change({ body: typed.toWellFormed() })}
+						bind:value={() => noteBody(row) ?? '', (typed) => toastOnError(fileEdit.change({ body: typed.toWellFormed() }), 'That change was not made')}
 						disabled={locked}
 						aria-label="Markdown source"
 						spellcheck={false}

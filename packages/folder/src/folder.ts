@@ -54,6 +54,8 @@ export type FolderChange = {
 export type FolderStatus = {
 	/** A write or delete admitted on this handle and not yet settled. */
 	readonly saving: boolean;
+	/** Paths with a write or delete admitted and not yet settled. Sorted; observing reads no files. */
+	readonly savingPaths: readonly string[];
 	readonly storageFailure: Extract<SaveError, { name: 'StorageFailed' }> | null;
 	/** The paths with accepted input no publication has acknowledged. Sorted. */
 	readonly unsaved: readonly string[];

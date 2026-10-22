@@ -113,6 +113,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	let storageFailure: FolderStatus['storageFailure'] = null;
 	let status: FolderStatus = {
 		saving: false,
+		savingPaths: [],
 		storageFailure: null,
 		unsaved: [],
 		failures: [],
@@ -132,9 +133,10 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	}
 
 	function publishStatus() {
-		const { unsaved, failures, working } = edits.getAggregate();
+		const { unsaved, failures, savingPaths } = edits.getAggregate();
 		const next: FolderStatus = {
-			saving: working,
+			saving: savingPaths.length > 0,
+			savingPaths,
 			storageFailure,
 			unsaved,
 			failures,
@@ -142,6 +144,7 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		};
 		if (
 			next.saving === status.saving &&
+			sameList(next.savingPaths, status.savingPaths) &&
 			next.storageFailure === status.storageFailure &&
 			sameList(next.unsaved, status.unsaved) &&
 			sameList(next.failures, status.failures) &&

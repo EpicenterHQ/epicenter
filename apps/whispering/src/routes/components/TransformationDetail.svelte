@@ -11,7 +11,7 @@
 	import * as Field from '@epicenter/ui/field';
 	import * as Popover from '@epicenter/ui/popover';
 	import * as Select from '@epicenter/ui/select';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast, toastOnError } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import * as Tabs from '@epicenter/ui/tabs';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -215,7 +215,7 @@
 			{@const shown = row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => shown.fields.title, (value) => fileEdit.change({ fields: { title: value } })}
+				bind:value={() => shown.fields.title, (value) => toastOnError(fileEdit.change({ fields: { title: value } }), 'That change was not made')}
 				placeholder="Title"
 				aria-label="Transformation title"
 				data-testid="transformation-title"
@@ -284,7 +284,7 @@
 							class="min-h-36 resize-y font-sans"
 							bind:value={
 								() => shown.body,
-								(value) => fileEdit.change({ body: value })
+								(value) => toastOnError(fileEdit.change({ body: value }), 'That change was not made')
 							}
 
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
@@ -318,7 +318,7 @@
 										() => shown.fields.model ?? '',
 										(value) => {
 											// An empty model uses the text connection's model.
-											fileEdit.change({ fields: { model: value.trim() === '' ? null : value } });
+											toastOnError(fileEdit.change({ fields: { model: value.trim() === '' ? null : value } }), 'That change was not made');
 										}
 									}
 
@@ -489,7 +489,7 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
+					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replaceText(withFileNewlines(value, shown)), 'That change was not made')}
 					{@attach () => { whispering.editSource(path); }}
 
 					aria-label="Markdown source"

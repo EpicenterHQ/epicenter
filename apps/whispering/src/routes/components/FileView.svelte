@@ -19,7 +19,7 @@
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast, toastOnError } from '@epicenter/ui/sonner';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
@@ -151,7 +151,7 @@
 				class="min-h-40 flex-1 resize-none font-sans"
 				bind:value={
 					() => row.body,
-					(value) => fileEdit.change({ body: value })
+					(value) => toastOnError(fileEdit.change({ body: value }), 'That change was not made')
 				}
 				aria-label="Contents of {name}"
 			/>
@@ -185,7 +185,7 @@
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
+					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replaceText(withFileNewlines(value, shown)), 'That change was not made')}
 				{@attach () => { whispering.editSource(path); }}
 				aria-label="Contents of {name}"
 				spellcheck={false}

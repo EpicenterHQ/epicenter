@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { toastOnError } from '@epicenter/ui/sonner';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { type FocusItem, focusWord, STAGE_LABELS, STAGES } from '$lib/data.js';
 	import { type Entries, wordsOf } from '$lib/entries.svelte.js';
@@ -26,7 +27,7 @@
 			{@const stage = fileEdit.content?.issues === null ? fileEdit.content.fields.stage : entry.row.fields.stage}
 			<div class="mt-1 flex flex-wrap gap-1" aria-label="Your stage for {item.text}">
 				{#each STAGES as option}
-					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option}  onclick={() => fileEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>
+					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option}  onclick={() => toastOnError(fileEdit.setStage(option), 'That change was not made')}>{STAGE_LABELS[option]}</Button>
 				{/each}
 			</div>
 		{/if}

@@ -2,6 +2,7 @@
 	import { getFolder } from './context.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
+	import { toastOnError } from '@epicenter/ui/sonner';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import * as Select from '@epicenter/ui/select';
 	import * as Table from '@epicenter/ui/table';
@@ -109,7 +110,7 @@
 						: newValue;
 		if (newKind === 'number' && (newValue === '' || !Number.isFinite(value)))
 			return;
-		row.fileEdit.change({ fields: { [view.groupBy]: value } });
+		toastOnError(row.fileEdit.change({ fields: { [view.groupBy]: value } }), 'That change was not made');
 	}
 	function tableSchema() {
 		return Object.hasOwn(reading.data?.tables ?? {}, directory)
@@ -278,9 +279,9 @@
 												view.type === 'board' &&
 												destination?.editable
 											)
-												row.fileEdit.change({ fields: {
+												toastOnError(row.fileEdit.change({ fields: {
 													[view.groupBy]: destination.value,
-												} });
+												} }), 'That change was not made');
 										}}
 										><Select.Trigger
 											aria-label="Move {doc.path}"
@@ -406,7 +407,7 @@
 											disabled={!canEdit}
 											bind:checked={
 												() => fieldValue(shown.fields, column) === true,
-												(value) => fileEdit.change({ fields: { [column]: value } })
+												(value) => toastOnError(fileEdit.change({ fields: { [column]: value } }), 'That change was not made')
 											}
 										/>
 									{:else if kind === 'string' || kind === 'number' || kind === 'integer'}
@@ -426,12 +427,12 @@
 															!Number.isFinite(Number(value)))
 													)
 														return;
-													fileEdit.change({ fields: {
+													toastOnError(fileEdit.change({ fields: {
 														[column]:
 															kind === 'number' || kind === 'integer'
 																? Number(value)
 																: String(value ?? ''),
-													} });
+													} }), 'That change was not made');
 												}
 											}
 										/>

@@ -353,6 +353,28 @@ test('a failed save keeps the typing and offers Try again', async () => {
 	expect((await stored('milk'))?.fields?.title).toBe('Oat milk');
 });
 
+test('rejected notes explain the refusal without claiming a save failure', async () => {
+	const { get, text } = await onMilk();
+	const before = get<HTMLTextAreaElement>(NOTES).value;
+	type(get(NOTES), 'Rejected\0notes');
+	await until(
+		() => document.body.textContent?.includes('NUL character') ?? false,
+		'the input refusal',
+	);
+	expect(document.body.textContent).toContain('That change was not made');
+	await until(
+		() => get<HTMLTextAreaElement>(NOTES).value === before,
+		'the notes to show accepted content',
+	);
+	expect(get<HTMLTextAreaElement>(NOTES).value).toBe(before);
+	expect(text(STATUS)).toBe('Saved on this device');
+	expect((await stored('milk'))?.body).toBe(before);
+	// The next valid input still enters the ordinary autosave path.
+	type(get(NOTES), 'Accepted notes');
+	await until(() => text(STATUS) === 'Saved on this device', 'the valid save');
+	expect((await stored('milk'))?.body).toBe('Accepted notes');
+});
+
 test('leaving with a failed draft asks before unloading and offers its text after unmount', async () => {
 	const { get, text, close } = await onMilk();
 	const { Toaster } = await import('@epicenter/ui/sonner');

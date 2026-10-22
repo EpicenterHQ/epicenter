@@ -262,6 +262,38 @@ test('acquisition is passive and stable, and snapshots are pure, cached and froz
 	expect(Object.isFrozen(content)).toBe(true);
 });
 
+test('passive status follows overlapping writes and queued deletes without reading content', async () => {
+	const { folder, hold, reads } = setup({ 'cold.txt': 'Do not read this' });
+	const cold = folder.files.edit('cold.txt');
+	const seen: (readonly string[])[] = [];
+	const stop = folder.onStatusChange((status) => seen.push(status.savingPaths));
+	cleanup.push(stop);
+	const first = hold('write');
+	const z = folder.files.write('z.txt', 'Z');
+	await first.reached;
+	const second = hold('write');
+	const a = folder.files.write('a.txt', 'A');
+	await second.reached;
+	const deleting = hold('delete');
+	const removed = folder.files.delete('z.txt');
+	expect(folder.getStatus().savingPaths).toEqual(['a.txt', 'z.txt']);
+	first.proceed();
+	expectOk(await z);
+	await deleting.reached;
+	expect(folder.getStatus().savingPaths).toEqual(['a.txt', 'z.txt']);
+	deleting.proceed();
+	expectOk(await removed);
+	expect(folder.getStatus().saving).toBe(true);
+	expect(folder.getStatus().savingPaths).toEqual(['a.txt']);
+	expect(seen.at(-1)).toEqual(['a.txt']);
+	second.proceed();
+	expectOk(await a);
+	expect(folder.getStatus().savingPaths).toEqual([]);
+	expect(folder.getStatus().saving).toBe(false);
+	expect(reads()).toEqual([]);
+	expect(cold.getSnapshot().content).toBeUndefined();
+});
+
 test('subscribing emits the current snapshot at once and starts the first read once', async () => {
 	const { folder, reads } = setup({ 'a.md': 'alpha\n' });
 	const edit = folder.files.edit('a.md');

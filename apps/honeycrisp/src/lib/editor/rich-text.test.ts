@@ -406,12 +406,14 @@ describe('an edit that cannot be written', () => {
 	});
 
 	test('one made while the note takes no edit is not displayed', async () => {
-		const { type, closeNotes, body, end, ...view } = await open('one\n');
+		const { type, closeNotes, body, end, refusal, ...view } =
+			await open('one\n');
 		end();
 		type('!');
 		const state = view.shown();
 		const closed = closeNotes();
 		expect(type('late')).toBe(false);
+		expect(refusal()).toContain('closing');
 		expect(view.shown()).toBe(state);
 		expect(body()).toBe('one!\n');
 		await closed;

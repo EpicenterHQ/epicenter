@@ -313,21 +313,24 @@ test('a transcript autosaves to its own path after switching files', async () =>
 	expect(writeStatus(target)).toBe('No unsaved changes');
 });
 
-test('the clean save line reports no accepted input for an unopened path', async () => {
-	const { context, whispering, target } = await open({});
+test('the clean save line leaves an existing unopened file unread', async () => {
+	const path = 'never-opened.txt';
+	const { context, target } = await open({
+		[path]: 'Keep this unread',
+	});
 	const { default: SaveStatusHost } = await import(
 		'./test-fixtures/SaveStatusHost.svelte'
 	);
-	const path = 'never-opened.txt';
 	const edit = context.folder.files.edit(path);
 	expect(edit.getSnapshot().content).toBeUndefined();
-	const host = mount(SaveStatusHost, { target, props: { whispering, path } });
+	const host = mount(SaveStatusHost, { target, props: { context, path } });
 	cleanups.push(() => unmount(host));
 	flushSync();
 	await quiet(context);
 	flushSync();
 	expect(writeStatus(target)).toBe('No unsaved changes');
 	expect(edit.getSnapshot().content).toBeUndefined();
+	expect(edit.getSnapshot().loadError).toBeUndefined();
 });
 
 test('a change made elsewhere shows once the folder reports it', async () => {

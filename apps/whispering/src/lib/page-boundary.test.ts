@@ -173,6 +173,7 @@ test('FolderApp owns the folder and WhisperingApp owns product state', () => {
 	expect(callers('setFolder')).toEqual([
 		'routes/components/WhisperingApp.svelte',
 		'routes/components/test-fixtures/AudioPlaybackHost.svelte',
+		'routes/components/test-fixtures/SaveStatusHost.svelte',
 		'routes/components/test-fixtures/SelectionHost.svelte',
 	]);
 });
@@ -188,7 +189,6 @@ test('every page takes product state from context, installed by the app root', (
 	expect(callers('setWhispering')).toEqual([
 		'routes/components/WhisperingApp.svelte',
 		'routes/components/test-fixtures/AudioPlaybackHost.svelte',
-		'routes/components/test-fixtures/SaveStatusHost.svelte',
 		'routes/components/test-fixtures/SelectionHost.svelte',
 	]);
 });

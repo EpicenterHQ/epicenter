@@ -47,6 +47,7 @@ async function withFullDisk<T>(work: () => Promise<T>): Promise<T> {
 
 const idle: FolderStatus = {
 	saving: false,
+	savingPaths: [],
 	storageFailure: null,
 	unsaved: [],
 	failures: [],
