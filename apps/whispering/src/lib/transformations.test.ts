@@ -855,7 +855,9 @@ test('an answer replaces the current body, and an answer for an already deleted 
 		.outputsFor(transcript.stem)
 		.find((item) => item.stem !== output.stem)!;
 	expect(
-		await whispering.deleteTransformationResult(discarded),
+		await whispering.delete(
+			expectOk(await whispering.deletionFor(discarded.path)),
+		),
 	).toBeUndefined();
 	answers[1]!.resolve(Ok({ text: 'too late' }));
 	await second;

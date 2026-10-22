@@ -306,7 +306,13 @@ export function describeDeletion(deletion: Deletion): {
 							? ` The recording “${deletion.audioOf}” names it as its audio and is kept, with no audio to play or transcribe.`
 							: ''
 					}`;
-			return { title: `Delete ${basename(path)}?`, description: what };
+			return {
+				title: `Delete ${basename(path)}?`,
+				description:
+					rowIdOf(TRANSFORMATION_RUNS, path) !== undefined
+						? `${what} The transcript it was made from is not changed.`
+						: what,
+			};
 		}
 	}
 }

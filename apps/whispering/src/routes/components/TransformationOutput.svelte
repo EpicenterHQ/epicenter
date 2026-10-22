@@ -1,10 +1,7 @@
 <script lang="ts">
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
-	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
-	import { toast } from '@epicenter/ui/sonner';
 	import { getWhispering, type TextRunEntry, type TransformationRunEntry } from '$lib/whispering.svelte.js';
-	import { copyText, formatTime, recordingTitle } from './file-actions.js';
+	import { confirmDelete, copyText, formatTime, recordingTitle } from './file-actions.js';
 	import ResultStatus from './ResultStatus.svelte';
 
 	/**
@@ -37,24 +34,6 @@
 	});
 
 	const progress = $derived(whispering.resultState(output.entry.path, output.entry.row.body));
-
-	function remove() {
-		confirmationDialog.open({
-			title: 'Delete this result?',
-			description:
-				output.source === 'text'
-					? `This deletes ${output.entry.path} from the folder. Committed versions stay in Git history.`
-					: `This deletes ${output.entry.path} from the folder. The transcript it was made from is not changed. Committed versions stay in Git history.`,
-			confirm: { text: 'Delete', variant: 'destructive' },
-			async onConfirm() {
-				const problem =
-					output.source === 'text'
-						? await whispering.deleteTextResult(output.entry)
-						: await whispering.deleteTransformationResult(output.entry);
-				if (problem) toast.error('Could not delete the result', { description: problem });
-			},
-		});
-	}
 </script>
 
 <article class="rounded border bg-muted/30 p-3 text-sm" data-testid="transformation-result" data-result-source={output.source}>
@@ -67,7 +46,7 @@
 	{#if progress.kind === 'answered'}
 		<p class="whitespace-pre-wrap">{output.entry.row.body.trim() || '(empty result)'}</p>
 	{:else}
-		<ResultStatus path={output.entry.path} result={progress} onDelete={remove} />
+		<ResultStatus path={output.entry.path} result={progress} onDelete={() => void confirmDelete(whispering, output.entry.path)} />
 	{/if}
 	<footer class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 		<span>{formatTime(output.entry.row.fields.createdAt) || 'Unknown time'} · {output.entry.row.fields.model}</span>
@@ -78,7 +57,7 @@
 			{#if progress.kind === 'answered'}
 				<Button size="xs" variant="ghost" onclick={() => void copyText(output.entry.row.body, 'the result')}>Copy</Button>
 			{/if}
-			<Button size="xs" variant="ghost-destructive" onclick={remove}>Delete</Button>
+			<Button size="xs" variant="ghost-destructive" onclick={() => void confirmDelete(whispering, output.entry.path)}>Delete</Button>
 		</span>
 	</footer>
 </article>

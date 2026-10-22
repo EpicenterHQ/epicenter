@@ -783,23 +783,6 @@ export function createWhispering(context: WhisperingContext) {
 		}
 	}
 
-	/** Delete a result through the folder's path publication lane. */
-	function deleteResult(table: typeof TRANSFORMATION_RUNS | typeof TEXT_RUNS) {
-		return async (entry: { readonly stem: string; readonly path: string }) => {
-			const why = refused();
-			if (why !== undefined) return why;
-
-			try {
-				const { error } = await folder.tables[table].delete(entry.stem);
-				if (error !== null) return describeError(error);
-				if (!context.closing) deleted(entry.path);
-				return undefined;
-			} catch (cause) {
-				return describe(cause);
-			}
-		};
-	}
-
 	function dispose(): void {
 		if (disposed) return;
 		disposed = true;
@@ -1323,8 +1306,6 @@ export function createWhispering(context: WhisperingContext) {
 			open(path);
 			return undefined;
 		},
-		deleteTransformationResult: deleteResult(TRANSFORMATION_RUNS),
-		deleteTextResult: deleteResult(TEXT_RUNS),
 
 		/**
 		 * Save one connection on this device. Nothing is sent to the endpoint
@@ -1431,14 +1412,12 @@ export function createWhispering(context: WhisperingContext) {
 				const why = refused();
 				return why === undefined ? captured : Err(why);
 			} catch (cause) {
-				const why = refused();
-				if (why !== undefined) return Err(why);
-				throw cause;
+				return Err(refused() ?? describe(cause));
 			}
 		},
 		/**
-		 * Delete what was confirmed, as it is stored: a file that changed after
-		 * the person was asked is kept, and the answer says so.
+		 * Delete the confirmed paths as they are stored now. A recording is
+		 * kept if new results appeared after confirmation.
 		 */
 		async delete(deletion: Deletion): Promise<string | undefined> {
 			const why = refused();

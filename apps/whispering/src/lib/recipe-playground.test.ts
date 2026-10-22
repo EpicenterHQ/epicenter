@@ -332,7 +332,11 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 	expect(transformed).toHaveLength(1);
 
 	// It is an ordinary file: deleting it works like any other result.
-	expect(await whispering.deleteTextResult(saved[0]!)).toBeUndefined();
+	expect(
+		await whispering.delete(
+			expectOk(await whispering.deletionFor(saved[0]!.path)),
+		),
+	).toBeUndefined();
 	expect(await names(root, TEXT_RUNS)).toEqual([]);
 	expect(whispering.textOutputsOf(stem)).toEqual([]);
 });
@@ -418,7 +422,11 @@ test('discarding a result on pasted text deletes its row, even while its request
 	await eventually(() => transformed.length === 1);
 
 	const { output } = await newestText(whispering, context, stem);
-	expect(await whispering.deleteTextResult(output)).toBeUndefined();
+	expect(
+		await whispering.delete(
+			expectOk(await whispering.deletionFor(output.path)),
+		),
+	).toBeUndefined();
 	answer.resolve(Ok({ text: 'too late' }));
 	expect(await running).toBeUndefined();
 

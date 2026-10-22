@@ -44,6 +44,7 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { ReadError } from '@epicenter/folder';
 import { pathProblem } from '@epicenter/folder/file-browser';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -1020,19 +1021,69 @@ test('deleting the audio a recording names keeps the recording, and the missing 
 	await expect(readAudio(context, audioPath)).rejects.toThrow('No file exists');
 });
 
-test('a file is deleted as it holds when the deletion runs, whatever changed since the person was asked', async () => {
-	const { context, whispering, root } = await open();
-	await writeFile(join(root, 'notes.txt'), 'first\n');
-	await settle(whispering, context);
-	const deletion = expectOk(await whispering.deletionFor('notes.txt'));
+test.each([
+	'notes.txt',
+	'text_runs/result.md',
+	'transformation_runs/result.md',
+])(
+	'%s is deleted as it holds when deletion runs, whatever changed since confirmation',
+	async (path) => {
+		const { context, whispering, root } = await open();
+		expectOk(await context.folder.files.write(path, 'first\n'));
+		await settle(whispering, context);
+		const deletion = expectOk(await whispering.deletionFor(path));
+		expect(deletion).toMatchObject({ kind: 'file', path });
+		const description = describeDeletion(deletion).description;
+		expect(description).toContain(`This deletes ${path} from the folder.`);
+		expect(
+			description.includes('The transcript it was made from is not changed.'),
+		).toBe(path.startsWith('transformation_runs/'));
+		expect(description).not.toContain('Git history');
 
-	await writeFile(join(root, 'notes.txt'), 'changed elsewhere\n');
-	const kept = await whispering.delete(deletion);
+		await writeFile(join(root, path), 'changed elsewhere\n');
+		expect(await whispering.delete(deletion)).toBeUndefined();
+		expect(await Bun.file(join(root, path)).exists()).toBe(false);
+	},
+);
 
-	// The person asked to delete the file; it goes as it is now.
-	expect(kept).toBeUndefined();
-	expect(await Bun.file(join(root, 'notes.txt')).exists()).toBe(false);
-});
+test.each([
+	{ failure: 'result', closing: false },
+	{ failure: 'throw', closing: false },
+	{ failure: 'result', closing: true },
+	{ failure: 'throw', closing: true },
+] as const)(
+	'deletion preflight reports $failure read failure with closing=$closing',
+	async ({ failure, closing }) => {
+		const { context, whispering, root } = await open();
+		const path = 'text_runs/result.md';
+		expectOk(await context.folder.files.write(path, 'Kept result.\n'));
+		const reached = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const read = context.folder.files.read;
+		context.folder.files.read = async (reading) => {
+			if (reading !== path) return read(reading);
+			reached.resolve();
+			await release.promise;
+			const cause = new Error('Result read unavailable');
+			if (failure === 'throw') throw cause;
+			return ReadError.StorageFailed({ cause });
+		};
+		try {
+			const capturing = whispering.deletionFor(path);
+			await reached.promise;
+			if (closing) whispering.dispose();
+			release.resolve();
+			const problem = expectErr(await capturing);
+			expect(problem).toContain(
+				closing ? 'closing' : 'Result read unavailable',
+			);
+			expect(await readFile(join(root, path), 'utf8')).toBe('Kept result.\n');
+		} finally {
+			release.resolve();
+			context.folder.files.read = read;
+		}
+	},
+);
 
 test('a recording is not deleted while a result cannot say which recording it belongs to', async () => {
 	const { context, whispering, root } = await open();
@@ -1207,13 +1258,9 @@ test('file commands return thrown failures for their existing UI callers', async
 		throw new Error('The folder command failed');
 	};
 	context.folder.files.write = fail;
+	context.folder.files.delete = fail;
 	replaceTables(context.folder, {
 		transformations: { ...context.folder.tables.transformations, write: fail },
-		transformation_runs: {
-			...context.folder.tables.transformation_runs,
-			delete: fail,
-		},
-		text_runs: { ...context.folder.tables.text_runs, delete: fail },
 	});
 
 	expect(await whispering.createFile('', 'new.txt')).toBe(
@@ -1223,14 +1270,14 @@ test('file commands return thrown failures for their existing UI callers', async
 		await whispering.createTransformation({ title: 'New', prompt: '' }),
 	).toBe('The folder command failed');
 	expect(
-		await whispering.deleteTransformationResult({
-			stem: 'run',
+		await whispering.delete({
+			kind: 'file',
 			path: 'transformation_runs/run.md',
 		}),
 	).toBe('The folder command failed');
 	expect(
-		await whispering.deleteTextResult({
-			stem: 'run',
+		await whispering.delete({
+			kind: 'file',
 			path: 'text_runs/run.md',
 		}),
 	).toBe('The folder command failed');
@@ -1292,14 +1339,14 @@ test.each(['saved', 'unknown'] as const)(
 			await whispering.createTransformation({ title: 'Late', prompt: '' }),
 		).toContain('closing');
 		expect(
-			await whispering.deleteTextResult({
-				stem: 'late',
+			await whispering.delete({
+				kind: 'file',
 				path: 'text_runs/late.md',
 			}),
 		).toContain('closing');
 		expect(
-			await whispering.deleteTransformationResult({
-				stem: 'late',
+			await whispering.delete({
+				kind: 'file',
 				path: 'transformation_runs/late.md',
 			}),
 		).toContain('closing');
@@ -1460,7 +1507,9 @@ test('an admitted result deletion removes the current path after close', async (
 	});
 	expectOk(await context.folder.files.write(path, 'Original result.\n'));
 	armed = true;
-	const removing = whispering.deleteTextResult({ stem: 'result', path });
+	const removing = whispering.delete(
+		expectOk(await whispering.deletionFor(path)),
+	);
 	await reached.promise;
 	whispering.dispose();
 	release.resolve();
@@ -1485,7 +1534,9 @@ test('same-text input accepted during result deletion survives and can recreate 
 	const edit = context.folder.files.document(path);
 	expectOk(await edit.refresh());
 	armed = true;
-	const deleting = whispering.deleteTextResult({ stem: 'retained', path });
+	const deleting = whispering.delete(
+		expectOk(await whispering.deletionFor(path)),
+	);
 	await reached.promise;
 	expectOk(edit.replace('Newer input.\n'));
 	expectOk(edit.replace('Exact held text.\n'));
