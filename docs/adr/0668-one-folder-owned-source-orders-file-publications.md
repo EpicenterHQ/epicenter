@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-22
-- **Amended by:** [ADR-0675](0675-structured-edits-share-the-acquired-working-document.md), which unifies acquired structured edits with editor input and separates complete row publication.
+- **Amended by:** [ADR-0676](0676-structured-edits-share-the-acquired-working-document.md), which unifies acquired structured edits with editor input and separates complete row publication.
 - **Supersedes:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md), guarded editor saves, and [ADR-0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md), the nested editor state contract.
 - **Amends:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md) at retained source, save feedback, and acknowledgement, and [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) at local file publication. Git synchronization keeps its merge behavior.
 - **Implementation:** Commit `bd78bfb52b` implements the retained-source model. The decision retains that API and last-write-wins behavior, with passive aggregate save indicators and caller-owned input feedback.
@@ -136,7 +136,7 @@ the source is the Folder's current editing state, not an independent database.
 
 ## Evidence
 
-`packages/folder/src/edit-owner.ts` owns sources, snapshots, command lanes,
+`packages/folder/src/document-owner.ts` owns sources, snapshots, command lanes,
 publication receipts, and recovery. `packages/folder/src/handle.ts` routes file
 and table operations through it. `packages/folder/README.md` documents current
 signatures. Framework adapters and application callers were migrated in
