@@ -1,10 +1,8 @@
-import type { FileEdit as NativeFileEdit } from '@epicenter/folder/edits';
 /**
  * What a view does to edit a file, for tests that drive Whispering without
  * mounting components: change the row or the text, and send it, as a view
  * does once the person pauses or leaves. Field, body, and text changes all
- * update one whole-source draft, whose save compares with the exact source
- * observed when typing began. `draft` reads what the view shows now: the held
+ * update one whole-source, published as a complete file. `draft` reads what the view shows now: the held
  * source interpreted through the row schema. Type-only imports
  * from Whispering, so this loads before the Svelte compiler plugin is
  * registered.
@@ -24,7 +22,7 @@ type Shown<T extends RowTable> = {
 	body: string;
 };
 
-function rowEditor<T extends RowTable>(
+async function rowEditor<T extends RowTable>(
 	whispering: Whispering,
 	table: T,
 	path: string | undefined,
@@ -34,8 +32,9 @@ function rowEditor<T extends RowTable>(
 		throw new Error(`${path} is not a ${table} row`);
 	// One view of the row, kept as a mounted view keeps it.
 	const view = whispering.edit(table, path);
+	await view.refresh();
 	const shown = (): Shown<T> | undefined => {
-		const row = view.markdown;
+		const row = view.content;
 		return row?.fields === undefined || row.body === undefined
 			? undefined
 			: { fields: row.fields as Shown<T>['fields'], body: row.body };
@@ -95,7 +94,7 @@ export function textEditor(whispering: Whispering, path: string) {
 	return {
 		view,
 		get draft(): string {
-			const text = view.text;
+			const text = view.content?.text;
 			if (text === undefined) throw new Error(`${path} is not open as text`);
 			return text;
 		},
@@ -123,7 +122,7 @@ export async function openText(
 	).subscribe(() => {});
 	const edit = context.folder.files.edit(path);
 	edit.subscribe(() => {});
-	await edit.read();
+	await edit.refresh();
 	return textEditor(whispering, path);
 }
 
@@ -138,9 +137,4 @@ export async function settle(
 	await quiet(context);
 	await whispering.readAgain();
 	await quiet(context);
-}
-
-/** Inspect held input after narrowing the current buffer snapshot. */
-export function unsavedOf(buffer: ReturnType<NativeFileEdit['getBuffer']> | undefined) {
-	return buffer?.status === 'ready' ? buffer.unsaved : undefined;
 }

@@ -23,7 +23,6 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createFileEdit } from '@epicenter/svelte/edits';
-	import { createQuery } from '@tanstack/svelte-query';
 	import { tick, untrack } from 'svelte';
 	import { createCaptureActions } from '$lib/capture-actions.svelte.js';
 	import { type Captures, capturePath, describeFailure, instantOf, readCaptureBody } from '$lib/captures.svelte.js';
@@ -46,19 +45,14 @@
 	const actions = untrack(() => createCaptureActions(fileEdit));
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
-	// The folder watches no directory: this read, polled while the view
-	// shows, is how an edit made outside this page reaches it.
-	createQuery(() => captures.readQuery(fileEdit));
-	const buffer = $derived(fileEdit.buffer);
-	const stored = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown : undefined);
-	const unsaved = $derived(buffer.status === 'ready' ? buffer.unsaved : undefined);
+	const stored = $derived(fileEdit.content?.issues === null ? fileEdit.content : undefined);
 	/** The body as text and thoughts, or why it cannot be edited here. */
 	const reading = $derived(stored === undefined ? undefined : readCaptureBody(stored));
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
 	const capturedAt = $derived(instantOf(stored?.fields.capturedAt));
 	/** Edits wait while closing and while this capture is deleted. */
-	const locked = $derived(captures.isLocked(stem));
+	const locked = $derived(captures.fenced);
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 	/** A thought typed and not added yet. */
@@ -101,21 +95,14 @@
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 
-	/** Download the file as saved, once the edit held here is saved. */
-	async function download() {
-		const savedEdit = await fileEdit.save();
-		if (savedEdit.error !== null) {
-			toast.error('Could not download this capture', { description: describeFailure(savedEdit.error) });
+	/** Export current acquired text without publishing or recreating the file. */
+	function download() {
+		const content = fileEdit.content;
+		if (content === undefined) {
+			toast.error('Could not download this capture', { description: 'Its text is not available yet.' });
 			return;
 		}
-		if (fileEdit.buffer.status === 'ready' && fileEdit.buffer.unsaved !== undefined) {
-			toast.error('Could not download this capture', { description: 'Your edit is not saved yet. Save it again, then download.' });
-			return;
-		}
-		const saved = await captures.folder.tables.captures.get(stem);
-		if (saved.error !== null) toast.error('Could not download this capture', { description: describeFailure(saved.error) });
-		else if (saved.data === undefined) toast.error('Could not download this capture', { description: 'It is no longer here.' });
-		else downloadText(`${stem}.md`, saved.data.text);
+		downloadText(`${stem}.md`, content.text);
 	}
 
 	function confirmDiscard() {
@@ -127,22 +114,7 @@
 		});
 	}
 
-	/** Copy pending input exactly, even when a deleted file no longer has a readable row. */
-	const unsavedText = $derived.by(() => {
-		if (buffer.status === 'ready' && buffer.unsaved !== undefined) return buffer.text;
-		return fileEdit.markdown?.body ?? '';
-	});
-	const conflict = $derived(unsaved?.status === 'conflict' ? unsaved.error : undefined);
-	const savedConflictSource = $derived.by(() => {
-		if (conflict === undefined) return undefined;
-		if (conflict.current === null) return '(deleted)';
-		if (typeof conflict.current === 'string') return conflict.current;
-		try {
-			return new TextDecoder('utf-8', { fatal: true }).decode(conflict.current);
-		} catch {
-			return '(binary file)';
-		}
-	});
+	const unsavedText = $derived(fileEdit.content?.text ?? '');
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
 		confirmationDialog.open({
@@ -157,26 +129,16 @@
 </script>
 
 {#snippet saveFailed()}
-	{#if unsaved}
-		{#if unsaved.status === 'failed' || unsaved.status === 'conflict'}
-			<Alert.Root variant="destructive" aria-label="Not saved">
-				<Alert.Title>Your edit is not saved</Alert.Title>
-				<Alert.Description>{describeFailure(unsaved.error)} Your edit is still here.</Alert.Description>
-				{#if conflict !== undefined}
-					<details class="mt-2"><summary>Compare sources</summary><p>Saved source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{savedConflictSource}</pre><p>Your source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap">{unsavedText}</pre></details>
-				{/if}
-				<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-					{#if conflict !== undefined}
-						<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
-						<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
-					{:else}
-						<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
-					{/if}
-					<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
-					<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
-				</div>
-			</Alert.Root>
-		{/if}
+	{#if fileEdit.saveError}
+		<Alert.Root variant="destructive" aria-label="Not saved">
+			<Alert.Title>Your edit is not saved</Alert.Title>
+			<Alert.Description>{describeFailure(fileEdit.saveError)} Your edit is still here.</Alert.Description>
+			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
+				<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
+				<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
+				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
+			</div>
+		</Alert.Root>
 	{/if}
 {/snippet}
 
@@ -195,55 +157,31 @@
 		<div>
 			<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		</div>
-		{#if fileEdit.markdown?.issues}
-			{@const unreadable = buffer.error?.name === 'SourceUnavailable' && buffer.error.reason === 'not-text'}
+		{#if fileEdit.content?.issues}
 			<Empty.Root role="alert">
 				<Empty.Header>
-					<Empty.Title>{unreadable ? 'This capture could not be read' : 'This file does not read as a capture'}</Empty.Title>
-					<Empty.Description>{fileEdit.markdown.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
+					<Empty.Title>This file does not read as a capture</Empty.Title>
+					<Empty.Description>{fileEdit.content.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
-				{#if !unreadable}
 					<Empty.Content>
 						<Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
 					</Empty.Content>
-				{/if}
 			</Empty.Root>
-		{:else if buffer.error?.name === 'SourceUnavailable' && buffer.error.reason === 'missing'}
-			{#if unsaved}
-				<!-- Deleted in another tab while an edit was held: restoring it requires explicit conflict resolution. -->
-				<Alert.Root aria-label="Edit kept">
-					<Alert.Title>This capture was deleted, and your edit is still here</Alert.Title>
-					<Alert.Description>
-						{#if unsaved.status === 'failed' || unsaved.status === 'conflict'}<p>Not saved: {describeFailure(unsaved.error)}</p>{/if}
-						<p>Your source remains available. Choose to replace the saved file after a conflict, copy it, or discard it.</p>
-					</Alert.Description>
-					<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-						{#if conflict !== undefined}
-							<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
-							<Button size="sm" variant="outline" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
-						{:else}
-							<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
-						{/if}
-						<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
-						<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
-					</div>
-				</Alert.Root>
-			{:else}
-				<Empty.Root role="alert">
-					<Empty.Header>
-						<Empty.Title>This capture is no longer here</Empty.Title>
-						<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
-					</Empty.Header>
-				</Empty.Root>
-			{/if}
-		{:else if buffer.error}
+		{:else if fileEdit.loadError?.name === 'Missing'}
+			<Empty.Root role="alert">
+				<Empty.Header>
+					<Empty.Title>This capture is no longer here</Empty.Title>
+					<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
+				</Empty.Header>
+			</Empty.Root>
+		{:else if fileEdit.loadError}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This capture could not be read</Empty.Title>
-					<Empty.Description>{buffer.error.message}</Empty.Description>
+					<Empty.Description>{fileEdit.loadError.message}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content>
-					<Button variant="outline" size="sm" onclick={() => void fileEdit.read()}>Try again</Button>
+					<Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Try again</Button>
 				</Empty.Content>
 			</Empty.Root>
 		{:else}
@@ -278,12 +216,12 @@
 	</div>
 
 	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-		{#if unsaved}
-			{#if unsaved.status === 'failed' || unsaved.status === 'conflict'}
-				Not saved
-			{:else}
-				Saving…
-			{/if}
+		{#if fileEdit.saveError}
+			Not saved
+		{:else if fileEdit.isDirty || fileEdit.isSaving}
+			Saving…
+		{:else if fileEdit.loadError}
+			Text kept here
 		{:else}
 			Saved to {path}
 		{/if}
@@ -291,10 +229,10 @@
 
 	{@render saveFailed()}
 
-	{#if actions.refusal || buffer.error}
+	{#if actions.refusal || fileEdit.loadError}
 		<Alert.Root aria-label="Not applied">
 			<Alert.Title>Not applied</Alert.Title>
-			<Alert.Description>{actions.refusal ?? buffer.error?.message}</Alert.Description>
+			<Alert.Description>{actions.refusal ?? fileEdit.loadError?.message}</Alert.Description>
 		</Alert.Root>
 	{/if}
 

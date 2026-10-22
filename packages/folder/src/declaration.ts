@@ -111,7 +111,7 @@ export function readSavedViews(text: string): Result<
 	},
 	{ reason: string }
 > {
-	const parsed = parseDeclarationObject(text);
+	const parsed = parseJsonObject(text);
 	if (parsed.error !== null) return parsed;
 	const section = parsed.data.views;
 	if (section !== undefined && !isObject(section))

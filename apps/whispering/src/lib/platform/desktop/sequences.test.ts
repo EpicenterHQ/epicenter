@@ -1,4 +1,3 @@
-import { unsavedOf } from '../../edits.test-support.js';
 /**
  * Save, repair, and delete sequences over the desktop opener.
  *
@@ -10,14 +9,12 @@ import { unsavedOf } from '../../edits.test-support.js';
  * its reply after it landed, and where a read can fail.
  *
  * Key behaviors:
- * - typing is saved as it is typed, one save at a time; what was typed while
- *   one ran is saved next, so input superseded meanwhile is never written
- * - a save that failed or whose reply could not be confirmed keeps the
- *   typing and says it is not saved; a retry still checks the observed source
- * - a save over changed source retains the typing and reports a conflict;
- *   replacing the saved file requires an explicit resolution
- * - a deletion waits for the save of the row, and one whose reply was lost
- *   is confirmed by reading back and recreates nothing
+ * - each explicit save captures the current text and publishes in order,
+ *   including saves requested while an earlier publication is running
+ * - failed publications retain input; new input can publish over an
+ *   unconfirmed or outside publication
+ * - deletion runs after earlier admitted saves and a lost reply is recovered
+ *   by reading back the removal without recreating it
  *
  * See also:
  * - `services.test.ts` for the services over the shell and the host
@@ -46,6 +43,8 @@ import type { WhisperingServices } from '../types.js';
 
 let shell: GrantedShell;
 mock.module('@tauri-apps/api/core', () => ({
+	SERIALIZE_TO_IPC_FN: '__TAURI_TO_IPC_KEY__',
+	transformCallback: () => 0,
 	isTauri: () => true,
 	invoke: (
 		cmd: string,
@@ -54,8 +53,8 @@ mock.module('@tauri-apps/api/core', () => ({
 	) => shell.invoke(cmd, body, options),
 }));
 // The shell's watcher: these tests change the directory only through the page.
-mock.module('@tauri-apps/api/webviewWindow', () => ({
-	getCurrentWebviewWindow: () => ({ listen: async () => () => {} }),
+mock.module('@tauri-apps/api/webview', () => ({
+	getCurrentWebview: () => ({ listen: async () => () => {} }),
 }));
 
 const { openTauriFolder } = await import(
@@ -95,11 +94,18 @@ async function open(files: Record<string, string>, path = PATH) {
 	// The sequence below starts after app initialization has saved its exclusions.
 	shell.changes.length = 0;
 	whispering.open(path);
-	return { whispering, context, session: transformationEditor(whispering) };
+	return {
+		whispering,
+		context,
+		session: await transformationEditor(whispering),
+	};
 }
 
 /** Type a new body into the open transformation. */
-const type = (session: ReturnType<typeof transformationEditor>, body: string) =>
+const type = (
+	session: Awaited<ReturnType<typeof transformationEditor>>,
+	body: string,
+) =>
 	session.edit((row) => {
 		row.body = body;
 	});
@@ -123,7 +129,7 @@ function holdNext(kind: DataChange['kind']) {
 	return { reached: reached.promise, release: () => held.resolve() };
 }
 
-test('more typing after an unconfirmed save conflicts with what landed until explicitly resolved', async () => {
+test('new typing after an unconfirmed save publishes the newer source', async () => {
 	const { context, whispering, session } = await open({ [PATH]: SEED });
 	shell.control.loseReplies = 1;
 	// The engine reads the file to check it before it writes. Once the write
@@ -143,19 +149,11 @@ test('more typing after an unconfirmed save conflicts with what landed until exp
 	await settle(whispering, context);
 	type(session, 'Tidy it all.\n');
 	await settle(whispering, context);
-	// The observed base remains the original source; the unconfirmed write
-	// is a different stored source, so newer typing cannot silently replace it.
-	expect(unsavedOf(whispering.edit(PATH).buffer)?.error?.name).toBe('Conflict');
-	expect(whispering.unsaved).toBe(true);
-	expect(session.draft.body).toBe('Tidy it all.\n');
-	expect(await shell.text(PATH)).toContain('Tidy it.\n');
-	await whispering.edit(PATH).resolveConflict('draft');
-	await settle(whispering, context);
 	expect(whispering.unsaved).toBe(false);
 	expect(await shell.text(PATH)).toContain('Tidy it all.\n');
 });
 
-test('typing during a save is shown at once and saved after it; input superseded meanwhile is never written', async () => {
+test('typing during a save is shown at once and each explicit save publishes its captured source', async () => {
 	const { context, whispering, session } = await open({ [PATH]: SEED });
 	const first = holdNext('write');
 
@@ -169,9 +167,10 @@ test('typing during a save is shown at once and saved after it; input superseded
 	await settle(whispering, context);
 
 	expect(whispering.unsaved).toBe(false);
-	expect(shell.kinds).toEqual(['write', 'write']);
+	expect(shell.kinds).toEqual(['write', 'write', 'write']);
 	expect(written(0)).toContain('First.\n');
-	expect(written(1)).toContain('Third.\n');
+	expect(written(1)).toContain('Second.\n');
+	expect(written(2)).toContain('Third.\n');
 	expect(await shell.text(PATH)).toContain('Third.\n');
 });
 
@@ -191,17 +190,11 @@ test('a refused save keeps the typing as not saved; the next edit saves it', asy
 	expect(await shell.text(PATH)).toContain('Mine, again.\n');
 });
 
-test('another writer’s change is kept until the typing explicitly replaces it', async () => {
+test('new local input publishes over another writer’s source', async () => {
 	const { context, whispering, session } = await open({ [PATH]: SEED });
 	await shell.write(PATH, SEED.replace('Tidy.', 'Theirs.'));
 
 	type(session, 'Mine.\n');
-	await settle(whispering, context);
-	expect(unsavedOf(whispering.edit(PATH).buffer)?.error?.name).toBe('Conflict');
-	expect(whispering.unsaved).toBe(true);
-	expect(session.draft.body).toBe('Mine.\n');
-	expect(await shell.text(PATH)).toBe(SEED.replace('Tidy.', 'Theirs.'));
-	await whispering.edit(PATH).resolveConflict('draft');
 	await settle(whispering, context);
 	expect(whispering.unsaved).toBe(false);
 	expect(await shell.text(PATH)).toContain('Mine.\n');
@@ -223,7 +216,6 @@ test('a deletion waits for the save of the row, then removes what it saved', asy
 	expect(await shell.text(PATH)).toBeUndefined();
 	await settle(whispering, context);
 	expect(whispering.selectedTransformation).toBeUndefined();
-	expect(whispering.edit(session.path).locked).toBe(false);
 });
 
 test('a deletion whose reply was lost is confirmed by reading back, and recreates nothing', async () => {

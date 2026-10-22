@@ -1,25 +1,18 @@
 /**
- * React Edit Binding Tests
+ * React Editor Binding Tests
  *
  * Mounts real React 19 roots in happy-dom over a real browser folder on an
  * in-memory IndexedDB, and types through the DOM handlers React committed.
  *
  * Key behaviors:
- * - A view reads the row the first time it mounts with nothing known, and
- *   tells loading, a missing row and a failed read apart
- * - An own save shows without a reread, another handle's change is read for
- *   a clean view showing it before the next draft begins
- * - A dirty source stays pinned across outside field changes; save conflicts
- *   until the person explicitly accepts the saved source
- * - The last body or source replacement in one event determines the draft
- * - Closing the folder re-renders a view whose held input keeps the same
- *   pending value, because the input fence is its own snapshot
+ * - A view's subscription starts the editor's first read; it tells awaiting
+ *   text, a missing row, and editable content apart
+ * - Typing shows at once; another handle's change found by a listing shows
+ *   in a clean view, and never replaces held input
+ * - The last body replacement in one event determines the input
  * - A reused view follows its path, and the row it left keeps its input
- * - Unmounting every view lets go of its subscriptions while the input and
- *   its timer stay with the folder
- * - The text binding shows held text over the stored file, BOM kept
+ * - Unmounting lets go of the subscription while input stays with the folder
  */
-import { unsavedOf } from './buffer.test-support.js';
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import type { FolderTable } from '@epicenter/folder';
@@ -29,7 +22,7 @@ import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Window } from 'happy-dom';
 import { act, type ReactNode } from 'react';
 import { Type } from 'typebox';
-import { expectErr, expectOk } from 'wellcrafted/testing';
+import { expectOk } from 'wellcrafted/testing';
 import { useFileEdit } from './edits.js';
 
 const window = new Window({ url: 'http://localhost/' });
@@ -47,36 +40,32 @@ const { createRoot } = await import('react-dom/client');
 
 const notes = Type.Object({ title: Type.String(), done: Type.Boolean() });
 type Notes = FolderTable<typeof notes>;
-type Folder = Awaited<ReturnType<typeof setup>>['folder'];
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
 });
 
-/** A fresh profile holding `milk` and `bread`, opened with `saveAfterMs`, and another writer. */
-async function setup({ saveAfterMs = 60_000 } = {}) {
+/** A fresh profile holding `milk` and `bread`, and another writer. */
+async function setup() {
 	globalThis.indexedDB = new FakeIndexedDB() as unknown as IDBFactory;
-	const folder = expectOk(await openFolder({ tables: { notes }, saveAfterMs }));
+	const folder = expectOk(
+		await openFolder({ tables: { notes }, saveAfterMs: 60_000 }),
+	);
 	cleanup.push(() => folder.close());
 	for (const [id, title] of [
 		['milk', 'Milk'],
 		['bread', 'Bread'],
 	] as const)
 		expectOk(
-			await folder.tables.notes.set(id, null, {
+			await folder.tables.notes.set(id, {
 				fields: { title, done: false },
 				body: 'one\ntwo\n',
 			}),
 		);
 	const other = expectOk(await openFolder({ tables: { notes } }));
 	cleanup.push(() => other.close());
-	const read = async (id: string) => {
-		const row = expectOk(await other.tables.notes.get(id));
-		if (row === undefined) throw new Error(`${id} is not stored`);
-		return row;
-	};
-	return { folder, other, read };
+	return { folder, other };
 }
 
 /** A React root in the page, unmounted after the test. */
@@ -85,22 +74,28 @@ async function mount(element: ReactNode) {
 	document.body.append(container);
 	const root = createRoot(container as unknown as Element);
 	await act(async () => root.render(element));
-	cleanup.push(() => act(async () => root.unmount()));
+	let mounted = true;
+	const unmount = async () => {
+		if (!mounted) return;
+		mounted = false;
+		await act(async () => root.unmount());
+	};
+	cleanup.push(unmount);
 	return {
 		root,
 		container,
+		unmount,
 		input: () => {
-			const input = container.querySelector<
-				HTMLInputElement | HTMLTextAreaElement
-			>('input, textarea');
+			const input = container.querySelector<HTMLInputElement>('input');
 			if (input === null) throw new Error('No input is shown');
 			return input;
 		},
+		text: () => container.textContent,
 	};
 }
 
 /** A keystroke through the field's committed React handler. */
-function type(input: HTMLInputElement | HTMLTextAreaElement, text: string) {
+function type(input: HTMLInputElement, text: string) {
 	Object.getOwnPropertyDescriptor(
 		Object.getPrototypeOf(input),
 		'value',
@@ -117,10 +112,9 @@ async function until(done: () => boolean) {
 	throw new Error('Never happened');
 }
 
-/** `table`, counting each edit's live subscriptions and reads. */
-function recorded(table: Notes) {
+/** `table`, counting each editor's live subscriptions. */
+function counted(table: Notes) {
 	const live: Record<string, number> = {};
-	const reads: Record<string, number> = {};
 	const edits = new Map<string, FileEdit<typeof notes>>();
 	const wrapped: Notes = {
 		...table,
@@ -138,391 +132,123 @@ function recorded(table: Notes) {
 						stop();
 					};
 				},
-				read() {
-					reads[id] = (reads[id] ?? 0) + 1;
-					return edit.read();
-				},
 			};
 			edits.set(id, wrappedEdit);
 			return wrappedEdit;
 		},
 	};
-	return { table: wrapped, live, reads };
+	return { table: wrapped, live };
 }
 
 /** A title input over one row, as an app's detail view types it. */
 function Title({ table, id }: { table: Notes; id: string }) {
-	const note = useFileEdit(table.edit(id));
-	const row = note.getMarkdown();
-	const buffer = note.getBuffer();
-	const { status, error } = buffer;
-	if (status === 'unavailable')
-		return (
-			<p>{error.name === 'SourceUnavailable' ? 'Missing' : error.message}</p>
-		);
-	if (error !== undefined) return <p>{error.message}</p>;
-	if (status === 'unread' || status === 'loading') return <p>Loading</p>;
-	if (row === undefined) return <p>Missing</p>;
+	const edit = table.edit(id);
+	const { content, loadError, isDirty } = useFileEdit(edit);
+	if (content === undefined)
+		return <p>{loadError === undefined ? 'Loading' : loadError.name}</p>;
 	return (
-		<input
-			value={row.issues === null ? row.fields?.title : ''}
-			disabled={note.isLocked()}
-			onChange={(event) =>
-				note.change({ fields: { title: event.currentTarget.value } })
-			}
-		/>
+		<label>
+			<input
+				value={content.issues === null ? content.fields.title : ''}
+				onChange={(event) =>
+					edit.change({ fields: { title: event.currentTarget.value } })
+				}
+			/>
+			<span>{isDirty ? 'Unsaved' : 'Saved'}</span>
+		</label>
 	);
 }
 
-test('a view reads its row when it mounts with nothing known, and tells loading from missing', async () => {
+test('a view starts the first read, and tells awaiting text, a missing row and content apart', async () => {
 	const { folder } = await setup();
-	const notesTable = recorded(folder.tables.notes);
-	const milk = await mount(<Title table={notesTable.table} id="milk" />);
-	const ghost = await mount(<Title table={notesTable.table} id="ghost" />);
-	await until(() => milk.container.textContent !== 'Loading');
-	await until(() => ghost.container.textContent !== 'Loading');
-	expect(milk.input().value).toBe('Milk');
-	expect(ghost.container.textContent).toBe('Missing');
-	expect(notesTable.reads).toEqual({ milk: 1, ghost: 1 });
-
-	// A view of a row a list already answered reads nothing.
-	expectOk(await folder.tables.notes.list());
-	await mount(<Title table={notesTable.table} id="bread" />);
-	expect(notesTable.reads.bread).toBeUndefined();
-});
-
-test('mounting a buffer after an early input refusal still requests its first read', async () => {
-	const { folder } = await setup();
-	const notesTable = recorded(folder.tables.notes);
-	const edit = notesTable.table.edit('milk');
-	expectErr(edit.replaceText('too early'));
-	expect(edit.getBuffer().status).toBe('unread');
-	const view = await mount(<Title table={notesTable.table} id="milk" />);
+	const view = await mount(<Title table={folder.tables.notes} id="milk" />);
 	await until(() => view.container.querySelector('input') !== null);
 	expect(view.input().value).toBe('Milk');
-	expect(edit.getBuffer().error).toBeUndefined();
-	expect(notesTable.reads).toEqual({ milk: 1 });
+	const missing = await mount(<Title table={folder.tables.notes} id="gone" />);
+	await until(() => missing.text() === 'Missing');
 });
 
-test('mounting during an explicit first read starts no second read', async () => {
-	const { folder } = await setup();
-	const notesTable = recorded(folder.tables.notes);
-	const edit = notesTable.table.edit('milk');
-	let reading!: ReturnType<typeof edit.read>;
-	act(() => {
-		reading = edit.read();
-	});
-	const view = await mount(<Title table={notesTable.table} id="milk" />);
-	await act(async () => {
-		expectOk(await reading);
-	});
+test('typing shows at once; a listing shows another handle in a clean view and never replaces input', async () => {
+	const { folder, other } = await setup();
+	const view = await mount(<Title table={folder.tables.notes} id="milk" />);
 	await until(() => view.container.querySelector('input') !== null);
-	expect(view.input().value).toBe('Milk');
-	expect(notesTable.reads).toEqual({ milk: 1 });
-});
-
-test('a failed first read waits for an explicit read: renders after it read nothing', async () => {
-	const { folder } = await setup();
-	const notesTable = recorded(folder.tables.notes);
-	const get = IDBObjectStore.prototype.get;
-	IDBObjectStore.prototype.get = () => {
-		throw new DOMException('The disk is gone', 'UnknownError');
-	};
-	cleanup.push(() => {
-		IDBObjectStore.prototype.get = get;
-	});
-	const view = await mount(<Title table={notesTable.table} id="milk" />);
-	await act(async () => Bun.sleep(30));
-	await act(async () => Bun.sleep(30));
-	expect(notesTable.reads).toEqual({ milk: 1 });
-	expect(view.container.textContent).toContain('Repository read failed');
-
-	IDBObjectStore.prototype.get = get;
-	await act(async () => {
-		expectOk(await folder.tables.notes.edit('milk').read());
-	});
-	expect(view.input().value).toBe('Milk');
-	expect(notesTable.reads).toEqual({ milk: 1 });
-});
-
-test('a view that shows only aggregate save status and the fence reads nothing', async () => {
-	const { folder } = await setup();
-	const notesTable = recorded(folder.tables.notes);
-	function Status() {
-		const note = useFileEdit(notesTable.table.edit('milk'));
-		return (
-			<p>
-				{!folder.getStatus().unsaved.includes(note.path) && !note.isLocked()
-					? 'Saved'
-					: 'Held'}
-			</p>
-		);
-	}
-	const view = await mount(<Status />);
-	await act(async () => Bun.sleep(5));
-	expect(view.container.textContent).toBe('Saved');
-	expect(notesTable.reads).toEqual({});
-	expect(folder.tables.notes.edit('milk').getBuffer().status).toBe('unread');
-});
-
-test('an own save shows without a reread and a clean view reads outside changes before typing', async () => {
-	const { folder, other, read } = await setup();
-	const notesTable = recorded(folder.tables.notes);
-	const view = await mount(<Title table={notesTable.table} id="milk" />);
-	await until(() => view.container.querySelector('input') !== null);
-	await act(async () => type(view.input(), 'Mine'));
-	await act(async () => folder.tables.notes.edit('milk').save());
-	expect(unsavedOf(folder.tables.notes.edit('milk'))).toBeUndefined();
-	expect(view.input().value).toBe('Mine');
-	expect(notesTable.reads.milk).toBe(1);
-
+	await act(async () => type(view.input(), 'Oat milk'));
+	expect(view.input().value).toBe('Oat milk');
+	expect(view.text()).toContain('Unsaved');
+	expectOk(await act(() => folder.tables.notes.edit('milk').save()));
+	expect(view.text()).toContain('Saved');
 	expectOk(
-		await other.tables.notes.set('milk', await read('milk'), {
-			fields: { done: true },
-		}),
+		await other.tables.notes.set('milk', { fields: { title: 'Theirs' } }),
 	);
-	await until(
-		() => folder.tables.notes.edit('milk').getMarkdown()?.fields?.done === true,
+	await act(async () => {
+		expectOk(await folder.tables.notes.list());
+	});
+	await until(() => view.input().value === 'Theirs');
+	await act(async () => type(view.input(), 'Mine again'));
+	expectOk(
+		await other.tables.notes.set('milk', { fields: { title: 'Later' } }),
 	);
-	await act(async () => type(view.input(), 'Mine!'));
-	expect(view.input().value).toBe('Mine!');
-	await act(async () => folder.tables.notes.edit('milk').save());
-	expect((await read('milk')).fields).toEqual({ title: 'Mine!', done: true });
+	await act(async () => {
+		expectOk(await folder.tables.notes.list());
+		await Bun.sleep(20);
+	});
+	expect(view.input().value).toBe('Mine again');
+	expect(view.text()).toContain('Unsaved');
 });
 
-test('a React view pins the whole draft across outside field changes until explicit recovery', async () => {
-	const { folder, other, read } = await setup();
+test('the last body replacement in one event determines the input', async () => {
+	const { folder } = await setup();
 	const edit = folder.tables.notes.edit('milk');
-	function Editor() {
-		const note = useFileEdit(edit);
-		const buffer = note.getBuffer();
-		return (
-			<>
-				<Title table={folder.tables.notes} id="milk" />
-				<pre>{note.getText()}</pre>
-				<p>
-					{buffer.status === 'ready'
-						? (buffer.unsaved?.status ?? 'saved')
-						: buffer.status}
-				</p>
-			</>
-		);
-	}
-	const view = await mount(<Editor />);
-	await until(() => view.container.querySelector('input') !== null);
-	await act(async () => type(view.input(), 'Local title'));
-	const draft = edit.getText();
-
-	expectOk(
-		await other.tables.notes.set('milk', await read('milk'), {
-			fields: { done: true },
-		}),
-	);
-	const saved = (await read('milk')).text;
-	await act(async () => {
-		expectOk(await edit.read());
-	});
-	expect(view.input().value).toBe('Local title');
-	expect(view.container.querySelector('pre')?.textContent).toBe(draft);
-	expect(edit.getMarkdown()?.fields).toEqual({
-		title: 'Local title',
-		done: false,
-	});
-
-	await act(async () => {
-		expect(expectErr(await edit.save()).name).toBe('Conflict');
-	});
-	expect(view.container.querySelector('p')?.textContent).toBe('conflict');
-	expect(edit.getText()).toBe(draft);
-	expect((await read('milk')).text).toBe(saved);
-
-	await act(async () => {
-		expectOk(await edit.resolveConflict('current'));
-	});
-	expect(view.input().value).toBe('Milk');
-	expect(view.container.querySelector('pre')?.textContent).toBe(saved);
-	expect(view.container.querySelector('p')?.textContent).toBe('saved');
-	expect(edit.getBuffer()).toMatchObject({
-		status: 'ready',
-		unsaved: undefined,
-	});
-	expect(edit.getMarkdown()?.fields).toEqual({ title: 'Milk', done: true });
-});
-
-test('the last body replacement in one event determines the source draft', async () => {
-	const { folder, read } = await setup();
-	expectOk(await folder.tables.notes.list());
 	function Body() {
-		const note = useFileEdit(folder.tables.notes.edit('milk'));
+		const { content } = useFileEdit(edit);
+		if (content === undefined) return <p>Loading</p>;
 		return (
-			<section
-				onChangeCapture={() =>
-					// Another handler of the same event changes the first line.
-					folder.tables.notes.edit('milk').change({ body: 'ONE\ntwo\n' })
-				}
-			>
-				<textarea
-					value={note.getMarkdown()?.body ?? ''}
-					onChange={(event) => note.change({ body: event.currentTarget.value })}
-				/>
-			</section>
+			<input
+				value={content.body ?? ''}
+				onChange={(event) => {
+					edit.change({ body: event.currentTarget.value });
+					edit.change({ body: `${event.currentTarget.value}!` });
+				}}
+			/>
 		);
 	}
 	const view = await mount(<Body />);
-	expect(view.input().value).toBe('one\ntwo\n');
-	await act(async () => type(view.input(), 'one\nTWO\n'));
-	expect(view.input().value).toBe('one\nTWO\n');
-	await act(async () => folder.tables.notes.edit('milk').save());
-	expect((await read('milk')).body).toBe('one\nTWO\n');
-});
-
-test('closing the folder re-renders a view whose held input keeps the same pending value', async () => {
-	const { folder, read } = await setup();
-	expectOk(await folder.tables.notes.list());
-	const edit = folder.tables.notes.edit('milk');
-	const view = await mount(<Title table={folder.tables.notes} id="milk" />);
-	await act(async () => type(view.input(), 'Oat milk'));
-	expect(unsavedOf(edit)).toBeDefined();
-	expect(view.input().disabled).toBe(false);
-
-	let closing!: Promise<unknown>;
-	act(() => {
-		closing = folder.close();
-	});
-	expect(unsavedOf(edit)).toBeDefined();
-	expect(edit.getText()).toContain('title: Oat milk');
-	expect(unsavedOf(edit)?.status).toBe('saving');
-	expect(view.input().disabled).toBe(true);
-
-	await act(async () => {
-		await closing;
-	});
-	expect(unsavedOf(edit)).toBeUndefined();
-	expect((await read('milk')).fields?.title).toBe('Oat milk');
+	await until(() => view.container.querySelector('input') !== null);
+	await act(async () => type(view.input(), 'typed'));
+	expect(view.input().value).toBe('typed!');
+	expect(edit.getSnapshot().content?.body).toBe('typed!');
 });
 
 test('a reused view follows its path, and the row it left keeps its input', async () => {
 	const { folder } = await setup();
-	expectOk(await folder.tables.notes.list());
-	const notesTable = recorded(folder.tables.notes);
-	const view = await mount(<Title table={notesTable.table} id="milk" />);
+	const view = await mount(<Title table={folder.tables.notes} id="milk" />);
+	await until(() => view.container.querySelector('input') !== null);
 	await act(async () => type(view.input(), 'Oat milk'));
-
 	await act(async () =>
-		view.root.render(<Title table={notesTable.table} id="bread" />),
+		view.root.render(<Title table={folder.tables.notes} id="bread" />),
 	);
-	expect(view.input().value).toBe('Bread');
-	await act(async () => type(view.input(), 'Rye'));
-
-	expect(notesTable.live.milk).toBe(0);
-	expect(notesTable.live.bread).toBeGreaterThan(0);
-	expect(folder.tables.notes.edit('milk').getText()).toContain(
-		'title: Oat milk',
+	await until(() => view.container.querySelector('input')?.value === 'Bread');
+	expect(folder.tables.notes.edit('milk').getSnapshot()).toMatchObject({
+		isDirty: true,
+		content: { fields: { title: 'Oat milk' } },
+	});
+	await act(async () =>
+		view.root.render(<Title table={folder.tables.notes} id="milk" />),
 	);
-	expect(folder.tables.notes.edit('bread').getText()).toContain('title: Rye');
+	expect(view.input().value).toBe('Oat milk');
 });
 
-test('unmounting every view keeps the input and its timer with the folder', async () => {
-	const { folder, read } = await setup({ saveAfterMs: 50 });
-	expectOk(await folder.tables.notes.list());
-	const notesTable = recorded(folder.tables.notes);
-	const view = await mount(<Title table={notesTable.table} id="milk" />);
+test('unmounting lets go of the subscription while input stays with the folder', async () => {
+	const { folder } = await setup();
+	const { table, live } = counted(folder.tables.notes);
+	const view = await mount(<Title table={table} id="milk" />);
+	await until(() => view.container.querySelector('input') !== null);
+	expect(live.milk).toBe(1);
 	await act(async () => type(view.input(), 'Oat milk'));
-	await act(async () => view.root.unmount());
-	expect(notesTable.live.milk).toBe(0);
-	expect(folder.tables.notes.edit('milk').getText()).toContain(
-		'title: Oat milk',
-	);
-
-	while (unsavedOf(folder.tables.notes.edit('milk')) !== undefined)
-		await Bun.sleep(5);
-	expect((await read('milk')).fields?.title).toBe('Oat milk');
-});
-
-test('the text binding shows held text over the stored file, BOM kept', async () => {
-	const { folder } = await setup();
-	const path = 'notes/a.txt';
-	expectOk(
-		await folder.files.write(path, null, new TextEncoder().encode('﻿one\r\n')),
-	);
-	function Source({ folder }: { folder: Folder }) {
-		const text = useFileEdit(folder.files.edit(path));
-		return (
-			<textarea
-				value={text.getText() ?? ''}
-				onChange={(event) => text.replaceText(event.currentTarget.value)}
-			/>
-		);
-	}
-	const view = await mount(<Source folder={folder} />);
-	await until(() => view.input().value !== '');
-	expect(view.input().value).toBe('﻿one\r\n');
-	await act(async () => type(view.input(), '﻿one!\r\n'));
-	await act(async () => folder.files.edit(path).save());
-
-	const saved = expectOk(await folder.files.read(path));
-	expect(new Uint8Array(await saved!.content.arrayBuffer())).toEqual(
-		new TextEncoder().encode('﻿one!\r\n'),
-	);
-	// The view did not read again and shows its own save.
-	expect(view.input().value).toBe('﻿one!\r\n');
-});
-
-test('source typed after a field change replaces the whole displayed source', async () => {
-	const { folder, read } = await setup();
-	expectOk(await folder.tables.notes.list());
-	function Source() {
-		const fileEdit = useFileEdit(folder.tables.notes.edit('milk'));
-		return (
-			<section
-				onChangeCapture={() =>
-					folder.tables.notes.edit('milk').change({ fields: { done: true } })
-				}
-			>
-				<textarea
-					value={fileEdit.getText() ?? ''}
-					onChange={(event) => fileEdit.replaceText(event.currentTarget.value)}
-				/>
-			</section>
-		);
-	}
-	const view = await mount(<Source />);
-	await act(async () =>
-		type(view.input(), view.input().value.replace('two', 'TWO')),
-	);
-	expect(view.input().value).toContain('done: false');
-	expect(view.input().value).toContain('one\nTWO\n');
-	await act(async () => folder.tables.notes.edit('milk').save());
-	expect((await read('milk')).fields?.done).toBe(false);
-	expect((await read('milk')).body).toBe('one\nTWO\n');
-});
-
-test('a whole-source replacement wins over an earlier field addition in one event', async () => {
-	const { folder } = await setup();
-	const path = 'plain.md';
-	expectOk(await folder.files.write(path, null, 'body\n'));
-	expectOk(await folder.files.edit(path).read());
-	function Source() {
-		const fileEdit = useFileEdit(folder.files.edit(path));
-		return (
-			<section
-				onChangeCapture={() =>
-					folder.files.edit(path).change({ fields: { a: 1 } })
-				}
-			>
-				<textarea
-					value={fileEdit.getText() ?? ''}
-					onChange={(event) => fileEdit.replaceText(event.currentTarget.value)}
-				/>
-			</section>
-		);
-	}
-	const view = await mount(<Source />);
-	await act(async () => type(view.input(), '---\nb: 2\n---\nbody\n'));
-	const markdown = folder.files.edit(path).getMarkdown();
-	expect(markdown?.fields).toEqual({ b: 2 });
-	expect(markdown?.body).toBe('body\n');
-	expect(markdown?.issues).toBeNull();
-	await act(async () => folder.files.edit(path).save());
-	expect(folder.files.edit(path).getMarkdown()?.fields).toEqual({ b: 2 });
+	await view.unmount();
+	expect(live.milk).toBe(0);
+	expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
+	expect(
+		folder.tables.notes.edit('milk').getSnapshot().content?.fields,
+	).toEqual({ title: 'Oat milk', done: false });
 });

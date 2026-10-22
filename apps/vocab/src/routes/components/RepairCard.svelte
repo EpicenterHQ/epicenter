@@ -7,8 +7,8 @@
 	and stage" closes the repair and the list shows it as a word.
 -->
 <script lang="ts">
+	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { Button } from '@epicenter/ui/button';
-	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { untrack } from 'svelte';
 	import { rowPath } from '$lib/data.js';
@@ -22,41 +22,36 @@
 	// svelte-ignore state_referenced_locally
 	const { repair } = entries;
 	const fileEdit = untrack(() => repair.view());
-	const buffer = $derived(fileEdit?.buffer);
-	const unsaved = $derived(buffer?.status === 'ready' ? buffer.unsaved : undefined);
-	const notText = $derived(buffer?.error?.name === 'SourceUnavailable' && buffer.error.reason === 'not-text');
+
 </script>
 
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
-	{#if fileEdit?.markdown && !notText}
-		{@const stored = fileEdit.markdown}
+	{#if fileEdit?.content}
+		{@const stored = fileEdit.content}
 		<p>
 			<code>{path}</code>
 			{stored.issues === null ? 'now reads as a word.' : 'is not a valid word, so its note and stage cannot be shown.'}
 			Edit its text here; it is saved when you pause.
 		</p>
 		{#if fileEdit}
-			{@const text = fileEdit.text}
+			{@const text = fileEdit.content?.text}
 			{#if text !== undefined}
 				<Textarea
 					class="min-h-32 font-mono text-xs"
 					aria-label="File text for {path}"
-					bind:value={() => text, (next) => fileEdit.replaceText(next)}
+					bind:value={() => text, (next) => fileEdit.replaceText(withFileNewlines(next, text))}
 				/>
 			{/if}
 		{/if}
-		{#if buffer?.error}
-			<p role="alert" class="text-sm text-destructive">{buffer?.error.message}</p>
+		{#if fileEdit?.loadError}
+			<p role="alert" class="text-sm text-destructive">{fileEdit?.loadError.message}</p>
 		{/if}
-		{#if unsaved}
-			{#if unsaved.status === 'failed' || unsaved.status === 'conflict'}
-				<p role="alert" class="text-destructive">
-					Not saved: {describeFailure(unsaved.error)}
-					<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit?.save()}>Try again</Button>
-				</p>
-			{:else}
-				<p role="status" class="text-muted-foreground">Saving…</p>
-			{/if}
+		{#if fileEdit.saveError}
+			<p role="alert" class="text-destructive">Not saved: {describeFailure(fileEdit.saveError)}
+				<Button variant="link" size="xs" onclick={() => void fileEdit.save()}>Try again</Button>
+			</p>
+		{:else if fileEdit.isDirty || fileEdit.isSaving}
+			<p role="status" class="text-muted-foreground">Saving…</p>
 		{/if}
 		{#if stored.issues}
 			<ul role="alert" class="space-y-1 text-destructive" aria-label="Problems in the current text">
@@ -67,18 +62,9 @@
 		{:else}
 			<Button size="sm" variant="outline" onclick={() => void repair.close()}>Show note and stage</Button>
 		{/if}
-	{:else if notText || (buffer?.error?.name === 'SourceUnavailable' && buffer.error.reason === 'missing')}
-		<p role="alert" class="text-destructive">
-			<code>{path}</code> {notText ? 'is no longer text' : 'is no longer here'}, so it cannot be shown here.
-		</p>
-		{#if unsaved !== undefined}
-			<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved text">{fileEdit?.text}</pre>
-			<CopyButton size="sm" variant="outline" text={fileEdit?.text ?? ''}>Copy</CopyButton>
-		{/if}
-		<Button size="sm" variant="outline" onclick={() => repair.discard()}>Close</Button>
-	{:else if buffer?.error}
-		<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {buffer.error.message}</p>
-		<Button size="sm" variant="outline" onclick={() => void fileEdit?.read()}>Read again</Button>
+	{:else if fileEdit?.loadError}
+		<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {fileEdit.loadError.message}</p>
+		<Button size="sm" variant="outline" onclick={() => void fileEdit?.refresh()}>Read again</Button>
 	{:else}
 		<p>Reading <code>{path}</code>…</p>
 	{/if}

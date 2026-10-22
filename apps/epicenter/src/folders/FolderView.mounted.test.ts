@@ -1,4 +1,3 @@
-import { unsavedOf } from './buffer.test-support.js';
 /**
  * Folder Editor Mounted Tests
  *
@@ -17,10 +16,10 @@ import { unsavedOf } from './buffer.test-support.js';
  *   context failed with pending input; closing the folder waits for a running
  *   save and answers what did not save
  * - A failed Board move stays visible in Grid and Files, retries from Files,
- *   preserves an outside edit, and survives reopening the folder
+ *   publishes retained input over an outside edit, and survives reopening the folder
  * - Mixed line endings and binary bytes stay untouched; textarea saves keep
  *   BOM and CRLF, and a stale read cannot hide a newer repair
- * - Deleted files leave selectable, read-only text without recreating a draft
+ * - Deleted files retain editable text without automatically publishing it
  *
  * Run with `--conditions=browser --conditions=svelte`, which mounting needs:
  * `bun test --conditions=browser --conditions=svelte FolderView.mounted`.
@@ -30,7 +29,6 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import type { Folder } from '@epicenter/folder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import type { ViewUpdater } from './views.svelte';
 
 const browser = Bun.resolveSync('svelte', import.meta.dir).endsWith(
 	'index-client.js',
@@ -183,16 +181,13 @@ describe.skipIf(!browser)('folder editor', async () => {
 	}
 
 	/** The editor window's page over `folder`, and its context. */
-	function openEditor(
-		folder: Folder<Record<never, never>>,
-		updateView?: ViewUpdater,
-	) {
+	function openEditor(folder: Folder<Record<never, never>>) {
 		const context = createFolderContext(folder);
 		const target = document.createElement('div');
 		document.body.append(target);
 		const view = mount(FolderViewHost, {
 			target,
-			props: { context, updateView },
+			props: { context },
 		});
 		let mounted = true;
 		return {
@@ -275,51 +270,62 @@ describe.skipIf(!browser)('folder editor', async () => {
 		}
 	});
 
-	test('retained saved text is read-only after the file disappears', async () => {
-		const stored: Record<string, string> = { 'a.md': 'alpha\n' };
-		const disk = await standIn(stored);
-		const page = openEditor(disk.folder);
-		try {
-			await until(() => page.file('a.md') !== null, 'the file');
-			press(page.file('a.md'));
-			await until(() => page.box()?.value === 'alpha\n', 'the source');
-			type(page.box(), 'alpha\nmine\n');
-			blur(page.box());
-			await until(() => disk.held.length === 1, 'the save');
-			disk.held.shift()!.answer(Ok(undefined));
-			await until(
-				() => page.context.getStatus().unsaved.length === 0,
-				'saved input',
-			);
-			await disk.remove('a.md');
-			await page.context.refresh(['a.md']);
-			await until(
-				() =>
-					page.target.textContent?.includes('deleted elsewhere') === true ||
-					page.target.textContent?.includes('no longer exists') === true,
-				'the missing source',
-			);
-			expect(page.box()).not.toBeNull();
-			expect(page.box()!.readOnly).toBe(true);
-			expect(page.box()!.value).toBe('alpha\nmine\n');
-			expect(page.box()!.disabled).toBe(false);
-			page.box()!.select();
-			expect(
-				page
-					.box()!
-					.value.slice(page.box()!.selectionStart, page.box()!.selectionEnd),
-			).toBe('alpha\nmine\n');
-			blur(page.box());
-			expect(unsavedOf(disk.folder.files.edit('a.md').getBuffer())).toBeUndefined();
-			expect(disk.held).toHaveLength(0);
-			expect(page.target.textContent).not.toContain(
-				'Saving puts your text back',
-			);
-		} finally {
-			await page.close();
-			await page.context.close();
-		}
-	});
+	test.each(['missing', 'not-text'] as const)(
+		'retained saved text stays editable after %s storage observation',
+		async (replacement) => {
+			const stored: Record<string, string> = { 'a.md': 'alpha\n' };
+			const disk = await standIn(stored);
+			const page = openEditor(disk.folder);
+			try {
+				await until(() => page.file('a.md') !== null, 'the file');
+				press(page.file('a.md'));
+				await until(() => page.box()?.value === 'alpha\n', 'the source');
+				type(page.box(), 'alpha\nmine\n');
+				blur(page.box());
+				await until(() => disk.held.length === 1, 'the save');
+				disk.held.shift()!.answer(Ok(undefined));
+				await until(
+					() => page.context.getStatus().unsaved.length === 0,
+					'saved input',
+				);
+				if (replacement === 'missing') await disk.remove('a.md');
+				else await disk.put('a.md', new Uint8Array([0xff, 0xfe]));
+				await page.context.refresh(['a.md']);
+				await until(
+					() =>
+						disk.folder.files.edit('a.md').getSnapshot().loadError?.name ===
+						(replacement === 'missing' ? 'Missing' : 'NotText'),
+					'the missing source',
+				);
+				expect(page.box()).not.toBeNull();
+				expect(page.box()!.readOnly).toBe(false);
+				expect(page.box()!.value).toBe('alpha\nmine\n');
+				expect(page.box()!.disabled).toBe(false);
+				page.box()!.select();
+				expect(
+					page
+						.box()!
+						.value.slice(page.box()!.selectionStart, page.box()!.selectionEnd),
+				).toBe('alpha\nmine\n');
+				blur(page.box());
+				expect(disk.folder.files.edit('a.md').getSnapshot().isDirty).toBe(
+					false,
+				);
+				expect(disk.held).toHaveLength(0);
+				// An observation retains text without admitting a publication.
+				type(page.box(), 'alpha\nmine\nlater\n');
+				blur(page.box());
+				await until(() => disk.held.length === 1, 'the later publication');
+				expect(disk.held[0]?.content).toBe('alpha\nmine\nlater\n');
+				disk.held.shift()!.answer(Ok(undefined));
+				expect(await page.context.folder.settle()).toEqual([]);
+				expect(await disk.text('a.md')).toBe('alpha\nmine\nlater\n');
+			} finally {
+				await page.close();
+				await page.context.close();
+			}
+		},
+	);
 
 	test.each(['alpha\r\nbeta\n', 'alpha\rbeta', 'alpha\r\nbeta\r'])(
 		'mixed line endings stay exact and copyable without a text box: %j',
@@ -353,7 +359,8 @@ describe.skipIf(!browser)('folder editor', async () => {
 				press(page.file('a.bin'));
 				await until(
 					() =>
-						page.target.textContent?.includes('This file is not text') === true,
+						disk.folder.files.edit('a.bin').getSnapshot().loadError?.name ===
+						'NotText',
 					'the binary notice',
 				);
 				expect(page.box()).toBeNull();
@@ -394,7 +401,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			};
 			const refreshing = page.context.refresh(['a.md']);
 			await captured.promise;
-			const saving = disk.folder.files.write('a.md', source, 'repaired\n');
+			const saving = disk.folder.files.write('a.md', 'repaired\n');
 			await until(() => disk.held.length === 1, 'the repair');
 			disk.held.shift()!.answer(Ok(undefined));
 			expectOk(await saving);
@@ -440,7 +447,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await page.context.refresh(['a.md']);
 			expect(page.box()?.value).toBe('---\ntitle: Typed\n---\nbody\n');
 			expect(page.box()?.readOnly).toBe(false);
-			expect(textEdit.getText()).toBe(textEdit.getText());
+			expect(textEdit.getSnapshot().content?.text).toBe(
+				'---\r\ntitle: Typed\r\n---\r\nbody\r\n',
+			);
 		} finally {
 			await closeRefusing(page, disk);
 		}
@@ -482,7 +491,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await disk.put('a.md', 'alpha\nexternal\n');
 			await page.context.refresh(['a.md']);
 			type(page.box(), 'alpha\nmine\nlast\n');
-			expect(disk.folder.files.edit('a.md').getText()).toBe(
+			expect(disk.folder.files.edit('a.md').getSnapshot().content?.text).toBe(
 				'alpha\r\nmine\r\nlast\r\n',
 			);
 		} finally {
@@ -731,14 +740,19 @@ describe.skipIf(!browser)('folder editor', async () => {
 			press(button('Tables'));
 			await until(
 				() =>
-					page.target.querySelector('input[aria-label="todos/a.md: title"]') !==
-					null,
+					page.target.querySelector<HTMLInputElement>(
+						'input[aria-label="todos/a.md: title"]',
+					)?.disabled === false,
 				'the declared repair cell',
 			);
 			const cell = page.target.querySelector(
 				'input[aria-label="todos/a.md: title"]',
 			) as HTMLInputElement;
 			type(cell, 'mine');
+			expect(
+				disk.folder.files.edit('todos/a.md').getSnapshot().content?.fields
+					?.title,
+			).toBe('mine');
 			blur(cell);
 			await until(() => disk.held.length === 1, 'the field save');
 			disk.held.shift()!.answer(Err(new Error('disk full')));
@@ -759,16 +773,15 @@ describe.skipIf(!browser)('folder editor', async () => {
 				page.box()!.value.replace('body', 'source after failure'),
 			);
 			await until(
-				() =>
-					unsavedOf(disk.folder.files.edit('todos/a.md').getBuffer()) !== undefined,
+				() => disk.folder.files.edit('todos/a.md').getSnapshot().isDirty,
 				'source takeover',
 			);
-			expect(disk.folder.files.edit('todos/a.md').getText()).toContain(
-				'title: mine',
-			);
-			expect(disk.folder.files.edit('todos/a.md').getText()).toContain(
-				'source after failure',
-			);
+			expect(
+				disk.folder.files.edit('todos/a.md').getSnapshot().content?.text,
+			).toContain('title: mine');
+			expect(
+				disk.folder.files.edit('todos/a.md').getSnapshot().content?.text,
+			).toContain('source after failure');
 			press(button('SQL'));
 			await until(
 				() =>
@@ -809,35 +822,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 
 	test('browsing writes nothing; the first explicit SQL view save creates only views', async () => {
 		const disk = await standIn({});
-		const { changeSavedView } = await import(
-			'../../../../packages/folder/src/declaration-write'
-		);
-		const { hashBytes } = await import('../../../../packages/folder/src/hash');
-		let writes = 0;
-		const updateView: ViewUpdater = (change) =>
-			changeSavedView(
-				{
-					read: async (path) => {
-						const text = await disk.text(path);
-						if (text === undefined) return FileError.NotFound({ path });
-						const bytes = new TextEncoder().encode(text);
-						return Ok({ bytes, sha256: await hashBytes(bytes) });
-					},
-					put: async (path, bytes, base) => {
-						const text = await disk.text(path);
-						const hash =
-							text === undefined
-								? null
-								: await hashBytes(new TextEncoder().encode(text));
-						if (hash !== base) return Ok('stale');
-						writes++;
-						await disk.put(path, new TextDecoder().decode(bytes!));
-						return Ok('landed');
-					},
-				},
-				change,
-			);
-		const page = openEditor(disk.folder, updateView);
+		const page = openEditor(disk.folder);
 		const button = (text: string) =>
 			[...page.target.querySelectorAll('button')].find(
 				(entry) => entry.textContent?.trim() === text,
@@ -855,13 +840,19 @@ describe.skipIf(!browser)('folder editor', async () => {
 				page.target.querySelector('textarea[aria-label="SQL statement"]'),
 				'SELECT path FROM documents',
 			);
-			expect(writes).toBe(0);
+			expect(disk.held).toHaveLength(0);
 			expect(await disk.text('epicenter.json')).toBeUndefined();
-			press(button('Save view'));
 			await until(
-				() =>
-					writes === 1 &&
-					page.target.querySelector('[aria-label="Saved views"]') !== null,
+				() => button('Save view')?.disabled === false,
+				'declaration availability',
+			);
+			press(button('Save view'));
+			await until(() => disk.held.length === 1, 'the declaration publication');
+			expect(disk.held[0]?.path).toBe('epicenter.json');
+			disk.held.shift()!.answer(Ok(undefined));
+			expect(await disk.folder.settle()).toEqual([]);
+			await until(
+				() => page.target.querySelector('[aria-label="Saved views"]') !== null,
 				'saved recipe',
 			);
 			const declaration = JSON.parse((await disk.text('epicenter.json'))!);
@@ -874,7 +865,63 @@ describe.skipIf(!browser)('folder editor', async () => {
 		}
 	});
 
-	test('a failed Board move retries from Files, preserves outside edits, and survives reopening', async () => {
+	test('saving a recipe composes with unfinished epicenter.json source in the same edit', async () => {
+		const disk = await standIn({ 'epicenter.json': '{}\n' });
+		const page = openEditor(disk.folder);
+		const button = (label: string) =>
+			[...page.target.querySelectorAll('button')].find(
+				(entry) => entry.textContent?.trim() === label,
+			) ?? null;
+		try {
+			await until(
+				() => page.file('epicenter.json') !== null,
+				'the declaration',
+			);
+			press(page.file('epicenter.json'));
+			await until(() => page.box() !== null, 'the source');
+			type(
+				page.box(),
+				'{"title":"Typed raw title","future":{"keep":true},"views":{"later":{"type":"calendar"}}}',
+			);
+			press(button('SQL'));
+			await until(
+				() =>
+					page.target.querySelector('[aria-label="SQL statement"]') !== null,
+				'the SQL form',
+			);
+			type(
+				page.target.querySelector('[aria-label="SQL statement"]'),
+				'SELECT path FROM documents',
+			);
+			press(button('Save view'));
+			await until(() => disk.held.length > 0, 'the composed publication');
+			let settled = false;
+			const settling = disk.folder.settle().then(() => {
+				settled = true;
+			});
+			await until(() => {
+				disk.held.shift()?.answer(Ok(undefined));
+				return settled;
+			}, 'all declaration publications');
+			await settling;
+			const declaration = JSON.parse((await disk.text('epicenter.json'))!);
+			expect(declaration.title).toBe('Typed raw title');
+			expect(declaration.future).toEqual({ keep: true });
+			expect(declaration.views.later).toEqual({ type: 'calendar' });
+			expect(Object.values(declaration.views)).toContainEqual({
+				type: 'sql',
+				title: 'SQL',
+				sql: 'SELECT path FROM documents',
+			});
+			expect(
+				disk.folder.files.edit('epicenter.json').getSnapshot().isDirty,
+			).toBe(false);
+		} finally {
+			await closeRefusing(page, disk);
+		}
+	});
+
+	test('a failed Board move retries its retained source from Files and survives reopening', async () => {
 		const disk = await standIn({
 			'epicenter.json': JSON.stringify({
 				tables: {
@@ -905,7 +952,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			press(button('Board'));
 			await until(
 				() =>
-					page.target.querySelector('[aria-label="Move tasks/a.md"]') !== null,
+					page.target.querySelector<HTMLButtonElement>(
+						'[aria-label="Move tasks/a.md"]',
+					)?.disabled === false,
 				'board card',
 			);
 			page.target
@@ -923,6 +972,10 @@ describe.skipIf(!browser)('folder editor', async () => {
 			[...document.querySelectorAll('[role="option"]')]
 				.find((option) => option.textContent?.trim() === 'done')!
 				.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+			expect(
+				disk.folder.files.edit('tasks/a.md').getSnapshot().content?.fields
+					?.status,
+			).toBe('done');
 			await until(() => disk.held.length === 1, 'move save');
 			expect(disk.held[0]?.content).toContain('status: done');
 			disk.held.shift()!.answer(Err(new Error('disk full')));
@@ -957,18 +1010,15 @@ describe.skipIf(!browser)('folder editor', async () => {
 			);
 			expect(page.box()?.readOnly).toBe(false);
 			press(button('Try again'));
-			await until(
-				() => unsavedOf(disk.folder.files.edit('tasks/a.md').getBuffer())?.error?.name === 'Conflict',
-				'the whole-file conflict',
-			);
-			type(page.box(), '---\nstatus: done\nextra: kept\n---\nOutside body\n');
-			press(button('Replace saved file'));
-			await until(() => disk.held.length === 1, 'the guarded resolution');
+			await until(() => disk.held.length === 1, 'the retry publication');
 			expect(disk.held[0]?.content).toContain('status: done');
-			expect(disk.held[0]?.content).toContain('extra: kept');
+			expect(disk.held[0]?.content).toContain('Body');
+			expect(disk.held[0]?.content).not.toContain('extra: kept');
 			disk.held.shift()!.answer(Ok(undefined));
 			expect(await page.context.folder.settle()).toEqual([]);
-			expect(await disk.text('tasks/a.md')).toContain('Outside body');
+			expect(await disk.text('tasks/a.md')).toBe(
+				'---\nstatus: done\n---\nBody\n',
+			);
 			expect(page.context.getStatus().unsaved).toEqual([]);
 
 			await page.close();
@@ -1013,15 +1063,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			}),
 			'tasks/a.md': '---\nstatus: todo\n---\nBody\n',
 		});
-		let sent: import('@epicenter/folder/declaration').SavedView | undefined;
-		const page = openEditor(disk.folder, async (change) => {
-			sent = change.value;
-			await disk.put(
-				'epicenter.json',
-				JSON.stringify({ views: { board: change.value } }),
-			);
-			return Ok({ written: true });
-		});
+		const page = openEditor(disk.folder);
 		const button = (text: string) =>
 			[...page.target.querySelectorAll('button')].find(
 				(entry) => entry.textContent?.trim() === text,
@@ -1067,9 +1109,10 @@ describe.skipIf(!browser)('folder editor', async () => {
 			);
 			expect(page.target.textContent).not.toContain('exists expects');
 			press(button('Save view'));
-			await until(() => sent !== undefined, 'publication');
-			expect(sent?.type).toBe('grid');
-			expect(Object.hasOwn(sent!, 'groupBy')).toBe(false);
+			await until(() => disk.held.length === 1, 'publication');
+			const sent = JSON.parse(disk.held[0]!.content).views.board;
+			expect(sent.type).toBe('grid');
+			expect(Object.hasOwn(sent, 'groupBy')).toBe(false);
 			expect(sent).toMatchObject({
 				filters: [{ field: 'status', operator: 'exists', value: true }],
 			});
@@ -1116,6 +1159,125 @@ describe.skipIf(!browser)('folder editor', async () => {
 		}
 	});
 
+	test('equal schemas retain the table edit and focused input across document refreshes', async () => {
+		const disk = await standIn({
+			'epicenter.json': JSON.stringify({
+				tables: {
+					notes: { type: 'object', properties: { title: { type: 'string' } } },
+				},
+			}),
+			'notes/a.md': '---\ntitle: A\n---\n',
+		});
+		const page = openEditor(disk.folder);
+		try {
+			await until(
+				() =>
+					[...page.target.querySelectorAll('button')].some(
+						(entry) => entry.textContent?.trim() === 'Tables',
+					),
+				'navigation',
+			);
+			press(
+				[...page.target.querySelectorAll('button')].find(
+					(entry) => entry.textContent?.trim() === 'Tables',
+				) ?? null,
+			);
+			const cell = () =>
+				page.target.querySelector<HTMLInputElement>(
+					'[aria-label="notes/a.md: title"]',
+				);
+			await until(
+				() => cell() !== null && !cell()!.disabled,
+				'the editable cell',
+			);
+			const original = cell()!;
+			original.focus();
+			original.setSelectionRange(1, 1);
+			const key = page.context.queries.documents().queryKey;
+			const before =
+				page.context.queryClient.getQueryData<
+					import('@epicenter/folder/documents').DocumentReading
+				>(key)!;
+			const firstEdit = disk.folder.files.edit(
+				'notes/a.md',
+				before.tables.notes,
+			);
+			await page.context.refresh();
+			const after =
+				page.context.queryClient.getQueryData<
+					import('@epicenter/folder/documents').DocumentReading
+				>(key)!;
+			expect(after.tables.notes).toBe(before.tables.notes);
+			expect(disk.folder.files.edit('notes/a.md', after.tables.notes)).toBe(
+				firstEdit,
+			);
+			expect(cell()).toBe(original);
+			expect(document.activeElement).toBe(original);
+			expect(original.selectionStart).toBe(1);
+			expect(disk.held).toHaveLength(0);
+		} finally {
+			await closeRefusing(page, disk);
+		}
+	});
+
+	test.each(['Grid', 'Board'] as const)(
+		'%s read retry refreshes retained content without publishing',
+		async (mode) => {
+			const disk = await standIn({
+				'epicenter.json': JSON.stringify({
+					tables: {
+						tasks: {
+							type: 'object',
+							properties: { status: { enum: ['todo', 'done'] } },
+						},
+					},
+				}),
+				'tasks/a.md': '---\nstatus: todo\n---\nBody\n',
+			});
+			const page = openEditor(disk.folder);
+			const button = (label: string) =>
+				[...page.target.querySelectorAll('button')].find(
+					(entry) => entry.textContent?.trim() === label,
+				) ?? null;
+			try {
+				await until(() => button('Tables') !== null, 'navigation');
+				press(button('Tables'));
+				await until(
+					() =>
+						page.target.querySelector('[aria-label="tasks/a.md: status"]') !==
+						null,
+					'the grid',
+				);
+				if (mode === 'Board') {
+					press(button('Board'));
+					await until(
+						() => page.target.querySelector('article') !== null,
+						'the board',
+					);
+				}
+				const edit = disk.folder.files.edit('tasks/a.md');
+				disk.reading.add('tasks/a.md');
+				await edit.refresh();
+				await until(() => button('Read again') !== null, 'the read retry');
+				expect(button('Try again')).toBeNull();
+				expect(disk.held).toHaveLength(0);
+				disk.reading.delete('tasks/a.md');
+				press(button('Read again'));
+				await until(
+					() => edit.getSnapshot().loadError === undefined,
+					'the recovered source',
+				);
+				expect(edit.getSnapshot().isDirty).toBe(false);
+				expect(disk.held).toHaveLength(0);
+				expect(await disk.text('tasks/a.md')).toBe(
+					'---\nstatus: todo\n---\nBody\n',
+				);
+			} finally {
+				await closeRefusing(page, disk);
+			}
+		},
+	);
+
 	test('a failed background table read keeps the focused cell and its input mounted', async () => {
 		const disk = await standIn({ 'todos/a.md': '---\ntitle: A\n---\n' });
 		const page = openEditor(disk.folder);
@@ -1136,11 +1298,16 @@ describe.skipIf(!browser)('folder editor', async () => {
 				page.target.querySelector<HTMLInputElement>(
 					'input[aria-label="todos/a.md: title"]',
 				);
-			await until(() => cell() !== null, 'the table cell');
+			await until(() => cell()?.disabled === false, 'the editable table cell');
 			const original = cell()!;
 			original.focus();
+			expect(document.activeElement).toBe(original);
 			type(original, 'Typed here');
 			flushSync();
+			expect(
+				disk.folder.files.edit('todos/a.md').getSnapshot().content?.fields
+					?.title,
+			).toBe('Typed here');
 			disk.listing.failure = new Error('Folder temporarily unreadable');
 			await page.context.refresh();
 			flushSync();
@@ -1169,11 +1336,10 @@ describe.skipIf(!browser)('folder editor', async () => {
 			);
 			expect(page.box()?.readOnly).toBe(false);
 			type(page.box(), '---\ntitle: Repaired\n---\nbody\n');
-			await until(
-				() => unsavedOf(fileEdit.getBuffer()) !== undefined,
-				'the source repair',
-			);
-			expect(fileEdit.getMarkdown()?.fields).toEqual({ title: 'Repaired' });
+			await until(() => fileEdit.getSnapshot().isDirty, 'the source repair');
+			expect(fileEdit.getSnapshot().content?.fields).toEqual({
+				title: 'Repaired',
+			});
 		} finally {
 			await closeRefusing(page, disk);
 		}

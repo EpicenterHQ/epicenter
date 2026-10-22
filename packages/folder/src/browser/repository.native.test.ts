@@ -96,40 +96,44 @@ async function nativeFixture(repository: LocalRepository) {
 	return { objects, binary, root, folder, commit };
 }
 
-test('exact byte bases delete BOM and binary files while caller buffer mutation cannot change the witness', async () => {
+test('BOM and binary files and rows delete whole, and caller bytes cannot change a queued write', async () => {
 	const repository = await openRepository(crypto.randomUUID(), {
 		notes: { type: 'object' },
 	});
 	try {
 		await nativeFixture(repository);
 		for (const path of ['bom.md', 'binary']) {
-			const file = expectOk(await repository.files.read(path))!;
-			const from = new Uint8Array(await file.content.arrayBuffer());
-			const deleting = repository.files.delete(path, from);
-			from.fill(0); // Happens while the asynchronous capture is still running.
-			expect(expectOk(await deleting)).toEqual({ deleted: true });
+			expectOk(await repository.files.read(path));
+			expectOk(await repository.files.delete(path));
 			expect(expectOk(await repository.files.read(path))).toBeUndefined();
 		}
-		const binaryRow = expectOk(await repository.tables.notes.get('binary'))!;
+		const bytes = Uint8Array.of(1, 2, 3);
+		const writing = repository.files.write('copied.bin', bytes);
+		bytes.fill(0); // Happens while the asynchronous capture is still running.
+		expectOk(await writing);
+		const copied = expectOk(await repository.files.read('copied.bin'))!;
+		expect(new Uint8Array(await copied.content.arrayBuffer())).toEqual(
+			Uint8Array.of(1, 2, 3),
+		);
+		expectOk(await repository.tables.notes.get('binary'));
+		expectOk(await repository.files.delete('notes/binary.md'));
 		expect(
-			expectErr(await repository.tables.notes.delete('binary', binaryRow)).name,
-		).toBe('NotText');
+			expectOk(await repository.tables.notes.get('binary')),
+		).toBeUndefined();
 	} finally {
 		repository.close();
 	}
 });
 
-test('gitlinks stay structural leaves, report truthful deletion, and can be explicitly replaced with text', async () => {
+test('gitlinks stay structural leaves a file delete leaves alone, and can be explicitly replaced with text', async () => {
 	const id = crypto.randomUUID();
 	let repository = await openRepository(id);
 	try {
 		await nativeFixture(repository);
 		expect(expectOk(await repository.files.list())).not.toContain('vendor');
 		expect(expectOk(await repository.files.read('vendor'))).toBeUndefined();
-		expect(expectOk(await repository.files.delete('vendor', null))).toEqual({
-			deleted: false,
-		});
-		expectOk(await repository.files.write('plain.md', 'plain\n', 'changed\n'));
+		expectOk(await repository.files.delete('vendor'));
+		expectOk(await repository.files.write('plain.md', 'changed\n'));
 		const pending = (await prepareCommit(repository.storage, author))!;
 		expect(
 			(await repository.storage.capture([])).files.get('vendor')?.mode,
@@ -142,7 +146,7 @@ test('gitlinks stay structural leaves, report truthful deletion, and can be expl
 		expect(
 			(await repository.storage.capture([])).files.get('vendor')?.mode,
 		).toBe('160000');
-		expectOk(await repository.files.write('vendor', null, 'regular file\n'));
+		expectOk(await repository.files.write('vendor', 'regular file\n'));
 		await prepareCommit(repository.storage, author);
 		expect(
 			(await repository.storage.capture([])).files.get('vendor')?.mode,
@@ -160,14 +164,13 @@ test('subset capture omits unrelated blobs and preserves opaque directories and 
 		expect(snapshot.objects.has(native.binary)).toBe(false);
 		expect(snapshot.directories.has('docs')).toBe(true);
 		expect(
-			expectErr(await repository.files.write('Docs/new.md', null, 'new')).name,
+			expectErr(await repository.files.write('Docs/new.md', 'new')).name,
 		).toBe('CaseTwin');
 		expect(
-			expectErr(
-				await repository.files.write('docs', null, 'replace unseen names'),
-			).name,
+			expectErr(await repository.files.write('docs', 'replace unseen names'))
+				.name,
 		).toBe('Occupied');
-		expectOk(await repository.files.write('plain.md', 'plain\n', 'changed\n'));
+		expectOk(await repository.files.write('plain.md', 'changed\n'));
 		await prepareCommit(repository.storage, author);
 		const after = await repository.storage.capture([]);
 		const entries = readTree(
@@ -190,10 +193,7 @@ test('row deletion keeps adjacent native names without decoding or rewriting the
 	});
 	try {
 		const native = await nativeFixture(repository);
-		const row = expectOk(await repository.tables.notes.get('one'))!;
-		expect(expectOk(await repository.tables.notes.delete('one', row))).toEqual({
-			deleted: true,
-		});
+		expectOk(await repository.files.delete('notes/one.md'));
 		await prepareCommit(repository.storage, author);
 		const snapshot = await repository.storage.capture([]);
 		expect(snapshot.files.has('notes/one.md')).toBe(false);
@@ -213,10 +213,9 @@ test('closing during an unpublished operation returns a storage failure and reta
 	const id = crypto.randomUUID();
 	let repository = await openRepository(id);
 	try {
-		expectOk(await repository.files.write('keep.md', null, 'saved\n'));
+		expectOk(await repository.files.write('keep.md', 'saved\n'));
 		const writing = repository.files.write(
 			'unacknowledged.md',
-			null,
 			'not yet saved\n',
 		);
 		repository.close();

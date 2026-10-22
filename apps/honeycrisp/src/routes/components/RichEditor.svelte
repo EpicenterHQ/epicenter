@@ -45,12 +45,14 @@
 	let {
 		fileEdit,
 		focusRequest,
+		closing,
 		onOpenSource,
 		onRefuse,
 	}: {
 		/** The note as shown: its draft while an edit is held, else the cache's. */
 		fileEdit: FileEdit<HoneycrispTables['notes']>;
 		focusRequest: number;
+		closing: boolean;
 		onOpenSource: () => void;
 		/** An edit Markdown cannot spell was not made; says why. */
 		onRefuse: (reason: string) => void;
@@ -73,7 +75,7 @@
 	// The parent keys this editor by its file path.
 	// svelte-ignore state_referenced_locally
 	const trackedEdit = createFileEdit(fileEdit);
-	const body = $derived(noteBody(trackedEdit.markdown));
+	const body = $derived(noteBody(trackedEdit.content));
 	/** The body as a document, or why it cannot be one. */
 	const rich = $derived(body === undefined ? undefined : bodyCodec.decode(body));
 	/**
@@ -173,7 +175,7 @@
 		if (!opened?.supported) return;
 		/** Cleared with this view: a transaction it is handed afterwards changes nothing. */
 		let alive = true;
-		// Untracked: the view asks `editable` while it is built, and `locked`
+		// Untracked: the view asks `editable` while it is built, and `closing`
 		// changes with every delete and with closing, which must not recreate the view.
 		const mountOn = element;
 		const created = untrack(() => new EditorView(mountOn, {
@@ -182,7 +184,7 @@
 				plugins: [...editingPlugins(), placeholder, taskCheckbox],
 			}),
 			attributes: { class: 'focus:outline-none', 'aria-label': 'Note text' },
-			editable: () => !trackedEdit.locked,
+			editable: () => !closing,
 			dispatchTransaction(this: EditorView, transaction) {
 				// Something that kept this view, a command or a timer, can still
 				// dispatch after it was destroyed. Its document is not the note's.
@@ -219,7 +221,7 @@
 	// The view asks `editable` only when it updates: ask it again when the note
 	// starts or stops taking edits, so the text is not editable while locked.
 	$effect(() => {
-		trackedEdit.locked;
+		closing;
 		untrack(() => view)?.setProps({});
 	});
 
@@ -323,7 +325,7 @@
 					>
 						<Input class="h-8" placeholder="https://example.com" aria-label="Link address" bind:value={linkHref} />
 						<!-- The popover is outside the app's inert root. -->
-						<Button type="submit" size="sm" disabled={trackedEdit.locked}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
+						<Button type="submit" size="sm" disabled={closing}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
 					</form>
 				</Popover.Content>
 			</Popover.Root>

@@ -16,7 +16,6 @@
  * - A browser tab registers nothing; closing the context stops listening
  * - `<FolderApp>` guards the window it opened its folder in
  */
-import { unsavedOf } from './buffer.test-support.js';
 import 'fake-indexeddb/auto';
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -54,7 +53,7 @@ async function freshFolder() {
 		await openFolder({ tables: { notes }, saveAfterMs: MINUTE }),
 	);
 	expectOk(
-		await folder.tables.notes.set('milk', null, {
+		await folder.tables.notes.set('milk', {
 			fields: { title: 'Milk', done: false },
 			body: '',
 		}),
@@ -77,8 +76,7 @@ type Notes = FolderContext<{ notes: typeof notes }>;
 /** Type `title` into `milk` over the row as stored. */
 async function typeTitle({ folder }: Notes, title: string) {
 	const edit = folder.tables.notes.edit('milk');
-	expectOk(await edit.read());
-	if (edit.getMarkdown() === undefined) throw new Error('milk is not stored');
+	expectOk(await edit.refresh());
 	expectOk(edit.change({ fields: { title } }));
 }
 
@@ -101,13 +99,13 @@ test('a saved folder closes without a prompt', async () => {
 test('an accepted edit prompts and Cancel keeps its input', async () => {
 	const { context, milk } = await guarded();
 	await typeTitle(context, 'Oat milk');
-	expect(unsavedOf(milk)).toBeDefined();
+	expect(milk.getSnapshot().isDirty).toBe(true);
 
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeDialog.count).toBe(1);
-	expect(unsavedOf(milk)).toBeDefined();
+	expect(milk.getSnapshot().isDirty).toBe(true);
 });
 
 test('Confirm destroys without waiting for the accepted edit to save', async () => {
@@ -119,13 +117,13 @@ test('Confirm destroys without waiting for the accepted edit to save', async () 
 
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(nativeDialog.count).toBe(1);
-	expect(unsavedOf(milk)).toBeDefined();
+	expect(milk.getSnapshot().isDirty).toBe(true);
 });
 
 test('an app action before its first Folder write does not prompt', async () => {
 	const { context } = await guarded();
 	context.folder
-		.run([], () => Promise.reject(new Error('save interrupted')))
+		.run(() => Promise.reject(new Error('save interrupted')))
 		.catch(() => {});
 
 	await requestClose();
@@ -137,16 +135,18 @@ test('an app action before its first Folder write does not prompt', async () => 
 test('whole text waiting to save prompts and Cancel retains it', async () => {
 	const { context } = await guarded();
 	const path = 'notes/source.md';
-	expectOk(await context.folder.files.write(path, null, 'saved'));
+	expectOk(await context.folder.files.write(path, 'saved'));
 	const text = context.folder.files.edit(path);
-	expectOk(await text.read());
+	expectOk(await text.refresh());
 	expectOk(text.replaceText('unsaved source'));
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
 	expect(nativeDialog.count).toBe(1);
-	expect(unsavedOf(text)).toBeDefined();
-	expect(text.getText()).toBe('unsaved source');
+	expect(text.getSnapshot()).toMatchObject({
+		isDirty: true,
+		content: { text: 'unsaved source' },
+	});
 });
 
 test('two close requests at once destroy the window once', async () => {
@@ -223,7 +223,9 @@ test('input is inert while destruction is pending and restored if it fails', asy
 	expect(document.documentElement.inert).toBe(false);
 	expect(nativeWindow.listeners).toBe(1);
 	await typeTitle(context, 'Still editable');
-	expect(unsavedOf(context.folder.tables.notes.edit('milk'))).toBeDefined();
+	expect(context.folder.tables.notes.edit('milk').getSnapshot().isDirty).toBe(
+		true,
+	);
 });
 
 test('a browser tab registers nothing, and closing the context stops listening', async () => {

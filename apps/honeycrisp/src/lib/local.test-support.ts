@@ -12,13 +12,13 @@
  * Load this with `import()` after `fake-indexeddb/auto` and the Svelte
  * runes support, since the notes state is a runes module.
  */
-import { textRead } from './file-reads.js';
 
 import { openFolder } from '@epicenter/folder/browser';
 import { createFolderContext } from '@epicenter/svelte/folder';
 import { QueryObserver } from '@tanstack/query-core';
 import { expectOk } from 'wellcrafted/testing';
 import { honeycrispTables, NOTES, type NoteRow } from './data.js';
+import { textRead } from './file-reads.js';
 import { createNotes, type Notes } from './notes.svelte.js';
 
 const decoder = new TextDecoder();
@@ -60,11 +60,7 @@ export async function openNotes({ saveAfterMs = 60_000 } = {}) {
 		/** Save a file as another tab does. */
 		async write(path: string, text: string) {
 			reader ??= await otherTab();
-			const current = expectOk(await reader.files.read(path));
-			const from = current
-				? new Uint8Array(await current.content.arrayBuffer())
-				: null;
-			expectOk(await reader.files.write(path, from, text));
+			expectOk(await reader.files.write(path, text));
 		},
 		/** The file's text in storage now, or undefined when it is gone. */
 		async text(path: string): Promise<string | undefined> {
@@ -185,18 +181,9 @@ export function noteText({
 export const folderText = (name: string) =>
 	`---\nname: ${JSON.stringify(name)}\nicon: null\n---\n`;
 
-/** Read the held save state without starting a file read. */
-export function unsavedOf(edit: {
-	getBuffer(): import('@epicenter/folder/edits').BufferSnapshot;
-}) {
-	const buffer = edit.getBuffer();
-	return buffer.status === 'ready' ? buffer.unsaved : undefined;
-}
-
-/** Missing storage remains visible even while unsaved text keeps the buffer ready. */
+/** Missing is the latest acquisition outcome, even with retained editable text. */
 export function isMissing(edit: {
-	getBuffer(): import('@epicenter/folder/edits').BufferSnapshot;
+	getSnapshot(): { loadError: { name: string } | undefined };
 }) {
-	const error = edit.getBuffer().error;
-	return error?.name === 'SourceUnavailable' && error.reason === 'missing';
+	return edit.getSnapshot().loadError?.name === 'Missing';
 }

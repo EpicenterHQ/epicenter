@@ -34,14 +34,18 @@ function setup(
 			const bytes = new TextEncoder().encode(current);
 			return Ok({ bytes, sha256: await hashBytes(bytes) });
 		},
-		async put(_path, bytes, ifMatch) {
+		async put(_path, bytes, expected) {
 			puts++;
 			if (puts === 1 && concurrent !== undefined) current = concurrent(current);
 			const hash =
 				current === null
 					? null
 					: await hashBytes(new TextEncoder().encode(current));
-			if (hash !== ifMatch) return Ok('stale');
+			const holds =
+				expected === 'absent'
+					? hash === null
+					: typeof expected === 'object' && hash === expected.sha256;
+			if (!holds) return Ok('stale');
 			current = bytes === null ? null : new TextDecoder().decode(bytes);
 			return Ok('landed');
 		},

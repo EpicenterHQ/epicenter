@@ -83,7 +83,7 @@ export async function merge(
 }
 
 /** The same file merge with its diff implementation already available. */
-export function mergeWith(
+function mergeWith(
 	diffArrays: DiffArrays,
 	path: string,
 	{ base, current, change }: FileVersions,

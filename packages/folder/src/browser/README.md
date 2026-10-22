@@ -48,11 +48,10 @@ Git history needed for ancestry proofs can be fetched into temporary memory.
 ## Saving
 
 A file save captures W's required trees and the current file bytes in one
-read transaction. Public `files.write` and `tables.set` merge the caller's
-starting bytes with the current contents and submitted change outside
-IndexedDB. A `FileEdit` save instead compares the current bytes with its
-exact observed source and reports `Conflict` if they differ; an already
-identical submitted source succeeds. The engine hashes the resulting file and
+read transaction. Public file and editor writes publish their captured whole
+content unconditionally. The folder owner composes table changes over held
+text at the call, or over a read inside the path's lane when nothing is held.
+The engine hashes the submitted file and
 rewrites its ancestor directories. A write transaction compares captured W,
 then publishes the new objects and root together. A changed root retries the
 operation. Other tabs' B/P changes do not invalidate a local file save, and the
@@ -65,23 +64,23 @@ captures all current files; `capture('sync')` includes W and both checkpoint
 closures. Captured objects stay in an operation-local map so a later save or
 collection cannot change the inputs of an in-progress computation.
 
-Public Markdown writes merge by frontmatter field and body region; a
-headerless Markdown file is one body region. Other UTF-8 files, including
-JSON, merge by text region. Independent changes survive and competing changes
-follow the automatic merge policy. Row saves return `sent`, the submitted
-source. A `FileEdit` draft stays pinned through outside reads and writes and
-requires an explicit whole-source resolution after a conflict.
+Public saves compare no prior file content and perform no content merge.
+The last publication wins. Sync separately merges Markdown by frontmatter
+field and body region, and other UTF-8 files by text region. The folder-owned
+editor retains accepted input through outside observations and failures;
+an older publication never acknowledges newer input merely because it matches.
 
 Native names, untouched modes, symlinks, gitlinks, and directory occupancy
 survive tree rewriting. File/directory replacements require a witnessed
 removal before reusing the path. A gitlink stays a structural leaf and is not
-reported as a readable or successfully deleted file. Exact byte witnesses
-retain BOM and binary content; mutable caller buffers are copied before awaits.
+reported as a readable or successfully deleted file. Raw writes retain BOM and
+binary content; mutable caller buffers are copied before awaits.
 
 Only a changed W notifies subscribers. Local saves name their paths; a sync
 adoption can invalidate all paths. Checkpoint-only changes and collection do
 not notify file views. Failed publication reports `StorageFailed`, including
-the browser's reason, without replacing the old root. No-op saves notify nobody.
+the browser's reason, without replacing the old root. No-op engine saves notify
+nobody; the public Folder still announces a successful explicit publication.
 
 ## Preparing and settling a send
 

@@ -22,7 +22,10 @@
  * A call sent again after it landed answers what the second run found: a
  * put whose first run landed answers `stale`, since the path no longer holds
  * what it expected, and the engine's write reads again and finds its own
- * bytes.
+ * bytes. An unconditional put sent again lands again with the same bytes.
+ *
+ * A put's expectation travels in its `expected` header: `any`, `absent`,
+ * `present`, or the SHA-256 the file there must have.
  */
 import { invoke } from '@tauri-apps/api/core';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -128,12 +131,12 @@ export function tauriHostFiles(): HostFiles {
 			}
 			return Ok({ bytes, sha256: await hashBytes(bytes) });
 		},
-		async change(path, bytes, ifMatch) {
+		async change(path, bytes, expected) {
 			const headers: Record<string, string> = {
 				path: encodeURIComponent(path),
 				remove: String(bytes === null),
+				expected: typeof expected === 'string' ? expected : expected.sha256,
 			};
-			if (ifMatch !== null) headers['if-match'] = encodeURIComponent(ifMatch);
 			try {
 				// The bytes go as the raw request body rather than as a JSON
 				// array of numbers, which the generated bindings cannot type, so

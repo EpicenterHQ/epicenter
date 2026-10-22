@@ -54,6 +54,7 @@ import type { AuthStatus } from '../../tauri/bindings.gen.js';
 import type { ConnectionCommands } from './connections.js';
 
 mock.module('@tauri-apps/api/core', () => ({
+	SERIALIZE_TO_IPC_FN: '__TAURI_TO_IPC_KEY__',
 	transformCallback: () => 0,
 	Channel: class {},
 	isTauri: () => true,
@@ -215,8 +216,8 @@ function shell(): ConnectionCommands {
 		async whisperingConnectionRead(connection) {
 			return reply(await readConnectionRow(paths, connection));
 		},
-		async whisperingConnectionSet(connection, base, fields) {
-			return reply(await setConnectionRow(paths, connection, { base, fields }));
+		async whisperingConnectionSet(connection, fields) {
+			return reply(await setConnectionRow(paths, connection, { fields }));
 		},
 		async authStatus() {
 			const { data: grants, error } = await authStatus(ctx);
@@ -263,7 +264,6 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 	const folder = opened.data;
 	const { error: created } = await folder.tables.connections.set(
 		CONNECTION_IDS.transcription,
-		null,
 		{
 			fields: { kind: 'epicenter', title: 'Epicenter', model: 'whisper-1' },
 			body: '',

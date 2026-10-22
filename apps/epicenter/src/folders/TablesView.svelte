@@ -8,7 +8,6 @@
 	import * as Alert from '@epicenter/ui/alert';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { createFileEdit } from '@epicenter/svelte/edits';
-	import { fileText } from './files';
 	import { applyView, boardLanes } from './view';
 	import TableControls from './TableControls.svelte';
 	import type { TableView } from './views.svelte';
@@ -64,26 +63,22 @@
 		].sort(),
 	);
 	const columns = $derived(view.columns ?? availableColumns);
+	// Query structural sharing retains equal portable schema identities across refreshes.
 	const edits = $derived(documents.map((doc) => ({
 		doc,
 		fileEdit: createFileEdit(folder.files.edit(doc.path, tableFor(doc.path))),
 	})));
 	const rows = $derived(
 		edits.map(({ doc, fileEdit }) => {
-			const buffer = fileEdit.buffer;
-			const unsaved = buffer.status === 'ready' ? buffer.unsaved : undefined;
-			const markdown = fileEdit.markdown;
-			const shown = markdown === undefined ? doc : { ...doc, ...markdown };
+			const content = fileEdit.content;
+			const shown = content === undefined ? doc : { ...doc, ...content };
 			return {
 				doc,
 				fileEdit,
 				shown,
-				held: unsaved !== undefined,
-				error: unsaved?.error ?? buffer.error,
-				locked:
-					fileText(doc.content).kind !== 'text' ||
-					!!shown.issues?.some((issue) => issue.kind !== 'schema') ||
-					fileEdit.locked,
+				held: fileEdit.isDirty || fileEdit.isSaving,
+				canEdit: content !== undefined &&
+					!content.issues?.some((issue) => issue.kind !== 'schema'),
 			};
 		}),
 	);
@@ -103,7 +98,7 @@
 	function createLane() {
 		if (view.type !== 'board') return;
 		const row = byPath.get(newCard);
-		if (!row || row.locked) return;
+		if (!row || !row.canEdit) return;
 		const value =
 			newKind === 'null'
 				? null
@@ -289,7 +284,7 @@
 										}}
 										><Select.Trigger
 											aria-label="Move {doc.path}"
-											disabled={row.locked}>{lane.label}</Select.Trigger
+											disabled={!row.canEdit}>{lane.label}</Select.Trigger
 										><Select.Content
 											>{#each lanes.filter((entry) => entry.editable) as destination}<Select.Item
 													value={destination.key}
@@ -297,8 +292,11 @@
 												>{/each}</Select.Content
 										></Select.Root
 									>
-									{#if row.error}<p class="text-sm text-destructive">
-											{row.error.message}
+									{#if row.fileEdit.loadError}<p class="text-sm text-destructive">{row.fileEdit.loadError.message}</p>
+										<Button size="xs" variant="outline" onclick={() => void row.fileEdit.refresh()}>Read again</Button>
+									{/if}
+									{#if row.fileEdit.saveError}<p class="text-sm text-destructive">
+											{row.fileEdit.saveError.message}
 										</p>
 										<Button
 											size="xs"
@@ -329,7 +327,7 @@
 						><Select.Trigger aria-label="Card to move"
 							>{newCard || 'Choose a card'}</Select.Trigger
 						><Select.Content
-							>{#each rows.filter((row) => !row.locked) as row}<Select.Item
+							>{#each rows.filter((row) => row.canEdit) as row}<Select.Item
 									value={row.doc.path}>{row.doc.path}</Select.Item
 								>{/each}</Select.Content
 						></Select.Root
@@ -384,7 +382,7 @@
 				>
 				<Table.Body>
 					{#each rows as row (row.doc.path)}
-						{@const { doc, fileEdit, shown, locked, error } = row}
+						{@const { doc, fileEdit, shown, canEdit } = row}
 						<Table.Row>
 							<Table.Cell
 								><Button variant="link" onclick={() => openSource(doc.path)}
@@ -405,7 +403,7 @@
 									{#if kind === 'boolean'}
 										<Checkbox
 											aria-label="{doc.path}: {column}"
-											disabled={locked}
+											disabled={!canEdit}
 											bind:checked={
 												() => fieldValue(shown.fields, column) === true,
 												(value) => fileEdit.change({ fields: { [column]: value } })
@@ -414,7 +412,7 @@
 									{:else if kind === 'string' || kind === 'number' || kind === 'integer'}
 										<Input
 											aria-label="{doc.path}: {column}"
-											disabled={locked}
+											disabled={!canEdit}
 											type={kind === 'number' || kind === 'integer'
 												? 'number'
 												: 'text'}
@@ -443,8 +441,11 @@
 								</Table.Cell>
 							{/each}
 							<Table.Cell>
-								{#if error}<p class="text-destructive">
-										{error.message}
+								{#if fileEdit.loadError}<p class="text-destructive">{fileEdit.loadError.message}</p>
+									<Button size="xs" variant="outline" onclick={() => void fileEdit.refresh()}>Read again</Button>
+								{/if}
+								{#if fileEdit.saveError}<p class="text-destructive">
+										{fileEdit.saveError.message}
 									</p>
 									<Button
 										size="xs"

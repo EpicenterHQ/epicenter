@@ -14,5 +14,4 @@
  * does none of that and opens nothing.
  */
 export * from './contract.js';
-export { updateSavedView } from './native/saved-views.js';
 export { openTauriFolder as openFolder } from './native/tauri.js';

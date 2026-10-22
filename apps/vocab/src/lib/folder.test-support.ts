@@ -88,13 +88,7 @@ export async function tableFiles(
 /** Save `text` at `path` whatever is there, as another program would. */
 export async function put(folder: VocabFolder, path: string, text: string) {
 	const current = expectOk(await folder.files.read(path));
-	expectOk(
-		await folder.files.write(
-			path,
-			current === undefined ? null : await current.content.text(),
-			text,
-		),
-	);
+	expectOk(await folder.files.write(path, text));
 }
 
 const storageRefused = (operation: string) =>

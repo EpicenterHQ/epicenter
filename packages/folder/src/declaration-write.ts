@@ -1,4 +1,4 @@
-/** Section-preserving declaration changes through the directory's existing CAS. */
+/** Pure view transforms and section-preserving schema installation. */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import {
@@ -8,8 +8,8 @@ import {
 } from './declaration.js';
 import { type SavedView, savedViewProblem } from './declaration-schema.js';
 import { hashBytes } from './hash.js';
+import { parseJsonObject } from './json-object.js';
 import { DEFINITION_PATH } from './paths.js';
-import { schemaSourceProblem } from './schema-source.js';
 import { confirmedPut, WRITE_ATTEMPTS } from './write.js';
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -52,7 +52,7 @@ export async function patchDeclaration(
 			storage,
 			DEFINITION_PATH,
 			bytes,
-			read.data?.sha256 ?? null,
+			read.data === null ? 'absent' : { sha256: read.data.sha256 },
 			await hashBytes(bytes),
 		);
 		if (put.error !== null) return Err({ reason: put.error.message });
@@ -63,58 +63,39 @@ export async function patchDeclaration(
 	});
 }
 
-/** A named view edit starts from the exact JSON entry the person read. */
+/** One named view assignment in the current declaration source. */
 export type SavedViewChange = {
 	key: string;
-	base: unknown | undefined;
 	value: SavedView | undefined;
 };
 
-/** Change only one view, preserving all other source entries on every CAS retry. */
-export async function changeSavedView(
-	storage: Pick<FolderStorage, 'read' | 'put'>,
-	{ key, base, value }: SavedViewChange,
-): Promise<Result<{ written: boolean }, { reason: string }>> {
+/**
+ * Compose a named view into the current source. This function performs no I/O;
+ * its caller replaces and saves the same file editor that supplied the source.
+ * Unrelated JSON entries, including unsupported views, remain opaque.
+ */
+export function changeSavedView(
+	text: string,
+	{ key, value }: SavedViewChange,
+): Result<string, { reason: string }> {
 	if (typeof key !== 'string' || key === '')
 		return Err({ reason: 'A saved view needs a name' });
 	if (value !== undefined) {
 		const problem = savedViewProblem(value);
 		if (problem !== undefined) return Err({ reason: problem });
 	}
-	if (base !== undefined) {
-		const problem = schemaSourceProblem(base);
-		if (problem !== undefined) return Err({ reason: problem });
-	}
-	// A pending publication owns its inputs even if the caller keeps editing.
-	const original = base === undefined ? undefined : structuredClone(base);
-	const desired = value === undefined ? undefined : structuredClone(value);
-	return patchDeclaration(storage, (current) => {
-		if (Object.hasOwn(current, 'views') && !isObject(current.views))
-			return Err({
-				reason: "The 'views' section is not an object; repair it in Files",
-			});
-		const views = (current.views ?? {}) as Record<string, unknown>;
-		const present = Object.hasOwn(views, key);
-		// A repeated or ambiguously acknowledged save succeeds once its desired
-		// entry is already present, even if the original base is now stale.
-		if (
-			desired === undefined
-				? !present
-				: present && sameJson(views[key], desired)
-		)
-			return Ok(current);
-		const matches =
-			original === undefined
-				? !present
-				: present && sameJson(views[key], original);
-		if (!matches)
-			return Err({
-				reason: `Saved view '${key}' changed since it was read; reload it before saving`,
-			});
-		const next = { ...views, [key]: desired };
-		if (desired === undefined) delete next[key];
-		return Ok({ ...current, views: next });
-	});
+	const parsed = parseJsonObject(text);
+	if (parsed.error !== null) return parsed;
+	const current = parsed.data;
+	if (Object.hasOwn(current, 'views') && !isObject(current.views))
+		return Err({
+			reason: "The 'views' section is not an object; repair it in Files",
+		});
+	const views = (current.views ?? {}) as Record<string, unknown>;
+	if (value === undefined && !Object.hasOwn(views, key)) return Ok(text);
+	const next = { ...views, [key]: value };
+	if (value === undefined) delete next[key];
+	return Ok(`${JSON.stringify({ ...current, views: next }, null, 2)}\n`);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

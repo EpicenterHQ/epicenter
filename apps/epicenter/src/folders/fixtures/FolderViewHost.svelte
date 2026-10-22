@@ -2,10 +2,9 @@
 <script lang="ts">
 	import type { FolderContext } from '@epicenter/svelte/folder';
 	import FolderEditor from '../FolderEditor.svelte';
-	import type { ViewUpdater } from '../views.svelte';
 
-	let { context, updateView }: { context: FolderContext<Record<never, never>>; updateView?: ViewUpdater } = $props();
+	let { context }: { context: FolderContext<Record<never, never>> } = $props();
 </script>
 
-<FolderEditor {context} {updateView} />
+<FolderEditor {context} />
 <output aria-label="Unsaved paths">{context.getStatus().unsaved.join(' ')}</output>

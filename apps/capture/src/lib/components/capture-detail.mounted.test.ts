@@ -11,8 +11,7 @@
  * Key behaviors:
  * - The capture text and Add a thought are shown at once and saved to the
  *   file
- * - Another tab's change never replaces typing held here; saving conflicts
- *   until an explicit whole-source resolution chooses the result
+ * - Another tab's change preserves accepted typing until the next publication
  * - A failed save says so, keeps the edit, and Save again lands it
  * - A thought typed and not added is the view's: it writes nothing, a
  *   refusal keeps it, leaving the capture clears it, and it stays visible to
@@ -31,7 +30,6 @@
 // IndexedDB on it rather than on the global the folder reads.
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
-import { unsavedOf, isMissing } from '../local-folder.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -41,6 +39,7 @@ import {
 	setWide,
 	type,
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { isMissing } from '../local-folder.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { openCaptures, until } = await import('../local-folder.test-support.js');
@@ -96,6 +95,12 @@ async function setup(
 		unmount(view);
 		await harness.close();
 	});
+	// Initial acquisition belongs to the editor subscription, not TanStack.
+	await until(() => {
+		flushSync();
+		const snapshot = harness.folder.tables.captures.edit('one').getSnapshot();
+		return snapshot.content !== undefined || snapshot.loadError !== undefined;
+	}, 'the initial editor acquisition');
 	await settle(harness);
 	return { ...harness, target };
 }
@@ -153,7 +158,7 @@ test('two mounted capture views update each other and an intentional revert is s
 	}
 });
 
-test("another tab's change leaves typing pinned until a whole-source resolution", async () => {
+test("another tab's change preserves typing until the next whole-file publication", async () => {
 	// Hold typing until the foreign change has arrived, then resolve explicitly.
 	const harness = await setup({ [PATH]: FILE }, 'capture', {
 		saveAfterMs: 60_000,
@@ -171,10 +176,10 @@ test("another tab's change leaves typing pinned until a whole-source resolution"
 
 	const edit = harness.folder.files.edit(PATH);
 	await edit.save();
-	expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
-	expect(await harness.text(PATH)).toBe(`${FILE}- theirs\n`);
+	expect(edit.getSnapshot().saveError).toBeUndefined();
+	expect(await harness.text(PATH)).toBe(saved('Mine'));
 	expectOk(edit.replaceText(saved('Mine', '- first\n- theirs\n')));
-	await edit.resolveConflict('draft');
+	await edit.save();
 	await settle(harness);
 	expect(field('capture-text')?.value).toBe('Mine');
 	expect(harness.target.textContent).toContain('theirs');
@@ -209,16 +214,12 @@ test('failed row input stays copyable in the text view after switching and forei
 	const restore = harness.failSaves();
 	type(field('capture-text'), 'Kept row input');
 	blur(field('capture-text'));
-	expect(unsavedOf(harness.folder.files.edit(PATH))?.status === 'saving').toBe(
-		false,
-	);
+	expect(harness.folder.files.edit(PATH).getSnapshot().isSaving).toBe(false);
 	await harness.captures.open('one', 'text');
 	flushSync();
-	expect(unsavedOf(harness.folder.files.edit(PATH))?.status === 'saving').toBe(
-		false,
-	);
+	expect(harness.folder.files.edit(PATH).getSnapshot().isSaving).toBe(false);
 	await until(
-		() => unsavedOf(harness.folder.files.edit(PATH))?.error !== undefined,
+		() => harness.folder.files.edit(PATH).getSnapshot().saveError !== undefined,
 		'the failed autosave after leaving the row view',
 	);
 	restore();
@@ -399,6 +400,8 @@ test('while the folder closes, the text boxes take nothing', async () => {
 	type(field('new-thought'), 'Too late');
 	submit(field('new-thought')?.form);
 	flushSync();
-	expect(unsavedOf(harness.folder.tables.captures.edit('one'))).toBeUndefined();
+	expect(harness.folder.tables.captures.edit('one').getSnapshot().isDirty).toBe(
+		false,
+	);
 	expect(await harness.text(PATH)).toBe(FILE);
 });

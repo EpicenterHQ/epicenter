@@ -271,7 +271,7 @@ export function createBrowserRecorder(
 				release(stream);
 				if (error !== null) return Err(error);
 				if (bytes.byteLength === 0) return RecorderError.Empty();
-				const { error: writeError } = await folder.write(file, null, bytes);
+				const { error: writeError } = await folder.write(file, bytes);
 				if (writeError !== null)
 					return RecorderError.Refused({ reason: writeError.message });
 				return Ok({ path: file, durationMs });

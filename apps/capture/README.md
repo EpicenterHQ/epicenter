@@ -48,19 +48,19 @@ OPFS captures shows an empty current timeline.
   and saves like any edit. **Add capture** finishes that same file, appending
   the Thoughts section and
   setting `capturedAt` to the time of Add. **Discard draft…** asks before
-  deleting it; if its input cannot save or deletion fails, the draft remains
-  and the failure is shown.
+  deleting it. Deletion does not require pending input to save first; a
+  failed deletion keeps the file and reports the failure.
 - **Edit as text** opens the capture's file, frontmatter included, as
   Markdown to edit directly. Anything Markdown allows can go there,
   unfinished or not. A thought's Edit as text opens the same file with that
   thought's lines selected. **Open as capture** goes back once the file reads
   as a capture.
 - **More** holds Copy capture text, Download file, and **Delete capture**.
-  Download saves the edit first and downloads the file as saved. Deleting
+  Download exports the current acquired text, including unsaved input,
+  without writing to the folder. Deleting
   asks first and says a deleted capture cannot be brought back: there is no
-  history. It waits for your edits to be saved, then deletes the file as it
-  is stored then; a file another tab changed in that moment is kept, and a
-  notice says so.
+  history. Deletion enters the same publication lane as saves without
+  flushing input first. New input remains accepted and may recreate it.
 
 One capture is open at a time. Moving a thought to another capture has no
 control: cut it from one capture and paste it into the other.
@@ -80,8 +80,8 @@ are not text are listed apart and not opened.
   you typed, held by the folder's edit of the row
   (`folder.tables.captures.edit(stem)`) over the capture as stored. What
   the page reads from the folder never replaces it, and a failed reread never
-  shows the capture older than your last save. Another writer's changed source
-  causes a whole-file conflict when your edit saves. A thought you add, delete, or move is saved at
+  hides acquired text after a failed refresh. Every save replaces the whole
+  file; the last whole-file publication wins. A thought you add, delete, or move is saved at
   once. The capture text is saved a second after you stop typing, even after you
   open something else. Saves of one
   capture run one at a time, and what you typed while one ran goes in the
@@ -91,20 +91,17 @@ are not text are listed apart and not opened.
   (text that opens a code fence and would absorb the Thoughts section, say)
   is not applied, the reason is shown, and the text returns to what it was.
   Edit as text to write unfinished Markdown.
-- Each edit changes one displayed source draft. If another tab changes or
-  deletes that file before the save, the draft stays visible and the save
-  reports a whole-file conflict. The capture and text views offer both
-  sources for comparison, plus explicit choices to keep the saved file or
-  replace it with the draft.
+- Accepted input remains editable if another writer changes, deletes, or
+  replaces the file with binary content. New input or Save again can recreate
+  it. There is no merge or conflict-resolution mode.
 - A save that fails keeps your edit on screen. The capture says **Your edit
   is not saved** with the reason, and offers Save again, Copy your text, and
   Discard edit. The header says Not saved, and the timeline names every
   capture with a failed save. Your next change saves it again too.
 - A save writes the row with only its body replaced: frontmatter keys
   Capture does not declare, and their spelling, stay.
-- Edit as text saves the whole text over the file it started from, a second
-  after you stop typing, even after you open something else, valid or not, and keeps the file's line endings. A changed outside source
-  requires an explicit resolution. What keeps the file
+- Edit as text publishes its complete current text, a second
+  after you stop typing, even after you open something else, valid or not, and keeps the file's line endings. What keeps the file
   from reading as a capture is checked against the current edit as you type.
   Open as capture switches views when that edit reads as a capture, without
   waiting for a save. Both views show the same Folder-owned input.
@@ -140,14 +137,13 @@ hides Add. Manually removing `draft: true` makes the file a completed capture
 without composing its body or updating its date. Use Add to finish it instead.
 Capture writes no new drafts. A nonboolean `draft` value needs repair as text.
 
-`captures.finishDraft(stem)` reserves the file through a Folder
-action (`folder.run([path], action)`), saves raw input first, then writes the
-composed body, removes `draft`, and sets `capturedAt` together. A failed promotion keeps the raw draft.
-Retrying an already-finished file succeeds without composing it again.
-If another tab finishes the file while local source is held, that source stays
-pinned and its save reports a conflict. Accepting the saved capture or
-explicitly replacing it resolves that conflict; retrying alone does not merge
-the unfinished source into the completed capture.
+`captures.finishDraft(stem)` enters `folder.run(action)` to keep the admitted
+workflow alive through close. Admission does not reserve or flush the file.
+Promotion composes the editor's current content, including unsaved writing,
+removes `draft`, and sets `capturedAt` in the same publication. A failed
+promotion keeps the original acquired writing for explicit retry. Retrying
+composes that writing once, without appending another Thoughts section. Input accepted
+while promotion is saving stays current and is published afterward.
 
 ## How it is wired
 
@@ -171,19 +167,20 @@ once and waits for the saves.
 
 The folder owns one edit per capture path. Both the capture view and Edit as
 text use `createFileEdit(folder.tables.captures.edit(stem))` from
-`@epicenter/svelte/edits`. The adapter's `markdown` provides the current fields,
-body, and diagnostics; `text` provides its exact source. Structured controls
+`@epicenter/svelte/edits`. The adapter's `content` provides exact text with its interpreted fields,
+body, and issues. Structured controls
 call `change({ fields, body })`; Edit as text calls `replaceText(text)`.
 Switching between valid views saves and refreshes nothing: both show the same
 unsaved input and any save failure. The current editable document determines
 whether it can be shown as a capture.
 
-The vanilla edit exposes `getBuffer()`; its Svelte adapter exposes `.buffer`.
-A ready buffer holds exact `text` and optional `unsaved` state (`dirty`,
-`saving`, `failed`, or `conflict`). Non-save feedback is `buffer.error`.
-Reading `.buffer`, `.text`, or `.markdown` reactively starts the first read;
-views need no separate mount-time read. Folder-wide save indicators read
-aggregate status without opening file contents.
+The neutral editor's `getSnapshot()` is a pure cached read. Its Svelte
+adapter exposes tracked `content`, `loadError`, `isDirty`, `isSaving`, and
+`saveError` getters. Observation activates initial reading; there is no editor
+query or mirrored component state. Dirty publication intent and admitted
+saving operations are independent. Acquired content survives view unmount,
+clean deletion, binary replacement, and failed refresh for the folder lifetime.
+Folder-wide save indicators observe aggregate status without opening files.
 
 `hostAppViteConfig` (from `@epicenter/vite-config`) points the bare
 `@epicenter/folder` specifier at one entry per build, so each build emits
@@ -192,8 +189,8 @@ one adapter.
 ## Desktop
 
 The host build opens the directory Epicenter's shell grants its window.
-It uses the same Folder row interpretation and whole-source draft guards as
-the browser, with guarded directory writes. A missing grant is shown as a refusal. Git and remote
+It uses the same Folder row interpretation and whole-file publications as
+the browser, with ordered directory writes. A missing grant is shown as a refusal. Git and remote
 actions remain absent.
 
 ## Layout
@@ -234,7 +231,7 @@ profile stands in for another tab.
 | `src/lib/captures.test.ts` | The store over a real local folder: Add writing one finished capture, blank and failed Add writing nothing, timeline order and repairs, undeclared frontmatter, outside writes, failed saves and retries, thought commands, CRLF text, unfinished Markdown, repair as text, deletion, and close. |
 | `src/lib/compositions.test.ts` | Drafts an earlier version saved: listed apart and read back exactly, finished as the same file with `composeBody`, blank finish refused, failed autosave/finish/discard kept, retry without duplicate Thoughts, close during finish, and another tab finishing while input is held. |
 | `src/lib/bundle.test.ts` | Which folder adapter each build bundles: the installed bundle has the desktop adapter and no browser adapter, local folder engine, OPFS store, or Node module; the browser bundle has the browser adapter and the local folder engine; neither has the older `FolderApp`. |
-| `src/lib/components/*.mounted.test.ts` | The real views and page mounted in jsdom: New capture writing nothing before Add, thought input and source editing, an outside change pinning a draft until explicit resolution, failed saves and retries, draft repair, CRLF, close, and the failure list. jsdom has no layout, selection, or IME. |
+| `src/lib/components/*.mounted.test.ts` | The real views and page mounted in jsdom: New capture writing nothing before Add, thought input and source editing, an outside change preserving accepted input until publication, failed saves and retries, draft repair, CRLF, close, and the failure list. jsdom has no layout, selection, or IME. |
 
 | Script | What it checks |
 | --- | --- |
@@ -251,11 +248,11 @@ and drops these promises of the version before it:
 - The desktop build uses the native Folder over its granted directory.
 - Captures an earlier browser build kept in OPFS are not shown; the current
   IndexedDB timeline opens independently.
-- A deleted capture with a dirty draft remains recoverable. Recreating the
-  file requires an explicit whole-source resolution.
-- Edit as text keeps a conflicting draft available for comparison and copy.
-- What keeps a file edited as text from reading as a capture is read from
-  the file as saved, a moment after typing pauses, not live from the text.
+- A deleted capture with a dirty draft remains recoverable. New input or Save again can
+  recreate the file.
+- Edit as text keeps acquired content available after refresh failures.
+- What keeps a file edited as text from reading as a capture is checked
+  against current content while typing.
 - A failed save is shown in the capture and listed on the timeline, not as a
   toast.
 - A capture's frontmatter keeps its own spelling on a body save, where

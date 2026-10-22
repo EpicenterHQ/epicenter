@@ -3,6 +3,7 @@
 import { unwrap } from 'wellcrafted/result';
 import { changeSnapshot, emptyTree } from '../src/browser/git/snapshot.js';
 import { openRepository } from '../src/browser/repository.js';
+import { writeRow } from '../src/browser/row-writes.test-support.js';
 import { snapshotObject } from '../src/browser/storage.js';
 import { prepareCommit } from '../src/browser/sync.js';
 import {
@@ -33,10 +34,14 @@ const author = () => ({
 async function writeValue(field: 'a' | 'b', value: number) {
 	const start = performance.now();
 	draft = unwrap(
-		await repository.tables.notes.set('one', draft, {
-			fields: { [field]: value },
-		}),
-	).sent;
+		await writeRow(
+			repository,
+			'notes',
+			'one',
+			{ fields: { [field]: value } },
+			schema,
+		),
+	);
 	latencies.push(performance.now() - start);
 }
 
@@ -53,11 +58,14 @@ export const client = {
 	},
 	async seed() {
 		draft = unwrap(
-			await repository.tables.notes.set('one', null, {
-				fields: { a: 0, b: 0 },
-				body: 'First\n\nLast\n',
-			}),
-		).sent;
+			await writeRow(
+				repository,
+				'notes',
+				'one',
+				{ fields: { a: 0, b: 0 }, body: 'First\n\nLast\n' },
+				schema,
+			),
+		);
 	},
 	async observeEmpty() {
 		const { state } = await repository.storage.capture([]);
@@ -72,7 +80,7 @@ export const client = {
 			throw new Error('Empty observation raced a save');
 	},
 	async addSharedFile() {
-		unwrap(await repository.files.write('shared.txt', null, 'shared snapshot'));
+		unwrap(await repository.files.write('shared.txt', 'shared snapshot'));
 	},
 	async sharedText() {
 		const file = unwrap(await repository.files.read('shared.txt'));
@@ -87,10 +95,14 @@ export const client = {
 	async paragraph(which: 'First' | 'Last', text: string) {
 		if (draft === null) throw new Error('No draft to edit');
 		draft = unwrap(
-			await repository.tables.notes.set('one', draft, {
-				body: draft.body!.replace(which, text),
-			}),
-		).sent;
+			await writeRow(
+				repository,
+				'notes',
+				'one',
+				{ body: draft.body!.replace(which, text) },
+				schema,
+			),
+		);
 	},
 	async commitLoop(count: number) {
 		for (let attempt = 0; attempt < count; attempt++) {
@@ -240,9 +252,7 @@ export const client = {
 			).length;
 		}
 		const start = performance.now();
-		unwrap(
-			await repository.files.write('archive/0/file.txt', '0\n', 'edited\n'),
-		);
+		unwrap(await repository.files.write('archive/0/file.txt', 'edited\n'));
 		const saveMs = performance.now() - start;
 		// Compare scoped reads before and after a large offline save backlog.
 		const backlog = new Map(

@@ -13,7 +13,7 @@ src/                        the page      the UI; opens the folder bound to its 
 ┌───────────── Epicenter's shell (Rust) ─────────────┐
 │ binds one folder to each Whispering window before  │
 │ it exists; tauri-plugin-epicenter-folder makes     │
-│ checked reads and changes under its save lock      │
+│ checked reads and ordered whole-file publications      │
 │ tauri-plugin-epicenter-recorder: audio into folder │
 │ local transcription with the one active model      │
 └──────────────────────▲─────────────────┬───────────┘
@@ -67,12 +67,13 @@ schema only interprets (ADR-0632): a row that does not fit comes back with its
 exact source and its issues, and a save never validates, so a field another
 program added survives every edit. A table owns exactly one Markdown file per
 row; any other file is an ordinary file reached through `folder.files`.
-`FileEdit` holds one exact source draft per path. Its save compares against
-the source observed when editing began; changed storage causes a whole-file
-conflict and leaves the draft pinned until explicitly resolved. Direct table
-and file writes retain their guarded merge behavior, including the result
-publication described below. The package's
-[README](../../packages/folder/README.md) is the contract.
+`FileEdit` owns one cached snapshot per path. Its content supplies exact text,
+fields, body, and interpretation issues. `createFileEdit` exposes tracked getters
+for Svelte; input uses commands through function bindings. Views hold no copy
+of the document. Acquired text survives unmount, deletion, binary replacement,
+and failed reads. Only accepted local input initiates autosave. All file and
+table publications share the folder's per-path lane and the last publication
+wins. The package's [README](../../packages/folder/README.md) is the contract.
 
 `definition.ts` builds the table schemas with `@epicenter/definition` and
 TypeBox. Schemas interpret the files; they do not own their persistence.
@@ -241,12 +242,12 @@ The page reads those lines into a `Response` with `createResponseReader`
 from `@epicenter/ai/send`. The request never leaves from the page, so the
 endpoint needs no CORS headers.
 
-Before preparing a transcription, the run saves accepted edits and reads the
-recording again. It uses the current audio path even when the list has not
-refreshed; missing, malformed, or unsaved recording input sends nothing. Running
-a result again also saves its accepted input before deciding whether it is
-unfinished. Provider requests are checked again for close and deletion after
-preparation and initial result saving.
+Before preparing a request, the run captures valid current owner content. It
+reads the input only if it has not been acquired and never saves source files
+as part of preparation. Current audio siblings are discovered independently of
+the listing. Running a result again inspects its held body and checks that its
+own durable record still exists. Close and recording-deletion checks run again
+after preparation and initial result publication.
 
 A transcription reads its audio through the folder engine, from the path the
 recording's row names, and sends those bytes with the file's own name and the
@@ -295,8 +296,8 @@ It reads the root `.gitignore` and inserts the four Markdown-only defaults befor
 existing text, after any BOM, if that ordered block is missing. An existing block
 stays where it is. Authored rules after it and nested `.gitignore` files can
 override the defaults; Git alone determines commit eligibility. The exact bytes
-read are the base of an ordinary `files.write`, preserving unrelated source.
-A write is followed by a read to check that the root block survived merging.
+read are preserved in an ordinary whole-file `files.write` publication.
+A write is followed by a read to check that the root block remains present.
 A refusal becomes `exclusionNotice`, shown by
 the shell while Files and other work remain available. Reload checks a repair.
 No Git or provider request is made.
@@ -479,14 +480,12 @@ exposes it as `whispering.resolve`, and the Run check, the post-processing
 choice, a transcript's Transform menu, the recipe's page, and both run entry
 points call it, so they cannot disagree.
 
-`whispering.transform` applies a saved recipe to a saved transcript, both named
-by path. Nothing is taken from a list entry, which may predate an edit or a
-deletion made outside. It saves open edits to either file (and refuses if
-they cannot be saved), then reads the recipe and resolves it, then the
-transcription row and the recording that row names. A missing, malformed, or
-empty transcript, or a missing recording, refuses and nothing is sent.
-`whispering.transformText` applies a saved recipe to pasted text; the text is
-taken when it is called, and needs no recording.
+`whispering.transform` captures the current held recipe and transcript, both
+named by path. Unacquired input is read once; acquired input remains usable
+through later storage failures or deletion. Invalid or empty input and a missing
+related recording refuse the request. Preparation publishes neither input.
+`whispering.transformText` captures a recipe and pasted text without a recording.
+The result records the exact prompt and input before its backend request.
 
 Both fix a run before anything is sent: the result's stem, and every field the
 result row will hold, including the instructions, input, model, and the text
@@ -495,17 +494,14 @@ recording, the time, the model, and the transcription connection's base URL.
 Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
 
 1. Its result row is saved with those fields and an empty body
-   (`table.set(id, null, …)`) before the request goes out. A row that cannot
+   (`table.set(id, …)`) before the request goes out. A row that cannot
    be saved refuses, and nothing is sent.
 2. The request goes out. While it is out the row shows as running.
-3. The answer is saved into the row with `table.set(id, from, { body })`,
-   where `from` is the row with the empty body the run wrote, so the folder
-   merges it into the file as it is now (ADR-0632): a field someone changed
-   meanwhile stays, and the same answer filled elsewhere is written once. A
-   row that is gone was discarded and is not written: the fill reads the row
-   first and writes nothing when it is gone. A save that fails is tried again
-   after a wait that doubles from half a second to thirty seconds, for as long
-   as the window is open.
+3. The answer is saved into the current row with `table.set(id, { body })`.
+   A row already absent when checked is left absent. The read and publication
+   are separate operations; a deletion racing a later admitted answer may be
+   followed by that publication. A failed publication is retried after a wait
+   that doubles from half a second to thirty seconds while the window is open.
 
 Nothing that says what is happening is written. What a row shows is derived
 from its body and this window's live state:
@@ -546,22 +542,13 @@ starts for that recording. A failed run holds nothing; it is dropped with the
 recording. Results on pasted text name no recording, so they are neither
 deleted with one nor in the way of deleting one, readable or not.
 
-What a deletion of a recording or transformation path removes is decided by
-its file as read after the typing held for it saved, not by the last
-listing. Before any delete, `folder.run(paths, action)` reserves
-all confirmed paths and attempts their held input once. If any input cannot
-save, no file is deleted. The action reads and conditionally deletes each
-file through the work scope’s `files` methods, for both rows and other files.
-The result listing also uses that admitted scope, so it remains readable when
-close begins during the deletion.
-A file that does not read as a row is deleted alone; its results stay because
-nothing in that file says which results are its own.
-Each delete names what it read (ADR-0632), so a
-file another program changes in that very moment is kept, and the person is
-told. For a recording, the same guards hold by its name: the capture and the
-confirmation both refuse while work for that recording is running, and
-nothing new starts for it from the deletion's reservation through its result
-reads and final deletes.
+The confirmation reads current row metadata and result membership. It does not
+save pending input. A malformed recording or transformation is deleted alone,
+so its results remain. `folder.run(action)` admits the workflow for close
+accounting without reserving paths or flushing edits. Each `files.delete(path)`
+publishes removal in that path's command lane. Successful deletion consumes only
+its captured unsubmitted input; input accepted later remains pending. A partial
+cascade failure reports the result files that could not be removed.
 
 ## Editing through Folder
 
@@ -574,30 +561,22 @@ the Svelte edits expose tracked properties over its read methods. A read never r
 - **Reads** use the context's generated queries. One Folder change listener
   invalidates affected representations, and visible queries poll for outside
   edits. Save completion and closing do not wait for display refresh.
-- **One file editor** uses `folder.tables.recordings.edit(id)` for a typed
-  collection or `folder.files.edit(path)` for a path. Both return `FileEdit`:
-  `getMarkdown()` reads fields, body, exact text and issues; `getText()` reads
-  text without parsing. `change({ fields?, body? })` combines structured changes;
-  `replaceText(text)` replaces the whole file. `createFileEdit(handle)` exposes
-  tracked `.markdown` and `.text` properties and shares the core commands.
-  Each view keeps one adapter for its address, including when it switches
-  between fields and Source. Autosave policy is configured when opening Folder.
-  Folder owns one document, input, save ordering, and failure per physical path.
-  Switching views requires no save or refresh; the owner’s autosave timer
-  continues after blur or unmount. FolderApp handles page-hidden and close saves. A mounted Source control keeps
-  Source selected through external repairs until the person returns to fields. Failed input and recovery remain
-  available even if the saved file can no longer be interpreted.
-- **A failed save** keeps the typing. The file's status line says **Not
-  saved** with **Try again** and **Discard** (`SaveStatus.svelte`). Try again retries
-  it; accepted new typing clears the error and may autosave. A run, rename,
-  deletion or close attempts current input, including previously failed input.
-  Discard leaves the file as it is and offers
-  what was typed to copy. A failed save of a file's whole text is also told
-  with the shared failure toast. Whispering emits the shared `WriteFailure`
-  directly; the app root passes it to `toastWriteFailure`.
-- **A row deleted elsewhere** with typing held for it comes back with that
-  typing: an unseen deletion never erases an edit (ADR-0632). With nothing
-  typed it stays deleted.
+- **One file editor** comes from `folder.tables.recordings.edit(id)` or
+  `folder.files.edit(path)`. Its cached `getSnapshot()` contains `content`,
+  `loadError`, `isDirty`, `isSaving`, and `saveError`. Content carries exact text,
+  interpreted fields and body, and issues. `subscribe` emits immediately and
+  activates initial reading. `createFileEdit(handle)` exposes tracked getters
+  over this same snapshot. Function bindings call `change` or `replaceText`.
+  Switching views requires no save or reread. Autosave continues after unmount.
+- **A failed save** keeps its accepted input and error. The status offers
+  **Try again** and **Discard**. New typing may autosave; only a successful
+  publication or explicit discard clears the save failure. A run captures held input
+  without publishing it. Discard drops unsubmitted intent and returns
+  its source to copy; it does not cancel admitted publications or restore an
+  earlier storage version. Shared failure toasts carry the recoverable source.
+- **Acquired source** remains available after clean deletion, binary replacement,
+  failed refresh, and unmount. A retained source stays editable and new input
+  can recreate a deleted file. Storage observations never initiate a write.
 - **A value the schema does not accept** is saved as written, and the row is
   listed for repair. A field change leaves the rest of the file's bytes as
   they were; text typed into a body saves with LF line endings (ADR-0572).
@@ -609,14 +588,15 @@ the Svelte edits expose tracked properties over its read methods. A read never r
   which the audio's "settling" state reads. Waiting on an endpoint is not
   tracked, so a request that does not answer never keeps the app from
   closing. An answer's write, each retry, and a Stop's length write are each
-  admitted with `folder.run([], ...)`: once the folder is closing, they write
+  admitted with `folder.run(action)`: once the folder is closing, they write
   nothing, even while other admitted work keeps its close waiting.
 
 Whispering retains view selection, connection forms, pasted text, capture
 state, and answers whose files are not written. Folder retains accepted
-file edits. Renaming a file saves its typing, saves its exact
-bytes under the new name, then deletes the old name as read; the selection
-follows it. Recording and transformation files keep their names. When
+file edits. Rename copies held source or current bytes to the new name, then
+deletes the source. If current held text differs from the copied source, the
+source stays and the app reports both paths. Identical text is already preserved
+at the destination. Otherwise the selection follows the new name. Recording and transformation files keep their names. When
 Whispering is disposed, it starts `context.close()` synchronously, so all core
 and Svelte handles refuse new input and actions. Disposal returns immediately.
 The folder drains accepted saves and admitted file actions, including their

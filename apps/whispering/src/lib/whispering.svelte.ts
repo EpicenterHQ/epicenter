@@ -12,9 +12,8 @@
  * FileEdit interface, selected through a typed table or file path. Each
  * failed save is reported. Folder saves a second after the last
  * change. The source draft remains owned by Folder after the view leaves.
- * Each save compares against the source observed when typing began;
- * changed saved source causes a conflict and keeps the typing pinned until
- * explicitly resolved. A save that fails keeps what is typed and is reported.
+ * Saves publish complete sources in call order. A failed publication keeps
+ * the accepted input and is reported. Reads never initiate publication.
  *
  * Closing waits for nothing here: `dispose` refuses new work and late answers
  * and returns. Folder close drains admitted saves and file actions, including
@@ -35,10 +34,7 @@ import type { Row } from '@epicenter/folder';
 import type { Recovery } from '@epicenter/folder/edits';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import { createFileEdit, type FileEdit } from '@epicenter/svelte/edits';
-import {
-	unsavedText,
-	type WriteFailure,
-} from '@epicenter/svelte/write-failure';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
 	type QueryFunctionContext,
@@ -163,8 +159,6 @@ export type RecorderState =
 	| { readonly phase: 'stopping' };
 
 const CLOSING = 'Whispering is closing, so nothing was changed.';
-const UNSAVED =
-	'Typing in this file did not save yet. Save or discard it first.';
 const RECORDING_NAME =
 	'A recording’s file is named by its ID, which its transcription results refer to. Change the title instead.';
 const RECORDING_AUDIO_NAME =
@@ -478,7 +472,7 @@ export function createWhispering(context: WhisperingContext) {
 	}
 	// Each save of a file's text that fails is told once, with the text to
 	// copy, a save and a discard: a failure the folder reports that was not
-	// reported before. Typing over failed text clears it and tells nothing.
+	// reported before. The failure remains until publication succeeds or is discarded.
 	let told = new Set<Recovery>();
 	const stopTelling = folder.onStatusChange(({ failures }) => {
 		const failed = new Set<Recovery>();
@@ -496,10 +490,7 @@ export function createWhispering(context: WhisperingContext) {
 					void folder.files.edit(path).save();
 					return true;
 				},
-				discard: () => {
-					const discarded = folder.files.edit(path).discard();
-					return discarded.data?.text;
-				},
+				discard: () => folder.files.edit(path).discard(),
 			});
 		}
 		told = failed;
@@ -518,16 +509,9 @@ export function createWhispering(context: WhisperingContext) {
 		if (asText.has(path)) return true;
 		const stem = rowIdOf(table, path) as string;
 		const row =
-			editAt(table, path).markdown ??
+			editAt(table, path).content ??
 			listed(table)?.find((item) => item.id === stem);
 		return row !== undefined && row.issues !== null;
-	}
-
-	/** Send the typing held for `path`, row or text; answers whether some still did not save. */
-	async function settlePath(path: string): Promise<boolean> {
-		const fileEdit = folder.files.edit(path);
-		await fileEdit.save();
-		return folder.getStatus().unsaved.includes(path);
 	}
 
 	/** After a rename: the caches and the selection follow the file. */
@@ -648,7 +632,6 @@ export function createWhispering(context: WhisperingContext) {
 		refused,
 		connections: () => ({ info: connections, error: connectionsError }),
 		resolve,
-		settle: settlePath,
 		deleting,
 		isCapturing,
 		track,
@@ -730,19 +713,15 @@ export function createWhispering(context: WhisperingContext) {
 			// The length is written only if the folder admits it now: one that
 			// began closing while the row saved takes no length, whatever else
 			// its close still waits for.
-			const written = await folder.run([], async () => {
+			const written = await folder.run(async () => {
 				const { data: stored, error } = await folder.tables.recordings.get(id);
 				if (error !== null)
 					return `The recording is saved, but its length could not be written: ${describeError(error)}`;
 				// A row deleted meanwhile stays deleted.
 				if (stored === undefined) return undefined;
-				const { error: saveError } = await folder.tables.recordings.set(
-					id,
-					stored,
-					{
-						fields: { durationMs: stopped.durationMs },
-					},
-				);
+				const { error: saveError } = await folder.tables.recordings.set(id, {
+					fields: { durationMs: stopped.durationMs },
+				});
 				return saveError === null
 					? undefined
 					: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
@@ -792,7 +771,6 @@ export function createWhispering(context: WhisperingContext) {
 
 	const deletionContext = (): DeletionContext => ({
 		folder,
-		settle: settlePath,
 		busy: (id) =>
 			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
 		audioOf: (path) => {
@@ -844,7 +822,7 @@ export function createWhispering(context: WhisperingContext) {
 			id: string,
 			{ title, prompt }: { title: string; prompt: string },
 		) => {
-			const { error } = await folder.tables.transformations.set(id, null, {
+			const { error } = await folder.tables.transformations.set(id, {
 				fields: { title, model: null },
 				body: prompt,
 			});
@@ -852,24 +830,12 @@ export function createWhispering(context: WhisperingContext) {
 		},
 	);
 
-	/** Delete row `stem` of a result table as it is stored, after its typing saved. */
+	/** Delete a result through the folder's path publication lane. */
 	function deleteResult(table: typeof TRANSFORMATION_RUNS | typeof TEXT_RUNS) {
 		return async (entry: { readonly stem: string; readonly path: string }) => {
-			const outcome = await folder.run([entry.path], async () => {
-				const read = await folder.tables[table].get(entry.stem);
-				if (read.error !== null) return describeError(read.error);
-				const { data, error } = await folder.tables[table].delete(
-					entry.stem,
-					read.data ?? null,
-				);
+			const outcome = await folder.run(async () => {
+				const { error } = await folder.tables[table].delete(entry.stem);
 				if (error !== null) return describeError(error);
-				if (!data.deleted) {
-					// Kept because it changed, or already gone, here or elsewhere.
-					const still = await folder.tables[table].get(entry.stem);
-					if (still.error !== null) return describeError(still.error);
-					if (still.data !== undefined)
-						return `${entry.path} changed meanwhile, so it was kept.`;
-				}
 				if (!fenced) deleted(entry.path);
 				return undefined;
 			});
@@ -979,7 +945,7 @@ export function createWhispering(context: WhisperingContext) {
 		},
 		/**
 		 * What the recordings page shows. A missing recording stays selected
-		 * while it holds input that has not saved.
+		 * while its owner retains usable source.
 		 */
 		get selection(): Selection | undefined {
 			const path = selectedPath;
@@ -990,7 +956,8 @@ export function createWhispering(context: WhisperingContext) {
 			if (
 				read !== undefined &&
 				!read.paths.has(path) &&
-				!context.getStatus().unsaved.includes(path)
+				!context.getStatus().unsaved.includes(path) &&
+				folder.files.edit(path).getSnapshot().content === undefined
 			)
 				return undefined;
 			return {
@@ -1011,7 +978,8 @@ export function createWhispering(context: WhisperingContext) {
 			if (
 				read !== undefined &&
 				!read.paths.has(path) &&
-				!context.getStatus().unsaved.includes(path)
+				!context.getStatus().unsaved.includes(path) &&
+				folder.files.edit(path).getSnapshot().content === undefined
 			)
 				return undefined;
 			return {
@@ -1035,29 +1003,28 @@ export function createWhispering(context: WhisperingContext) {
 			noticeListeners.add(listener);
 			return () => noticeListeners.delete(listener);
 		},
-		/** Whether a save of `path` runs or waits, or typing there waits to be sent; read reactively. */
+		/** Whether a text publication for this path is admitted and unsettled. */
 		isSaving(path: string) {
-			const { unsaved, failures } = context.getStatus();
-			return unsaved.includes(path) && !failures.some((failure) => failure.path === path);
+			return editAt(path).isSaving;
 		},
-		/** The held source and error of a failed save, without starting a content read. */
+		/** The folder's latest failed publication for this path. */
 		getWriteFailure(path: string) {
-			return context.getStatus().failures.find((failure) => failure.path === path);
+			return context
+				.getStatus()
+				.failures.find((failure) => failure.path === path);
 		},
-		/** Whether typing at `path` did not save, with no save running; read reactively. */
+		/** Whether accepted local input remains to publish. */
 		isUnsaved(path: string) {
-			return context.getStatus().failures.some((failure) => failure.path === path);
+			return editAt(path).isDirty;
 		},
 
 		/**
 		 * Let go of what is typed into `path` and did not save, leaving the file
 		 * as it is. Answers what was let go, for the person to copy, or
-		 * undefined when nothing was held or a save of it is running.
+		 * undefined when no unsubmitted input was held.
 		 */
 		discard(path: string): string | undefined {
-			const discarded = folder.files.edit(path).discard();
-			if (discarded.error !== null || discarded.data === undefined) return undefined;
-			return unsavedText(discarded.data);
+			return folder.files.edit(path).discard();
 		},
 		/** Whether a save runs, or typing waits to be sent; read reactively. */
 		get saving() {
@@ -1086,7 +1053,7 @@ export function createWhispering(context: WhisperingContext) {
 			const why = refused();
 			if (why !== undefined) return why;
 			const fileEdit = editAt(path);
-			if (fileEdit.markdown?.issues !== null) return STILL_TEXT;
+			if (fileEdit.content?.issues !== null) return STILL_TEXT;
 			asText.delete(path);
 			return undefined;
 		},
@@ -1117,7 +1084,7 @@ export function createWhispering(context: WhisperingContext) {
 		},
 		/** Maintain exclusions, recover audio, then read and observe the app's data. */
 		start(): Promise<void> {
-			return (starting ??= (async () => {
+			starting ??= (async () => {
 				try {
 					if (fenced) throw new Error(STOPPED);
 					const { error } = await maintainExclusions(folder.files);
@@ -1164,7 +1131,8 @@ export function createWhispering(context: WhisperingContext) {
 					dispose();
 					throw stopped ? new Error(STOPPED) : cause;
 				}
-			})());
+			})();
+			return starting;
 		},
 
 		// ------------------------------------------------------------------
@@ -1308,7 +1276,7 @@ export function createWhispering(context: WhisperingContext) {
 				capture: services.capture.source,
 			};
 			const creating = track(
-				() => folder.tables.recordings.set(id, null, { fields, body: '' }),
+				() => folder.tables.recordings.set(id, { fields, body: '' }),
 				rowPath(RECORDINGS, id),
 			);
 			// Stop awaits this capture's own initial row save.
@@ -1393,12 +1361,9 @@ export function createWhispering(context: WhisperingContext) {
 		readConnections,
 
 		/**
-		 * Rename a file within its directory: its exact bytes are saved at the
-		 * new name, then the old name is deleted as it was copied. Recording
-		 * and transformation files keep their names, and so does audio a
-		 * recording names. Typing held for the file saves first; edits of it
-		 * wait meanwhile. A file changed during the rename is kept at both
-		 * names, and the person is told.
+		 * Copy the held source, or current stored bytes, to a new name and then
+		 * remove the old path. Held text that differs from the copied source
+		 * keeps its source path; identical text is already preserved at the destination.
 		 */
 		async rename(path: string, name: string): Promise<string | undefined> {
 			const why = refused();
@@ -1419,25 +1384,42 @@ export function createWhispering(context: WhisperingContext) {
 			)
 				return TRANSCRIPT_NAME;
 			if (taken(to)) return TAKEN;
-			const outcome = await folder.run(
-				[path, to],
-				async () => {
-					const { data: found, error: readError } = await folder.files.read(path);
-					if (readError !== null) return describeError(readError);
+			const sourceEdit = folder.files.edit(path);
+			const captured = sourceEdit.getSnapshot().content;
+			const outcome = await folder.run(async () => {
+				let bytes: Uint8Array;
+				if (captured !== undefined)
+					bytes = new TextEncoder().encode(captured.text);
+				else {
+					const { data: found, error } = await folder.files.read(path);
+					if (error !== null) return describeError(error);
 					if (found === undefined) return `No file exists at '${path}'.`;
-					const bytes = new Uint8Array(await found.content.arrayBuffer());
-					const { error: copyError } = await folder.files.write(to, null, bytes);
-					if (copyError !== null) return describeError(copyError);
-					const { data: removed, error: removeError } =
-						await folder.files.delete(path, bytes);
-					if (removeError !== null)
-						return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
-					if (!removed.deleted)
-						return `${to} was saved, but ${path} changed meanwhile, so both are kept. Check them.`;
-					if (!fenced) moved(path, to);
-					return undefined;
-				},
-			);
+					bytes = new Uint8Array(await found.content.arrayBuffer());
+				}
+				// Compare information, including text copied from an unopened source.
+				// A binary copy has no editable text to compare.
+				let copiedText = captured?.text;
+				if (copiedText === undefined) {
+					try {
+						copiedText = new TextDecoder('utf-8', {
+							fatal: true,
+							ignoreBOM: true,
+						}).decode(bytes);
+					} catch {
+						/* Binary bytes are still copied exactly. */
+					}
+				}
+				const { error: copyError } = await folder.files.write(to, bytes);
+				if (copyError !== null) return describeError(copyError);
+				const currentText = sourceEdit.getSnapshot().content?.text;
+				if (currentText !== undefined && currentText !== copiedText)
+					return `${to} was saved. Different text arrived during the copy, so ${path} was kept with that text.`;
+				const { error: removeError } = await folder.files.delete(path);
+				if (removeError !== null)
+					return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
+				if (!fenced) moved(path, to);
+				return undefined;
+			});
 			return outcome.error === null
 				? outcome.data
 				: describeError(outcome.error);
@@ -1448,14 +1430,14 @@ export function createWhispering(context: WhisperingContext) {
 			if (problem !== undefined) return problem;
 			const path = joinPath(directory, name);
 			if (taken(path)) return `"${name}" already exists here.`;
-			const { error } = await folder.files.write(path, null, '');
+			const { error } = await folder.files.write(path, '');
 			if (error !== null) return describeError(error);
 			open(path);
 			return undefined;
 		}),
 		/**
 		 * Capture what deleting `path` would remove, for the person to confirm.
-		 * Typing held for it saves first.
+		 * Capturing confirmation starts no publication.
 		 */
 		async deletionFor(path: string): Promise<Result<Deletion, string>> {
 			const why = refused();
@@ -1487,13 +1469,9 @@ export function createWhispering(context: WhisperingContext) {
 						: undefined;
 			const busy = recording && deletionContext().busy(recording);
 			if (busy) return busy;
-			const paths =
-				deletion.kind === 'recording'
-					? [deletion.path, ...deletion.results]
-					: [deletion.path];
 			if (recording !== undefined) deleting.add(recording);
 			try {
-				const outcome = await folder.run(paths, () =>
+				const outcome = await folder.run(() =>
 					runDeletion(
 						{
 							folder,

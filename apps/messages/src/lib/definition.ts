@@ -1,6 +1,6 @@
 import { Type } from 'typebox';
 
-/** Only authored draft text and recovery state live in Markdown. */
+/** Compositions and the latest send attempt have separate write authorities. */
 export const messagesTables = {
 	drafts: Type.Object({
 		chatId: Type.String(),
@@ -11,6 +11,18 @@ export const messagesTables = {
 			Type.Literal('sending'),
 			Type.Literal('accepted'),
 		]),
+		pendingId: Type.String(),
+	}),
+	attempts: Type.Object({
+		chatId: Type.String(),
+		profile: Type.String(),
+		mode: Type.Union([Type.Literal('demo'), Type.Literal('live')]),
+		state: Type.Union([
+			Type.Literal('sending'),
+			Type.Literal('accepted'),
+			Type.Literal('acknowledged'),
+		]),
+		attemptId: Type.String(),
 		pendingId: Type.String(),
 	}),
 };

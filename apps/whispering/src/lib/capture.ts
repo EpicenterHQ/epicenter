@@ -205,7 +205,7 @@ export function createFixtureDevice({
 						return CaptureError.Failed({ cause });
 					}
 					if (fixture.bytes.byteLength === 0) return CaptureError.Empty();
-					const { error } = await folder.write(audioPath, null, fixture.bytes);
+					const { error } = await folder.write(audioPath, fixture.bytes);
 					if (error !== null)
 						return CaptureError.NotSaved({ reason: error.message });
 					return Ok({

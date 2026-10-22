@@ -1,18 +1,10 @@
-/**
- * Saved views are independent named metadata, changed with entry-level intent.
- * Real CAS outcomes expose sibling preservation, same-entry conflicts, ambiguous
- * acknowledgements, and the difference between an absent entry and JSON null.
- */
+/** Saved views compose into current text without owning storage or publication. */
 import { expect, test } from 'bun:test';
 import { Check } from 'typebox/value';
-import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { FolderStorage } from './boundary.js';
 import { readSavedViews } from './declaration.js';
 import { type SavedView, SavedViewSchema } from './declaration-schema.js';
 import { changeSavedView } from './declaration-write.js';
-import { FileError } from './errors.js';
-import { hashBytes } from './hash.js';
 
 const grid = {
 	type: 'grid',
@@ -31,58 +23,25 @@ const sql = {
 	sql: 'select * from notes',
 } satisfies SavedView;
 
-function setup(
-	source: string | null,
-	concurrent?: () => string,
-	unconfirmed = false,
-) {
-	let current = source;
-	let puts = 0;
-	const storage: Pick<FolderStorage, 'read' | 'put'> = {
-		async read(path) {
-			if (current === null) return FileError.NotFound({ path });
-			const bytes = new TextEncoder().encode(current);
-			return Ok({ bytes, sha256: await hashBytes(bytes) });
-		},
-		async put(path, bytes, ifMatch) {
-			puts++;
-			if (puts === 1 && concurrent !== undefined) current = concurrent();
-			const hash =
-				current === null
-					? null
-					: await hashBytes(new TextEncoder().encode(current));
-			if (hash !== ifMatch) return Ok('stale');
-			current = bytes === null ? null : new TextDecoder().decode(bytes);
-			return unconfirmed
-				? FileError.Unconfirmed({
-						path,
-						operation: 'write',
-						cause: 'lost reply',
-					})
-				: Ok('landed');
-		},
-	};
-	return { storage, source: () => current, puts: () => puts };
-}
-
-test('valid saved views survive invalid siblings and unrelated broken declaration sections', () => {
+test('view readers preserve valid siblings beside unsupported views and unrelated metadata', () => {
 	const reading = expectOk(
 		readSavedViews(
 			JSON.stringify({
 				tables: 42,
 				title: null,
+				futureMetadata: { enabled: true },
 				views: {
 					grid,
 					board,
 					sql,
 					broken: null,
-					future: { type: 'calendar', title: 'Later' },
+					future: { type: 'calendar' },
 					invalid: { ...grid, table: 'notes/nested' },
 				},
 			}),
 		),
 	);
-	expect<unknown>(reading.views).toEqual({ grid, board, sql });
+	expect(reading.views).toEqual({ grid, board, sql });
 	expect(reading.diagnostics.map(({ key, kind }) => ({ key, kind }))).toEqual([
 		{ key: 'broken', kind: 'invalid' },
 		{ key: 'future', kind: 'unsupported' },
@@ -91,7 +50,7 @@ test('valid saved views survive invalid siblings and unrelated broken declaratio
 	expect(Check(SavedViewSchema, board)).toBe(true);
 });
 
-test('missing views are empty while malformed containers and source remain visible errors', () => {
+test('missing view sections are empty and malformed JSON or view containers remain errors', () => {
 	expect(expectOk(readSavedViews('{"tables":false}'))).toEqual({
 		views: {},
 		diagnostics: [],
@@ -101,244 +60,99 @@ test('missing views are empty while malformed containers and source remain visib
 		'{"views":[]}',
 		'{broken',
 		'{"views":{},"views":{}}',
-	])
+	]) {
 		expectErr(readSavedViews(source));
+		expectErr(changeSavedView(source, { key: 'mine', value: grid }));
+	}
 });
 
-test('the first named view creates only its declaration and deleting an absent view creates nothing', async () => {
-	const missing = setup(null);
-	expect(
-		expectOk(
-			await changeSavedView(missing.storage, {
-				key: 'missing',
-				base: undefined,
-				value: undefined,
-			}),
-		),
-	).toEqual({ written: false });
-	expect(missing.puts()).toBe(0);
-	expect(missing.source()).toBeNull();
-	expect(
-		expectOk(
-			await changeSavedView(missing.storage, {
-				key: 'notes',
-				base: undefined,
-				value: grid,
-			}),
-		),
-	).toEqual({ written: true });
-	expect(JSON.parse(missing.source()!)).toEqual({ views: { notes: grid } });
-});
-
-test('an entry save preserves concurrent siblings, schemas, metadata and unsupported views', async () => {
-	const original = {
-		$schema: 'original',
+test('view changes preserve current unrelated JSON and unsupported siblings', () => {
+	const source = {
+		$schema: 'future',
 		tables: 42,
+		futureMetadata: { nested: [1, 2] },
 		views: { mine: grid, future: { type: 'calendar', config: [1, 2] } },
 	};
-	const concurrent = {
-		...original,
-		$schema: 'concurrent',
-		views: { ...original.views, added: sql },
-	};
-	const fixture = setup(JSON.stringify(original), () =>
-		JSON.stringify(concurrent),
+	const desired = { ...grid, title: 'Typed notes', columns: ['title'] };
+	const text = expectOk(
+		changeSavedView(JSON.stringify(source), { key: 'mine', value: desired }),
 	);
-	const desired = { ...grid, title: 'My notes', columns: ['title'] };
-	expectOk(
-		await changeSavedView(fixture.storage, {
-			key: 'mine',
-			base: grid,
-			value: desired,
-		}),
+	expect(JSON.parse(text)).toEqual({
+		...source,
+		views: { ...source.views, mine: desired },
+	});
+	const composed = expectOk(
+		changeSavedView(text, { key: 'recent', value: sql }),
 	);
-	expect(fixture.puts()).toBe(2);
-	expect(JSON.parse(fixture.source()!)).toEqual({
-		...concurrent,
-		views: { ...concurrent.views, mine: desired },
+	expect(JSON.parse(composed).views).toEqual({
+		...source.views,
+		mine: desired,
+		recent: sql,
 	});
 });
 
-test('a same-entry concurrent change refuses rather than replacing a newer view', async () => {
-	const concurrent = JSON.stringify({ views: { mine: board, keep: sql } });
-	const fixture = setup(
-		JSON.stringify({ views: { mine: grid } }),
-		() => concurrent,
+test('assignments replace the current target directly and deletion creates no missing entry', () => {
+	const original = JSON.stringify({ views: { mine: board, keep: sql } });
+	const replaced = expectOk(
+		changeSavedView(original, { key: 'mine', value: grid }),
 	);
+	expect(JSON.parse(replaced).views).toEqual({ mine: grid, keep: sql });
+	const deleted = expectOk(
+		changeSavedView(replaced, { key: 'mine', value: undefined }),
+	);
+	expect(JSON.parse(deleted).views).toEqual({ keep: sql });
 	expect(
-		expectErr(
-			await changeSavedView(fixture.storage, {
-				key: 'mine',
-				base: grid,
-				value: { ...grid, title: 'Edited' },
-			}),
-		).reason,
-	).toContain('changed since');
-	expect(fixture.puts()).toBe(1);
-	expect(fixture.source()).toBe(concurrent);
+		expectOk(changeSavedView('{}', { key: 'absent', value: undefined })),
+	).toBe('{}');
+	const repaired = expectOk(
+		changeSavedView('{"views":{"mine":null}}', { key: 'mine', value: grid }),
+	);
+	expect(JSON.parse(repaired).views.mine).toEqual(grid);
 });
 
-test('already-achieved edits and deletes succeed before checking an obsolete base', async () => {
-	const source = JSON.stringify({ views: { mine: grid, keep: sql } });
-	const fixture = setup(source);
+test('prototype-looking view names remain own JSON entries', () => {
+	const text = expectOk(
+		changeSavedView('{}', { key: '__proto__', value: grid }),
+	);
+	const views = expectOk(readSavedViews(text)).views;
+	expect(Object.hasOwn(views, '__proto__')).toBe(true);
+	expect(Reflect.get(views, '__proto__')).toEqual(grid);
+	expect(Object.getPrototypeOf(views)).toBeNull();
 	expect(
-		expectOk(
-			await changeSavedView(fixture.storage, {
-				key: 'mine',
-				base: board,
-				value: grid,
-			}),
+		JSON.parse(
+			expectOk(changeSavedView(text, { key: '__proto__', value: undefined })),
 		),
-	).toEqual({ written: false });
-	expect(
-		expectOk(
-			await changeSavedView(fixture.storage, {
-				key: 'missing',
-				base: board,
-				value: undefined,
-			}),
-		),
-	).toEqual({ written: false });
-	expect(fixture.puts()).toBe(0);
-	expect(fixture.source()).toBe(source);
-	const concurrent = setup(
-		JSON.stringify({ views: { mine: board } }),
-		() => source,
-	);
-	expectOk(
-		await changeSavedView(concurrent.storage, {
-			key: 'mine',
-			base: board,
-			value: grid,
-		}),
-	);
-	expect(concurrent.puts()).toBe(1);
-	expect(concurrent.source()).toBe(source);
+	).toEqual({ views: {} });
 });
 
-test('null is an existing entry and an explicit matching base can repair or delete it', async () => {
-	const fixture = setup('{"views":{"mine":null,"keep":{"type":"future"}}}');
-	expectErr(
-		await changeSavedView(fixture.storage, {
-			key: 'mine',
-			base: undefined,
-			value: grid,
-		}),
-	);
-	expect(fixture.puts()).toBe(0);
-	expectOk(
-		await changeSavedView(fixture.storage, {
-			key: 'mine',
-			base: null,
-			value: grid,
-		}),
-	);
-	expectOk(
-		await changeSavedView(fixture.storage, {
-			key: 'mine',
-			base: grid,
-			value: undefined,
-		}),
-	);
-	expect(JSON.parse(fixture.source()!)).toEqual({
-		views: { keep: { type: 'future' } },
-	});
-});
-
-test('a rejected or malformed target changes no source and unrelated entries are not validated', async () => {
-	for (const source of ['{"views":null}', '{"views":[]}', '{"views":false}']) {
-		const fixture = setup(source);
-		expectErr(
-			await changeSavedView(fixture.storage, {
-				key: 'mine',
-				base: undefined,
-				value: grid,
-			}),
-		);
-		expect(fixture.puts()).toBe(0);
-		expect(fixture.source()).toBe(source);
-	}
+test('invalid submitted views and lossy JSON cannot replace the held source', () => {
 	for (const value of [
-		{ ...grid, table: 'nested/notes' },
+		{ ...grid, table: 'notes/nested' },
 		{ ...grid, type: 'future' },
 		null,
-	]) {
-		const fixture = setup('{}');
-		expectErr(
-			await changeSavedView(fixture.storage, {
-				key: 'mine',
-				base: undefined,
-				value: value as never,
-			}),
-		);
-		expect(fixture.puts()).toBe(0);
-	}
+	])
+		expectErr(changeSavedView('{}', { key: 'mine', value: value as never }));
+	for (const source of [
+		'{"future":9007199254740993}',
+		'{"future":-0}',
+		'{"future":1,"future":2}',
+	])
+		expectErr(changeSavedView(source, { key: 'mine', value: grid }));
+	expectErr(changeSavedView('{}', { key: '', value: grid }));
 });
 
-test('lost write replies are confirmed and prototype-looking keys remain ordinary view names', async () => {
-	const fixture = setup('{"views":{}}', undefined, true);
-	expectOk(
-		await changeSavedView(fixture.storage, {
-			key: '__proto__',
-			base: undefined,
-			value: grid,
-		}),
-	);
-	expect(fixture.puts()).toBe(1);
-	const reading = expectOk(readSavedViews(fixture.source()!));
-	expect(Object.hasOwn(reading.views, '__proto__')).toBe(true);
-	expect(Reflect.get(reading.views, '__proto__')).toEqual(grid);
-	expect(Object.getPrototypeOf(reading.views)).toBeNull();
-	expectOk(
-		await changeSavedView(fixture.storage, {
-			key: '__proto__',
-			base: grid,
-			value: undefined,
-		}),
-	);
-	expect(JSON.parse(fixture.source()!)).toEqual({ views: {} });
-});
-
-test('an in-flight change owns its baseline and desired metadata while the form keeps editing', async () => {
-	const base = { ...grid };
-	const desired = { ...grid, title: 'Sent title' };
-	const fixture = setup(JSON.stringify({ views: { mine: base } }));
-	const saving = changeSavedView(fixture.storage, {
-		key: 'mine',
-		base,
-		value: desired,
-	});
-	base.title = 'Changed original';
-	desired.title = 'Later typing';
-	expectOk(await saving);
-	expect(JSON.parse(fixture.source()!).views.mine.title).toBe('Sent title');
-});
-
-test('saved grid and board scopes accept ordinary directory names without requiring SQL identifiers', async () => {
+test('saved grid and board scopes allow ordinary directory names and refuse temporary browsing scopes', () => {
 	for (const table of ['My Notes', 'my-notes', 'order', '123']) {
 		for (const view of [
 			{ ...grid, table },
 			{ ...board, table },
 		]) {
-			const reading = expectOk(
-				readSavedViews(JSON.stringify({ views: { ordinary: view } })),
+			const text = expectOk(
+				changeSavedView('{}', { key: 'ordinary', value: view }),
 			);
-			expect(reading.diagnostics).toEqual([]);
-			expect(reading.views.ordinary).toMatchObject({ table });
-			const fixture = setup('{}');
-			expectOk(
-				await changeSavedView(fixture.storage, {
-					key: 'ordinary',
-					base: undefined,
-					value: view,
-				}),
-			);
-			expect(JSON.parse(fixture.source()!).views.ordinary.table).toBe(table);
+			expect(expectOk(readSavedViews(text)).views.ordinary).toEqual(view);
 		}
 	}
-});
-
-test('saved table scopes refuse nested paths and temporary all-files or root selections', async () => {
 	for (const table of [
 		'',
 		'.',
@@ -347,21 +161,8 @@ test('saved table scopes refuse nested paths and temporary all-files or root sel
 		'notes/nested',
 		'notes\\nested',
 		'notes\0nested',
-	]) {
-		const value = { ...grid, table };
-		const reading = expectOk(
-			readSavedViews(JSON.stringify({ views: { invalid: value, keep: sql } })),
-		);
-		expect(Object.keys(reading.views)).toEqual(['keep']);
-		expect(reading.diagnostics[0]?.key).toBe('invalid');
-		const fixture = setup('{}');
+	])
 		expectErr(
-			await changeSavedView(fixture.storage, {
-				key: 'invalid',
-				base: undefined,
-				value,
-			}),
+			changeSavedView('{}', { key: 'invalid', value: { ...grid, table } }),
 		);
-		expect(fixture.puts()).toBe(0);
-	}
 });

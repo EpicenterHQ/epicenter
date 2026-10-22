@@ -3,7 +3,7 @@
  * data folder. The operation names a row; folders.json supplies the location.
  * Reads create nothing. First writes select the default when no location is
  * configured; a missing selected directory is reported instead of recreated.
- * Row writes preserve their exact base through the Folder save lock.
+ * Row writes publish assignments to the current source.
  */
 
 import {
@@ -132,8 +132,8 @@ export async function readConnectionRow(
 }
 
 /**
- * Save `input`'s field assignments to the row `operation` names, merged from
- * `input.base`, and answer the row as sent. `input` is untrusted JSON: only
+ * Save `input`'s field assignments to the row `operation` names and answer
+ * the row as sent. `input` is untrusted JSON: only
  * `ConnectionRowSetInput` is taken.
  */
 export async function setConnectionRow(
@@ -146,9 +146,9 @@ export async function setConnectionRow(
 	if (!isConnectionRowSetInput(input))
 		return ConnectionRowError.InvalidInput({
 			reason:
-				'A connection save reads {"base": {"text", "issues"} | null, "fields": {"kind"?, "title"?, "model"?}} on stdin.',
+				'A connection save reads {"fields": {"kind"?, "title"?, "model"?}} on stdin.',
 		});
-	const { base, fields } = input;
+	const { fields } = input;
 	const { data: directory, error: directoryError } = await connectionsDirectory(
 		paths,
 		true,
@@ -160,17 +160,15 @@ export async function setConnectionRow(
 		});
 	const id = WHISPERING_CONNECTION_IDS[connection];
 	return withConnections(directory, async (folder) => {
-		const { data, error: saveError } = await folder.tables.connections.set(
-			id,
-			base,
-			{ fields },
-		);
+		const { data, error: saveError } = await folder.tables.connections.set(id, {
+			fields,
+		});
 		if (saveError !== null)
 			return ConnectionRowError.SaveFailed({
 				path: `${directory}/connections/${WHISPERING_CONNECTION_IDS[connection]}.md`,
 				reason: saveError.message,
 			});
-		return Ok(answerOf(data.sent));
+		return Ok(answerOf(data));
 	});
 }
 

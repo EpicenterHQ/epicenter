@@ -95,7 +95,7 @@ test('old OPFS access cannot block the current IndexedDB folder', async () => {
 	});
 	try {
 		const first = await open();
-		expectOk(await first.files.write('readme.md', null, 'saved'));
+		expectOk(await first.files.write('readme.md', 'saved'));
 		await first.close();
 		const second = await open();
 		expect(
@@ -111,15 +111,15 @@ test('old OPFS access cannot block the current IndexedDB folder', async () => {
 
 test('files and rows saved before close are there after reopening', async () => {
 	const first = await open();
-	expectOk(await first.files.write('readme.md', null, 'hello'));
-	const { sent } = expectOk(
-		await first.tables.notes.set('a', null, {
+	expectOk(await first.files.write('readme.md', 'hello'));
+	const stored = expectOk(
+		await first.tables.notes.set('a', {
 			fields: { title: 'Milk' },
 			body: 'Body',
 		}),
 	);
-	expect(sent.fields).toEqual({ title: 'Milk' });
-	expectOk(await first.files.write('notes/a/photo.txt', null, 'x'));
+	expect(stored.fields).toEqual({ title: 'Milk' });
+	expectOk(await first.files.write('notes/a/photo.txt', 'x'));
 	await first.close();
 
 	const second = await open();
@@ -142,8 +142,9 @@ test('files and rows saved before close are there after reopening', async () => 
 	expect(expectOk(await second.files.list('notes/a/'))).toEqual([
 		'notes/a/photo.txt',
 	]);
-	const deleted = expectOk(await second.tables.notes.delete('a', row ?? null));
-	expect(deleted).toEqual({ deleted: true });
+	expectOk(await second.tables.notes.delete('a'));
+	// A row that is already gone is deleted too.
+	expectOk(await second.tables.notes.delete('a'));
 	expect(expectOk(await second.files.list())).toEqual([
 		'notes/a/photo.txt',
 		'readme.md',
@@ -154,7 +155,7 @@ test('files and rows saved before close are there after reopening', async () => 
 test('binary files persist exact bytes and a competing binary save keeps its whole change', async () => {
 	const first = await open();
 	const base = new Uint8Array([0, 1, 255]);
-	const saving = first.files.write('audio/clip.bin', null, base);
+	const saving = first.files.write('audio/clip.bin', base);
 	base[1] = 9;
 	expectOk(await saving);
 	const second = await open();
@@ -163,18 +164,10 @@ test('binary files persist exact bytes and a competing binary save keeps its who
 		new Uint8Array([0, 1, 255]),
 	);
 	expectOk(
-		await first.files.write(
-			'audio/clip.bin',
-			new Uint8Array([0, 1, 255]),
-			new Uint8Array([0, 2, 255]),
-		),
+		await first.files.write('audio/clip.bin', new Uint8Array([0, 2, 255])),
 	);
 	expectOk(
-		await second.files.write(
-			'audio/clip.bin',
-			new Uint8Array([0, 1, 255]),
-			new Uint8Array([0, 3, 255]),
-		),
+		await second.files.write('audio/clip.bin', new Uint8Array([0, 3, 255])),
 	);
 	await first.close();
 	await second.close();
@@ -191,15 +184,14 @@ test('a schema that does not fit never refuses a save or discards unknown fields
 	expectOk(
 		await first.files.write(
 			'notes/a.md',
-			null,
 			'---\n"10": ten\ntitle: 42\nextra: kept\n---\nBody',
 		),
 	);
 	const row = expectOk(await first.tables.notes.get('a'))!;
 	expect(row.fields).toEqual({ '10': 'ten', title: 42, extra: 'kept' });
 	expect(row.issues?.map((issue) => issue.kind)).toEqual(['schema']);
-	const { sent } = expectOk(
-		await first.tables.notes.set('a', row, { fields: { done: 'maybe' } }),
+	const sent = expectOk(
+		await first.tables.notes.set('a', { fields: { done: 'maybe' } }),
 	);
 	expect(sent.fields).toEqual({
 		'10': 'ten',
@@ -220,45 +212,47 @@ test('a schema that does not fit never refuses a save or discards unknown fields
 test('source with malformed frontmatter stays exact, readable as a file, and repairable', async () => {
 	const broken = '---\ntitle: [broken\n---\nBody';
 	const first = await open();
-	expectOk(await first.files.write('notes/b.md', null, broken));
+	expectOk(await first.files.write('notes/b.md', broken));
 	const row = expectOk(await first.tables.notes.get('b'))!;
 	expect(row.text).toBe(broken);
 	expect(row.issues?.[0]?.kind).toBe('frontmatter');
 	// Fields cannot be edited through broken frontmatter; the body can.
-	const refused = await first.tables.notes.set('b', row, {
+	const refused = await first.tables.notes.set('b', {
 		fields: { title: 'x' },
 	});
 	expect(expectErr(refused).name).toBe('Unparseable');
-	expectOk(await first.tables.notes.set('b', row, { body: 'New body' }));
+	expectOk(await first.tables.notes.set('b', { body: 'New body' }));
 	await first.close();
 
 	const second = await open();
 	const file = expectOk(await second.files.read('notes/b.md'));
 	expect(await file?.content.text()).toBe('---\ntitle: [broken\n---\nNew body');
 	const repaired = '---\ntitle: Fixed\n---\nNew body';
-	expectOk(
-		await second.files.write(
-			'notes/b.md',
-			'---\ntitle: [broken\n---\nNew body',
-			repaired,
-		),
-	);
+	expectOk(await second.files.write('notes/b.md', repaired));
 	const fixed = expectOk(await second.tables.notes.get('b'))!;
 	expect(fixed.issues).toBeNull();
 	expect(fixed.fields).toEqual({ title: 'Fixed' });
 	await second.close();
 });
 
-test('a direct row assignment equal to its base survives another writer', async () => {
+test('a row set applies its fields to what another writer stored', async () => {
 	const first = await open();
 	const second = await open();
 	try {
 		const original = '---\ntitle: before\n---\nbody\n';
-		expectOk(await first.files.write('notes/a.md', null, original));
-		const base = expectOk(await first.tables.notes.get('a'))!;
-		expectOk(await second.files.write('notes/a.md', original, '---\ntitle: outside\n---\nbody\n'));
-		expectOk(await first.tables.notes.set('a', base, { fields: { title: 'before' } }));
-		expect(expectOk(await first.tables.notes.get('a'))?.fields?.title).toBe('before');
+		expectOk(await first.files.write('notes/a.md', original));
+		expectOk(
+			await second.files.write(
+				'notes/a.md',
+				'---\ntitle: outside\n---\nbody\n',
+			),
+		);
+		expectOk(
+			await first.tables.notes.set('a', { fields: { title: 'before' } }),
+		);
+		expect(expectOk(await first.tables.notes.get('a'))?.fields?.title).toBe(
+			'before',
+		);
 	} finally {
 		await first.close();
 		await second.close();
@@ -270,7 +264,7 @@ test('another handle of the origin hears a committed save, and the saver hears i
 	const b = await open();
 	const heardByA = nextChange(a);
 	const heardByB = nextChange(b);
-	expectOk(await a.tables.notes.set('c', null, { fields: { title: 'One' } }));
+	expectOk(await a.tables.notes.set('c', { fields: { title: 'One' } }));
 	expect(await heardByA).toEqual({
 		origin: 'this-handle',
 		paths: ['notes/c.md'],
@@ -294,12 +288,12 @@ test('stopping a listener and closing the handle end its notifications', async (
 	const stop = b.onChange(() => stopped++);
 	b.onChange(() => released++);
 	stop();
-	expectOk(await a.files.write('one.md', null, 'x'));
+	expectOk(await a.files.write('one.md', 'x'));
 	await settle();
 	expect(stopped).toBe(0);
 	expect(released).toBe(1);
 	await b.close();
-	expectOk(await a.files.write('two.md', null, 'y'));
+	expectOk(await a.files.write('two.md', 'y'));
 	await settle();
 	expect(released).toBe(1);
 	await a.close();
@@ -307,14 +301,14 @@ test('stopping a listener and closing the handle end its notifications', async (
 
 test('a failed save returns the reason, leaves storage unchanged, and shows in status', async () => {
 	const folder = await open();
-	expectOk(await folder.files.write('keep.md', null, 'first'));
+	expectOk(await folder.files.write('keep.md', 'first'));
 	const seen: FolderStatus[] = [];
 	folder.onStatusChange((status) => seen.push(status));
 	const changes: FolderChange[] = [];
 	folder.onChange((change) => changes.push(change));
 
 	const failure = await withFullDisk(async () =>
-		expectErr(await folder.files.write('keep.md', 'first', 'second')),
+		expectErr(await folder.files.write('keep.md', 'second')),
 	);
 	expect(failure.name).toBe('StorageFailed');
 	if (failure.name !== 'StorageFailed')
@@ -331,12 +325,12 @@ test('a failed save returns the reason, leaves storage unchanged, and shows in s
 	expect(expectOk(await folder.files.list())).toEqual(['keep.md']);
 
 	// A successful no-op retry confirms the desired content is already stored.
-	expectOk(await folder.files.write('keep.md', 'first', 'first'));
-	expect(
-		expectErr(await folder.files.write('keep.md/child', null, 'x')).name,
-	).toBe('Occupied');
+	expectOk(await folder.files.write('keep.md', 'first'));
+	expect(expectErr(await folder.files.write('keep.md/child', 'x')).name).toBe(
+		'Occupied',
+	);
 	expect(folder.getStatus().storageFailure).toBeNull();
-	expectOk(await folder.files.write('keep.md', 'first', 'third'));
+	expectOk(await folder.files.write('keep.md', 'third'));
 	expect(folder.getStatus()).toEqual(idle);
 	expect(
 		seen.map((status) => [status.saving, status.storageFailure?.name ?? null]),
@@ -360,7 +354,7 @@ test('a failed save returns the reason, leaves storage unchanged, and shows in s
 
 test('status is saving while a save is in progress and saved only after it commits', async () => {
 	const folder = await open();
-	const pending = folder.files.write('one.md', null, 'x');
+	const pending = folder.files.write('one.md', 'x');
 	expect(folder.getStatus().saving).toBe(true);
 	expectOk(await pending);
 	expect(folder.getStatus()).toEqual(idle);
@@ -375,7 +369,7 @@ test('close lets a started save finish, refuses listeners at once, then releases
 	folder.onStatusChange(() => status++);
 	folder.onChange(() => changes++);
 
-	const started = folder.files.write('late.md', null, 'kept');
+	const started = folder.files.write('late.md', 'kept');
 	const closing = folder.close();
 	expect(closing).toBe(folder.close());
 	expect(() => folder.onChange(() => {})).toThrow('closed');
@@ -387,7 +381,7 @@ test('close lets a started save finish, refuses listeners at once, then releases
 	expect(() => folder.tables.notes.get('a')).toThrow('closed');
 
 	const statusAfterClose = status;
-	expectOk(await other.files.write('after.md', null, 'x'));
+	expectOk(await other.files.write('after.md', 'x'));
 	await settle();
 	expect(status).toBe(statusAfterClose);
 	expect(changes).toBe(1);
@@ -407,7 +401,7 @@ test('closing from a saving observer waits for the save it observed', async () =
 	folder.onStatusChange((status) => {
 		if (status.saving) closing = folder.close();
 	});
-	expectOk(await folder.files.write('observed.md', null, 'kept'));
+	expectOk(await folder.files.write('observed.md', 'kept'));
 	await closing;
 	const reopened = await open();
 	const file = expectOk(await reopened.files.read('observed.md'));
@@ -438,12 +432,12 @@ test('a table that cannot be one directory, or missing IndexedDB, refuses to ope
 test('browser writes refuse the same nonportable paths and row IDs as a directory', async () => {
 	const folder = await open();
 	for (const path of ['con.md', 'notes/a: b.md', 'a\\b', 'trailing.', 'HEAD/x'])
-		expect(expectErr(await folder.files.write(path, null, 'x')).name).toBe(
+		expect(expectErr(await folder.files.write(path, 'x')).name).toBe(
 			'InvalidPath',
 		);
 	for (const id of ['', 'con', 'a/b', 'a: b'])
 		expect(
-			expectErr(await folder.tables.notes.set(id, null, { body: 'x' })).name,
+			expectErr(await folder.tables.notes.set(id, { body: 'x' })).name,
 		).toBe('InvalidId');
 	expect(expectOk(await folder.files.list())).toEqual([]);
 	await folder.close();
@@ -483,23 +477,18 @@ test('earlier nonportable browser paths remain readable for repair', async () =>
 	});
 	const raw = expectOk(await folder.tables.notes.get('a: b'))!;
 	expect(raw.fields).toEqual({ title: 'Kept' });
-	expect(
-		expectErr(await folder.tables.notes.set('a: b', null, { body: 'changed' }))
-			.name,
-	).toBe('InvalidId');
-	const { sent } = expectOk(
-		await folder.tables.notes.set('a: b', raw, { body: 'Repaired\n' }),
-	);
+	// An existing nonportable row can be repaired and removed, never made.
+	expectOk(await folder.tables.notes.set('a: b', { body: 'Repaired\n' }));
 	expect(
 		await expectOk(await folder.files.read('notes/a: b.md'))?.content.text(),
 	).toContain('Repaired');
-	expect(expectOk(await folder.tables.notes.delete('a: b', sent))).toEqual({
-		deleted: true,
-	});
+	expectOk(await folder.tables.notes.delete('a: b'));
 	expect(expectOk(await folder.tables.notes.get('a: b'))).toBeUndefined();
 	expect(
-		expectErr(await folder.tables.notes.set('a: b', raw, { body: 'again' }))
-			.name,
+		expectErr(await folder.tables.notes.set('a: b', { body: 'again' })).name,
+	).toBe('InvalidId');
+	expect(
+		expectErr(await folder.files.write('notes/a: b.md', 'again')).name,
 	).toBe('InvalidPath');
 	await folder.close();
 	earlier.close();
@@ -525,13 +514,9 @@ test('an existing HEAD stays readable but cannot be changed into Git state', asy
 		'notes\n',
 	);
 	expect(
-		expectErr(
-			await folder.files.write('HEAD', 'notes\n', 'ref: refs/heads/main\n'),
-		).name,
+		expectErr(await folder.files.write('HEAD', 'ref: refs/heads/main\n')).name,
 	).toBe('InvalidPath');
-	expect(expectErr(await folder.files.delete('HEAD', 'notes\n')).name).toBe(
-		'InvalidPath',
-	);
+	expect(expectErr(await folder.files.delete('HEAD')).name).toBe('InvalidPath');
 	expect(await expectOk(await folder.files.read('HEAD'))?.content.text()).toBe(
 		'notes\n',
 	);
@@ -541,9 +526,7 @@ test('an existing HEAD stays readable but cannot be changed into Git state', asy
 
 test('the automatic opener opens the browser default and refuses a directory in a browser', async () => {
 	const folder = expectOk(await openAutomaticFolder({ tables: { notes } }));
-	expectOk(
-		await folder.tables.notes.set('d', null, { fields: { title: 'Auto' } }),
-	);
+	expectOk(await folder.tables.notes.set('d', { fields: { title: 'Auto' } }));
 	await folder.close();
 	const browser = await open();
 	expect(expectOk(await browser.tables.notes.get('d'))?.fields).toEqual({

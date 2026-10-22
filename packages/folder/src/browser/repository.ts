@@ -1,16 +1,9 @@
 import type { TSchema as Schema } from 'typebox';
-import { Err, Ok, type Result } from 'wellcrafted/result';
-import {
-	pathProblem,
-	readablePath,
-	rowAddressProblem,
-	writableExistingPath,
-} from '../paths.js';
-import { readDocument } from '../shared/document.js';
+import { Ok, type Result } from 'wellcrafted/result';
+import { pathProblem, readablePath, writableExistingPath } from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
-import { changeMarkdown } from '../shared/markdown-codec.js';
-import { type FileContent, merge, sameContent } from '../shared/merge.js';
-import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
+import { type FileContent, sameContent } from '../shared/merge.js';
+import { type Row, readRow } from '../shared/row.js';
 import { changeSnapshot } from './git/snapshot.js';
 import {
 	openStorage,
@@ -30,11 +23,9 @@ const readableId = (table: string, id: string) =>
 	!id.includes('/') &&
 	readablePath(`${table}/${id}.md`);
 
-const validId = (table: string, id: string) =>
-	typeof id === 'string' &&
-	id !== '' &&
-	id.isWellFormed() &&
-	rowAddressProblem(table, id) === undefined;
+/** Text a file write can store: UTF-8 without NUL or lone surrogates. */
+const storableText = (text: string) =>
+	!text.includes('\0') && text.isWellFormed();
 
 /** A table is one top-level directory. */
 export const isTableName = (name: string) =>
@@ -64,12 +55,6 @@ function caseTwin(
 		}
 	return undefined;
 }
-
-/** A delete answers whether the file went, not what a save stored. */
-const deleted = (
-	saved: Result<{ deleted: boolean; stored: FileContent | null }, SaveError>,
-): Result<{ deleted: boolean }, SaveError> =>
-	saved.error !== null ? saved : Ok({ deleted: saved.data.deleted });
 
 /**
  * Internal local engine, absent from the package exports. The public opener
@@ -111,36 +96,31 @@ export async function openRepository<
 		}
 	}
 
-	async function saveFile(
-		path: string,
-		from: FileContent | null,
-		content: FileContent | null,
-		rowFields?: Record<string, unknown>,
-		checkBody = false,
-		replaceExact = false,
-	) {
-		// A mutable caller buffer must not change the edit's witness during retries.
-		const base = from instanceof Uint8Array ? from.slice() : from;
-		const change = content instanceof Uint8Array ? content.slice() : content;
-		return save(async () => {
-			if (!validPath(path) && (base === null || !writableExistingPath(path)))
-				return SaveError.InvalidPath({ path });
-			if (
-				typeof change === 'string' &&
-				(change.includes('\0') || !change.isWellFormed())
-			)
+	/**
+	 * Put `content` at `path`, or remove its file for `null`, whatever is
+	 * there. Each attempt publishes over the working tree it read, which only
+	 * guards the tree's other paths: another commit landing meanwhile starts
+	 * the next attempt, and the last write of the path to land wins. An
+	 * existing name that only some disks hold may be replaced or removed,
+	 * never made.
+	 */
+	function saveFile(path: string, written: FileContent | null) {
+		const content = written instanceof Uint8Array ? written.slice() : written;
+		return save(async (): Promise<Result<void, SaveError>> => {
+			if (!writableExistingPath(path)) return SaveError.InvalidPath({ path });
+			if (typeof content === 'string' && !storableText(content))
 				return SaveError.NotText();
 			for (;;) {
 				// Trees identify structural collisions; only this path needs blob bytes.
 				const snapshot = await storage.capture([path]);
-				if (!validPath(path) && !snapshot.files.has(path))
-					return SaveError.InvalidPath({ path });
-				if (change !== null) {
-					const directories = snapshot.directories;
+				const current = snapshotContent(snapshot, path);
+				if (content !== null) {
+					if (!validPath(path) && !snapshot.files.has(path))
+						return SaveError.InvalidPath({ path });
 					const twin = caseTwin(path, snapshot);
 					if (twin !== undefined)
 						return SaveError.CaseTwin({ path, existing: twin });
-					if (directories.has(path))
+					if (snapshot.directories.has(path))
 						return SaveError.Occupied({
 							path,
 							existing: path,
@@ -160,69 +140,10 @@ export async function openRepository<
 							});
 					}
 				}
-				const current = snapshotContent(snapshot, path);
-				if (replaceExact && sameContent(current, change))
-					return Ok({ deleted: false, stored: current });
-				if (replaceExact && !sameContent(current, base))
-					return SaveError.Conflict({ path, base, current });
-				if (
-					(rowFields !== undefined || checkBody) &&
-					current !== null
-				) {
-					const row = readDocument(path, current);
-					const problem = row.issues?.[0];
-					if (problem?.kind === 'not-text') return SaveError.NotText();
-					if (checkBody && row.body === undefined)
-						return SaveError.Unparseable({
-							reason: 'The source has no known body boundary',
-						});
-					if (rowFields !== undefined && problem?.kind === 'frontmatter')
-						return SaveError.Unparseable({ reason: problem.message });
-				}
-				const merged = replaceExact
-					? { content: change }
-					: await merge(path, { base, current, change });
-				let content = merged.content;
-				if (checkBody && content !== null) {
-					const result = readDocument(
-						path,
-						typeof content === 'string'
-							? new TextEncoder().encode(content)
-							: content,
-					);
-					if (result.issues?.[0]?.kind === 'not-text')
-						return SaveError.NotText();
-					if (result.body === undefined)
-						return SaveError.Unparseable({
-							reason: 'The merged source has no known body boundary',
-						});
-				}
-				if (rowFields !== undefined && content !== null) {
-					const applied = changeMarkdown(
-						readDocument(
-							path,
-							typeof content === 'string'
-								? new TextEncoder().encode(content)
-								: content,
-						),
-						{ fields: rowFields },
-					);
-					if (applied.error !== null)
-						return SaveError.Unparseable({ reason: applied.error.reason });
-					content = applied.data.text;
-				}
-				if (sameContent(content, current))
-					return Ok({
-						deleted:
-							content === null &&
-							!snapshot.files.has(path) &&
-							!snapshot.directories.has(path),
-						stored: current,
-					});
-				const changes = new Map<string, FileContent | null>([[path, content]]);
+				if (sameContent(content, current)) return Ok(undefined);
 				const candidate = await changeSnapshot({
 					root: snapshot.state.workingTree,
-					edits: changes,
+					edits: new Map([[path, content]]),
 					read: async (oid) => snapshotObject(snapshot, oid),
 				});
 				if (
@@ -236,12 +157,8 @@ export async function openRepository<
 						),
 						paths: [path],
 					})
-				) {
-					return Ok({
-						deleted: content === null,
-						stored: content,
-					});
-				}
+				)
+					return Ok(undefined);
 			}
 		});
 	}
@@ -273,51 +190,6 @@ export async function openRepository<
 					return content === null ? undefined : readRow(id, content, schema);
 				});
 			},
-			async set(
-				id: string,
-				from: Pick<Row, 'text' | 'issues'> | null,
-				change: RowChange,
-			): Promise<
-				Result<{ sent: Row<TSchema>; stored: FileContent | null }, SaveError>
-			> {
-				assertOpen();
-				if (!validId(name, id) && (from === null || !readableId(name, id)))
-					return SaveError.InvalidId({ id });
-				if (
-					change.body !== undefined &&
-					(typeof change.body !== 'string' ||
-						change.body.includes('\0') ||
-						!change.body.isWellFormed())
-				)
-					return SaveError.NotText();
-				if (from?.issues?.some((issue) => issue.kind === 'not-text'))
-					return SaveError.NotText();
-				const sent = rowChange(from, change);
-				if (sent.error !== null)
-					return SaveError.Unparseable({ reason: sent.error.reason });
-				const saved = await saveFile(
-					rowPath(id),
-					from?.text ?? null,
-					sent.data.text,
-					change.fields,
-					change.body !== undefined,
-				);
-				if (saved.error !== null) return Err(saved.error);
-				return Ok({
-					sent: readRow(id, sent.data.text, schema),
-					stored: saved.data.stored,
-				});
-			},
-			async delete(
-				id: string,
-				from: Pick<Row, 'text' | 'issues'> | null,
-			): Promise<Result<{ deleted: boolean }, SaveError>> {
-				if (!validId(name, id) && (from === null || !readableId(name, id)))
-					return SaveError.InvalidId({ id });
-				if (from?.issues?.some((issue) => issue.kind === 'not-text'))
-					return SaveError.NotText();
-				return deleted(await saveFile(rowPath(id), from?.text ?? null, null));
-			},
 		};
 	}
 
@@ -345,23 +217,18 @@ export async function openRepository<
 					return { path, content: new Blob([new Uint8Array(content)]) };
 				});
 			},
+			/** Replace whatever is at `path` with `content`. */
 			async write(
 				path: string,
-				from: FileContent | null,
 				content: FileContent,
-				fields?: Record<string, unknown>,
-				checkBody?: boolean,
-				replaceExact = false,
-			): Promise<Result<{ stored: FileContent | null }, SaveError>> {
+			): Promise<Result<void, SaveError>> {
 				assertOpen();
-				const result = await saveFile(path, from, content, fields, checkBody, replaceExact);
-				return result.error !== null
-					? Err(result.error)
-					: Ok({ stored: result.data.stored });
+				return saveFile(path, content);
 			},
-			async delete(path: string, from: FileContent | null) {
+			/** Remove the file at `path`; a file that is not there is already gone. */
+			async delete(path: string): Promise<Result<void, SaveError>> {
 				assertOpen();
-				return deleted(await saveFile(path, from, null));
+				return saveFile(path, null);
 			},
 		};
 	}

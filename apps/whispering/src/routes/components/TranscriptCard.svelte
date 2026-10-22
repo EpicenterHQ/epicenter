@@ -18,8 +18,8 @@
 	/**
 	 * One transcript of the recording that is open, edited where it is read,
 	 * beside the player. Its text is the body of the transcript's own file,
-	 * edited from the version it started at and saved a second after the last
-	 * keystroke, even after the card goes away.
+	 * published as complete source a second after the last keystroke, even
+	 * after the card goes away.
 	 * A transcript whose answer has not reached its file says why instead, and
 	 * is not edited while its answer is on its way. Nothing here selects the
 	 * transcript's file, so the recording stays open.
@@ -39,7 +39,7 @@
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.edit(TRANSCRIPTIONS, own);
 	const row = $derived.by(() => {
-		const shown = fileEdit.markdown;
+		const shown = fileEdit.content;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** The text now: as typed while an edit is unsaved, else as the file holds it. */
@@ -72,7 +72,7 @@
 		/>
 	{/if}
 	{#if progress.kind === 'running' || progress.kind === 'writing'}
-		<!-- The answer is on its way into this file. A file with text is not filled, so typing now would keep it out. -->
+		<!-- The answer is on its way into this file; editing resumes when its publication settles. -->
 	{:else if row && !asText}
 		{@const shown = row}
 		<Textarea
@@ -81,7 +81,7 @@
 				() => shown.body,
 				(value) => fileEdit.change({ body: value })
 			}
-			disabled={fileEdit.locked}
+
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"
 			data-testid="transcript-text"

@@ -228,12 +228,21 @@ export function createGrantedShell(root: string) {
 					operation: 'write',
 					message: 'put_folder_file takes its bytes as a raw body',
 				} satisfies StorageError;
-			const ifMatch = args['if-match'];
+			const expected = args.expected;
+			if (typeof expected !== 'string')
+				throw {
+					name: 'Io',
+					path,
+					operation: 'write',
+					message: 'put_folder_file needs the expected header',
+				} satisfies StorageError;
 			const outcome = await answered(
 				storage.put(
 					path,
 					args.remove === 'true' ? null : bytes,
-					typeof ifMatch === 'string' ? ifMatch : null,
+					expected === 'any' || expected === 'absent' || expected === 'present'
+						? expected
+						: { sha256: expected },
 				),
 			);
 			if (lostReplies.has(path)) {

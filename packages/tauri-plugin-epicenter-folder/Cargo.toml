@@ -18,6 +18,7 @@ tauri-plugin = { version = "2", features = ["build"] }
 [dependencies]
 epicenter-folder-core = { path = "core" }
 log = "0.4"
+notify = "8"
 serde = { version = "1", features = ["derive"] }
 specta = "=2.0.0-rc.26"
 specta-typescript = "=0.0.13"

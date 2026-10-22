@@ -236,10 +236,10 @@ it; a save takes the folder's save lock, as Settings' saves do. It needs no
 account, keychain, network, Git, or `epicenter.json`. `read` answers
 `{"row": {"text", "issues", "fields"} | null}`: `text` is the file's exact
 source, and `fields` is the schema's `kind`, `title`, and `model`, or `null`
-when the row does not read. `set` reads `{"base": {"text", "issues"} | null,
-"fields": {"kind"?, "title"?, "model"?}}` on stdin, where `base` is the row as
-read and the only kind is `openai-compatible`, merges the change from that
-base into the file as it is now, and answers the row as sent. Anything else
+when the row does not read. `set` reads
+`{"fields": {"kind"?, "title"?, "model"?}}` on stdin. The only assignable kind
+is `openai-compatible`. It patches the current row without a source precondition
+and answers the row as sent. The last publication wins. Anything else
 on stdin is refused. A refusal is `{"error", "name"}` and exit 2, and the file
 is as it was. Reading a missing `so.epicenter` answers no row and creates
 nothing; a save creates it inside an Epicenter folder that is there, and
@@ -319,13 +319,14 @@ runs the CLI, or the release app's directories when they are unset.
 
 ## Merging with plain Git
 
-`epicenter sync` merges a folder's files by the same content rules as direct
-`files.write` and `tables.<name>.set` calls ([ADR-0622](../../docs/adr/0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)):
-Markdown frontmatter by field, Markdown bodies and other text (including JSON)
-by text region. `FileEdit` draft saves compare whole source and report conflicts
-instead of applying that merge. Plain `git merge` and `git pull` run on a
-folder use Git's own merge and stop on Git's ordinary conflict markers;
-nothing configures a merge driver for them.
+`epicenter sync` merges Markdown frontmatter by field and Markdown bodies and
+other text (including JSON) by text region
+([ADR-0622](../../docs/adr/0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)).
+Those history merge rules are separate from ordinary file writes, table
+assignments, and editor saves, which publish without source preconditions and
+use the last publication. Plain `git merge` and `git pull` use Git's own merge
+and stop on Git's ordinary conflict markers; nothing configures a merge driver
+for them.
 
 ## Output and exit codes
 

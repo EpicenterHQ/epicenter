@@ -24,8 +24,8 @@ export type MarkdownValue<TSchema extends Schema = Schema> = {
 	text: string;
 } & (
 	| { body: string; fields: Static<TSchema>; issues: null }
-	| { body: string; fields: Record<string, unknown>; issues: Issue[] }
-	| { body: string | undefined; fields: undefined; issues: Issue[] }
+	| { body: string; fields: Record<string, unknown>; issues: readonly Issue[] }
+	| { body: string | undefined; fields: undefined; issues: readonly Issue[] }
 );
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });

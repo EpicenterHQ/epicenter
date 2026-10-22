@@ -23,10 +23,10 @@
 		<p class="font-medium">{item.text}</p>
 		{#if entry}
 			{@const fileEdit = entries.edit(item.entryId)}
-			{@const stage = fileEdit.markdown?.issues === null ? fileEdit.markdown.fields.stage : entry.row.fields.stage}
+			{@const stage = fileEdit.content?.issues === null ? fileEdit.content.fields.stage : entry.row.fields.stage}
 			<div class="mt-1 flex flex-wrap gap-1" aria-label="Your stage for {item.text}">
 				{#each STAGES as option}
-					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option} disabled={entries.isLocked(entry.id)} onclick={() => fileEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>
+					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option}  onclick={() => fileEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>
 				{/each}
 			</div>
 		{/if}

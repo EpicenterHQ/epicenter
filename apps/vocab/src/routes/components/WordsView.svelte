@@ -34,7 +34,7 @@
 	const listing = createQuery(() => entries.entriesQuery());
 	// Membership comes from the listing; interpretation follows each path's current edit.
 	const currentRows = $derived((listing.data ?? []).map((listed): EntryRows[number] => {
-		const markdown = entries.edit(listed.id).markdown;
+		const markdown = entries.edit(listed.id).content;
 		if (markdown === undefined) return listed;
 		return markdown.issues === null
 			? { id: listed.id, ...markdown }
@@ -139,8 +139,7 @@
 			<section class="space-y-3 rounded-lg border border-destructive/50 p-3 text-xs" aria-label="Unsaved changes">
 				{#each orphaned as draft (draft.path)}
 					{@const held = entries.edit(draft.path.slice('entries/'.length, -'.md'.length))}
-					{@const buffer = held.buffer}
-					{@const saving = buffer.status === 'ready' && buffer.unsaved?.status === 'saving'}
+					{@const saving = held.isSaving}
 					<div class="space-y-1" role="alert">
 						<p>A change to <code>{draft.path}</code> was not saved, and the file is no longer a word here.{draft.error ? ` ${describeFailure(draft.error)}` : ''}</p>
 						<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{unsavedText(draft)}</pre>

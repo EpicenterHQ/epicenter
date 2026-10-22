@@ -2,7 +2,7 @@
  * The rich-text view's editing: its commands and plugins, and the two rules
  * that keep its ProseMirror state the note's body.
  *
- * The note's body comes from `FileEdit.getMarkdown()`, with line feeds for
+ * The note's body comes from `FileEdit.getSnapshot().content`, with line feeds for
  * presentation: the folder's edit includes what is typed (ADR-0548). The
  * view's `EditorState` adds only what the note has no place for: the
  * cursor, pending formatting, undo history, and an empty paragraph Markdown
@@ -195,8 +195,7 @@ export function stateAfter(
 	// A selection or pending formatting writes nothing: opening a note never
 	// changes its file.
 	if (!transaction.docChanged) return state.apply(transaction);
-	if (fileEdit.isLocked()) return undefined;
-	const body = noteBody(fileEdit.getMarkdown());
+	const body = noteBody(fileEdit.getSnapshot().content);
 	if (body === undefined) return undefined;
 	const current = bodyCodec.decode(body);
 	if (!current.supported) return undefined;
@@ -213,9 +212,9 @@ export function stateAfter(
 		return undefined;
 	}
 	// An edit Markdown has no spelling for (a new empty paragraph) gives the
-	// same body back: it is shown, and nothing saves.
-	if (encoded !== body && fileEdit.change({ body: encoded }).error !== null)
-		return undefined;
+	// same body back: it is shown, and nothing saves. The command still
+	// checks whether the folder accepts document edits.
+	if (fileEdit.change({ body: encoded }).error !== null) return undefined;
 	return next;
 }
 

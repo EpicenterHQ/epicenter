@@ -4,7 +4,7 @@
  * new connection's id, and what a person is told when something failed.
  */
 
-import { connectionsTables as connectionTables } from '@epicenter/ai/connection-table';
+import type { connectionsTables as connectionTables } from '@epicenter/ai/connection-table';
 
 export { connectionsTables as connectionTables } from '@epicenter/ai/connection-table';
 
@@ -29,7 +29,7 @@ export type ConnectionRow = Row<(typeof connectionTables)['connections']>;
 export type Connection = Extract<ConnectionRow, { issues: null }>;
 
 /** A row that does not read as a connection: its source stays, with why. */
-export type Unreadable = Extract<ConnectionRow, { issues: unknown[] }>;
+export type Unreadable = Extract<ConnectionRow, { issues: readonly unknown[] }>;
 
 export const KIND_LABELS: Record<ConnectionKind, string> = {
 	'openai-compatible': 'OpenAI-compatible endpoint',
@@ -74,8 +74,6 @@ export function failureText(error: CliError) {
 /** What a person is told when a connection's file did not read or save. */
 export function saveFailureText(error: SaveError | ReadError | ActionError) {
 	switch (error.name) {
-		case 'NotStarted':
-			return error.reason;
 		case 'Unparseable':
 			return `Its file cannot be edited as a connection: ${error.reason}.`;
 		case 'NotText':

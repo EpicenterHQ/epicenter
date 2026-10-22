@@ -17,6 +17,7 @@
 use epicenter_folder_core::root::{prepare_directory, PrepareError};
 use epicenter_folder_core::storage::{self, Children, FileListing, PutOutcome, StorageError};
 use tauri::{Manager, Runtime, Webview};
+use tauri_specta::Event;
 
 use crate::{Directory, Folders, WindowError};
 
@@ -47,6 +48,8 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
 #[tauri::command]
 #[specta::specta]
 pub async fn open_folder<R: Runtime>(webview: Webview<R>) -> Result<(), WindowError> {
+    let app = webview.app_handle().clone();
+    let label = webview.label().to_string();
     let directory = webview
         .app_handle()
         .state::<Folders>()
@@ -59,6 +62,14 @@ pub async fn open_folder<R: Runtime>(webview: Webview<R>) -> Result<(), WindowEr
                 PrepareError::Failed(message) => WindowError::Unavailable { message },
             })?;
             storage::sweep_stale_scratch(root);
+            let emitter = app.clone();
+            let target = tauri::EventTarget::webview(&label);
+            app.state::<Folders>()
+                .watch(&label, &directory, move |change| {
+                    if let Err(error) = change.emit_to(&emitter, target.clone()) {
+                        log::warn!("The folder observation could not be delivered: {error}");
+                    }
+                })?;
             Ok(())
         },
         |message| Err(WindowError::Unavailable { message }),
@@ -136,8 +147,9 @@ pub async fn read_folder_file<R: Runtime>(
 /// The bytes are the request's raw body, so file content crosses IPC as it
 /// is rather than as a JSON array of numbers. Percent-encoded headers carry
 /// the rest: `path`, `remove` (`true` to remove the file, when the body is
-/// ignored), and `if-match`, the SHA-256 of the file the page expects there,
-/// left out for no file. A JSON array of bytes is accepted as well: Tauri
+/// ignored), and `expected`, what the page expects there (`any`, `absent`,
+/// `present`, or the SHA-256 of the file: `storage::Expectation`). A JSON
+/// array of bytes is accepted as well: Tauri
 /// sends one when its custom-protocol IPC failed and it fell back to
 /// `postMessage`. Any other body is refused.
 ///
@@ -172,7 +184,8 @@ pub async fn put_folder_file<R: Runtime>(
         "false" => false,
         other => return Err(refused(format!("remove is {other:?}, not true or false"))),
     };
-    let if_match = header("if-match").map_err(refused)?;
+    let expected = storage::Expectation::parse(&required("expected").map_err(refused)?)
+        .map_err(refused)?;
     // The blocking pool needs the bytes to outlive the request.
     let bytes: Option<Vec<u8>> = match (remove, request.body()) {
         (true, _) => None,
@@ -192,7 +205,7 @@ pub async fn put_folder_file<R: Runtime>(
                 directory.root(),
                 &path,
                 bytes.as_deref(),
-                if_match.as_deref(),
+                &expected,
                 || directory.publishing(),
             )
         },

@@ -31,6 +31,7 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
+	type Expectation,
 	type FileRead,
 	type FolderStorage,
 	type HostFiles,
@@ -41,11 +42,7 @@ import {
 	PRIVATE_DIRECTORY,
 	scratchName,
 } from './boundary.js';
-import type {
-	DirectoryPrimitives,
-	EntryKind,
-	Expectation,
-} from './directory-primitives.js';
+import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
 import { FileError, NothingChanged, UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
 
@@ -191,16 +188,16 @@ export function createDirectoryStorage({
 		async function change(
 			path: string,
 			bytes: Uint8Array | null,
-			ifMatch: string | null,
+			expected: Expectation,
 		): Promise<Result<'landed' | 'stale', FileError>> {
 			const { data: found, error } = await landing(path);
 			if (error !== null) return Err(error);
-			const expected: Expectation =
-				ifMatch === null ? 'absent' : { sha256: ifMatch };
 			if (bytes === null) {
 				if (found.kind !== 'file')
-					return Ok(ifMatch === null ? 'landed' : 'stale');
-				if (ifMatch === null) return Ok('stale');
+					return Ok(
+						expected === 'absent' || expected === 'any' ? 'landed' : 'stale',
+					);
+				if (expected === 'absent') return Ok('stale');
 				try {
 					await files.remove(absolute(path), { expected });
 				} catch (cause) {

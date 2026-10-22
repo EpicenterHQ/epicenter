@@ -75,22 +75,20 @@ test('a refused exclusion write stays visible and files remain writable', async 
 			{},
 			{
 				...files,
-				write: (path, from, change) =>
+				write: (path, change) =>
 					path === '.gitignore'
 						? Promise.resolve(
 								SaveError.StorageFailed({
 									cause: new Error('ignore file is read-only'),
 								}),
 							)
-						: files.write(path, from, change),
+						: files.write(path, change),
 			},
 		);
 	});
 	await whispering.start();
 	expect(whispering.exclusionNotice).toContain('ignore file is read-only');
-	expectOk(
-		await context.folder.files.write('note.md', null, 'Still editable\n'),
-	);
+	expectOk(await context.folder.files.write('note.md', 'Still editable\n'));
 	expect(await readdir(test.root)).toEqual(['note.md']);
 });
 

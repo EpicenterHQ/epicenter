@@ -78,7 +78,7 @@ const storedText = () =>
 
 async function untilStoredText(expected: string) {
 	for (let tries = 0; tries < 400; tries++) {
-		if (await storedText() === expected) return;
+		if ((await storedText()) === expected) return;
 		await Bun.sleep(5);
 	}
 	throw new Error('Timed out waiting for the text to save');
@@ -111,7 +111,7 @@ async function openWindow() {
 	globalThis.indexedDB = new IDBFactory();
 	{
 		const folder = await tab();
-		expectOk(await folder.files.write(PATH, null, FILE));
+		expectOk(await folder.files.write(PATH, FILE));
 		await folder.close();
 	}
 	const target = document.createElement('div');
@@ -149,7 +149,9 @@ test('text not added yet closes the window without a prompt and writes nothing',
 
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(nativeDialog.count).toBe(0);
-	expect(page.target.querySelector('[aria-label="Saving"]')?.textContent).toBe('Saved');
+	expect(page.target.querySelector('[aria-label="Saving"]')?.textContent).toBe(
+		'Saved',
+	);
 	const listed = await asTab(async (folder) =>
 		expectOk(await folder.tables.captures.list()).map((row) => row.id),
 	);
@@ -166,9 +168,15 @@ test('text held by Folder prompts; Cancel retains it', async () => {
 		{ key: 'r', ctrlKey: true },
 		{ key: 'r', metaKey: true },
 	]) {
-		expect(window.dispatchEvent(new KeyboardEvent('keydown', {
-			...keys, bubbles: true, cancelable: true,
-		}))).toBe(true);
+		expect(
+			window.dispatchEvent(
+				new KeyboardEvent('keydown', {
+					...keys,
+					bubbles: true,
+					cancelable: true,
+				}),
+			),
+		).toBe(true);
 	}
 
 	await requestClose();

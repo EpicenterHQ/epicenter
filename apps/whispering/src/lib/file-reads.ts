@@ -12,8 +12,8 @@ type LoadedAudio = {
 
 /**
  * What a file is as Source and Files open it: text, binary, or too large,
- * with its size. Its text is the folder's edit of the file, which this read
- * keeps current while the edit holds it.
+ * with its size. The editor owns text independently; this query only
+ * classifies unopened files and reports non-text details.
  */
 export const textRead = defineFileRead('text', async (files, path) => {
 	const { data: bytes, error } = await readBytes({ files }, path);

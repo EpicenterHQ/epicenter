@@ -19,7 +19,7 @@ test('a fresh browser starts empty, and a word saved on a first open is there af
 	const first = await browser.open();
 	expect(expectOk(await first.files.list())).toEqual([]);
 	expectOk(
-		await first.tables.entries.set('lucid', null, {
+		await first.tables.entries.set('lucid', {
 			fields: {
 				text: 'lucid',
 				note: 'clear',
@@ -32,7 +32,9 @@ test('a fresh browser starts empty, and a word saved on a first open is there af
 	await first.close();
 	const again = await browser.open();
 	expect(await tableFiles(again, 'entries')).toEqual(['entries/lucid.md']);
-	expect(expectOk(await again.tables.entries.get('lucid'))?.fields).toMatchObject({
+	expect(
+		expectOk(await again.tables.entries.get('lucid'))?.fields,
+	).toMatchObject({
 		text: 'lucid',
 		note: 'clear',
 	});
@@ -43,7 +45,7 @@ test('a focus controls only the saved word with both its ID and its text', async
 	const folder = await browser.open();
 	// The file at the focus ID now holds another word, as another program may leave it.
 	expectOk(
-		await folder.tables.entries.set('lucid-id', null, {
+		await folder.tables.entries.set('lucid-id', {
 			fields: {
 				text: 'lurid',
 				note: '',

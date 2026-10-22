@@ -32,14 +32,14 @@ test('mounted row and text views follow each other and can revert held input', a
 	cleanup.push(() => folder.close());
 	const initial = 'one\ntwo\nthree\n';
 	expectOk(
-		await folder.tables.notes.set('a', null, {
+		await folder.tables.notes.set('a', {
 			fields: { title: 'A' },
 			body: initial,
 		}),
 	);
-	expectOk(await folder.files.write('b.md', null, initial));
+	expectOk(await folder.files.write('b.md', initial));
 	expectOk(
-		await folder.tables.notes.set('c', null, {
+		await folder.tables.notes.set('c', {
 			fields: { title: 'C' },
 			body: 'Other address\n',
 		}),
@@ -84,8 +84,11 @@ test('mounted row and text views follow each other and can revert held input', a
 	}
 	expect(field('Whole row text').value).toContain('one\ntwo\nTHREE\n');
 	expect(
+		target.querySelector('[aria-label="Shared adapter"]')?.textContent,
+	).toBe('one');
+	expect(
 		target.querySelector('[aria-label="Shared pending"]')?.textContent,
-	).toBe(edit.getText());
+	).toBe(edit.getSnapshot().content?.text);
 	type(
 		field('Whole row text'),
 		field('Whole row text').value.replace('THREE', 'Three from text'),
@@ -95,7 +98,7 @@ test('mounted row and text views follow each other and can revert held input', a
 	expect(field('Row 1').value).toBe('one\ntwo\nThree from text\n');
 	expect(
 		target.querySelector('[aria-label="Shared pending"]')?.textContent,
-	).toBe(edit.getText());
+	).toBe(edit.getSnapshot().content?.text);
 	type(field('Row 1'), 'one\ntwo\nTHREE\n');
 	flushSync();
 	expect(field('Whole row text').value).toContain('one\ntwo\nTHREE\n');
@@ -133,4 +136,57 @@ test('mounted row and text views follow each other and can revert held input', a
 	expect(expectOk(await folder.tables.notes.get('a'))?.body).toBe(
 		'one\ntwo\nTHREE\n',
 	);
+});
+
+test('unmounted views leave held input with the folder, and a new mount shows it', async () => {
+	globalThis.indexedDB = new IDBFactory();
+	const folder = expectOk(
+		await openFolder({
+			tables: { notes: Type.Object({ title: Type.String() }) },
+			saveAfterMs: 60_000,
+		}),
+	);
+	cleanup.push(() => folder.close());
+	expectOk(
+		await folder.tables.notes.set('a', {
+			fields: { title: 'A' },
+			body: 'one\n',
+		}),
+	);
+	expectOk(await folder.files.write('b.md', 'b\n'));
+	const show = () => {
+		const target = document.createElement('div');
+		document.body.append(target);
+		const component = mount(EditViewsHost, { target, props: { folder } });
+		flushSync();
+		return { target, component };
+	};
+	const first = show();
+	const field = (target: HTMLElement, label: string) =>
+		target.querySelector<HTMLTextAreaElement>(`[aria-label="${label}"]`);
+	for (
+		let turn = 0;
+		turn < 100 && field(first.target, 'Row 0')?.value !== 'one\n';
+		turn++
+	) {
+		await Bun.sleep(5);
+		flushSync();
+	}
+	type(field(first.target, 'Row 0')!, 'typed before unmount\n');
+	flushSync();
+	await unmount(first.component);
+	first.target.remove();
+	await tick();
+	const edit = folder.tables.notes.edit('a');
+	expect(edit.getSnapshot()).toMatchObject({
+		isDirty: true,
+		content: { body: 'typed before unmount\n' },
+	});
+	const second = show();
+	cleanup.push(async () => {
+		await unmount(second.component);
+		second.target.remove();
+	});
+	expect(field(second.target, 'Row 1')?.value).toBe('typed before unmount\n');
+	expect(folder.getStatus().unsaved).toEqual(['notes/a.md']);
 });

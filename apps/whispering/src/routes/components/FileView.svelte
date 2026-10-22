@@ -52,28 +52,24 @@
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.edit(own);
-	const { queries } = getFolder();
-	/** What the file is while it shows as text; its reads keep the text edit current. */
+	const { folder, queries } = getFolder();
+	const sourceEdit = folder.files.edit(own);
+	/** Classify unopened files before activating an editor; retained source takes precedence. */
 	const opened = createQuery(() => ({ ...queries.file(path, textRead), enabled: asText }));
 	/** A transcript that reads: its body is edited here, its fields kept. */
 	const transcript = $derived.by(() => {
 		if (table !== TRANSCRIPTIONS || asText) return undefined;
-		const shown = fileEdit.markdown;
+		const shown = fileEdit.content;
 		return shown?.issues === null ? shown : undefined;
 	});
-	// Save metadata stays passive until this view actually demands text.
-	const buffer = $derived(
-		(!audio && !asText) || opened.data?.kind === 'text' || whispering.isSaving(path) || whispering.isUnsaved(path)
-			? fileEdit.buffer : undefined,
-	);
-	const unsaved = $derived(buffer?.status === 'ready' ? buffer.unsaved : undefined);
-	/** The file's text as typed while an edit is unsaved, else as stored. */
-	const text = $derived(
-		buffer?.status === 'ready' && (buffer.unsaved !== undefined || opened.data?.kind === 'text') ? buffer.text : undefined,
-	);
+	/** Held source remains editable after deletion or a failed storage read. */
+	const shouldEdit = $derived(!audio && (
+		!asText || opened.data?.kind === 'text' || sourceEdit.getSnapshot().content !== undefined
+	));
+	const text = $derived(shouldEdit ? fileEdit.content?.text : undefined);
 	/** Why the current source does not read as a row, including unsaved input. */
 	const issues = $derived(
-		table === undefined || text === undefined ? undefined : (fileEdit.markdown?.issues ?? undefined),
+		table === undefined || text === undefined ? undefined : (fileEdit.content?.issues ?? undefined),
 	);
 
 	function show(source: boolean) {
@@ -121,23 +117,11 @@
 		</Button>
 	</div>
 
-	{#if buffer?.error && buffer?.error.name !== 'SourceUnavailable'}
-		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{buffer?.error.message}</p>
+	{#if shouldEdit && fileEdit.loadError}
+		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{fileEdit.loadError.message}</p>
 	{/if}
 
-	{#if unsaved !== undefined && buffer?.error?.name === 'SourceUnavailable' && (asText ? text !== undefined : transcript !== undefined)}
-		<div class="space-y-2 p-4" role="status">
-			<p>The saved file changed. Your draft remains available.</p>
-			<Textarea readonly aria-label="Unsaved file changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
-		</div>
-	{/if}
-	{#if (asText ? text === undefined : transcript === undefined) && unsaved !== undefined}
-		<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
-		<div class="space-y-2 p-4" role="status">
-			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
-			<Textarea readonly aria-label="Unsaved file changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
-		</div>
-	{:else if audio}
+	{#if audio && text === undefined}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4" data-testid="audio-file-view">
 			<AudioPlayer {path} label="Audio in {name}" />
 			<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
@@ -169,11 +153,10 @@
 					() => row.body,
 					(value) => fileEdit.change({ body: value })
 				}
-				disabled={fileEdit.locked}
 				aria-label="Contents of {name}"
 			/>
 		</div>
-	{:else if !asText}
+	{:else if !asText && text === undefined && fileEdit.loadError?.name === 'Missing'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>{name} is no longer in the folder</Empty.Title>
 			<Empty.Description>It was renamed or deleted, here or by another program.</Empty.Description>
@@ -204,7 +187,6 @@
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
 				bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
 				{@attach () => { whispering.editSource(path); }}
-				disabled={fileEdit.locked}
 				aria-label="Contents of {name}"
 				spellcheck={false}
 			/>

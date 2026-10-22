@@ -12,7 +12,7 @@
  */
 import { realpath } from 'node:fs/promises';
 import { Err, Ok } from 'wellcrafted/result';
-import { mayHaveChanged } from './boundary.js';
+import { type Expectation, mayHaveChanged } from './boundary.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
 import { createDirectoryStorage } from './directory-store.js';
@@ -64,8 +64,8 @@ export async function openDirectoryHistory({
 		landed: (paths) => landed.push(...paths),
 	});
 	const noting = {
-		async put(path: string, bytes: Uint8Array | null, ifMatch: string | null) {
-			const result = await storage.put(path, bytes, ifMatch);
+		async put(path: string, bytes: Uint8Array | null, expected: Expectation) {
+			const result = await storage.put(path, bytes, expected);
 			if (mayHaveChanged(result)) history.noteEdit();
 			return result;
 		},
@@ -82,15 +82,12 @@ export async function openDirectoryHistory({
 		sync: history.sync,
 		/** Every path a Sync of this history wrote or removed, in order. */
 		landed,
-		write: async (
-			path: string,
-			from: FileContent | null,
-			to: FileContent | null,
-		) => {
+		/** Replace the file at `path` with `to`, or remove it for `null`. */
+		write: async (path: string, to: FileContent | null) => {
 			const saved =
 				to === null
-					? await folder.files.delete(path, from)
-					: await folder.files.write(path, from, to);
+					? await folder.files.delete(path)
+					: await folder.files.write(path, to);
 			return saved.error === null ? Ok(undefined) : Err(saved.error);
 		},
 		files: { read: (path: string) => storage.read(path) },

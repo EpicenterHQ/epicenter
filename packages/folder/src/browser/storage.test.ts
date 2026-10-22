@@ -184,7 +184,7 @@ test('checkpoint-only publication and collection do not notify file subscribers'
 	try {
 		let changes = 0;
 		repository.onChange(() => changes++);
-		expectOk(await repository.files.write('one.md', null, 'one'));
+		expectOk(await repository.files.write('one.md', 'one'));
 		const snapshot = await repository.storage.capture();
 		await repository.storage.publish({
 			expected: snapshot.state,
@@ -204,13 +204,13 @@ test('failed collection after publication leaves the save successful and its bud
 	let repository = await openRepository(id);
 	try {
 		const original = 'x'.repeat(8 * 1024 * 1024);
-		expectOk(await repository.files.write('large.txt', null, original));
+		expectOk(await repository.files.write('large.txt', original));
 		let collections = 0;
 		repository.storage.collect = async () => {
 			collections++;
 			throw new Error('maintenance unavailable');
 		};
-		expectOk(await repository.files.write('large.txt', original, 'small'));
+		expectOk(await repository.files.write('large.txt', 'small'));
 		expect(collections).toBe(1);
 		repository.close();
 		repository = await openRepository(id);
@@ -220,7 +220,7 @@ test('failed collection after publication leaves the save successful and its bud
 		expect(
 			await expectOk(await repository.files.read('large.txt'))!.content.text(),
 		).toBe('small');
-		expectOk(await repository.files.write('other.txt', null, 'next'));
+		expectOk(await repository.files.write('other.txt', 'next'));
 		expect((await repository.storage.capture()).state.retiredBytes).toBe(0);
 	} finally {
 		repository.close();
@@ -231,7 +231,7 @@ test('quota failure collects once and retries without replacing a root on a seco
 	const repository = await openRepository(crypto.randomUUID());
 	const put = IDBObjectStore.prototype.put;
 	try {
-		expectOk(await repository.files.write('one.md', null, 'saved'));
+		expectOk(await repository.files.write('one.md', 'saved'));
 		const before = (await repository.storage.capture()).state.workingTree;
 		let failures = 0;
 		IDBObjectStore.prototype.put = function (...args: Parameters<typeof put>) {
@@ -242,13 +242,12 @@ test('quota failure collects once and retries without replacing a root on a seco
 			return put.apply(this, args);
 		};
 		expect(
-			expectErr(await repository.files.write('one.md', 'saved', 'unsaved'))
-				.name,
+			expectErr(await repository.files.write('one.md', 'unsaved')).name,
 		).toBe('StorageFailed');
 		expect(failures).toBe(2);
 		expect((await repository.storage.capture()).state.workingTree).toBe(before);
 		IDBObjectStore.prototype.put = put;
-		expectOk(await repository.files.write('one.md', 'saved', 'retried'));
+		expectOk(await repository.files.write('one.md', 'retried'));
 	} finally {
 		IDBObjectStore.prototype.put = put;
 		repository.close();
@@ -259,14 +258,10 @@ test('preparation reads only ignore blobs and collection reads no blob payloads'
 	const repository = await openRepository(crypto.randomUUID());
 	const get = IDBObjectStore.prototype.get;
 	try {
-		expectOk(await repository.files.write('notes/one.md', null, 'base'));
-		expectOk(await repository.files.write('.gitignore', null, '/audio/\n'));
+		expectOk(await repository.files.write('notes/one.md', 'base'));
+		expectOk(await repository.files.write('.gitignore', '/audio/\n'));
 		expectOk(
-			await repository.files.write(
-				'audio/take.wav',
-				null,
-				Uint8Array.of(0, 255),
-			),
+			await repository.files.write('audio/take.wav', Uint8Array.of(0, 255)),
 		);
 		const snapshot = await repository.storage.capture();
 		await repository.storage.publish({
@@ -275,7 +270,7 @@ test('preparation reads only ignore blobs and collection reads no blob payloads'
 		});
 		const base = (await prepareCommit(repository.storage, author))!;
 		await repository.storage.acknowledge(base.base, base.head);
-		expectOk(await repository.files.write('notes/one.md', 'base', 'newer'));
+		expectOk(await repository.files.write('notes/one.md', 'newer'));
 		const saved = await repository.storage.capture('sync');
 		const blobs = new Set(
 			[...saved.objects]

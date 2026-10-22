@@ -5,17 +5,7 @@
  * storage method itself (`tauri-files.ts`). Paths are absolute and use `/`.
  */
 
-/**
- * What a change expects at its path when it lands: nothing there, a file, a
- * file whose bytes hash to `sha256`, or whatever is there. A host checks it
- * where the change lands and rejects with `UnexpectedTarget` when the path
- * holds something else.
- */
-export type Expectation =
-	| 'absent'
-	| 'present'
-	| { readonly sha256: string }
-	| 'any';
+import type { Expectation } from './boundary.js';
 
 /** What one entry of a directory is, without following a link. */
 export type EntryKind = 'file' | 'directory' | 'link' | 'other';

@@ -66,9 +66,9 @@ saves exactly what you type.
 
 A note's title and text autosave a second after you stop typing. Folder
 changes, pinning, and list actions save at once (move to a folder, move to Recently
-Deleted, restore, rename a folder). What you type stays in one source draft;
-a read never replaces it. If another tab changes that file while the draft is
-held, saving reports a whole-file conflict and keeps the draft for comparison.
+Deleted, restore, rename a folder). The Folder owns accepted input, so
+background reads preserve it. Every save publishes complete current text;
+the last whole-file publication wins, without merging outside changes.
 
 A note has two views of its body, **Rich text** and **Source**. **Edit as file**
 shows its whole text, including frontmatter. These presentations share one
@@ -82,29 +82,30 @@ request an early save, and they never wait for a save or a refresh. The shared
 page lifecycle flushes pending changes when the page is hidden or closes.
 
 The detail view has one save status and one set of retry and discard controls
-across all presentations. Unsaved changes stay in the editor. If some held
-source cannot be saved, or the file was deleted, the exact unsaved source is
-copyable in that same area. A conflict shows both saved and unsaved source and
-offers explicit choices to use the saved file or replace it with the draft.
+across all presentations. A failed save keeps the current content and its
+error. Acquired text remains editable after a failed refresh, deletion, or
+binary replacement, even after closing and reopening the view. **Restore text**
+can recreate a deleted file. Read failures offer **Try again**, which only
+refreshes the file. Discard abandons pending local input; it does not
+cancel a publication already admitted or restore an earlier saved version.
 
-Structured and whole-file editing use one `FileEdit` per file path. Its
-`change({ fields?, body? })` combines structured changes; `replaceText(text)`
-replaces the whole file. `getMarkdown()` interprets current text and `getText()`
-reads it directly. Each observing Svelte component uses `createFileEdit(handle)` with tracked
-`.markdown` and `.text` properties. The rich-text view passes the same core
-`FileEdit` to its transaction rule; it has no separate note-body editing API.
-A pure presentation helper validates the note and shows its body with line feeds,
-without changing the exact Markdown snapshot or source. Switching views requires no save or refresh.
-A failed edit remains available when selecting the note again, including if
-another writer deletes or replaces its saved file. It can be saved again,
-copied, or explicitly discarded.
+Structured and whole-file editing use one folder-owned source per path.
+`folder.tables.notes.edit(id)` interprets it as a note;
+`folder.files.edit(path)` exposes full text. `getSnapshot()` is a pure cached
+read of `content`, `loadError`, `isDirty`, `isSaving`, and `saveError`.
+`content` holds exact `text` with interpreted `fields`, `body`, and `issues`.
+`issues === null` means the structured interpretation is valid.
+`change({ fields?, body? })` patches the known source; `replaceText(text)`
+replaces it completely. Svelte uses the memoized `createFileEdit(handle)`
+adapter's tracked getters, including `.content`. Observation starts the first
+read; no editor query or mirrored component content is needed. Folder-wide
+save indicators read aggregate status without opening files.
 
-The vanilla edit exposes `getBuffer()`; its Svelte adapter exposes `.buffer`.
-A ready buffer holds exact `text` and optional `unsaved` state (`dirty`,
-`saving`, `failed`, or `conflict`). Non-save feedback is `buffer.error`.
-Reading `.buffer`, `.text`, or `.markdown` reactively starts the first read;
-views need no separate mount-time read. Folder-wide save indicators read
-aggregate status without opening file contents.
+The rich-text view sends transactions through the neutral editor. Its own
+state owns selection, undo, formatting, and unspellable empty paragraphs.
+Reconciliation keeps this state when the body is unchanged, so changing a
+title or inspecting source retains Undo. Switching views requires no save or
+refresh.
 
 The body is edited with line feeds (ADR-0572): a note whose file has CRLF line
 endings shows normally, and its first edit saves it with line feeds.
@@ -136,24 +137,19 @@ save. Once it reads as a note, **Open as note** shows its fields again. A file
 in `notes/` that is not text, and a file in `folders/` that does not read as a
 folder, are listed apart and open nothing here; Files can still delete them.
 
-Deleting a folder is one action over the files it may change, named before it
-starts: the notes the page lists in the folder, every note with unsaved typing
-(which may be moving it into the folder), and the folder's file. Their held
-input saves first; then the notes are read again. It is refused while any note
-cannot say which folder it is in: repair or remove those first. If that read
-finds a note in the folder that was not named, nothing moves; the page now
-lists that note, so deleting again includes it. Otherwise each note's current
-membership is checked and only `folderId: null` is saved. The folder's file
-goes only after another read finds none left in it. This is not one atomic
-step: notes already moved stay moved if a later save fails. Each delete uses
-the file just read as its witness, keeping a file another writer changed in
-the meantime.
+Deleting a logical folder first lists its notes and includes held pending
+notes, including a note moved into it by unsaved input. It refuses when a
+note cannot identify its folder. Each current member is published with
+`folderId: null`, preserving its other current content; the folder file is
+removed only after another read finds no remaining members. This is not
+atomic: a note already moved stays moved if a later write fails, and another
+writer can move a note in after the final read.
 
-Async actions enter `folder.run` with every path they change and use
-`folder.files` and `folder.tables` inside it. Closing fences new input and
-actions immediately; admitted work can finish its later storage calls before
-close releases the folder, while the departing view keeps its selection and
-does not open newly created files.
+Async workflows enter `folder.run(action)` so admitted work finishes before
+close releases the folder. This admission does not reserve paths, flush
+input, or lock editors. Direct file and table publications join the same
+per-path command lane as editor saves. Closing refuses new input and actions;
+admitted workflows finish without changing the departing view's selection.
 
 ## When something changes underneath you
 
@@ -164,10 +160,10 @@ again. Returning to the tab reads nothing.
 | What happened | What Honeycrisp does |
 | --- | --- |
 | Another tab changed a note | The lists and the open note show it. If you were not typing, the rich-text view starts over on the new text, so its undo history restarts. |
-| Another tab changed a note while you were typing | The whole unsaved source stays on screen. Saving reports a conflict and leaves their file intact. Compare both sources, then use the saved file or explicitly replace it with your typing. |
-| Another tab deleted a note you are typing in | The note leaves the list, and what you typed is offered to copy. Saving reports a conflict; **Replace saved file** explicitly restores it, while **Discard it** lets it go. |
+| Another tab changed a note while you were typing | Current input stays on screen. Its next save publishes that complete source over the outside file. |
+| Another tab deleted a note you are typing in | The note leaves the list, while acquired text stays editable and copyable. New input or **Restore text** can recreate it. |
 | A save failed, for example because storage is full | What you typed stays on screen, the note shows **Not saved** with the reason, and the header says so. It saves again with your next change, or with **Save again**. |
-| You delete a note or file | What you typed in it is saved first, and a delete refuses while it did not save. A file another tab changed at that moment is kept. |
+| You delete a note or file | Deletion enters the same ordered publication lane without saving pending input first. Newer input may recreate the file. |
 
 Closing the tab or reloading while something is not saved yet is held back,
 and the browser asks first. Closing the page sends what is typed.
@@ -201,7 +197,7 @@ features exist in this version.
 
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
-- `@epicenter/folder` for the local folder, its rows and files, guarded source drafts, and change reports; `@epicenter/svelte` for `<FolderApp>`, its query cache, and its edit layer; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and [TypeBox](https://github.com/sinclairzx81/typebox) for the row schemas
+- `@epicenter/folder` for the local folder, its rows and files, retained editable content, and change reports; `@epicenter/svelte` for `<FolderApp>`, its query cache, and its edit layer; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and [TypeBox](https://github.com/sinclairzx81/typebox) for the row schemas
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises
@@ -218,10 +214,8 @@ It drops these promises of the version before it:
 - Files cannot be renamed, and the file browser cannot create or delete an
   empty folder: the local folder has no rename, move, or directory of its
   own. A directory exists while a file is in it.
-- A delete keeps a file another tab changed at that moment, instead of
-  deleting it anyway.
 - Typing in a note another tab deleted remains available to copy or discard.
-  The file is restored only after explicitly choosing **Replace saved file**.
+  New input or **Restore text** can restore the file.
 - While a note is open as its file, its repair reasons include unsaved text.
 - A note file named `notes/.md` is not listed: the local folder needs a
   non-empty name.

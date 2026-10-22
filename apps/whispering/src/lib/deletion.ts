@@ -2,10 +2,9 @@
  * Deleting from the folder: capture what a deletion removes from fresh reads,
  * tell the person exactly that, and delete those files.
  *
- * A file is deleted as it is when the deletion runs: typing held for it is
- * saved first, then the file is read and deleted as read. Each delete names
- * the content it read (ADR-0632), so a file another program changes in that
- * moment is kept, and the person is told.
+ * Deletion publishes removal of the current file. Pending local input captured
+ * by that command is discarded only after successful deletion; newer typing
+ * remains pending and may recreate the path.
  *
  * Deleting a recording removes its row, its transcripts, and the results made
  * from them. The audio its row names is an ordinary file the table does not
@@ -64,16 +63,11 @@ export type Deletion =
 
 export type DeletionContext = {
 	readonly folder: WhisperingFolder;
-	/** Send the typing held for `path`, row or text; answers whether some still did not save. */
-	settle(path: string): Promise<boolean>;
 	/** Why a recording cannot be deleted now, while work for it is under way. */
 	busy(recordingId: string): string | undefined;
 	/** The title of the recording that names `path` as its audio, if one does. */
 	audioOf(path: string): string | undefined;
 };
-
-const UNSAVED =
-	'It has typing that did not save. Save or discard it, then delete it.';
 
 /** A recording's title, or its ID when the title is empty. */
 export function recordingTitle(entry: {
@@ -129,7 +123,7 @@ async function resultsOf(
 
 /**
  * Capture what deleting `path` would remove, for the person to confirm.
- * Typing held for it is saved first.
+ * Capturing confirmation starts no publication.
  */
 export async function captureDeletion(
 	context: DeletionContext,
@@ -142,7 +136,6 @@ export async function captureDeletion(
 		const busy = context.busy(recordingId);
 		if (busy !== undefined) return Err(busy);
 	}
-	if (await context.settle(path)) return Err(UNSAVED);
 
 	if (recordingId !== undefined) {
 		const { data: stored, error } =
@@ -217,24 +210,13 @@ export async function captureDeletion(
 	return Ok({ kind: 'file', path, audioOf: context.audioOf(path) });
 }
 
-/** Why a delete kept what it was asked to delete: it changed while it was deleted. */
-const changedMeanwhile = (path: string) =>
-	`${path} changed while it was being deleted, so it was kept. Check it, then delete it again.`;
-
-/** Delete the current stored bytes of a file the caller reserved. */
+/** Delete one confirmed path through the folder's publication lane. */
 async function deleteFile(
 	context: RunContext,
 	path: string,
 ): Promise<string | undefined> {
-	const { data: found, error: readError } =
-		await context.folder.files.read(path);
-	if (readError !== null) return describeError(readError);
-	if (found !== undefined) {
-		const bytes = new Uint8Array(await found.content.arrayBuffer());
-		const { data, error } = await context.folder.files.delete(path, bytes);
-		if (error !== null) return describeError(error);
-		if (!data.deleted) return changedMeanwhile(path);
-	}
+	const { error } = await context.folder.files.delete(path);
+	if (error !== null) return describeError(error);
 	context.deleted(path);
 	return undefined;
 }
@@ -247,8 +229,7 @@ type RunContext = {
 };
 
 /**
- * Delete exactly what was confirmed, inside the action that reserved every
- * confirmed file. All held input has saved before this action starts.
+ * Delete the confirmed paths while retaining the app-level recording checks.
  */
 export async function runDeletion(
 	context: RunContext,
@@ -256,7 +237,6 @@ export async function runDeletion(
 ): Promise<string | undefined> {
 	if (deletion.kind !== 'recording') return deleteFile(context, deletion.path);
 	const { id } = deletion;
-	// The caller reserved the recording and all confirmed files before this read.
 	const { data: now, error } = await resultsOf(context.folder, id);
 	if (error !== null) return error;
 	const confirmed = new Set(deletion.results);
@@ -265,7 +245,7 @@ export async function runDeletion(
 	const refused = await deleteFile(context, deletion.path);
 	if (refused !== undefined) return refused;
 	context.dropFailed(id);
-	// One file at a time: an outside change keeps that file; earlier deletes stay deleted.
+	// A partial failure reports the paths left after earlier successful deletions.
 	const leftovers: string[] = [];
 	for (const result of deletion.results) {
 		const problem = await deleteFile(context, result);

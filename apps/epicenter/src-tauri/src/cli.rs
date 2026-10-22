@@ -879,21 +879,13 @@ pub struct ConnectionRowFields {
 }
 
 /// One of Whispering's connection rows as the CLI read or sent it. `text`
-/// is the file's exact source; with `issues`, it is the next save's base.
+/// is the file's exact source; `issues` describes its interpretation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct ConnectionRow {
     pub text: String,
     pub issues: Option<Vec<ConnectionRowIssue>>,
     /// `null` when the row does not read; any other field stays in `text`.
     pub fields: Option<ConnectionRowFields>,
-}
-
-/// The row a save starts from, as the page read it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(deny_unknown_fields)]
-pub struct ConnectionRowBase {
-    pub text: String,
-    pub issues: Option<Vec<ConnectionRowIssue>>,
 }
 
 /// The fields a Whispering save assigns. One left out keeps its value, and
@@ -931,10 +923,9 @@ async fn connection_read_with(
 async fn connection_set_with(
     invocation: &Invocation,
     connection: WhisperingConnection,
-    base: Option<&ConnectionRowBase>,
     fields: &ConnectionRowAssignment,
 ) -> Result<ConnectionRow, CliError> {
-    let input = serde_json::to_vec(&json!({ "base": base, "fields": fields }))
+    let input = serde_json::to_vec(&json!({ "fields": fields }))
         .map_err(|error| failed(error.to_string()))?;
     let answer: RowAnswer<ConnectionRow> = invocation
         .answer(
@@ -957,26 +948,17 @@ pub async fn whispering_connection_read(
     connection_read_with(&window_invocation(&webview)?, connection).await
 }
 
-/// Save `fields` to one of Whispering's connection rows, merged from `base`,
-/// the row as the page read it, or `null` for a new row, through
-/// `epicenter whispering-connection set`, which reads both on stdin. Answers
-/// the row as sent. A refusal changed nothing; a run that failed may or may
-/// not have saved.
+/// Assign `fields` to one of Whispering's current connection rows through
+/// `epicenter whispering-connection set`. Answers the row as sent. A refusal
+/// changed nothing; a run that failed may or may not have saved.
 #[tauri::command]
 #[specta::specta]
 pub async fn whispering_connection_set(
     webview: Webview,
     connection: WhisperingConnection,
-    base: Option<ConnectionRowBase>,
     fields: ConnectionRowAssignment,
 ) -> Result<ConnectionRow, CliError> {
-    connection_set_with(
-        &window_invocation(&webview)?,
-        connection,
-        base.as_ref(),
-        &fields,
-    )
-    .await
+    connection_set_with(&window_invocation(&webview)?, connection, &fields).await
 }
 
 // ---------------------------------------------------------------------------
@@ -1849,8 +1831,8 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
 
     /// Through the real CLI over a new Epicenter folder: a missing row reads
     /// as none and creates nothing; a save makes the row with only the
-    /// assigned fields; a row read through these types and saved from that
-    /// base keeps its byte-order mark, CRLF, comments, and unknown fields; and
+    /// assigned fields; a row updated through these types keeps its byte-order
+    /// mark, CRLF, comments, and unknown fields; and
     /// a row whose frontmatter does not parse is refused, its bytes intact.
     #[tokio::test]
     async fn whispering_connection_rows_run_the_cli_over_the_shells_folder() {
@@ -1876,7 +1858,6 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         let made = connection_set_with(
             &invocation,
             WhisperingConnection::Text,
-            None,
             &assign("chat", Some("Whispering text")),
         )
         .await
@@ -1903,14 +1884,9 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
             .unwrap()
             .unwrap();
         assert_eq!(read.text, source);
-        let base = ConnectionRowBase {
-            text: read.text,
-            issues: read.issues,
-        };
         let saved = connection_set_with(
             &invocation,
             WhisperingConnection::Text,
-            Some(&base),
             &assign("other", None),
         )
         .await
@@ -1933,10 +1909,6 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         let refused = connection_set_with(
             &invocation,
             WhisperingConnection::Text,
-            Some(&ConnectionRowBase {
-                text: read.text,
-                issues: read.issues,
-            }),
             &assign("other", None),
         )
         .await
@@ -1975,10 +1947,6 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
                 "{refused} deserialized"
             );
         }
-        assert!(serde_json::from_value::<ConnectionRowBase>(
-            json!({ "text": "", "issues": null, "path": "/tmp/x.md" })
-        )
-        .is_err());
     }
 
     /// Through the real CLI, with a keychain that holds nothing: status names

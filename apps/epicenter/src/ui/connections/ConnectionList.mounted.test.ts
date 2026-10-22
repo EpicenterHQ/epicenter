@@ -1,4 +1,3 @@
-import { unsavedOf } from '../../folders/buffer.test-support.js';
 /**
  * Settings connection context tests.
  * Mounts two connection lists over separate real Markdown folders. Descendant
@@ -52,7 +51,7 @@ describe.skipIf(!browser)('Settings folder context', async () => {
 				saveAfterMs: 20,
 			});
 			expectOk(
-				await folder.tables.connections.set('account', null, {
+				await folder.tables.connections.set('account', {
 					fields: { kind: 'epicenter', title, model: '' },
 					body: '',
 				}),
@@ -77,8 +76,8 @@ describe.skipIf(!browser)('Settings folder context', async () => {
 			type(title, 'Edited first account');
 			await until(
 				() =>
-					unsavedOf(first.folder.tables.connections.edit('account').getBuffer()) ===
-					undefined,
+					!first.folder.tables.connections.edit('account').getSnapshot()
+						.isDirty,
 			);
 			const savedFirst = expectOk(
 				await first.folder.tables.connections.get('account'),

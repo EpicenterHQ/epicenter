@@ -15,13 +15,13 @@
  * Waiting for an endpoint is never folder work, so closing does not wait for
  * a request. Writing its answer is: once the folder is closing, an answer
  * that arrives, or a retry that comes due, writes nothing.
- * A fill saves the answer as a change from the row with the empty body the
- * run started with (ADR-0632): the same answer filled elsewhere stands once,
- * and a field a person changed meanwhile is kept. A row that is gone was
- * discarded, and is not written.
+ * An answer publishes into the current row body. A row already absent when
+ * checked is left absent; admitted publications finish in call order.
  */
 import type { Row } from '@epicenter/folder';
+import type { FileEdit } from '@epicenter/folder/edits';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import type { TSchema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
 import {
@@ -117,7 +117,7 @@ const RETRY_LAST_MS = 30_000;
 const pathOf = (target: Target) => rowPath(target.table, target.stem);
 
 /** Why a row's text does not read, in the words the person is shown. */
-const unread = (row: Row) =>
+const unread = (row: Pick<Row, 'issues'>) =>
 	row.issues?.map((issue) => issue.message).join(' ') ?? '';
 
 export function createRuns({
@@ -128,7 +128,6 @@ export function createRuns({
 	refused,
 	connections,
 	resolve,
-	settle,
 	deleting,
 	isCapturing,
 	track,
@@ -144,11 +143,6 @@ export function createRuns({
 		readonly error: string | undefined;
 	};
 	resolve: (recipe: RecipeRow | undefined) => ResolvedRecipe;
-	/**
-	 * Sends new input for `path` and answers whether input remains unsaved,
-	 * so a request never silently uses the older saved text after failure.
-	 */
-	settle: (path: string) => Promise<boolean>;
 	/** Recordings whose deletion is under way. No request starts for one. */
 	deleting: ReadonlySet<string>;
 	/** The recording still being captured. Its audio is not finished, so it is not transcribed. */
@@ -206,11 +200,11 @@ export function createRuns({
 	async function begin(
 		target: Target,
 		fields: Record<string, unknown>,
-	): Promise<Result<Row, string>> {
+	): Promise<Result<void, string>> {
 		setLive(target, { kind: 'running' });
 		const begun = await writeOf(
 			target,
-			async (): Promise<Result<Row, string>> => {
+			async (): Promise<Result<void, string>> => {
 				try {
 					if (target.recording !== undefined) {
 						const { data: recording, error } =
@@ -223,12 +217,11 @@ export function createRuns({
 					if (late !== undefined) return Err(late);
 					if (target.recording !== undefined && deleting.has(target.recording))
 						return Err(BEING_DELETED);
-					const { data, error } = await folder.tables[target.table].set(
-						target.stem,
-						null,
-						{ fields, body: '' },
-					);
-					return error === null ? Ok(data.sent) : Err(describeError(error));
+					const { error } = await folder.tables[target.table].set(target.stem, {
+						fields,
+						body: '',
+					});
+					return error === null ? Ok(undefined) : Err(describeError(error));
 				} catch (cause) {
 					// The folder went away.
 					return Err(describe(cause));
@@ -239,17 +232,26 @@ export function createRuns({
 		return begun;
 	}
 
-	/** The audio its recording names now, after accepted typing has saved. */
-	async function audioAt(recording: string): Promise<Result<string, string>> {
-		if (await settle(rowPath('recordings', recording)))
-			return Err(
-				'This recording has unsaved changes. Try again or discard them before transcribing it.',
-			);
-		const { data: entry, error } =
-			await folder.tables.recordings.get(recording);
+	/** Capture the acquired source; only an unacquired input needs a read. */
+	async function currentContent<Schema extends TSchema>(
+		edit: FileEdit<Schema>,
+	) {
+		const acquired = edit.getSnapshot().content;
+		if (acquired !== undefined) return Ok(acquired);
+		const { error } = await edit.refresh();
 		if (error !== null) return Err(describeError(error));
-		if (entry === undefined)
-			return Err('The recording is no longer in the folder.');
+		const content = edit.getSnapshot().content;
+		return content === undefined
+			? Err('This file has no editable text.')
+			: Ok(content);
+	}
+
+	/** Validate held recording facts and discover its current audio sibling. */
+	async function audioAt(recording: string): Promise<Result<string, string>> {
+		const { data: entry, error } = await currentContent(
+			folder.tables.recordings.edit(recording),
+		);
+		if (error !== null) return Err(error);
 		if (entry.issues !== null)
 			return Err(
 				`The recording needs repair before it is transcribed: ${unread(entry)}`,
@@ -272,19 +274,22 @@ export function createRuns({
 	}
 
 	/**
-	 * Fill the row's body with the answer: the change from `from`, the row
-	 * with the empty body the run wrote, merged with whatever changed since
-	 * (ADR-0632). The same text filled elsewhere is written once. A row
-	 * deleted meanwhile stays deleted: nothing is written.
+	 * Publish the answer into the current row body. A row already absent when
+	 * checked is left absent; admitted publications finish in call order.
 	 */
-	async function fill(target: Target, from: Row, body: string) {
+	async function fill(target: Target, body: string) {
 		try {
-			const { data: stored, error } = await folder.tables[target.table].get(target.stem);
+			const { data: stored, error } = await folder.tables[target.table].get(
+				target.stem,
+			);
 			if (error !== null) return describeError(error);
 			if (stored === undefined) return undefined;
-			const { error: writeError } = await folder.tables[target.table].set(target.stem, from, {
-				body,
-			});
+			const { error: writeError } = await folder.tables[target.table].set(
+				target.stem,
+				{
+					body,
+				},
+			);
 			return writeError === null ? undefined : describeError(writeError);
 		} catch (cause) {
 			return describe(cause);
@@ -299,12 +304,7 @@ export function createRuns({
 	 * that close still waits for other work. A failed write is tried again
 	 * later, in the background, until it lands or this window closes.
 	 */
-	async function write(
-		target: Target,
-		from: Row,
-		text: string,
-		attempt: number,
-	) {
+	async function write(target: Target, text: string, attempt: number) {
 		const path = pathOf(target);
 		retries.delete(path);
 		const before = live.get(path)?.state;
@@ -314,7 +314,7 @@ export function createRuns({
 			message: before?.kind === 'writing' ? before.message : undefined,
 		});
 		const admitted = await writeOf(target, () =>
-			folder.run([], () => fill(target, from, resultBody(text))),
+			folder.run(() => fill(target, resultBody(text))),
 		);
 		if (admitted.error !== null) {
 			// Refused only because the folder is closing; the answer is not written.
@@ -335,19 +335,15 @@ export function createRuns({
 		const wait = Math.min(RETRY_FIRST_MS * 2 ** attempt, RETRY_LAST_MS);
 		retries.set(
 			path,
-			setTimeout(() => void write(target, from, text, attempt + 1), wait),
+			setTimeout(() => void write(target, text, attempt + 1), wait),
 		);
 	}
 
 	/**
 	 * Send the request for a row already in the folder, then write its answer
-	 * as a change from `from`. Ends when the answer's first write ends.
+	 * into its current body. Ends when the answer's first publication ends.
 	 */
-	async function send(
-		target: Target,
-		from: Row,
-		request: () => Promise<Answer>,
-	) {
+	async function send(target: Target, request: () => Promise<Answer>) {
 		const why =
 			refused() ??
 			(target.recording !== undefined && deleting.has(target.recording)
@@ -370,24 +366,19 @@ export function createRuns({
 			setLive(target, { kind: 'failed', message: answer.error.message });
 			return;
 		}
-		await write(target, from, answer.data.text, 0);
+		await write(target, answer.data.text, 0);
 	}
 
-	/** The saved transformation at `path`, read now, after the typing held for it saved. */
+	/** Capture the recipe exactly as held, including accepted unpublished input. */
 	async function recipeAt(
 		path: string,
 	): Promise<Result<{ stem: string; resolved: ResolvedRecipe }, string>> {
 		const stem = rowIdOf(TRANSFORMATIONS, path);
 		if (stem === undefined) return Err(`${path} is not a transformation.`);
-		if (await settle(path))
-			return Err(
-				'This transformation has unsaved changes. Try again or discard them before running it.',
-			);
-		const { data: stored, error } =
-			await folder.tables.transformations.get(stem);
-		if (error !== null) return Err(error.message);
-		if (stored === undefined)
-			return Err('This transformation is no longer in the folder.');
+		const { data: stored, error } = await currentContent(
+			folder.tables.transformations.edit(stem),
+		);
+		if (error !== null) return Err(error);
 		return Ok({
 			stem,
 			resolved: resolve(stored.issues === null ? stored : undefined),
@@ -395,9 +386,8 @@ export function createRuns({
 	}
 
 	/**
-	 * What a transformation is made from, read now: the transcript's saved text
-	 * and the recording it names. The typing held for the transcript saves
-	 * first, so what is sent is what the folder has.
+	 * Capture the held transcript text and validate the recording it names.
+	 * The result records this input before its request is sent.
 	 */
 	async function transcriptAt(
 		path: string,
@@ -410,15 +400,10 @@ export function createRuns({
 		const transcriptionId = rowIdOf(TRANSCRIPTIONS, path);
 		if (transcriptionId === undefined)
 			return Err(`${path} is not a transcript.`);
-		if (await settle(path))
-			return Err(
-				'This transcript has unsaved changes. Try again or discard them before transforming it.',
-			);
-		const { data: stored, error } =
-			await folder.tables.transcriptions.get(transcriptionId);
-		if (error !== null) return Err(error.message);
-		if (stored === undefined)
-			return Err('This transcript is no longer in the folder.');
+		const { data: stored, error } = await currentContent(
+			folder.tables.transcriptions.edit(transcriptionId),
+		);
+		if (error !== null) return Err(error);
 		if (stored.issues !== null)
 			return Err(
 				`${path} needs repair before it can be transformed: ${unread(stored)} Fix it from Files.`,
@@ -472,10 +457,10 @@ export function createRuns({
 			const prepared = await prepare();
 			if (typeof prepared === 'string') return prepared;
 			const { target, fields } = prepared;
-			const { data: from, error: problem } = await begin(target, fields);
+			const { error: problem } = await begin(target, fields);
 			if (problem !== null)
 				return `Nothing was sent: the result’s file could not be written. ${problem}`;
-			await send(target, from, () =>
+			await send(target, () =>
 				transform({
 					expectedBaseUrl: fields.endpoint,
 					model: fields.model,
@@ -497,7 +482,6 @@ export function createRuns({
 		Result<
 			{
 				target: Target;
-				from: Row;
 				request: () => Promise<Answer>;
 			},
 			string
@@ -508,13 +492,15 @@ export function createRuns({
 		).find((name) => rowIdOf(name, path) !== undefined);
 		if (table === undefined) return Err(`${path} is not a result.`);
 		const stem = rowIdOf(table, path) as string;
-		if (await settle(path))
-			return Err(
-				'This result has unsaved changes. Try again or discard them before running it again.',
-			);
-		const { data: stored, error } = await folder.tables[table].get(stem);
-		if (error !== null) return Err(describeError(error));
-		if (stored === undefined) return Err(`${path} is no longer in the folder.`);
+		const { data: stored, error } = await currentContent(
+			folder.tables[table].edit(stem),
+		);
+		if (error !== null) return Err(error);
+		// The result must still have its durable record before sending again.
+		const persisted = await folder.tables[table].get(stem);
+		if (persisted.error !== null) return Err(describeError(persisted.error));
+		if (persisted.data === undefined)
+			return Err(`${path} is no longer in the folder.`);
 		if (stored.issues !== null)
 			return Err(
 				`${path} needs repair before it runs again: ${unread(stored)}`,
@@ -532,7 +518,6 @@ export function createRuns({
 			if (audioError !== null) return Err(audioError);
 			return Ok({
 				target: { table, stem, recording },
-				from: stored,
 				request: () =>
 					transcribe({
 						audioPath,
@@ -549,7 +534,6 @@ export function createRuns({
 			return Err(BEING_DELETED);
 		return Ok({
 			target: { table, stem, recording },
-			from: stored,
 			request: () =>
 				transform({
 					expectedBaseUrl: fields.endpoint,
@@ -653,12 +637,12 @@ export function createRuns({
 					model: connection.model,
 					endpoint: connection.baseUrl,
 				};
-				const { data: from, error: problem } = await begin(target, fields);
+				const { error: problem } = await begin(target, fields);
 				if (problem !== null)
 					return fail(
 						`Nothing was sent: the transcript’s file could not be written. ${problem}`,
 					);
-				await send(target, from, () =>
+				await send(target, () =>
 					transcribe({
 						audioPath,
 						expectedBaseUrl: connection.baseUrl,
@@ -671,8 +655,7 @@ export function createRuns({
 		},
 
 		/**
-		 * Apply a saved transformation to a saved transcript, each read from the
-		 * folder now. Its result is a new row, written before the request goes
+		 * Apply the current held transformation to the current held transcript. Its result is a new row, written before the request goes
 		 * out; the transcript is never written. Answers why nothing was sent.
 		 */
 		async transform(
@@ -724,7 +707,7 @@ export function createRuns({
 			);
 		},
 		/**
-		 * Apply a saved recipe to pasted text, taken as it is now. Its result
+		 * Apply the current held recipe to pasted text, taken as it is now. Its result
 		 * is a new row in `text_runs/`, written before the request goes out.
 		 * Answers why nothing was sent.
 		 */
@@ -789,7 +772,7 @@ export function createRuns({
 				if (error !== null) return error;
 				const late = refused();
 				if (late !== undefined) return late;
-				await send(prepared.target, prepared.from, prepared.request);
+				await send(prepared.target, prepared.request);
 				return undefined;
 			} finally {
 				again.delete(path);

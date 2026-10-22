@@ -1,4 +1,3 @@
-import { unsavedOf } from '../../lib/edits.test-support.js';
 /**
  * Row views, mounted.
  *
@@ -10,8 +9,8 @@ import { unsavedOf } from '../../lib/edits.test-support.js';
  * Key behaviors:
  * - typing in a view edits the path it shows, and autosaves after a pause
  * - a change made elsewhere shows once the folder reports it
- * - typing over an outside change stays pinned until an explicit whole-source
- *   resolution; a deletion cannot erase the held source
+ * - accepted input publishes a complete source, and clean acquired source
+ *   stays editable after unmount, deletion, or binary replacement
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
  * - a body from a CRLF file shows in LF; a field save leaves its bytes as
@@ -99,11 +98,12 @@ async function open(
 	tab: 'recordings' | 'transformations' = 'recordings',
 ) {
 	const root = await whisperingDirectory('whispering-rows-');
-	const disk = { refusing: false };
+	const disk = { refusing: false, writes: 0 };
 	const stubs = await openTestServices({
-		folder: openGatedTestFolder(root, async () =>
-			disk.refusing ? new Error('Disk unavailable') : undefined,
-		),
+		folder: openGatedTestFolder(root, async () => {
+			disk.writes++;
+			return disk.refusing ? new Error('Disk unavailable') : undefined;
+		}),
 	});
 	for (const [path, text] of Object.entries(files))
 		await Bun.write(join(root, path), text);
@@ -140,10 +140,10 @@ async function show(
 async function settle(context: WhisperingContext) {
 	await eventually(() =>
 		context.folder.getStatus().unsaved.every((path) => {
-			const pending = unsavedOf(context.folder.files.edit(path).getBuffer());
+			const snapshot = context.folder.files.edit(path).getSnapshot();
 			return (
-				pending === undefined ||
-				(pending.status !== 'saving' && pending.error !== undefined)
+				!snapshot.isDirty ||
+				(!snapshot.isSaving && snapshot.saveError !== undefined)
 			);
 		}),
 	);
@@ -168,7 +168,10 @@ const field = <T extends Element>(target: ParentNode, selector: string) =>
 
 /** What the write status line says: Saving…, Not saved, or No unsaved changes. */
 const writeStatus = (target: ParentNode) =>
-	target.querySelector('[data-testid="write-status"]')?.textContent?.trim();
+	target
+		.querySelector('[data-testid="write-status"]')
+		?.querySelector('p')
+		?.firstChild?.textContent?.trim();
 
 test('saved file text stays shown when the reread fails, and typing on keeps it', async () => {
 	const path = 'draft.txt';
@@ -276,9 +279,7 @@ test('a transcript card shows valid unsaved Source input and keeps it when retur
 		target.querySelector<HTMLTextAreaElement>('[data-testid="transcript-text"]')
 			?.value,
 	).toBe('Typed in Source.\n');
-	expect(
-		unsavedOf(context.folder.files.edit(A).getBuffer())?.error,
-	).toBeDefined();
+	expect(context.folder.files.edit(A).getSnapshot().saveError).toBeDefined();
 	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Alpha.\n'));
 });
 
@@ -296,15 +297,11 @@ test('a transcript autosaves to its own path after switching files', async () =>
 
 	type(body, 'Alpha, typed.\n');
 	flushSync();
-	expect(writeStatus(target)).toBe('Saving…');
+	expect(writeStatus(target)).toBe('Not saved');
 	leave(body);
-	expect(unsavedOf(context.folder.files.edit(A).getBuffer())?.status).not.toBe(
-		'saving',
-	);
+	expect(context.folder.files.edit(A).getSnapshot().isSaving).toBe(false);
 	await show(whispering, context, 'other.txt');
-	expect(unsavedOf(context.folder.files.edit(A).getBuffer())?.status).not.toBe(
-		'saving',
-	);
+	expect(context.folder.files.edit(A).getSnapshot().isSaving).toBe(false);
 	await settle(context);
 
 	expect(notices).toEqual([]);
@@ -316,21 +313,21 @@ test('a transcript autosaves to its own path after switching files', async () =>
 	expect(writeStatus(target)).toBe('No unsaved changes');
 });
 
-test('the passive clean save line leaves an unopened path unread', async () => {
+test('the clean save line reports no accepted input for an unopened path', async () => {
 	const { context, whispering, target } = await open({});
 	const { default: SaveStatusHost } = await import(
 		'./test-fixtures/SaveStatusHost.svelte'
 	);
 	const path = 'never-opened.txt';
 	const edit = context.folder.files.edit(path);
-	expect(edit.getBuffer().status).toBe('unread');
+	expect(edit.getSnapshot().content).toBeUndefined();
 	const host = mount(SaveStatusHost, { target, props: { whispering, path } });
 	cleanups.push(() => unmount(host));
 	flushSync();
 	await quiet(context);
 	flushSync();
 	expect(writeStatus(target)).toBe('No unsaved changes');
-	expect(edit.getBuffer().status).toBe('unread');
+	expect(edit.getSnapshot().content).toBeUndefined();
 });
 
 test('a change made elsewhere shows once the folder reports it', async () => {
@@ -352,7 +349,7 @@ test('a change made elsewhere shows once the folder reports it', async () => {
 	expect(body()?.value).toBe('Theirs.\n');
 });
 
-test('typing over an outside change stays pinned until explicit replacement', async () => {
+test('typing over an outside change publishes the whole held source', async () => {
 	const { context, whispering, target, root } = await open({
 		[A]: transcript('Alpha.\n'),
 	});
@@ -367,17 +364,12 @@ test('typing over an outside change stays pinned until explicit replacement', as
 	type(body(), 'Mine.\n');
 	leave(body());
 	await settle(context);
-	expect(unsavedOf(context.folder.files.edit(A).getBuffer())?.error?.name).toBe(
-		'Conflict',
-	);
-	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nTheirs.\n');
-	await context.folder.files.edit(A).resolveConflict('draft');
-	await settle(context);
+	expect(context.folder.files.edit(A).getSnapshot().saveError).toBeUndefined();
 	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
 	expect(body()?.value).toBe('Mine.\n');
 });
 
-test('typing into a deleted recording stays held until explicit replacement', async () => {
+test('typing into a retained recording source recreates its deleted file', async () => {
 	const { context, whispering, target, root } = await open({
 		[RECORDING]: recording('Take', 'Notes.\n'),
 	});
@@ -386,11 +378,6 @@ test('typing into a deleted recording stays held until explicit replacement', as
 	const notes = field(target, 'textarea[aria-label="Notes"]');
 	type(notes, 'Mine.\n');
 	leave(notes);
-	await settle(context);
-	expect(
-		unsavedOf(context.folder.files.edit(RECORDING).getBuffer())?.error?.name,
-	).toBe('Conflict');
-	await context.folder.files.edit(RECORDING).resolveConflict('draft');
 	await settle(context);
 	expect(await readFile(join(root, RECORDING), 'utf8')).toEndWith(
 		'---\nMine.\n',
@@ -422,9 +409,7 @@ test('a transformation opens in Source when invalid and clears repaired diagnost
 	flushSync();
 	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
 	expect(instructions()?.disabled).toBe(false);
-	expect(
-		unsavedOf(context.folder.files.edit(RECIPE).getBuffer()),
-	).toBeDefined();
+	expect(context.folder.files.edit(RECIPE).getSnapshot().isDirty).toBe(true);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(broken);
 	leave(source());
 	await settle(context);
@@ -682,7 +667,7 @@ for (const item of [
 		tab: 'recordings' as const,
 		table: 'recordings' as const,
 		id: 'take',
-		remove: 'durationMs',
+		remove: 'recordedAt',
 		label: 'Unsaved recording changes',
 	},
 	{
@@ -704,7 +689,7 @@ for (const item of [
 			await show(whispering, context, item.path);
 			disk.refusing = true;
 			const view = whispering.edit(item.table, item.path);
-			expect(view.markdown).toBeDefined();
+			expect(view.content).toBeDefined();
 			expectOk(
 				view.change({
 					fields: { title: 'Keep my title', [item.remove]: undefined },
@@ -719,12 +704,13 @@ for (const item of [
 			else await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
 			await reportChanged(whispering, context);
 			if (replacement === 'binary')
-				await context.folder.files.edit(item.path).read();
+				await context.folder.files.edit(item.path).refresh();
 			flushSync();
 			const retained = target.querySelector<HTMLTextAreaElement>(
-				`textarea[aria-label="${item.label}"]`,
+				'textarea[aria-label="Markdown source"]',
 			);
-			expect(retained?.value).toBe(view.text);
+			expect(retained?.value).toBe(view.content?.text);
+			expect(retained?.readOnly).toBe(false);
 			expect(retained?.value).toContain('title: Keep my title');
 			expect(retained?.value).not.toContain(`${item.remove}:`);
 			expect(retained?.value).toContain('Keep my notes');
@@ -792,12 +778,12 @@ for (const replacement of ['missing', 'binary'] as const) {
 		if (replacement === 'missing') await rm(join(root, A));
 		else await writeFile(join(root, A), new Uint8Array([0, 1, 2]));
 		await reportChanged(whispering, context);
-		if (replacement === 'binary') await context.folder.files.edit(A).read();
+		if (replacement === 'binary') await context.folder.files.edit(A).refresh();
 		flushSync();
 		expect(
 			field<HTMLTextAreaElement>(
 				target,
-				'textarea[aria-label="Unsaved file changes"]',
+				'textarea[aria-label="Contents of a.md"]',
 			)?.value,
 		).toContain('Keep my transcript');
 		expect(writeStatus(target)).toContain('Not saved');
@@ -891,4 +877,78 @@ test('transformation controls share the mounted app state across remounts and is
 	expect(second.whispering.view.pastedText).toBe('Another app');
 	expect(second.whispering.view.applyTo).toBeUndefined();
 	expect(view.pastedText).toBe('Keep this input while hidden');
+});
+
+for (const item of [
+	{
+		path: A,
+		source: transcript('Clean transcript.\n'),
+		tab: 'recordings' as const,
+	},
+	{
+		path: RECORDING,
+		source: recording('Clean take', 'Clean notes.\n'),
+		tab: 'recordings' as const,
+	},
+	{
+		path: RECIPE,
+		source: '---\ntitle: Clean up\nmodel: null\n---\nClean instructions.\n',
+		tab: 'transformations' as const,
+	},
+]) {
+	for (const replacement of ['missing', 'binary'] as const) {
+		test(`clean held ${item.path} remains editable after unmount and ${replacement} replacement without publishing`, async () => {
+			const { context, whispering, target, root, page, disk } = await open(
+				{ [item.path]: item.source },
+				item.tab,
+			);
+			await show(whispering, context, item.path);
+			whispering.editSource(item.path);
+			flushSync();
+			const owner = context.folder.files.edit(item.path);
+			const acquired = owner.getSnapshot().content;
+			expect(acquired?.text).toBe(item.source);
+			expect(owner.getSnapshot().isDirty).toBe(false);
+			const writes = disk.writes;
+			page.shown = false;
+			flushSync();
+			if (replacement === 'missing') await rm(join(root, item.path));
+			else await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
+			await owner.refresh();
+			expect(owner.getSnapshot().content).toBe(acquired);
+			expect(owner.getSnapshot().loadError?.name).toBe(
+				replacement === 'missing' ? 'Missing' : 'NotText',
+			);
+			page.shown = true;
+			flushSync();
+			await show(whispering, context, item.path);
+			const control = target.querySelector<HTMLTextAreaElement>(
+				item.path === A
+					? 'textarea[aria-label="Contents of a.md"]'
+					: 'textarea[aria-label="Markdown source"]',
+			);
+			expect(control?.value).toBe(item.source);
+			expect(control?.disabled).toBe(false);
+			expect(control?.readOnly).toBe(false);
+			expect(disk.writes).toBe(writes);
+			type(control, `${item.source}Accepted after replacement.\n`);
+			flushSync();
+			expectOk(await owner.save());
+			expect(await readFile(join(root, item.path), 'utf8')).toBe(
+				`${item.source}Accepted after replacement.\n`,
+			);
+		});
+	}
+}
+
+test('a structured file awaits its first editor read before showing a missing-file message', async () => {
+	const { context, whispering, target } = await open({});
+	const path = 'transcriptions/pending.md';
+	whispering.open(path);
+	flushSync();
+	expect(target.textContent).toContain('Opening pending.md');
+	expect(target.textContent).not.toContain('is no longer in the folder');
+	await context.folder.files.edit(path).refresh();
+	flushSync();
+	expect(target.textContent).toContain('is no longer in the folder');
 });

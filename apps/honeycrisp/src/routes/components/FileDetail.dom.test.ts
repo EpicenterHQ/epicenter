@@ -15,7 +15,7 @@
  *   reading, saves after its pause, and stays undoable after the save lands
  * - Different Source text replaces the rich-text document
  * - A title typed before another tab saved pins the whole local source;
- *   replacing the saved file requires explicit conflict resolution
+ *   saving current content can recreate the deleted file
  * - A change another tab saved shows in the open note
  * - A save that fails says so and offers Save again, which saves it
  * - Switching presentations keeps one recovery surface and the held input
@@ -28,7 +28,6 @@
 // IndexedDB on it rather than on the global the folder reads.
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
-const { unsavedOf } = await import('../../lib/local.test-support.js');
 import { afterEach, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -72,9 +71,13 @@ test('failed changes share one recovery surface across note and whole-file prese
 		);
 	}, 'the whole-file editor');
 	expect(notes.selected?.as).toBe('text');
-	expect(notes.folder.files.edit(PATH).getText()).toContain(body);
-	expect(unsavedOf(notes.folder.files.edit(PATH))?.error).toBeDefined();
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(body);
+	expect(notes.folder.files.edit(PATH).getSnapshot().content?.text).toContain(
+		body,
+	);
+	expect(notes.folder.files.edit(PATH).getSnapshot().saveError).toBeDefined();
+	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
+		body,
+	);
 	expect(
 		target.querySelector('[aria-label="Unsaved note changes"]'),
 	).toBeNull();
@@ -227,12 +230,12 @@ test.each(['title', 'body source', 'whole-file source'] as const)(
 		blur(input);
 		flushSync();
 		const edit = folder.files.edit(PATH);
-		expect(unsavedOf(edit)?.status === 'saving').toBe(false);
+		expect(edit.getSnapshot().isSaving).toBe(false);
 		const leaving = leave();
-		expect(unsavedOf(edit)?.status === 'saving').toBe(false);
+		expect(edit.getSnapshot().isSaving).toBe(false);
 		await leaving;
 		await until(
-			() => unsavedOf(edit) === undefined,
+			() => edit.getSnapshot().isDirty === false,
 			'autosave after the view leaves',
 		);
 		expect(await text(PATH)).toContain('Saved after leaving');
@@ -269,7 +272,7 @@ test('title and Source inputs replace lone surrogates before reaching FileEdit',
 	);
 	await tick();
 	await settle();
-	const markdown = notes.folder.tables.notes.edit('a').getMarkdown();
+	const markdown = notes.folder.tables.notes.edit('a').getSnapshot().content;
 	expect(markdown?.fields?.title).toBe('Title\uFFFD');
 	expect(markdown?.body).toBe('Body\uFFFD\n');
 	expect(await text(PATH)).toContain('Body\uFFFD\n');
@@ -279,7 +282,7 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 	const { notes, target, text, settle } = await view();
 	const rich = richOf(target);
 	await typeRich(rich, ' Typed');
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
 		'Body. Typed\n',
 	);
 	await settle();
@@ -293,7 +296,7 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 		);
 		flushSync();
 	}
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
 		'Body.\n',
 	);
 	expect(rich.textContent).toBe('Body.');
@@ -312,7 +315,7 @@ test('different Source text replaces the rich-text document, and typing goes on 
 		'Different\n',
 	);
 	await tick();
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
 		'Different\n',
 	);
 	click(target, 'Rich text');
@@ -320,7 +323,7 @@ test('different Source text replaces the rich-text document, and typing goes on 
 	expect(rich.textContent).toBe('Different');
 	expect(undoButton(target).disabled).toBe(true);
 	await typeRich(rich, ' again');
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
 		'Different again\n',
 	);
 });
@@ -340,7 +343,7 @@ test('changing presentation keeps rich-text input pending without requesting a s
 	flushSync();
 	expect(richOf(target)).toBe(rich);
 	expect(undoButton(target).disabled).toBe(false);
-	expect(unsavedOf(notes.folder.files.edit(PATH))).toBeDefined();
+	expect(notes.folder.files.edit(PATH).getSnapshot().isDirty).toBe(true);
 	expect(await text(PATH)).not.toContain('Typed');
 });
 
@@ -369,31 +372,28 @@ test('changing the whole-file body replaces rich text without retaining stale Un
 	expect(rich.textContent).toBe('Different');
 	expect(undoButton(target).disabled).toBe(true);
 	await typeRich(rich, ' again');
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.body).toBe(
+	expect(notes.folder.tables.notes.edit('a').getSnapshot().content?.body).toBe(
 		'Different again\n',
 	);
 });
 
-test('a title typed before another tab saves stays pinned until explicit replacement', async () => {
+test('a title typed before another tab saves publishes the current complete file', async () => {
 	const { target, otherTab, text, local, folder, settle } = await view({
 		saveAfterMs: 60_000,
 	});
 	type(titleOf(target), 'Mine');
 	await tick();
 	const tab = await otherTab();
-	const theirs = expectOk(await tab.tables.notes.get('a'));
+
 	expectOk(
-		await tab.tables.notes.set('a', theirs ?? null, {
+		await tab.tables.notes.set('a', {
 			fields: { title: 'Theirs' },
 			body: 'Their body.\n',
 		}),
 	);
 	await folder.tables.notes.edit('a').save();
-	expect(unsavedOf(folder.tables.notes.edit('a'))?.error?.name).toBe(
-		'Conflict',
-	);
-	expect((await text(PATH)) ?? '').toContain('Their body.\n');
-	click(target, 'Replace saved file');
+	expect(folder.tables.notes.edit('a').getSnapshot().saveError).toBeUndefined();
+	expect((await text(PATH)) ?? '').toContain('Body.\n');
 	await settle();
 	expect(local.getStatus().failures).toEqual([]);
 	const saved = (await text(PATH)) ?? '';
@@ -406,9 +406,9 @@ test('a change another tab saved shows in the open note', async () => {
 	const { target, otherTab, settle } = await view();
 	const rich = richOf(target);
 	const tab = await otherTab();
-	const theirs = expectOk(await tab.tables.notes.get('a'));
+
 	expectOk(
-		await tab.tables.notes.set('a', theirs ?? null, {
+		await tab.tables.notes.set('a', {
 			fields: { title: 'Theirs' },
 			body: 'Their body.\n',
 		}),
@@ -451,9 +451,9 @@ test('once the notes are closing, the controls take no input', async () => {
 	expect(rich.getAttribute('contenteditable')).toBe('false');
 	type(titleOf(target), 'Typed while closing');
 	flushSync();
-	expect(notes.folder.tables.notes.edit('a').getMarkdown()?.fields?.title).toBe(
-		'Alpha',
-	);
+	expect(
+		notes.folder.tables.notes.edit('a').getSnapshot().content?.fields?.title,
+	).toBe('Alpha');
 	// The editor stays mounted while the last saves land.
 	expect(richOf(target)).toBe(rich);
 	await closed;

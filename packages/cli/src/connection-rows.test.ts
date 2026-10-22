@@ -6,9 +6,9 @@
  * Key behaviors:
  * - The operation names one of two fixed rows of `so.epicenter`; no path is
  *   taken, and input beyond the closed field assignments is refused.
- * - A row's exact source travels as the save base: a byte-order mark, CRLF
+ * - Updating the current row preserves source details: a byte-order mark, CRLF
  *   line endings, comments, unknown fields, and the body survive a save
- *   that changes one field, and an edit that landed after the read stays.
+ *   that changes one field.
  * - A row whose frontmatter does not parse is answered with its issues, and
  *   a save of it is refused with its bytes untouched.
  * - Reading creates nothing; a save creates `so.epicenter` only inside an
@@ -111,7 +111,6 @@ test('reading a row that is not there answers none and creates nothing', async (
 test('a save makes the row with the assigned fields and no endpoint or key, and reads back as sent', async () => {
 	const { run, rowFile, epicenter } = await setup();
 	const saved = await run(['set', 'transcription'], {
-		base: null,
 		fields: {
 			kind: 'openai-compatible',
 			title: 'Whispering transcription',
@@ -135,7 +134,7 @@ test('a save makes the row with the assigned fields and no endpoint or key, and 
 		},
 	});
 	expect((await run(['read', 'transcription'])).reply).toEqual(saved.reply);
-	// Only the one row, beside the save lock the shell also takes.
+	// Only the one row lives inside the records directory.
 	expect(await readdir(join(epicenter, 'so.epicenter'))).toEqual([
 		'connections',
 	]);
@@ -160,7 +159,6 @@ test('a row read and saved through JSON keeps its byte-order mark, line endings,
 	});
 
 	const saved = await run(['set', 'text'], {
-		base: { text: read.row.text, issues: read.row.issues },
 		fields: { kind: 'openai-compatible', model: 'new-model' },
 	});
 	expect(saved.code).toBe(0);
@@ -169,27 +167,26 @@ test('a row read and saved through JSON keeps its byte-order mark, line endings,
 	expect(saved.reply.row.text).toBe(expected);
 });
 
-test('an edit Settings saved after the read is kept when the save merges from the base it read', async () => {
+test('field assignments use the current source after a Settings publication', async () => {
 	const { run, write, rowFile, settings } = await setup();
 	await write(
 		'---\nkind: openai-compatible\ntitle: Whispering text\nmodel: old-model\n---\n',
 	);
 	const { reply: read } = await run(['read', 'text']);
+	expect(read.row.fields.model).toBe('old-model');
 
 	// Settings opens the folder as its own and saves a title and a new field.
 	const folder = expectOk(
 		await openFolder({ directory: settings, tables: connectionsTables }),
 	);
-	const row = expectOk(await folder.tables.connections.get('whispering-text'));
 	expectOk(
-		await folder.tables.connections.set('whispering-text', row ?? null, {
+		await folder.tables.connections.set('whispering-text', {
 			fields: { title: 'Renamed in Settings', note: 'from Settings' },
 		}),
 	);
 	await folder.close();
 
 	const saved = await run(['set', 'text'], {
-		base: { text: read.row.text, issues: read.row.issues },
 		fields: { kind: 'openai-compatible', model: 'new-model' },
 	});
 	expect(saved.code).toBe(0);
@@ -212,9 +209,8 @@ test('a row whose frontmatter does not parse is answered with its issues, and a 
 	expect(read.row.issues).toHaveLength(1);
 	expect(read.row.issues[0].kind).toBe('frontmatter');
 
-	for (const base of [{ text: read.row.text, issues: read.row.issues }, null]) {
+	{
 		const refused = await run(['set', 'text'], {
-			base,
 			fields: { kind: 'openai-compatible', model: 'new-model' },
 		});
 		expect(refused.code).toBe(2);
@@ -236,7 +232,6 @@ test('only the two operations and the closed field assignments are taken, and a 
 	]) {
 		for (const action of ['read', 'set']) {
 			const refused = await run([action, operation], {
-				base: null,
 				fields: { model: 'm' },
 			});
 			expect(refused.code).toBe(2);
@@ -245,13 +240,13 @@ test('only the two operations and the closed field assignments are taken, and a 
 	}
 	for (const input of [
 		'not json',
-		{ fields: { model: 'm' } },
-		{ base: null, fields: { kind: 'epicenter', model: 'm' } },
-		{ base: null, fields: { kind: 'local', model: 'm' } },
-		{ base: null, fields: { model: 'm', body: 'text' } },
-		{ base: null, fields: { model: 'm', endpoint: 'https://x.test/v1' } },
-		{ base: null, fields: { model: 3 } },
-		{ base: null, fields: {}, path: '/tmp/x.md' },
+		{ base: null, fields: { model: 'm' } },
+		{ fields: { kind: 'epicenter', model: 'm' } },
+		{ fields: { kind: 'local', model: 'm' } },
+		{ fields: { model: 'm', body: 'text' } },
+		{ fields: { model: 'm', endpoint: 'https://x.test/v1' } },
+		{ fields: { model: 3 } },
+		{ fields: {}, path: '/tmp/x.md' },
 		{ base: { text: 'a' }, fields: { model: 'm' } },
 	]) {
 		const refused = await run(['set', 'text'], input);
@@ -263,7 +258,7 @@ test('only the two operations and the closed field assignments are taken, and a 
 
 test('a save makes so.epicenter inside the Epicenter folder, never the Epicenter folder itself', async () => {
 	const { run, rowFile } = await setup();
-	const save = { base: null, fields: { model: 'm' } };
+	const save = { fields: { model: 'm' } };
 	expect((await run(['set', 'text'], save)).code).toBe(0);
 	expect(await readFile(rowFile(), 'utf8')).toBe('---\nmodel: m\n---\n');
 
@@ -286,7 +281,7 @@ test('a link or a file at so.epicenter is refused, and nothing is read or writte
 	await symlink(elsewhere, linked.settings);
 	for (const [action, input] of [
 		['read', undefined],
-		['set', { base: null, fields: { model: 'm' } }],
+		['set', { fields: { model: 'm' } }],
 	] as const) {
 		const refused = await linked.run([action, 'text'], input);
 		expect(refused.code).toBe(2);
@@ -303,7 +298,6 @@ test('a link or a file at so.epicenter is refused, and nothing is read or writte
 	const file = await setup();
 	await writeFile(file.settings, 'not a folder');
 	const refused = await file.run(['set', 'text'], {
-		base: null,
 		fields: { model: 'm' },
 	});
 	expect(refused.reply.name).toBe('FolderUnusable');

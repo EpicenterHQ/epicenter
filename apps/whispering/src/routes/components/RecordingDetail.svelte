@@ -1,13 +1,9 @@
 <!--
 	One recording: its audio, transcripts, notes, and source. The folder's
-	file edit holds one source draft, saves after a pause, and reports a conflict
-	if the saved source changed. Input and autosave outlive this view.
-	Restoring a recording deleted elsewhere requires explicit conflict resolution.
+	file edit holds the source and saves accepted input after a pause.
+	Acquired text and autosave outlive this view.
 -->
 <script lang="ts">
-	import { getFolder } from '$lib/folder.js';
-	import { textRead } from '$lib/file-reads.js';
-
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -20,7 +16,6 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { createQuery } from '@tanstack/svelte-query';
 	import { RECORDINGS, rowIdOf } from '$lib/definition.js';
 	import { getWhispering, type RecordingEntry } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './AudioAbsent.svelte';
@@ -61,27 +56,16 @@
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.edit(RECORDINGS, own);
-	const { queries } = getFolder();
-	/** What the file is while it shows as text; its reads keep the text edit current. */
-	const opened = createQuery(() => ({ ...queries.file(path, textRead), enabled: asText }));
 	/** The recording as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
-		const shown = fileEdit.markdown;
+		const shown = fileEdit.content;
 		return shown?.issues === null ? shown : undefined;
 	});
-	// Save metadata stays passive until this view actually demands text.
-	const buffer = $derived(
-		!asText || opened.data?.kind === 'text' || whispering.isSaving(path) || whispering.isUnsaved(path)
-			? fileEdit.buffer : undefined,
-	);
-	const unsaved = $derived(buffer?.status === 'ready' ? buffer.unsaved : undefined);
-	/** The file's text as typed while an edit is unsaved, else as stored. */
-	const text = $derived(
-		asText && buffer?.status === 'ready' && (buffer.unsaved !== undefined || opened.data?.kind === 'text') ? buffer.text : undefined,
-	);
+	/** Held source remains editable after deletion or a failed storage read. */
+	const text = $derived(fileEdit.content?.text);
 	/** Why the current source does not read as a recording, including unsaved input. */
-	const issues = $derived(asText && text !== undefined ? (fileEdit.markdown?.issues ?? undefined) : undefined);
+	const issues = $derived(asText && text !== undefined ? (fileEdit.content?.issues ?? undefined) : undefined);
 	const id = $derived(rowIdOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 
@@ -116,7 +100,6 @@
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={() => shown.fields.title, (value) => fileEdit.change({ fields: { title: value } })}
-				disabled={fileEdit.locked}
 				placeholder="Title"
 				aria-label="Recording title"
 			/>
@@ -146,28 +129,17 @@
 		</div>
 	{/if}
 
-	{#if buffer?.error && buffer?.error.name !== 'SourceUnavailable'}
-		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{buffer?.error.message}</p>
+	{#if fileEdit.loadError}
+		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{fileEdit.loadError.message}</p>
 	{/if}
 
-	{#if unsaved !== undefined && buffer?.error?.name === 'SourceUnavailable' && (asText ? text !== undefined : row !== undefined)}
-		<div class="space-y-2 p-4" role="status">
-			<p>The saved file changed. Your draft remains available.</p>
-			<Textarea readonly aria-label="Unsaved recording changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
-		</div>
-	{/if}
-	{#if (asText ? text === undefined : row === undefined) && unsaved !== undefined}
-		<div class="space-y-2 p-4" role="status">
-			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
-			<Textarea readonly aria-label="Unsaved recording changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
-		</div>
-	{:else if asText && text === undefined && opened.isError}
+	{#if text === undefined && fileEdit.loadError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">
-			<p>This recording’s file could not be opened: {opened.error.message}</p>
-			<Button size="sm" variant="outline" onclick={() => void opened.refetch()}>Try again</Button>
+			<p>{fileEdit.loadError.message}</p>
+			<Button size="sm" variant="outline" onclick={() => void fileEdit.refresh()}>Try again</Button>
 		</div>
-	{:else if asText ? text === undefined : row === undefined}
-		<Loading class="flex-1" label="Opening the recording…" />
+	{:else if text === undefined}
+		<Loading class="flex-1" label="Opening the file…" />
 	{:else}
 	<Tabs.Root bind:value={() => (asText ? 'source' : 'details'), (value) => void show(value === 'source')} class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
 		<Tabs.List>
@@ -230,7 +202,7 @@
 							() => shown.body,
 							(value) => fileEdit.change({ body: value })
 						}
-						disabled={fileEdit.locked}
+
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
 					/>
@@ -293,7 +265,7 @@
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
 					{@attach () => { whispering.editSource(path); }}
-					disabled={fileEdit.locked}
+
 					aria-label="Markdown source"
 					spellcheck={false}
 				/>

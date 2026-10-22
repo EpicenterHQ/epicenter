@@ -47,7 +47,7 @@
 	const create = createMutation(() => ({
 		mutationFn: async (typed: string) => {
 			const id = crypto.randomUUID();
-			const { error } = await folder.tables.todos.set(id, null, {
+			const { error } = await folder.tables.todos.set(id, {
 				fields: { title: typed, done: false },
 				body: '',
 			});

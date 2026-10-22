@@ -1,4 +1,3 @@
-import { unsavedOf } from '../../lib/query.test-support.js';
 /**
  * Entry card tests.
  * The real `EntryCard` is mounted in jsdom over the real Vocab store and the
@@ -120,7 +119,7 @@ async function setup(text: string, { saveAfterMs = 60 } = {}) {
 
 /** What the folder holds typed into `lucid` and not saved yet. */
 const held = ({ folder, vocab }: Awaited<ReturnType<typeof setup>>) =>
-	unsavedOf(folder.tables.entries.edit(cached(vocab, 'lucid').id).getBuffer());
+	folder.tables.entries.edit(cached(vocab, 'lucid').id).getSnapshot();
 
 test('the note is editable at once, and saved after a pause in typing', async () => {
 	await using context = await setup('lucid');
@@ -130,10 +129,7 @@ test('the note is editable at once, and saved after a pause in typing', async ()
 	type(note, 'clear');
 	await quiet(context.vocab);
 	expect((await context.saved())?.note).toBe('');
-	await until(
-		() => held(context) === undefined,
-		'the pause to end',
-	);
+	await until(() => !held(context).isDirty, 'the pause to end');
 	await quiet(context.vocab);
 	expect((await context.saved())?.note).toBe('clear');
 });
@@ -142,11 +138,11 @@ test('blur and leaving the card keep the owner’s autosave timer', async () => 
 	await using context = await setup('lucid', { saveAfterMs: 100 });
 	type(context.note(), 'left');
 	blur(context.note());
-	expect(held(context)?.status).not.toBe('saving');
+	expect(held(context).isSaving).toBe(false);
 	await context.unmount();
-	expect(held(context)?.status).not.toBe('saving');
+	expect(held(context).isSaving).toBe(false);
 	expect((await context.saved())?.note).toBe('');
-	await until(() => held(context) === undefined, 'autosave after leaving the card');
+	await until(() => !held(context).isDirty, 'autosave after leaving the card');
 	await quiet(context.vocab);
 	expect((await context.saved())?.note).toBe('left');
 });
@@ -158,7 +154,9 @@ test('the typed note survives the list being read again before it is saved', asy
 	await quiet(context.vocab);
 	flushSync();
 	expect(context.note()?.value).toBe('mine');
-	await context.folder.tables.entries.edit(cached(context.vocab, 'lucid').id).save();
+	await context.folder.tables.entries
+		.edit(cached(context.vocab, 'lucid').id)
+		.save();
 	await quiet(context.vocab);
 	expect((await context.saved())?.note).toBe('mine');
 });
@@ -168,10 +166,7 @@ test('a stage press is saved at once, and keeps a note typed meanwhile', async (
 	type(context.note(), 'clear');
 	click(context.target, 'Understand');
 	await quiet(context.vocab);
-	await until(
-		() => held(context) === undefined,
-		'the stage to save',
-	);
+	await until(() => !held(context).isDirty, 'the stage to save');
 	expect(await context.saved()).toMatchObject({
 		note: 'clear',
 		stage: 'understood',
@@ -192,7 +187,9 @@ test('a save that fails keeps the note on screen and says why, and Try again sav
 		() => context.target.textContent?.includes('Not saved') ?? false,
 		'the failure to show',
 	);
-	expect(context.target.textContent).toContain("This browser's storage refused it");
+	expect(context.target.textContent).toContain(
+		"This browser's storage refused it",
+	);
 	expect(context.note()?.value).toBe('kept');
 	expect((await context.saved())?.note).toBe('');
 
@@ -226,10 +223,13 @@ test('Delete asks first; Cancel changes nothing, and confirming deletes the word
 test('a valid unsaved repair opens its structured controls even when saving fails', async () => {
 	await using browser = createBrowser();
 	const folder = await browser.open({ saveAfterMs: 60_000 });
-	const broken = '---\ntext: lucid\nnote: ""\nstage: invalid\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\n';
-	expectOk(await folder.files.write('entries/broken.md', null, broken));
+	const broken =
+		'---\ntext: lucid\nnote: ""\nstage: invalid\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\n';
+	expectOk(await folder.files.write('entries/broken.md', broken));
 	await using opened = await openVocab(folder);
-	const { default: WordsViewHost } = await import('./fixtures/WordsViewHost.svelte');
+	const { default: WordsViewHost } = await import(
+		'./fixtures/WordsViewHost.svelte'
+	);
 	const target = document.createElement('div');
 	document.body.append(target);
 	const view = mount(WordsViewHost, {
@@ -238,19 +238,45 @@ test('a valid unsaved repair opens its structured controls even when saving fail
 	});
 	const put = IDBObjectStore.prototype.put;
 	try {
-		await until(() => target.textContent?.includes('Repair as text') ?? false, 'the repair action');
+		await until(
+			() => target.textContent?.includes('Repair as text') ?? false,
+			'the repair action',
+		);
 		click(target, 'Repair as text');
-		await until(() => target.querySelector('textarea[aria-label="File text for entries/broken.md"]') !== null, 'the source editor');
+		await until(
+			() =>
+				target.querySelector(
+					'textarea[aria-label="File text for entries/broken.md"]',
+				) !== null,
+			'the source editor',
+		);
 		IDBObjectStore.prototype.put = () => {
 			throw new DOMException('storage refused', 'QuotaExceededError');
 		};
-		type(target.querySelector<HTMLTextAreaElement>('textarea[aria-label="File text for entries/broken.md"]') ?? undefined, broken.replace('stage: invalid', 'stage: usable'));
-		await until(() => target.textContent?.includes('Show note and stage') ?? false, 'live valid diagnostics');
+		type(
+			target.querySelector<HTMLTextAreaElement>(
+				'textarea[aria-label="File text for entries/broken.md"]',
+			) ?? undefined,
+			broken.replace('stage: invalid', 'stage: usable'),
+		);
+		await until(
+			() => target.textContent?.includes('Show note and stage') ?? false,
+			'live valid diagnostics',
+		);
 		click(target, 'Show note and stage');
-		await until(() => target.querySelector('textarea[aria-label="Your note for lucid"]') !== null, 'the structured editor');
+		await until(
+			() =>
+				target.querySelector('textarea[aria-label="Your note for lucid"]') !==
+				null,
+			'the structured editor',
+		);
 		expect(opened.vocab.entries.repair.open).toBeUndefined();
-		expect((await folder.tables.entries.get('broken')).data?.fields?.stage).toBe('invalid');
-		expect(unsavedOf(folder.tables.entries.edit('broken').getBuffer())).toBeDefined();
+		expect(
+			(await folder.tables.entries.get('broken')).data?.fields?.stage,
+		).toBe('invalid');
+		expect(folder.tables.entries.edit('broken').getSnapshot().isDirty).toBe(
+			true,
+		);
 	} finally {
 		IDBObjectStore.prototype.put = put;
 		await unmount(view);

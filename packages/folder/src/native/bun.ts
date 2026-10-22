@@ -15,9 +15,9 @@
  * waits up to ten seconds for another process's; past that it fails and
  * changes nothing (`directory.ts` here).
  *
- * Nothing watches the directory, so `onChange` reports this handle's saves
- * and those of other handles of the directory in this process, not other
- * programs' edits.
+ * One recursive watch reports possible outside changes as path hints. The
+ * folder owner reads the paths its readers or accepted input hold. OS echoes
+ * never acknowledge a save, and closing the folder stops its watch.
  */
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -28,6 +28,7 @@ import type { DirectoryFolderOptions, Folder } from '../folder.js';
 import { localRoot, scratchDirectory } from './directory.js';
 import { createNativeFolder, invalidTable } from './engine.js';
 import { nativeStorage, savingPrimitives } from './storage.js';
+import { watchDirectory } from './watch.js';
 
 /**
  * Open the directory at `directory`, an existing directory whose links are
@@ -59,12 +60,17 @@ export async function openBunFolder<
 	const storage = nativeStorage(resolved);
 	// What a stopped write staged an hour or more ago goes before opening.
 	await sweepStaleScratch(scratch, savingPrimitives(resolved));
-	return Ok(
-		createNativeFolder({
-			storage,
-			tables,
-			directory: `bun:${resolved}`,
-			saveAfterMs,
-		}),
-	);
+	try {
+		return Ok(
+			createNativeFolder({
+				storage,
+				tables,
+				directory: `bun:${resolved}`,
+				saveAfterMs,
+				watch: watchDirectory(resolved),
+			}),
+		);
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
 }

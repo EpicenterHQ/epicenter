@@ -39,24 +39,32 @@
 	const visible = $derived(all.filter((chat) => `${chat.title} ${chat.network}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())));
 	const current = $derived(all.find((chat) => chat.id === selected));
 	const drafts = createQuery(() => queries.rows('drafts'));
+	const attempts = createQuery(() => queries.rows('attempts'));
 	// The query discovers saved Markdown; FileEdit supplies current input,
 	// including text still waiting for autosave or held after a failed save.
-	const draftEdits = $derived((drafts.data ?? []).map((row) =>
-		createFileEdit(folder.tables.drafts.edit(row.id)),
-	));
+	const draftEdits = $derived([...new Set([
+		...(drafts.data ?? []).map(row => row.id),
+		...getStatus().unsaved.filter(path => /^drafts\/[^/]+\.md$/.test(path)).map(path => path.slice('drafts/'.length, -'.md'.length)),
+	])].map(id => createFileEdit(folder.tables.drafts.edit(id))));
+	const attemptEdits = $derived((attempts.data ?? []).map(row => createFileEdit(folder.tables.attempts.edit(row.id))));
 	const draftPreviews = $derived.by(() => {
 		const previews = new Map<string, { label: string; text: string }>();
 		for (const edit of draftEdits) {
-			const row = edit.markdown;
+			const row = edit.content;
 			if (row === undefined || row.issues !== null) continue;
 			const { fields, body } = row;
 			if (fields.mode !== backend.mode || fields.profile !== backend.profile) continue;
-			if (fields.state === 'accepted') continue;
 			const text = body.trim().replace(/\s+/g, ' ');
-			if (fields.state === 'draft' && text === '') continue;
+			if (text === '') continue;
 			let label = 'Draft';
-			if (fields.state === 'sending') label = edit.locked ? 'Sending' : 'Check send';
+			if (fields.state === 'sending') label = 'Check send';
 			previews.set(fields.chatId, { label, text });
+		}
+		for (const edit of attemptEdits) {
+			const row = edit.content;
+			if (edit.loadError?.name === 'Missing' || row?.issues !== null || row.fields.state !== 'sending') continue;
+			if (row.fields.mode !== backend.mode || row.fields.profile !== backend.profile) continue;
+			previews.set(row.fields.chatId, { label: 'Check send', text: row.body.trim().replace(/\s+/g, ' ') });
 		}
 		return previews;
 	});

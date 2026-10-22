@@ -11,8 +11,8 @@
  * the last keystroke, a stage press at once. The folder holds every field
  * typed since the word last saved, so one word's saves run one at a time
  * and a stage press never undoes a note. Fields and body share one exact
- * source draft. A changed saved source causes a whole-file conflict; the
- * typing stays pinned until explicitly resolved. A failed save keeps the
+ * source. Writes publish the whole current source; outside writers may
+ * overwrite it, and later local publications may overwrite them. A failed save keeps the
  * typing and its error.
  *
  * A new word's file is named by the SHA-256 of its exact text, so two adds
@@ -38,7 +38,7 @@ import {
 	type Stage,
 	type UnreadableFile,
 } from './data.js';
-import { CLOSING, untilClosed } from './failure.js';
+import { untilClosed } from './failure.js';
 import { createRepair } from './repair.svelte.js';
 import type { VocabContext } from './vocab.svelte.js';
 
@@ -94,11 +94,6 @@ export function createEntries(local: VocabContext) {
 	/** Read the words again, and answer once the list holds the read. */
 	const reread = () => refresh(['entries']);
 
-	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
-	function canEdit(id: string) {
-		return repair.open !== id && !folder.tables.entries.edit(id).isLocked();
-	}
-
 	async function addWord(
 		exact: string,
 	): Promise<Result<'added' | 'present', EntryError>> {
@@ -125,7 +120,7 @@ export function createEntries(local: VocabContext) {
 			await reread();
 			return Ok('present');
 		}
-		const { error } = await folder.tables.entries.set(id, null, {
+		const { error } = await folder.tables.entries.set(id, {
 			fields: {
 				text: exact,
 				note: '',
@@ -149,16 +144,11 @@ export function createEntries(local: VocabContext) {
 			 * a surrogate pair is kept as U+FFFD, which the folder can save.
 			 */
 			setNote: (note: string): boolean =>
-				canEdit(id) &&
 				fileEdit.change({ fields: { note: note.toWellFormed() } }).error ===
-					null,
+				null,
 			/** Press a stage; it is saved at once. */
 			setStage(stage: Stage): boolean {
-				if (
-					!canEdit(id) ||
-					fileEdit.change({ fields: { stage } }).error !== null
-				)
-					return false;
+				if (fileEdit.change({ fields: { stage } }).error !== null) return false;
 				void fileEdit.save();
 				return true;
 			},
@@ -176,12 +166,6 @@ export function createEntries(local: VocabContext) {
 		 * `setNote` and `setStage` type over the word it shows now.
 		 */
 		edit,
-		canEdit,
-		/** Whether the word at `id` takes no edit now: closing, being deleted, or open as text; read reactively. */
-		isLocked: (id: string) =>
-			local.closing ||
-			repair.open === id ||
-			createFileEdit(folder.tables.entries.edit(id)).locked,
 
 		/**
 		 * Save a word or a captured phrase, and answer once the list holds it.
@@ -193,10 +177,10 @@ export function createEntries(local: VocabContext) {
 		async add(
 			text: string,
 		): Promise<Result<'added' | 'present', EntryError | ActionError>> {
-			if (local.closing) return ActionError.NotStarted({ reason: CLOSING });
+			if (local.closing) return ActionError.Closing();
 			const exact = text.trim().toWellFormed();
 			if (exact === '') return EntryError.Empty();
-			const added = await folder.run([], () =>
+			const added = await folder.run(() =>
 				untilClosed(
 					() => addWord(exact),
 					(cause) => EntryError.NotSaved({ cause }),
@@ -215,30 +199,18 @@ export function createEntries(local: VocabContext) {
 		/** Press a stage of `entry`; it is saved at once. Answers whether it was taken. */
 		setStage: (entry: Entry, stage: Stage): boolean =>
 			edit(entry.id).setStage(stage),
-		/**
-		 * Delete `entry` once what is typed into it saved. `deleted` says
-		 * whether the word is gone, whoever removed it. A word changed in that
-		 * moment, here or in another tab, is kept: `deleted` is false.
-		 */
-		async delete(
-			entry: Entry,
-		): Promise<
-			Result<{ deleted: boolean }, SaveError | ReadError | ActionError>
-		> {
-			const removed = await folder.tables.entries.edit(entry.id).delete();
-			if (removed.error !== null || removed.data.deleted) return removed;
-			const { data: current, error } = await untilClosed(
-				() => folder.tables.entries.get(entry.id),
-				() => Ok(entry.row),
-			);
-			return Ok({ deleted: error === null && current === undefined });
+		/** Delete the path without publishing an unsubmitted draft first. */
+		delete(entry: Entry) {
+			return folder.files.delete(rowPath('entries', entry.id));
 		},
 
 		/** The words whose last save failed, with what was typed; read reactively. */
 		get failures(): Recovery[] {
-			return local.getStatus().failures.filter(
-				(pending) => /^entries\/[^/]+\.md$/.test(pending.path),
-			);
+			return local
+				.getStatus()
+				.failures.filter((pending) =>
+					/^entries\/[^/]+\.md$/.test(pending.path),
+				);
 		},
 
 		/** The repair of a word file as its exact text. */

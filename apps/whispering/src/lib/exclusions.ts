@@ -57,18 +57,17 @@ export async function maintainExclusions(
 ): Promise<Result<void, ReadError | SaveError | ExclusionError>> {
 	const read = await readRules(files);
 	if (read.error !== null) return Err(read.error);
-	const { before, text } = read.data;
+	const { text } = read.data;
 	if (hasMarkdownRules(text)) return Ok(undefined);
 	const newline = text.includes('\r\n') ? '\r\n' : '\n';
 	const bom = text.startsWith('\ufeff') ? '\ufeff' : '';
 	const saved = await files.write(
 		'.gitignore',
-		before,
 		`${bom}${MARKDOWN_RULES.join(newline)}${newline}${text.slice(bom.length)}`,
 	);
 	if (saved.error !== null) return saved;
 
-	// A merged save can retain concurrent changes; confirm the block survived.
+	// Confirm the published block is still present after the write.
 	const verified = await readRules(files);
 	if (verified.error !== null) return Err(verified.error);
 	if (!hasMarkdownRules(verified.data.text))

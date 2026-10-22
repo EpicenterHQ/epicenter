@@ -88,7 +88,7 @@ describe('directory scope', () => {
 		await git(root, 'init', '--quiet', '--initial-branch=main');
 		const folder = await openDirectoryHistory({ root, git: { author } });
 		// Committed before any rule matches it.
-		await folder.write('tracked.log', null, 'v1\n');
+		await folder.write('tracked.log', 'v1\n');
 		expect((await folder.git.commit()).status).toBe('committed');
 		await writeLayout(folder);
 		const { data: status, error: statusError } = await folder.git.status();
@@ -132,14 +132,14 @@ describe('directory scope', () => {
 			git: { author },
 		});
 
-		await writer.write('.gitignore', null, '*.log\n');
+		await writer.write('.gitignore', '*.log\n');
 		expect((await writer.sync.run()).data?.kind).toBe('synced');
 		expect((await reader.sync.run()).data?.kind).toBe('synced');
 
 		// Ignored local files do not make the reader dirty and survive updates.
 		await writeFile(join(readerRoot, 'local.log'), 'reader only\n');
 		await writeFile(join(readerRoot, 'shared.log'), 'reader copy\n');
-		await writer.write('readme.md', null, 'hello\n');
+		await writer.write('readme.md', 'hello\n');
 		expect((await writer.sync.run()).data?.kind).toBe('synced');
 		expect((await reader.sync.run()).data?.kind).toBe('synced');
 		expect(await readFile(join(readerRoot, 'local.log'), 'utf8')).toBe(
@@ -194,7 +194,7 @@ test('native source uses captured ignore bytes and preserves machine-specific ex
 			'global-secret.txt': 'Ignored by machine config',
 			'note.md': 'Shared',
 		}))
-			expect((await folder.write(path, null, text)).error).toBeNull();
+			expect((await folder.write(path, text)).error).toBeNull();
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect((await git(root, 'ls-files')).split('\n')).toEqual([
 			'.gitignore',
@@ -215,9 +215,9 @@ test('a relative core.excludesFile keeps its meaning during captured-rule evalua
 	const folder = await openDirectoryHistory({ root, git: { author } });
 	try {
 		expect(
-			(await folder.write('audio/take.wav', null, 'Private audio')).error,
+			(await folder.write('audio/take.wav', 'Private audio')).error,
 		).toBeNull();
-		expect((await folder.write('note.md', null, 'Shared')).error).toBeNull();
+		expect((await folder.write('note.md', 'Shared')).error).toBeNull();
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect(await git(root, 'ls-files')).toBe('note.md');
 	} finally {
@@ -229,19 +229,11 @@ test('Finder files use ordinary Git rules and tracked ones remain tracked', asyn
 	const root = await scratch('scope-finder-');
 	const folder = await openDirectoryHistory({ root, git: { author } });
 	try {
-		expect(
-			(await folder.write('.DS_Store', null, 'Original')).error,
-		).toBeNull();
+		expect((await folder.write('.DS_Store', 'Original')).error).toBeNull();
 		expect((await folder.git.commit()).status).toBe('committed');
-		expect(
-			(await folder.write('.gitignore', null, '.DS_Store\n')).error,
-		).toBeNull();
-		expect(
-			(await folder.write('.DS_Store', 'Original', 'Updated')).error,
-		).toBeNull();
-		expect(
-			(await folder.write('notes/.DS_Store', null, 'Ignored')).error,
-		).toBeNull();
+		expect((await folder.write('.gitignore', '.DS_Store\n')).error).toBeNull();
+		expect((await folder.write('.DS_Store', 'Updated')).error).toBeNull();
+		expect((await folder.write('notes/.DS_Store', 'Ignored')).error).toBeNull();
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect(await git(root, 'ls-files')).toBe('.DS_Store\n.gitignore');
 		expect(await git(root, 'show', 'HEAD:.DS_Store')).toBe('Updated');

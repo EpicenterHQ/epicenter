@@ -12,11 +12,8 @@
 	import { type getFolder, setFolder } from './context.js';
 	import { setQueryClientContext } from '@tanstack/svelte-query';
 	import FolderView from './FolderView.svelte';
-	import { updateSavedView } from '@epicenter/folder/tauri';
-	import type { ViewUpdater } from './views.svelte';
-	let { context, updateView = updateSavedView }: {
+	let { context }: {
 		context: ReturnType<typeof getFolder>;
-		updateView?: ViewUpdater;
 	} = $props();
 
 	// This component owns one opened context for its lifetime.
@@ -25,4 +22,4 @@
 	setQueryClientContext(queryClient);
 </script>
 
-<FolderView {updateView} />
+<FolderView />

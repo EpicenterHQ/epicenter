@@ -97,7 +97,7 @@ test('a recording’s audio is read back from the folder as its exact bytes for 
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
-	expectOk(await folder.files.write('recordings/take.webm', null, toneWav()));
+	expectOk(await folder.files.write('recordings/take.webm', toneWav()));
 	const browser = createServices(
 		expectOk(await openFolder({ tables: whisperingTables })),
 	);

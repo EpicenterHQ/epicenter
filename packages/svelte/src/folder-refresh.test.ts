@@ -1,15 +1,9 @@
-/**
- * Shared folder refresh over real files and active TanStack observers.
- * External writes arrive through polling without notifications. Hidden pages
- * do no periodic reads; returning and mounting cached queries read again.
- * A save never waits for a read, and a slow scan shows the save over the
- * older rows until a read after it arrives. Closing stops polling even while
- * a consumer remains subscribed.
+/** Folder watch events, targeted query invalidation, and explicit/focus reconciliation.
+ * No periodic read is needed. Slow reads are joined and cannot replace newer editor input.
  */
-import { unsavedOf } from './buffer.test-support.js';
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/bun';
@@ -17,6 +11,8 @@ import type { DocumentReading } from '@epicenter/folder/documents';
 import { QueryObserver } from '@tanstack/query-core';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
+import { createNativeFolder } from '../../folder/src/native/engine.js';
+import { nativeStorage } from '../../folder/src/native/storage.js';
 import { defineFileRead } from './folder-queries.js';
 
 const { createFolderContext } = await import('./folder-context.js');
@@ -41,14 +37,23 @@ async function until(check: () => boolean, timeout = 4_000) {
 		await Bun.sleep(10);
 	}
 }
-async function setup() {
+async function setup(watching = false) {
 	visibility('visible');
 	const directory = await mkdtemp(join(tmpdir(), 'folder-refresh-'));
 	await mkdir(join(directory, 'notes'));
 	await writeFile(join(directory, 'notes/milk.md'), initial);
-	const folder = expectOk(
-		await openFolder({ directory, tables, saveAfterMs: 60_000 }),
-	);
+	const root = await realpath(directory);
+	// Most cases deliberately omit events to exercise reconciliation after a gap.
+	const folder = watching
+		? expectOk(
+				await openFolder({ directory: root, tables, saveAfterMs: 60_000 }),
+			)
+		: createNativeFolder({
+				storage: nativeStorage(root),
+				tables,
+				directory: `refresh-test:${root}`,
+				saveAfterMs: 60_000,
+			});
 	const context = createFolderContext(folder);
 	cleanup.push(async () => {
 		await context.close();
@@ -71,30 +76,43 @@ async function setup() {
 	return { directory, folder, context, observer, cached, reads: () => reads };
 }
 
-test('visible polling discovers outside edits and preserves a pending row draft', async () => {
-	const { directory, folder, cached } = await setup();
-	// The list's read answered the edit's document.
+test('native events update queries and an editor without periodic reads or replacing input', async () => {
+	const { directory, folder, cached } = await setup(true);
 	const edit = folder.tables.notes.edit('milk');
-	expectOk(edit.change({ fields: { title: 'Typed here' } }));
+	cleanup.push(edit.subscribe(() => {}));
+	await until(() => edit.getSnapshot().content !== undefined);
 	await writeFile(
 		join(directory, 'notes/milk.md'),
 		initial.replace('two', 'Outside edit'),
 	);
+	// The folder-wide hint reaches both the owner and the query context.
 	await until(() => cached().body?.includes('Outside edit') === true);
-	expect(unsavedOf(edit)).toBeDefined();
-	// The poll updates storage knowledge without replacing the dirty draft.
-	expect(edit.getMarkdown()?.fields?.title).toBe('Typed here');
-	expect(edit.getMarkdown()?.body).toBe('one\n\ntwo\n');
-	await edit.save();
-	expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
-	expect(edit.getMarkdown()?.fields?.title).toBe('Typed here');
-	await edit.resolveConflict('draft');
+	await until(
+		() => edit.getSnapshot().content?.body?.includes('Outside edit') === true,
+	);
+	expectOk(edit.change({ fields: { title: 'Typed here' } }));
+	await writeFile(
+		join(directory, 'notes/milk.md'),
+		initial.replace('two', 'Second outside edit'),
+	);
+	await until(() => cached().body?.includes('Second outside edit') === true);
+	await Bun.sleep(50);
+	expect(edit.getSnapshot()).toMatchObject({
+		isDirty: true,
+		content: { fields: { title: 'Typed here' } },
+	});
+	expect(edit.getSnapshot().content?.body).toBe('one\n\nOutside edit\n');
+	// The last publication wins whole.
+	expectOk(await edit.save());
 	await until(() => cached().fields?.title === 'Typed here');
-	expect(cached().body).toBe('one\n\ntwo\n');
+	expect(cached().body).toBe('one\n\nOutside edit\n');
 });
 
-test('hidden pages do not poll and becoming visible refreshes without waiting for a tick', async () => {
-	const { directory, reads, cached } = await setup();
+test('without a delivered hint there is no polling; becoming visible reconciles sources and queries', async () => {
+	const { directory, reads, cached, folder } = await setup();
+	const edit = folder.tables.notes.edit('milk');
+	cleanup.push(edit.subscribe(() => {}));
+	await until(() => edit.getSnapshot().content !== undefined);
 	visibility('hidden');
 	const before = reads();
 	await writeFile(
@@ -106,6 +124,10 @@ test('hidden pages do not poll and becoming visible refreshes without waiting fo
 	expect(cached().fields?.title).toBe('Milk');
 	visibility('visible');
 	await until(() => cached().fields?.title === 'Outside', 700);
+	await until(
+		() => edit.getSnapshot().content?.fields?.title === 'Outside',
+		700,
+	);
 	expect(reads()).toBe(before + 1);
 });
 
@@ -149,34 +171,8 @@ test('a known path refresh leaves unrelated file queries alone', async () => {
 	expect(reads).toEqual({ a: 2, b: 1 });
 });
 
-test('a reported change leaves an edit read query alone; an asked-for refresh reads it', async () => {
-	const { folder, context } = await setup();
-	const edit = folder.tables.notes.edit('milk');
-	let reads = 0;
-	const observer = new QueryObserver(
-		context.queryClient,
-		context.queries.read({
-			path: edit.path,
-			read: () => {
-				reads++;
-				return edit.read();
-			},
-		}),
-	);
-	cleanup.push(observer.subscribe(() => {}));
-	await until(() => reads === 1);
-	expectOk(edit.change({ fields: { title: 'Typed here' } }));
-	await edit.save();
-	await Bun.sleep(50);
-	expect(reads).toBe(1);
-	await context.refresh([edit.path]);
-	expect(reads).toBe(2);
-	await context.refresh();
-	expect(reads).toBe(3);
-});
-
 test('a save lands without waiting for a slow scan, whose older rows never replace it in the edit', async () => {
-	const { folder, cached, reads } = await setup();
+	const { folder, cached, reads, context } = await setup();
 	const gate = Promise.withResolvers<void>();
 	const list = folder.tables.notes.list;
 	let held = false,
@@ -197,29 +193,33 @@ test('a save lands without waiting for a slow scan, whose older rows never repla
 		}
 	};
 	cleanup.push(() => gate.resolve());
+	const refreshing = context.refresh(['notes']);
 	await until(() => held);
 	const edit = folder.tables.notes.edit('milk');
+	expectOk(await edit.refresh());
 	const before = cached();
 	expectOk(edit.change({ fields: { title: 'Saved while reading' } }));
-	await edit.save();
-	expect(unsavedOf(edit)).toBeUndefined();
+	expectOk(await edit.save());
+	expect(edit.getSnapshot().isDirty).toBe(false);
 	expect(folder.getStatus().saving).toBe(false);
 	expect(before.fields?.title).toBe('Milk');
-	expect(edit.getMarkdown()?.fields?.title).toBe('Saved while reading');
-	// A second polling tick must join the slow scan, not replace it.
-	await Bun.sleep(2_200);
+	const title = () => edit.getSnapshot().content?.fields?.title;
+	expect(title()).toBe('Saved while reading');
+	// A second invalidation joins the same scan.
+	const again = context.refresh(['notes']);
+	await Bun.sleep(20);
 	expect(maximum).toBe(1);
 	gate.resolve();
-	await Bun.sleep(0);
-	// The scan read before the save: the edit keeps what the save stored.
-	expect(edit.getMarkdown()?.fields?.title).toBe('Saved while reading');
+	await Promise.all([refreshing, again]);
+	// The scan read before the save: the editor keeps what the save stored.
+	expect(title()).toBe('Saved while reading');
 	await until(() => cached().fields?.title === 'Saved while reading');
-	expect(edit.getMarkdown()?.fields?.title).toBe('Saved while reading');
+	expect(title()).toBe('Saved while reading');
 	expect(maximum).toBe(1);
 	expect(reads()).toBeLessThanOrEqual(3);
 }, 10_000);
 
-test('close stops periodic reads even if a view remains subscribed', async () => {
+test('close stops reconciliation even if a view remains subscribed', async () => {
 	const { context, reads } = await setup();
 	await context.close();
 	const before = reads();
@@ -228,7 +228,7 @@ test('close stops periodic reads even if a view remains subscribed', async () =>
 	expect(context.queryClient.getQueryCache().getAll()).toHaveLength(0);
 });
 
-test('multiple observers share one periodic read and expensive reads get idle time', async () => {
+test('multiple observers share reads and no timer starts another read', async () => {
 	const { context, folder, reads } = await setup();
 	const beforeMount = reads();
 	const second = new QueryObserver(
@@ -245,10 +245,11 @@ test('multiple observers share one periodic read and expensive reads get idle ti
 		await Bun.sleep(600);
 		return result;
 	};
-	await until(() => reads() > before);
-	await until(() => context.queryClient.isFetching() === 0);
+	await Bun.sleep(2_200);
+	expect(reads()).toBe(before);
+	await context.refresh();
 	expect(reads()).toBe(before + 1);
-	await Bun.sleep(2_300);
+	await Bun.sleep(50);
 	expect(reads()).toBe(before + 1);
 }, 8_000);
 
@@ -306,11 +307,9 @@ test('a path refresh covers every representation and aggregate, leaving unrelate
 		)?.documents[0]?.fields?.title,
 	).toBe('Changed');
 	// Actual committed writes use the context's listener, without app listeners.
-	const from = expectOk(await folder.files.read('notes/milk.md'))!;
 	expectOk(
 		await folder.files.write(
 			'notes/milk.md',
-			new Uint8Array(await from.content.arrayBuffer()),
 			initial.replace('Milk', 'Own save'),
 		),
 	);
@@ -351,15 +350,9 @@ test('refresh forgets unobserved files while disabled observers stay attached', 
 			.getQueryCache()
 			.find({ queryKey: options.queryKey, exact: true }),
 	).toBe(query);
-	const before = expectOk(await folder.files.read('notes/milk.md'))!;
-	expectOk(
-		await folder.files.delete(
-			'notes/milk.md',
-			new Uint8Array(await before.content.arrayBuffer()),
-		),
-	);
+	expectOk(await folder.files.delete('notes/milk.md'));
 	await context.refresh(['notes/milk.md']);
-	expectOk(await folder.files.write('notes/milk.md', null, 'New empty file'));
+	expectOk(await folder.files.write('notes/milk.md', 'New empty file'));
 	await context.refresh(['notes/milk.md']);
 	disabled.setOptions(options);
 	await until(() => disabled.getCurrentResult().data === 'New empty file');

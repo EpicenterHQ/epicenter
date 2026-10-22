@@ -109,11 +109,12 @@ SQL results remain read-only. Explicitly saving the first view can create a
 declaration containing only `views`.
 
 Clean view settings follow saved changes; unfinished settings remain owned by
-the window until saved or reloaded. Structured view saves preserve sibling
-entries and report conflicting changes to the same entry. Raw declaration
-drafts settle before those writes. Invalid and future entries retain source and
-diagnostics. The generic editor's writer is a narrow desktop capability;
-browser generic editing is not a product surface.
+the window until submitted or reloaded. A submission transforms the current
+`epicenter.json` editor text, preserving sibling entries, then immediately
+replaces and saves that same source. Raw and structured submissions share the
+file owner and publication lane. Assignments have no source precondition.
+Invalid and future entries retain source and diagnostics. The transform is
+portable; the generic editor remains a desktop product surface.
 
 A schema-distribution service remains unbuilt. Existing app callers use Folder;
 migration of older stored browser data is separate. The CLI retains its
@@ -144,22 +145,23 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | Transaction or publication | Atomic storage work that acknowledges local state. This publication is unrelated to the retired app-owned schema publication. |
 | Cache | Data rebuilt without losing saved work. Unsent edits and uncertain pending commits are not caches. |
 
-For a direct write (`files.write` or `tables.<name>.set`), the merge's `base`
-is the caller's `from`: the exact source that write started from. `current` is
-the file captured from local storage for that attempt. `change` is the complete file the caller submitted. A table's
-public `set(id, from, change)` takes a partial row change; it builds that
-complete file before merging. The returned `sent` is the submitted row for the
-next direct write's `from`, not necessarily the merged file now stored.
+File writes and editor saves publish a complete file unconditionally. Public
+`files.write(path, content)` and `tables.<name>.set(id, change)` take no observed
+source argument. Table changes preserve the current held source, including
+unknown fields, before publication. This makes no merge promise against outside
+writers. Git sync retains its separate three-way merge and conditional storage
+publication rules.
 
-`FileEdit` saves use a different rule: local commands update one whole-source
-draft in call order. Rereads update storage knowledge without folding outside
-fields or body edits into that draft. Saving compares storage against the exact
-source observed when the draft began (or the last submitted source that landed).
-Storage that already equals the draft satisfies it. Any other changed source,
-including deletion, reports `Conflict` and retains the draft.
-`resolveConflict('current' | 'draft' | { text })` explicitly accepts saved
-content or submits a guarded replacement. Direct writes and Git sync keep
-their content merge rules. See [Folder editing](../packages/folder/README.md#unsaved-input).
+One `FileEdit` source belongs to the folder for each path. Schema-bound views
+interpret that same source. `getSnapshot()` returns cached content, `loadError`,
+`isDirty`, `isSaving`, and `saveError`. Dirty means accepted publication intent;
+saving means admitted unsettled text publications. Both may be true. A save
+captures current text at the call and resolves for that publication, even if
+newer input arrives. Reads never replace pending local input and never cause
+writes. All acquired text remains available through unmounts, deletion, binary
+replacement, and failed refresh, until the folder closes. Explicit local input
+can recreate a missing file. Holding text in memory does not provide crash
+recovery. See [Folder editing](../packages/folder/README.md#unsaved-input).
 
 During sync, the same merge roles describe a base tree, the fetched remote
 tree, and the local tree being merged. These are roles in Epicenter's merge, not Git's
@@ -185,7 +187,7 @@ and recovery; it does not expose those network states.
 | --- | --- |
 | App | A program using its own read schemas. Qualify a web app or desktop app when runtime or native capabilities matter. |
 | CLI | The `epicenter` executable. Its package entry points and commands are documented by the CLI package. |
-| Agent or person | A direct file editor. Its writes do not automatically acquire the app's save witness or merge protocol. |
+| Agent or person | A direct file writer. Apps and external writers follow last whole-file publication wins; the folder retains accepted app input independently of outside changes. |
 | Epicenter desktop app | The app in `apps/epicenter`: a folder launcher, generic Files/grid/board/SQL editor with saved views, Settings, and host for fixed bundled apps. Host app, desktop host, and launcher are not additional products. It is optional to standalone apps and the CLI. |
 | Runner | A deferred capability of the Epicenter desktop app: opening built local websites over selected disk data. It is not another app or required platform layer. |
 | Web origin | The web app's storage and OAuth client boundary. It is distinct from Git's remote named `origin`. |
@@ -232,7 +234,7 @@ additional current APIs.
 | --- | --- |
 | `@epicenter/folder` | Public `openFolder`, `Folder`, and `Row.id` across root, `/browser`, `/tauri`, and `/bun`. Apps supply TypeBox row schemas and neither read nor publish a declaration when opening. Older `defineFolder`, `Definition`, and `stem` remain in the Bun CLI tools. |
 | `@epicenter/folder` browser engine (`src/browser/`) | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. It has no package entry point; only `openFolder({ tables })` reaches it. |
-| `@epicenter/folder/declaration` | Canonical portable schema, `SavedView`, `readSavedViews`, and explicit app `exportTables`. The Tauri entry supplies `updateSavedView` for one bound directory. |
+| `@epicenter/folder/declaration` | Canonical portable schema, `SavedView`, `readSavedViews`, and explicit app `exportTables`. The pure `changeSavedView` transform composes into the same declaration file editor used for raw text. |
 | CLI | Implemented commands include `auth`, `folders add|list|forget`, `schema export|import`, `generate`, and `save-version`. The source-installed `app` command group is removed. External-schema flags and CLI `open` remain deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 

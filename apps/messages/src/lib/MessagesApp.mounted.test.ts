@@ -1,4 +1,3 @@
-import { unsavedOf } from './buffer.test-support.js';
 /** Draft previews over real Markdown files and Folder-owned pending input. */
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
@@ -16,7 +15,8 @@ import {
 } from '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { createDemoBackend } from './backend.js';
 import { messagesTables } from './definition.js';
-import { draftId, openDraft } from './drafts.js';
+import { draftId } from './drafts.js';
+import { seedDraft } from './drafts.test-support.js';
 
 mock.module('$app/navigation', () => ({ beforeNavigate() {} }));
 const { flushSync, mount, unmount } = await import('svelte');
@@ -123,8 +123,8 @@ test('a preview follows pending Markdown input across chat switches and disappea
 				) === true,
 		'the unsaved preview',
 	);
-	expect(unsavedOf(edit.getBuffer())?.status).not.toBe('saving');
-	expect(expectOk(await app.folder.tables.drafts.get(id))?.body).toBe('');
+	expect(edit.getSnapshot().isSaving).toBe(false);
+	expect(expectOk(await app.folder.tables.drafts.get(id))).toBeUndefined();
 	await app.open('Community garden');
 	expect(app.composer()?.value).toBe('');
 	expect(app.conversation('Maya Chen').textContent).toContain(
@@ -154,29 +154,29 @@ test('a preview follows pending Markdown input across chat switches and disappea
 test('saved Markdown supplies previews without opening chats and keeps modes and profiles separate', async () => {
 	const app = await setup();
 	const demo = createDemoBackend();
-	const maya = expectOk(await openDraft(app.folder, demo, 'demo-maya'));
+	const maya = await seedDraft(app.folder, demo, 'demo-maya');
 	expectOk(
-		await app.folder.tables.drafts.set(maya.id, maya.row, {
+		await app.folder.tables.drafts.set(maya.id, {
 			body: 'Saved in Markdown',
 		}),
 	);
-	const live = expectOk(
-		await openDraft(app.folder, { ...demo, mode: 'live' }, 'demo-garden'),
+	const live = await seedDraft(
+		app.folder,
+		{ ...demo, mode: 'live' },
+		'demo-garden',
 	);
 	expectOk(
-		await app.folder.tables.drafts.set(live.id, live.row, {
+		await app.folder.tables.drafts.set(live.id, {
 			body: 'Live private draft',
 		}),
 	);
-	const other = expectOk(
-		await openDraft(
-			app.folder,
-			{ ...demo, profile: 'another-account' },
-			'demo-noah',
-		),
+	const other = await seedDraft(
+		app.folder,
+		{ ...demo, profile: 'another-account' },
+		'demo-noah',
 	);
 	expectOk(
-		await app.folder.tables.drafts.set(other.id, other.row, {
+		await app.folder.tables.drafts.set(other.id, {
 			body: 'Another account’s draft',
 		}),
 	);
@@ -221,7 +221,8 @@ test('failed autosave retains its preview, uncertain sends are distinct, and sen
 	type(app.composer(), 'Keep this reply');
 	await app.open('Community garden');
 	await until(
-		() => unsavedOf(app.folder.tables.drafts.edit(id).getBuffer())?.error !== undefined,
+		() =>
+			app.folder.tables.drafts.edit(id).getSnapshot().saveError !== undefined,
 		'the failed autosave',
 	);
 	expect(app.conversation('Maya Chen').textContent).toContain(
@@ -232,7 +233,7 @@ test('failed autosave retains its preview, uncertain sends are distinct, and sen
 	expect(app.composer()?.value).toBe('Keep this reply');
 	click(app.target, 'Save draft again');
 	await until(
-		() => unsavedOf(app.folder.tables.drafts.edit(id).getBuffer()) === undefined,
+		() => !app.folder.tables.drafts.edit(id).getSnapshot().isDirty,
 		'the retry',
 	);
 	click(app.target, 'Simulate send failure');

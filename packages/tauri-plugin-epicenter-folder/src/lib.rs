@@ -32,7 +32,8 @@
 //! than silently replaced (ADR-0562, ADR-0568). `Folders::shutdown` refuses
 //! new work without waiting for work already running (ADR-0542).
 //!
-//! Pages refresh their visible reads through the shared TypeScript folder context.
+//! Each opened binding owns one recursive native watch. A scoped typed event
+//! tells its page which paths may differ; the page owns reading those paths.
 
 use tauri::plugin::TauriPlugin;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
@@ -43,10 +44,12 @@ pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
 mod command_names;
 mod commands;
 mod folders;
+mod watch;
 mod windows;
 
 pub use command_names::COMMANDS;
 pub use folders::{BindError, Folders, WindowError};
+pub use watch::FolderChanged;
 pub use windows::{FolderExt, OpenWindowError};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
@@ -67,6 +70,7 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::make_folder_directory::<tauri::Wry>,
             commands::remove_folder_directory::<tauri::Wry>,
         ])
+        .events(tauri_specta::collect_events![FolderChanged])
         .typ::<PutOutcome>()
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
@@ -78,7 +82,8 @@ fn raw_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + 
 }
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    let typed = specta_builder::<R>().invoke_handler();
+    let contract = specta_builder::<R>();
+    let typed = contract.invoke_handler();
     let raw = raw_handler::<R>();
     tauri::plugin::Builder::new(PLUGIN_NAME)
         .invoke_handler(move |invoke| match invoke.message.command() {
@@ -86,6 +91,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             _ => typed(invoke),
         })
         .setup(move |app, _api| {
+            contract.mount_events(app);
             app.manage(Folders::default());
             Ok(())
         })

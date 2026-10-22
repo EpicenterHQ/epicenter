@@ -13,8 +13,8 @@
  *
  * Reads after a save have one path: the folder's change channel, which also
  * reports a save of this handle whose content was already stored, marks the
- * queries over the paths it names stale. Visible queries also poll for
- * outside edits. No save or close waits for a reread. `close` stops the
+ * queries over the paths it names stale. Folder-wide watch events report
+ * outside edits; manual refresh and focus reconcile after gaps. No save or close waits for a reread. `close` stops the
  * change channel and closes the folder immediately, then cancels page reads
  * and clears the cache after accepted Folder work finishes.
  *
@@ -45,8 +45,7 @@ const KEY = folderKeys.all;
 export function createFolderContext<TTables extends Record<string, TSchema>>(
 	folder: Folder<TTables>,
 ) {
-	// Reads reach local storage. Own saves invalidate known paths immediately;
-	// outside edits appear on the next visible poll.
+	// Reads reach local storage; folder events invalidate affected queries.
 	const queryClient = new QueryClient({
 		defaultOptions: {
 			queries: {
@@ -96,25 +95,21 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 
 	/**
 	 * One batch covers every cached representation and aggregate affected by
-	 * a path. A change the folder `reported` is already read by the edits it
-	 * touches, so their read queries are left alone then; an asked-for
-	 * refresh reads them too.
+	 * a path. Editors read their own paths; no query reads for them.
 	 */
-	function refreshPaths(
-		paths: readonly string[] | undefined,
-		options: { throwOnError?: boolean } | undefined,
-		reported: boolean,
+	function refreshQueriesForPaths(
+		paths?: readonly string[],
+		options?: { throwOnError?: boolean },
 	) {
 		return refreshQueries(
 			{
 				queryKey: KEY,
 				predicate: (query) => {
 					const [, kind, target] = query.queryKey;
-					if (kind === 'read' && reported) return false;
 					if (paths === undefined) return true;
 					return paths.some((path) => {
 						if (path === '') return true;
-						if (kind === 'file' || kind === 'read')
+						if (kind === 'file')
 							return (
 								typeof target === 'string' &&
 								(target === path || target.startsWith(`${path}/`))
@@ -135,15 +130,10 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		);
 	}
 
-	const refresh = (
-		paths?: readonly string[],
-		options?: { throwOnError?: boolean },
-	) => refreshPaths(paths, options, false);
-
 	// The one reread path after a save. Subscribe before any reader mounts;
 	// applications own no change listeners.
 	const stopChanges = folder.onChange((change) => {
-		void refreshPaths(change.paths ?? undefined, undefined, true);
+		void refreshQueriesForPaths(change.paths ?? undefined);
 	});
 
 	// Svelte shares the Folder's one status subscription across reactive readers.
@@ -153,28 +143,23 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	let stopWindow: (() => void) | undefined;
 	let guarding: Promise<void> | undefined;
 
-	// One context timer, not one per observer. Query selects active reads and
-	// joins any already running. A full scan gets nine times its read duration
-	// idle (at least two seconds), limiting repeated scans to roughly 10% duty.
-	let refreshTimer = setTimeout(() => void poll(), 2_000);
-	async function poll() {
-		const started = performance.now();
-		try {
-			if (focusManager.isFocused())
-				await queryClient.refetchQueries(
-					{ queryKey: KEY, type: 'active' },
-					{ cancelRefetch: false },
-				);
-		} catch (cause) {
-			log.error(new Error('The local folder could not refresh', { cause }));
-		} finally {
-			if (closing === undefined)
-				refreshTimer = setTimeout(
-					() => void poll(),
-					Math.max(2_000, (performance.now() - started) * 9),
-				);
-		}
+	/** Editors and list queries have different owners; reconcile both on explicit refresh. */
+	async function refresh(
+		paths?: readonly string[],
+		options?: { throwOnError?: boolean },
+	) {
+		if (closing !== undefined) return;
+		await Promise.all([
+			folder.refresh(paths),
+			refreshQueriesForPaths(paths, options),
+		]);
 	}
+	const stopFocus = focusManager.subscribe((focused) => {
+		if (focused && closing === undefined)
+			void folder.refresh().catch((cause) => {
+				log.error(new Error('The local folder could not refresh', { cause }));
+			});
+	});
 
 	/** Only accepted Folder work determines whether departure needs a prompt. */
 	const pendingSave = () =>
@@ -211,9 +196,10 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		/**
 		 * The folder's save status, held input included, read reactively: the
 		 * one record of whether what the person did is in this device's
-		 * storage. A lifetime-only action is not in it; its writes are, from their
-		 * call until they land. A per-file label reads its own edit's
-		 * `pending` instead, so another file's failure is never shown as its.
+		 * storage. An admitted action is not in it; its writes are, from their
+		 * call until they land. A per-file label reads its own editor's
+		 * `isDirty` and `saveError` instead, so another file's failure is never
+		 * shown as its.
 		 */
 		getStatus(): FolderStatus {
 			trackStatus();
@@ -235,7 +221,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			// Stop refreshes before Folder close reports its status or saves.
 			// Accepted work keeps using the folder while close drains it.
 			stopChanges();
-			clearTimeout(refreshTimer);
+			stopFocus();
 			queryClient.unmount();
 			const folderClose = folder.close();
 			(async () => {

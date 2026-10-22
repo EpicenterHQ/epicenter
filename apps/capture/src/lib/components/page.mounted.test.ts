@@ -185,7 +185,7 @@ test('text typed with Edit as text is in the folder once the page closes', async
 	const file = '---\ncapturedAt: 2026-10-04T20:49:23Z\n---\n\nBefore\n';
 	{
 		const folder = expectOk(await openFolder({ tables: captureTables }));
-		expectOk(await folder.files.write('captures/one.md', null, file));
+		expectOk(await folder.files.write('captures/one.md', file));
 		await folder.close();
 	}
 	const page = mountPage();
@@ -221,7 +221,7 @@ test('a failed text save remains copyable after the page unmounts', async () => 
 	const draft = file.replace('Before', 'Typed but not saved');
 	{
 		const folder = expectOk(await openFolder({ tables: captureTables }));
-		expectOk(await folder.files.write(path, null, file));
+		expectOk(await folder.files.write(path, file));
 		await folder.close();
 	}
 	const page = mountPage(PageLeavingHost);
@@ -266,35 +266,89 @@ test('a draft an earlier version saved resumes from Drafts, saves across a resta
 		expectOk(
 			await folder.files.write(
 				'captures/draft.md',
-				null,
 				`---\ncapturedAt: 2026-10-04T20:49:23Z\ndraft: true\n---\n`,
 			),
 		);
 		await folder.close();
 	}
 	const page = mountPage();
-	await until(() => page.target.querySelector('[aria-label="Draft captures"] button') !== null, 'the draft');
-	page.target.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')?.click();
-	await until(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]') !== null, 'the draft view');
+	await until(
+		() =>
+			page.target.querySelector('[aria-label="Draft captures"] button') !==
+			null,
+		'the draft',
+	);
+	page.target
+		.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')
+		?.click();
+	await until(
+		() =>
+			document.querySelector<HTMLTextAreaElement>(
+				'textarea[aria-label^="Contents of"]',
+			) !== null,
+		'the draft view',
+	);
 	const draft = `---\ncapturedAt: 2026-10-04T20:49:23Z\ndraft: true\n---\n${raw}`;
-	type(document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]'), draft);
+	type(
+		document.querySelector<HTMLTextAreaElement>(
+			'textarea[aria-label^="Contents of"]',
+		),
+		draft,
+	);
 	expect(reload()).toBe(false);
-	document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]')?.dispatchEvent(new FocusEvent('blur'));
-	await until(() => page.target.querySelector('[aria-label="Saving"]')?.textContent === 'Saved', 'the saved draft');
+	document
+		.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]')
+		?.dispatchEvent(new FocusEvent('blur'));
+	await until(
+		() =>
+			page.target.querySelector('[aria-label="Saving"]')?.textContent ===
+			'Saved',
+		'the saved draft',
+	);
 	expect(reload()).toBe(true);
 	await page.close();
 	// The same profile, a new mounted page and Folder handle.
 	const resumed = mountPage();
-	await until(() => resumed.target.querySelector('[aria-label="Draft captures"] button') !== null, 'the recovered draft');
-	resumed.target.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')?.click();
-	await until(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]') !== null, 'the resumed draft');
-	expect((document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Contents of"]') as HTMLTextAreaElement).value).toBe(draft);
+	await until(
+		() =>
+			resumed.target.querySelector('[aria-label="Draft captures"] button') !==
+			null,
+		'the recovered draft',
+	);
+	resumed.target
+		.querySelector<HTMLButtonElement>('[aria-label="Draft captures"] button')
+		?.click();
+	await until(
+		() =>
+			document.querySelector<HTMLTextAreaElement>(
+				'textarea[aria-label^="Contents of"]',
+			) !== null,
+		'the resumed draft',
+	);
+	expect(
+		(
+			document.querySelector<HTMLTextAreaElement>(
+				'textarea[aria-label^="Contents of"]',
+			) as HTMLTextAreaElement
+		).value,
+	).toBe(draft);
 	click(document, 'Discard draft…');
-	await until(() => document.body.textContent?.includes('Discard this draft?') ?? false, 'discard confirmation');
+	await until(
+		() => document.body.textContent?.includes('Discard this draft?') ?? false,
+		'discard confirmation',
+	);
 	click(document, 'Discard draft');
-	await until(() => resumed.text().includes('No captures yet'), 'the empty timeline');
+	await until(
+		() => resumed.text().includes('No captures yet'),
+		'the empty timeline',
+	);
 	await resumed.close();
 	const again = mountPage();
-	await until(() => again.text().includes('No captures yet'), 'the empty timeline after restart');
-	expect(again.target.querySelector('[aria-label="Draft captures"]')).toBeNull();
+	await until(
+		() => again.text().includes('No captures yet'),
+		'the empty timeline after restart',
+	);
+	expect(
+		again.target.querySelector('[aria-label="Draft captures"]'),
+	).toBeNull();
 });

@@ -87,7 +87,7 @@ function fakeRecorderClass(produced: () => Uint8Array) {
 function fakeFolder(refuse?: string) {
 	const written: { path: string; bytes: Uint8Array }[] = [];
 	const folder: RecordingFolder = {
-		async write(path, _from, bytes) {
+		async write(path, bytes) {
 			if (refuse !== undefined)
 				return { data: null, error: { message: refuse } } as Result<
 					unknown,

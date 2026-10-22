@@ -128,7 +128,7 @@ test('check reports invalid rows compiler style and exits 1', async () => {
 		'posts/launch.md',
 		'---\ntitle: Launch\nstatus: someday\ndue: null\norder: 2\npinned: false\ntags: []\naccount: instagram\n---\n',
 	);
-	await write('posts/broken.md', 'no fences\n');
+	await write('posts/broken.md', '---\ntitle: [broken\n---\n');
 	await write(
 		'posts/latin1.md',
 		new Uint8Array([0x2d, 0x2d, 0x2d, 0x0a, 0xff]),
@@ -138,7 +138,7 @@ test('check reports invalid rows compiler style and exits 1', async () => {
 	const report = JSON.parse(result.stdout);
 	expect(report.rows).toBe(1);
 	expect(report.invalid).toEqual([
-		expect.objectContaining({ path: 'posts/broken.md', line: 1 }),
+		expect.objectContaining({ path: 'posts/broken.md', line: 3 }),
 		{ path: 'posts/latin1.md', message: 'The file is not valid UTF-8 text' },
 		expect.objectContaining({
 			path: 'posts/launch.md',

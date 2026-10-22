@@ -26,11 +26,10 @@
  * - A change another tab saved replaces a clean editor; a save landing
  *   does not
  * - A read that lands while an edit is held does not replace the typing;
- *   a conflicting save keeps both sources until explicitly resolved
+ *   whole-file publication preserves accepted input and rich-text state
  */
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
-const { unsavedOf } = await import('../local.test-support.js');
 import { afterEach, describe, expect, test } from 'bun:test';
 import { toggleMark } from 'prosemirror-commands';
 import {
@@ -88,13 +87,13 @@ async function noteOver(text: string) {
 		failures: () => local.getStatus().failures,
 		/** The note as shown now: with what is typed over it. */
 		draft: () => {
-			const row = note.getMarkdown();
+			const row = note.getSnapshot().content;
 			if (row?.issues !== null) throw new Error('The note is not in the cache');
 			return row;
 		},
-		/** Send the body typed, as leaving the note does, and let every save and the reads after them land. */
+		/** Flush pending input and let the resulting observations finish. */
 		settled: async () => {
-			await fixture.folder.tables.notes.edit('a').save();
+			await fixture.folder.settle();
 			await quiet(notes);
 		},
 		/** Saves of the note since it opened. */
@@ -113,7 +112,7 @@ async function open(
 ) {
 	const opened = await noteOver(text);
 	const { note, notes } = opened;
-	const body = () => noteBody(note.getMarkdown()) ?? '';
+	const body = () => noteBody(note.getSnapshot().content) ?? '';
 	const initial = bodyCodec.decode(body());
 	if (!initial.supported) throw new Error('The note is not rich text');
 	/** Why the last edit was refused. */
@@ -311,8 +310,8 @@ describe('every displayed edit is in the note', () => {
 				text: crlf,
 			});
 		expect(body()).toBe('\none\n\ntwo\n');
-		expect(note.getMarkdown()?.body).toBe('\r\none\r\n\r\ntwo\r\n');
-		expect(note.getText()).toBe(crlf);
+		expect(note.getSnapshot().content?.body).toBe('\r\none\r\n\r\ntwo\r\n');
+		expect(note.getSnapshot().content?.text).toBe(crlf);
 		expect(writes()).toBe(0);
 		end();
 		type('!');
@@ -341,12 +340,11 @@ describe('every displayed edit is in the note', () => {
 	});
 
 	test('moving the cursor is shown while the note takes no edit, and writes nothing', async () => {
-		const { end, closeNotes, settled, writes, ...view } = await open('one\n');
+		const { end, closeNotes, writes, ...view } = await open('one\n');
 		const closed = closeNotes();
 		expect(end()).toBe(true);
 		expect(view.shown().selection.head).toBe(4);
 		await closed;
-		await settled();
 		expect(writes()).toBe(0);
 	});
 });
@@ -420,15 +418,13 @@ describe('an edit that cannot be written', () => {
 	});
 
 	test('Enter is not displayed while the note takes no edit, and writes nothing', async () => {
-		const { press, end, closeNotes, settled, writes, ...view } =
-			await open('one\n');
+		const { press, end, closeNotes, writes, ...view } = await open('one\n');
 		end();
 		const closed = closeNotes();
 		const state = view.shown();
 		press('Enter');
 		expect(view.shown()).toBe(state);
 		await closed;
-		await settled();
 		expect(writes()).toBe(0);
 	});
 });
@@ -576,10 +572,8 @@ describe('the editor follows the note', () => {
 	test('a change another tab saved replaces a clean editor', async () => {
 		const { fixture, follow, settled, body, ...view } = await open('one\n');
 		const tab = await fixture.otherTab();
-		const theirs = expectOk(await tab.tables.notes.get('a'));
-		expectOk(
-			await tab.tables.notes.set('a', theirs ?? null, { body: 'theirs\n' }),
-		);
+
+		expectOk(await tab.tables.notes.set('a', { body: 'theirs\n' }));
 		await until(() => body() === 'theirs\n', 'their save');
 		await settled();
 		follow();
@@ -587,7 +581,7 @@ describe('the editor follows the note', () => {
 		expect(undoDepth(view.shown())).toBe(0);
 	});
 
-	test('typing in flight stays pinned through a read and a conflict until explicitly saved', async () => {
+	test('typing in flight survives a read and publishes the whole source without resetting history', async () => {
 		const {
 			fixture,
 			notes,
@@ -606,9 +600,9 @@ describe('the editor follows the note', () => {
 		// Another tab adds a line. Its report arrives and the read lands while
 		// the typing is held.
 		const tab = await fixture.otherTab();
-		const theirs = expectOk(await tab.tables.notes.get('a'));
+
 		expectOk(
-			await tab.tables.notes.set('a', theirs ?? null, {
+			await tab.tables.notes.set('a', {
 				body: 'one\n\ntheirs\n',
 			}),
 		);
@@ -621,13 +615,11 @@ describe('the editor follows the note', () => {
 		expect(body()).toBe('one!\n');
 		const edit = fixture.folder.tables.notes.edit('a');
 		await edit.save();
-		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
-		expect(failures()).toMatchObject([
-			{ path: PATH, error: { name: 'Conflict' } },
-		]);
-		expect(await stored()).toContain('one\n\ntheirs\n');
+		expect(edit.getSnapshot().saveError).toBeUndefined();
+		expect(failures()).toEqual([]);
+		expect(await stored()).toContain('one!\n');
 		expect(body()).toBe('one!\n');
-		await edit.resolveConflict('draft');
+		await edit.save();
 		await settled();
 		expect(failures()).toEqual([]);
 		expect(await stored()).toContain('one!\n');
@@ -637,24 +629,18 @@ describe('the editor follows the note', () => {
 		expect(undoDepth(view.shown())).toBe(1);
 	});
 
-	test('accepting a saved same-line change replaces the held typing and resets history', async () => {
+	test('discarding pending input then refreshing shows outside content and resets history', async () => {
 		const { fixture, type, end, settled, body, failures, follow, ...view } =
 			await open('one\n');
 		end();
 		expect(type('!')).toBe(true);
 		const tab = await fixture.otherTab();
-		const theirs = expectOk(await tab.tables.notes.get('a'));
-		expectOk(
-			await tab.tables.notes.set('a', theirs ?? null, { body: 'theirs\n' }),
-		);
+
+		expectOk(await tab.tables.notes.set('a', { body: 'theirs\n' }));
 		const edit = fixture.folder.tables.notes.edit('a');
-		await edit.save();
-		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
-		expect(failures()).toMatchObject([
-			{ path: PATH, error: { name: 'Conflict' } },
-		]);
 		expect(body()).toBe('one!\n');
-		await edit.resolveConflict('current');
+		edit.discard();
+		await edit.refresh();
 		await settled();
 		expect(failures()).toEqual([]);
 		expect(body()).toBe('theirs\n');

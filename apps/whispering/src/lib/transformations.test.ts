@@ -21,11 +21,10 @@
  * - A request that fails leaves its row unfinished, keeps the transcript, and
  *   runs again from the row's own fields into the same row
  * - An answer whose write fails is written again while the page lives; a row
- *   filled or deleted meanwhile is not written
- * - A body someone fills between an answer's read and its write stays beside
- *   the answer; the same text is in the body once
- * - What is sent is read from the folder when asked: an outside edit is sent,
- *   a deleted or malformed transcript or a deleted recording refuses
+ *   already deleted when checked is not written
+ * - An answer publishes into the current body and replaces earlier body text
+ * - Requests capture valid held source, reading only when unacquired; invalid
+ *   transcript source or a deleted recording refuses
  * - A recording cannot be deleted while a request for it runs, including work
  *   that began after the deletion was confirmed
  * - A transformation is edited in its own draft: a save keeps unknown fields
@@ -117,7 +116,7 @@ async function cleanupProfile(
 	context: WhisperingContext,
 ) {
 	expect(await whispering.createTransformation(CLEANUP)).toBeUndefined();
-	const session = transformationEditor(whispering);
+	const session = await transformationEditor(whispering);
 	session.edit((row) => {
 		row.fields.model = 'chat-model';
 	});
@@ -173,7 +172,7 @@ test('editing a transformation keeps fields the app does not know and the person
 	await writeFile(path, source);
 	await settle(whispering, context);
 	whispering.open('transformations/mine.md');
-	const editor = transformationEditor(whispering);
+	const editor = await transformationEditor(whispering);
 	// Opening reads; it writes nothing.
 	expect(whispering.isSaving(editor.path)).toBe(false);
 	expect(await readFile(path, 'utf8')).toBe(source);
@@ -234,7 +233,7 @@ test('a transformation that does not read is named for repair, cannot run, and i
 	expect(transformed).toHaveLength(1);
 	// Repaired, it is edited as fields again, with its unknown field kept.
 	expect(await whispering.useForm(path)).toBeUndefined();
-	expect(transformationEditor(whispering).draft.fields).toMatchObject({
+	expect((await transformationEditor(whispering)).draft.fields).toMatchObject({
 		title: 'Repaired',
 		mood: 'curious',
 	});
@@ -290,7 +289,7 @@ test('applying a transformation writes a new result row and leaves the transcrip
 	expect(await names(root, RUNS)).toEqual([`${output.stem}.md`]);
 });
 
-test('what is sent is the saved transformation: a save still running settles first', async () => {
+test('a transformation uses held instructions while their explicit publication finishes', async () => {
 	const { context, whispering, root, transformed } = await open();
 	const { transcript } = await transcribed(whispering, context, root);
 	const editor = await cleanupProfile(whispering, context);
@@ -321,7 +320,7 @@ test('a transformation with no instructions, or a transcript with no text, sends
 		root,
 	);
 	await whispering.createTransformation({ title: 'Empty', prompt: '' });
-	const editor = transformationEditor(whispering);
+	const editor = await transformationEditor(whispering);
 
 	expect(await whispering.transform(transcript.path, editor.path)).toBe(
 		'Write instructions to run this.',
@@ -333,6 +332,7 @@ test('a transformation with no instructions, or a transcript with no text, sends
 		join(root, transcript.path),
 		transcriptText.replace(transcript.row.body, ' \n'),
 	);
+	expectOk(await context.folder.files.edit(transcript.path).refresh());
 	expect(await whispering.transform(transcript.path, editor.path)).toContain(
 		'no text',
 	);
@@ -346,7 +346,7 @@ test('a transformation with no instructions, or a transcript with no text, sends
 // The folder's current files decide what is sent
 // ============================================================================
 
-test('a transcript edited outside is sent as the folder has it now, and is not rewritten', async () => {
+test('an observed outside transcript edit is sent without rewriting its source', async () => {
 	const { context, whispering, root, transformed } = await open();
 	const { transcript, transcriptText } = await transcribed(
 		whispering,
@@ -354,7 +354,7 @@ test('a transcript edited outside is sent as the folder has it now, and is not r
 		root,
 	);
 	const editor = await cleanupProfile(whispering, context);
-	// Another program rewrites the transcript and adds a field. No refresh follows.
+	// Another program rewrites the transcript and adds a field.
 	await settle(whispering, context);
 	const outside = transcriptText
 		.replace('---\n', '---\nreviewedBy: someone\n')
@@ -363,6 +363,7 @@ test('a transcript edited outside is sent as the folder has it now, and is not r
 	expect(
 		whispering.resultsFor(transcript.row.fields.recordingId)[0]!.row.body,
 	).toBe('um so a steady tone\n');
+	expectOk(await context.folder.files.edit(transcript.path).refresh());
 
 	expect(
 		await whispering.transform(transcript.path, editor.path),
@@ -380,7 +381,7 @@ test('a transcript edited outside is sent as the folder has it now, and is not r
 	expect(await readFile(join(root, transcript.path), 'utf8')).toBe(outside);
 });
 
-test('a transcript deleted or broken outside refuses, and nothing stale is sent', async () => {
+test('invalid acquired transcript source refuses even after its file is deleted', async () => {
 	const { context, whispering, root, transformed } = await open();
 	const { transcript } = await transcribed(whispering, context, root);
 	const editor = await cleanupProfile(whispering, context);
@@ -389,6 +390,7 @@ test('a transcript deleted or broken outside refuses, and nothing stale is sent'
 
 	const broken = '---\nrecordingId: *missing\n---\nStill some text\n';
 	await writeFile(join(root, transcript.path), broken);
+	expectOk(await context.folder.files.edit(transcript.path).refresh());
 	expect(await whispering.transform(transcript.path, editor.path)).toContain(
 		'needs repair',
 	);
@@ -399,8 +401,8 @@ test('a transcript deleted or broken outside refuses, and nothing stale is sent'
 	expect(whispering.resultsFor(transcript.row.fields.recordingId)).toHaveLength(
 		1,
 	);
-	expect(await whispering.transform(transcript.path, editor.path)).toBe(
-		'This transcript is no longer in the folder.',
+	expect(await whispering.transform(transcript.path, editor.path)).toContain(
+		'needs repair',
 	);
 
 	expect(transformed).toHaveLength(0);
@@ -433,35 +435,31 @@ test('a transcript whose recording was deleted outside refuses', async () => {
 /** A transcript's file opened from Files, as its view edits it. */
 async function openedTranscript(whispering: Whispering, path: string) {
 	whispering.open(path);
-	return transcriptEditor(whispering, path);
+	return await transcriptEditor(whispering, path);
 }
 
-test('a save of the transcript’s file still running settles first, then what it saved is sent', async () => {
+test('a transformation captures accepted transcript input without publishing it', async () => {
 	const { context, whispering, root, transformed } = await open();
 	const { transcript } = await transcribed(whispering, context, root);
-	const editor = await cleanupProfile(whispering, context);
-	const source = await openedTranscript(whispering, transcript.path);
-	source.edit((row) => {
-		row.body = 'Typed in Files.\n';
-	});
-	expect(whispering.isSaving(source.path)).toBe(true);
-
+	const recipe = await cleanupProfile(whispering, context);
+	const edit = context.folder.tables.transcriptions.edit(transcript.stem);
+	expectOk(await edit.refresh());
+	const before = await readFile(join(root, transcript.path), 'utf8');
+	expectOk(edit.change({ body: 'Accepted in memory.\n' }));
 	expect(
-		await whispering.transform(transcript.path, editor.path),
+		await whispering.transform(transcript.path, recipe.path),
 	).toBeUndefined();
-
-	expect(whispering.isSaving(source.path)).toBe(false);
-	expect(await readFile(join(root, transcript.path), 'utf8')).toContain(
-		'Typed in Files.',
-	);
-	expect(transformed[0]!.input).toBe('Typed in Files.\n');
+	expect(transformed[0]?.input).toBe('Accepted in memory.\n');
+	expect(await readFile(join(root, transcript.path), 'utf8')).toBe(before);
+	expect(edit.getSnapshot().isDirty).toBe(true);
 });
 
-test('a transformation saves previously failed transcript input before sending it', async () => {
+test('a transformation captures failed transcript input without retrying its publication', async () => {
 	const { context, whispering, root, transformed } = await open();
 	const { transcript } = await transcribed(whispering, context, root);
 	const editor = await cleanupProfile(whispering, context);
 	const source = await openedTranscript(whispering, transcript.path);
+	const before = await readFile(join(root, transcript.path), 'utf8');
 	chmodSync(join(root, 'transcriptions'), 0o555);
 	try {
 		source.edit((row) => {
@@ -481,9 +479,8 @@ test('a transformation saves previously failed transcript input before sending i
 
 	expect(transformed).toHaveLength(1);
 	expect(transformed[0]?.input).toBe('Mine.\n');
-	expect(await readFile(join(root, transcript.path), 'utf8')).toEndWith(
-		'---\nMine.\n',
-	);
+	expect(await readFile(join(root, transcript.path), 'utf8')).toBe(before);
+	expect(whispering.edit(transcript.path).saveError).toBeDefined();
 });
 
 // ============================================================================
@@ -824,7 +821,7 @@ test('an answer whose write fails is written again while the page lives', async 
 	expect(headerLine(whispering).tone).toBe('good');
 });
 
-test('an answer for a row someone filled meanwhile stands after their text, and one for a row deleted meanwhile writes nothing', async () => {
+test('an answer replaces the current body, and an answer for an already deleted row writes nothing', async () => {
 	const answers = [
 		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>(),
 		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>(),
@@ -846,10 +843,8 @@ test('an answer for a row someone filled meanwhile stands after their text, and 
 	answers[0]!.resolve(Ok({ text: 'from the endpoint' }));
 	await first;
 	const filled = await readFile(path, 'utf8');
-	expect(filled).toContain('---\nTyped by hand.\n');
-	expect(filled.indexOf('from the endpoint')).toBeGreaterThan(
-		filled.indexOf('Typed by hand.'),
-	);
+	expect(filled).toEndWith('---\nfrom the endpoint\n');
+	expect(filled).not.toContain('Typed by hand.');
 
 	const second = whispering.transform(transcript.path, editor.path);
 	await eventually(() => transformed.length === 2);
@@ -907,12 +902,11 @@ async function fillRace(typed: string) {
 	};
 }
 
-test('an answer and a different body someone filled between its read and its write both stay', async () => {
+test('answer publication replaces a body written between its read and publication', async () => {
 	const { text, shown } = await fillRace('Typed by hand.\n');
-	expect(text).toContain('Typed by hand.\n');
-	expect(text).toContain('from the endpoint\n');
-	expect(shown).toContain('Typed by hand.\n');
-	expect(shown).toContain('from the endpoint\n');
+	expect(text).not.toContain('Typed by hand.\n');
+	expect(text).toEndWith('from the endpoint\n');
+	expect(shown).toBe('from the endpoint\n');
 });
 
 test('an answer that someone filled with the same text between its read and its write is in the body once', async () => {
@@ -978,7 +972,7 @@ test('two asks for the same transcript and transformation at once send one reque
 	expect(
 		await whispering.createTransformation(STARTER_TRANSFORMATIONS[1]!),
 	).toBeUndefined();
-	const summarize = transformationEditor(whispering);
+	const summarize = await transformationEditor(whispering);
 	summarize.edit((row) => {
 		row.fields.model = 'chat-model';
 	});
@@ -1057,4 +1051,28 @@ test('a failed run run again twice at once is sent once more, not twice', async 
 	expect(whispering.outputsFor(transcript.stem)[0]!.row.body).toBe(
 		'after the host came back\n',
 	);
+});
+
+test('a transformation uses clean retained recipe and transcript source without recreating their deleted files', async () => {
+	const { context, whispering, root, transformed } = await open();
+	const { transcript } = await transcribed(whispering, context, root);
+	const recipe = await cleanupProfile(whispering, context);
+	const input = context.folder.tables.transcriptions.edit(transcript.stem);
+	const instructions = context.folder.files.edit(recipe.path);
+	expectOk(await input.refresh());
+	expectOk(await instructions.refresh());
+	const capturedInput = input.getSnapshot().content?.body;
+	const capturedPrompt = instructions.getSnapshot().content?.body;
+	await rm(join(root, transcript.path));
+	await rm(join(root, recipe.path));
+	expect(
+		await whispering.transform(transcript.path, recipe.path),
+	).toBeUndefined();
+	expect(transformed).toHaveLength(1);
+	expect(transformed[0]?.input).toBe(capturedInput);
+	expect(transformed[0]?.prompt).toBe(capturedPrompt);
+	expect(await Bun.file(join(root, transcript.path)).exists()).toBe(false);
+	expect(await Bun.file(join(root, recipe.path)).exists()).toBe(false);
+	expect(input.getSnapshot().isDirty).toBe(false);
+	expect(instructions.getSnapshot().isDirty).toBe(false);
 });

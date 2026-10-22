@@ -8,8 +8,8 @@
  * This is the one place that decides. The Run button, the post-processing
  * choice, a transcript's Transform menu, the recipe's own page, and the run
  * itself all ask it, so none of them can disagree about whether a recipe
- * runs or with what. The run asks it again of the saved file, after the
- * edits being written have landed, and that answer is what is sent.
+ * runs or with what. The run captures and validates the current held source,
+ * reading it only when it has not yet been acquired.
  */
 
 import type { ConnectionInfo } from './connections.js';

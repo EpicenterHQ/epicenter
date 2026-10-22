@@ -1,17 +1,20 @@
 /**
  * The caller-facing `Folder` over an engine, the same on every host: its one
- * edit owner, local save status, the saves and actions `close` waits for,
- * and the error a released handle throws. The browser's default local folder
- * (`local-folder.ts`) and the native directory folder (`native/engine.ts`)
- * each supply the engine.
+ * edit owner, whose per-path lane every write and delete enters and which
+ * composes row changes, local save status, the writes and actions `close`
+ * waits for, and the error a released handle throws. The browser's default
+ * local folder (`local-folder.ts`) and the native directory folder
+ * (`native/engine.ts`) each supply the engine: raw files and typed row reads.
  */
-import type { TSchema as Schema } from 'typebox';
+import { type TSchema as Schema, Type } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
 	ActionError,
-	CLOSING,
 	createEditOwner,
+	type Observation,
+	observationOf,
 	type Recovery,
+	textProblem,
 } from './edit-owner.js';
 import type {
 	EditOptions,
@@ -25,65 +28,59 @@ import type {
 	RowChange,
 } from './folder.js';
 import { callObserver } from './observer.js';
+import { readablePath, rowAddressProblem } from './paths.js';
 import { ownFields } from './shared/content/canonical.js';
 import { SaveError } from './shared/errors.js';
+import { changeMarkdown, readMarkdown } from './shared/markdown-codec.js';
+import { readRow } from './shared/row.js';
 
-/**
- * What a save left at its path: the exact content storage kept, or `null`
- * for no file. A save that changed nothing answers what was already there.
- */
-export type Stored = { readonly stored: FileContent | null };
+/** An engine's files: raw reads and unconditional writes, unordered and untracked. */
+export type EngineFiles = FolderFileOperations;
 
-/** An engine's files: the public operations, with what each write stored. */
-export type EngineFiles = Omit<FolderFileOperations, 'write'> & {
-	write(
-		path: string,
-		from: FileContent | null,
-		content: FileContent,
-		/** Named assignments for callers using the public merging write. */
-		fields?: Record<string, unknown>,
-		checkBody?: boolean,
-		replaceExact?: boolean,
-	): Promise<Result<Stored, SaveError>>;
-};
-
-/** An engine's table: the public operations, with what each set stored. */
-export type EngineTable<TSchema extends Schema = Schema> = Omit<
+/** An engine's table: typed row reads. The handle composes every row change. */
+export type EngineTable<TSchema extends Schema = Schema> = Pick<
 	FolderTableOperations<TSchema>,
-	'set'
-> & {
-	set(
-		id: string,
-		from: Pick<Row, 'text' | 'issues'> | null,
-		change: RowChange,
-	): Promise<Result<{ sent: Row<TSchema> } & Stored, SaveError>>;
-};
+	'list' | 'get'
+>;
+
+const anyFields = Type.Record(Type.String(), Type.Unknown());
+
+/** Whether `id` names an existing row file this table can address. */
+const readableId = (table: string, id: string) =>
+	typeof id === 'string' &&
+	!id.includes('/') &&
+	readablePath(`${table}/${id}.md`);
+
+/** Whether `id` may name a new row: one nonempty, portable segment. */
+const validId = (table: string, id: string) =>
+	typeof id === 'string' &&
+	id !== '' &&
+	id.isWellFormed() &&
+	rowAddressProblem(table, id) === undefined;
+
+/** What a row read found, as an observation of its file. */
+const rowObservation = (row: Pick<Row, 'text' | 'issues'>): Observation =>
+	row.issues?.some((issue) => issue.kind === 'not-text')
+		? { kind: 'not-text' }
+		: { kind: 'text', text: row.text };
 
 /** What an engine gives the handle: its files, tables, changes, and release. */
 export type FolderEngine = {
 	readonly files: EngineFiles;
 	readonly tables: Record<string, EngineTable>;
-	/** Hear every committed change, calling the listener before the save resolves. */
+	/**
+	 * Hear every committed change, calling the listener before the write
+	 * resolves. Changes another handle, a sync, or a watcher reports reach
+	 * the editors of their paths, which read again.
+	 */
 	subscribe(listener: (change: FolderChange) => void): () => void;
-	/** Release listeners and storage; the handle calls it once, after started saves settled. */
+	/** Release listeners and storage; the handle calls it once, after admitted writes settled. */
 	close(): void;
 };
 
 /** A copy of caller bytes the caller cannot change afterwards. */
-const owned = <T extends FileContent | null>(content: T): T =>
-	(content instanceof Uint8Array ? content.slice() : content) as T;
-
-/** A row source the caller cannot change afterwards. */
-const ownRow = (from: Pick<Row, 'text' | 'issues'> | null) =>
-	from === null
-		? null
-		: {
-				text: from.text,
-				issues:
-					from.issues === null
-						? null
-						: from.issues.map((issue) => ({ ...issue, path: [...issue.path] })),
-			};
+const owned = (content: FileContent): FileContent =>
+	content instanceof Uint8Array ? content.slice() : content;
 
 /**
  * A row change the caller cannot change afterwards: its fields as the
@@ -98,12 +95,6 @@ function ownChange(change: RowChange): Result<RowChange, SaveError> {
 	return Ok({ fields: fields.data, body: change.body });
 }
 
-/**
- * One save running: whether the engine reported its change, and the edit
- * owner's tick for what it stored, its commit's once reported.
- */
-type Submission = { heard: boolean; tick: number };
-
 const sameList = <T>(left: readonly T[], right: readonly T[]) =>
 	left.length === right.length &&
 	left.every((item, index) => item === right[index]);
@@ -117,9 +108,8 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	let closing: Promise<Recovery[]> | undefined;
 	/** Set by close once nothing it waits for remains, before the engine is released. */
 	let released = false;
-	/** Saves and complete admitted actions share one lifetime registry. */
+	/** Writes and admitted actions share one lifetime registry. */
 	const inflight = new Set<Promise<unknown>>();
-	let saves = 0;
 	let storageFailure: FolderStatus['storageFailure'] = null;
 	let status: FolderStatus = {
 		saving: false,
@@ -130,13 +120,6 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	};
 	const statusListeners = new Set<(status: FolderStatus) => void>();
 	const changeListeners = new Set<(change: FolderChange) => void>();
-	/**
-	 * The saves of one path run one at a time: the last save queued for each
-	 * path, which the next one waits for, and the one running now, which an
-	 * own change notice of that path reports.
-	 */
-	const queued = new Map<string, Promise<void>>();
-	const running = new Map<string, Submission>();
 
 	/** Listeners and settle refuse from the moment close is called. */
 	function assertOpen() {
@@ -148,15 +131,10 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		if (released) throw new Error('The folder is closed');
 	}
 
-	/**
-	 * `status` changes when a save starts or ends, when held input changes
-	 * what it reports, and when close is called. A save that succeeded, a
-	 * no-op retry included, clears the last storage failure.
-	 */
 	function publishStatus() {
 		const { unsaved, failures, working } = edits.getAggregate();
 		const next: FolderStatus = {
-			saving: saves > 0 || working,
+			saving: working,
 			storageFailure,
 			unsaved,
 			failures,
@@ -175,29 +153,25 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			callObserver('status listener', listener, next);
 	}
 
+	function tell(change: FolderChange) {
+		for (const listener of [...changeListeners])
+			callObserver('change listener', listener, change);
+	}
+
 	/**
-	 * Tell the edit owner what changed that no save of this handle stored,
-	 * then this handle's listeners. An engine reports a save's change, naming
-	 * its path, while that save runs, and only one save of a path runs at a
-	 * time, so an own notice of a path saving is exactly that save's, whose
-	 * stored content the owner gets from the save itself. Any other change,
-	 * such as another handle's save or a sync, which names no path, is not.
+	 * Tell the edit owner what changed that no command of this handle
+	 * explains, then this handle's listeners. An engine reports a write's
+	 * change while that write runs, and only one command of a path runs at a
+	 * time, so an own notice of a path whose command runs is that command's.
 	 */
 	function hear(change: FolderChange) {
 		if (change.paths === null) edits.changed(null);
 		else if (change.origin === 'other-handle') edits.changed(change.paths);
 		else {
-			const elsewhere = change.paths.filter((path) => {
-				const submission = running.get(path);
-				if (submission === undefined) return true;
-				submission.heard = true;
-				submission.tick = edits.now();
-				return false;
-			});
+			const elsewhere = edits.heard(change.paths);
 			if (elsewhere.length > 0) edits.changed(elsewhere);
 		}
-		for (const listener of [...changeListeners])
-			callObserver('change listener', listener, change);
+		tell(change);
 	}
 
 	/** Register work before it can notify listeners or begin other work. */
@@ -206,8 +180,6 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		inflight.add(operation.promise);
 		const done = () => inflight.delete(operation.promise);
 		operation.promise.then(done, done);
-		// `run` can notify a status observer synchronously. That observer may
-		// close the folder, so close must already see this save.
 		try {
 			Promise.resolve(run()).then(operation.resolve, operation.reject);
 		} catch (cause) {
@@ -216,240 +188,185 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		return operation.promise;
 	}
 
-	/** An admitted action, or any caller while close drains, can start saves after an await. */
+	/** An admitted action, or any caller while close drains, can start writes after an await. */
 	async function drainWork() {
 		while (inflight.size > 0) await Promise.allSettled([...inflight]);
 	}
 
 	/**
-	 * Run a save of `path`, counted in status from the call, after the saves
-	 * of `path` called before it. Once it landed, the edit owner holds what
-	 * `kept` says it left stored, `undefined` when that is unknown, as of its
-	 * commit, before the save resolves. A save that landed without the engine reporting a
-	 * change, because its content was already stored, is reported here, so
-	 * readers reread.
+	 * A write's outcome, kept as the handle's last storage failure or its
+	 * clearing. Status tells it with the command's end, in one change.
 	 */
-	function save<T>(
-		path: string,
-		work: () => Promise<Result<T, SaveError>>,
-		kept: (saved: T) => FileContent | null | undefined,
-	) {
-		const submission: Submission = { heard: false, tick: 0 };
-		const before = queued.get(path);
-		const turn = Promise.withResolvers<void>();
-		queued.set(path, turn.promise);
-		/** Let the next save of `path` run. */
-		const release = () => {
-			running.delete(path);
-			if (queued.get(path) === turn.promise) queued.delete(path);
-			turn.resolve();
-			saves--;
-		};
-		return track(async () => {
-			saves++;
-			publishStatus();
-			let result: Result<T, SaveError>;
-			try {
-				// With none queued, the engine takes its input at the call.
-				if (before !== undefined) await before;
-				running.set(path, submission);
-				// A save the engine reports as no change stored nothing newer
-				// than what was there when it started.
-				submission.tick = edits.now();
-				result = await work();
-				if (result.error === null) {
-					edits.stored(path, kept(result.data), submission.tick);
-					if (!submission.heard) hear({ paths: [path], origin: 'this-handle' });
-				}
-			} catch (cause) {
-				release();
-				publishStatus();
-				throw cause;
-			}
-			release();
-			if (result.error === null) storageFailure = null;
-			else if (result.error.name === 'StorageFailed')
-				storageFailure = result.error;
-			publishStatus();
-			return result;
-		});
+	async function recorded<T>(
+		writing: Promise<Result<T, SaveError>>,
+	): Promise<Result<T, SaveError>> {
+		const result = await writing;
+		if (result.error === null) storageFailure = null;
+		else if (result.error.name === 'StorageFailed')
+			storageFailure = result.error;
+		return result;
 	}
 
-	// Saves are tracked and counted in status, so close waits for every save
-	// started before it releases the engine. The public members below refuse
-	// only after that release.
-	// A save queued behind another of its path keeps the bytes as they were
-	// at the call.
-	/** What a delete left: no file once it went, unknown here when it kept a file changed meanwhile. */
-	const deletedKept = ({ deleted }: { deleted: boolean }) =>
-		deleted ? null : undefined;
-	const written = ({ stored }: Stored) => stored;
-	const files: FolderFileOperations = {
-		list: (prefix) => engine.files.list(prefix),
-		read: (path) => engine.files.read(path),
-		async write(path, from, content) {
-			const [base, change] = [owned(from), owned(content)];
-			const saved = await save(
-				path,
-				() => engine.files.write(path, base, change),
-				written,
-			);
-			return saved.error === null ? Ok(undefined) : saved;
-		},
-		delete(path, from) {
-			const base = owned(from);
-			return save(path, () => engine.files.delete(path, base), deletedKept);
-		},
-	};
-	const tableOperations = Object.fromEntries(
-		Object.keys(tables).map((name) => {
-			const table = engine.tables[name] as EngineTable;
-			const rowPath = (id: string) => `${name}/${id}.md`;
-			/** A set answers the row it submitted, not what storage kept. */
-			const submitted = async (
-				saving: Promise<Result<{ sent: Row } & Stored, SaveError>>,
-			) => {
-				const saved = await saving;
-				return saved.error === null ? Ok({ sent: saved.data.sent }) : saved;
-			};
-			const operations: FolderTableOperations = {
-				list: () => table.list(),
-				get: (id) => table.get(id),
-				// With none queued the engine takes its input at the call; a save
-				// queued behind another of its path keeps a copy taken then.
-				set(id, from, change) {
-					const path = rowPath(id);
-					const edit = ownChange(change);
-					if (edit.error !== null) return Promise.resolve(edit);
-					if (!queued.has(path))
-						return submitted(
-							save(path, () => table.set(id, from, edit.data), written),
-						);
-					const base = ownRow(from);
-					return submitted(
-						save(path, () => table.set(id, base, edit.data), written),
-					);
-				},
-				delete(id, from) {
-					const path = rowPath(id);
-					const base = queued.has(path) ? ownRow(from) : from;
-					return save(path, () => table.delete(id, base), deletedKept);
-				},
-			};
-			return [name, operations];
-		}),
-	);
 	const edits = createEditOwner({
-		files,
-		async replaceSource(path, from, text) {
-			const saved = await save(
-				path,
-				() => engine.files.write(path, from, text, undefined, undefined, true),
-				written,
-			);
-			return saved.error !== null ? saved : Ok(undefined);
-		},
+		read: (path) => engine.files.read(path),
+		write: (path, content) => recorded(engine.files.write(path, content)),
 		saveAfterMs,
 		onAggregate: publishStatus,
 		track,
 		drainWork,
-		waitForPaths: (paths) =>
-			Promise.allSettled(paths.map((path) => queued.get(path))),
+		// A write that stored what was already there reports no change itself.
+		announce: (path) => tell({ paths: [path], origin: 'this-handle' }),
 	});
 	const stopEngine = engine.subscribe(hear);
 
-	/** Every member of `operations`, refused once close released the engine. */
-	function usable<T extends Record<string, (...args: never[]) => unknown>>(
-		operations: T,
-	): T {
-		return Object.fromEntries(
-			Object.entries(operations).map(([name, operation]) => [
-				name,
-				(...args: never[]) => {
-					assertUsable();
-					return operation(...args);
-				},
-			]),
-		) as T;
-	}
-
-	/**
-	 * Reads keep the edit owner's documents current: a row list or get
-	 * answers the documents of its rows, and a file read the document of a
-	 * path seeds text source. Each carries the tick it started at, so a read
-	 * that a save or a reported change overtook changes nothing there.
-	 */
-	const readFiles: FolderFileOperations = {
-		...files,
+	const files: Folder<Record<string, Schema>>['files'] = {
+		list(prefix) {
+			assertUsable();
+			return engine.files.list(prefix);
+		},
 		async read(path) {
-			const tick = edits.startRead();
+			assertUsable();
+			const at = edits.beginObservation();
 			try {
-				const result = await files.read(path);
-				if (result.error === null)
-					try {
-						edits.readFile(
-							path,
-							tick,
-							result.data === undefined
-								? null
-								: new Uint8Array(await result.data.content.arrayBuffer()),
-						);
-					} catch {
-						// The caller reads the same content and meets the failure itself.
-					}
+				const result = await engine.files.read(path);
+				// A passive editor's file is never decoded here; an engaged one learns it.
+				if (edits.wantsRaw(path)) {
+					let observation: Observation;
+					if (result.error !== null)
+						observation = { kind: 'failed', cause: result.error };
+					else if (result.data === undefined) observation = { kind: 'missing' };
+					else
+						try {
+							observation = observationOf(
+								new Uint8Array(await result.data.content.arrayBuffer()),
+							);
+						} catch (cause) {
+							observation = { kind: 'failed', cause };
+						}
+					edits.readRaw(path, at, observation);
+				}
 				return result;
 			} finally {
-				edits.endRead();
+				edits.endObservation();
 			}
 		},
+		write(path, content) {
+			assertUsable();
+			// A write queued behind another of its path keeps the bytes of its call.
+			return edits.write(path, owned(content));
+		},
+		delete(path) {
+			assertUsable();
+			return edits.remove(path, () => recorded(engine.files.delete(path)));
+		},
+		edit: (path, schema) => edits.edit(path, schema),
 	};
-	function readRows(name: string, table: FolderTableOperations) {
-		return {
-			...table,
-			async list() {
-				const tick = edits.startRead();
-				try {
-					const result = await table.list();
-					if (result.error === null) edits.listed(name, tick, result.data);
-					return result;
-				} finally {
-					edits.endRead();
-				}
-			},
-			async get(id) {
-				const tick = edits.startRead();
-				try {
-					const result = await table.get(id);
-					if (result.error === null) edits.got(name, id, tick, result.data);
-					return result;
-				} finally {
-					edits.endRead();
-				}
-			},
-		} satisfies FolderTableOperations;
-	}
 
-	const readTables = Object.fromEntries(
-		Object.entries(tableOperations).map(([name, table]) => [
-			name,
-			readRows(name, table),
-		]),
+	const folderTables = Object.fromEntries(
+		Object.keys(tables).map((name) => {
+			const table = engine.tables[name] as EngineTable;
+			const rowPath = (id: string) => `${name}/${id}.md`;
+			const schema = tables[name] as Schema;
+			const operations: Folder<Record<string, Schema>>['tables'][string] = {
+				// Every row read tells the owner the exact text it found, before
+				// it answers, ordered against writes and changes meanwhile.
+				async list() {
+					assertUsable();
+					const at = edits.beginObservation();
+					try {
+						const result = await table.list();
+						if (result.error === null)
+							edits.listed(
+								`${name}/`,
+								at,
+								result.data.map((row) => ({
+									path: rowPath(row.id),
+									observation: rowObservation(row),
+								})),
+							);
+						return result;
+					} finally {
+						edits.endObservation();
+					}
+				},
+				async get(id) {
+					assertUsable();
+					const at = edits.beginObservation();
+					try {
+						const result = await table.get(id);
+						if (readableId(name, id))
+							edits.got(
+								rowPath(id),
+								at,
+								result.error !== null
+									? { kind: 'failed', cause: result.error }
+									: result.data === undefined
+										? { kind: 'missing' }
+										: rowObservation(result.data),
+							);
+						return result;
+					} finally {
+						edits.endObservation();
+					}
+				},
+				set(id, change) {
+					assertUsable();
+					return setRow(id, change);
+				},
+				delete(id) {
+					assertUsable();
+					if (!readableId(name, id))
+						return Promise.resolve(SaveError.InvalidId({ id }));
+					const path = rowPath(id);
+					return edits.remove(path, () => recorded(engine.files.delete(path)));
+				},
+				edit: (id) => edits.edit(rowPath(id), tables[name]),
+			};
+			/**
+			 * Compose `change` over the row's held text, or over the file read
+			 * in the lane when nothing is held, and publish it.
+			 */
+			async function setRow(
+				id: string,
+				change: RowChange,
+			): Promise<Result<Row, SaveError>> {
+				if (!readableId(name, id)) return SaveError.InvalidId({ id });
+				if (
+					change.body !== undefined &&
+					(typeof change.body !== 'string' ||
+						textProblem(change.body) !== undefined)
+				)
+					return SaveError.NotText();
+				const owned = ownChange(change);
+				if (owned.error !== null) return owned;
+				const saved = await edits.compose(rowPath(id), (text) => {
+					if (text === null && !validId(name, id))
+						return SaveError.InvalidId({ id });
+					const changed = changeMarkdown(
+						text === null ? null : readMarkdown(text, anyFields),
+						owned.data,
+					);
+					return changed.error === null
+						? Ok(changed.data.text)
+						: SaveError.Unparseable({ reason: changed.error.reason });
+				});
+				if (saved.error === null) return Ok(readRow(id, saved.data, schema));
+				// A name only some disks hold is never made as a new row.
+				return saved.error.name === 'InvalidPath'
+					? SaveError.InvalidId({ id })
+					: saved;
+			}
+			return [name, operations];
+		}),
 	);
 
 	const folder: Folder<Record<string, Schema>> = {
-		files: {
-			...usable(readFiles),
-			edit: (path, schema) => edits.edit(path, schema),
+		files,
+		tables: folderTables,
+		refresh(paths) {
+			assertOpen();
+			return edits.refreshKnown(paths);
 		},
-		tables: Object.fromEntries(
-			Object.entries(readTables).map(([name, table]) => [
-				name,
-				{
-					...usable(table),
-					edit: (id: string) => edits.edit(`${name}/${id}.md`, tables[name]),
-				},
-			]),
-		),
 		onChange(listener) {
 			assertOpen();
 			changeListeners.add(listener);
@@ -467,23 +384,18 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				statusListeners.delete(listener);
 			};
 		},
-		run(paths, action) {
-			if (closing !== undefined)
-				return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
-			return edits.run(paths, action);
+		run(action) {
+			if (closing !== undefined) return Promise.resolve(ActionError.Closing());
+			return track(async () => Ok(await action()));
 		},
 		async settle() {
 			assertOpen();
-			// Saves already started, the folder's own and direct ones alike;
-			// reads are not waited for.
-			const unsaved = await edits.settle();
-			await drainWork();
-			return unsaved;
+			return edits.settle();
 		},
 		close() {
 			if (closing !== undefined) return closing;
-			// Assigned before the fence publishes, so a listener it calls is
-			// refused and a close it calls answers this same promise.
+			// Assigned before anything is told, so a listener that closes again
+			// answers this same promise.
 			const completion = Promise.withResolvers<Recovery[]>();
 			closing = completion.promise;
 			(async () => {
@@ -493,11 +405,11 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				publishStatus();
 				await sending;
 				// Release in the same turn the registry is found empty: a write
-				// or an edit's save any earlier continuation started is waited
-				// for, and one called after this turn finds storage released and
-				// throws, or, for `save()`, does nothing. What is still held then
-				// is the answer. Status is told after, so a listener cannot start
-				// one in between.
+				// any earlier continuation started is waited for, and one called
+				// after this turn finds storage released and throws, or, for an
+				// editor's `save()`, refuses. What is still held then is the
+				// answer. Status is told after, so a listener cannot start one in
+				// between.
 				while (inflight.size > 0) await Promise.allSettled([...inflight]);
 				released = true;
 				const unsaved = edits.release();

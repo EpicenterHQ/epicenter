@@ -100,8 +100,8 @@ Whispering supplies these root defaults, which also apply in nested directories:
 Whispering reads `.gitignore` before starting its first product reads. If that
 ordered block is already present, startup writes nothing; comments and blank
 lines do not interrupt it. Otherwise it inserts the block before existing text,
-after any UTF-8 BOM, through `folder.files.write`, using the exact bytes read as
-the merge base. Existing text and line endings survive. No version flag or rule
+after any UTF-8 BOM, through `folder.files.write` as a complete publication.
+Existing text and line endings are preserved in that publication. No version flag or rule
 registry is stored.
 
 Rules after the block and nested `.gitignore` files can override these defaults.
@@ -110,7 +110,7 @@ allows WAV files into Git. Startup never overrides these customizations. A block
 installed at the end by an earlier build stays there; move it to the top in Files
 to let earlier custom rules take precedence.
 
-A changed file is read again to confirm the root block survived merging. This
+The file is read again to confirm the root block is still present. This
 checks its presence, not the inclusion policy of the whole folder.
 An unreadable file or failed update shows a warning while the rest of Whispering
 and Files remain available. Fix `.gitignore` in Files, then reload to check again.
@@ -452,8 +452,8 @@ in this build.
 - Terminal commands and other programs edit the files directly.
 - Folder reports saves made through its handles, including another browser
   tab's saves. Visible queries poll for edits from other programs or a
-  terminal. If the file changed since typing began, saving keeps the unsaved
-  source and reports a whole-file conflict (see [Editing](#editing)).
+  terminal. Saves publish complete files in call order; the last publication
+  wins (see [Editing](#editing)).
 - If the folder is a Git repository you manage, `git` works on it as on any
   directory. Whispering commits nothing, and recording audio stays out of
   that repository only according to its tracked-file and `.gitignore` rules.
@@ -535,22 +535,18 @@ the table shows the row once it is saved.
 
 - Each file is written one change at a time. Changes typed while one write
   runs are written next, so fast typing writes what you typed last.
-- Reading the folder again never touches a dirty draft. If another writer
-  changes the file, saving reports a whole-file conflict and keeps the exact
-  unsaved source. This applies to fields, body, Source, and text files alike.
-- The status line offers both sources for comparison and explicit choices to
-  use the saved file or replace it with the draft. A replacement is guarded
-  against another outside change. A deleted row is recreated only after that
-  explicit choice.
-- Stop's saved recording length is also a changed source. A title still held
-  from before Stop can conflict with it. Accepting the saved file before
-  reapplying the title preserves the completed recording's length.
-- A save that fails, or whose reply could not be confirmed, keeps your edit in
-  the window, and the file's status line says **Not saved** with **Try
-  again** and **Discard** for storage failures. It is also saved again with your next change, and
-  before anything that reads the file, such as a run or a deletion. Discard
-  leaves the file as it is and offers what you typed to copy. A failed save of
-  a file's whole text is also reported with the text to copy.
+- Reading the folder again never publishes a write. Accepted local input stays
+  held while it waits to save. Text already acquired remains available after
+  deletion, binary replacement, a failed read, or closing the editor view.
+- Saves publish the complete current source. There is no merge or conflict
+  choice: the last publication wins, including changes from other writers.
+  Typing into a retained source can recreate a deleted file.
+- A failed save keeps the exact input and shows **Try again** and **Discard**.
+  A later successful publication clears the error. Runs capture current held
+  input without publishing it; deletion discards the pending input captured by
+  the delete command once deletion succeeds. Newer input may recreate the path.
+- Discard drops unsubmitted input and offers it to copy. It does not cancel a
+  publication already admitted or restore an earlier file version.
 - A value that does not fit a row, such as a field with the wrong kind of
   value, is saved as written, and the row is listed under "Needs repair" until
   it is fixed. Nothing you typed is refused.
@@ -573,16 +569,18 @@ other fields, and the body are kept.
 Any file name works for a row, including a trailing space or `recordings/.md`.
 Only `.md` in lowercase makes a file a row.
 
-A deletion reserves every file it will remove and saves their held input first.
-If any input cannot save, no file is deleted. It then deletes each file as it is stored; an outside change during deletion keeps that file. Deleting a recording also deletes its results; its audio stays. It
-is refused while any result file cannot say which recording it belongs to
-(text that does not read, or a file that is not text). Repair or remove those
-from Files first.
+Deletion removes each confirmed path through the ordinary files API. It does
+not first save unsubmitted input. A successful delete consumes only the pending
+input captured by that command; newer typing remains and may recreate the path.
+Deleting a recording also deletes its confirmed results and keeps its audio.
+It refuses while work for that recording runs or an unreadable result cannot
+say which recording it belongs to. Repair or remove those files first.
 
-Files lists files. A folder appears while files are in it and goes when they
-do, so Files creates files, not empty folders. Renaming a file saves it under
-its new name and then deletes the old name; if the old file changed in that
-moment, both are kept and you are told.
+Files lists files. Directories appear while files are in them, so Files creates
+files rather than empty folders. Rename copies the held source, or current
+stored bytes, to the new name and then removes the old path. Held text that differs from the copied source keeps the source path and
+produces a notice naming both files. Identical text is already preserved at
+the destination and the rename can finish.
 
 ## Fixture audio
 
@@ -609,9 +607,8 @@ is saved (ADR-0632). These promises of the earlier build changed:
   ordinary files API, separately from committing or syncing.
 - In a browser tab, recordings an earlier build kept in OPFS are not read or
   changed. An origin with only those recordings opens an empty current folder.
-- Typing into a row deleted elsewhere stays held and copyable. Restoring the
-  file requires explicitly choosing to replace the saved file; retrying alone
-  leaves it deleted.
+- Acquired source stays editable after deletion. Accepted new input or an
+  explicit Save can recreate that file; observations and requests do not.
 - A value that does not fit a row is saved, and the row is listed for repair.
   The earlier build refused it.
 - Saving a row from its fields keeps comments and the file's own spelling.

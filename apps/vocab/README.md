@@ -18,21 +18,29 @@ Choose one to three saved expressions in Words and start a chat. Vocab saves the
 
 Every word's note and stage can be changed at once; there is no word to open first. A word's note and stage are its draft, held by the folder (`folder.tables.entries.edit(id)`) apart from the list. A stage press, in Words or in a chat's focus list, is saved right away. A typed note is saved a second after the last keystroke, even after the card goes away. FolderApp also sends pending input when the page is hidden; a forced quit can lose input that has not saved, including older input whose save failed. A draft holds every field typed since the word last saved, so a stage press also saves the note typed just before it. One word's saves run one at a time. A read that lands while a draft is held never replaces it.
 
-The draft holds the whole source observed when typing began, including fields
-that were not edited. If another tab saves different source, the local typing
-stays pinned and saving reports a whole-file conflict. Retrying does not merge
-fields or silently overwrite the saved word. Fields Vocab does not name and
-the text below the frontmatter survive edits to the observed source. A note is
-saved as typed, except that half of a surrogate pair becomes U+FFFD as it is
-typed, since the folder saves only well-formed text.
+The editor holds one source, including fields that were not edited. Outside
+observations do not replace pending input. Saving publishes that whole source;
+the last publication wins, without merging concurrent changes. Fields Vocab does
+not name and the text below frontmatter survive local field edits. Notes preserve
+well-formed text; a lone surrogate becomes U+FFFD as it is typed.
 
-A save that fails keeps the typing on the card with why it failed and **Try again**; further typing tries again too. When the word stops being listed as a word while its typing failed to save, Words names its file and keeps what was typed, with **Save again**, **Copy**, and **Discard**. A word deleted elsewhere stays deleted when the save conflicts; retrying does not recreate it. The held source remains available to copy or explicitly discard.
+A save failure keeps the text and error for **Try again**. Further typing remains
+accepted. When a failed word is no longer listed, Words keeps its source available
+through **Save again**, **Copy**, and **Discard**. Explicit publication can recreate
+a word deleted elsewhere. Storage observations never automatically write it back.
 
-The list is read when the page opens. After that, the folder reports each committed save, from this page or another tab of Vocab in this browser, and the list reads the table again. The shared folder context also polls active reads while visible and refreshes them when the page becomes visible again.
+The listing reads on open and after targeted folder change notifications. Each
+editor observes its own current content; it needs no query for loading or errors.
 
-A file in `entries/` that is not a valid word is named under the list with why, and is not offered as a word. **Repair as text** opens its exact text. What is typed is saved a second after the last keystroke, even after the card goes away, and by FolderApp when the page is hidden, one write at a time. Changed outside source causes a whole-file conflict and leaves the repair text held. The problems shown follow the current editable document, including unsaved text. Once that document is a valid word, **Show note and stage** returns to structured editing without waiting for a save. Switching repair files leaves their unsaved input with the folder. A file that is gone or is not text says so and offers the text still typed to copy. A file that is not text at all is only named.
+**Repair as text** edits the same source as structured note and stage controls.
+Diagnostics follow that source, including unsaved changes. **Show note and stage**
+returns when the current document is valid, without waiting for saving. Switching
+repair files retains their text with the folder. Acquired text remains available
+even if a later read finds a missing or non-text file.
 
-Delete asks first. Confirming waits for the word's typing to save, then removes the file. A word whose typing failed to save is not deleted until that typing is saved or discarded. A word changed in another tab in that moment is kept, and a notice says so.
+Delete asks first, then removes the path without first saving unsubmitted input.
+Already admitted publications finish before it. New input remains accepted and
+may recreate the path. A failed deletion retains pending input.
 
 Leaving the page while the Folder has an accepted change still saving is cancelled; for a reload or a closed tab, the browser asks first. Normal page teardown sends held edits and waits for started saves.
 
@@ -94,12 +102,10 @@ Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/voc
 This version opens this browser's local folder (`openFolder({ tables })`) instead of the OPFS folder named after Vocab's app ID, and drops several promises of the version before it:
 
 - An earlier OPFS folder does not stop the new opener; its words and chats are not read, moved, or deleted. Other earlier stores are not read by this version.
-- A delete no longer removes a word changed in another tab in that moment: it is kept, and a notice says so. A word whose note failed to save is not deleted until the note is saved again or discarded.
-- A word deleted elsewhere stays deleted when its held source conflicts. The
-  unsaved note and stage remain available to copy or explicitly discard.
+- Publications and deletions are unconditional. New local input during a delete remains available and may recreate the path.
 - A failed note save says why on its card, without a toast. A failed message save keeps its notice in the chat, without a toast.
 - Repair diagnostics follow the current text as it changes; switching to a valid structured view does not wait for saving.
 - A word's listing is read again after this page's own saves too, rather than taking what the save wrote.
 - Half of a surrogate pair in a note becomes U+FFFD as it is typed, not when the save lands.
 - A word file and a message file are written in the folder's canonical frontmatter: keys a new file adds are sorted, and strings may be quoted.
-- Closing the page sends typing and lets every started save land. A word add or a message save that has only read its file when the page closes is refused rather than finished.
+- Closing the page sends typing and lets every started save land. Normal close drains admitted word adds and message saves, including work waiting on hashing or an earlier turn.

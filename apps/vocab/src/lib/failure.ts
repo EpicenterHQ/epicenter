@@ -9,8 +9,8 @@ export function describeFailure(
 	switch (error.name) {
 		case 'StorageFailed':
 			return `This browser's storage refused it: ${extractErrorMessage(error.cause)}.`;
-		case 'NotStarted':
-			return error.reason;
+		case 'Closing':
+			return error.message;
 		case 'Unparseable':
 			return `Its file cannot be edited as a word: ${error.reason}.`;
 		case 'NotText':

@@ -179,7 +179,7 @@ export function createChatMessageStore(
 				return AgentMessageStoreError.WriteFailed({ cause: taken });
 			}
 		} else {
-			const { error } = await tables.messages.set(id, null, {
+			const { error } = await tables.messages.set(id, {
 				fields: { chat: chatId, message },
 				body: '',
 			});
@@ -267,7 +267,7 @@ export async function startChat(
 	};
 	const { error } = await untilClosed(
 		() =>
-			chats.set(chat.id, null, {
+			chats.set(chat.id, {
 				fields: { createdAt: chat.createdAt, focus: chat.focus },
 				body: '',
 			}),

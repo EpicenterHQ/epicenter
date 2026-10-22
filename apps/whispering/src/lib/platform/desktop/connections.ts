@@ -8,10 +8,7 @@
  * permitted into none but its own. It names an operation, `transcription` or
  * `text`, and Epicenter reads the row (`whispering_connection_read`) or saves
  * the fields Whispering writes into it (`whispering_connection_set`) through
- * the `epicenter` CLI, which opens the selected directory for that one call. A save
- * carries the row's exact source as the page read it, so an edit Settings
- * made meanwhile is merged, not lost, and every field another program added
- * survives.
+ * the `epicenter` CLI, which opens the selected directory for that one call. A save assigns fields to the current row; the last publication wins.
  *
  * The endpoint and key are not in the row. They live in this computer's
  * keychain under the row's id, and only the `epicenter` CLI reads them: the
@@ -218,7 +215,7 @@ export function createDesktopConnections({
 
 		/**
 		 * Save one connection: its endpoint and key in the keychain first, then
-		 * its row, made or updated in place from the row as read. A save whose
+		 * its row, made or updated with the requested fields. A save whose
 		 * reply never came back is reported as not confirmed, never as saved.
 		 */
 		async set(
@@ -250,12 +247,9 @@ export function createDesktopConnections({
 					);
 					if (error !== null) return Err(failureOf(error));
 				}
-				// A new row has a title; an existing one keeps its own, and every
-				// field another program added. The save merges from the row as
-				// read, so an edit that landed since stays.
+				// A new row has a title; an existing one keeps its current title.
 				const { error: writeError } = await native.whisperingConnectionSet(
 					operation,
-					row && { text: row.text, issues: row.issues },
 					row === null
 						? {
 								kind: 'openai-compatible',

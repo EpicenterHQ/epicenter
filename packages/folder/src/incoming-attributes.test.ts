@@ -234,9 +234,7 @@ describe('directory incoming attributes', () => {
 	test("the folder's own attribute file does not mask the incoming commit's", async () => {
 		// In the folder the audio is declared plain; upstream declares a filter.
 		const masked = await incoming();
-		expectOk(
-			await masked.folder.write('.gitattributes', null, '*.wav -filter\n'),
-		);
+		expectOk(await masked.folder.write('.gitattributes', '*.wav -filter\n'));
 		// Ignored by the committed `.gitignore`, so the folder is still clean.
 		expect(expectOk(await masked.folder.git.status()).changes).toEqual([]);
 		await writeFile(

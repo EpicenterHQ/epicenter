@@ -6,12 +6,12 @@
  */
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
-const { unsavedOf, isMissing } = await import(
-	'../../lib/local.test-support.js'
-);
+
+const { isMissing } = await import('../../lib/local.test-support.js');
+
 import { afterEach, expect, test } from 'bun:test';
 import { ReadError } from '@epicenter/folder';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	click,
 	type,
@@ -43,8 +43,14 @@ async function open(path = 'draft.txt', content = 'Original text') {
 			props: { notes: fixture.notes, path, as: 'text' },
 		},
 	});
-	cleanups.push(async () => {
+	let viewAlive = true;
+	async function unmountView() {
+		if (!viewAlive) return;
+		viewAlive = false;
 		await unmount(view);
+	}
+	cleanups.push(async () => {
+		await unmountView();
 		await fixture.close();
 	});
 	const input = () =>
@@ -55,7 +61,7 @@ async function open(path = 'draft.txt', content = 'Original text') {
 		flushSync();
 		return input()?.value === content;
 	}, 'the file editor');
-	return { ...fixture, target, input };
+	return { ...fixture, target, input, unmountView };
 }
 
 test('a background reread leaves the saved text editable', async () => {
@@ -102,7 +108,7 @@ test('saved words stay shown when the reread fails, and typing on keeps them', a
 	await notes.folder.files.edit('draft.txt').save();
 	await local.refresh(['draft.txt']);
 	flushSync();
-	expect(unsavedOf(folder.files.edit('draft.txt'))).toBeUndefined();
+	expect(folder.files.edit('draft.txt').getSnapshot().isDirty).toBe(false);
 	expect(await text('draft.txt')).toBe('Committed words');
 	expect(input()?.value).toBe('Committed words');
 	expect(input()?.readOnly).toBe(false);
@@ -129,22 +135,16 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	const other = await otherTab();
 	const before = expectOk(await other.files.read('draft.txt'));
 	if (before === undefined) throw new Error('The test file disappeared');
-	expectOk(
-		await other.files.write(
-			'draft.txt',
-			new Uint8Array(await before.content.arrayBuffer()),
-			new Uint8Array([0, 1, 2]),
-		),
-	);
+	expectOk(await other.files.write('draft.txt', new Uint8Array([0, 1, 2])));
 	await local.refresh(['draft.txt']);
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
-	expect(notes.folder.files.edit('draft.txt').getText()).toBe(
+	expect(notes.folder.files.edit('draft.txt').getSnapshot().content?.text).toBe(
 		'Keep this unsaved text',
 	);
 });
 
-test('failed row changes remain available after deletion until explicit replacement restores them', async () => {
+test('failed row changes remain editable after deletion and Save again recreates the file', async () => {
 	const path = 'notes/a.md';
 	const { notes, folder, otherTab, failSaves, local, target, text } =
 		await open(path, noteText());
@@ -157,12 +157,7 @@ test('failed row changes remain available after deletion until explicit replacem
 	const other = await otherTab();
 	const stored = expectOk(await other.files.read(path));
 	if (stored === undefined) throw new Error('The test note disappeared');
-	expectOk(
-		await other.files.delete(
-			path,
-			new Uint8Array(await stored.content.arrayBuffer()),
-		),
-	);
+	expectOk(await other.files.delete(path));
 	await local.refresh([path]);
 	await until(() => {
 		flushSync();
@@ -173,18 +168,13 @@ test('failed row changes remain available after deletion until explicit replacem
 	expect(target.textContent).toContain('Discard changes');
 	click(target, 'Save again');
 	await until(
-		() => unsavedOf(folder.files.edit(path))?.error?.name === 'Conflict',
-		'the deletion conflict',
-	);
-	click(target, 'Replace saved file');
-	await until(
-		() => unsavedOf(folder.files.edit(path)) === undefined,
+		() => folder.files.edit(path).getSnapshot().isDirty === false,
 		'the explicit retry',
 	);
 	expect(await text(path)).toContain('Keep my row changes');
 });
 
-test('a pinned field draft remains copyable beside broken stored source and can replace it', async () => {
+test('pending fields remain editable after broken stored source and Save again replaces it', async () => {
 	const path = 'notes/a.md';
 	const { notes, folder, otherTab, failSaves, local, target, input, text } =
 		await open(path, noteText());
@@ -198,7 +188,7 @@ test('a pinned field draft remains copyable beside broken stored source and can 
 	const before = await text(path);
 	if (before === undefined) throw new Error('The test note disappeared');
 	const broken = before.replace('\n---\n', '\n');
-	expectOk(await other.files.write(path, before, broken));
+	expectOk(await other.files.write(path, broken));
 	await local.refresh([path]);
 	flushSync();
 	expect(input()?.value).toContain('Keep this title');
@@ -212,21 +202,116 @@ test('a pinned field draft remains copyable beside broken stored source and can 
 	).toHaveLength(1);
 	click(target, 'Save again');
 	await until(
-		() => unsavedOf(folder.files.edit(path))?.error?.name === 'Conflict',
-		'the broken header conflict',
-	);
-	expect(target.querySelector('[aria-label="Saved source"]')?.textContent).toBe(
-		broken,
-	);
-	expect(inputForRecovery(target)).toContain('Keep this title');
-	click(target, 'Replace saved file');
-	await until(
-		() => unsavedOf(folder.files.edit(path)) === undefined,
+		() => folder.files.edit(path).getSnapshot().isDirty === false,
 		'the explicit source replacement',
 	);
 	expect(await text(path)).toContain('Keep this title');
 });
 
 function inputForRecovery(target: ParentNode) {
-	return target.querySelector('[aria-label="Unsaved source"]')?.textContent;
+	return target.querySelector<HTMLTextAreaElement>('textarea')?.value;
 }
+
+test.each(['missing', 'binary'] as const)(
+	'clean acquired text survives %s replacement and unmounting before a new view',
+	async (kind) => {
+		const { notes, folder, otherTab, local, input, unmountView } = await open();
+		const other = await otherTab();
+		if (kind === 'missing') expectOk(await other.files.delete('draft.txt'));
+		else
+			expectOk(await other.files.write('draft.txt', new Uint8Array([0, 1, 2])));
+		await local.refresh(['draft.txt']);
+		flushSync();
+		expect(folder.files.edit('draft.txt').getSnapshot().isDirty).toBe(false);
+		expect(input()?.value).toBe('Original text');
+		expect(input()?.readOnly).toBe(false);
+		const retired = input();
+		await unmountView();
+		const target = document.createElement('main');
+		document.body.append(target);
+		const second = mount(Host, {
+			target,
+			props: {
+				client: notes.queryClient,
+				component: FileDetail as never,
+				props: { notes, path: 'draft.txt', as: 'text' },
+			},
+		});
+		cleanups.push(() => unmount(second));
+		await until(() => {
+			flushSync();
+			return (
+				target.querySelector<HTMLTextAreaElement>('textarea')?.value ===
+				'Original text'
+			);
+		}, 'the retained clean text in a second view');
+		type(target.querySelector('textarea'), 'Typed after replacement');
+		flushSync();
+		expect(folder.files.edit('draft.txt').getSnapshot().content?.text).toBe(
+			'Typed after replacement',
+		);
+		type(retired, 'Late input from a destroyed view');
+		expect(folder.files.edit('draft.txt').getSnapshot().content?.text).toBe(
+			'Typed after replacement',
+		);
+		expectOk(await folder.files.edit('draft.txt').save());
+	},
+);
+
+test('a clean missing file can be reread without a write, then explicitly restored', async () => {
+	const { folder, otherTab, local, target, text, saves } = await open();
+	const other = await otherTab();
+	expectOk(await other.files.delete('draft.txt'));
+	await local.refresh(['draft.txt']);
+	flushSync();
+	await until(() => {
+		flushSync();
+		return isMissing(folder.files.edit('draft.txt'));
+	}, 'the missing editor acquisition');
+	const before = saves('draft.txt');
+	click(target, 'Try again');
+	expect(expectErr(await folder.files.edit('draft.txt').refresh()).name).toBe(
+		'Missing',
+	);
+	expect(await text('draft.txt')).toBeUndefined();
+	expect(saves('draft.txt')).toBe(before);
+	click(target, 'Restore text');
+	await until(
+		() => saves('draft.txt') === before + 1,
+		'the explicit text restoration',
+	);
+	expect(await text('draft.txt')).toBe('Original text');
+});
+
+test('classifying initial large UTF-8 text does not acquire or mount its editor', async () => {
+	const fixture = await openNotes();
+	const path = 'large.txt';
+	await fixture.write(path, 'x'.repeat(1024 * 1024 + 1));
+	const { textRead } = await import('../../lib/file-reads.js');
+	const classified = await fixture.notes.queryClient.fetchQuery(
+		fixture.notes.queries.file(path, textRead),
+	);
+	expect(classified.kind).toBe('tooLarge');
+	expect(fixture.folder.files.edit(path).getSnapshot().content).toBeUndefined();
+	const target = document.createElement('main');
+	document.body.append(target);
+	const view = mount(Host, {
+		target,
+		props: {
+			client: fixture.notes.queryClient,
+			component: FileDetail as never,
+			props: { notes: fixture.notes, path, as: 'text' },
+		},
+	});
+	cleanups.push(async () => {
+		await unmount(view);
+		await fixture.close();
+	});
+	await until(() => {
+		flushSync();
+		return target.textContent?.includes('larger than 1 MB') ?? false;
+	}, 'the initial file-size limit');
+	expect(target.querySelector('textarea')).toBeNull();
+	expect(fixture.folder.files.edit(path).getSnapshot().content).toBeUndefined();
+	expect(fixture.saves(path)).toBe(0);
+});

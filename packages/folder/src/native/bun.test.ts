@@ -13,10 +13,11 @@
  * - A replaced file keeps its mode; a new file is `0600`
  * - Saves take the save lock other processes and the desktop shell take
  * - Rows keep exact source, unknown fields, comments, and repairable frontmatter
- * - Direct writes merge what landed meanwhile and guard the bytes they read
- * - FileEdit saves compare whole source and retain conflicting drafts
+ * - File writes and deletes replace what is there, the last one winning; a
+ *   row sets compose over held text or read in the path's lane
+ * - An editor save lands its exact text unconditionally
  * - Structural refusals are results, not storage failures
- * - A row delete keeps adjacent files, and an unseen edit keeps the row
+ * - A row delete removes the row and keeps adjacent files
  * - Saves notify this handle and the directory's other handles in this process
  * - Status reports saving and the last storage failure until a later success
  * - Close lets started saves finish, then stops listening; new calls throw
@@ -43,7 +44,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { unsavedOf } from '../edit-buffer.test-support.js';
 import type { FolderChange, FolderStatus } from '../folder.js';
 import { openBunFolder } from './bun.js';
 import { createNativeFolder } from './engine.js';
@@ -88,11 +88,9 @@ test('the pause a directory is opened with saves its held input', async () => {
 	const folder = expectOk(
 		await openBunFolder({ directory: root, tables: { notes }, saveAfterMs: 5 }),
 	);
-	// A get answers the edit's document.
-	expectOk(await folder.tables.notes.get('milk'));
-	expectOk(
-		folder.tables.notes.edit('milk').change({ fields: { title: 'Oat' } }),
-	);
+	const edit = folder.tables.notes.edit('milk');
+	expectOk(await edit.refresh());
+	expectOk(edit.change({ fields: { title: 'Oat' } }));
 	expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
 	for (
 		let turn = 0;
@@ -108,7 +106,7 @@ test('binary saves keep exact bytes and preserve the input captured at call time
 	const root = await directory();
 	const folder = await open(root);
 	const bytes = new Uint8Array([0, 1, 255]);
-	const saving = folder.files.write('audio/clip.bin', null, bytes);
+	const saving = folder.files.write('audio/clip.bin', bytes);
 	bytes[1] = 9;
 	expectOk(await saving);
 	expect(new Uint8Array(await readFile(join(root, 'audio/clip.bin')))).toEqual(
@@ -181,24 +179,18 @@ test('existing empty and nonportable row stems remain visible for repair', async
 	});
 	const raw = expectOk(await folder.tables.notes.get('a: b'))!;
 	expect(raw.fields).toEqual({ title: 'Colon' });
-	expect(
-		expectErr(await folder.tables.notes.set('', null, { body: 'new' })).name,
-	).toBe('InvalidId');
-	expect(
-		expectErr(await folder.tables.notes.set('a: b', null, { body: 'new' }))
-			.name,
-	).toBe('InvalidId');
-	const { sent } = expectOk(
-		await folder.tables.notes.set('a: b', raw, { body: 'Repaired\n' }),
-	);
+	// An existing nonportable row can be repaired and removed, never made.
+	expectOk(await folder.tables.notes.set('', { body: 'new' }));
+	expect(await text(root, 'notes/.md')).toBe('---\ntitle: Empty\n---\nnew');
+	expectOk(await folder.tables.notes.set('a: b', { body: 'Repaired\n' }));
 	expect(await text(root, 'notes/a: b.md')).toContain('Repaired');
-	expect(expectOk(await folder.tables.notes.delete('a: b', sent))).toEqual({
-		deleted: true,
-	});
+	expectOk(await folder.tables.notes.delete('a: b'));
 	expect(await text(root, 'notes/a: b.md')).toBeUndefined();
 	expect(
-		expectErr(await folder.tables.notes.set('a: b', raw, { body: 'again' }))
-			.name,
+		expectErr(await folder.tables.notes.set('a: b', { body: 'again' })).name,
+	).toBe('InvalidId');
+	expect(
+		expectErr(await folder.files.write('notes/a: b.md', 'again')).name,
 	).toBe('InvalidPath');
 	await folder.close();
 });
@@ -210,13 +202,9 @@ test('an existing HEAD is readable but cannot be changed into Git state', async 
 		'notes\n',
 	);
 	expect(
-		expectErr(
-			await folder.files.write('HEAD', 'notes\n', 'ref: refs/heads/main\n'),
-		).name,
+		expectErr(await folder.files.write('HEAD', 'ref: refs/heads/main\n')).name,
 	).toBe('InvalidPath');
-	expect(expectErr(await folder.files.delete('HEAD', 'notes\n')).name).toBe(
-		'InvalidPath',
-	);
+	expect(expectErr(await folder.files.delete('HEAD')).name).toBe('InvalidPath');
 	expect(await text(root, 'HEAD')).toBe('notes\n');
 	await folder.close();
 });
@@ -249,13 +237,11 @@ test('opening and saving make no .git, and stage nothing in the directory', asyn
 	const root = await directory({ 'readme.txt': 'plain\n' });
 	const folder = await open(root);
 	expect(await readdir(root)).toEqual(['readme.txt']);
-	const { sent } = expectOk(
-		await folder.tables.notes.set('one', null, { fields: { title: 'One' } }),
-	);
-	expectOk(await folder.files.write('docs/a.md', null, 'a\n'));
-	expectOk(await folder.files.write('notes/one/x.txt', null, 'x'));
-	expectOk(await folder.tables.notes.delete('one', sent));
-	expectOk(await folder.files.delete('docs/a.md', 'a\n'));
+	expectOk(await folder.tables.notes.set('one', { fields: { title: 'One' } }));
+	expectOk(await folder.files.write('docs/a.md', 'a\n'));
+	expectOk(await folder.files.write('notes/one/x.txt', 'x'));
+	expectOk(await folder.tables.notes.delete('one'));
+	expectOk(await folder.files.delete('docs/a.md'));
 	expect((await readdir(root)).sort()).toEqual(['docs', 'notes', 'readme.txt']);
 	expect(await readdir(join(root, 'notes'))).toEqual(['one']);
 	expect(expectOk(await folder.files.list())).toEqual([
@@ -301,11 +287,8 @@ test('a .git file or link opens and saves, and is left as it is', async () => {
 	for (const root of [worktree, linked]) {
 		const folder = await open(root);
 		expect(expectOk(await folder.files.list())).toEqual(['notes/one.md']);
-		const row = expectOk(await folder.tables.notes.get('one'))!;
-		expectOk(
-			await folder.tables.notes.set('one', row, { fields: { done: true } }),
-		);
-		expectOk(await folder.files.write('new.md', null, 'new\n'));
+		expectOk(await folder.tables.notes.set('one', { fields: { done: true } }));
+		expectOk(await folder.files.write('new.md', 'new\n'));
 		expect(await text(root, 'notes/one.md')).toBe(
 			'---\ntitle: One\ndone: true\n---\n',
 		);
@@ -327,9 +310,7 @@ test('a save waits for the save lock another program holds', async () => {
 	});
 	other.run('BEGIN EXCLUSIVE');
 	let landed = false;
-	const saving = folder.files
-		.write('a.md', null, 'a')
-		.finally(() => (landed = true));
+	const saving = folder.files.write('a.md', 'a').finally(() => (landed = true));
 	await Bun.sleep(200);
 	expect(landed).toBe(false);
 	expect(await text(root, 'a.md')).toBeUndefined();
@@ -367,7 +348,7 @@ test.skipIf(process.platform === 'win32')(
 			{ create: true },
 		);
 		other.run('BEGIN EXCLUSIVE');
-		const saving = folder.files.write('shared.md', 'old\n', 'secret\n');
+		const saving = folder.files.write('shared.md', 'secret\n');
 		let staged: string[] = [];
 		let stagedText = '';
 		for (let tries = 0; stagedText !== 'secret\n' && tries < 200; tries++) {
@@ -386,11 +367,9 @@ test.skipIf(process.platform === 'win32')(
 		other.close();
 		expectOk(await saving);
 
-		expectOk(await folder.files.write('private.md', 'mine\n', 'still mine\n'));
-		expectOk(
-			await folder.files.write('tool.sh', '#!/bin/sh\n', '#!/bin/bash\n'),
-		);
-		expectOk(await folder.files.write('fresh.md', null, 'new\n'));
+		expectOk(await folder.files.write('private.md', 'still mine\n'));
+		expectOk(await folder.files.write('tool.sh', '#!/bin/bash\n'));
+		expectOk(await folder.files.write('fresh.md', 'new\n'));
 		for (const [path, content, bits] of [
 			['shared.md', 'secret\n', 0o644],
 			['private.md', 'still mine\n', 0o600],
@@ -445,7 +424,7 @@ test.skipIf(!darwin)(
 			create: true,
 		});
 		other.run('BEGIN EXCLUSIVE');
-		const saving = folder.files.write('shared.md', 'old\n', 'secret\n');
+		const saving = folder.files.write('shared.md', 'secret\n');
 		const staging = join(parent, '.folder.epicenter-scratch');
 		let staged: string[] = [];
 		let stagedText = '';
@@ -500,9 +479,7 @@ test.skipIf(!darwin)(
 		execFileSync('/usr/bin/chflags', ['uchg', staging]);
 		try {
 			const folder = await open(root);
-			const refused = expectErr(
-				await folder.files.write('a.md', 'accepted\n', 'mine\n'),
-			);
+			const refused = expectErr(await folder.files.write('a.md', 'mine\n'));
 			expect(JSON.stringify(refused)).toContain('could not be made private');
 			expect(await text(root, 'a.md')).toBe('accepted\n');
 			expect(await readdir(staging)).toEqual([]);
@@ -522,9 +499,7 @@ test.skipIf(process.platform === 'win32')(
 		await chmod(elsewhere, 0o755);
 		await symlink(elsewhere, join(root, '..', '.folder.epicenter-scratch'));
 		const folder = await open(root);
-		const refused = expectErr(
-			await folder.files.write('a.md', 'old\n', 'new\n'),
-		);
+		const refused = expectErr(await folder.files.write('a.md', 'new\n'));
 		expect(JSON.stringify(refused)).toContain('symbolic link');
 		expect(await text(root, 'a.md')).toBe('old\n');
 		expect(await readdir(elsewhere)).toEqual([]);
@@ -538,17 +513,16 @@ test('a field edit keeps unknown fields and comments, and a schema never refuses
 		'notes/extra.md': '---\n# kept\ntitle: Eggs\nfrom: phone\n---\nBody\n',
 	});
 	const folder = await open(root);
-	const row = expectOk(await folder.tables.notes.get('extra'))!;
-	const { sent } = expectOk(
-		await folder.tables.notes.set('extra', row, { fields: { done: true } }),
+	const stored = expectOk(
+		await folder.tables.notes.set('extra', { fields: { done: true } }),
 	);
 	expect(await text(root, 'notes/extra.md')).toBe(
 		'---\n# kept\ntitle: Eggs\nfrom: phone\ndone: true\n---\nBody\n',
 	);
-	expect(await text(root, 'notes/extra.md')).toBe(sent.text);
+	expect(await text(root, 'notes/extra.md')).toBe(stored.text);
 	// A value the schema refuses is still saved, and reads back with its issue.
-	const { sent: wrong } = expectOk(
-		await folder.tables.notes.set('extra', sent, { fields: { title: 7 } }),
+	const wrong = expectOk(
+		await folder.tables.notes.set('extra', { fields: { title: 7 } }),
 	);
 	expect(wrong.issues?.[0]?.kind).toBe('schema');
 	expect(await text(root, 'notes/extra.md')).toContain('title: 7');
@@ -559,14 +533,13 @@ test('malformed frontmatter stays repairable: a body edit lands, a field edit is
 	const source = '---\ntitle: [unclosed\n---\nOld\n';
 	const root = await directory({ 'notes/broken.md': source });
 	const folder = await open(root);
-	const row = expectOk(await folder.tables.notes.get('broken'))!;
 	expect(
 		expectErr(
-			await folder.tables.notes.set('broken', row, { fields: { done: true } }),
+			await folder.tables.notes.set('broken', { fields: { done: true } }),
 		).name,
 	).toBe('Unparseable');
 	expect(await text(root, 'notes/broken.md')).toBe(source);
-	expectOk(await folder.tables.notes.set('broken', row, { body: 'New\n' }));
+	expectOk(await folder.tables.notes.set('broken', { body: 'New\n' }));
 	expect(await text(root, 'notes/broken.md')).toBe(
 		'---\ntitle: [unclosed\n---\nNew\n',
 	);
@@ -574,35 +547,41 @@ test('malformed frontmatter stays repairable: a body edit lands, a field edit is
 	await folder.close();
 });
 
-test('a save merges an edit another program landed after the read', async () => {
+test('a write or delete replaces what another program landed: the last one wins', async () => {
 	const initial = 'One\n\nMiddle\n\nLast\n';
 	const root = await directory({ 'note.md': initial });
 	const folder = await open(root);
-	// Another program edits the last paragraph after this caller read.
 	await writeFile(join(root, 'note.md'), initial.replace('Last', 'Phone'));
-	expectOk(
-		await folder.files.write(
-			'note.md',
-			initial,
-			initial.replace('One', 'Laptop'),
-		),
-	);
-	expect(await text(root, 'note.md')).toBe('Laptop\n\nMiddle\n\nPhone\n');
-	// A delete that did not see the latest edit keeps it.
-	expect(expectOk(await folder.files.delete('note.md', initial))).toEqual({
-		deleted: false,
-	});
-	expect(await text(root, 'note.md')).toBe('Laptop\n\nMiddle\n\nPhone\n');
-	expect(
-		expectOk(
-			await folder.files.delete('note.md', 'Laptop\n\nMiddle\n\nPhone\n'),
-		),
-	).toEqual({ deleted: true });
+	const laptop = initial.replace('One', 'Laptop');
+	expectOk(await folder.files.write('note.md', laptop));
+	expect(await text(root, 'note.md')).toBe(laptop);
+	await writeFile(join(root, 'note.md'), 'theirs\n');
+	expectOk(await folder.files.delete('note.md'));
 	expect(await text(root, 'note.md')).toBeUndefined();
-	// A new file where another program made one first merges with it.
+	// A file that is not there is already deleted.
+	expectOk(await folder.files.delete('note.md'));
 	await writeFile(join(root, 'new.md'), 'theirs\n');
-	expectOk(await folder.files.write('new.md', null, 'mine\n'));
-	expect(await text(root, 'new.md')).toContain('mine');
+	expectOk(await folder.files.write('new.md', 'mine\n'));
+	expect(await text(root, 'new.md')).toBe('mine\n');
+	await folder.close();
+});
+
+test('a row set patches the row another program landed', async () => {
+	const root = await directory({
+		'notes/one.md': '---\ntitle: One\n---\nBody\n',
+	});
+	const folder = await open(root);
+	await writeFile(
+		join(root, 'notes/one.md'),
+		'---\ntitle: Theirs\nfrom: phone\n---\nTheir body\n',
+	);
+	const stored = expectOk(
+		await folder.tables.notes.set('one', { fields: { done: true } }),
+	);
+	expect(stored.text).toBe(
+		'---\ntitle: Theirs\nfrom: phone\ndone: true\n---\nTheir body\n',
+	);
+	expect(await text(root, 'notes/one.md')).toBe(stored.text);
 	await folder.close();
 });
 
@@ -611,27 +590,19 @@ test('structural refusals are results, and none is a storage failure', async () 
 	const folder = await open(root);
 	const refused = async (saving: Promise<{ error: { name: string } | null }>) =>
 		(await saving).error?.name;
-	expect(await refused(folder.files.write('DOCS/B.md', null, 'B'))).toBe(
-		'CaseTwin',
-	);
-	expect(await refused(folder.files.write('docs/a.md', null, 'a'))).toBe(
-		'CaseTwin',
-	);
-	expect(await refused(folder.files.write('docs', null, 'x'))).toBe('Occupied');
-	expect(await refused(folder.files.write('keep.md/child', null, 'x'))).toBe(
+	expect(await refused(folder.files.write('DOCS/B.md', 'B'))).toBe('CaseTwin');
+	expect(await refused(folder.files.write('docs/a.md', 'a'))).toBe('CaseTwin');
+	expect(await refused(folder.files.write('docs', 'x'))).toBe('Occupied');
+	expect(await refused(folder.files.write('keep.md/child', 'x'))).toBe(
 		'Occupied',
 	);
 	for (const path of ['/bad', 'a//b', '../a', 'a/.git/config', 'con.md', 'a.'])
-		expect(await refused(folder.files.write(path, null, 'x'))).toBe(
-			'InvalidPath',
-		);
-	expect(await refused(folder.files.write('keep.md', 'keep', '\0'))).toBe(
-		'NotText',
+		expect(await refused(folder.files.write(path, 'x'))).toBe('InvalidPath');
+	expect(await refused(folder.files.write('keep.md', '\0'))).toBe('NotText');
+	expect(await refused(folder.tables.notes.set('a/b', { body: 'x' }))).toBe(
+		'InvalidId',
 	);
-	expect(
-		await refused(folder.tables.notes.set('a/b', null, { body: 'x' })),
-	).toBe('InvalidId');
-	expect(await refused(folder.files.write('notes//x.txt', null, 'x'))).toBe(
+	expect(await refused(folder.files.write('notes//x.txt', 'x'))).toBe(
 		'InvalidPath',
 	);
 	expect(folder.getStatus()).toEqual({
@@ -645,31 +616,21 @@ test('structural refusals are results, and none is a storage failure', async () 
 	await folder.close();
 });
 
-test('a row delete keeps adjacent files, and an unseen edit keeps the row', async () => {
+test('a row delete removes the row as stored and keeps adjacent files', async () => {
 	const root = await directory({ 'keep.md': 'keep' });
 	const folder = await open(root);
 	const table = folder.tables.notes;
-	const { sent: before } = expectOk(
-		await table.set('one', null, { fields: { title: 'Before' } }),
-	);
-	expectOk(
-		await folder.files.write('notes/one/nested/a.txt', null, 'attachment'),
-	);
+	expectOk(await table.set('one', { fields: { title: 'Before' } }));
+	expectOk(await folder.files.write('notes/one/nested/a.txt', 'attachment'));
 	expect(expectOk(await folder.files.list('notes/one/'))).toEqual([
 		'notes/one/nested/a.txt',
 	]);
-	const { sent: edited } = expectOk(
-		await table.set('one', before, { fields: { title: 'After' } }),
-	);
-	expect(expectOk(await table.delete('one', before))).toEqual({
-		deleted: false,
-	});
+	expectOk(await table.set('one', { fields: { title: 'After' } }));
+	expectOk(await table.delete('one'));
 	expect(expectOk(await folder.files.list('notes/one/'))).toEqual([
 		'notes/one/nested/a.txt',
 	]);
-	expect(expectOk(await table.delete('one', edited))).toEqual({
-		deleted: true,
-	});
+	expectOk(await table.delete('one'));
 	expect(expectOk(await folder.files.list())).toEqual([
 		'keep.md',
 		'notes/one/nested/a.txt',
@@ -687,26 +648,25 @@ test('a save notifies this handle and the directory’s other handles in this pr
 	const heardElsewhere: FolderChange[] = [];
 	first.onChange((change) => heard.push(change));
 	const stop = second.onChange((change) => heardElsewhere.push(change));
-	expectOk(await first.files.write('a.md', null, 'a'));
+	expectOk(await first.files.write('a.md', 'a'));
 	expect(heard).toEqual([{ paths: ['a.md'], origin: 'this-handle' }]);
 	expect(heardElsewhere).toEqual([{ paths: ['a.md'], origin: 'other-handle' }]);
-	// A save whose content was already stored tells only its own handle, so
-	// its readers reread; nothing changed for the others.
-	expectOk(await first.files.write('a.md', 'a', 'a'));
+	// Writing the same bytes again is still a publication, which every handle hears.
+	expectOk(await first.files.write('a.md', 'a'));
 	expect(heard).toEqual([
 		{ paths: ['a.md'], origin: 'this-handle' },
 		{ paths: ['a.md'], origin: 'this-handle' },
 	]);
-	expect(heardElsewhere).toHaveLength(1);
+	expect(heardElsewhere).toHaveLength(2);
 	stop();
 	await second.close();
-	expectOk(await first.files.write('b.md', null, 'b'));
-	expect(heardElsewhere).toHaveLength(1);
+	expectOk(await first.files.write('b.md', 'b'));
+	expect(heardElsewhere).toHaveLength(2);
 	// A listener that throws does not fail the save.
 	first.onChange(() => {
 		throw new Error('listener bug');
 	});
-	expectOk(await first.files.write('c.md', null, 'c'));
+	expectOk(await first.files.write('c.md', 'c'));
 	await first.close();
 });
 
@@ -715,7 +675,7 @@ test('status shows saving and the last storage failure until a later success', a
 	const folder = await open(root);
 	const seen: FolderStatus[] = [];
 	folder.onStatusChange((status) => seen.push(status));
-	const saving = folder.files.write('a.md', null, 'a');
+	const saving = folder.files.write('a.md', 'a');
 	expect(folder.getStatus().saving).toBe(true);
 	expectOk(await saving);
 	expect(folder.getStatus()).toEqual({
@@ -727,12 +687,12 @@ test('status shows saving and the last storage failure until a later success', a
 	});
 
 	await chmod(root, 0o555);
-	const failed = expectErr(await folder.files.write('b.md', null, 'b'));
+	const failed = expectErr(await folder.files.write('b.md', 'b'));
 	expect(failed.name).toBe('StorageFailed');
 	expect(folder.getStatus().storageFailure).toBe(failed as never);
 	expect(await text(root, 'b.md')).toBeUndefined();
 	await chmod(root, 0o755);
-	expectOk(await folder.files.write('b.md', null, 'b'));
+	expectOk(await folder.files.write('b.md', 'b'));
 	expect(folder.getStatus().storageFailure).toBeNull();
 	expect(seen.map((status) => status.saving)).toEqual([
 		true,
@@ -750,7 +710,7 @@ test('close lets a started save finish, then stops listening; new calls throw', 
 	const folder = await open(root);
 	const heard: FolderChange[] = [];
 	folder.onChange((change) => heard.push(change));
-	const saving = folder.files.write('a.md', null, 'a');
+	const saving = folder.files.write('a.md', 'a');
 	const closing = folder.close();
 	expect(folder.close()).toBe(closing);
 	expectOk(await saving);
@@ -761,12 +721,55 @@ test('close lets a started save finish, then stops listening; new calls throw', 
 	expect(() => folder.onChange(() => {})).toThrow('The folder is closed');
 });
 
-test('a stale native put keeps the source draft and reports a conflict', async () => {
+test.skipIf(process.platform === 'win32')(
+	'a direct row set composes over held input, a failure keeps it, and newer typing stays',
+	async () => {
+		const row = (title: string, body: string) =>
+			`---\ntitle: ${title}\n---\n${body}`;
+		const root = await directory({ 'notes/a.md': row('Old', 'Original\n') });
+		const folder = await open(root);
+		try {
+			const edit = folder.tables.notes.edit('a');
+			expectOk(await edit.refresh());
+			expectOk(edit.replaceText(row('Old', 'Typed\n')));
+			await chmod(join(root, 'notes'), 0o555);
+			try {
+				expect(
+					expectErr(
+						await folder.tables.notes.set('a', { fields: { title: 'New' } }),
+					).name,
+				).toBe('StorageFailed');
+			} finally {
+				await chmod(join(root, 'notes'), 0o755);
+			}
+			expect(edit.getSnapshot()).toMatchObject({
+				isDirty: true,
+				saveError: undefined,
+				content: { text: row('Old', 'Typed\n') },
+			});
+			const setting = folder.tables.notes.set('a', {
+				fields: { title: 'New' },
+			});
+			expectOk(edit.replaceText(row('Old', 'Later\n')));
+			expectOk(await setting);
+			expect(await text(root, 'notes/a.md')).toBe(row('New', 'Typed\n'));
+			expect(edit.getSnapshot()).toMatchObject({
+				isDirty: true,
+				content: { text: row('Old', 'Later\n') },
+			});
+			expectOk(await edit.save());
+			expect(await text(root, 'notes/a.md')).toBe(row('Old', 'Later\n'));
+		} finally {
+			await folder.close();
+		}
+	},
+);
+
+test('an editor save over another program’s racing write lands its exact text', async () => {
 	const original = '---\ntitle: before\n---\none\ntwo\n';
 	const root = await directory({ 'a.md': original });
 	const storage = nativeStorage(root);
-	let attempts = 0;
-	let stale = 0;
+	const expectations: unknown[] = [];
 	const folder = createNativeFolder({
 		directory: root,
 		tables: {},
@@ -774,98 +777,24 @@ test('a stale native put keeps the source draft and reports a conflict', async (
 		storage: {
 			...storage,
 			async put(path, bytes, expected) {
-				if (++attempts === 1)
-					await writeFile(
-						join(root, path),
-						original.replace('before', 'outside').replace('two', 'TWO'),
-					);
-				const result = await storage.put(path, bytes, expected);
-				if (result.error === null && result.data === 'stale') stale++;
-				return result;
-			},
-		},
-	});
-	try {
-		const edit = folder.files.edit('a.md');
-		expectOk(await edit.read());
-		expectOk(edit.change({ fields: { title: 'before' }, body: 'ONE\ntwo\n' }));
-		await edit.save();
-		expect(stale).toBe(1);
-		expect(attempts).toBe(1);
-		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
-		expect(await text(root, 'a.md')).toBe(
-			original.replace('before', 'outside').replace('two', 'TWO'),
-		);
-	} finally {
-		await folder.close();
-	}
-});
-
-test('a native generic body edit keeps input when the current header becomes unclosed', async () => {
-	const original = '---\ntitle: before\n---\nold\n';
-	const external = '---\ntitle: outside\nnew external text\n';
-	const root = await directory({ 'a.md': original });
-	const storage = nativeStorage(root);
-	let attempts = 0;
-	const folder = createNativeFolder({
-		directory: root,
-		tables: {},
-		saveAfterMs: 60_000,
-		storage: {
-			...storage,
-			async put(path, bytes, expected) {
-				if (++attempts === 1) await writeFile(join(root, path), external);
+				expectations.push(expected);
+				await writeFile(join(root, path), 'theirs\n');
 				return storage.put(path, bytes, expected);
 			},
 		},
 	});
 	try {
 		const edit = folder.files.edit('a.md');
-		expectOk(await edit.read());
-		expectOk(edit.change({ body: 'mine\n' }));
-		await edit.save();
-		expect(attempts).toBe(1);
-		expect(await text(root, 'a.md')).toBe(external);
-		expect(edit.getText()).toBe('---\ntitle: before\n---\nmine\n');
-		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
-	} finally {
-		await folder.close();
-	}
-});
-
-test('a native guarded retry preserves a draft after a no-op field assignment', async () => {
-	const original = '---\ntitle: A\n---\none\n';
-	const root = await directory({ 'a.md': original });
-	const storage = nativeStorage(root);
-	let attempts = 0;
-	const folder = createNativeFolder({
-		directory: root,
-		tables: {},
-		saveAfterMs: 60_000,
-		storage: {
-			...storage,
-			async put(path, bytes, expected) {
-				if (++attempts === 1)
-					await writeFile(
-						join(root, path),
-						original.replace('title: A', 'title: B'),
-					);
-				return storage.put(path, bytes, expected);
-			},
-		},
-	});
-	try {
-		const edit = folder.files.edit('a.md');
-		expectOk(await edit.read());
-		expectOk(edit.replaceText(`${original}added\n`));
-		expectOk(edit.change({ fields: { title: 'A' } }));
-		await edit.save();
-		expect(attempts).toBe(1);
-		expect(await text(root, 'a.md')).toBe(
-			original.replace('title: A', 'title: B'),
-		);
-		expect(edit.getText()).toBe(`${original}added\n`);
-		expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
+		expectOk(await edit.refresh());
+		expectOk(edit.change({ fields: { title: 'mine' }, body: 'ONE\ntwo\n' }));
+		expectOk(await edit.save());
+		expect(expectations).toEqual(['any']);
+		expect(await text(root, 'a.md')).toBe('---\ntitle: mine\n---\nONE\ntwo\n');
+		expect(edit.getSnapshot()).toMatchObject({
+			isDirty: false,
+			isSaving: false,
+			saveError: undefined,
+		});
 	} finally {
 		await folder.close();
 	}

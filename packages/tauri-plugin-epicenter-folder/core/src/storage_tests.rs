@@ -58,6 +58,25 @@ fn free() -> Result<(), String> {
     Ok(())
 }
 
+/// What most cases here expect: the file whose SHA-256 is `if_match`, or
+/// nothing for `None`. The expectation vectors cover `Any` and `Present`.
+fn witness(if_match: Option<&str>) -> Expectation {
+    if_match.map_or(Expectation::Absent, |hash| {
+        Expectation::Sha256(hash.to_string())
+    })
+}
+
+/// `storage::put` expecting `witness(if_match)`.
+fn put<Turn>(
+    root: &Path,
+    path: &str,
+    bytes: Option<&[u8]>,
+    if_match: Option<&str>,
+    turn: impl FnOnce() -> Result<Turn, String>,
+) -> Result<PutOutcome, StorageError> {
+    super::put(root, path, bytes, &witness(if_match), turn)
+}
+
 fn put_now(
     root: &Path,
     path: &str,
@@ -1174,7 +1193,7 @@ fn storage_follows_the_shared_outcomes() {
         match case["requires"].as_str() {
             Some("caseInsensitive") if !ignores_case(&root) => continue,
             #[cfg(not(unix))]
-            Some("links") => continue,
+            Some("links" | "nonportableNames") => continue,
             _ => {}
         }
         let tree = &case["tree"];
@@ -1192,18 +1211,25 @@ fn storage_follows_the_shared_outcomes() {
         }
         let call = &case["call"];
         let path = call["path"].as_str().unwrap_or_default();
-        let if_match = text(&call["ifMatch"]).map(|bytes| sha256(bytes.as_bytes()));
+        let expected = match &call["expected"] {
+            Value::String(kind) => Expectation::parse(kind).unwrap(),
+            Value::Object(file) => Expectation::Sha256(sha256(
+                file["sha256Of"].as_str().unwrap().as_bytes(),
+            )),
+            _ => Expectation::Absent,
+        };
         let answer: Result<Value, StorageError> = match call["method"].as_str().unwrap() {
             "read" => {
                 read(&root, path).map(|bytes| json!({ "text": String::from_utf8(bytes).unwrap() }))
             }
             "put" => {
                 let bytes = text(&call["bytes"]);
-                put_now(
+                super::put(
                     &root,
                     path,
                     bytes.as_deref().map(str::as_bytes),
-                    if_match.as_deref(),
+                    &expected,
+                    free,
                 )
                 .map(|outcome| json!(outcome))
             }

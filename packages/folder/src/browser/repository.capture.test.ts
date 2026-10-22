@@ -63,9 +63,7 @@ test('one file captures its ancestor trees without reading the unrelated archive
 		);
 		const capture = await repository.storage.capture(['archive/0/file.txt']);
 		expect(trees(capture)).toBe(3);
-		expectOk(
-			await repository.files.write('archive/0/file.txt', '0\n', 'changed\n'),
-		);
+		expectOk(await repository.files.write('archive/0/file.txt', 'changed\n'));
 		const after = await repository.storage.capture(['archive/0/file.txt']);
 		expect(trees(after)).toBe(3);
 		expect(
@@ -105,9 +103,7 @@ test('row lists omit attachment trees while prefix lists retain partial filename
 		expect(
 			trees(await repository.storage.capture({ prefix: 'notes/tw' })),
 		).toBe(2);
-		expectOk(
-			await repository.files.write('notes/new/extra.txt', null, 'pending'),
-		);
+		expectOk(await repository.files.write('notes/new/extra.txt', 'pending'));
 		expect(expectOk(await repository.files.list('notes/ne'))).toEqual([
 			'notes/new/extra.txt',
 		]);
@@ -124,13 +120,10 @@ test('deleting the final child removes directory occupancy and its case twin bef
 	try {
 		await seed(repository, [['Notes/folder/file.txt', 'old']]);
 		expect(
-			expectErr(await repository.files.write('notes', null, 'replacement'))
-				.name,
+			expectErr(await repository.files.write('notes', 'replacement')).name,
 		).toBe('CaseTwin');
-		expect(
-			expectOk(await repository.files.delete('Notes/folder/file.txt', 'old')),
-		).toEqual({ deleted: true });
-		expectOk(await repository.files.write('notes', null, 'replacement'));
+		expectOk(await repository.files.delete('Notes/folder/file.txt'));
+		expectOk(await repository.files.write('notes', 'replacement'));
 
 		expect(expectOk(await repository.files.list())).toEqual(['notes']);
 	} finally {
@@ -159,7 +152,7 @@ test('working files remain readable and editable without decoding the received c
 				await repository.files.read('keep/file.txt'),
 			)!.content.text(),
 		).toBe('content');
-		expectOk(await repository.files.write('keep/file.txt', 'content', 'newer'));
+		expectOk(await repository.files.write('keep/file.txt', 'newer'));
 	} finally {
 		repository.close();
 	}

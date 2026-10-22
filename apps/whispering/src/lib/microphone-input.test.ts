@@ -161,11 +161,7 @@ function scriptedMicrophone(
 				onEnded: () => () => {},
 				async stop() {
 					release();
-					const { error } = await options.folder.write(
-						audioPath,
-						null,
-						toneWav(),
-					);
+					const { error } = await options.folder.write(audioPath, toneWav());
 					if (error !== null)
 						return CaptureError.NotSaved({ reason: error.message });
 					return Ok({ durationMs: 1000 });

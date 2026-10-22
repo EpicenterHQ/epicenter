@@ -1,424 +1,199 @@
+/**
+ * Saved-view forms submit into the declaration's real file editor. Raw input,
+ * unknown JSON sections, failed publications and later form changes keep their
+ * owner; SQL completions stay attached to the statement that was submitted.
+ */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import type { SavedView, SavedViewChange } from '@epicenter/folder/declaration';
-import { Ok } from 'wellcrafted/result';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { readSavedViews, type SavedView } from '@epicenter/folder/declaration';
+import { createFileEdit } from '@epicenter/svelte/edits';
+import { expectOk } from 'wellcrafted/testing';
+import { FileError } from '../../../../packages/folder/src/errors.js';
+import { createNativeFolder } from '../../../../packages/folder/src/native/engine.js';
+import { nativeStorage } from '../../../../packages/folder/src/native/storage.js';
 import type { QueryAnswer } from '../ui/bindings.gen';
 
-const { createViews, SQL } = await import('./views.svelte');
+const { createViews, SQL } = await import('./views.svelte.js');
 const grid: SavedView = { type: 'grid', title: 'Tasks', table: 'tasks' };
 
-test.each(['save', 'remove'] as const)(
-	'%s releases source exclusion before refreshing the display',
-	async (operation) => {
-		let excluded = false;
-		let refreshedInsideExclusion: boolean | undefined;
-		const views = createViews({
-			saved: () => ({ a: grid }),
-			update: async () => Ok({ written: true }),
-			exclusive: async (action) => {
-				excluded = true;
-				try {
-					return await action();
-				} finally {
-					excluded = false;
-				}
-			},
-			refreshed: async () => {
-				refreshedInsideExclusion = excluded;
-			},
-		});
-		await views[operation]('saved:a');
-		expect(refreshedInsideExclusion).toBe(false);
-	},
-);
-
-test('a committed deletion stays successful when its display refresh fails', async () => {
-	const disk: Record<string, SavedView> = { a: grid };
-	const views = createViews({
-		saved: () => disk,
-		exclusive: (action) => action(),
-		update: async ({ key }) => {
-			delete disk[key];
-			return Ok({ written: true });
+/** Real declaration ownership, with publication failures controlled at the storage boundary. */
+async function setup(source: Record<string, unknown> = { views: { a: grid } }) {
+	const directory = await mkdtemp(join(tmpdir(), 'epicenter-view-forms-'));
+	await writeFile(join(directory, 'epicenter.json'), JSON.stringify(source));
+	const storage = nativeStorage(directory);
+	let failure: string | undefined;
+	const folder = createNativeFolder({
+		storage: {
+			...storage,
+			put: (path, bytes, expectation) =>
+				failure
+					? Promise.resolve(
+							FileError.Io({ path, operation: 'write', cause: failure }),
+						)
+					: storage.put(path, bytes, expectation),
 		},
-		refreshed: async () => {
-			throw new Error('cannot reread');
-		},
+		tables: {},
+		directory,
+		saveAfterMs: 60_000,
 	});
-	expect(await views.remove('saved:a')).toBe(true);
-	expect(disk.a).toBeUndefined();
-	expect(views.value('saved:a')).toBeUndefined();
-	expect(views.failed).toBe(false);
-});
-
-test.each(['second save', 'reload'] as const)(
-	'acknowledgement survives %s during a display refresh',
-	async (next) => {
-		const disk: Record<string, SavedView> = { a: grid };
-		const refreshes: (() => void)[] = [];
-		const views = createViews({
-			saved: () => disk,
-			exclusive: (action) => action(),
-			update: async ({ key, value }) => {
-				disk[key] = value!;
-				return Ok({ written: true });
-			},
-			refreshed: () => new Promise<void>((resolve) => refreshes.push(resolve)),
-		});
-		views.edit('saved:a', { ...grid, title: 'Mine' });
-		const first = views.save('saved:a');
-		await Bun.sleep(0);
-		const second = next === 'second save' ? views.save('saved:a') : undefined;
-		if (next === 'reload') views.reload('saved:a');
-		await Bun.sleep(0);
-		for (const finish of refreshes) finish();
-		expect(await first).toBe('saved:a');
-		if (second) expect(await second).toBe('saved:a');
-		expect(views.value('saved:a')?.title).toBe('Mine');
-		expect(views.failed).toBe(false);
-	},
-);
-
-test('pending publication blocks Reload while continued typing follows its copy', async () => {
-	const disk: Record<string, SavedView> = { a: grid };
-	const refresh = Promise.withResolvers<void>();
+	const neutral = folder.files.edit('epicenter.json');
+	expectOk(await neutral.refresh());
+	const declaration = createFileEdit(neutral);
 	const views = createViews({
-		saved: () => disk,
-		exclusive: (action) => action(),
-		update: async ({ key, value }) => {
-			disk[key] = value!;
-			return Ok({ written: true });
+		declaration,
+		saved: () =>
+			expectOk(readSavedViews(declaration.content?.text ?? '{}')).views,
+	});
+	return {
+		folder,
+		declaration,
+		neutral,
+		views,
+		fail: (message?: string) => {
+			failure = message;
 		},
-		refreshed: () => refresh.promise,
-	});
-	views.edit('saved:a', { ...grid, title: 'The copy' });
-	const copying = views.save('saved:a', true);
-	await Bun.sleep(0);
-	views.reload('saved:a');
-	views.edit('saved:a', { ...grid, title: 'New original edits' });
-	refresh.resolve();
-	const target = await copying;
-	expect(target).not.toBe('saved:a');
-	expect(views.value('saved:a')?.title).toBe(grid.title);
-	expect(views.value(target)?.title).toBe('New original edits');
-	expect(views.dirty(target)).toBe(true);
-	const copy = Object.entries(disk).find(([key]) => key !== 'a')!;
-	expect(copy[1].title).toBe('The copy');
-});
-
-test.each([false, true])(
-	'copy acknowledgement preserves independent target input, source continues: %s',
-	async (continued) => {
-		const disk: Record<string, SavedView> = { a: grid };
-		const refresh = Promise.withResolvers<void>();
-		let target = '';
-		const views = createViews({
-			saved: () => disk,
-			exclusive: (action) => action(),
-			update: async ({ key, value }) => {
-				target = `saved:${key}`;
-				disk[key] = value!;
-				return Ok({ written: true });
-			},
-			refreshed: () => refresh.promise,
-		});
-		const copying = views.save('saved:a', true);
-		await Bun.sleep(0);
-		views.edit(target, { ...grid, title: 'Independent target edit' });
-		if (continued)
-			views.edit('saved:a', { ...grid, title: 'Independent source edit' });
-		refresh.resolve();
-		await copying;
-		expect(views.value(target)?.title).toBe('Independent target edit');
-		expect(views.dirty(target)).toBe(true);
-		expect(views.value('saved:a')?.title).toBe(
-			continued ? 'Independent source edit' : grid.title,
-		);
-		if (continued) expect(views.dirty('saved:a')).toBe(true);
-	},
-);
-
-test('clean views follow file edits; dirty settings retain their captured base across save and refresh', async () => {
-	const disk: Record<string, SavedView> = { a: grid };
-	let finish!: () => void;
-	let submitted!: SavedViewChange;
-	const views = createViews({
-		saved: () => disk,
-		exclusive: (action) => action(),
-		refreshed: async () => {},
-		update: async (change) => {
-			submitted = change;
-			await new Promise<void>((resolve) => {
-				finish = resolve;
-			});
-			disk[change.key] = change.value!;
-			return Ok({ written: true });
+		stored: async () =>
+			JSON.parse(await readFile(join(directory, 'epicenter.json'), 'utf8')),
+		async close() {
+			await folder.close();
+			await rm(directory, { recursive: true, force: true });
 		},
-	});
-	expect(views.value('saved:a')).toEqual(grid);
-	disk.a = { ...grid, title: 'Changed elsewhere' };
-	expect(views.value('saved:a')?.title).toBe('Changed elsewhere');
-	views.edit('saved:a', { ...grid, title: 'Mine' });
-	const saving = views.save('saved:a');
-	views.edit('saved:a', { ...grid, title: 'New typing' });
-	finish();
-	await saving;
-	expect(views.value('saved:a')?.title).toBe('New typing');
-	expect(views.dirty('saved:a')).toBe(true);
-	const second = views.save('saved:a');
-	expect(submitted.base).toEqual({ ...grid, title: 'Mine' });
-	finish();
-	await second;
-	expect(views.dirty('saved:a')).toBe(false);
-	expect(views.value('saved:a')?.title).toBe('New typing');
-});
-
-test('failed explicit save keeps copyable input and blocks close until dismissal or retry', async () => {
-	const views = createViews({
-		saved: () => ({ a: grid }),
-		exclusive: (action) => action(),
-		refreshed: async () => {},
-		update: async () => ({
-			data: null,
-			error: { reason: 'changed elsewhere' },
-		}),
-	});
-	views.edit('saved:a', { ...grid, title: 'Keep me' });
-	await views.save('saved:a');
-	expect(views.failed).toBe(true);
-	expect(views.error('saved:a')).toBe('changed elsewhere');
-	views.dismiss('saved:a');
-	expect(views.failed).toBe(false);
-	expect(views.value('saved:a')?.title).toBe('Keep me');
-});
-
-test('SQL completion belongs to its submitted key and statement, preserving later typing', async () => {
-	const disk: Record<string, SavedView> = {
-		a: { type: 'sql', title: 'A', sql: 'select 1' },
-		b: { type: 'sql', title: 'B', sql: 'select 2' },
 	};
-	const views = createViews({
-		saved: () => disk,
-		update: async () => Ok({ written: true }),
-		exclusive: (action) => action(),
-		refreshed: async () => {},
-	});
-	let finish!: (result: { data: QueryAnswer; error: null }) => void;
-	const running = views.run(
-		'saved:a',
-		() =>
-			new Promise((resolve) => {
-				finish = resolve;
-			}),
-	);
-	views.edit('saved:a', { type: 'sql', title: 'A', sql: 'select 3' });
-	views.edit(SQL, { type: 'sql', title: 'Scratch', sql: 'select 4' });
-	finish({
-		data: {
-			columns: ['n'],
-			rows: [{ n: 1 }],
-			warnings: [],
-			excluded: [],
-			truncated: false,
-		},
-		error: null,
-	});
-	await running;
-	expect(views.execution('saved:a')?.sql).toBe('select 1');
-	expect(views.execution('saved:b')).toBeUndefined();
-	expect(views.value('saved:a')).toMatchObject({ sql: 'select 3' });
-	expect(views.value(SQL)).toMatchObject({ sql: 'select 4' });
-});
+}
 
-test('retry after a confirmed create and failed refresh reuses its target and submitted base', async () => {
-	const disk: Record<string, SavedView> = {};
-	const changes: SavedViewChange[] = [];
-	let failRefresh = true;
-	const views = createViews({
-		saved: () => disk,
-		exclusive: (action) => action(),
-		update: async (change) => {
-			changes.push(change);
-			disk[change.key] = change.value!;
-			return Ok({ written: true });
-		},
-		refreshed: async () => {
-			if (failRefresh) throw new Error('cannot reread');
-		},
-	});
-	views.edit(SQL, { type: 'sql', title: 'Query', sql: 'select 1' });
-	const target = await views.save(SQL);
-	expect(views.failed).toBe(false);
-	expect(views.notice(target)).toContain('view was saved');
-	views.edit(target, { type: 'sql', title: 'Query', sql: 'select 2' });
-	failRefresh = false;
-	await views.save(target);
-	expect(changes[1]?.key).toBe(changes[0]?.key);
-	expect(changes[1]?.base).toMatchObject({ sql: 'select 1' });
-	expect(Object.keys(disk)).toHaveLength(1);
-	expect(views.failed).toBe(false);
-});
-
-test('delete captures what was displayed and retains typing entered during the source drain', async () => {
-	const disk: Record<string, SavedView> = { a: grid };
-	let begin!: () => void;
-	let submitted!: SavedViewChange;
-	const views = createViews({
-		saved: () => disk,
-		exclusive: async (action) => {
-			await new Promise<void>((resolve) => {
-				begin = resolve;
-			});
-			return action();
-		},
-		update: async (change) => {
-			submitted = change;
-			delete disk[change.key];
-			return Ok({ written: true });
-		},
-		refreshed: async () => {},
-	});
-	const removing = views.remove('saved:a');
-	disk.a = { ...grid, title: 'Unseen' };
-	views.edit('saved:a', { ...grid, title: 'Keep typing' });
-	begin();
-	await removing;
-	expect(submitted.base).toEqual(grid);
-	expect(views.value('saved:a')?.title).toBe('Keep typing');
-	expect(views.dirty('saved:a')).toBe(true);
-});
-
-test('authored keys cannot collide with scratch or Files navigation', () => {
-	const disk = { files: grid, 'scratch:tables': { ...grid, title: 'Other' } };
-	const views = createViews({
-		saved: () => disk,
-		exclusive: (action) => action(),
-		update: async () => Ok({ written: true }),
-		refreshed: async () => {},
-	});
-	expect(views.value('saved:files')).toEqual(grid);
-	expect(views.value('saved:scratch:tables')?.title).toBe('Other');
-	expect(views.value('scratch:tables')?.title).toBe('Tables');
-});
-
-test('Save as new after a failed update copies settings and leaves the original unchanged', async () => {
-	const disk: Record<string, SavedView> = { a: grid };
-	let fail = true;
-	const views = createViews({
-		saved: () => disk,
-		exclusive: (action) => action(),
-		refreshed: async () => {},
-		update: async (change) => {
-			if (fail) return { error: { reason: 'conflict' } };
-			disk[change.key] = change.value!;
-			return Ok({ written: true });
-		},
-	});
-	views.edit('saved:a', { ...grid, title: 'Copy' });
-	await views.save('saved:a');
-	fail = false;
-	const copied = await views.save('saved:a', true);
-	expect(copied).not.toBe('saved:a');
-	expect(disk.a).toEqual(grid);
-	expect(views.value(copied)?.title).toBe('Copy');
-	expect(views.failed).toBe(false);
-});
-
-for (const source of ['saved:a', SQL])
-	test(`typing during a copy from ${source} follows the new key and its next Save`, async () => {
-		const disk: Record<string, SavedView> = { a: grid };
-		let finish!: () => void;
-		const views = createViews({
-			saved: () => disk,
-			exclusive: (action) => action(),
-			refreshed: async () => {},
-			update: async (change) => {
-				await new Promise<void>((resolve) => {
-					finish = resolve;
-				});
-				disk[change.key] = change.value!;
-				return Ok({ written: true });
+test('settings submission composes with current raw input and puts both in the declaration lane', async () => {
+	const fixture = await setup();
+	try {
+		fixture.views.edit('saved:a', { ...grid, title: 'Typed settings' });
+		expectOk(
+			fixture.declaration.replaceText(
+				JSON.stringify({
+					views: { a: grid, future: { type: 'calendar' } },
+					metadata: { raw: 'unfinished source input' },
+				}),
+			),
+		);
+		expect(fixture.views.save('saved:a')).toBe('saved:a');
+		expect(fixture.views.dirty('saved:a')).toBe(false);
+		expect(await fixture.folder.settle()).toEqual([]);
+		expect(await fixture.stored()).toEqual({
+			views: {
+				a: { ...grid, title: 'Typed settings' },
+				future: { type: 'calendar' },
 			},
+			metadata: { raw: 'unfinished source input' },
 		});
-		const recipe = views.value(source)!;
-		const saving = views.save(source, true);
-		views.edit(source, { ...recipe, title: 'Later typing' });
-		finish();
-		const target = await saving;
-		expect(target).not.toBe(source);
-		expect(views.value(target)?.title).toBe('Later typing');
-		expect(views.dirty(target)).toBe(true);
-		const second = views.save(target);
-		finish();
-		await second;
-		expect(Object.keys(disk)).toHaveLength(2);
-		expect(disk.a).toEqual(grid);
-		expect(views.value(target)?.title).toBe('Later typing');
-		expect(views.dirty(target)).toBe(false);
-	});
-
-test('retained orphan settings stay enumerable after external deletion and while visiting Files', async () => {
-	const disk: Record<string, SavedView> = { a: grid };
-	const views = createViews({
-		saved: () => disk,
-		exclusive: (action) => action(),
-		refreshed: async () => {},
-		update: async () => ({ error: { reason: 'deleted elsewhere' } }),
-	});
-	views.edit('saved:a', { ...grid, title: 'Keep this' });
-	delete disk.a;
-	await views.save('saved:a');
-	expect(views.held).toEqual([['saved:a', { ...grid, title: 'Keep this' }]]);
-	views.dismiss('saved:a');
-	expect(views.held).toHaveLength(1);
+	} finally {
+		await fixture.close();
+	}
 });
 
-test('a confirmed copy with failed reread stays owned by its target when the primary Save is used', async () => {
-	const disk: Record<string, SavedView> = { a: grid };
-	let failRefresh = true;
-	const views = createViews({
-		saved: () => disk,
-		exclusive: (action) => action(),
-		update: async (change) => {
-			disk[change.key] = change.value!;
-			return Ok({ written: true });
-		},
-		refreshed: async () => {
-			if (failRefresh) throw new Error('offline');
-		},
-	});
-	views.edit('saved:a', { ...grid, title: 'Copy' });
-	const target = await views.save('saved:a', true);
-	expect(target).not.toBe('saved:a');
-	expect(views.failed).toBe(false);
-	expect(views.notice(target)).toContain('view was saved');
-	views.edit(target, { ...grid, title: 'Later copy edits' });
-	failRefresh = false;
-	await views.save(target);
-	expect(disk.a).toEqual(grid);
-	expect(Object.keys(disk)).toHaveLength(2);
-	expect(views.value(target)?.title).toBe('Later copy edits');
+test('a failed copy is already selected in owner text and a retry adds no second copy', async () => {
+	const fixture = await setup();
+	try {
+		fixture.fail('disk full');
+		fixture.views.edit('saved:a', { ...grid, title: 'The copy' });
+		const target = fixture.views.save('saved:a', true);
+		expect(target).not.toBe('saved:a');
+		expect(fixture.views.value(target)?.title).toBe('The copy');
+		expect(fixture.views.held).toEqual([]);
+		await fixture.folder.settle();
+		expect(fixture.neutral.getSnapshot().saveError?.message).toContain(
+			'disk full',
+		);
+		fixture.views.edit(target, { ...grid, title: 'Later copy input' });
+		expect(fixture.views.save(target)).toBe(target);
+		await fixture.folder.settle();
+		fixture.fail();
+		expectOk(await fixture.declaration.save());
+		const stored = await fixture.stored();
+		expect(Object.keys(stored.views)).toHaveLength(2);
+		expect(stored.views[target.slice('saved:'.length)].title).toBe(
+			'Later copy input',
+		);
+		expect(stored.views.a).toEqual(grid);
+	} finally {
+		await fixture.close();
+	}
 });
 
-test('the primary Retry keeps an unconfirmed copy aimed at its original new target', async () => {
-	const disk: Record<string, SavedView> = { a: grid };
-	let fail = true;
-	const changes: SavedViewChange[] = [];
-	const views = createViews({
-		saved: () => disk,
-		exclusive: (action) => action(),
-		refreshed: async () => {},
-		update: async (change) => {
-			changes.push(change);
-			if (fail) return { error: { reason: 'unconfirmed' } };
-			disk[change.key] = change.value!;
-			return Ok({ written: true });
-		},
-	});
-	views.edit('saved:a', { ...grid, title: 'Copy' });
-	await views.save('saved:a', true);
-	fail = false;
-	await views.save('saved:a');
-	expect(changes[1]?.key).toBe(changes[0]?.key);
-	expect(disk.a).toEqual(grid);
+test('malformed current source refuses submission and keeps the unsubmitted form', async () => {
+	const fixture = await setup();
+	try {
+		fixture.views.edit('saved:a', { ...grid, title: 'Held settings' });
+		expectOk(fixture.declaration.replaceText('{broken'));
+		expect(fixture.views.save('saved:a')).toBe('saved:a');
+		expect(fixture.views.error('saved:a')).toBeDefined();
+		expect(fixture.views.dirty('saved:a')).toBe(true);
+		expect(fixture.neutral.getSnapshot().content?.text).toBe('{broken');
+		fixture.neutral.discard();
+	} finally {
+		await fixture.close();
+	}
+});
+
+test('form reset reads current owner values while submitted deletion composes with raw metadata', async () => {
+	const fixture = await setup();
+	try {
+		fixture.views.edit('saved:a', { ...grid, title: 'Unsubmitted' });
+		fixture.views.reload('saved:a');
+		expect(fixture.views.value('saved:a')).toEqual(grid);
+		expectOk(
+			fixture.declaration.replaceText(
+				JSON.stringify({
+					views: { a: grid, keep: { type: 'calendar' } },
+					title: 'Raw title',
+				}),
+			),
+		);
+		expect(fixture.views.remove('saved:a')).toBe(true);
+		expect(fixture.views.value('saved:a')).toBeUndefined();
+		expect(await fixture.folder.settle()).toEqual([]);
+		expect(await fixture.stored()).toEqual({
+			views: { keep: { type: 'calendar' } },
+			title: 'Raw title',
+		});
+	} finally {
+		await fixture.close();
+	}
+});
+
+test('SQL completion belongs to its submitted key and statement, preserving later form input', async () => {
+	const fixture = await setup();
+	try {
+		fixture.views.edit(SQL, { type: 'sql', title: 'SQL', sql: 'select old' });
+		const release = Promise.withResolvers<{ data: QueryAnswer; error: null }>();
+		const running = fixture.views.run(SQL, () => release.promise);
+		fixture.views.edit(SQL, { type: 'sql', title: 'SQL', sql: 'select new' });
+		release.resolve({
+			data: {
+				columns: [],
+				rows: [],
+				truncated: false,
+				warnings: [],
+				excluded: [],
+			},
+			error: null,
+		});
+		await running;
+		expect(fixture.views.execution(SQL)?.sql).toBe('select old');
+		expect(fixture.views.execution(SQL)?.running).toBe(false);
+		expect(fixture.views.value(SQL)).toMatchObject({ sql: 'select new' });
+	} finally {
+		await fixture.close();
+	}
+});
+
+test('scratch and saved navigation identities cannot collide', async () => {
+	const fixture = await setup({ views: { sql: grid, files: grid } });
+	try {
+		expect(fixture.views.value('saved:sql')).toEqual(grid);
+		expect(fixture.views.value(SQL)).toMatchObject({ type: 'sql' });
+		expect(fixture.views.value('files')).toBeUndefined();
+	} finally {
+		await fixture.close();
+	}
 });

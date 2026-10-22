@@ -68,9 +68,13 @@ fn a_directory_that_is_a_link_is_refused_and_a_linked_parent_is_not() {
 /// Save through an independently resolved directory, as an admitted writer does.
 fn save(root: &Path) -> Result<PutOutcome, storage::StorageError> {
     let directory = Directory::existing(root).unwrap();
-    storage::put(directory.root(), "todos/a.md", Some(b"milk"), None, || {
-        directory.publishing()
-    })
+    storage::put(
+        directory.root(),
+        "todos/a.md",
+        Some(b"milk"),
+        &storage::Expectation::Absent,
+        || directory.publishing(),
+    )
 }
 
 /// The names directly in `directory`, sorted.
@@ -181,7 +185,7 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
                     directory.root(),
                     "a.md",
                     Some(bytes.as_bytes()),
-                    Some(&expected),
+                    &storage::Expectation::Sha256(expected),
                     || directory.publishing(),
                 );
                 (bytes, landed)
@@ -268,7 +272,7 @@ fn a_shell_save_waits_for_another_process_save_and_then_is_stale() {
                 directory.root(),
                 "a.md",
                 Some(b"ours"),
-                Some(&hex_sha256(b"old")),
+                &storage::Expectation::Sha256(hex_sha256(b"old")),
                 || directory.publishing(),
             )
         })

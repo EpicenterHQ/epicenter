@@ -357,27 +357,32 @@ the same `FileEdit` (`folder.files.edit(path)`) as
 grid and Files edits. Failed moves retain their input for retry or discard.
 Cards have no separate rank or drag-order record.
 
-The opened Folder owns one unfinished source draft per path, from open to
-close, through `folder.files.edit(path)`
-([ADR-0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)).
-Files, grid, and board use `createFileEdit(folder.files.edit(path, schema))` and keep no
-separate save queue. The reactive `.markdown` getter reads the current structured view, `.text` reads its source,
-`.buffer` holds read availability and current text; a ready buffer's optional
-`.unsaved` value records dirty, saving, failed, or conflicting input. Observing
-content starts its first read automatically; save-only indicators read the
-Folder's aggregate status without opening file contents. Commands
- `replaceText(text)` or `change({ fields })`
-accepts new input without a source argument. Input
-and its autosave timer survive view switches; blur and editor teardown need
-no save hooks. A dirty draft stays pinned when another writer changes storage.
-A failed reread leaves the text already shown in place and editable. Source
-and field commands act on the same displayed source in call order. A conflict
-keeps the exact draft and shows the saved source for comparison in Files;
-the person can keep the saved file, submit the draft, or edit the draft before
-submitting it. The submission is guarded against another outside change.
-Hiding sends pending work. Closing checks the Folder's save
-status and asks whether to close anyway if accepted work is pending. Unsaved
-files stay reachable when their disk entry disappears or the listing fails.
+The opened Folder owns acquired text and unfinished input for each path until
+close. Files, grid, and board use the memoized
+`createFileEdit(folder.files.edit(path, schema))` adapter and keep no separate
+save queue. Its tracked getters are `content`, `loadError`, `isDirty`,
+`isSaving`, and `saveError`; `content` contains exact `text`, `fields`, `body`,
+and interpretation `issues`. The neutral editor exposes the same cached snapshot
+through `getSnapshot()` and `subscribe(listener)`. Subscription emits immediately
+and activates the first read.
+
+`replaceText(text)` and `change({ fields, body })` accept input immediately.
+Only accepted input starts autosaving; observations never publish. Input and its
+autosave timer survive view switches, and acquired clean text remains editable
+after deletion, binary replacement, or a failed refresh. A load failure appears
+beside retained content. Grid and board allow structured changes when the content
+is parseable; schema diagnostics alone do not prevent editing.
+
+`save()` publishes exact text captured at call time, even when clean. Publications
+run in call order for each path, and the last publication wins. An outside edit
+does not cause a conflict or lock input. A failed publication keeps input available
+for retry or discard. `discard()` drops unsubmitted input; it does not cancel a
+publication already admitted. Files are deleted through `folder.files.delete(path)`.
+
+Hiding sends pending work. Closing checks the Folder's save status and asks whether
+to close anyway if accepted work is pending. Unsaved files stay reachable when
+their disk entry disappears or the listing fails. Saved-view submissions compose
+into the declaration's same file editor and use its publication lane.
 
 The SQL console uses `documents(path, directory, stem, fields, body, issues)`.
 `fields` and `issues` contain JSON. Each run reads saved files into disposable
@@ -397,31 +402,26 @@ can create a declaration containing only `views`. The editor assigns an opaque
 UUID key; changing the display title keeps that key. **Save as new** creates a
 separate entry. These views travel with the folder and have no personal override.
 
-A clean saved view follows changes read from disk. Once its settings are edited,
-the window retains that working copy across selections and external changes.
-Saving changes one entry against the entry originally read. Concurrent changes
-to siblings survive; a different change to the same entry requires a reload or
-a new copy. Failed saves keep the working settings and their diagnosis.
-The source exclusion ends when the declaration write finishes. Its later
-display refresh keeps only that view's command buttons pending, so it cannot
-delay Folder shutdown. A copy completion preserves independently edited source
-and target settings.
-A confirmed save whose reread fails stays attached to its saved key and shows a notice.
-A confirmed deletion stays successful when the read after it fails.
-Retained settings remain in the chooser if their saved entry disappears.
-Invalid and future view entries remain in the source with diagnostics while
-valid siblings stay available.
+A saved view reads the current `epicenter.json` editor content. Editing its
+controls creates an unsubmitted form value retained across selections. **Reload
+settings** drops that form and refreshes the declaration. Saving transforms the
+current held declaration text, preserving unrelated JSON sections and other
+views, then immediately replaces and saves that same file editor. There is no
+source precondition or separate native writer.
 
-A structured save of the declaration runs as an exclusive change of
-`epicenter.json` (`folder.run(['epicenter.json'], ...)`): it sends pending source input, refuses if
-that input still cannot save, and holds source editing read-only until the
-declaration write finishes. Saved-view writes use the narrow
-Tauri adapter for this window's bound folder. The generic editor is a desktop
-client; it adds no browser saved-view writer.
+A submitted copy gets its new key immediately, while the declaration owner keeps
+the composed source until publication settles. Failures appear beside the
+retained declaration with retry and source access; a retry publishes the same
+current owner text. The form keeps any settings that have not yet been submitted.
+A later source or settings command composes into that owner in call order.
+Invalid and future view entries stay in the source with diagnostics while valid
+siblings remain available. The pure `changeSavedView(text, { key, value })`
+transform is portable across storage backends.
 
 Each change batch invalidates the editor's reads, including descendants of a
-changed directory. The shared folder context polls visible queries for other windows' and processes'
-changes.
+changed directory. One folder-wide watch reports changed paths from other windows and programs.
+The context invalidates affected queries; the folder refreshes subscribed editors.
+Manual refresh and returning to the window reconcile gaps without periodic polling.
 
 ### Opening apps
 
@@ -486,9 +486,8 @@ Whispering's recorder writes into the same folder, and no call names it. Two
 apps opened on one folder are two windows with separate bindings to one root, sharing its save lock. A folder removed after its window opened is refused `Missing` when
 the page opens it again; a later Open recreates only an app's fixed default.
 
-The native Folder reads ordinary files as they stand. Direct row storage
-writes merge content; `FileEdit` saves compare whole source and report a
-conflict if storage changed. Each save lands one guarded file change. Opening writes
+The native Folder reads ordinary files as they stand. File writes, table assignments,
+and editor saves publish without a source precondition. The last publication wins. Opening writes
 nothing and does not start Git. The separate `epicenter` CLI retains Git
 commands; no current product page exposes them as a Folder action. See Todos'
 [README](../todos/README.md) and Capture's [README](../capture/README.md) for
@@ -548,8 +547,8 @@ Whispering's page calls:
   `transcription` or `text`; the shell runs
   `epicenter whispering-connection read|set`, which reads the selection from
   AppData's `folders.json`, opens that directory, reads or saves the row under
-  its save lock, and closes it. A save carries the row's exact source as its
-  base and assigns only `kind` (`openai-compatible`), `title`, and `model`. Settings
+  its save lock, and closes it. A save assigns only `kind`
+  (`openai-compatible`), `title`, and `model` to the current row. Settings
   opens the same selected records folder.
 
 No bundled app's window is granted folder history (`status`, `history`,

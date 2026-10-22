@@ -1,28 +1,12 @@
 /**
  * How a folder editor window shows its folder's files and edits one exactly:
- * the tree a listing of paths shows (`fileTree`), the query keys its cache
- * uses, and which files the editor can change as text (`fileText`).
+ * the tree a listing of paths shows (`fileTree`) and which files the editor can change as text (`fileText`).
  *
- * The editor opens its window's folder with no tables (`tables: {}`): it
+ * The editor opens its window's folder with no tables (`tables: {}`).
  * Files edits each source as text. Tables separately interprets Markdown
  * through optional declarations on the same open handle. A file that is not UTF-8 text, or whose line endings a
  * text box would rewrite, is shown and left as it is.
  */
-
-import { defineFileRead } from '@epicenter/svelte/folder-queries';
-
-/**
- * A file's exact bytes, for what the editor makes of them (`fileText`);
- * `null` when it is gone. Its text is the folder's edit of the file, which
- * this read keeps current while the edit holds it.
- */
-export const sourceRead = defineFileRead('source', async (files, path) => {
-	const read = await files.read(path);
-	if (read.error !== null) throw read.error;
-	return read.data === undefined
-		? null
-		: new Uint8Array(await read.data.content.arrayBuffer());
-});
 
 /** One line of the tree: a directory, or a file to open. */
 export type TreeRow = {
@@ -111,7 +95,6 @@ export function fileText(bytes: Uint8Array): FileText {
 	const cr = (text.match(/\r/g) ?? []).length;
 	const lf = (text.match(/\n/g) ?? []).length;
 	// Every `\r` begins a `\r\n`, and every `\n` ends one, or neither occurs.
-	if (cr === crlf && (crlf === 0 || lf === crlf))
-		return { kind: 'text' };
+	if (cr === crlf && (crlf === 0 || lf === crlf)) return { kind: 'text' };
 	return { kind: 'mixed', text };
 }

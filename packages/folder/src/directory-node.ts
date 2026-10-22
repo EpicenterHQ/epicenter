@@ -33,11 +33,8 @@ import {
 } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { promisify } from 'node:util';
-import type {
-	DirectoryPrimitives,
-	EntryKind,
-	Expectation,
-} from './directory-primitives.js';
+import type { Expectation } from './boundary.js';
+import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
 import { UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
 
@@ -170,7 +167,8 @@ async function privateDirectory(path: string): Promise<void> {
 			const opened = await directory.stat();
 			if (
 				!opened.isDirectory() ||
-				(opened.dev !== seen.dev || opened.ino !== seen.ino)
+				opened.dev !== seen.dev ||
+				opened.ino !== seen.ino
 			)
 				throw new Error('it changed while it was checked');
 			if ((opened.mode & 0o077) !== 0) {

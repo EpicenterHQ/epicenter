@@ -78,9 +78,24 @@ if (row.issues === null) {
 expectTypeOf(folder.tables.notes.get('a')).toEqualTypeOf<
 	Promise<Result<Row<typeof notes> | undefined, ReadError>>
 >();
-expectTypeOf(folder.tables.notes.set('a', row, { body: 'x' })).toEqualTypeOf<
-	Promise<Result<{ sent: Row<typeof notes> }, SaveError>>
+expectTypeOf(folder.tables.notes.set('a', { body: 'x' })).toEqualTypeOf<
+	Promise<Result<Row<typeof notes>, SaveError>>
 >();
+expectTypeOf(folder.tables.notes.delete('a')).toEqualTypeOf<
+	Promise<Result<void, SaveError>>
+>();
+expectTypeOf(folder.files.write('a.md', 'x')).toEqualTypeOf<
+	Promise<Result<void, SaveError>>
+>();
+expectTypeOf(folder.files.delete('a.md')).toEqualTypeOf<
+	Promise<Result<void, SaveError>>
+>();
+// @ts-expect-error Writes carry no base content.
+folder.files.write('a.md', null, 'x');
+// @ts-expect-error A row set names a change, with no base row.
+folder.tables.notes.set('a', row, { body: 'x' });
+// @ts-expect-error An action reserves no paths.
+folder.run(['a.md'], async () => {});
 
 // Every entry exports the contract unchanged.
 type ContractKeys = keyof typeof import('./contract.js');

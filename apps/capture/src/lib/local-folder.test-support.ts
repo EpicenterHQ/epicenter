@@ -40,7 +40,7 @@ export async function openCaptures(
 	globalThis.indexedDB = new IDBFactory();
 	const folder = await open(saveAfterMs);
 	for (const [path, text] of Object.entries(files))
-		expectOk(await folder.files.write(path, null, text));
+		expectOk(await folder.files.write(path, text));
 	// Loaded on use, after the test file registered its runes-module loader.
 	const { createFolderContext } = await import('@epicenter/svelte/folder');
 	const { createCaptures } = await import('./captures.svelte.ts');
@@ -85,14 +85,11 @@ export async function openCaptures(
 		},
 		/** Another tab saves `text` over the file as it is now. */
 		async writeElsewhere(path: string, text: string) {
-			const read = expectOk(await other.files.read(path));
-			const current = read === undefined ? null : await read.content.text();
-			expectOk(await other.files.write(path, current, text));
+			expectOk(await other.files.write(path, text));
 		},
 		/** Another tab deletes the capture as it is now. */
 		async deleteElsewhere(stem: string) {
-			const row = expectOk(await other.tables.captures.get(stem));
-			expectOk(await other.tables.captures.delete(stem, row ?? null));
+			expectOk(await other.tables.captures.delete(stem));
 		},
 		/**
 		 * Every save, of a row or a file's text, is refused by storage, as a
@@ -120,18 +117,9 @@ export async function openCaptures(
 
 export type CapturesHarness = Awaited<ReturnType<typeof openCaptures>>;
 
-/** Read the held save state without starting a file read. */
-export function unsavedOf(edit: {
-	getBuffer(): import('@epicenter/folder/edits').BufferSnapshot;
-}) {
-	const buffer = edit.getBuffer();
-	return buffer.status === 'ready' ? buffer.unsaved : undefined;
-}
-
-/** Missing storage remains visible even while unsaved text keeps the buffer ready. */
+/** Missing is the latest acquisition outcome, even with retained editable text. */
 export function isMissing(edit: {
-	getBuffer(): import('@epicenter/folder/edits').BufferSnapshot;
+	getSnapshot(): { loadError: { name: string } | undefined };
 }) {
-	const error = edit.getBuffer().error;
-	return error?.name === 'SourceUnavailable' && error.reason === 'missing';
+	return edit.getSnapshot().loadError?.name === 'Missing';
 }

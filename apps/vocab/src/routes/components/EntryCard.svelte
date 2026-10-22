@@ -3,7 +3,7 @@
 	the stage are typed through the word's edit handle: a stage press is saved at once, a note
 	a second after the last keystroke, even after the card goes away.
 	A read that lands meanwhile never replaces the typing.
-	A changed saved source causes a whole-file conflict and keeps the typing.
+	Each save publishes the current whole source; outside writers may overwrite it.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -28,19 +28,17 @@
 	// svelte-ignore state_referenced_locally
 	const id = entry.id;
 	/** Edits wait while the word is deleted or open as text, and once Vocab closes. */
-	const locked = $derived(entries.isLocked(id));
+
 	/** The folder's edit of the word, the note and stage typed over it. */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = entries.edit(id);
 	/** The word with what is typed over it, or as the list read it while that is not known. */
-	const shown = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown.fields : entry.row.fields);
+	const shown = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields : entry.row.fields);
 
-	const buffer = $derived(fileEdit.buffer);
-	const unsaved = $derived(buffer.status === 'ready' ? buffer.unsaved : undefined);
+
 
 	/** Delete once the note typed here is sent, so the delete removes what was saved last. */
 	function remove() {
-		void fileEdit.save();
 		confirmDelete(entries, entry);
 	}
 </script>
@@ -48,27 +46,25 @@
 <article class={cn('rounded-lg border p-4', chosen && 'border-primary bg-accent/30')}>
 	<div class="flex items-start justify-between gap-2">
 		<Label class="min-h-11 min-w-0 flex-1 items-start text-base leading-relaxed select-text"><Checkbox class="mt-1 shrink-0" aria-label="Choose {entry.text} for chat" checked={chosen} disabled={!canChoose} onCheckedChange={onToggle} /><span class="min-w-0 flex-1 wrap-anywhere">{entry.text}</span></Label>
-		<Button size="sm" variant="ghost-destructive" class="shrink-0" disabled={locked} onclick={remove}>Delete</Button>
+		<Button size="sm" variant="ghost-destructive" class="shrink-0"  onclick={remove}>Delete</Button>
 	</div>
 	<Textarea
 		class="min-h-20 max-h-48 overflow-y-auto"
 		aria-label="Your note for {entry.text}"
 		placeholder="Your note"
-		readonly={locked}
+
 		bind:value={() => shown.note, (typed) => fileEdit.setNote(typed)}
 	/>
-	{#if buffer.error}
-		<p role="alert" class="text-sm text-destructive">{buffer.error.message}</p>
+	{#if fileEdit.loadError}
+		<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>
 	{/if}
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
-		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option} disabled={locked} onclick={() => fileEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>{/each}
+		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option}  onclick={() => fileEdit.setStage(option)}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">
-			{#if unsaved}
-				{#if unsaved.status === 'saving' || unsaved.status === 'dirty'}
-					Saving…
-				{:else if unsaved.error}
-					Not saved: {describeFailure(unsaved.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
-				{/if}
+			{#if fileEdit.saveError}
+				Not saved: {describeFailure(fileEdit.saveError)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
+			{:else if fileEdit.isDirty || fileEdit.isSaving}
+				Saving…
 			{/if}
 		</span>
 	</div>

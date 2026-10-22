@@ -181,16 +181,11 @@ export const commands = {
 	fields: ConnectionRowFields | null,
 } | null, CliError>(__TAURI_INVOKE("whispering_connection_read", { connection })),
 	/**
-	 *  Save `fields` to one of Whispering's connection rows, merged from `base`,
-	 *  the row as the page read it, or `null` for a new row, through
-	 *  `epicenter whispering-connection set`, which reads both on stdin. Answers
-	 *  the row as sent. A refusal changed nothing; a run that failed may or may
-	 *  not have saved.
+	 *  Assign `fields` to one of Whispering's current connection rows through
+	 *  `epicenter whispering-connection set`. Answers the row as sent. A refusal
+	 *  changed nothing; a run that failed may or may not have saved.
 	 */
-	whisperingConnectionSet: (connection: WhisperingConnection, base: {
-	text: string,
-	issues: ConnectionRowIssue_Deserialize[] | null,
-} | null, fields: ConnectionRowAssignment_Deserialize) => typedError<ConnectionRow_Serialize, CliError>(__TAURI_INVOKE("whispering_connection_set", { connection, base, fields })),
+	whisperingConnectionSet: (connection: WhisperingConnection, fields: ConnectionRowAssignment_Deserialize) => typedError<ConnectionRow_Serialize, CliError>(__TAURI_INVOKE("whispering_connection_set", { connection, fields })),
 	/**
 	 *  Open bundled app `app` on its fixed default folder, or with `folder`, on
 	 *  the folder the Folders window listed under that directory name. A window
@@ -428,7 +423,7 @@ export type ConnectionKind = "openai-compatible" | "epicenter" | "local";
 
 /**
  *  One of Whispering's connection rows as the CLI read or sent it. `text`
- *  is the file's exact source; with `issues`, it is the next save's base.
+ *  is the file's exact source; `issues` describes its interpretation.
  */
 export type ConnectionRow = ConnectionRow_Serialize | ConnectionRow_Deserialize;
 
@@ -456,21 +451,6 @@ export type ConnectionRowAssignment_Serialize = {
 	kind?: AssignedConnectionKind,
 	title?: string,
 	model?: string,
-};
-
-/**  The row a save starts from, as the page read it. */
-export type ConnectionRowBase = ConnectionRowBase_Serialize | ConnectionRowBase_Deserialize;
-
-/**  The row a save starts from, as the page read it. */
-export type ConnectionRowBase_Deserialize = {
-	text: string,
-	issues: ConnectionRowIssue_Deserialize[] | null,
-};
-
-/**  The row a save starts from, as the page read it. */
-export type ConnectionRowBase_Serialize = {
-	text: string,
-	issues: ConnectionRowIssue_Serialize[] | null,
 };
 
 /**  A connection row's three schema fields, when it reads as one. */
@@ -501,7 +481,7 @@ export type ConnectionRowIssue_Serialize = {
 
 /**
  *  One of Whispering's connection rows as the CLI read or sent it. `text`
- *  is the file's exact source; with `issues`, it is the next save's base.
+ *  is the file's exact source; `issues` describes its interpretation.
  */
 export type ConnectionRow_Deserialize = {
 	text: string,
@@ -512,7 +492,7 @@ export type ConnectionRow_Deserialize = {
 
 /**
  *  One of Whispering's connection rows as the CLI read or sent it. `text`
- *  is the file's exact source; with `issues`, it is the next save's base.
+ *  is the file's exact source; `issues` describes its interpretation.
  */
 export type ConnectionRow_Serialize = {
 	text: string,

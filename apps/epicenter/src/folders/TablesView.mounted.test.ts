@@ -87,17 +87,18 @@ describe.skipIf(!browser)('pending table documents', async () => {
 					'[aria-label="notes/a.md: title"]',
 				);
 			const row = () => input()?.closest('tr');
-			await until(() => input() !== null);
+			await until(() => input()?.disabled === false);
 			expect(row()?.textContent).toContain('required');
-			expect(folder.files.edit(path).getText()).toBe(source);
+			expect(folder.files.edit(path).getSnapshot().content?.text).toBe(source);
 			holdRead = true;
-			const refreshing = folder.files.edit(path).read();
+			const refreshing = folder.files.edit(path).refresh();
 			await until(() => waitingReads > 0);
 			type(input(), 'Repaired');
 			expect(input()?.value).toBe('Repaired');
 			await until(() => !row()?.textContent?.includes('required'));
-			expect(folder.files.edit(path).getText()).toContain('title: Repaired');
-			expect(folder.files.edit(path).getText()).toContain('title: Repaired');
+			expect(folder.files.edit(path).getSnapshot().content?.text).toContain(
+				'title: Repaired',
+			);
 			expect(await readFile(join(directory, path), 'utf8')).toBe(source);
 
 			holdRead = false;

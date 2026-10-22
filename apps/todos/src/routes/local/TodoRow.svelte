@@ -27,7 +27,7 @@
 	const id = $derived(todo.id);
 	// The list's read answered this row's document, so showing it reads nothing.
 	const fileEdit = $derived(createFileEdit(folder.tables.todos.edit(id)));
-	const done = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown.fields.done : todo.fields.done);
+	const done = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields.done : todo.fields.done);
 	const label = $derived(labelOf(todo));
 </script>
 
@@ -43,7 +43,7 @@
 				if (fileEdit.change({ fields: { done: next } }).error === null) void fileEdit.save();
 			}
 		}
-		disabled={fileEdit.locked}
+
 		aria-label="{done ? 'Reopen' : 'Complete'} {label}"
 	/>
 	<Button

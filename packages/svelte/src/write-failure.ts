@@ -38,8 +38,8 @@ export type WriteFailure = {
 	 * is typed now, which can be newer than `unsaved`, or `undefined` when
 	 * the edit was already gone. The file keeps what it holds, and the
 	 * notice keeps that text to copy. Set while an edit is held, so a save
-	 * that keeps failing, or typing that cannot be sent, never traps the
-	 * person in an edit that blocks a rename or delete.
+	 * that keeps failing never leaves the person with input they cannot
+	 * drop.
 	 */
 	readonly discard?: () => string | undefined;
 };

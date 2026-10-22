@@ -18,8 +18,7 @@
 	 * edited in place through the folder's edit of the row
 	 * (`createFileEdit(folder.tables.connections.edit(id))`): what is typed shows at
 	 * once and saves a second after the last keystroke, even after the editor
-	 * goes away. Changed saved source causes a whole-file conflict and keeps
-	 * the unsaved source. For an `openai-compatible` connection, the
+	 * goes away. For an `openai-compatible` connection, the
 	 * endpoint and key this computer keeps for it are in the keychain
 	 * (ADR-0557). The page hands a key to the keychain and never reads one
 	 * back. The list keys each editor by its id.
@@ -38,10 +37,8 @@
 	// read answered the edit's document.
 	const fileEdit = createFileEdit(folder.tables.connections.edit(id));
 	/** The connection with what is typed over it, or as the list read it while that is not known. */
-	const fields = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown.fields : row.fields);
-	const buffer = $derived(fileEdit.buffer);
-	const unsaved = $derived(buffer.status === 'ready' ? buffer.unsaved : undefined);
-	const failure = $derived(unsaved?.error);
+	const fields = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields : row.fields);
+	const failure = $derived(fileEdit.saveError);
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -60,10 +57,12 @@
 	let key = $state('');
 	let keyProblem = $state<string>();
 	let deleteProblem = $state<string>();
+	let inputProblem = $state<string>();
 	let savingKey = $state(false);
 
 	function type(field: 'title' | 'model', text: string) {
-		fileEdit.change({ fields: { [field]: text } });
+		const { error } = fileEdit.change({ fields: { [field]: text } });
+		inputProblem = error?.message;
 	}
 
 	async function saveKey() {
@@ -99,10 +98,8 @@
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;
 			return;
 		}
-		const removed = await fileEdit.delete();
+		const removed = await folder.files.delete(fileEdit.path);
 		if (removed.error !== null) deleteProblem = saveFailureText(removed.error);
-		else if (!removed.data.deleted)
-			deleteProblem = 'The connection changed while it was being deleted, so it was kept.';
 	}
 </script>
 
@@ -115,25 +112,24 @@
 		<label class="grid gap-1">
 			<span class="text-muted-foreground">Title</span>
 			<Input
-				value={fields.title}
-				disabled={fileEdit.locked}
-				aria-invalid={unsaved?.error !== undefined || buffer.error !== undefined}
-				oninput={(event) => type('title', event.currentTarget.value)}
+				bind:value={() => fields.title, (value) => type('title', value)}
+
+				aria-invalid={fileEdit.saveError !== undefined || fileEdit.loadError !== undefined}
 			/>
 		</label>
 		<label class="grid gap-1">
 			<span class="text-muted-foreground">Model</span>
 			<Input
-				value={fields.model}
+				bind:value={() => fields.model, (value) => type('model', value)}
 				placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
-				disabled={fileEdit.locked}
-				aria-invalid={unsaved?.error !== undefined || buffer.error !== undefined}
-				oninput={(event) => type('model', event.currentTarget.value)}
+
+				aria-invalid={fileEdit.saveError !== undefined || fileEdit.loadError !== undefined}
 			/>
 		</label>
 	</div>
-	{#if buffer.error}
-		<p role="alert" class="text-sm text-destructive">{buffer.error.message}</p>
+	{#if inputProblem}<p role="alert" class="text-sm text-destructive">{inputProblem}</p>{/if}
+	{#if fileEdit.loadError}
+		<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>
 	{/if}
 	{#if failure !== undefined}
 		<p role="alert" class="text-destructive">
@@ -179,6 +175,6 @@
 	{#if keyProblem}<p role="alert" class="text-destructive">{keyProblem}</p>{/if}
 	{#if deleteProblem}<p role="alert" class="text-destructive">{deleteProblem}</p>{/if}
 	<div>
-		<Button variant="ghost" size="sm" disabled={fileEdit.locked} onclick={() => void removeConnection()}>Delete connection</Button>
+		<Button variant="ghost" size="sm"  onclick={() => void removeConnection()}>Delete connection</Button>
 	</div>
 </li>

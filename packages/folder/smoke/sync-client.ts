@@ -3,6 +3,7 @@ import { unwrap } from 'wellcrafted/result';
 import { selectSource } from '../src/browser/git/publication.js';
 import { emptyTree } from '../src/browser/git/snapshot.js';
 import { openRepository } from '../src/browser/repository.js';
+import { writeRow } from '../src/browser/row-writes.test-support.js';
 import { createSync } from '../src/browser/sync.js';
 import { readCommit } from '../src/git/raw-objects.js';
 import type { Row } from '../src/shared/row.js';
@@ -32,10 +33,14 @@ const author = () => ({
 
 async function set(field: 'a' | 'b' | 'extra', value: number) {
 	draft = unwrap(
-		await repository.tables.notes.set('one', draft, {
-			fields: { [field]: value },
-		}),
-	).sent;
+		await writeRow(
+			repository,
+			'notes',
+			'one',
+			{ fields: { [field]: value } },
+			schema,
+		),
+	);
 }
 
 async function run() {
@@ -87,15 +92,9 @@ export const client = {
 	},
 	set,
 	async writeFile(path: string, content: string | number[]) {
-		const current = unwrap(await repository.files.read(path));
-		const from =
-			current === undefined
-				? null
-				: new Uint8Array(await current.content.arrayBuffer());
 		unwrap(
 			await repository.files.write(
 				path,
-				from,
 				typeof content === 'string' ? content : new Uint8Array(content),
 			),
 		);
@@ -112,10 +111,14 @@ export const client = {
 	async paragraph(which: 'First' | 'Last', text: string) {
 		if (draft === null) throw new Error('No draft');
 		draft = unwrap(
-			await repository.tables.notes.set('one', draft, {
-				body: draft.body!.replace(which, text),
-			}),
-		).sent;
+			await writeRow(
+				repository,
+				'notes',
+				'one',
+				{ body: draft.body!.replace(which, text) },
+				schema,
+			),
+		);
 	},
 	loseNextPushReply() {
 		loseReply = true;

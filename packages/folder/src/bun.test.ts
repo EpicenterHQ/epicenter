@@ -7,10 +7,10 @@
  * processes take turns, so none is lost.
  *
  * Key behaviors:
- * - A save waits while another process holds the save lock, then finds its
- *   put stale against what that process saved, reads again, and merges
- * - Two processes appending to one file through `files.write` keep every
- *   line once
+ * - A save waits while another process holds the save lock, then replaces
+ *   what that process saved
+ * - Two processes writing one file through `files.write` each land whole,
+ *   and the last one wins
  * - A save lock not taken in time is `NothingChanged`, so the put it guarded
  *   is `Io`, never `Unconfirmed`, and leaves no staged file or new directory
  * - The CLI's history saves and syncs staging beside the folder, as a Bun
@@ -129,7 +129,7 @@ test('a save waits for another process holding the save lock, then merges with i
 		expect(await said()).toBe('locked');
 
 		let settled = false;
-		const saving = folder.files.write('note.txt', 'old', 'ours').finally(() => {
+		const saving = folder.files.write('note.txt', 'ours').finally(() => {
 			settled = true;
 		});
 		await Bun.sleep(200);
@@ -141,8 +141,7 @@ test('a save waits for another process holding the save lock, then merges with i
 		expect(await said()).toBe('released');
 		await other.exited;
 
-		// Its put, guarded by what it read, was stale: it read theirs and won
-		// the line both changed.
+		// Its unconditional put waited for the lock, then replaced theirs.
 		expectOk(await saving);
 		expect(await readFile(target, 'utf8')).toBe('ours');
 		await folder.close();
@@ -153,16 +152,14 @@ test('a save waits for another process holding the save lock, then merges with i
 	}
 });
 
-test('two processes appending to one file through files.write keep every line once', async () => {
+test('two processes writing one file through files.write each land whole, the last one winning', async () => {
 	const ROUNDS = 30;
 	const root = await scratch('bun-write-race-');
 	try {
 		await writeFile(join(root, 'log.txt'), '');
-		// Each process appends its own lines through \`files.write\`: read the
-		// file, then save the change from what it read to that plus a line. A
-		// put the other process overtook reads and merges again, keeping both
-		// lines.
-		const appender = (id: number) =>
+		// Each process replaces the file with a whole value of its own and
+		// reads it back: a reader never sees part of one write, or a mix.
+		const writer = (id: number) =>
 			Bun.spawn(
 				[
 					'bun',
@@ -173,11 +170,12 @@ test('two processes appending to one file through files.write keep every line on
 					const { data: folder, error } = await openFolder({ directory: root, tables: {} });
 					if (error !== null) throw new Error(JSON.stringify(error));
 					for (let line = 0; line < Number(rounds); line++) {
+						const { error } = await folder.files.write('log.txt', ('p${id}-' + line + '\\n').repeat(64));
+						if (error !== null) throw new Error(JSON.stringify(error));
 						const read = await folder.files.read('log.txt');
 						if (read.error !== null) throw new Error(JSON.stringify(read.error));
-						const text = await read.data.content.text();
-						const { error } = await folder.files.write('log.txt', text, text + 'p${id}-' + line + '\\n');
-						if (error !== null) throw new Error(JSON.stringify(error));
+						const lines = new Set((await read.data.content.text()).split('\\n').filter(Boolean));
+						if (lines.size !== 1) throw new Error('a torn file: ' + [...lines].join(','));
 					}
 					await folder.close();
 					`,
@@ -187,18 +185,17 @@ test('two processes appending to one file through files.write keep every line on
 				],
 				{ stdout: 'pipe', stderr: 'inherit', env: process.env },
 			);
-		const appenders = [appender(0), appender(1)];
-		expect(await Promise.all(appenders.map((child) => child.exited))).toEqual([
+		const writers = [writer(0), writer(1)];
+		expect(await Promise.all(writers.map((child) => child.exited))).toEqual([
 			0, 0,
 		]);
-		const lines = (await readFile(join(root, 'log.txt'), 'utf8'))
-			.split('\n')
-			.filter((line) => line !== '');
-		for (const id of [0, 1])
-			expect(lines.filter((line) => line.startsWith(`p${id}-`))).toEqual(
-				Array.from({ length: ROUNDS }, (_, line) => `p${id}-${line}`),
-			);
-		expect(lines).toHaveLength(2 * ROUNDS);
+		const lines = new Set(
+			(await readFile(join(root, 'log.txt'), 'utf8'))
+				.split('\n')
+				.filter((line) => line !== ''),
+		);
+		expect([...lines]).toHaveLength(1);
+		expect([`p0-${ROUNDS - 1}`, `p1-${ROUNDS - 1}`]).toContain([...lines][0]!);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 		await rm(besideRoot(root, 'save-lock'), { force: true });
@@ -256,7 +253,7 @@ test('a save lock not taken in time changes nothing, so the put it guarded is Io
 		const put = await storage.put(
 			'new/deep/a.md',
 			new TextEncoder().encode('x'),
-			null,
+			'absent',
 		);
 		expect(put.error).toMatchObject({ name: 'Io', operation: 'write' });
 		await writeFile(join(root, 'old.md'), 'old');
@@ -269,7 +266,9 @@ test('a save lock not taken in time changes nothing, so the put it guarded is Io
 				},
 			},
 			scratch: staging,
-		}).put('old.md', null, await hashBytes(new TextEncoder().encode('old')));
+		}).put('old.md', null, {
+			sha256: await hashBytes(new TextEncoder().encode('old')),
+		});
 		expect(removal.error).toMatchObject({ name: 'Io', operation: 'remove' });
 		expect(await readFile(join(root, 'old.md'), 'utf8')).toBe('old');
 		// Nothing of the refused put is left: no staged file, no directory.

@@ -8,9 +8,9 @@
  * - Opening names no folder; it reads existing files and writes none
  * - Every refused open is an `OpenFolderError`, and nothing opens or falls back
  * - No command names a scope, root, or window
- * - A save is one guarded put; a put another writer overtook reads and merges again
+ * - A save publishes its captured whole-file source, the last publication winning
  * - A lost reply is the save landing only when the path holds what was sent
- * - Own saves and peer handles report precise paths without a native event listener
+ * - Own saves and peer handles report precise paths; outside edits use a scoped listener
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { existsSync, writeFileSync } from 'node:fs';
@@ -29,11 +29,15 @@ let shell: GrantedShell;
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
+	transformCallback: () => 0,
 	invoke: (
 		cmd: string,
 		body?: Record<string, unknown> | Uint8Array,
 		options?: { headers?: Record<string, string> },
 	) => shell.invoke(cmd, body, options),
+}));
+mock.module('@tauri-apps/api/webview', () => ({
+	getCurrentWebview: () => ({ listen: async () => () => {} }),
 }));
 
 const { openTauriFolder } = await import('./tauri.js');
@@ -64,7 +68,7 @@ test('opening names no folder, reads existing files, and writes nothing', async 
 	expect(row.fields).toEqual({ title: 'Milk', from: 'phone' });
 	expect(shell.changes).toEqual([]);
 	expectOk(
-		await folder.files.write('notes/eggs.md', null, '---\ntitle: Eggs\n---\n'),
+		await folder.files.write('notes/eggs.md', '---\ntitle: Eggs\n---\n'),
 	);
 	expectOk(await folder.files.list());
 	// No command names the folder: the shell answers in the calling window's.
@@ -145,10 +149,14 @@ test('the pause a window folder is opened with saves its held input, through eit
 		shell = createGrantedShell(root);
 		const folder = expectOk(await open({ tables: { notes }, saveAfterMs: 5 }));
 		const edit = folder.tables.notes.edit('milk');
-		expectOk(await edit.read());
+		expectOk(await edit.refresh());
 		expectOk(edit.change({ fields: { title: 'Oat' } }));
 		expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
-		for (let turn = 0; turn < 100 && folder.getStatus().unsaved.length > 0; turn++)
+		for (
+			let turn = 0;
+			turn < 100 && folder.getStatus().unsaved.length > 0;
+			turn++
+		)
 			await new Promise((resolve) => setTimeout(resolve, 5));
 		expect(folder.getStatus().unsaved).toEqual([]);
 		expect(expectOk(await folder.tables.notes.get('milk'))?.fields?.title).toBe(
@@ -158,7 +166,7 @@ test('the pause a window folder is opened with saves its held input, through eit
 	}
 });
 
-test('a save is one guarded put, and an overtaken put reads and merges again', async () => {
+test('a file write is one unconditional put that replaces an overtaking write', async () => {
 	const initial = 'One\n\nMiddle\n\nLast\n';
 	const { folder } = await granted({ 'note.md': initial });
 	let overtaken = false;
@@ -167,27 +175,47 @@ test('a save is one guarded put, and an overtaken put reads and merges again', a
 		overtaken = true;
 		await shell.write('note.md', initial.replace('Last', 'Phone'));
 	};
-	expectOk(
-		await folder.files.write(
-			'note.md',
-			initial,
-			initial.replace('One', 'Laptop'),
-		),
-	);
-	expect(await shell.text('note.md')).toBe('Laptop\n\nMiddle\n\nPhone\n');
+	const laptop = initial.replace('One', 'Laptop');
+	expectOk(await folder.files.write('note.md', laptop));
+	expect(await shell.text('note.md')).toBe(laptop);
 	const puts = shell.calls.filter((call) => call.cmd === 'put_folder_file');
-	expect(puts).toHaveLength(2);
-	expect(puts.every((call) => typeof call.args['if-match'] === 'string')).toBe(
-		true,
+	expect(puts.map((call) => call.args.expected)).toEqual(['any']);
+	await folder.close();
+});
+
+test('a row set with nothing held reads once in its lane and publishes one unconditional put', async () => {
+	const { folder } = await granted({
+		'notes/milk.md': '---\ntitle: Milk\n---\nBody\n',
+	});
+	let overtaken = false;
+	shell.control.beforeChange = async (change) => {
+		if (overtaken || change.path !== 'notes/milk.md') return;
+		overtaken = true;
+		await shell.write('notes/milk.md', '---\ntitle: Oat\n---\nTheir body\n');
+	};
+	expectOk(await folder.tables.notes.set('milk', { fields: { title: 'Soy' } }));
+	// Composed over what it read; a write landing after that read is replaced whole.
+	expect(await shell.text('notes/milk.md')).toBe(
+		'---\ntitle: Soy\n---\nBody\n',
 	);
+	const puts = shell.calls.filter((call) => call.cmd === 'put_folder_file');
+	expect(puts.map((call) => call.args.expected)).toEqual(['any']);
+	// The editor of the row knows the composed text without reading again.
+	const reads = shell.calls.filter((call) => call.cmd === 'read_folder_file');
+	expect(
+		folder.tables.notes.edit('milk').getSnapshot().content?.fields,
+	).toEqual({ title: 'Soy' });
+	expect(
+		shell.calls.filter((call) => call.cmd === 'read_folder_file'),
+	).toHaveLength(reads.length);
 	await folder.close();
 });
 
 test('a native-style save stages beside the root and leaves no .git in the authored folder', async () => {
 	const { root, folder } = await granted({ 'note.md': 'one\n' });
 	try {
-		expectOk(await folder.files.write('note.md', 'one\n', 'two\n'));
-		expectOk(await folder.files.write('new/deep.md', null, 'fresh\n'));
+		expectOk(await folder.files.write('note.md', 'two\n'));
+		expectOk(await folder.files.write('new/deep.md', 'fresh\n'));
 		expect(await shell.text('note.md')).toBe('two\n');
 		expect(await shell.text('new/deep.md')).toBe('fresh\n');
 		// Nothing but the files saved is in the root: no `.git`, no scratch.
@@ -236,7 +264,7 @@ test('opening sweeps stale staged files beside the root, and leaves younger and 
 test('a lost reply is the save landing only when the path holds what was sent', async () => {
 	const { folder } = await granted();
 	shell.control.loseReplies = 1;
-	expectOk(await folder.files.write('a.md', null, 'a'));
+	expectOk(await folder.files.write('a.md', 'a'));
 	expect(folder.getStatus().storageFailure).toBeNull();
 
 	// Another program replaces the file before the page reads it back.
@@ -246,7 +274,7 @@ test('a lost reply is the save landing only when the path holds what was sent', 
 		writeFileSync(join(shell.root, 'b.md'), 'someone else');
 		throw new Error('the reply never reached the window');
 	};
-	const lost = expectErr(await folder.files.write('b.md', null, 'b'));
+	const lost = expectErr(await folder.files.write('b.md', 'b'));
 	expect(lost).toMatchObject({
 		name: 'StorageFailed',
 		cause: { name: 'Unconfirmed', path: 'b.md' },
@@ -263,11 +291,11 @@ test('own saves and page peers report paths without native watching', async () =
 	const others: FolderChange[] = [];
 	folder.onChange((change) => heard.push(change));
 	peer.onChange((change) => others.push(change));
-	expectOk(await folder.files.write('a.md', null, 'a'));
+	expectOk(await folder.files.write('a.md', 'a'));
 	expect(heard).toEqual([{ paths: ['a.md'], origin: 'this-handle' }]);
 	expect(others).toEqual([{ paths: ['a.md'], origin: 'other-handle' }]);
 	await folder.close();
-	expectOk(await peer.files.write('b.md', null, 'b'));
+	expectOk(await peer.files.write('b.md', 'b'));
 	expect(heard).toHaveLength(1);
 	await peer.close();
 });

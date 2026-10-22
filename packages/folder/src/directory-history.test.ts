@@ -95,7 +95,7 @@ let todos = 0;
 async function addTodo(folder: DirectoryHistory, title: string) {
 	const path = `todos/t${todos++}.md`;
 	const text = todo(title);
-	expectOk(await folder.write(path, null, text));
+	expectOk(await folder.write(path, text));
 	return { path, text };
 }
 
@@ -268,93 +268,95 @@ describe('a directory history', () => {
 		await folder.close();
 	});
 
-	test.each([
-		'global',
-		'repository',
-	] as const)("with core.autocrlf=true in the person's %s config, Save version and Sync commit each file as it is on disk, and the person's checkout writes it back the same", async (where) => {
-		const project = await scratch('directory-history-autocrlf-');
-		const bare = await createBareRemote(project);
-		const root = join(project, 'desktop');
-		await mkdir(root);
-		// Git for Windows writes this when it installs.
-		const global = process.env.GIT_CONFIG_GLOBAL;
-		if (where === 'global') {
-			const config = join(project, 'gitconfig');
-			await writeFile(config, '[core]\n\tautocrlf = true\n');
-			process.env.GIT_CONFIG_GLOBAL = config;
-		}
-		/** The person's own `git`, with their configuration. */
-		const theirs = async (...args: string[]) => {
-			const child = Bun.spawn(['git', ...args], {
-				cwd: root,
-				env: { ...GIT_ENV, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL },
-				stderr: 'pipe',
-			});
-			expect([
-				await child.exited,
-				await new Response(child.stderr).text(),
-			]).toEqual([0, '']);
-		};
-		try {
-			const ran: (readonly string[])[] = [];
-			const folder = await open(root, {
-				beforeGit: async (args) => void ran.push(args),
-			});
-			const created = await addTodo(folder, 'Line feeds');
-			// The first commit creates the repository.
-			expect((await folder.git.commit()).status).toBe('committed');
-			expect(await readFile(join(root, '.git/info/attributes'), 'utf8')).toBe(
-				`${NEUTRAL_ATTRIBUTES}\n`,
-			);
-			if (where === 'repository')
-				await git(root, 'config', 'core.autocrlf', 'true');
-			await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\n');
-			// An attribute the person's checkout would apply, but for the
-			// repository's own `info/attributes`.
-			await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
-			/** Whether `path`'s blob in `commit` is its bytes on disk. */
-			const stored = async (commit: string, path: string) =>
-				(await git(root, 'rev-parse', `${commit}:${path}`)) ===
-				(await git(root, 'hash-object', '--no-filters', path));
+	test.each(['global', 'repository'] as const)(
+		"with core.autocrlf=true in the person's %s config, Save version and Sync commit each file as it is on disk, and the person's checkout writes it back the same",
+		async (where) => {
+			const project = await scratch('directory-history-autocrlf-');
+			const bare = await createBareRemote(project);
+			const root = join(project, 'desktop');
+			await mkdir(root);
+			// Git for Windows writes this when it installs.
+			const global = process.env.GIT_CONFIG_GLOBAL;
+			if (where === 'global') {
+				const config = join(project, 'gitconfig');
+				await writeFile(config, '[core]\n\tautocrlf = true\n');
+				process.env.GIT_CONFIG_GLOBAL = config;
+			}
+			/** The person's own `git`, with their configuration. */
+			const theirs = async (...args: string[]) => {
+				const child = Bun.spawn(['git', ...args], {
+					cwd: root,
+					env: { ...GIT_ENV, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL },
+					stderr: 'pipe',
+				});
+				expect([
+					await child.exited,
+					await new Response(child.stderr).text(),
+				]).toEqual([0, '']);
+			};
+			try {
+				const ran: (readonly string[])[] = [];
+				const folder = await open(root, {
+					beforeGit: async (args) => void ran.push(args),
+				});
+				const created = await addTodo(folder, 'Line feeds');
+				// The first commit creates the repository.
+				expect((await folder.git.commit()).status).toBe('committed');
+				expect(await readFile(join(root, '.git/info/attributes'), 'utf8')).toBe(
+					`${NEUTRAL_ATTRIBUTES}\n`,
+				);
+				if (where === 'repository')
+					await git(root, 'config', 'core.autocrlf', 'true');
+				await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\n');
+				// An attribute the person's checkout would apply, but for the
+				// repository's own `info/attributes`.
+				await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
+				/** Whether `path`'s blob in `commit` is its bytes on disk. */
+				const stored = async (commit: string, path: string) =>
+					(await git(root, 'rev-parse', `${commit}:${path}`)) ===
+					(await git(root, 'hash-object', '--no-filters', path));
 
-			expect(
-				(await folder.git.commit({ message: 'Keep line endings' })).status,
-			).toBe('committed');
-			for (const path of [created.path, 'windows.txt'])
-				expect([path, await stored('HEAD', path)]).toEqual([path, true]);
+				expect(
+					(await folder.git.commit({ message: 'Keep line endings' })).status,
+				).toBe('committed');
+				for (const path of [created.path, 'windows.txt'])
+					expect([path, await stored('HEAD', path)]).toEqual([path, true]);
 
-			// A native checkout with no conversion of its own sends a file back.
-			const native = join(project, 'native');
-			expect(expectOk(await folder.sync.connect(bare)).kind).toBe('synced');
-			await git(project, 'clone', '--quiet', bare, native);
-			await writeFile(join(native, 'incoming.txt'), 'a\nb\n');
-			await git(native, 'add', 'incoming.txt');
-			await git(native, 'commit', '--quiet', '-m', 'Incoming');
-			await git(native, 'push', '--quiet', 'origin', 'main');
-			await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\nthree\r\n');
+				// A native checkout with no conversion of its own sends a file back.
+				const native = join(project, 'native');
+				expect(expectOk(await folder.sync.connect(bare)).kind).toBe('synced');
+				await git(project, 'clone', '--quiet', bare, native);
+				await writeFile(join(native, 'incoming.txt'), 'a\nb\n');
+				await git(native, 'add', 'incoming.txt');
+				await git(native, 'commit', '--quiet', '-m', 'Incoming');
+				await git(native, 'push', '--quiet', 'origin', 'main');
+				await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\nthree\r\n');
 
-			expect(expectOk(await folder.sync.run()).kind).toBe('synced');
-			expect(await readFile(join(root, 'incoming.txt'), 'utf8')).toBe('a\nb\n');
-			expect(await git(bare, 'rev-parse', 'main')).toBe(
-				await git(root, 'rev-parse', 'main'),
-			);
-			const tracked = [created.path, 'windows.txt', 'incoming.txt'];
-			for (const path of tracked)
-				expect([path, await stored('main', path)]).toEqual([path, true]);
-			// No command needs Git 2.40's `check-attr --source`.
-			expect(ran.filter((args) => args.includes('check-attr'))).toEqual([]);
-			await folder.close();
+				expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+				expect(await readFile(join(root, 'incoming.txt'), 'utf8')).toBe(
+					'a\nb\n',
+				);
+				expect(await git(bare, 'rev-parse', 'main')).toBe(
+					await git(root, 'rev-parse', 'main'),
+				);
+				const tracked = [created.path, 'windows.txt', 'incoming.txt'];
+				for (const path of tracked)
+					expect([path, await stored('main', path)]).toEqual([path, true]);
+				// No command needs Git 2.40's `check-attr --source`.
+				expect(ran.filter((args) => args.includes('check-attr'))).toEqual([]);
+				await folder.close();
 
-			// The person checks the files out again with their own Git.
-			for (const path of tracked) await rm(join(root, path));
-			await theirs('checkout', '--', ...tracked);
-			for (const path of tracked)
-				expect([path, await stored('main', path)]).toEqual([path, true]);
-		} finally {
-			if (global === undefined) delete process.env.GIT_CONFIG_GLOBAL;
-			else process.env.GIT_CONFIG_GLOBAL = global;
-		}
-	});
+				// The person checks the files out again with their own Git.
+				for (const path of tracked) await rm(join(root, path));
+				await theirs('checkout', '--', ...tracked);
+				for (const path of tracked)
+					expect([path, await stored('main', path)]).toEqual([path, true]);
+			} finally {
+				if (global === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+				else process.env.GIT_CONFIG_GLOBAL = global;
+			}
+		},
+	);
 
 	test('an attribute file that names a filter and governs a recorded file, ignored or not, refuses the commit; line-ending attributes commit the bytes on disk', async () => {
 		const { root, start } = await nativeRepository('directory-history-filter-');
@@ -408,20 +410,18 @@ describe('a directory history', () => {
 		await folder.close();
 	});
 
-	test('a write merges with a file another program changed', async () => {
+	test('a write replaces a file another program changed', async () => {
 		const root = await scratch('directory-history-guard-');
 		const folder = await open(root);
 		const created = await addTodo(folder, 'Mine');
 		const path = join(root, created.path);
 		await writeFile(path, todo('Mine', true));
-		expectOk(
-			await folder.write(created.path, created.text, todo('Mine, edited')),
-		);
-		expect(await readFile(path, 'utf8')).toBe(todo('Mine, edited', true));
+		expectOk(await folder.write(created.path, todo('Mine, edited')));
+		expect(await readFile(path, 'utf8')).toBe(todo('Mine, edited'));
 		await folder.close();
 	});
 
-	test('a write another writer overtakes after its check merges; a create joins the file made meanwhile, and a delete reads again and gives way to the edit', async () => {
+	test('a write or delete another writer overtakes after its check still lands whole: the last one wins', async () => {
 		const root = await scratch('directory-history-overtaken-');
 		// Another writer, sharing no lock with this history, lands these bytes
 		// on a path after this one checked it and before it publishes.
@@ -448,28 +448,19 @@ describe('a directory history', () => {
 		const created = await addTodo(folder, 'Mine');
 		const path = join(root, created.path);
 		overtaken.set(path, todo('Theirs'));
-		expectOk(
-			await folder.write(created.path, created.text, todo('Mine, edited')),
-		);
-		expect(await readFile(path, 'utf8')).toContain('title: Mine, edited');
+		expectOk(await folder.write(created.path, todo('Mine, edited')));
+		expect(await readFile(path, 'utf8')).toBe(todo('Mine, edited'));
 
 		const note = join(root, 'todos/a.md');
 		overtaken.set(note, 'theirs\n');
-		// A create onto a file made meanwhile merges as an addition on both
-		// sides.
-		expectOk(await folder.write('todos/a.md', null, 'mine\n'));
-		expect(await readFile(note, 'utf8')).toBe('theirs\nmine\n');
-
-		// A delete reads again, and never erases an edit it did not see.
-		overtaken.set(note, 'theirs again\n');
-		expectOk(await folder.write('todos/a.md', 'theirs\nmine\n', null));
-		expect(await readFile(note, 'utf8')).toBe('theirs again\n');
-
-		// A write merges with whatever is there, and wins the lines both changed.
-		expectOk(await folder.write('todos/a.md', 'theirs again\n', 'base\n'));
-		overtaken.set(note, 'theirs once more\n');
-		expectOk(await folder.write('todos/a.md', 'base\n', 'mine\n'));
+		// A create onto a file made meanwhile replaces it.
+		expectOk(await folder.write('todos/a.md', 'mine\n'));
 		expect(await readFile(note, 'utf8')).toBe('mine\n');
+
+		// A delete removes whatever is there when it lands.
+		overtaken.set(note, 'theirs again\n');
+		expectOk(await folder.write('todos/a.md', null));
+		expect(await readFile(note, 'utf8').catch(() => undefined)).toBeUndefined();
 		expect(await readdir(scratchDirectory(root))).toEqual([]);
 		await folder.close();
 	});
@@ -487,7 +478,6 @@ describe('a directory history', () => {
 		const interrupted = await open(root, { primitives: failing });
 		const refused = await interrupted.write(
 			'todos/never.md',
-			null,
 			todo('Never landed'),
 		);
 		expect(refused.error).not.toBeNull();
@@ -739,7 +729,7 @@ describe('a directory history', () => {
 		const previous = await git(root, 'rev-parse', 'HEAD');
 		const folder = await open(root);
 		try {
-			expectOk(await folder.write('saved.txt', null, 'saved'));
+			expectOk(await folder.write('saved.txt', 'saved'));
 			expect(await folder.git.commit()).toMatchObject({
 				status: 'blocked',
 				reason: 'HEAD is not on main',
@@ -759,7 +749,7 @@ describe('a directory history', () => {
 		const folder = await open(root);
 		try {
 			await writeFile(join(root, 'external.md'), 'external');
-			expectOk(await folder.write('saved.md', null, 'saved'));
+			expectOk(await folder.write('saved.md', 'saved'));
 			expect(folder.git.snapshot.lastCommit).toBeUndefined();
 			expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
 			// Saving creates no repository; the first commit does.
@@ -772,7 +762,7 @@ describe('a directory history', () => {
 			// An edit another program makes is merged by the next save, and the
 			// commit after it is recorded through Git's own index.
 			await writeFile(join(root, 'saved.md'), 'saved\nexternal line\n');
-			expectOk(await folder.write('saved.md', 'saved', 'saved\nmine\n'));
+			expectOk(await folder.write('saved.md', 'saved\nmine\n'));
 			expect(await git(root, 'status', '--porcelain')).toBe('M saved.md');
 			expect((await folder.git.commit()).status).toBe('committed');
 			expect(await git(root, 'log', '-1', '--format=%s')).toBe(
@@ -866,7 +856,7 @@ describe('a directory history', () => {
 		const root = await scratch('directory-history-merge-head-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
 		const folder = await open(root);
-		await folder.write('a.md', null, 'one\n');
+		await folder.write('a.md', 'one\n');
 		expect((await folder.git.commit()).status).toBe('committed');
 		const head = await git(root, 'rev-parse', 'main');
 		await writeFile(join(root, '.git/MERGE_HEAD'), `${head}\n`);

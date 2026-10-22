@@ -49,6 +49,124 @@ use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
 use crate::{init, BindError, Directory, FolderExt, COMMANDS};
 
+/// Real notify delivery through the typed event and the calling WebView target.
+/// No file content or absolute root crosses the event channel.
+#[test]
+fn external_writes_and_atomic_replacements_reach_only_the_bound_webview() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    use tauri_specta::Event;
+
+    let fixture = fixture("native-watch");
+    let main = fixture.bound_window("main", &fixture.root);
+    let elsewhere = fixture.root.with_file_name("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    let other = fixture.bound_window("other", &elsewhere);
+    let (send, receive) = mpsc::channel();
+    let (other_send, other_receive) = mpsc::channel();
+    let view: &tauri::Webview<MockRuntime> = main.as_ref();
+    let other_view: &tauri::Webview<MockRuntime> = other.as_ref();
+    crate::FolderChanged::listen(view, move |event| {
+        send.send(event.payload).unwrap();
+    });
+    crate::FolderChanged::listen(other_view, move |event| {
+        other_send.send(event.payload).unwrap();
+    });
+    open(&main).unwrap();
+    open(&main).unwrap(); // Reuses this binding's watcher.
+    open(&other).unwrap();
+
+    std::fs::create_dir(fixture.root.join("notes")).unwrap();
+    std::fs::write(fixture.root.join("notes/a.md"), b"external").unwrap();
+    let wait_for = |path: &str| {
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let notice = receive
+                .recv_timeout(until.saturating_duration_since(std::time::Instant::now()))
+                .expect("native observation");
+            if notice.paths.as_ref().is_none_or(|paths| {
+                paths
+                    .iter()
+                    .any(|hint| path == hint || path.starts_with(&format!("{hint}/")))
+            }) {
+                break;
+            }
+        }
+    };
+    wait_for("notes/a.md");
+    assert!(other_receive.try_recv().is_err());
+
+    let staged = fixture.root.with_file_name("replacement");
+    std::fs::write(&staged, b"replaced").unwrap();
+    std::fs::rename(staged, fixture.root.join("notes/a.md")).unwrap();
+    wait_for("notes/a.md");
+    assert_eq!(read_file(&main, "notes/a.md").unwrap(), b"replaced");
+
+    std::fs::rename(fixture.root.join("notes"), fixture.root.join("archive")).unwrap();
+    wait_for("notes/a.md");
+    assert_eq!(read_file(&main, "archive/a.md").unwrap(), b"replaced");
+    assert!(other_receive.try_recv().is_err());
+    fixture.app.folders().shutdown();
+}
+
+#[test]
+fn one_watch_belongs_to_each_binding_and_unbind_or_shutdown_stops_it() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let fixture = fixture("watch-lifetime");
+    let directory = Directory::existing(&fixture.root).unwrap();
+    fixture
+        .app
+        .folders()
+        .bind("main", directory.clone())
+        .unwrap();
+    let (send, receive) = mpsc::channel();
+    let (duplicate_send, duplicate_receive) = mpsc::channel();
+    fixture
+        .app
+        .folders()
+        .watch("main", &directory, move |event| {
+            let _ = send.send(event);
+        })
+        .unwrap();
+    fixture
+        .app
+        .folders()
+        .watch("main", &directory, move |event| {
+            let _ = duplicate_send.send(event);
+        })
+        .unwrap();
+    std::fs::write(fixture.root.join("first.md"), b"first").unwrap();
+    receive.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(duplicate_receive.try_recv().is_err());
+    fixture.app.folders().unbind("main");
+    while receive.try_recv().is_ok() {}
+    std::fs::write(fixture.root.join("detached.md"), b"detached").unwrap();
+    assert!(receive.recv_timeout(Duration::from_millis(200)).is_err());
+
+    let (send, receive) = mpsc::channel();
+    fixture
+        .app
+        .folders()
+        .bind("main", directory.clone())
+        .unwrap();
+    fixture
+        .app
+        .folders()
+        .watch("main", &directory, move |event| {
+            let _ = send.send(event);
+        })
+        .unwrap();
+    fixture.app.folders().shutdown();
+    std::fs::write(fixture.root.join("shutdown.md"), b"shutdown").unwrap();
+    assert!(receive.recv_timeout(Duration::from_millis(200)).is_err());
+    assert_eq!(
+        fixture.app.folders().bound("main"),
+        Err(crate::WindowError::ShuttingDown)
+    );
+}
+
 const BINDINGS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../folder/src/native/bindings.gen.ts"
@@ -98,6 +216,12 @@ struct Fixture {
     app: App<MockRuntime>,
     root: PathBuf,
     _directory: TempDirectory,
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        self.app.folders().shutdown();
+    }
 }
 
 impl Fixture {
@@ -261,13 +385,13 @@ fn put(
     )
 }
 
+/// The headers of a put expecting the file whose SHA-256 is `if_match`, or
+/// nothing there for `None`.
 fn put_headers(path: &str, remove: bool, if_match: Option<&str>) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("path", encoded(path));
     headers.insert("remove", encoded(&remove.to_string()));
-    if let Some(if_match) = if_match {
-        headers.insert("if-match", encoded(if_match));
-    }
+    headers.insert("expected", encoded(if_match.unwrap_or("absent")));
     headers
 }
 
@@ -985,11 +1109,14 @@ fn admitted_work_keeps_its_root_after_the_label_is_reused() {
     let next = Directory::create(&other).unwrap();
     folders.unbind("main");
     folders.bind("main", next).unwrap();
-    let landed =
-        epicenter_folder_core::storage::put(admitted.root(), "a.md", Some(b"first"), None, || {
-            admitted.publishing()
-        })
-        .unwrap();
+    let landed = epicenter_folder_core::storage::put(
+        admitted.root(),
+        "a.md",
+        Some(b"first"),
+        &epicenter_folder_core::storage::Expectation::Absent,
+        || admitted.publishing(),
+    )
+    .unwrap();
     assert_eq!(landed, epicenter_folder_core::storage::PutOutcome::Landed);
     assert_eq!(std::fs::read(fixture.root.join("a.md")).unwrap(), b"first");
     assert!(!other.join("a.md").exists());

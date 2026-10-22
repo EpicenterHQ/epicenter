@@ -6,12 +6,12 @@
 	import { createInfiniteQuery, createMutation, createQuery } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import type { Backend } from './backend.js';
-	import { openDraft } from './drafts.js';
+	import { draftId } from './drafts.js';
 	import Composer from './Composer.svelte';
 	import DemoAttachment from './DemoAttachment.svelte';
 	import { demoAttachments } from './demo/attachments.js';
 	let { backend, chat, onBack }: { backend: Backend; chat: Conversation; onBack: () => void } = $props();
-	const { folder, queryClient } = getFolder();
+	const { queryClient } = getFolder();
 	let scroller: HTMLDivElement;
 	let follow = $state(true);
 	const messages = createInfiniteQuery(() => ({
@@ -28,11 +28,7 @@
 	}));
 	const draft = createQuery(() => ({
 		queryKey: ['draft', backend.mode, backend.profile, chat.id],
-		queryFn: async () => {
-			const opened = await openDraft(folder, backend, chat.id);
-			if (opened.error !== null) throw opened.error;
-			return opened.data;
-		},
+		queryFn: async () => ({ id: await draftId(backend, chat.id) }),
 	}));
 	const items = $derived([...new Map((messages.data?.pages.flatMap((page) => page.items) ?? []).map((item) => [item.id, item])).values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id)));
 	const openBeeper = createMutation(() => ({ mutationFn: () => backend.request({ action: 'focus', chatId: chat.id }) }));

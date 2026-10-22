@@ -1,5 +1,5 @@
 {
-	"about": "Storage calls and what each answers, run by core/src/storage_tests.rs over the desktop shell's storage and by packages/folder/src/storage-outcomes.test.ts over the Bun directory storage. `tree` is made under an empty root, beside a directory `../outside` holding `secret.md`. `links` maps a path to a symbolic link's target. `ifMatch` names the text whose SHA-256 the call expects, or null. `expect` is the value (`text` for a read) or the error's name and path. `after` lists files and their text, and paths that must be absent. A case that `requires` `caseInsensitive` runs only on a disk that ignores case, and one that requires `links` only where links can be made.",
+	"about": "Storage calls and what each answers, run by core/src/storage_tests.rs over the desktop shell's storage and by packages/folder/src/storage-outcomes.test.ts over the Bun directory storage. `tree` is made under an empty root, beside a directory `../outside` holding `secret.md`. `links` maps a path to a symbolic link's target. `expected` is what a put expects at its path: `\"absent\"`, `\"present\"`, `\"any\"`, or `{ \"sha256Of\": text }` for a file whose bytes are that text. `expect` is the value (`text` for a read) or the error's name and path. `after` lists files and their text, and paths that must be absent. A case that `requires` `caseInsensitive` runs only on a disk that ignores case, one that requires `links` only where links can be made, and one that requires `nonportableNames` only where a name Windows refuses can be made.",
 	"cases": [
 		{
 			"name": "a read answers a regular file's bytes",
@@ -47,7 +47,7 @@
 				"method": "put",
 				"path": "Todos/a.md",
 				"bytes": "mine",
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": {
 				"error": {
@@ -66,7 +66,7 @@
 				"method": "put",
 				"path": "todos/b.md",
 				"bytes": "mine",
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": {
 				"error": {
@@ -85,7 +85,7 @@
 				"method": "put",
 				"path": "Todos/a.md",
 				"bytes": null,
-				"ifMatch": "theirs"
+				"expected": { "sha256Of": "theirs" }
 			},
 			"expect": {
 				"error": {
@@ -143,7 +143,7 @@
 				"method": "put",
 				"path": "todos/new.md",
 				"bytes": "mine",
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": {
 				"error": {
@@ -162,7 +162,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"ifMatch": "secret"
+				"expected": { "sha256Of": "secret" }
 			},
 			"expect": {
 				"error": {
@@ -193,7 +193,7 @@
 				"method": "put",
 				"path": "todos",
 				"bytes": "x",
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": { "error": { "name": "NotAFile", "path": "todos" } }
 		},
@@ -204,7 +204,7 @@
 				"method": "put",
 				"path": "a.md/b/c.md",
 				"bytes": "x",
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": { "error": { "name": "NotADirectory", "path": "a.md" } },
 			"after": { "files": { "a.md": "a" } }
@@ -216,7 +216,7 @@
 				"method": "put",
 				"path": ".git/config",
 				"bytes": "x",
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": {
 				"error": {
@@ -234,7 +234,7 @@
 				"method": "put",
 				"path": "new/deep/a.md",
 				"bytes": "mine",
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": { "value": "landed" },
 			"after": { "files": { "new/deep/a.md": "mine" } }
@@ -246,7 +246,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": "new",
-				"ifMatch": "old"
+				"expected": { "sha256Of": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "files": { "a.md": "new" } }
@@ -258,7 +258,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": "new",
-				"ifMatch": "other"
+				"expected": { "sha256Of": "other" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
@@ -270,7 +270,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": "new",
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
@@ -282,7 +282,7 @@
 				"method": "put",
 				"path": "new/deep/a.md",
 				"bytes": "new",
-				"ifMatch": "old"
+				"expected": { "sha256Of": "old" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "absent": ["new"] }
@@ -294,7 +294,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": { "value": "landed" }
 		},
@@ -305,7 +305,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"ifMatch": "old"
+				"expected": { "sha256Of": "old" }
 			},
 			"expect": { "value": "stale" }
 		},
@@ -316,7 +316,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"ifMatch": "old"
+				"expected": { "sha256Of": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "absent": ["a.md"] }
@@ -328,7 +328,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"ifMatch": "other"
+				"expected": { "sha256Of": "other" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
@@ -340,10 +340,255 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"ifMatch": null
+				"expected": "absent"
 			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
+		},
+		{
+			"name": "an unconditional put replaces the file there",
+			"tree": { "files": { "a.md": "old" } },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": "new",
+				"expected": "any"
+			},
+			"expect": { "value": "landed" },
+			"after": { "files": { "a.md": "new" } }
+		},
+		{
+			"name": "an unconditional put makes a new file with its parents",
+			"tree": {},
+			"call": {
+				"method": "put",
+				"path": "new/deep/a.md",
+				"bytes": "new",
+				"expected": "any"
+			},
+			"expect": { "value": "landed" },
+			"after": { "files": { "new/deep/a.md": "new" } }
+		},
+		{
+			"name": "a put expecting a file where none is is stale and makes nothing",
+			"tree": {},
+			"call": {
+				"method": "put",
+				"path": "new/a.md",
+				"bytes": "new",
+				"expected": "present"
+			},
+			"expect": { "value": "stale" },
+			"after": { "absent": ["new"] }
+		},
+		{
+			"name": "a put expecting a file lands over any file",
+			"tree": { "files": { "a.md": "old" } },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": "new",
+				"expected": "present"
+			},
+			"expect": { "value": "landed" },
+			"after": { "files": { "a.md": "new" } }
+		},
+		{
+			"name": "an unconditional removal of nothing has landed",
+			"tree": {},
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"expected": "any"
+			},
+			"expect": { "value": "landed" }
+		},
+		{
+			"name": "an unconditional removal removes the file",
+			"tree": { "files": { "a.md": "old" } },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"expected": "any"
+			},
+			"expect": { "value": "landed" },
+			"after": { "absent": ["a.md"] }
+		},
+		{
+			"name": "a removal expecting a file removes it",
+			"tree": { "files": { "a.md": "old" } },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"expected": "present"
+			},
+			"expect": { "value": "landed" },
+			"after": { "absent": ["a.md"] }
+		},
+		{
+			"name": "a removal expecting a file where none is is stale",
+			"tree": {},
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"expected": "present"
+			},
+			"expect": { "value": "stale" }
+		},
+		{
+			"name": "an unconditional put onto a directory is NotAFile",
+			"tree": { "directories": ["todos"] },
+			"call": {
+				"method": "put",
+				"path": "todos",
+				"bytes": "x",
+				"expected": "any"
+			},
+			"expect": { "error": { "name": "NotAFile", "path": "todos" } }
+		},
+		{
+			"name": "an unconditional put through a link is InvalidPath and writes nothing there",
+			"requires": "links",
+			"tree": { "links": { "todos": "../outside" } },
+			"call": {
+				"method": "put",
+				"path": "todos/new.md",
+				"bytes": "mine",
+				"expected": "any"
+			},
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "todos/new.md",
+					"reason": "the path passes through a symbolic link"
+				}
+			},
+			"after": { "absent": ["../outside/new.md"] }
+		},
+		{
+			"name": "an unconditional removal of a link is InvalidPath and keeps what it names",
+			"requires": "links",
+			"tree": { "links": { "a.md": "../outside/secret.md" } },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"expected": "any"
+			},
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "a.md",
+					"reason": "the path passes through a symbolic link"
+				}
+			},
+			"after": { "files": { "../outside/secret.md": "secret" } }
+		},
+		{
+			"name": "an unconditional put into Git's private state is InvalidPath",
+			"tree": {},
+			"call": {
+				"method": "put",
+				"path": ".git/config",
+				"bytes": "x",
+				"expected": "any"
+			},
+			"expect": { "error": { "name": "InvalidPath", "path": ".git/config" } },
+			"after": { "absent": [".git/config"] }
+		},
+		{
+			"name": "an unconditional put replaces an existing nonportable name",
+			"requires": "nonportableNames",
+			"tree": { "files": { "todos/a?.md": "old" } },
+			"call": {
+				"method": "put",
+				"path": "todos/a?.md",
+				"bytes": "new",
+				"expected": "any"
+			},
+			"expect": { "value": "landed" },
+			"after": { "files": { "todos/a?.md": "new" } }
+		},
+		{
+			"name": "an unconditional put cannot create a nonportable name",
+			"requires": "nonportableNames",
+			"tree": { "directories": ["todos"] },
+			"call": {
+				"method": "put",
+				"path": "todos/b?.md",
+				"bytes": "new",
+				"expected": "any"
+			},
+			"expect": { "error": { "name": "InvalidPath", "path": "todos/b?.md" } },
+			"after": { "absent": ["todos/b?.md"] }
+		},
+		{
+			"name": "a create of a nonportable name is InvalidPath",
+			"requires": "nonportableNames",
+			"tree": { "directories": ["todos"] },
+			"call": {
+				"method": "put",
+				"path": "todos/b?.md",
+				"bytes": "new",
+				"expected": "absent"
+			},
+			"expect": { "error": { "name": "InvalidPath", "path": "todos/b?.md" } },
+			"after": { "absent": ["todos/b?.md"] }
+		},
+		{
+			"name": "a put expecting an existing nonportable file lands",
+			"requires": "nonportableNames",
+			"tree": { "files": { "todos/a?.md": "old" } },
+			"call": {
+				"method": "put",
+				"path": "todos/a?.md",
+				"bytes": "new",
+				"expected": "present"
+			},
+			"expect": { "value": "landed" },
+			"after": { "files": { "todos/a?.md": "new" } }
+		},
+		{
+			"name": "a put witnessing an existing nonportable file lands",
+			"requires": "nonportableNames",
+			"tree": { "files": { "todos/a?.md": "old" } },
+			"call": {
+				"method": "put",
+				"path": "todos/a?.md",
+				"bytes": "new",
+				"expected": { "sha256Of": "old" }
+			},
+			"expect": { "value": "landed" },
+			"after": { "files": { "todos/a?.md": "new" } }
+		},
+		{
+			"name": "an unconditional removal of an existing nonportable name lands",
+			"requires": "nonportableNames",
+			"tree": { "files": { "todos/a?.md": "old" } },
+			"call": {
+				"method": "put",
+				"path": "todos/a?.md",
+				"bytes": null,
+				"expected": "any"
+			},
+			"expect": { "value": "landed" },
+			"after": { "absent": ["todos/a?.md"] }
+		},
+		{
+			"name": "an existing HEAD segment is never replaced",
+			"tree": { "files": { "todos/HEAD": "ref" } },
+			"call": {
+				"method": "put",
+				"path": "todos/HEAD",
+				"bytes": "new",
+				"expected": "any"
+			},
+			"expect": { "error": { "name": "InvalidPath", "path": "todos/HEAD" } },
+			"after": { "files": { "todos/HEAD": "ref" } }
 		},
 		{
 			"name": "a directory is made with its ancestors",

@@ -23,11 +23,11 @@ IndexedDB. It requires no account, network connection, Git repository, or
 schema file. In a desktop window the same call opens the one directory the
 shell bound to that window before it existed; the page names no path, scope,
 or window. Bun receives `{ directory, tables }` with an existing path. Native
-files use directory writes, with the same row parsing, guarded writes, and
-source-draft behavior as the browser. `FileEdit` holds one complete source
-draft per path; a changed stored source causes a whole-file conflict until
-explicitly resolved. Direct table and file writes retain their own guarded
-merge rules.
+files use atomic directory writes with the same row interpretation and whole-file
+publication semantics as the browser. One folder-owned editor retains text per
+path. Raw and schema-bound views share it. A publication replaces the path;
+later publications may overwrite outside changes or recreate a deleted path.
+Outside observations never trigger automatic saves.
 
 The previous browser opener stored named folders in OPFS. The new browser
 opener uses IndexedDB independently. It does not read, inspect, change, or
@@ -43,12 +43,13 @@ installs that exact context for descendants to read through `getFolder()`.
 Folder owns accepted edits, autosave, save status, admitted actions, and storage
 closure. The context connects it to one TanStack Query cache, change invalidation,
 and window behavior. Failed saves retain input in Folder. An action that reaches
-later Folder calls after an `await` enters through `folder.run(paths, action)`; its
+later Folder calls after an `await` enters through `folder.run(action)`; its
 callback takes no argument and uses the same `folder.files` and `folder.tables`,
 which stay usable until close releases storage. Normal close waits for that work
-and the writes it started; await what must finish before the callback returns.
-New actions refuse once close begins. Empty paths admit lifetime only. Nonempty paths also reserve local editing and save held input
-before the action starts. Unfinished forms remain with the app.
+and the writes it started. Await what must finish before the callback returns.
+New actions refuse once close begins. Admission reserves no paths and does not
+flush input. Compose a deliberate workflow from the editor's current content.
+Unfinished forms remain with the app.
 
 The editing lifecycle is recorded in [ADR 0656](../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md).
 
@@ -83,7 +84,7 @@ nor an app chooses a native path, and no URL carries one. A refused open
 shows the refusal; the app does not open different storage as a fallback.
 
 Folder methods return the current source with every row. A view binds its own
-edit handle (`createFileEdit(coreEdit)`) and types over what it showed.
+edit handle (`createFileEdit(folder.tables.todos.edit(id))`) and types over what it showed.
 The shared folder context owns query keys and the one `onChange` listener that
 refreshes affected paths. The view reports "Saved on this device" only after
 the storage save succeeds and no input is held. Account, inference, and future Git exchange have separate

@@ -17,5 +17,5 @@ export {
 	type SavedViewSort,
 	validateTableSchema,
 } from '../declaration-schema.js';
-export type { SavedViewChange } from '../declaration-write.js';
+export { changeSavedView, type SavedViewChange } from '../declaration-write.js';
 export { exportTables } from '../schema-export.js';

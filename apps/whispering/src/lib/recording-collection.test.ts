@@ -24,9 +24,8 @@
  * - Deleting several captures each deletion first, leaves out what the
  *   whispering refuses, removes only what was captured, and keeps the audio
  * - A transcript is edited in its own draft beside its recording, which stays
- *   selected, and saves as it is typed; changed outside source causes a
- *   conflict until explicitly resolved; closing the details or changing page
- *   discards nothing
+ *   selected, and publishes its complete held source; closing the details
+ *   or changing page discards nothing
  * - A recording that left the folder is unticked when a listing confirms it,
  *   so a file made later at its path is not ticked; a search and a failed
  *   listing untick nothing
@@ -111,9 +110,9 @@ async function history(
 		body = '',
 	) => {
 		const audioPath = `recordings/${stem}.wav`;
-		expectOk(await folder.files.write(audioPath, null, toneWav()));
+		expectOk(await folder.files.write(audioPath, toneWav()));
 		expectOk(
-			await folder.tables.recordings.set(stem, null, {
+			await folder.tables.recordings.set(stem, {
 				fields: {
 					title,
 					recordedAt: `2026-03-${day}T09:00:00.000Z`,
@@ -131,7 +130,7 @@ async function history(
 		body: string,
 	) =>
 		expectOk(
-			await folder.tables.transcriptions.set(stem, null, {
+			await folder.tables.transcriptions.set(stem, {
 				fields: {
 					recordingId,
 					createdAt: `2026-03-${day}T10:00:00.000Z`,
@@ -155,16 +154,11 @@ async function history(
 	expectOk(
 		await folder.files.write(
 			'recordings/orphan.md',
-			null,
 			'---\ntitle: Lost audio\nrecordedAt: 2026-03-03T09:00:00.000Z\ndurationMs: 60000\n---\n',
 		),
 	);
 	expectOk(
-		await folder.files.write(
-			'recordings/broken.md',
-			null,
-			'no frontmatter here\n',
-		),
+		await folder.files.write('recordings/broken.md', 'no frontmatter here\n'),
 	);
 	await transcript(
 		'standup-t1',
@@ -669,7 +663,7 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 	whispering.open(path('standup'));
 	const before = await readFile(join(root, TRANSCRIPT), 'utf8');
 
-	const editor = transcriptEditor(whispering, TRANSCRIPT);
+	const editor = await transcriptEditor(whispering, TRANSCRIPT);
 	editor.edit((row) => {
 		row.body = 'Yesterday I finished the importer. Today: the exporter.\n';
 	});
@@ -696,36 +690,29 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 		kind: 'file',
 		path: TRANSCRIPT,
 	});
-	expect(whispering.edit('transcriptions', TRANSCRIPT).markdown?.body).toBe(
+	expect(whispering.edit('transcriptions', TRANSCRIPT).content?.body).toBe(
 		'Yesterday I finished the importer. Today: the exporter.\n',
 	);
 });
 
-test('typing over a transcript changed outside keeps both sources until explicit replacement', async () => {
+test('typing over an outside transcript change publishes the complete held source', async () => {
 	const { context, whispering, root } = await history();
 	whispering.open(path('standup'));
 	const notices: WriteFailure[] = [];
 	whispering.onWriteFailure((notice) => notices.push(notice));
-	const editor = transcriptEditor(whispering, TRANSCRIPT);
+	const editor = await transcriptEditor(whispering, TRANSCRIPT);
 	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8')).replace(
 		'importer',
 		'migration',
 	);
 	await writeFile(join(root, TRANSCRIPT), outside);
 
-	// Typing before the window read it again still compares with the source
-	// the editor observed, rather than overwriting the changed file.
 	editor.edit((row) => {
 		row.body = 'What I typed.\n';
 	});
 	await settle(whispering, context);
-	expect(notices).toHaveLength(1);
-	expect(notices[0]?.error?.name).toBe('Conflict');
+	expect(notices).toHaveLength(0);
 	expect(editor.draft.body).toBe('What I typed.\n');
-	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toBe(outside);
-	expect(whispering.isUnsaved(TRANSCRIPT)).toBe(true);
-	await whispering.edit('transcriptions', TRANSCRIPT).resolveConflict('draft');
-	await settle(whispering, context);
 	expect(whispering.isUnsaved(TRANSCRIPT)).toBe(false);
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	expect(saved).toContain('What I typed.');
@@ -737,7 +724,7 @@ test('closing the details and changing page lose no typing: the draft belongs to
 	const { context, whispering, view, root } = await history();
 	whispering.open(path('standup'));
 	view.showingDetail = true;
-	const draft = transcriptEditor(whispering, TRANSCRIPT);
+	const draft = await transcriptEditor(whispering, TRANSCRIPT);
 	draft.edit((row) => {
 		row.body = 'Typed just before closing the details.\n';
 	});
@@ -850,7 +837,7 @@ test('nothing is opened or read after closing', async () => {
 
 test('typing in a transcript that was opened before closing is saved before the folder closes', async () => {
 	const { context, whispering, root } = await history();
-	transcriptEditor(whispering, TRANSCRIPT).edit((row) => {
+	(await transcriptEditor(whispering, TRANSCRIPT)).edit((row) => {
 		row.body = 'Typed just before quitting.\n';
 	});
 

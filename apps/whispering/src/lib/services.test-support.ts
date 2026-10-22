@@ -35,10 +35,10 @@ import {
 	type StoredConnection,
 } from './connections.js';
 import { whisperingTables } from './definition.js';
-import { TranscriptionError } from './transcription.js';
-import { TransformationError } from './transformation.js';
 import type { WhisperingFolder } from './folder.js';
 import type { WhisperingServices } from './platform/types.js';
+import { TranscriptionError } from './transcription.js';
+import { TransformationError } from './transformation.js';
 
 type TransformRequest = Parameters<WhisperingServices['transform']>[0];
 type TranscribeRequest = Parameters<WhisperingServices['transcribe']>[0];
@@ -182,14 +182,14 @@ export function withObstructedCreates<TTable extends FolderTable>(
 ): TTable {
 	return {
 		...table,
-		async set(id, from, change) {
-			if (from !== null || failures.creates === 0)
-				return table.set(id, from, change);
+		async set(id, change) {
+			if (change.body !== '' || failures.creates === 0)
+				return table.set(id, change);
 			failures.creates -= 1;
 			const obstacle = join(directory, `${id}.md`);
 			mkdirSync(obstacle, { recursive: true });
 			try {
-				return await table.set(id, from, change);
+				return await table.set(id, change);
 			} finally {
 				rmdirSync(obstacle);
 			}
@@ -229,9 +229,9 @@ export function withResultFailures<TTable extends FolderTable>(
 ): TTable {
 	return {
 		...table,
-		async set(id, from, change) {
-			const counter = from === null ? 'starts' : 'answers';
-			if (failures[counter] === 0) return table.set(id, from, change);
+		async set(id, change) {
+			const counter = change.body === '' ? 'starts' : 'answers';
+			if (failures[counter] === 0) return table.set(id, change);
 			failures[counter] -= 1;
 			return Err({
 				name: 'StorageFailed' as const,
@@ -269,19 +269,21 @@ export async function openTestServices({
 }: TestServicesOptions = {}) {
 	const root = await whisperingDirectory('whispering-services-');
 	const storage = nativeStorage(root);
-	let folder = given ?? (beforeStorageList === undefined
-		? await openTestFolder(root)
-		: createNativeFolder({
-			storage: {
-				...storage,
-				async list() {
-					await beforeStorageList();
-					return storage.list();
-				},
-			},
-			tables: whisperingTables,
-			directory: `bun:${root}`,
-		}));
+	let folder =
+		given ??
+		(beforeStorageList === undefined
+			? await openTestFolder(root)
+			: createNativeFolder({
+					storage: {
+						...storage,
+						async list() {
+							await beforeStorageList();
+							return storage.list();
+						},
+					},
+					tables: whisperingTables,
+					directory: `bun:${root}`,
+				}));
 	const failures: ResultFailures = {
 		starts: failResultStarts,
 		answers: failAnswerWrites,

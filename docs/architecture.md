@@ -14,14 +14,15 @@ This page maps the current implementation. Read the
 ## Opening a local folder
 
 ```ts
-const folder = await openFolder({ tables: { todos: todoSchema } });
+const { data: folder, error } = await openFolder({ tables: { todos: todoSchema } });
+if (error !== null) throw error;
 ```
 
 In a browser, this opens the origin's stable default in IndexedDB. In a
 Tauri page, it opens the directory that the shell assigned to that window
 before creating its WebView. A Bun process passes an existing path with
-`openFolder({ directory, tables })`; a Tauri page may pass the ID of another
-folder the shell has registered and permitted. Opening needs no account,
+`openFolder({ directory, tables })`. To choose another native directory, the
+shell assigns it to another window. Opening needs no account,
 network connection, Git repository, or `epicenter.json`, and it writes no
 authored file. A storage refusal is returned to the caller; another store is
 never opened in its place.
@@ -33,29 +34,31 @@ migrates or removes data.
 
 ## Editing and saving
 
-`folder.files` reads and changes paths; `folder.tables` reads and changes
-rows at `<table>/<id>.md`. Direct `files.write` and `tables.<name>.set` calls
-supply the file or row they started from. The engine merges their complete
-submitted change with current storage, by frontmatter field or text region,
-using the same content rules in browser, Tauri, and Bun.
+`folder.files` reads and changes paths; `folder.tables` interprets rows at
+`<table>/<id>.md`. File writes publish complete content. Table changes compose
+against the folder's current held source. All local publications and deletes
+share one FIFO lane per path. Once admitted, an operation finishes in order.
+Outside writers are uncoordinated: the last actual publication wins.
 
-An edit handle instead owns one whole-source draft per path. `change()` applies
-fields and body to the displayed source in call order; `replaceText()` replaces
-it. Rereads do not fold outside changes into a dirty draft. `FileEdit.save()`
-succeeds if storage still matches the observed source or already equals the
-draft; otherwise it reports a whole-file `Conflict` and retains the draft.
-`resolveConflict()` explicitly accepts saved content or submits a guarded
-replacement. Unknown fields, comments, and repairable source remain visible;
-no field-level merge runs implicitly on a draft save.
+One folder-owned editor retains text per path. Raw replacement and schema-bound
+changes edit that source. `getSnapshot()` is a pure cached read; `subscribe()`
+emits it immediately and activates initial reading. The Svelte 5 adapter exposes
+tracked `content`, `loadError`, `isDirty`, `isSaving`, and `saveError` getters.
+Dirty input and an in-progress save are independent. A save captures the text at
+its call; completion acknowledges only that intent. Newer input remains pending.
+Discard and delete consume unsubmitted input, never cancel admitted saves, and
+do not lock typing. Observations never cause writes. Acquired text remains
+usable even when a refresh finds deletion or non-text content.
 
-The browser commits a save in IndexedDB. The desktop shell and Bun stage
-bytes beside the directory, compare the expected file under a shared save
-lock, and replace one file. The native shell also checks every path and
-refuses links that could leave the granted root. A failed save leaves the
-previous file in place; the app retains its draft and shows the failure.
-`onChange` tells another view which paths to reread. `getStatus()` reports saves
-in progress and storage failures. Closing a handle finishes saves already
-started and releases its listeners and storage.
+The browser commits atomically in IndexedDB. Native engines stage bytes beside
+the target and replace one file, while preserving root containment and link
+checks. Failed saves retain the input and its error for retry. Folder-wide
+observations identify paths to reread. Native directory watching and browser
+broadcasts supply these hints; manual/focus refresh reconciles missed events
+without periodic polling. `getStatus()` reports aggregate work and
+failures. `folder.run(action)` admits a workflow for normal close to drain; it
+reserves no paths and flushes no drafts. Closing finishes admitted work and
+releases listeners and storage. In-memory retention does not survive a crash.
 
 Git exchange is separate from opening and local saving. The `epicenter`
 CLI retains history commands, while current product pages offer no Save
@@ -88,8 +91,8 @@ page still calls `openFolder({ tables })`. Its rows land directly under
 `todos/` there. The path choice belongs to the launch context, not to an
 app ID or a path supplied by the WebView.
 
-Each window owns its Folder handle, query cache, drafts, and close
-coordination. The shell owns directory permission and guarded publication.
+Each window owns its Folder handle, query cache, retained input, and close
+coordination. The shell owns directory permission and atomic file publication.
 Whispering's recorder is a separate shell service that writes into the
 directory granted to its window. Settings and connection credentials are
 separate from the folder's local opening path.

@@ -107,7 +107,8 @@ The page calls `open_folder()`, with no arguments. A window with no binding
 is refused `NotBound`, a bound directory that is gone `Missing`, and one that
 cannot be inspected `Unavailable`; nothing is made again here, since making a
 default belongs to the shell's launch. After shutdown the answer is
-`ShuttingDown`. Opening starts no watcher or background worker.
+`ShuttingDown`. The first successful open starts one recursive watcher for this
+window's binding; subsequent opens reuse it. Watch setup failure is `Unavailable`.
 
 Every open also removes the staged files in `.<directory>.epicenter-scratch`
 beside the root that a stopped save left more than an hour ago
@@ -133,7 +134,7 @@ A page's folder storage (`FolderStorage` in `@epicenter/folder`'s
 | `list()` | `list_folder()` | `{ files: { path, size }[], directories: string[] }` |
 | `children(directory)` | `read_folder_children(directory)` | `{ files: string[], directories: string[] }`; `""` is the root |
 | `read(path)` | `read_folder_file(path)` | the bytes, raw |
-| `put(path, bytes, ifMatch)` | `put_folder_file`, raw body and headers | `"landed"` or `"stale"` |
+| `put(path, bytes, expected)` | `put_folder_file`, raw body and headers | `"landed"` or `"stale"` |
 | `mkdir(path)` | `make_folder_directory(path)` | `null` |
 | `rmdir(path)` | `remove_folder_directory(path)` | `null` |
 
@@ -178,8 +179,14 @@ only while the path holds what the page expects. It takes the bytes as the
 request's raw body, so content crosses IPC as it is rather than as a JSON
 array of numbers. Its arguments are headers, each percent-encoded: `path`,
 `remove` (`true` to remove the file, when the body is ignored), and
-`if-match`, the lowercase SHA-256 of the file the page expects there, left
-out when it expects no file. A JSON array of bytes, Tauri's `postMessage`
+`expected`, what the page expects there: `any`, `absent`, `present` (a
+regular file, whatever its bytes), or the lowercase SHA-256 of the file
+(`storage::Expectation`). `any` is never stale, and removing nothing that may
+be absent has landed. A new file must pass the shared path rule; an existing
+name only some disks hold may be replaced or removed, never made, so a put of
+bytes expecting `any` there lands only while a file is there, checked
+holding the turn, and is `InvalidPath` otherwise. `HEAD` is never written.
+A JSON array of bytes, Tauri's `postMessage`
 fallback, is accepted too. The generated bindings cannot type a raw request,
 so the command is left out of them; the plugin dispatches it beside the
 typed commands, under the same permission, and `tauri-files.ts` invokes it
@@ -220,7 +227,7 @@ Bun host lands between the check and the change
 A directory another writer pruned while the put waited is made again under
 the turn; the root itself never is. A put waits up to ten seconds for
 another writer's save; past that it changes nothing and is `Io`, naming the
-lock file. The cost is a read and hash of the destination when `if-match`
+lock file. The cost is a read and hash of the destination when `expected`
 names a hash. A path that holds something else changes nothing and answers
 `"stale"`. On every answer but `"landed"` the put leaves nothing behind: not
 its staged file, and not a directory it made, unless another writer put
@@ -259,21 +266,40 @@ history command. Git's checks live in the CLI's runner,
 
 ## Changes outside the page
 
-The plugin stores files and binds directories to windows. It keeps no watchers,
-change-event channel, or wake clock. The shared TypeScript folder context
-(`@epicenter/svelte/folder`) rereads active queries while their document is
-visible, with a delay proportional to the cost of the preceding read batch.
-Own writes still report precise paths inside the page's Folder engine.
-Other windows' and programs' edits appear on the next query refresh. A native
-Folder handle's `onChange` alone does not observe external programs.
+Each opened window binding owns one `notify::RecommendedWatcher` over its root,
+recursively, without following symbolic links. It routes the typed `FolderChanged`
+event to the binding's WebView target. Its `paths` are root-relative hints, including
+directory hints that cover descendants; `null` means any path may differ.
+Rename notifications retain both paths when the operating system supplies them.
+Read/open access events and private Git paths are ignored; close-after-write
+events remain observations. A native rescan, unknown
+scope, or watch error emits `null`; no file is read or hashed by the callback.
+
+`@epicenter/folder/tauri` opens the native watch, installs its scoped listener,
+then constructs and returns its passive Folder. No reader or cached source
+exists before listening, so hints need no startup replay.
+The owner rereads sources held by readers or accepted input. An observation,
+including an echo of an own write, never acknowledges a save or initiates a
+write. Each handle releases its listener on close; the binding releases the
+watch on destruction or shutdown, outside the bindings mutex. Native setup also
+runs outside that mutex; a candidate remains inactive until installed on the
+same binding. Teardown fences in-flight callbacks before reusing a window label.
+No new command,
+resource identifier, or filesystem permission is exposed to the page.
+
+Delivery is best effort. Root replacement recovery is unsupported and platform
+dependent; neither original-inode retention nor reattachment is guaranteed.
+Terminal errors request reconciliation without an autonomous restart guarantee.
+No polling fallback or file-content replica is kept here.
 
 ## Shutdown
 
 Every put and directory change holds a clone of its window's directory while
 it runs; a read holds one too. When the app exits, or the shell calls
 `app.folders().shutdown()`, the plugin refuses new binds, opens, reads, and
-work. It waits for nothing: quitting is
-immediate ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
+work. It waits for no admitted storage operation. Watch release fences any
+notification currently emitting, without waiting for page reads or saves
+([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
 Every save is an atomic rename, so a change cut off at exit leaves the old
 file or the new one. A late change is refused as `ShuttingDown` and writes nothing.
 

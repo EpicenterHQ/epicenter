@@ -128,12 +128,12 @@ test('a delayed failed initial row save reports the recording after Stop truthfu
 	replaceTables(test.folder, {
 		recordings: {
 			...recordings,
-			async set(id, from, change) {
-				if (from === null) {
+			async set(id, change) {
+				if (change.body === '') {
 					reached.resolve();
 					await release.promise;
 				}
-				return recordings.set(id, from, change);
+				return recordings.set(id, change);
 			},
 		},
 	});
@@ -177,7 +177,7 @@ for (const reason of [
 		const opened = await open({
 			stop: async (path) => {
 				audioPath = path;
-				expectOk(await test.folder.files.write(path, null, toneWav()));
+				expectOk(await test.folder.files.write(path, toneWav()));
 				return Ok({ path, durationMs: 1000 });
 			},
 		});
@@ -332,10 +332,10 @@ test('a Stop whose row was still saving when closing began writes no length, tho
 	replaceTables(test.folder, {
 		recordings: {
 			...recordings,
-			async set(id, from, change) {
-				const saved = await recordings.set(id, from, change);
+			async set(id, change) {
+				const saved = await recordings.set(id, change);
 				// The row is on disk; its answer is held, so Stop still waits on it.
-				if (from === null) {
+				if (change.body === '') {
 					reached.resolve();
 					await release.promise;
 				}
@@ -347,7 +347,7 @@ test('a Stop whose row was still saving when closing began writes no length, tho
 	await reached.promise;
 	const stopping = whispering.stopRecording();
 	await eventually(() => whispering.recorder.phase === 'idle');
-	const other = test.folder.run([], async () => {
+	const other = test.folder.run(async () => {
 		entered.resolve();
 		await gate.promise;
 	});
@@ -403,7 +403,9 @@ test('the current audio path stays known until Stop finishes its bytes', async (
 	expect(expected.kind).toBe('here');
 	const stopping = whispering.stopRecording();
 	try {
-		expect(whispering.capturePhase(expected.kind === 'here' ? expected.path : '')).toBe('stopping');
+		expect(
+			whispering.capturePhase(expected.kind === 'here' ? expected.path : ''),
+		).toBe('stopping');
 		expect(whispering.audioOf(entry)).toEqual(expected);
 	} finally {
 		release.resolve();

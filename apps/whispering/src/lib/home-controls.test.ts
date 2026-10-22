@@ -87,7 +87,7 @@ async function cleanup(
 	expect(
 		await whispering.createTransformation(STARTER_TRANSFORMATIONS[0]!),
 	).toBeUndefined();
-	const draft = transformationEditor(whispering);
+	const draft = await transformationEditor(whispering);
 	if (model !== undefined) {
 		draft.edit((row) => {
 			row.fields.model = model;

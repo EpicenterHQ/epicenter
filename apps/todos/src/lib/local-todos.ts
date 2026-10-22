@@ -3,9 +3,14 @@
  * them, and what a person is told about a save. Pure functions of what the
  * table lists; the views read and write through `getFolder()`.
  */
-import type { FolderStatus, Row, ReadError, SaveError } from '@epicenter/folder';
-import type { StatusLine } from '@epicenter/svelte/status-line';
+import type {
+	FolderStatus,
+	ReadError,
+	Row,
+	SaveError,
+} from '@epicenter/folder';
 import type { ActionError } from '@epicenter/folder/edits';
+import type { StatusLine } from '@epicenter/svelte/status-line';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { todosTables } from './definition.js';
 
@@ -15,7 +20,7 @@ export type TodoRow = Row<(typeof todosTables)['todos']>;
 export type Todo = Extract<TodoRow, { issues: null }>;
 
 /** A row that does not read as a todo: its source stays, with why. */
-export type Problem = Extract<TodoRow, { issues: unknown[] }>;
+export type Problem = Extract<TodoRow, { issues: readonly unknown[] }>;
 
 /** The file of the todo `id`. */
 export const todoPath = (id: string) => `todos/${id}.md`;
@@ -71,8 +76,8 @@ export function describeFailure(
 	switch (error.name) {
 		case 'StorageFailed':
 			return `This device could not save it: ${extractErrorMessage(error.cause)}.`;
-		case 'NotStarted':
-			return error.reason;
+		case 'Closing':
+			return error.message;
 		case 'Unparseable':
 			return `Its file cannot be edited as a todo: ${error.reason}.`;
 		case 'NotText':

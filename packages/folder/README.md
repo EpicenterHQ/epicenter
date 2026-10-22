@@ -29,17 +29,16 @@ const { data: folder, error } = await openFolder({ tables: { notes } });
 if (error !== null) return show(error.message);
 
 const stop = folder.onChange((change) => refresh(change.paths)); // subscribe, then read
-const saved = await folder.tables.notes.set('milk', null, { fields: { title: 'Milk' } });
+const saved = await folder.tables.notes.set('milk', { fields: { title: 'Milk' } });
 if (saved.error !== null) return show(saved.error.message);      // nothing was saved
 
-// One path-owned edit, interpreted through the notes schema.
+// The folder's editor of one path, interpreted through the notes schema.
 const fileEdit = folder.tables.notes.edit('milk');
-const read = await fileEdit.read();                                // refresh; inspect the getters afterwards
-if (read.error !== null) return show(read.error.message);
+const stopEditing = fileEdit.subscribe((snapshot) => render(snapshot)); // starts the first read
 const changed = fileEdit.change({ fields: { done: true }, body: 'Two litres\n' });
 if (changed.error !== null) return show(changed.error.message); // accepted in memory; autosave follows
-fileEdit.getMarkdown();                         // current Markdown content, including applicable unsaved input
-folder.getStatus();                       // { saving, storageFailure, unsaved, failures, closing }
+fileEdit.getSnapshot();              // { content, loadError, isDirty, isSaving, saveError }
+folder.getStatus();                  // { saving, storageFailure, unsaved, failures, closing }
 await folder.settle();               // send held input now; answers what did not save
 const unsaved = await folder.close(); // sends held input once; answers what did not save
 ```
@@ -50,12 +49,12 @@ const unsaved = await folder.close(); // sends held input once; answers what did
 | --- | --- | --- |
 | `@epicenter/folder` | Acts as `/browser` in a browser and `/tauri` in the desktop app. `openFolder({ tables })` opens the origin's folder or the window's folder. Only the chosen engine is loaded. A build may alias this exact specifier to one entry. | Ordinary application code that runs in both. |
 | `@epicenter/folder/browser` | `openFolder({ tables })`. Refuses inside the desktop app. | A web-only build. |
-| `@epicenter/folder/tauri` | `openFolder({ tables })` and `updateSavedView(change)` for the folder the shell bound to this window. Refuses outside the desktop app. | A desktop-only build. |
+| `@epicenter/folder/tauri` | `openFolder({ tables })` for the folder the shell bound to this window. Refuses outside the desktop app. | A desktop-only build. |
 | `@epicenter/folder/bun` | `openFolder({ directory, tables })` over a path, and the `epicenter` CLI's tools ([below](#cli-tools)). | Command-line tools, scripts, and tests given a directory. |
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
-| `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, and saved-view types. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
+| `@epicenter/folder/declaration` | Portable declaration schemas, app-schema export, section readers, saved-view types, and the pure view transform. Opens nothing. | Reading or distributing a folder's schemas and view settings. |
 | `@epicenter/folder/documents` | Saved Markdown documents with optional schema diagnostics, including root and nested paths. | Generic file, grid, board, or SQL interpretation. |
-| `@epicenter/folder/edits` | The vocabulary of a path's source draft and Markdown interpretation (`FileEdit`, `BufferSnapshot`, `Unsaved`, `Recovery`, `MarkdownContent`, `DocumentChange`, `ActionError`, …) over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#unsaved-input)), and explicit `mergeText`/`mergeFileText` helpers. Opens nothing. | Code that names those types. |
+| `@epicenter/folder/edits` | The vocabulary of the editors over `folder.tables.<name>.edit(id)` and `folder.files.edit(path)` ([below](#editors)): `FileEdit`, `EditorSnapshot`, `MarkdownContent`, `DocumentChange`, `LoadError`, `ChangeError`, `SaveRefusal`, `ActionError`, `Recovery`, `SAVE_AFTER_MS`. Opens nothing. | Code that names those types. |
 
 Every opening entry exports the same contract (`contract.ts`): the `Folder`
 type and its parts, `DefaultFolderOptions`, `DirectoryFolderOptions`,
@@ -86,31 +85,32 @@ the saved files.
 
 | Member | Contract |
 | --- | --- |
-| `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, from, content)`; `delete(path, from)`; `edit(path)`, the file's source draft. |
-| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, from, change)`, `delete(id, from)`, and `edit(id)`, the same source draft interpreted through the table schema. Adjacent files are available through `folder.files`. |
-| `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A save of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
-| `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or reserved action running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
-| `settle()` | Attempts unreserved held input now, drains admitted work and started saves, then attempts newly released paths. A failed revision is not retried within the same call. Unscoped reads are not waited for. Answers the input that did not save. |
-| `run(paths, action)` | Admits a complete action that close waits for. `paths` is its reservation, declared up front and fixed for the action: those paths are reserved together against local input and competing reservations, and their held input is flushed before the callback. `[]` admits lifetime only. The callback takes no argument and uses this Folder's `files` and `tables`. |
-| `close()` | At once, new input and actions are refused, and `onChange`, `onStatusChange` and `settle` throw. `files` and `tables` stay usable while close drains: admitted actions and running deletes finish; held input is attempted once and any remaining failures stay held for recovery; saves already started, including ones any caller starts during the drain, finish with their real outcome; reads still running are not waited for. Then listeners and storage are released, and `files` and `tables` throw from then on. Held input stays readable: `getStatus()`, and `edit(...)` handles, whose `getMarkdown()`, `getText()`, `getBuffer()` and `discard()` answer, whose `read()` rejects, and whose `save()` attempts its path during close and returns `ActionError.NotStarted` after completion. Answers the input that did not save. Calling it again returns the same promise. |
+| `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, content)`; `delete(path)`; `edit(path, schema?)`, the path's editor. |
+| `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, change)`, `delete(id)`, and `edit(id)`, the path's editor through the table schema. Adjacent files are available through `folder.files`. |
+| `onChange(listener)` | Runs after a write commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A write of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
+| `getStatus()`, `onStatusChange(listener)` | `{ saving, storageFailure, unsaved, failures, closing }`: a write or delete admitted and not settled; the last storage failure; the paths holding accepted input; held input whose last publication failed; whether close was called. |
+| `settle()` | Submits held input, failed input included, and drains admitted work. Reads are not waited for. Answers the input that did not save. |
+| `run(action)` | Admits an action into the folder's lifetime at the call: close waits for it. It reserves no path, sends no input, and locks nothing. Refused with `ActionError.Closing` once close was called. |
+| `close()` | At once, new input and actions are refused, and `onChange`, `onStatusChange` and `settle` throw. `files` and `tables` stay usable while close drains: held input is submitted once, and admitted actions and writes, including ones any caller starts during the drain, finish with their real outcome; reads still running are not waited for. Then listeners and storage are released, and `files` and `tables` throw from then on. Editors stay readable, and their `save()` refuses with `SaveRefusal.Closed`. Answers the input that did not save. Calling it again returns the same promise. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
 saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
 number of milliseconds from 0 up; any other value throws a `RangeError`
 before anything opens.
 
-The saves of one path through one handle run one at a time, in call order,
-direct saves and saves of typed input alike; saves of different paths run
+The writes and deletes of one path through one handle run one at a time, in
+call order, direct ones and editors' alike; writes of different paths run
 side by side.
 
 A storage call on a handle whose close released storage throws: it is a
 programming error, not a storage failure.
 
 New file and row names follow the portable path rule. Earlier files with a
-nonportable but structurally safe name remain readable. A save or deletion
-can change one of those files when it supplies the exact source it started
-from; a new file cannot be created under that name. `HEAD` remains read-only
-because changing it can turn a plain directory into Git state.
+nonportable but structurally safe name remain readable, and a write or delete
+may replace or remove one while it is still there; a new file cannot be
+created under that name. Each host checks this where the change lands
+(`Expectation` in `boundary.ts`). `HEAD` remains read-only because changing it
+can turn a plain directory into Git state.
 
 ### Rows
 
@@ -136,240 +136,159 @@ With no opening fence, the whole file is body and fields are empty.
 
 ### Saving
 
-Every direct write names what it started from: `from` is the content or row as read,
-or `null` for something new. The engine reads the file as it is now and
-merges the change from `from` into it, so saves that landed meanwhile stay,
-then writes the result guarded by what it read. Another writer landing in
-between makes the engine read and merge again. `FileEdit.save()` instead
-compares whole source and retains a conflicting draft ([below](#unsaved-input)).
+Direct writes are unconditional: no write names the content it started
+from, and the last one to land wins.
 
-- `files.write(path, from, content)` saves text or bytes. Pass bytes for a
-  binary file or to keep a byte-order mark; a byte array is copied when the
-  method is called.
-- `tables.<name>.set(id, from, { fields?, body? })` puts `fields` over the
-  row's fields and replaces its body, then saves the row's text. It answers
-  `sent`, the row it submitted, to start the next edit from. A field edit of
-  a row whose frontmatter does not parse is `Unparseable`; a body edit lands.
-- `delete(id, from)` removes only the row file. Adjacent files stay in the
-  folder. A delete whose `from` an unseen edit changed keeps the row and answers
-  `{ deleted: false }`.
+- `files.write(path, content)` replaces whatever is at `path` with text or
+  bytes, or makes the file. Pass bytes for a binary file or to keep a
+  byte-order mark; a byte array is copied when the method is called.
+- `files.delete(path)` removes the file. A file that is not there is
+  already deleted, which is success.
+- `tables.<name>.set(id, { fields?, body? })` applies the change to the row
+  text held at the call, including unsaved input, and answers the row it
+  stored. With no held text, it reads and composes inside the path's lane,
+  after earlier commands. `undefined` removes a field; `body` replaces the
+  body. The composed whole file is published unconditionally, so another
+  writer's changes may be replaced. A field edit of a row whose frontmatter
+  does not parse is `Unparseable`; a body edit lands.
+- `tables.<name>.delete(id)` removes only the row file. Adjacent files stay.
 
-The merge is content-only and the same on every host (`shared/merge.ts`,
-`shared/row.ts`, ADR-0622). No schema or storage takes part:
+Every write and delete of a path through one handle, the editors' included,
+runs in one lane in call order, and each reports its own outcome; writes of
+different paths run side by side. Sync and history keep their own
+conditional publication (`write.ts`, `git/history.ts`), which merges by the
+shared content rules (`shared/merge.ts`, ADR-0622).
 
-| File | Unit |
-| --- | --- |
-| `.md` with frontmatter that parses | one frontmatter field; one region of body lines |
-| `.md` without an opening fence | one region of body lines |
-| `.md` whose frontmatter does not parse, and other UTF-8 text | one region of lines |
-| binary | the whole file |
-
-Units only one side changed survive, and a side that changed nothing leaves
-the other's bytes exactly as they are. Where both changed one unit, the save
-wins. A delete never erases an edit it did not see: a delete whose base
-another writer changed keeps their file, and an edit of a file deleted
-meanwhile writes the edit.
+A direct command acknowledges only the input it captured, after success.
+Failure leaves that original input held, never installs the command's payload
+as input, and returns its own error. Any autosave the command interrupted resumes
+with the original input; the command's failed payload is never retried.
 
 | `SaveError` | When |
 | --- | --- |
-| `InvalidPath`, `InvalidId` | A path or row ID the folder cannot address. |
+| `InvalidPath`, `InvalidId` | A path or row ID the folder cannot address, or a new file under a name only some disks hold. |
 | `Occupied` | A file stands where a directory is needed, or the reverse. |
-| `CaseTwin` | A path that differs from a stored one only by case. |
+| `CaseTwin` | A new path that differs from a stored one only by case. |
 | `NotText` | Text with NUL or unpaired surrogates, or a row edit of a file that is not text. |
 | `Unparseable` | A field edit of a row whose frontmatter does not parse. |
-| `Conflict` | A `FileEdit` draft's observed source differs from storage during a guarded save. The error carries the base and current content. |
-| `StorageFailed` | Storage failed, with its reason; earlier storage is unchanged. |
+| `StorageFailed` | Publication could not be confirmed, with its reason. A lost reply may follow a completed write. |
 
-A failed save returns its error and leaves the file as it was; the caller
-keeps what it meant to save. `status.storageFailure` holds the last
-`StorageFailed` until a later successful save on this handle, a no-op retry
-included. `status.saving` is true while a save is between its call and its
-commit or refusal. Structural refusals are the caller's to show, not status.
+A failed save returns its error and keeps accepted input available for retry.
+`status.storageFailure` holds the last `StorageFailed` until a later
+successful write on this handle. `status.saving` is true while any write or
+delete is admitted and not settled. Structural refusals are the caller's to
+show, not status.
 
-### Unsaved input
+### Editors
 
-The opened folder owns one source draft, save queue and fence per path
-([ADR-0666](../../docs/adr/0666-one-source-draft-per-path-saves-against-its-observed-source.md)).
-`folder.files.edit(path, schema?)` and `folder.tables.notes.edit(id)` return the
-same `FileEdit`; a table accessor binds its schema. Making a handle reads
-nothing. All handles for the same path share the draft, including handles with
-different read schemas.
+The opened folder owns one source per path for its whole life.
+`folder.files.edit(path, schema?)` and `folder.tables.notes.edit(id)` return
+an editor of it; a table binds its schema, and `tables.notes.edit(id)` is
+the same editor as `files.edit('notes/<id>.md', notesSchema)`. Acquiring one
+is synchronous and reads nothing. The same path and schema answer the same
+editor; every schema views the same source.
 
 ```ts
 const edit = folder.tables.notes.edit(id);
-const read = await edit.read();
-if (read.error !== null) return show(read.error.message);
-edit.getMarkdown(); // { text, body, fields, issues }, or undefined
-edit.getText(); // exact displayed source
+const stop = edit.subscribe((snapshot) => render(snapshot)); // called now, and on each change
+const { content, loadError, isDirty, isSaving, saveError } = edit.getSnapshot();
+// content: { text, body, fields, issues } | undefined
 const changed = edit.change({ fields: { done: true }, body: 'Two litres\n' });
 if (changed.error !== null) return show(changed.error.message);
-const buffer = edit.getBuffer();
-if (buffer.status === 'ready') {
-  showSource(buffer.text);
-  if (buffer.unsaved) showSaveStatus(buffer.unsaved.status);
-}
-const saved = await edit.save(); // or wait saveAfterMs
-if (saved.error !== null) return show(saved.error.message);
-
-const file = folder.files.edit('notes/a.md');
-const fileRead = await file.read();
-if (fileRead.error !== null) return show(fileRead.error.message);
-const replacement = file.replaceText(editedText); // replaces the displayed source
-if (replacement.error !== null) return show(replacement.error.message);
-// The callback uses this same folder. Its reservation is declared before it
-// starts and cannot grow.
-await folder.run(['notes/a.md', 'audio/a.bin'], async () => {
-  const note = await folder.files.read('notes/a.md');
-  // Both paths' held input saved first. Close waits for this callback, so
-  // storage stays usable here even if close started during an await.
-});
+const saved = await edit.save(); // or wait saveAfterMs after the last change
+const dropped = edit.discard(); // the text dropped, if any; writes nothing
 ```
-
-`change({ fields?, body? })` applies to the displayed source immediately.
-`replaceText(text)` replaces that source. Both synchronously return
-`Result<void, ChangeError>` for acceptance into memory, not persistence. An
-operation that leaves the displayed source unchanged is a no-op. Structured
-changes require a known text source; unread, missing and binary files refuse
-them. Text or row reads seed the source through the folder's ordered reads.
-
-`getMarkdown()` interprets exactly `getText()` through the handle's schema.
-Its `text` is always the complete displayed source, even if the draft contains
-NUL or a lone surrogate that storage will refuse. A schema mismatch retains
-raw fields. Broken YAML exposes unavailable fields; a closed malformed header
-can still expose its body, while an unclosed header cannot. With no opening
-fence, the entire source is body with empty fields in file and table views
-([ADR-0665](../../docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md)).
-Adding a field creates a fence; a body change keeps a headerless file
-headerless unless its new body would itself begin with an opening fence.
-
-`getBuffer()` answers one immutable snapshot of the displayed editor. Its
-outer status says whether text is available:
 
 ```ts
-type BufferSnapshot = { error?: BufferIssue } & (
-  | { status: 'unread' | 'loading' }
-  | { status: 'unavailable'; error: BufferIssue }
-  | { status: 'ready'; text: string; unsaved?: Unsaved }
-);
-
-type Unsaved =
-  | { status: 'dirty' | 'saving' }
-  | { status: 'failed'; error: SaveFailure }
-  | { status: 'conflict'; error: SaveConflict };
+type EditorSnapshot<Schema> = {
+  content: MarkdownContent<Schema> | undefined;
+  loadError: LoadError | undefined; // Missing | NotText | ReadFailed
+  isDirty: boolean;
+  isSaving: boolean;
+  saveError: SaveError | undefined;
+};
 ```
 
-`unread` means no source is known and no read is active; `loading` means a read
-is running without text to show. `unavailable` means a read failed or found
-missing or non-text content, with no retained text. A `ready` buffer provides
-`text`, including any unsaved input. Its nested `unsaved` tracks that input's
-save lifecycle. Presence means work remains even while saving or resolving a
-conflict. Absence means no held input; it says nothing about an unread or
-unavailable file. `unsaved` carries neither path nor another text copy.
+`getSnapshot()` is pure and cached: it reads nothing, and answers the same
+frozen object until something in it changes. `subscribe(listener)` calls the
+listener with the current snapshot at once, then with each new one, and the
+first subscription reads the file when nothing has been read yet or it
+changed while nobody watched. Unsubscribing cancels no accepted work.
+`refresh()` reads now, after the path's admitted writes, and answers
+`Result<void, LoadError>`.
 
-`buffer.error` is non-save feedback: a command refusal, otherwise a read
-failure, otherwise `SourceUnavailable` with `reason: 'missing' | 'not-text'`.
-The owner retains these causes separately, so clearing a refusal can reveal
-a read failure beneath it. Save failures and conflicts belong to
-`buffer.unsaved.error`. Commands record their refusals before notifying
-subscribers and still return their Results for imperative callers.
+`content` is the latest accepted input, or the last text read. Its `text` is
+the exact source; `fields`, `body` and `issues` interpret it through the
+editor's schema, with `issues === null` proving valid typed fields. Absent
+content with no `loadError` means text is awaited; absent with a `loadError`,
+acquisition failed. Once acquired, text stays for the folder's life: after
+unmounting, a delete, a binary replacement, or a failed read, each reported
+as the latest `loadError`. A successful text read clears it; input does not.
 
-A failed read keeps the last displayed source. Held input also keeps the
-buffer `ready` after another writer deletes the file or replaces it with
-binary content; `buffer.error` reports the stored source problem. Snapshots
-retain identity while their fields are unchanged. Capture a ready snapshot
-before creating deferred UI callbacks so its text remains narrowed.
-`getText()` remains a scalar convenience, and `getMarkdown()` supplies the
-schema-bound interpretation.
+`replaceText(text)` accepts complete source, even before the first read.
+`change({ fields?, body? })` patches the current text, local or read, and
+refuses with `NoContent` before there is any, or `InvalidFields` when it
+cannot identify the region (fields of broken frontmatter). Both return
+`Result<void, ChangeError>` for acceptance into memory. The same text again
+changes nothing. With no opening fence, the entire source is body with empty
+fields
+([ADR-0665](../../docs/adr/0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md));
+adding a field creates a fence.
 
-`read()` performs I/O and returns a Result; vanilla getters perform none.
-The last subscriber leaving releases clean cached source, while unsaved
-source remains available after unmount or close.
+`isDirty` is accepted input that no publication or delete has acknowledged
+yet; it is never inferred from comparing with storage. Only accepted input
+saves automatically, `saveAfterMs` after the last change. Reads, listings,
+and reported outside changes never write. `save()` publishes the exact
+current text even when clean, and answers that publication's outcome, or
+`SaveRefusal.NoContent` without text. `isSaving` is true while text
+publications of the path are admitted and not settled; deletes do not count.
 
-A save compares the draft with the exact source observed when editing began,
-inside each guarded storage attempt. It succeeds if storage still has that
-source or already has the same draft. Any other stored source, including a
-delete or binary replacement, yields `SaveError.Conflict` with the observed
-base and current content. The draft stays pending, with its source and error.
-`save()` returns `Result<void, SaveError | ActionError>` after the attempt.
-The snapshot records a save failure as `failed` or `conflict`. Typing during
-a save remains unsaved after the older revision lands. A storage failure
-also retains the source for retry or recovery.
+A publication acknowledges only the input it captured, by identity: typing
+during a save stays dirty after it lands, even when the newer text equals the
+older. A read waits for the path's admitted writes and reads again when a
+write or a reported change overtakes it, so an acknowledgement never lands
+over a newer observation. `saveError` is the last applicable failed
+publication; it survives typing and retries until a publication succeeds or
+`discard()`. Discard drops unpublished input and its pending automatic save,
+forgets the failure, writes nothing, and cancels no admitted publication;
+a publication admitted before it cannot bring its failure back.
 
-On conflict, `resolveConflict('current')` accepts the saved file after a
-refresh, `resolveConflict('draft')` explicitly submits the held source, and
-`resolveConflict({ text })` submits an edited whole-file resolution. The latter
-two compare against the conflicted current source at storage again, so a later
-outside change produces a new conflict. The application should present both
-sources and a choice. `resolveConflict()` returns a Result whose errors
-include read, save, and action failures.
+`folder.files.delete(path)` and `tables.<name>.delete(id)` capture the
+editor's current input and defer its pending automatic save, never blocking
+new input. Success acknowledges only that captured input, which stays held as
+the content; newer input saves afterwards and recreates the path. Failure
+leaves pending input pending and resumes its automatic save; input an earlier
+publication already acknowledged never becomes dirty again.
 
-`discard()` returns `Result<Recovery | undefined, ActionError>`. A successful
-discard releases the held source without saving it; a running save or reserved
-action refuses the discard. A detached recovery contains `{ path, text }`
-plus the `Unsaved` variant, so it remains copyable after the live buffer
-changes. Folder `settle()` and `close()` return detached recoveries too;
-`getStatus().failures` contains the failed or conflicting variants.
+`folder.settle()` submits held input, failed input included, and drains
+admitted work; `folder.close()` refuses new input, submits held input once,
+and drains. Both answer detached `Recovery` values, `{ path, text, error }`,
+for input that did not save; `getStatus().failures` lists the failed ones no
+save is retrying. After close, editors stay readable and `save()` refuses
+with `SaveRefusal.Closed`.
 
-`mergeFileText(path, base, current, change)` and `mergeText(base, current,
-change)` remain explicit helpers for callers that choose automatic content
-merge. They do not run during `FileEdit.save()`.
+`folder.run(action)` admits an action into the folder's lifetime at the
+call: close waits for it, and its writes work while close drains. It
+reserves no path, sends no input, and locks nothing. Code that must not
+write once the folder is closing, such as an answer arriving from a network
+request, admits that write with `run` and treats `ActionError.Closing` as
+closing. Do not await the folder's `settle()` or `close()` inside an action.
 
-`delete()` fences its path immediately. `folder.run(paths, action)` deduplicates
-and reserves every named path synchronously, before notifying any view or
-awaiting saves. Invalid structural paths or overlaps refuse the whole reservation
-without queuing. Existing nonportable names remain addressable under the ordinary
-storage rules. Already-queued saves of each path finish, then held input is
-attempted once. If any input remains, the action refuses with
-`ActionError.NotStarted`; successful saves of other paths stay landed. This
-protects local input and competing reservations. Raw storage calls and outside
-programs still use their ordinary content witnesses; it is not a storage lock or
-an atomic transaction.
+Editors learn of outside changes through folder-wide storage hints: browser
+broadcasts, native directory watching, and sync. Hints identify affected paths
+or any path, never publication receipts. The owner reads subscribed sources;
+inactive acquired sources reread when subscribed again. Directory hints include
+descendants. Receiving a hint never causes a write.
 
-The callback takes no argument and uses the same `folder.files` and
-`folder.tables` as everything else. An action's reservation is declared before
-it starts and cannot grow. The reservation protects held input and competing
-reservations; it does not limit which paths the callback's storage calls may
-reach, and it says nothing about who is calling. Use `[]` when the action
-needs only admission across awaits. This does not set `saving`; its actual
-writes and reserved actions do. A workflow that depends on reserved input for
-a path it finds later, such as Honeycrisp's folder deletion, refuses when that
-path was not reserved, so the person can try again with the larger set.
+`folder.refresh(paths?)` reconciles current editor readers and marks inactive
+sources stale. Omitted paths mean all, `[]` means none. Manual refresh and window
+visibility reconciliation complement best-effort notifications without polling.
+Table reads acquire parsed source before resolving, while raw file reads leave
+passive editor handles unacquired for initial size or media classification.
 
-Close waits for the callback and for every write already started, then
-releases storage. Writes queued on a reserved path when the callback returns
-or throws finish before its reservation ends; a failed one does not replace
-the callback's own outcome. Nothing keeps a continuation the callback left
-running: await the work whose outcome matters before returning. Storage stays
-usable until close releases it, so any write started during the drain, from
-an action or not, is waited for and prolongs close; one started after the
-release throws. Admission is the policy point: code that must not write once
-the folder is closing, such as an answer arriving from a network request,
-admits that write with `folder.run([], ...)` and treats `NotStarted` as
-closing. Do not await the captured root's `settle()` or `close()` inside an
-action, because they wait for that action.
-Close refuses new input immediately, drains admitted actions and saves, then
-attempts newly released input once. `FileEdit.save()` attempts or joins only its path
-while closing, so it never waits on an action that might be calling it. After
-close finishes it returns `ActionError.NotStarted` without I/O; failed input
-remains readable for recovery.
-
-`subscribe(listener)` reports source, read status, input and lock changes.
-Reported outside changes refresh held/subscribed sources; native queries poll
-for changes no watcher reports. The last subscriber leaving releases source
-when no input or save holds it. Svelte's `createFileEdit(edit)` exposes tracked
-`.buffer`, `.markdown`, `.text`, and `.locked`; React's `useFileEdit(edit)`
-retains explicit methods over render snapshots. A Svelte component that
-observes `.buffer`, `.text`, or `.markdown` starts the first read when nothing
-is known. It needs no additional `onMount(() => edit.read())`. A concurrent
-query read is joined; a failed first read waits for an explicit retry.
-React retains automatic first reads as part of its hook lifecycle.
-
-Construction and lock observation remain passive. Save indicators use
-Folder aggregate status rather than observing a buffer, so listing save
-metadata does not demand file contents. Polling or classification queries
-remain responsible for their own reads; a file view can classify size before
-observing content and avoid opening a large or binary file.
-
+Svelte's `createFileEdit(edit)` exposes the snapshot as tracked getters;
+React's `useFileEdit(edit)` answers the snapshot through
+`useSyncExternalStore`. Commands stay on the editor.
 ## Browser storage
 
 A browser origin has one default local folder, kept in IndexedDB by the
@@ -387,14 +306,12 @@ older stores are not opened or changed.
 
 ## Native directories
 
-A directory folder's files are the saved data: every read goes to disk, and
-every save is one guarded change of one file (`native/engine.ts`). Opening
-reads a file a person left there as it is and changes nothing; only a guarded
-save of that path replaces it. Git is optional: a
+A directory folder's files are the saved data: every storage read goes to disk,
+and each save publishes one whole file (`native/engine.ts`). Opening reads a
+file a person left there as it is and changes nothing. Git is optional: a
 directory with no `.git`, or with a `.git` file or link, opens and saves the
-same, and saving creates no repository. `FileEdit` saves compare their
-observed source at the guarded write; direct storage writes keep the content
-merge described above.
+same, and saving creates no repository. Editor and direct saves replace the
+path unconditionally; an outside writer's changes may be overwritten.
 
 ### Bun
 
@@ -418,8 +335,11 @@ and other Bun processes take too
 ([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
 A save waits up to ten seconds for another process's, then fails and changes
 nothing. Opening clears what a stopped save staged an hour or more ago.
-Nothing watches the directory: `onChange` reports this handle's saves and
-those of other handles of the directory in this process.
+Opening starts one recursive `fs.watch` for the handle. It reports outside
+changes through `onChange` as `other-handle` path hints; unknown scope is `null`.
+The folder owner rereads subscribed paths and marks inactive sources stale.
+Notifications carry no bytes and never acknowledge accepted input as saved.
+Closing releases the watch.
 
 ### Desktop app
 
@@ -430,12 +350,24 @@ through the shell's storage commands, one per storage method (`tauri-files.ts`,
 [ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md)),
 each answered in the calling window's directory. No command names a root,
 scope, or window.
-The shell checks every path, stages and renames each save, and checks its
-expected bytes under the same save lock. A command whose reply was lost counts
-as landed only when the path holds what was sent. Nothing watches the directory:
-`onChange` reports saves made through this page's handles. The shared UI context
-(`@epicenter/svelte/folder`) polls active queries while visible to discover edits
-from other windows and programs. Reading the handle directly always reads disk.
+The shell checks every path and stages and renames each save under the same
+save lock used by Bun. Ordinary saves compare no previous content. A command whose reply was lost counts
+as landed only when the path holds what was sent. The window binding starts one
+recursive native watch when first opened and retains it until destruction or
+shutdown. Each handle installs its scoped typed event listener before returning,
+then releases its listener on close. Outside changes reach `onChange` as
+`other-handle` path hints; they never acknowledge accepted input. Reading the
+handle directly always reads disk.
+
+Filesystem observation is best effort. Watch setup failure refuses opening;
+unknown paths, native rescan/overflow, and watcher errors request a `null`
+reconciliation. Root replacement recovery is unsupported and platform dependent:
+neither continued observation of the original inode nor attachment to a
+replacement directory is guaranteed. A terminal watcher error requests
+reconciliation without an autonomous restart guarantee.
+Neither native backend keeps a polling fallback, durable notification delivery,
+or file-content replica. General list queries retain their refresh policy while
+their event-based coverage is completed.
 
 ## Helpers
 
@@ -493,19 +425,24 @@ or unsupported sibling. It does not replace those siblings with defaults.
 the declaration. An invalid views section does not disable table checking. Git operations do
 not interpret the declaration.
 
-`updateSavedView({ key, base, value })` from `@epicenter/folder/tauri` changes one
-entry in the invoking window's bound directory. `base: undefined` witnesses
-absence; `value: undefined` deletes the entry. A conditional write rereads and
-patches the latest source, preserving tables, metadata, and every other view.
-A changed target entry returns a conflict; a retry whose desired entry already
-landed succeeds. A first explicit view save can create `{"views": {...}}`
-without inventing tables or initializing Git. Opening and browsing write nothing.
-The writer is a desktop capability, separate from the browser Folder API.
+`changeSavedView(text, { key, value })` from `@epicenter/folder/declaration`
+is a pure transform over current declaration text. `value: undefined` deletes
+an entry. It preserves unrelated JSON, tables, metadata, and unsupported sibling
+views. Assignments replace the current target without a source precondition.
+Malformed containers, duplicate keys, and numeric values that cannot round-trip
+are refused with the source still available for repair.
 
-The generic editor owns unfinished view settings and each SQL execution by view
-key. A structured save of the declaration runs as a reserved action on
-`epicenter.json`, after its held source input saves. Grid cells, board moves,
-and Files share the folder's file edit handles;
+A caller reads its current `folder.files.edit('epicenter.json')` content, applies
+the transform, and calls `replaceText` followed immediately by `save`, without an
+await between these steps. The file editor owns the composed input, failures,
+and publication order alongside raw Files edits. There is no separate saved-view
+writer or native storage capability. A first explicit save can create a source
+containing only `views` after the editor reports the path missing. Opening and
+browsing write nothing.
+
+The generic editor owns unsubmitted form values and SQL executions by view key.
+Submission retires a form into the shared file owner before I/O settles. Grid
+cells, board moves, and Files likewise share the folder's file edit handles;
 the declaration supplies presentation settings rather than another record store.
 
 ## CLI tools
@@ -545,21 +482,20 @@ the same rules; add a `.gitignore` line to exclude them.
 
 An app can maintain required exclusions through ordinary read-modify-write.
 Read the current file, retain unrelated rules, compute the desired contents,
-and pass the exact read as `from` to `files.write`. Skip unchanged contents.
-Rule order and exceptions matter; checking for a literal line is insufficient.
-An app that maintains a rule can restore it after someone removes it. Later
-writers and sync can still change the file, and already-tracked paths stay tracked.
-
-For an explicitly new file, the write is:
+and write them with `files.write`. Skip unchanged contents. The write is
+unconditional, so a change another writer landed between the read and the
+write is replaced. Rule order and exceptions matter; checking for a literal
+line is insufficient. An app that maintains a rule can restore it after
+someone removes it. Later writers and sync can still change the file, and
+already-tracked paths stay tracked.
 
 ```ts
-const saved = await folder.files.write('.gitignore', null, '/audio/\n');
+const saved = await folder.files.write('.gitignore', '/audio/\n');
 if (saved.error !== null) return show(saved.error.message);
 ```
 
 This saves an ordinary local file, without creating a Git commit. A later
-commit or sync records it normally. The example assumes an explicitly new file;
-an edit of existing rules supplies the exact bytes read as `from`. The folder
+commit or sync records it normally. The folder
 opener, Git initialization, and clone do not add or restore rules. App-maintained
 startup updates use the same files API. There is no generic template API,
 app-version ledger, or first-use flag.

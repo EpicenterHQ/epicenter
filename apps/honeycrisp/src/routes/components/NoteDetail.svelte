@@ -41,13 +41,12 @@
 		...notes.queries.rows('folders'),
 		select: foldersOf,
 	}));
-	const buffer = $derived(fileEdit.buffer);
 	/** The note as the rich-text view reads and edits it, when it reads as one. */
 	// svelte-ignore state_referenced_locally
-	const coreEdit = notes.folder.tables.notes.edit(noteIdOf(path) ?? '');
-	const shownNote = $derived(fileEdit.markdown?.issues === null ? fileEdit.markdown : undefined);
+	const sourceEdit = notes.folder.tables.notes.edit(noteIdOf(path) ?? '');
+	const shownNote = $derived(fileEdit.content?.issues === null ? fileEdit.content : undefined);
 	/** Edits wait once the notes are closing, and while this file is deleted. */
-	const locked = $derived(fileEdit.locked);
+	const locked = $derived(notes.fenced);
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
 	let tab = $state<'rich' | 'source'>('rich');
@@ -117,8 +116,9 @@
 			     survives a look at the source that changes nothing. -->
 			<Tabs.Content value="rich" forceMount class="min-h-0 flex-1">
 				<RichEditor
-					fileEdit={coreEdit}
+					fileEdit={sourceEdit}
 					focusRequest={notes.focusRequest}
+					closing={notes.fenced}
 					onOpenSource={() => (tab = 'source')}
 					onRefuse={(reason) => toast.warning('That edit was not made', { description: reason })}
 				/>
@@ -136,8 +136,8 @@
 			</Tabs.Content>
 		</Tabs.Root>
 
-	{:else if fileEdit.markdown?.issues}
-		{@const issues = fileEdit.markdown.issues}
+	{:else if fileEdit.content?.issues}
+		{@const issues = fileEdit.content.issues}
 		<Empty.Root class="flex-1" data-testid="needs-repair">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 			{#if issues.some((issue) => issue.kind === 'not-text')}
@@ -153,16 +153,16 @@
 				<Button variant="outline" size="sm" onclick={() => notes.open(path, 'text')}>Repair as text</Button>
 			{/if}
 		</Empty.Root>
-	{:else if buffer.error?.name === 'SourceUnavailable' && buffer.error.reason === 'missing'}
+	{:else if fileEdit.loadError?.name === 'Missing'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>This note is no longer in the folder</Empty.Title>
 			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 		</Empty.Root>
-	{:else if buffer.error}
+	{:else if fileEdit.loadError}
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read the note</Empty.Title>
-			<Empty.Description>{buffer.error.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void fileEdit.read()}>Try again</Button>
+			<Empty.Description>{fileEdit.loadError.message}</Empty.Description>
+			<Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Try again</Button>
 		</Empty.Root>
 	{:else}
 		<Loading class="flex-1" label="Opening the note…" />

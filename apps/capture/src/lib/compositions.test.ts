@@ -15,7 +15,6 @@
  */
 import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
-import { unsavedOf } from './local-folder.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { captureTables, composeBody } from '@epicenter/capture';
 import { openFolder } from '@epicenter/folder/browser';
@@ -57,7 +56,7 @@ async function setup(drafts: Record<string, string>) {
 /** The draft `stem`, read, with `raw` typed over it. */
 async function typeInto(t: CapturesHarness, stem: string, raw: string) {
 	const edit = t.folder.tables.captures.edit(stem);
-	expectOk(await edit.read());
+	expectOk(await edit.refresh());
 	expectOk(edit.change({ body: raw }));
 	return { stem, path: `captures/${stem}.md`, edit };
 }
@@ -114,14 +113,14 @@ test('finishing a draft keeps composeBody behavior for arbitrary pasted Markdown
 	expect(timelineOf(t.rows()).drafts).toEqual([]);
 });
 
-test('finishing saves raw input first, then opens the same file at Add a thought', async () => {
+test('finishing composes current unsaved input and opens the same file at Add a thought', async () => {
 	const t = await setup({ one: '' });
 	const { edit } = await typeInto(t, 'one', 'Hello\nworld');
 	expectOk(await t.captures.finishDraft('one'));
 	const row = expectOk(await t.folder.tables.captures.get('one'));
 	expect(row?.fields?.draft).toBeUndefined();
 	expect(row?.body).toBe('\nHello\nworld\n\n## Thoughts\n');
-	expect(unsavedOf(edit)).toBeUndefined();
+	expect(edit.getSnapshot().isDirty).toBe(false);
 	expect(t.captures.opened).toEqual({
 		stem: 'one',
 		mode: 'capture',
@@ -134,52 +133,51 @@ test('a blank draft is refused by Add and remains', async () => {
 	const t = await setup({ one: '' });
 	const { edit } = await typeInto(t, 'one', '   ');
 	const refusal = expectErr(await t.captures.finishDraft('one'));
-	expect(refusal.message).toBe('Write something first.');
-	expect(edit.getMarkdown()?.body).toBe('   ');
-	expect(edit.getMarkdown()?.fields?.draft).toBe(true);
+	expect(refusal).toMatchObject({
+		name: 'Refused',
+		message: 'Write something first.',
+	});
+	expect(edit.getSnapshot().content?.body).toBe('   ');
+	expect(edit.getSnapshot().content?.fields?.draft).toBe(true);
 });
 
-test('failed autosave and blocked discard keep raw input until another save attempt; successful discard survives restart', async () => {
+test('failed autosave keeps raw input and deletion removes it without a save requirement', async () => {
 	const t = await setup({ one: '' });
 	const { stem, edit, path } = await typeInto(t, 'one', 'unfinished ```\n');
 	const restore = t.failSaves();
 	await edit.save();
-	expect(unsavedOf(edit)?.error?.name).toBe('StorageFailed');
-	expect(edit.getMarkdown()?.body).toBe('unfinished ```\n');
+	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
+	expect(edit.getSnapshot().content?.body).toBe('unfinished ```\n');
 	expect(t.captures.failures.map((failure) => failure.path)).toContain(path);
 	const refused = expectErr(
 		await t.captures.delete(t.captures.deletionFor(stem)),
 	);
-	expect(describeFailure(refused)).toContain('Use Save again');
-	expect(edit.getMarkdown()?.body).toBe('unfinished ```\n');
+	expect(describeFailure(refused)).toContain('storage');
+	expect(edit.getSnapshot().content?.body).toBe('unfinished ```\n');
 	restore();
 	await edit.save();
-	expect(unsavedOf(edit)).toBeUndefined();
+	expect(edit.getSnapshot().isDirty).toBe(false);
 	expect(await t.text(path)).toBe(draftFile('unfinished ```\n'));
-	expect(
-		expectOk(await t.captures.delete(t.captures.deletionFor(stem))).deleted,
-	).toBe(true);
+	expectOk(await t.captures.delete(t.captures.deletionFor(stem)));
 	const resumed = await restart(t);
 	expect(expectOk(await resumed.folder.tables.captures.list())).toEqual([]);
 });
 
-test('a failed promotion leaves the stored and editable raw draft; retry appends Thoughts once', async () => {
+test('a failed promotion retains original writing for explicit retry without appending Thoughts twice', async () => {
 	const t = await setup({ one: 'Still composing\n' });
 	const edit = t.folder.tables.captures.edit('one');
-	expectOk(await edit.read());
+	expectOk(await edit.refresh());
 	const restore = t.failSaves();
 	expect(expectErr(await t.captures.finishDraft('one')).name).toBe(
 		'StorageFailed',
 	);
-	expect(unsavedOf(edit)).toBeUndefined();
-	expect(edit.getMarkdown()?.body).toBe('Still composing\n');
-	expect(edit.getMarkdown()?.fields?.draft).toBe(true);
+	expect(edit.getSnapshot().isDirty).toBe(false);
+	expect(edit.getSnapshot().content?.body).toBe('Still composing\n');
+	expect(edit.getSnapshot().content?.fields?.draft).toBe(true);
+	expect(await t.text('captures/one.md')).toBe(draftFile('Still composing\n'));
 	restore();
+	expectOk(await t.captures.finishDraft('one'));
 	const resumed = await restart(t);
-	expect(expectOk(await resumed.folder.tables.captures.get('one'))?.body).toBe(
-		'Still composing\n',
-	);
-	expectOk(await resumed.captures.finishDraft('one'));
 	// Another tab or a lost receipt can leave an already-promoted file on retry.
 	expectOk(await resumed.captures.finishDraft('one'));
 	const row = expectOk(await resumed.folder.tables.captures.get('one'));
@@ -200,10 +198,7 @@ test('a failed discard leaves the draft discoverable and retry removes it', asyn
 			expectOk(await resumed.folder.tables.captures.list()),
 		).drafts.map((row) => row.stem),
 	).toEqual(['one']);
-	expect(
-		expectOk(await resumed.captures.delete(resumed.captures.deletionFor('one')))
-			.deleted,
-	).toBe(true);
+	expectOk(await resumed.captures.delete(resumed.captures.deletionFor('one')));
 });
 
 test('an accepted finish completes when close begins and new input is refused', async () => {
@@ -214,8 +209,8 @@ test('an accepted finish completes when close begins and new input is refused', 
 		'Accepted before close',
 	);
 	const finishing = t.captures.finishDraft(stem);
-	expectErr(edit.change({ body: 'Late input' }));
 	const closing = t.context.close();
+	expectErr(edit.change({ body: 'Late input' }));
 	expectOk(await finishing);
 	expect(await closing).toEqual([]);
 	expect(await t.text(path)).toContain(
@@ -224,40 +219,36 @@ test('an accepted finish completes when close begins and new input is refused', 
 	expect(await t.text(path)).not.toContain('draft:');
 });
 
-test('finishing rereads the schema and refuses a draft another writer made invalid', async () => {
+test('finishing refuses currently acquired invalid source', async () => {
 	const t = await setup({ one: 'Raw text' });
 	await t.writeElsewhere(
 		'captures/one.md',
 		'---\ncapturedAt: broken\ndraft: true\n---\nRaw text',
 	);
-	expect(expectErr(await t.captures.finishDraft('one')).name).toBe(
-		'NotStarted',
-	);
+	expectOk(await t.folder.tables.captures.edit('one').refresh());
+	expect(expectErr(await t.captures.finishDraft('one')).name).toBe('Refused');
 	expect(await t.text('captures/one.md')).toContain('draft: true');
 });
 
-test("another tab's finish conflicts with held source until the saved capture is accepted", async () => {
+test("another tab's finish preserves held input and a later save replaces the complete file", async () => {
 	const t = await setup({ one: 'Before' });
 	const edit = t.folder.tables.captures.edit('one');
-	expectOk(await edit.read());
+	expectOk(await edit.refresh());
 	const other = expectOk(await openFolder({ tables: captureTables }));
 	const otherContext = createFolderContext(other);
 	cleanup.push(() => otherContext.close());
 	const otherCaptures = createCaptures(otherContext);
 	expectOk(edit.replaceText(draftFile('Typed here')));
-	const held = edit.getText();
+	const held = edit.getSnapshot().content?.text;
 	expectOk(await otherCaptures.finishDraft('one'));
 	const finished = await t.text('captures/one.md');
-	await edit.read();
-	expect(edit.getText()).toBe(held);
-	await edit.save();
-	expect(unsavedOf(edit)?.error?.name).toBe('Conflict');
-	expect(edit.getText()).toBe(held);
-	expect(await t.text('captures/one.md')).toBe(finished);
+	await edit.refresh();
+	expect(edit.getSnapshot().content?.text).toBe(held);
+	expectOk(await edit.save());
+	expect(edit.getSnapshot().saveError).toBeUndefined();
+	expect(edit.getSnapshot().isDirty).toBe(false);
+	expect(await t.text('captures/one.md')).toBe(held);
 	expect(finished).toContain('Before');
 	expect(finished).toContain('## Thoughts');
 	expect(finished).not.toContain('draft:');
-	await edit.resolveConflict('current');
-	expect(unsavedOf(edit)).toBeUndefined();
-	expect(edit.getText()).toBe(finished);
 });

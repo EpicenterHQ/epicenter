@@ -1,4 +1,3 @@
-import type { FileEdit as NativeFileEdit } from '@epicenter/folder/edits';
 /**
  * Test helper: Vocab over the local folder context, without mounting
  * components.
@@ -13,9 +12,7 @@ import type { Entry, VocabFolder } from './data.js';
 import type { EntryRows } from './entries.svelte.js';
 import type { Vocab } from './vocab.svelte.js';
 
-const { createFolderContext } = await import(
-	'@epicenter/svelte/folder'
-);
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 const { createVocab } = await import('./vocab.svelte.js');
 const { wordsOf } = await import('./entries.svelte.js');
 
@@ -60,7 +57,7 @@ export function observe(vocab: Vocab) {
 export async function quiet(vocab: Vocab) {
 	const idle = () =>
 		!vocab.folder.getStatus().saving &&
-		unsavedOf(vocab.entries.repair.view()?.buffer)?.status !== 'saving' &&
+		!vocab.entries.repair.view()?.isSaving &&
 		vocab.queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 400; tries++) {
 		if (idle()) {
@@ -88,9 +85,4 @@ export function cached(vocab: Vocab, text: string): Entry {
 	);
 	if (entry === undefined) throw new Error(`${text} is not in the cache`);
 	return entry;
-}
-
-/** Inspect held input after narrowing the current buffer snapshot. */
-export function unsavedOf(buffer: ReturnType<NativeFileEdit['getBuffer']> | undefined) {
-	return buffer?.status === 'ready' ? buffer.unsaved : undefined;
 }

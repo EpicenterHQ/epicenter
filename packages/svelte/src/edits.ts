@@ -1,11 +1,14 @@
 /**
- * A Svelte view of one path-owned file edit. Text and Markdown getters
- * observe the same source draft; commands go directly to its folder owner.
+ * A Svelte view of one folder editor: the snapshot's fields as tracked
+ * getters, and the editor's commands. The folder owns the source, input,
+ * timers, saves and failures as views come and go.
  *
- * A tracked document read starts the first file read when nothing is known.
- * Lock observers request no initial read. The folder keeps input,
- * timers, saves and failures as views come and go. Construction is passive;
- * recreate the adapter reactively only when its address changes.
+ * One adapter per editor handle, so keyed widgets that acquire the same
+ * editor share it, and one folder subscription per adapter while anything
+ * tracks it. Reading a getter in an effect subscribes, which starts the
+ * first read; the subscription's synchronous first notification is skipped,
+ * because the getter reads the current snapshot itself right after tracking.
+ * Construction is passive; derive the adapter from the editor address.
  */
 import type {
 	AnyFieldsSchema,
@@ -14,41 +17,66 @@ import type {
 import { createSubscriber } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 
-/** The path-owned file edit, with its reads tracked by Svelte. */
+const adapters = new WeakMap<object, unknown>();
+
+/** The folder editor `fileEdit`, with its snapshot tracked by Svelte. */
 export function createFileEdit<TDocumentSchema extends TSchema>(
 	fileEdit: FolderFileEdit<TDocumentSchema>,
+): FileEdit<TDocumentSchema> {
+	let adapter = adapters.get(fileEdit) as FileEdit<TDocumentSchema> | undefined;
+	if (adapter === undefined) {
+		adapter = adapt(fileEdit);
+		adapters.set(fileEdit, adapter);
+	}
+	return adapter;
+}
+
+function adapt<TDocumentSchema extends TSchema>(
+	fileEdit: FolderFileEdit<TDocumentSchema>,
 ) {
-	const { getText, getMarkdown, getBuffer, isLocked, ...commands } = fileEdit;
-	// Lock observers do not request an initial file read.
-	const trackChanges = createSubscriber((update) => fileEdit.subscribe(update));
-	const trackRead = createSubscriber((update) => {
-		const stop = fileEdit.subscribe(update);
-		if (getBuffer().status === 'unread') fileEdit.read().catch(() => {});
+	const track = createSubscriber((update) => {
+		// As `fromStore` does: the subscription answers at once with what the
+		// getter is about to read anyway.
+		let ran = false;
+		const stop = fileEdit.subscribe(() => {
+			if (ran) update();
+		});
+		ran = true;
 		return stop;
 	});
+	const snapshot = () => {
+		track();
+		return fileEdit.getSnapshot();
+	};
 	return {
-		...commands,
-		/** Current source, including the unsaved draft. */
-		get text() {
-			trackRead();
-			return getText();
+		path: fileEdit.path,
+		/** The text to edit and its interpretation, or `undefined` before or without text. */
+		get content() {
+			return snapshot().content;
 		},
-		/** The same source interpreted with this edit's schema. */
-		get markdown() {
-			trackRead();
-			return getMarkdown();
+		/** Why the latest applicable read supplied no text. */
+		get loadError() {
+			return snapshot().loadError;
 		},
-		/** Availability, current text, and its nested unsaved save lifecycle. */
-		get buffer() {
-			trackRead();
-			return getBuffer();
+		/** Accepted input no publication or delete has acknowledged yet. */
+		get isDirty() {
+			return snapshot().isDirty;
 		},
-		get locked() {
-			trackChanges();
-			return isLocked();
+		/** Text publications admitted and not settled. */
+		get isSaving() {
+			return snapshot().isSaving;
 		},
-	} as const;
+		/** The last applicable failed publication, until a success or discard. */
+		get saveError() {
+			return snapshot().saveError;
+		},
+		replaceText: fileEdit.replaceText,
+		change: fileEdit.change,
+		save: fileEdit.save,
+		refresh: fileEdit.refresh,
+		discard: fileEdit.discard,
+	};
 }
 
 export type FileEdit<TDocumentSchema extends TSchema = AnyFieldsSchema> =
-	ReturnType<typeof createFileEdit<TDocumentSchema>>;
+	ReturnType<typeof adapt<TDocumentSchema>>;

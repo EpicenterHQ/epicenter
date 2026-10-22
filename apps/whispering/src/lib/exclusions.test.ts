@@ -31,8 +31,7 @@ async function open(source?: string | Uint8Array) {
 		await services.folder.close();
 		await services.remove();
 	});
-	if (source !== undefined)
-		expectOk(await files.write('.gitignore', null, source));
+	if (source !== undefined) expectOk(await files.write('.gitignore', source));
 	return { files, root: services.root };
 }
 
@@ -90,13 +89,13 @@ test.each([
 		expectOk(
 			await maintainExclusions({
 				...files,
-				write: async (path, from, change) => {
-					supplied = from;
-					return files.write(path, from, change);
+				write: async (path, change) => {
+					supplied = change;
+					return files.write(path, change);
 				},
 			}),
 		);
-		expect(supplied).toEqual(new TextEncoder().encode(before));
+		expect(supplied).toBe(after);
 		const saved = expectOk(await files.read('.gitignore'))!;
 		expect(new Uint8Array(await saved.content.arrayBuffer())).toEqual(
 			new TextEncoder().encode(after),
@@ -159,18 +158,18 @@ test('read and save refusals propagate without inventing successful installation
 	expect(await text(files)).toBe('# keep\n');
 });
 
-test('a concurrent edit after reading survives the startup save', async () => {
+test('startup publishes the complete rules captured before a concurrent edit', async () => {
 	const { files } = await open('# keep\n');
 	expectOk(
 		await maintainExclusions({
 			...files,
-			write: async (path, from, change) => {
-				expectOk(await files.write(path, from, '# keep\n/private/\n'));
-				return files.write(path, from, change);
+			write: async (path, change) => {
+				expectOk(await files.write(path, '# keep\n/private/\n'));
+				return files.write(path, change);
 			},
 		}),
 	);
-	expect(await text(files)).toBe(`${rules}# keep\n/private/\n`);
+	expect(await text(files)).toBe(`${rules}# keep\n`);
 });
 
 test('a successful save followed by removal of the block reports missing defaults without retrying', async () => {
@@ -183,9 +182,7 @@ test('a successful save followed by removal of the block reports missing default
 				writes++;
 				const saved = await files.write(...args);
 				expectOk(saved);
-				expectOk(
-					await files.write('.gitignore', rules, '# concurrent replacement\n'),
-				);
+				expectOk(await files.write('.gitignore', '# concurrent replacement\n'));
 				return saved;
 			},
 		}),
@@ -195,7 +192,7 @@ test('a successful save followed by removal of the block reports missing default
 	expect(await text(files)).toBe('# concurrent replacement\n');
 });
 
-test('two browser connections starting from the same bytes retain both the rule and another edit after reopening', async () => {
+test('two browser connections publish whole rule files in completion order', async () => {
 	const id = crypto.randomUUID();
 	const a = await openRepository(id);
 	const b = await openRepository(id);
@@ -203,7 +200,7 @@ test('two browser connections starting from the same bytes retain both the rule 
 		a.close();
 		b.close();
 	});
-	expectOk(await a.files.write('.gitignore', null, '# keep\n'));
+	expectOk(await a.files.write('.gitignore', '# keep\n'));
 	const begun = deferred<void>();
 	const release = deferred<void>();
 	const updating = maintainExclusions({
@@ -215,9 +212,7 @@ test('two browser connections starting from the same bytes retain both the rule 
 		},
 	});
 	await begun.promise;
-	expectOk(
-		await b.files.write('.gitignore', '# keep\n', '# keep\n/private/\n'),
-	);
+	expectOk(await b.files.write('.gitignore', '# keep\n/private/\n'));
 	expectOk(await maintainExclusions(filesOf(b)));
 	release.resolve();
 	expectOk(await updating);
@@ -225,7 +220,7 @@ test('two browser connections starting from the same bytes retain both the rule 
 	b.close();
 	const reopened = await openRepository(id);
 	cleanups.push(() => reopened.close());
-	expect(await text(reopened.files)).toBe(`${rules}# keep\n/private/\n`);
+	expect(await text(reopened.files)).toBe(`${rules}# keep\n`);
 });
 
 test('native Git honors root and nested customizations while retaining tracked files and offline bytes', async () => {
@@ -234,31 +229,19 @@ test('native Git honors root and nested customizations while retaining tracked f
 		execFileSync('git', args, { cwd: root, encoding: 'utf8' });
 	git('init', '--quiet');
 	expectOk(
-		await files.write(
-			'recordings/tracked.wav',
-			null,
-			new Uint8Array([1, 2, 3]),
-		),
+		await files.write('recordings/tracked.wav', new Uint8Array([1, 2, 3])),
 	);
 	git('add', '--', 'recordings/tracked.wav');
+	expectOk(await files.write('recordings/new.wav', new Uint8Array([4, 5, 6])));
+	expectOk(await files.write('notes/nested/one.md', 'Nested note\n'));
+	expectOk(await files.write('private/secret.md', 'Private note\n'));
+	expectOk(await files.write('node_modules/pkg/README.md', 'Package\n'));
+	expectOk(await files.write('notes/nested/hidden.md', 'Hidden note\n'));
+	expectOk(await files.write('notes/nested/.gitignore', '!*.wav\nhidden.md\n'));
+	expectOk(await files.write('notes/nested/shared.wav', new Uint8Array([11])));
+	expectOk(await files.write('notes/nested/image.png', new Uint8Array([7, 8])));
 	expectOk(
-		await files.write('recordings/new.wav', null, new Uint8Array([4, 5, 6])),
-	);
-	expectOk(await files.write('notes/nested/one.md', null, 'Nested note\n'));
-	expectOk(await files.write('private/secret.md', null, 'Private note\n'));
-	expectOk(await files.write('node_modules/pkg/README.md', null, 'Package\n'));
-	expectOk(await files.write('notes/nested/hidden.md', null, 'Hidden note\n'));
-	expectOk(
-		await files.write('notes/nested/.gitignore', null, '!*.wav\nhidden.md\n'),
-	);
-	expectOk(
-		await files.write('notes/nested/shared.wav', null, new Uint8Array([11])),
-	);
-	expectOk(
-		await files.write('notes/nested/image.png', null, new Uint8Array([7, 8])),
-	);
-	expectOk(
-		await files.write('notes/nested/export.pdf', null, new Uint8Array([9, 10])),
+		await files.write('notes/nested/export.pdf', new Uint8Array([9, 10])),
 	);
 	expectOk(await maintainExclusions(files));
 	git('add', '--', '.gitignore', 'notes', 'recordings');
@@ -304,27 +287,21 @@ test('browser Git honors root and nested customizations while preserving offline
 	const { storage } = repository;
 	const files = filesOf(repository);
 	const audio = new Uint8Array([0, 255, 1]);
-	expectOk(await files.write('.gitignore', null, '/private/\nnode_modules/\n'));
-	expectOk(await files.write('recordings/take.wav', null, audio));
-	expectOk(await files.write('recordings/take.WEBM', null, audio));
-	expectOk(await files.write('recordings/take.md', null, 'Recording\n'));
+	expectOk(await files.write('.gitignore', '/private/\nnode_modules/\n'));
+	expectOk(await files.write('recordings/take.wav', audio));
+	expectOk(await files.write('recordings/take.WEBM', audio));
+	expectOk(await files.write('recordings/take.md', 'Recording\n'));
 	expectOk(
-		await files.write(
-			'recordings/attachment.pdf',
-			null,
-			new Uint8Array([1, 2]),
-		),
+		await files.write('recordings/attachment.pdf', new Uint8Array([1, 2])),
 	);
-	expectOk(await files.write('notes/one.md', null, 'Offline note\n'));
-	expectOk(await files.write('notes/nested/two.md', null, 'Nested note\n'));
-	expectOk(await files.write('private/secret.md', null, 'Private note\n'));
-	expectOk(await files.write('node_modules/pkg/README.md', null, 'Package\n'));
-	expectOk(await files.write('notes/nested/hidden.md', null, 'Hidden note\n'));
-	expectOk(await files.write('notes/nested/shared.wav', null, audio));
-	expectOk(await files.write('notes/nested/image.png', null, audio));
-	expectOk(
-		await files.write('notes/nested/.gitignore', null, '!*.wav\nhidden.md\n'),
-	);
+	expectOk(await files.write('notes/one.md', 'Offline note\n'));
+	expectOk(await files.write('notes/nested/two.md', 'Nested note\n'));
+	expectOk(await files.write('private/secret.md', 'Private note\n'));
+	expectOk(await files.write('node_modules/pkg/README.md', 'Package\n'));
+	expectOk(await files.write('notes/nested/hidden.md', 'Hidden note\n'));
+	expectOk(await files.write('notes/nested/shared.wav', audio));
+	expectOk(await files.write('notes/nested/image.png', audio));
+	expectOk(await files.write('notes/nested/.gitignore', '!*.wav\nhidden.md\n'));
 	expectOk(await maintainExclusions(files));
 	// A simulated first observation of an empty remote, not a network call.
 	const { state } = await storage.capture([]);
@@ -359,13 +336,7 @@ test('browser Git honors root and nested customizations while preserving offline
 			)!.content.arrayBuffer(),
 		),
 	).toEqual(audio);
-	expectOk(
-		await files.write(
-			'.gitignore',
-			`${rules}/private/\nnode_modules/\n`,
-			'# changed after preparing\n',
-		),
-	);
+	expectOk(await files.write('.gitignore', '# changed after preparing\n'));
 	expectOk(await maintainExclusions(files));
 	expect(await prepareCommit(storage, { ...author, timestamp: 2 })).toEqual(
 		pending,

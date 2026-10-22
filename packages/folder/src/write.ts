@@ -16,7 +16,7 @@
  */
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FileRead, FolderStorage } from './boundary.js';
+import type { Expectation, FileRead, FolderStorage } from './boundary.js';
 import { FileError, WriteError } from './errors.js';
 import { hashBytes } from './hash.js';
 import {
@@ -77,10 +77,10 @@ export async function confirmedPut(
 	storage: Pick<FolderStorage, 'put' | 'read'>,
 	path: string,
 	bytes: Uint8Array | null,
-	ifMatch: string | null,
+	expected: Expectation,
 	sha256: string | null,
 ): Promise<Result<'landed' | 'stale', FileError>> {
-	const put = await storage.put(path, bytes, ifMatch);
+	const put = await storage.put(path, bytes, expected);
 	if (put.error?.name !== 'Unconfirmed') return put;
 	const read = await storage.read(path);
 	const landed =
@@ -133,7 +133,7 @@ export async function publishFile(
 			storage,
 			path,
 			bytes,
-			current?.sha256 ?? null,
+			current === null ? 'absent' : { sha256: current.sha256 },
 			sha256,
 		);
 		if (error !== null) return Err(writeFailure(path, error));

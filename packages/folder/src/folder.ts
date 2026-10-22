@@ -6,31 +6,31 @@
  * (`native/`).
  *
  * The handle exposes rooted `files`, table views that interpret Markdown rows
- * through the caller's schemas, the input typed into either and not saved
- * yet (`edit`, one owner per handle for its whole life, `edit-owner.ts`),
- * change notification, local-save status with held input, `settle`, and
- * `close`. A schema only interprets (ADR-0632). A row that does not fit still
- * comes back with its exact source, its raw fields, and the issues, and a
- * save never validates against the schema, so unknown fields and repairable
- * content survive. Each edit names the content it started from, and the
- * engine merges it with whatever else was saved meanwhile, by the same rules
- * on every host (`shared/merge.ts`, `shared/row.ts`).
+ * through the caller's schemas, one editor source per path (`edit`, owned by
+ * the folder for its whole life, `edit-owner.ts`), change notification,
+ * local-save status with held input, `settle`, and `close`. A schema only
+ * interprets (ADR-0632). A row that does not fit still comes back with its
+ * exact source, its raw fields, and the issues, and a save never validates
+ * against the schema, so unknown fields and repairable content survive.
+ *
+ * Writes are unconditional: a file write replaces whatever is there, a
+ * delete removes it, and the last to land wins. A row set composes over held
+ * text at the call, or reads in the lane when none is held, and publishes
+ * the whole result. Every write and delete of a path, an editor's included, runs in
+ * one lane in call order, and each reports its own outcome.
  *
  * Opening authenticates nothing, selects no remote, creates no Git history,
  * and writes no schema file (ADR-0633).
  *
  * A storage call on a released handle throws: it is a programming error, not a
- * storage failure. Held input stays readable through `status` and `edit`. Failures that storage reports come back as `ReadError` and
- * `SaveError` results; a failed save leaves earlier storage unchanged.
+ * storage failure. Held input stays readable through `getStatus` and the
+ * editors. Failures that storage reports come back as `ReadError` and
+ * `SaveError` results. A lost reply may follow a completed write, so failure
+ * means publication could not be confirmed; accepted editor input stays held.
  */
 import type { TSchema as Schema, TRecord, TUnknown } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type {
-	ActionError,
-	FileEdit,
-	Recovery,
-	SaveFailureRecovery,
-} from './edit-owner.js';
+import type { ActionError, FileEdit, Recovery } from './edit-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
@@ -48,22 +48,22 @@ export type FolderChange = {
 /**
  * What the handle can truthfully say about saving, held input included. A
  * save counts as saved only after storage committed it. `storageFailure` is
- * the last storage failure, cleared by a later successful save on this
- * handle, including a retry whose desired content is already stored.
+ * the last storage failure, cleared by a later successful write on this
+ * handle.
  */
 export type FolderStatus = {
-	/** A save, delete or reserved action started on this handle and not yet committed or refused. */
+	/** A write or delete admitted on this handle and not yet settled. */
 	readonly saving: boolean;
 	readonly storageFailure: Extract<SaveError, { name: 'StorageFailed' }> | null;
-	/** The paths whose input is held: not sent yet, saving, or failed. Sorted. */
+	/** The paths with accepted input no publication has acknowledged. Sorted. */
 	readonly unsaved: readonly string[];
-	/** Held input whose last save failed and that no save is retrying. */
-	readonly failures: readonly SaveFailureRecovery[];
+	/** Held input whose last publication failed and that no save is retrying. */
+	readonly failures: readonly Recovery[];
 	/** Whether `close` was called: no input, action, or listener is taken from then on. */
 	readonly closing: boolean;
 };
 
-/** What every engine stores files through; `FolderFiles` adds input held over them. */
+/** What every engine stores files through; `FolderFiles` adds editors over them. */
 export type FolderFileOperations = {
 	/** Paths under `prefix`, relative to the root, sorted. */
 	list(prefix?: string): Promise<Result<string[], ReadError>>;
@@ -72,26 +72,19 @@ export type FolderFileOperations = {
 		path: string,
 	): Promise<Result<{ path: string; content: Blob } | undefined, ReadError>>;
 	/**
-	 * Save `content` at `path`. `from` is the content the edit started from, or
-	 * `null` for a new file; it lets the engine keep other saves that landed
-	 * meanwhile. Pass bytes for binary files or to retain a byte-order mark.
+	 * Replace whatever is at `path` with `content`, or make the file. Pass
+	 * bytes for binary files or to retain a byte-order mark.
 	 */
-	write(
-		path: string,
-		from: FileContent | null,
-		content: FileContent,
-	): Promise<Result<void, SaveError>>;
-	delete(
-		path: string,
-		from: FileContent | null,
-	): Promise<Result<{ deleted: boolean }, SaveError>>;
+	write(path: string, content: FileContent): Promise<Result<void, SaveError>>;
+	/** Remove the file at `path`. A file that is not there is already gone. */
+	delete(path: string): Promise<Result<void, SaveError>>;
 };
 
 export type FolderFiles = FolderFileOperations & {
 	/**
-	 * The file at `path` as last known stored, with the whole exact text or
-	 * the fields typed into it and not saved yet, shared by every caller of
-	 * this handle. Answering it reads and holds nothing.
+	 * The editor of `path`, viewed through `schema`. The same path and schema
+	 * answer the same editor, over the path's one source. Acquiring it reads
+	 * and holds nothing.
 	 */
 	edit<TSchema extends Schema = TRecord<string, TUnknown>>(
 		path: string,
@@ -99,35 +92,32 @@ export type FolderFiles = FolderFileOperations & {
 	): FileEdit<TSchema>;
 };
 
-/** What every engine stores a table's rows through; `FolderTable` adds input held over them. */
+/** What every engine stores a table's rows through; `FolderTable` adds editors over them. */
 export type FolderTableOperations<TSchema extends Schema = Schema> = {
 	/** Every row of the table, with its source, fields, and issues. */
 	list(): Promise<Result<Row<TSchema>[], ReadError>>;
 	get(id: string): Promise<Result<Row<TSchema> | undefined, ReadError>>;
 	/**
-	 * Save a change to row `id` starting from `from`, the row as read, or `null`
-	 * for a new row. Returns `sent`, the row this save submitted, to start the
-	 * next edit from. The schema never refuses a save.
+	 * Apply `change` to row `id` and publish the whole row. It composes over
+	 * the text the folder holds for the row at this call: its editor's input,
+	 * or its last known text, even when the file is gone; with nothing held,
+	 * over the file read in the row's lane after earlier commands, or a new
+	 * row. On success the row's editor knows the stored text, and input held
+	 * at the call is acknowledged; input typed meanwhile stays. A failure
+	 * changes nothing held and is never retried. Answers the row it stored.
+	 * The schema never refuses a save.
 	 */
-	set(
-		id: string,
-		from: Pick<Row, 'text' | 'issues'> | null,
-		change: RowChange,
-	): Promise<Result<{ sent: Row<TSchema> }, SaveError>>;
-	/** Delete only the row file. Adjacent files remain accessible through `folder.files`. */
-	delete(
-		id: string,
-		from: Pick<Row, 'text' | 'issues'> | null,
-	): Promise<Result<{ deleted: boolean }, SaveError>>;
+	set(id: string, change: RowChange): Promise<Result<Row<TSchema>, SaveError>>;
+	/**
+	 * Delete only the row file; a row that is not there is already gone.
+	 * Adjacent files remain accessible through `folder.files`.
+	 */
+	delete(id: string): Promise<Result<void, SaveError>>;
 };
 
 export type FolderTable<TSchema extends Schema = Schema> =
 	FolderTableOperations<TSchema> & {
-		/**
-		 * Row `id` as last known stored, with the fields and body typed into it
-		 * and not saved yet, shared by every caller of this handle. Answering
-		 * it reads and holds nothing.
-		 */
+		/** The editor of row `id`, the same one `files.edit` gives with this schema. */
 		edit(id: string): FileEdit<TSchema>;
 	};
 
@@ -138,15 +128,18 @@ export type FolderTable<TSchema extends Schema = Schema> =
  * `change.paths` says where (`null` when unknown).
  */
 export type Folder<TTables extends Record<string, Schema>> = {
+	/** Reconcile known editors: read current subscribers, mark inactive sources stale.
+	 * Omit paths for all sources; paths also cover descendants. Never publishes input.
+	 * Failures remain on editor snapshots; use edit.refresh() for an individual Result.
+	 */
+	refresh(paths?: readonly string[]): Promise<void>;
 	readonly files: FolderFiles;
 	readonly tables: { [TName in keyof TTables]: FolderTable<TTables[TName]> };
 	/**
-	 * Called after a save commits, whether this handle or another one made
-	 * it. A save of this handle that found its content already stored is
-	 * reported too, so a reader can reread what it shows. Native handles
-	 * report participating handles in this page/process, not arbitrary
-	 * external programs; UI queries poll for those edits. The listener is
-	 * not called for the current state. Returns the stop.
+	 * Reports committed writes and best-effort folder-wide storage hints.
+	 * Native directory events and browser broadcasts may coalesce changes;
+	 * paths include affected descendants, or null when scope is unknown.
+	 * The listener is not called for the current state. Returns the stop.
 	 */
 	onChange(listener: (change: FolderChange) => void): () => void;
 	/** Current save status; subscribe with `onStatusChange` for changes. */
@@ -154,43 +147,27 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	/** Called when save status changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
 	/**
-	 * Admit an action that close waits for. `paths` is its reservation, declared
-	 * up front and fixed for the action: those paths are reserved together, and
-	 * their held input is saved before the callback starts. Use [] when only
-	 * admission is needed. Overlapping reservations refuse without queuing, and
-	 * a refusal leaves held input recoverable; once close is called every new
-	 * action refuses.
-	 * The action uses this same Folder's `files` and `tables`, which stay
-	 * usable while close drains it. Await the work whose outcome matters
-	 * before the callback returns: close waits for the callback and for writes
-	 * already started, not for a continuation it left running. Writes already
-	 * queued on reserved paths finish before the reservation ends.
-	 * Reservations protect local input and competing reservations, not raw
-	 * storage calls or outside programs. This is not a storage transaction.
-	 * Do not await this folder's settle/close inside the action: they wait
-	 * for it.
+	 * Admit `action` into the folder's lifetime: `close` waits for it, and
+	 * the action's writes keep working while close drains. Admission happens
+	 * at this call, so work admitted before close begins finishes even when
+	 * close is called before the action awaits anything. Refused once close
+	 * was called. It reserves no path, sends no held input, and locks
+	 * nothing. Do not await this folder's settle or close inside it.
 	 */
-	run<T>(
-		paths: readonly string[],
-		action: () => Promise<T>,
-	): Promise<Result<T, ActionError>>;
+	run<T>(action: () => Promise<T>): Promise<Result<T, ActionError>>;
 	/**
-	 * Attempt available held input now, including previous failures, drain
-	 * admitted work, then attempt newly released paths. Answers what did not
-	 * save without retrying the same failed revision; editing stays open.
+	 * Submit held input now, including input whose last publication failed,
+	 * and drain admitted work. Answers input still held; editing stays open.
 	 */
 	settle(): Promise<Recovery[]>;
 	/**
 	 * Refuse new input, new actions, `settle`, and new listeners immediately.
-	 * Save available input and drain admitted actions and started saves, then
+	 * Submit held input once and drain admitted actions and writes, then
 	 * release storage and listeners; `files` and `tables` throw from then on.
 	 * Until that release they stay usable, so a write any caller starts while
-	 * close drains is waited for too, and prolongs close.
-	 * Reserved paths save when released. Failed input stays held for recovery.
-	 * Reads already running are not waited for. Edits remain readable;
-	 * read() rejects, save() attempts its path during close and does nothing
-	 * after completion. Answers input that did not save. Repeated calls return
-	 * the same promise. Do not await close inside an action it waits for.
+	 * close drains is waited for too, and prolongs close. Editors stay
+	 * readable; `save()` works until release and refuses after. Answers input
+	 * that did not save. Repeated calls return the same promise.
 	 */
 	close(): Promise<Recovery[]>;
 };
@@ -213,7 +190,7 @@ export type DefaultFolderOptions<TTables extends FolderTables> = {
 	readonly directory?: never;
 } & EditOptions;
 
-/** How the folder's own edit owner saves held input. */
+/** How the folder's editors save accepted input. */
 export type EditOptions = {
 	/** How long after its last change input saves; `SAVE_AFTER_MS` by default. */
 	readonly saveAfterMs?: number;

@@ -21,13 +21,12 @@ import type { Result } from 'wellcrafted/result';
 /**
  * The folder a recording is written into, by the write a browser writes
  * through: a handle's `files.write`, the folder's one write, which places a
- * recording as a write from no file. On the desktop the shell writes into
+ * recording as a whole-file publication. On the desktop the shell writes into
  * the folder it bound to the recording window, which no page names.
  */
 export type RecordingFolder = {
 	write(
 		path: string,
-		from: null,
 		to: Uint8Array,
 	): Promise<Result<unknown, { readonly message: string }>>;
 };

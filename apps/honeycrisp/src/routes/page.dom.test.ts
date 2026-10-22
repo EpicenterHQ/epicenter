@@ -177,9 +177,9 @@ test('autosave survives switching files, and a failed source save remains retrya
 	const tab = await otherTab();
 	const source =
 		'---\ntitle: Alpha\nfolderId: null\npinned: false\ncreatedAt: "2026-10-01T00:00:00.000Z"\ndeletedAt: null\n---\nBody\n';
-	expectOk(await tab.files.write('notes/a.md', null, source));
+	expectOk(await tab.files.write('notes/a.md', source));
 	expectOk(
-		await tab.files.write('notes/b.md', null, source.replace('Alpha', 'Beta')),
+		await tab.files.write('notes/b.md', source.replace('Alpha', 'Beta')),
 	);
 	const page = await openPage();
 	page
@@ -275,7 +275,7 @@ test('a note that does not read as one is repaired as its file and opens as a no
 	const tab = await otherTab();
 	const broken =
 		'---\ntitle: Broken\nfolderId: null\npinned: maybe\ncreatedAt: "2026-10-01T00:00:00.000Z"\ndeletedAt: null\n---\nText\n';
-	expectOk(await tab.files.write('notes/broken.md', null, broken));
+	expectOk(await tab.files.write('notes/broken.md', broken));
 	const page = await openPage();
 	await until(
 		() => page.text(LIST).includes('Needs repair'),
@@ -318,7 +318,7 @@ test('rich-text Undo survives inspecting the whole file and changing only its ti
 	const tab = await otherTab();
 	const source =
 		'---\ntitle: Alpha\nfolderId: null\npinned: false\ncreatedAt: "2026-10-01T00:00:00.000Z"\ndeletedAt: null\n---\nBody\n';
-	expectOk(await tab.files.write('notes/a.md', null, source));
+	expectOk(await tab.files.write('notes/a.md', source));
 	const page = await openPage();
 	page
 		.get('[data-note="notes/a.md"]')
@@ -380,7 +380,7 @@ test('failed whole-file input survives Open as note and another tab deleting the
 	const tab = await otherTab();
 	const source =
 		'---\ntitle: Alpha\nfolderId: null\npinned: false\ncreatedAt: "2026-10-01T00:00:00.000Z"\ndeletedAt: null\n---\nBody\n';
-	expectOk(await tab.files.write('notes/a.md', null, source));
+	expectOk(await tab.files.write('notes/a.md', source));
 	const page = await openPage();
 	page
 		.get('[data-note="notes/a.md"]')
@@ -413,9 +413,7 @@ test('failed whole-file input survives Open as note and another tab deleting the
 		page.target.querySelector('[aria-label="Note text"]')?.textContent,
 	).toContain('Keep this text');
 	IDBObjectStore.prototype.put = put;
-	expect(expectOk(await tab.files.delete('notes/a.md', source)).deleted).toBe(
-		true,
-	);
+	expectOk(await tab.files.delete('notes/a.md'));
 	await until(
 		() => !page.text(LIST).includes('Alpha'),
 		'the external deletion',
@@ -427,12 +425,14 @@ test('failed whole-file input survives Open as note and another tab deleting the
 	expect(
 		page.target.querySelector('[aria-label="Unsaved source"]')?.textContent,
 	).toBe(changed);
-	button(page.target, 'Discard it').click();
+	button(page.target, 'Discard changes').click();
 	await until(
 		() => document.querySelector('[role="alertdialog"]') !== null,
 		'the discard confirmation',
 	);
-	button(document.body, 'Discard changes').click();
+	const dialog = document.querySelector('[role="alertdialog"]');
+	if (dialog === null) throw new Error('The discard confirmation did not open');
+	button(dialog, 'Discard changes').click();
 	await until(
 		() => page.target.querySelector('[aria-label="Unsaved source"]') === null,
 		'discarding the failed text',

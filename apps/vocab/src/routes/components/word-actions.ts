@@ -7,9 +7,7 @@ import type { Entries } from '$lib/entries.svelte.js';
 import { describeFailure } from '$lib/failure.js';
 
 /**
- * Ask before deleting `entry`. The delete waits for the word's save still
- * under way, so what this page saved last goes with it. A word changed in
- * that moment, here or in another tab, is kept.
+ * Ask before deleting `entry`. Already admitted saves finish before the delete. New input may recreate the path.
  */
 export function confirmDelete(entries: Entries, entry: Entry) {
 	confirmationDialog.open({
@@ -17,14 +15,10 @@ export function confirmDelete(entries: Entries, entry: Entry) {
 		description: 'Its note and stage are deleted with it.',
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
-			const { data, error } = await entries.delete(entry);
+			const { error } = await entries.delete(entry);
 			if (error !== null)
 				toast.error(`Could not delete “${entry.text}”`, {
 					description: describeFailure(error),
-				});
-			else if (!data.deleted)
-				toast.error(`“${entry.text}” was not deleted`, {
-					description: 'It changed while it was being deleted, so it was kept.',
 				});
 		},
 	});

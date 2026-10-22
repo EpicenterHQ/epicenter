@@ -21,13 +21,15 @@ const sameList = (a: readonly string[], b: readonly string[]) =>
 	a.length === b.length && a.every((item, index) => item === b[index]);
 
 /** Commands that change the capture through `fileEdit`. */
-export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['captures']>) {
+export function createCaptureActions(
+	fileEdit: FileEdit<(typeof captureTables)['captures']>,
+) {
 	/** Why the last change was not taken; the next change clears it. */
 	let refusal = $state<string | undefined>();
 
 	/** The body this command composes over: the capture as it reads now. */
 	const shown = () => {
-		const row = fileEdit.markdown;
+		const row = fileEdit.content;
 		if (row?.issues !== null || row.fields.draft === true) return undefined;
 		const { data, error } = captureBody.decode(row.body);
 		return error === null ? { body: row.body, ...data } : undefined;
@@ -51,7 +53,10 @@ export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['
 		refusal = undefined;
 		if (body === over.body) return true;
 		const changed = fileEdit.change({ body });
-		if (changed.error !== null) return false;
+		if (changed.error !== null) {
+			refusal = changed.error.message;
+			return false;
+		}
 		if (!later) void fileEdit.save();
 		return true;
 	}
@@ -72,7 +77,7 @@ export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['
 		 */
 		inputText(value: string) {
 			const now = shown();
-			if (fileEdit.locked || now === undefined) return;
+			if (now === undefined) return;
 			write(now, { text: value, thoughts: now.thoughts }, { later: true });
 		},
 		/**
@@ -80,7 +85,6 @@ export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['
 		 * taken; the view clears its input only then.
 		 */
 		addThought(text: string): boolean {
-			if (fileEdit.locked) return false;
 			if (text.trim() === '') {
 				refusal = 'Write something first.';
 				return false;
@@ -93,14 +97,21 @@ export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['
 		 * Where the thought at `index` of the list `list` a view showed sits in
 		 * the file's text, for editing it as text. Refused when the list changed.
 		 */
-		locateThought(index: number, list: readonly string[]): TextRange | undefined {
+		locateThought(
+			index: number,
+			list: readonly string[],
+		): TextRange | undefined {
 			const now = current(list);
-			const row = fileEdit.markdown;
+			const row = fileEdit.content;
 			const span =
 				now === undefined
 					? undefined
 					: captureBody.locate(now.body).data?.thoughts[index];
-			if (span === undefined || row?.body === undefined || !row.text.endsWith(row.body)) {
+			if (
+				span === undefined ||
+				row?.body === undefined ||
+				!row.text.endsWith(row.body)
+			) {
 				refusal = CHANGED;
 				return undefined;
 			}
@@ -113,7 +124,6 @@ export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['
 		},
 		/** Delete the thought at `index` of the list `list` a view showed. */
 		deleteThought(index: number, list: readonly string[]): boolean {
-			if (fileEdit.locked) return false;
 			const now = current(list);
 			if (now === undefined || list[index] === undefined) {
 				refusal = CHANGED;
@@ -126,7 +136,6 @@ export function createCaptureActions(fileEdit: FileEdit<(typeof captureTables)['
 		},
 		/** Swap two neighbouring thoughts of the list `list` a view showed. */
 		swapThoughts(from: number, to: number, list: readonly string[]): boolean {
-			if (fileEdit.locked) return false;
 			const now = current(list);
 			const next = [...list];
 			const first = next[from];

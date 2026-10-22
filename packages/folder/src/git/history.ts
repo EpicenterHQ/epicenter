@@ -960,7 +960,7 @@ export function createHistory({
 								return Ok('edited');
 						}
 					for (const { path, sha256 } of targets) {
-						const put = await confirmedPut(held, path, null, sha256, null);
+						const put = await confirmedPut(held, path, null, { sha256 }, null);
 						if (put.error !== null) return failed(path, put.error);
 						// Changed by a program outside the save lock: it stays.
 						if (put.data === 'stale') {

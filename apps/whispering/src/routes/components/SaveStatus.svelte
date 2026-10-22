@@ -1,46 +1,18 @@
-<!--
-	Whether one path holds edits: Saving…, No unsaved changes, or
-	Not saved with recovery actions. This passive indicator reads save metadata;
-	it does not establish whether the stored file exists or can be read.
-	A whole-file conflict shows both sources and asks for an explicit choice. Discard offers the exact source to copy.
--->
+<!-- Publication status and recovery actions for the folder-owned source. -->
 <script lang="ts">
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
-	import { unsavedText } from '@epicenter/svelte/write-failure';
 	import { copyText } from './file-actions.js';
 
-	let {
-		path,
-		class: className = '',
-	}: {
-		path: string;
-		class?: string;
-	} = $props();
+	let { path, class: className = '' }: { path: string; class?: string } = $props();
 	const whispering = getWhispering();
-
 	const fileEdit = $derived(whispering.edit(path));
-	const saving = $derived(whispering.isSaving(path));
-	const unsaved = $derived(whispering.isUnsaved(path));
-	const failure = $derived(whispering.getWriteFailure(path));
-	const conflict = $derived(failure?.status === 'conflict' ? failure.error : undefined);
-	const savedSource = $derived.by(() => {
-		if (conflict === undefined) return undefined;
-		if (conflict.current === null) return '(deleted)';
-		if (typeof conflict.current === 'string') return conflict.current;
-		try {
-			return new TextDecoder('utf-8', { fatal: true }).decode(conflict.current);
-		} catch {
-			return '(binary file)';
-		}
-	});
 
 	function discard() {
 		const typing = whispering.discard(path);
-		if (!typing) return;
+		if (typing === undefined) return;
 		toast.info('Your unsaved typing was let go', {
-			description: 'The file keeps what it held.',
 			action: { label: 'Copy it', onClick: () => void copyText(typing, 'your typing') },
 		});
 	}
@@ -48,22 +20,13 @@
 
 <div class={['text-xs text-muted-foreground', className]} role="status" data-testid="write-status">
 	<p>
-		{saving ? 'Saving…' : unsaved ? 'Not saved' : 'No unsaved changes'}
-		{#if unsaved && !saving}
-			{#if conflict !== undefined}
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.resolveConflict('current')}>Use saved file</Button>
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.resolveConflict('draft')}>Replace saved file</Button>
-			{:else}
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
-			{/if}
+		{fileEdit.isSaving ? 'Saving…' : fileEdit.isDirty ? 'Not saved' : 'No unsaved changes'}
+		{#if fileEdit.isDirty || fileEdit.saveError}
+			<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
 			<Button variant="link" size="xs" class="h-auto p-0" onclick={discard}>Discard</Button>
 		{/if}
 	</p>
-	{#if conflict !== undefined && failure !== undefined}
-		<details>
-			<summary>Compare sources</summary>
-			<p>Saved source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text">{savedSource}</pre>
-			<p>Your source</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text">{unsavedText(failure)}</pre>
-		</details>
+	{#if fileEdit.saveError}
+		<p role="alert">{fileEdit.saveError.message}</p>
 	{/if}
 </div>

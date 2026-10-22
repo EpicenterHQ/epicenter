@@ -2,16 +2,18 @@
  * Query identity and readers for one opened folder. No query options are
  * retained here.
  *
- * Queries list and derive; they own no editable document. The folder's edit
- * of a row or file owns that (`@epicenter/svelte/edits`), and a row list or
- * file read through these queries keeps it current.
+ * Queries list and derive; they own no editable document and no editor
+ * read. The folder's editor of a row or file owns that
+ * (`@epicenter/svelte/edits`), and reads it itself. A row list or file read
+ * through these queries that finds different content tells the editors of
+ * those paths to read again, which is how they learn of outside edits until
+ * the folder watches its directory.
  */
-import type { Folder, FolderFiles, ReadError, Row } from '@epicenter/folder';
+import type { Folder, FolderFiles, Row } from '@epicenter/folder';
 import { readDocuments } from '@epicenter/folder/documents';
 import type { DataTag, QueryFunctionContext } from '@tanstack/query-core';
 import type { TSchema } from 'typebox';
 import { defineKeys } from 'wellcrafted/query';
-import type { Result } from 'wellcrafted/result';
 
 export const folderKeys = defineKeys({
 	all: ['folder'],
@@ -20,7 +22,6 @@ export const folderKeys = defineKeys({
 	rows: (table: string) => ['folder', 'rows', table] as const,
 	file: (path: string, representation: string) =>
 		['folder', 'file', path, representation] as const,
-	read: (path: string) => ['folder', 'read', path] as const,
 });
 
 /** One decoded file value and the policy every observer of it shares. */
@@ -85,26 +86,6 @@ export function createFolderQueries<TTables extends Record<string, TSchema>>(
 					const read = await readDocuments(folder.files);
 					if (read.error !== null) throw read.error;
 					return read.data;
-				},
-			};
-		},
-		/**
-		 * The file of `edit` read again while a view observes this query, on
-		 * the context's visible polling: the way an edit shown with no list
-		 * over its file learns of outside edits nothing reports. The edit owns
-		 * the document and its read status; a change the folder reports is
-		 * read by the edit itself, not through this query.
-		 */
-		read(edit: {
-			readonly path: string;
-			read(): Promise<Result<unknown, ReadError>>;
-		}) {
-			return {
-				queryKey: folderKeys.read(edit.path),
-				queryFn: async () => {
-					const { error } = await edit.read();
-					if (error !== null) throw error;
-					return null;
 				},
 			};
 		},

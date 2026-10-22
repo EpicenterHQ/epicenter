@@ -10,6 +10,7 @@ import { createGitServer } from '../../smoke/git-server.js';
 import { readCommit } from '../git/raw-objects.js';
 import type { HttpRequest } from './git/transfer.js';
 import { openRepository } from './repository.js';
+import { writeRow } from './row-writes.test-support.js';
 import { snapshotContent } from './storage.js';
 import { createSync, prepareCommit } from './sync.js';
 
@@ -42,9 +43,7 @@ async function fixture(initial: string | null = row('Base')) {
 test('offline-first edits push a native root commit to an empty server', async () => {
 	const f = await fixture(null);
 	try {
-		expectOk(
-			await f.repository.files.write('offline.txt', null, 'Saved offline'),
-		);
+		expectOk(await f.repository.files.write('offline.txt', 'Saved offline'));
 		expect(
 			(await f.repository.storage.capture('sync')).state.remoteBase,
 		).toBeUndefined();
@@ -110,12 +109,11 @@ test('initial shallow fetch and later rejected commit preserve independent field
 		expect(initial.objects.has(previous)).toBe(false);
 		expect(initial.state.pendingCommit).toBeNull();
 		expect(typeof initial.state.remoteBase).toBe('string');
-		let draft = expectOk(await f.repository.tables.notes.get('one'))!;
-		draft = expectOk(
-			await f.repository.tables.notes.set('one', draft, {
+		expectOk(
+			await writeRow(f.repository, 'notes', 'one', {
 				fields: { title: 'b' },
 			}),
-		).sent;
+		);
 		await prepareCommit(f.repository.storage, author());
 		const pending = await f.repository.storage.capture('sync');
 		expect(pending.state.remoteBase).toBe(initial.state.remoteBase);
@@ -128,7 +126,7 @@ test('initial shallow fetch and later rejected commit preserve independent field
 			).tree,
 		);
 		expectOk(
-			await f.repository.tables.notes.set('one', draft, {
+			await writeRow(f.repository, 'notes', 'one', {
 				fields: { title: 'a', local: 1 },
 			}),
 		);
@@ -182,9 +180,8 @@ for (const secondParent of [false, true])
 				author,
 				request,
 			});
-			const base = expectOk(await f.repository.tables.notes.get('one'))!;
 			expectOk(
-				await f.repository.tables.notes.set('one', base, {
+				await writeRow(f.repository, 'notes', 'one', {
 					fields: { title: 'Blue' },
 				}),
 			);
@@ -225,9 +222,8 @@ for (const secondParent of [false, true])
 				).trim();
 				await f.server.git(['update-ref', 'refs/heads/main', merged, native]);
 			}
-			const draft = expectOk(await f.repository.tables.notes.get('one'))!;
 			expectOk(
-				await f.repository.tables.notes.set('one', draft, {
+				await writeRow(f.repository, 'notes', 'one', {
 					fields: { local: 1 },
 				}),
 			);
@@ -260,12 +256,12 @@ test('a rejected pending push retains its exact commit and newer save for reconc
 	try {
 		expectOk(await f.sync.run());
 		const base = (await f.repository.storage.capture('sync')).state.remoteBase;
-		expectOk(await f.repository.files.write('pending.txt', null, 'Pending'));
+		expectOk(await f.repository.files.write('pending.txt', 'Pending'));
 		await prepareCommit(f.repository.storage, author());
 		const pending = (await f.repository.storage.capture('sync')).state
 			.pendingCommit;
 		expect(pending).not.toBe(base);
-		expectOk(await f.repository.files.write('newer.txt', null, 'Newer'));
+		expectOk(await f.repository.files.write('newer.txt', 'Newer'));
 		let remote: string | undefined;
 		const request: HttpRequest = async (input, init) => {
 			if (
@@ -311,7 +307,7 @@ test('a request lost before acceptance retries the identical pending commit', as
 				throw new TypeError('Dropped before sending');
 			return fetch(input, init);
 		};
-		expectOk(await f.repository.files.write('pending.txt', null, 'Pending'));
+		expectOk(await f.repository.files.write('pending.txt', 'Pending'));
 		expectErr(
 			await createSync(f.repository, {
 				url: f.server.url,
@@ -321,7 +317,7 @@ test('a request lost before acceptance retries the identical pending commit', as
 		);
 		const pending = (await f.repository.storage.capture('sync')).state
 			.pendingCommit!;
-		expectOk(await f.repository.files.write('newer.txt', null, 'Newer'));
+		expectOk(await f.repository.files.write('newer.txt', 'Newer'));
 		expectOk(await f.sync.run());
 		const after = await f.repository.storage.capture('sync');
 		expect(after.state.remoteBase).toBe(pending);
@@ -348,7 +344,6 @@ test('a save between adoption capture and publication rejects cleanup and surviv
 				expectOk(
 					await f.repository.files.write(
 						'new-path.txt',
-						null,
 						'Saved during adoption',
 					),
 				);
@@ -393,13 +388,13 @@ test('a suspended old push cannot rewind two tabs that already advanced and newe
 			author,
 			request,
 		});
-		expectOk(await f.repository.files.write('first.txt', null, 'First'));
+		expectOk(await f.repository.files.write('first.txt', 'First'));
 		const oldAttempt = old.run();
 		expect(old.run()).toBe(oldAttempt);
 		await held.promise;
 		const otherSync = createSync(other, { url: f.server.url, author });
 		expectOk(await otherSync.run());
-		expectOk(await other.files.write('second.txt', null, 'Second'));
+		expectOk(await other.files.write('second.txt', 'Second'));
 		expectOk(await otherSync.run());
 		const newest = (await f.server.git(['rev-parse', 'main'])).trim();
 		resume.resolve();
@@ -422,14 +417,10 @@ for (const localDelete of [false, true])
 		try {
 			expectOk(await f.sync.run());
 			if (localDelete)
-				expectOk(await f.repository.files.delete('notes/one.md', 'Base\n'));
+				expectOk(await f.repository.files.delete('notes/one.md'));
 			else
 				expectOk(
-					await f.repository.files.write(
-						'notes/one.md',
-						'Base\n',
-						'Edited locally\n',
-					),
+					await f.repository.files.write('notes/one.md', 'Edited locally\n'),
 				);
 			await f.server.commit(
 				new Map([['notes/one.md', localDelete ? 'Edited remotely\n' : null]]),
@@ -450,11 +441,9 @@ for (const existed of [false, true])
 			if (existed) await f.server.commit(new Map([['p.txt', 'a\n']]));
 			expectOk(await f.sync.run());
 			const local = existed ? 'a\nline1\n' : 'line1\n';
-			expectOk(
-				await f.repository.files.write('p.txt', existed ? 'a\n' : null, local),
-			);
+			expectOk(await f.repository.files.write('p.txt', local));
 			await prepareCommit(f.repository.storage, author());
-			expectOk(await f.repository.files.delete('p.txt', local));
+			expectOk(await f.repository.files.delete('p.txt'));
 			const remote = existed ? 'a\nline2\n' : 'line2\n';
 			await f.server.commit(new Map([['p.txt', remote]]));
 			expectOk(await f.sync.run());
@@ -469,9 +458,9 @@ test('undoing an added child does not resurrect its folder over an incoming file
 	try {
 		await f.server.commit(new Map([['folder/x.txt', 'old']]));
 		expectOk(await f.sync.run());
-		expectOk(await f.repository.files.write('folder/new.txt', null, 'local'));
+		expectOk(await f.repository.files.write('folder/new.txt', 'local'));
 		await prepareCommit(f.repository.storage, author());
-		expectOk(await f.repository.files.delete('folder/new.txt', 'local'));
+		expectOk(await f.repository.files.delete('folder/new.txt'));
 		await f.server.commit(
 			new Map([
 				['folder/x.txt', null],
@@ -491,15 +480,14 @@ test('a newer edit restoring the remote field removes the obsolete override trai
 	const f = await fixture(row('a'));
 	try {
 		expectOk(await f.sync.run());
-		let draft = expectOk(await f.repository.tables.notes.get('one'))!;
-		draft = expectOk(
-			await f.repository.tables.notes.set('one', draft, {
+		expectOk(
+			await writeRow(f.repository, 'notes', 'one', {
 				fields: { title: 'b' },
 			}),
-		).sent;
+		);
 		await prepareCommit(f.repository.storage, author());
 		expectOk(
-			await f.repository.tables.notes.set('one', draft, {
+			await writeRow(f.repository, 'notes', 'one', {
 				fields: { title: 'c', extra: 1 },
 			}),
 		);
@@ -520,18 +508,17 @@ test('canceling a folder replacement carries no hidden deletion over an independ
 	const f = await fixture(row('Base', 'local: 0\n'));
 	try {
 		expectOk(await f.sync.run());
-		const initial = expectOk(await f.repository.tables.notes.get('one'))!;
 		const local = expectOk(
-			await f.repository.tables.notes.set('one', initial, {
+			await writeRow(f.repository, 'notes', 'one', {
 				fields: { local: 1 },
 			}),
-		).sent;
+		);
 		await prepareCommit(f.repository.storage, author());
 		const pending = await f.repository.storage.capture('sync');
-		expectOk(await f.repository.files.delete('notes/one.md', local.text));
-		expectOk(await f.repository.files.write('notes', null, 'temporary'));
-		expectOk(await f.repository.files.delete('notes', 'temporary'));
-		expectOk(await f.repository.files.write('notes/one.md', null, local.text));
+		expectOk(await f.repository.files.delete('notes/one.md'));
+		expectOk(await f.repository.files.write('notes', 'temporary'));
+		expectOk(await f.repository.files.delete('notes'));
+		expectOk(await f.repository.files.write('notes/one.md', local.text));
 		expect((await f.repository.storage.capture()).state.workingTree).toBe(
 			pending.state.workingTree,
 		);
@@ -575,7 +562,7 @@ test('a fetch retains borrowed working bytes after another tab replaces and coll
 	const resume = Promise.withResolvers<void>();
 	try {
 		// Before first observation there is no P to pin this local-only blob.
-		expectOk(await f.repository.files.write('draft.txt', null, 'shared bytes'));
+		expectOk(await f.repository.files.write('draft.txt', 'shared bytes'));
 		await f.server.commit(new Map([['remote-copy.txt', 'shared bytes']]));
 		const held = Promise.withResolvers<void>();
 		let pause = true;
@@ -603,9 +590,7 @@ test('a fetch retains borrowed working bytes after another tab replaces and coll
 			request,
 		}).run();
 		await held.promise;
-		expectOk(
-			await other.files.write('draft.txt', 'shared bytes', 'newer draft'),
-		);
+		expectOk(await other.files.write('draft.txt', 'newer draft'));
 		expect(await other.storage.collect()).toBeGreaterThan(0);
 		resume.resolve();
 		expectOk(await attempt);
@@ -635,9 +620,9 @@ test('ignored offline audio survives pulls, reopening and collection without ent
 	const f = await fixture(null);
 	const audio = Uint8Array.of(0, 255, 17, 42);
 	try {
-		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
-		expectOk(await f.repository.files.write('audio/take.wav', null, audio));
-		expectOk(await f.repository.files.write('note.md', null, 'Offline'));
+		expectOk(await f.repository.files.write('.gitignore', '/audio/\n'));
+		expectOk(await f.repository.files.write('audio/take.wav', audio));
+		expectOk(await f.repository.files.write('note.md', 'Offline'));
 		expectOk(await f.sync.run());
 		expect(
 			(await f.server.git(['ls-tree', '-r', '--name-only', 'main']))
@@ -682,11 +667,11 @@ test('tracked binary files stay tracked after adding an ignore rule and unignore
 	try {
 		const first = Uint8Array.of(0, 255, 1);
 		const second = Uint8Array.of(0, 254, 2);
-		expectOk(await f.repository.files.write('audio/take.wav', null, first));
+		expectOk(await f.repository.files.write('audio/take.wav', first));
 		expectOk(await f.sync.run());
-		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
-		expectOk(await f.repository.files.write('audio/take.wav', first, second));
-		expectOk(await f.repository.files.write('audio/private.wav', null, first));
+		expectOk(await f.repository.files.write('.gitignore', '/audio/\n'));
+		expectOk(await f.repository.files.write('audio/take.wav', second));
+		expectOk(await f.repository.files.write('audio/private.wav', first));
 		expectOk(await f.sync.run());
 		expect(
 			(await f.server.git(['ls-tree', '-r', '--name-only', 'main']))
@@ -719,11 +704,9 @@ for (const incoming of [
 	test(`incoming ${incoming} does not overwrite ignored local audio`, async () => {
 		const f = await fixture();
 		try {
-			expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
+			expectOk(await f.repository.files.write('.gitignore', '/audio/\n'));
 			expectOk(await f.sync.run());
-			expectOk(
-				await f.repository.files.write('audio/take.wav', null, 'Local bytes'),
-			);
+			expectOk(await f.repository.files.write('audio/take.wav', 'Local bytes'));
 			const before = (await f.repository.storage.capture('sync')).state;
 			await f.server.commit(new Map([[incoming, 'Remote bytes']]));
 			const error = expectErr(await f.sync.run());
@@ -746,9 +729,7 @@ test('lost reply keeps exact send while a later ignore edit and newer save remai
 	const f = await fixture(null);
 	try {
 		expectOk(await f.sync.run());
-		expectOk(
-			await f.repository.files.write('audio/take.wav', null, 'First audio'),
-		);
+		expectOk(await f.repository.files.write('audio/take.wav', 'First audio'));
 		let lose = true;
 		const request: HttpRequest = async (input, init) => {
 			const response = await fetch(input, init);
@@ -772,20 +753,10 @@ test('lost reply keeps exact send while a later ignore edit and newer save remai
 		const pending = (await f.repository.storage.capture('sync')).state
 			.pendingCommit;
 		expect(pending).not.toBeNull();
-		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
+		expectOk(await f.repository.files.write('.gitignore', '/audio/\n'));
+		expectOk(await f.repository.files.write('audio/take.wav', 'Newer audio'));
 		expectOk(
-			await f.repository.files.write(
-				'audio/take.wav',
-				'First audio',
-				'Newer audio',
-			),
-		);
-		expectOk(
-			await f.repository.files.write(
-				'audio/private.wav',
-				null,
-				'Private audio',
-			),
+			await f.repository.files.write('audio/private.wav', 'Private audio'),
 		);
 		expect((await prepareCommit(f.repository.storage, author()))!.head).toBe(
 			pending!,
@@ -812,21 +783,13 @@ test('a pending deletion does not inherit obsolete tracking from the received ch
 	const f = await fixture(null);
 	try {
 		expectOk(
-			await f.repository.files.write(
-				'audio/take.wav',
-				null,
-				'Originally shared',
-			),
+			await f.repository.files.write('audio/take.wav', 'Originally shared'),
 		);
 		expectOk(await f.sync.run());
-		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
-		expectOk(
-			await f.repository.files.delete('audio/take.wav', 'Originally shared'),
-		);
+		expectOk(await f.repository.files.write('.gitignore', '/audio/\n'));
+		expectOk(await f.repository.files.delete('audio/take.wav'));
 		await prepareCommit(f.repository.storage, author());
-		expectOk(
-			await f.repository.files.write('audio/take.wav', null, 'Now local'),
-		);
+		expectOk(await f.repository.files.write('audio/take.wav', 'Now local'));
 		await f.server.commit(new Map([['remote.txt', 'Independent']]));
 		expectOk(await f.sync.run());
 		expect(
@@ -846,10 +809,10 @@ test('a pending deletion does not inherit obsolete tracking from the received ch
 test('deleting .gitignore is preserved and makes previously ignored audio eligible', async () => {
 	const f = await fixture(null);
 	try {
-		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
-		expectOk(await f.repository.files.write('audio/take.wav', null, 'Audio'));
+		expectOk(await f.repository.files.write('.gitignore', '/audio/\n'));
+		expectOk(await f.repository.files.write('audio/take.wav', 'Audio'));
 		expectOk(await f.sync.run());
-		expectOk(await f.repository.files.delete('.gitignore', '/audio/\n'));
+		expectOk(await f.repository.files.delete('.gitignore'));
 		expectOk(await f.sync.run());
 		expect(
 			(await f.server.git(['ls-tree', '-r', '--name-only', 'main'])).trim(),

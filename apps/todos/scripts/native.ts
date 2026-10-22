@@ -55,7 +55,7 @@ try {
 			const title = args.join(' ').trim();
 			if (title === '') throw new Error('create needs a title');
 			const id = crypto.randomUUID();
-			const result = await folder.tables.todos.set(id, null, {
+			const result = await folder.tables.todos.set(id, {
 				fields: { title, done: false },
 				body: '',
 			});
@@ -76,7 +76,7 @@ try {
 				print({ error: read.error?.message ?? `No todo named ${id}` });
 				break;
 			}
-			const saved = await folder.tables.todos.set(id, read.data, {
+			const saved = await folder.tables.todos.set(id, {
 				fields: { done: true },
 			});
 			if (saved.error !== null) exitCode = 1;

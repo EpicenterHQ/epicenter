@@ -101,7 +101,6 @@ test('actual incoming deltas inflate and an ordinary shallow push passes native 
 		expectOk(
 			await repository.files.write(
 				'files/0.txt',
-				`${'shared content line\n'.repeat(500)}unique 0\n`,
 				'Edited from shallow client\n',
 			),
 		);
@@ -174,14 +173,10 @@ for (const incompleteRecovery of [false, true])
 			await server.commit(new Map([['row.md', '---\ntitle: Base\n---\n']]));
 			expectOk(await createSync(repository, { url: server.url, author }).run());
 			expectOk(
-				await repository.files.write(
-					'row.md',
-					'---\ntitle: Base\n---\n',
-					'---\ntitle: Local\n---\n',
-				),
+				await repository.files.write('row.md', '---\ntitle: Local\n---\n'),
 			);
 			await prepareCommit(repository.storage, author());
-			expectOk(await repository.files.write('newer.txt', null, 'newer'));
+			expectOk(await repository.files.write('newer.txt', 'newer'));
 			await server.commit(new Map([['middle.txt', 'middle']]));
 			await server.commit(new Map([['row.md', '---\ntitle: Remote\n---\n']]));
 			const before = await repository.storage.capture('sync');

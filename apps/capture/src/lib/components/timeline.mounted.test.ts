@@ -23,7 +23,6 @@
 // IndexedDB on it rather than on the global the folder reads.
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
-import { unsavedOf, isMissing } from '../local-folder.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -32,6 +31,7 @@ import {
 	setWide,
 	type,
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { isMissing } from '../local-folder.test-support.js';
 
 const { flushSync, mount, tick, unmount } = await import('svelte');
 const { openCaptures, until } = await import('../local-folder.test-support.js');
@@ -209,7 +209,10 @@ test('a file that is not a valid capture is named with why, and Edit as text ope
 	await t.quiet();
 	flushSync();
 	expect(t.captures.opened).toEqual({ stem: 'broken', mode: 'text' });
-	expect(document.body.textContent).toContain('Needs repair');
+	await until(() => {
+		flushSync();
+		return document.body.textContent?.includes('Needs repair') ?? false;
+	}, 'the acquired text repair issues');
 });
 
 test('a capture whose save failed is named, with why, and opens from there', async () => {
@@ -218,7 +221,7 @@ test('a capture whose save failed is named, with why, and opens from there', asy
 	});
 	const restore = t.failSaves();
 	const edit = t.folder.tables.captures.edit('one');
-	expectOk(await edit.read());
+	expectOk(await edit.refresh());
 	expectOk(edit.change({ body: '\nEdited\n' }));
 	await edit.save();
 	restore();
@@ -238,7 +241,7 @@ test('a draft an earlier version saved is listed apart, autosaves, and Add captu
 	expect(t.captures.opened).toEqual({ stem: 'draft', mode: 'text' });
 	expect(box.value).toBe(draftFile(''));
 	type(box, draftFile('Written in the draft'));
-	expect(edit.getMarkdown()?.body).toBe('Written in the draft');
+	expect(edit.getSnapshot().content?.body).toBe('Written in the draft');
 	await t.quiet();
 	expect(await t.text(DRAFT)).toBe(draftFile('Written in the draft'));
 
@@ -259,16 +262,16 @@ test('a draft an earlier version saved is listed apart, autosaves, and Add captu
 test('the draft text box writes nothing after its view is gone', async () => {
 	const { t, box, edit } = await openDraft();
 	type(box, draftFile('typed in the draft'));
-	expect(edit.getMarkdown()?.body).toBe('typed in the draft');
+	expect(edit.getSnapshot().content?.body).toBe('typed in the draft');
 
 	t.close();
 	flushSync();
 	type(box, draftFile('delivered after the view went'));
-	expect(edit.getMarkdown()?.body).toBe('typed in the draft');
+	expect(edit.getSnapshot().content?.body).toBe('typed in the draft');
 	expect(t.captures.fenced).toBe(false);
 });
 
-test('a failed promotion keeps the raw draft visible and retry adds it once', async () => {
+test('a failed promotion keeps original writing visible and retry adds it once', async () => {
 	const { t, box } = await openDraft();
 	type(box, draftFile('My original writing'));
 	await t.quiet();
@@ -324,7 +327,7 @@ test('another tab finishing a draft keeps the full-file editor and shows the com
 	const completed =
 		'---\ncapturedAt: 2026-10-21T10:00:00Z\n---\n\nFinal writing\n\n## Thoughts\n';
 	await t.writeElsewhere(DRAFT, completed);
-	expectOk(await edit.read());
+	expectOk(await edit.refresh());
 	await until(() => {
 		flushSync();
 		return box.value === completed;
@@ -365,19 +368,27 @@ test('repairing draft frontmatter opens its raw writing despite an ambiguous Tho
 	await t.quiet();
 });
 
-test('a NUL paste is retained as full-file input with a visible save refusal', async () => {
+test('a NUL paste is refused visibly and leaves current source unchanged', async () => {
 	const { t, box, edit } = await openDraft('Before');
-	const pasted = draftFile('Pasted\u0000after');
-	type(box, pasted);
+	type(box, draftFile('Pasted\u0000after'));
 	await until(() => {
 		flushSync();
-		return Boolean(unsavedOf(edit)?.error);
-	}, 'the save refusal');
-	expect(fileField()?.value).toBe(pasted);
-	expect(document.body.textContent).toContain('Your edit is not saved');
+		return (
+			document.body.textContent?.includes('it contains a NUL character') ??
+			false
+		);
+	}, 'the input refusal');
+	expect(edit.getSnapshot().content?.text).toBe(draftFile('Before'));
+	expect(edit.getSnapshot().isDirty).toBe(false);
+	expect(edit.getSnapshot().saveError).toBeUndefined();
+	await until(
+		() => fileField()?.value === draftFile('Before'),
+		'the input to return to current content',
+	);
 	expect(await t.text(DRAFT)).toBe(draftFile('Before'));
 	type(box, draftFile('Accepted again'));
 	await t.quiet();
+	expect(document.body.textContent).not.toContain('That change was not made');
 	expect(await t.text(DRAFT)).toBe(draftFile('Accepted again'));
 });
 
@@ -415,7 +426,7 @@ test('copying held draft input after another tab deletes its file preserves lead
 	}
 });
 
-test('Finish saves pending whole-file edits before composing, keeping unknown frontmatter and exact raw CRLF', async () => {
+test('Finish composes pending whole-file content, keeping unknown frontmatter and raw CRLF', async () => {
 	const original = draftFile('Before').replace(/\n/g, '\r\n');
 	const t = await setup({ [DRAFT]: original });
 	document
@@ -431,7 +442,7 @@ test('Finish saves pending whole-file edits before composing, keeping unknown fr
 		.replace('Before', 'New\r\nbody');
 	type(box, typed);
 	const edit = t.folder.tables.captures.edit('draft');
-	expect(edit.getText()).toBe(typed);
+	expect(edit.getSnapshot().content?.text).toBe(typed);
 	click(document, 'Add capture');
 	await until(() => {
 		flushSync();
@@ -445,7 +456,7 @@ test('Finish saves pending whole-file edits before composing, keeping unknown fr
 	expect(expectOk(await t.folder.tables.captures.list())).toHaveLength(1);
 });
 
-test('input stays blocked after Finish writes until its refresh completes', async () => {
+test('input accepted after Finish writes remains current through its refresh', async () => {
 	const { t, box } = await openDraft('Final writing');
 	const refresh = t.context.refresh;
 	let release!: () => void;
@@ -464,18 +475,27 @@ test('input stays blocked after Finish writes until its refresh completes', asyn
 			flushSync();
 			return refreshing;
 		}, 'Finish to write and refresh');
-		expect(box.readOnly).toBe(true);
-		type(box, draftFile('Stale input during refresh'));
+		expect(box.readOnly).toBe(false);
 		const finished = await t.text(DRAFT);
-		expect(finished).toContain('Final writing');
-		expect(finished).not.toContain('draft:');
-		expect(unsavedOf(t.folder.tables.captures.edit('draft'))).toBeUndefined();
+		if (finished === undefined) throw new Error('The promotion did not save');
+		const newer = finished.replace(
+			'Final writing',
+			'New typing during refresh',
+		);
+		type(box, newer);
+		expect(
+			t.folder.tables.captures.edit('draft').getSnapshot().content?.text,
+		).toBe(newer);
+		expect(t.folder.tables.captures.edit('draft').getSnapshot().isDirty).toBe(
+			true,
+		);
 		release();
 		await until(() => {
 			flushSync();
 			return field('new-thought') !== null;
 		}, 'the finished view');
-		expect(await t.text(DRAFT)).toBe(finished);
+		await t.quiet();
+		expect(await t.text(DRAFT)).toBe(newer);
 	} finally {
 		release();
 		t.context.refresh = refresh;
@@ -485,7 +505,7 @@ test('input stays blocked after Finish writes until its refresh completes', asyn
 test('a failed draft save reopens from the failure list in the full-file editor', async () => {
 	const t = await setup({ [DRAFT]: draftFile('Before') });
 	const edit = t.folder.tables.captures.edit('draft');
-	expectOk(await edit.read());
+	expectOk(await edit.refresh());
 	const restore = t.failSaves();
 	expectOk(edit.replaceText(draftFile('Held here')));
 	await edit.save();
@@ -515,11 +535,11 @@ test('a capture that becomes a draft offers an explicit text editor that stays m
 	type(field('new-thought'), 'Not added yet');
 	const oldCaptureText = field('capture-text');
 	await t.writeElsewhere(DRAFT, draftFile('Before'));
-	expectOk(await t.folder.tables.captures.edit('draft').read());
+	expectOk(await t.folder.tables.captures.edit('draft').refresh());
 	type(oldCaptureText, 'Stale structured input');
-	expect(t.folder.tables.captures.edit('draft').getMarkdown()?.body).toBe(
-		'Before',
-	);
+	expect(
+		t.folder.tables.captures.edit('draft').getSnapshot().content?.body,
+	).toBe('Before');
 	await until(() => {
 		flushSync();
 		return document.body.textContent?.includes('This file is a draft') ?? false;

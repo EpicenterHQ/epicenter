@@ -28,8 +28,8 @@ export function describeDeletion(deletion: Deletion) {
 }
 
 /**
- * Ask before deleting `path`. The delete sends what is typed into the file
- * first, and keeps a file another tab changed in that moment.
+ * Ask before deleting `path`. The delete joins the file publication lane
+ * without saving pending input first.
  */
 export async function confirmDelete(notes: Notes, path: string) {
 	const { data: deletion, error: refusal } = await notes.deletionFor(path);

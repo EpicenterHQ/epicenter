@@ -79,8 +79,8 @@ mock.module('@tauri-apps/api/core', () => ({
 }));
 
 // The shell's watcher: nothing here changes the directory behind the page.
-mock.module('@tauri-apps/api/webviewWindow', () => ({
-	getCurrentWebviewWindow: () => ({ listen: async () => () => {} }),
+mock.module('@tauri-apps/api/webview', () => ({
+	getCurrentWebview: () => ({ listen: async () => () => {} }),
 }));
 
 const { openFolder: openBrowserFolder } = await import(
@@ -250,13 +250,13 @@ async function epicenter() {
 		async whisperingConnectionRead(connection) {
 			return reply(await readConnectionRow(paths, connection));
 		},
-		async whisperingConnectionSet(connection, base, fields) {
+		async whisperingConnectionSet(connection, fields) {
 			await beforeRowSave?.();
 			const answered = reply(
 				await setConnectionRow(
 					paths,
 					connection,
-					JSON.parse(JSON.stringify({ base, fields })),
+					JSON.parse(JSON.stringify({ fields })),
 				),
 			);
 			// The CLI saved the row; its reply is lost on the way back.
@@ -442,9 +442,9 @@ test('saves go through the shell: audio lands as its exact bytes, and a row as t
 	const { services, folder: openedFolder } = await openDesktop();
 	const audio = new Uint8Array([1, 2, 3, 0, 255]);
 
-	expectOk(await openedFolder.files.write('recordings/a.wav', null, audio));
+	expectOk(await openedFolder.files.write('recordings/a.wav', audio));
 	expectOk(
-		await openedFolder.tables.transformations.set('clean', null, {
+		await openedFolder.tables.transformations.set('clean', {
 			fields: { title: 'Clean up', model: null },
 			body: 'Tidy.\n',
 		}),
@@ -476,15 +476,12 @@ test('a row save whose reply the shell never sent is confirmed by what landed, a
 	await granting.write(PATH, '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
 	const { services, folder: openedFolder } = await openDesktop();
 	const table = openedFolder.tables.transformations;
-	const stored = expectOk(await table.get('clean'))!;
 
 	// The shell writes, and its reply never reaches the page. The page reads
 	// the file back, finds exactly what it wrote, and the save is confirmed.
 	granting.control.loseReplies = 1;
-	const confirmed = expectOk(
-		await table.set('clean', stored, { body: 'Tidy it.\n' }),
-	);
-	expect(confirmed.sent.body).toBe('Tidy it.\n');
+	const confirmed = expectOk(await table.set('clean', { body: 'Tidy it.\n' }));
+	expect(confirmed.body).toBe('Tidy it.\n');
 	expect(granting.kinds).toEqual(['write']);
 
 	// Again, and now the file cannot be read back either: nothing says
@@ -494,7 +491,7 @@ test('a row save whose reply the shell never sent is confirmed by what landed, a
 		granting.control.beforeChange = undefined;
 		granting.control.failReads.add(PATH);
 	};
-	const lost = await table.set('clean', confirmed.sent, {
+	const lost = await table.set('clean', {
 		body: 'Tidy it again.\n',
 	});
 	expect(lost.error?.name).toBe('StorageFailed');
@@ -639,11 +636,8 @@ test('an edit Settings saved while Whispering saved a connection is kept beside 
 	host.beforeRowSave(async () => {
 		host.beforeRowSave(undefined);
 		const folder = expectOk(await host.settings());
-		const row = expectOk(
-			await folder.tables.connections.get('whispering-text'),
-		);
 		expectOk(
-			await folder.tables.connections.set('whispering-text', row ?? null, {
+			await folder.tables.connections.set('whispering-text', {
 				fields: { title: 'Renamed in Settings', note: 'kept' },
 			}),
 		);

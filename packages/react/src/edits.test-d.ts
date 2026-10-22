@@ -1,51 +1,42 @@
 /** Schema precision survives the framework adapter. Checked, never run. */
 import { expectTypeOf } from 'bun:test';
-import type { Folder } from '@epicenter/folder';
-import type { BufferSnapshot, MarkdownContent } from '@epicenter/folder/edits';
+import type { Folder, SaveError } from '@epicenter/folder';
+import type {
+	EditorSnapshot,
+	LoadError,
+	MarkdownContent,
+} from '@epicenter/folder/edits';
 import { Type } from 'typebox';
 import { useFileEdit } from './edits.js';
 
 const notes = Type.Object({ title: Type.String(), done: Type.Boolean() });
 declare const folder: Folder<{ notes: typeof notes }>;
 export function useTypeAssertions() {
-	const fileEdit = useFileEdit(folder.tables.notes.edit('milk'));
-	expectTypeOf(fileEdit.getMarkdown()).toEqualTypeOf<
+	const edit = folder.tables.notes.edit('milk');
+	const snapshot = useFileEdit(edit);
+	expectTypeOf(snapshot).toEqualTypeOf<EditorSnapshot<typeof notes>>();
+	expectTypeOf(snapshot.content).toEqualTypeOf<
 		MarkdownContent<typeof notes> | undefined
 	>();
-	expectTypeOf(fileEdit.getText()).toEqualTypeOf<string | undefined>();
-	expectTypeOf(fileEdit.getBuffer()).toEqualTypeOf<BufferSnapshot>();
-	expectTypeOf(fileEdit.isLocked()).toEqualTypeOf<boolean>();
-	const markdown = fileEdit.getMarkdown();
-	if (markdown?.issues === null)
-		expectTypeOf(markdown.fields?.title).toEqualTypeOf<string>();
-	fileEdit.change({ fields: { title: 'Oat milk', done: true } });
-	fileEdit.change({ body: 'Two litres' });
-	fileEdit.change({ fields: { done: false }, body: 'Two litres' });
-	fileEdit.replaceText('whole source');
-	// @ts-expect-error A flat field is not a markdown change.
-	fileEdit.change({ title: 'Oat milk' });
+	expectTypeOf(snapshot.loadError).toEqualTypeOf<LoadError | undefined>();
+	expectTypeOf(snapshot.saveError).toEqualTypeOf<SaveError | undefined>();
+	expectTypeOf(snapshot.isDirty).toEqualTypeOf<boolean>();
+	expectTypeOf(snapshot.isSaving).toEqualTypeOf<boolean>();
+	if (snapshot.content?.issues === null)
+		expectTypeOf(snapshot.content.fields.title).toEqualTypeOf<string>();
+	edit.change({ fields: { title: 'Oat milk', done: true } });
 	// @ts-expect-error A change names fields of this edit's schema.
-	fileEdit.change({ fields: { titel: 'Oat milk' } });
-	// @ts-expect-error A field takes its schema's type.
-	fileEdit.change({ fields: { done: 'yes' } });
-	// @ts-expect-error Source replacement takes text.
-	fileEdit.replaceText(new Uint8Array());
+	edit.change({ fields: { titel: 'Oat milk' } });
+	// @ts-expect-error Commands stay on the editor handle.
+	snapshot.replaceText('source');
+	// @ts-expect-error The snapshot is immutable.
+	snapshot.isDirty = true;
 	const generic = useFileEdit(folder.files.edit('arbitrary.md'));
-	generic.change({ fields: { anyName: 'value' } });
-	generic.replaceText('source');
-	// @ts-expect-error React reads are explicit methods.
-	fileEdit.markdown;
-
-	// A captured snapshot narrows content and save feedback together.
-	const buffer = fileEdit.getBuffer();
-	if (buffer.status === 'ready') {
-		expectTypeOf(buffer.text).toEqualTypeOf<string>();
-		if (buffer.unsaved?.status === 'conflict')
-			expectTypeOf(buffer.unsaved.error.name).toEqualTypeOf<'Conflict'>();
-	} else {
-		// @ts-expect-error Nonready buffers have no editable text.
-		buffer.text;
-		// @ts-expect-error Unsaved input always belongs to a ready buffer.
-		buffer.unsaved;
-	}
+	expectTypeOf(generic.content?.fields).toEqualTypeOf<
+		{ readonly [key: string]: unknown } | undefined
+	>();
+	// Content is readonly all the way down, as the frozen snapshot is.
+	if (snapshot.content?.issues === null)
+		// @ts-expect-error A field of the snapshot cannot be assigned.
+		snapshot.content.fields.title = 'Oat milk';
 }

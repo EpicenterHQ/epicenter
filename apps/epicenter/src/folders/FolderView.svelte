@@ -9,20 +9,18 @@
 		savedKey,
 		TABLES,
 		SQL,
-		type ViewUpdater,
 	} from './views.svelte';
 	import TablesView from './TablesView.svelte';
 	import SqlView from './SqlView.svelte';
-	import { createFileEdit } from '@epicenter/svelte/edits';
 	import { getFolder } from './context.js';
 	import { createQuery } from '@tanstack/svelte-query';
 	import FileEditor from './FileEditor.svelte';
-	import { fileTree, sourceRead } from './files';
+	import { fileTree } from './files';
+	import { createFileEdit } from '@epicenter/svelte/edits';
 
 	/** Files, recipes and held input share one window and one open folder. */
-	let { updateView }: { updateView: ViewUpdater } = $props();
 
-	const { folder, queries, getStatus, refresh } = getFolder();
+	const { folder, queries, getStatus } = getFolder();
 	const status = $derived(getStatus());
 
 	const listing = createQuery(() => queries.files());
@@ -41,38 +39,12 @@
 		selected = path;
 		view = 'files';
 	}
-	const declaration = createQuery(() => queries.file('epicenter.json', sourceRead));
-	const saved = $derived.by(() => {
-		try {
-			return readSavedViews(
-				declaration.data
-					? new TextDecoder('utf-8', { fatal: true }).decode(declaration.data)
-					: '{}',
-			);
-		} catch {
-			return {
-				data: null,
-				error: { reason: 'epicenter.json is not UTF-8 text' },
-			};
-		}
-	});
-	// The declaration's source, fenced while a view setting is written to it.
-	// Only its editing fence is used, so it reads nothing.
-	const fileEdit = createFileEdit(folder.files.edit('epicenter.json'));
+	const declaration = createFileEdit(folder.files.edit('epicenter.json'));
+	const saved = $derived(readSavedViews(declaration.content?.text ?? '{}'));
+	const loadProblem = $derived(declaration.loadError?.name === 'Missing' ? undefined : declaration.loadError?.message);
 	const views = createViews({
 		saved: () => saved.data?.views ?? {},
-		update: (change) => updateView(change),
-		async exclusive(action) {
-			const done = await folder.run(['epicenter.json'], action);
-			if (done.error !== null) throw new Error(done.error.reason);
-			return done.data;
-		},
-		refreshed: async () => {
-			await refresh(
-				['epicenter.json'],
-				{ throwOnError: true },
-			);
-		},
+		declaration,
 	});
 	const recipe = $derived(views.value(view));
 	const needsDirectory = $derived(
@@ -91,11 +63,6 @@
 	const savedEntries = $derived([
 		...new Map([...storedEntries, ...views.held]),
 	]);
-	async function save(asNew = false) {
-		const key = view;
-		const target = await views.save(key, asNew);
-		if (view === key) view = target;
-	}
 
 </script>
 
@@ -142,10 +109,6 @@
 				<span class="text-destructive">
 					Not saved: {status.failures.map((failure) => failure.path).join(', ')}
 				</span>
-			{:else if views.failed}<span class="text-destructive"
-					>View settings need attention. Choose the marked view to retry or copy
-					them.</span
-				>
 			{:else if status.storageFailure !== null}
 				<span class="text-destructive"
 					>A save failed: {status.storageFailure.message}</span
@@ -154,10 +117,10 @@
 		</span>
 	</header>
 
-	{#if declaration.error || saved.error || (saved.data?.diagnostics.length ?? 0) > 0}
+	{#if loadProblem || saved.error || (saved.data?.diagnostics.length ?? 0) > 0}
 		<div class="border-b px-4 py-2 text-sm">
-			{#if declaration.error || saved.error}<p class="text-destructive">
-					Could not read saved views: {declaration.error?.message ??
+			{#if loadProblem || saved.error}<p class="text-destructive">
+					Could not read saved views: {loadProblem ??
 						saved.error?.reason}
 				</p>{/if}
 			{#each saved.data?.diagnostics ?? [] as issue}<p>
@@ -169,6 +132,15 @@
 				>Open epicenter.json</Button
 			>
 		</div>
+	{/if}
+	{#if declaration.saveError}
+		<Alert.Root variant="destructive" class="rounded-none border-x-0">
+			<Alert.Description>
+				<p>epicenter.json did not save: {declaration.saveError.message}</p>
+				<Button variant="link" onclick={() => void declaration.save()}>Retry declaration save</Button>
+				<Button variant="link" onclick={() => openSource('epicenter.json')}>Open epicenter.json</Button>
+			</Alert.Description>
+		</Alert.Root>
 	{/if}
 	{#if view !== 'files' && recipe}
 		<div class="flex flex-wrap items-center gap-2 border-b px-4 py-2">
@@ -185,42 +157,33 @@
 				>{/if}
 			<Button
 				size="sm"
-				disabled={fileEdit.locked || views.busy(view) ||
-					declaration.isPending ||
+				disabled={(declaration.content === undefined && declaration.loadError?.name !== 'Missing') ||
 					needsDirectory}
-				onclick={() => void save()}
-				>{fileEdit.locked || views.busy(view)
-					? 'Saving…'
-					: viewError
-						? 'Retry save'
-						: 'Save view'}</Button
+				onclick={() => view = views.save(view)}
+				>{viewError ? 'Retry save' : 'Save view'}</Button
 			>
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={fileEdit.locked || views.busy(view) ||
-					declaration.isPending ||
+				disabled={(declaration.content === undefined && declaration.loadError?.name !== 'Missing') ||
 					needsDirectory}
-				onclick={() => void save(true)}>Save as new</Button
+				onclick={() => view = views.save(view, true)}>Save as new</Button
 			>
 			{#if view !== TABLES && view !== SQL}
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={fileEdit.locked || views.busy(view)}
 					onclick={() => {
 						views.reload(view);
-						void declaration.refetch();
+						void declaration.refresh();
 					}}>Reload settings</Button
 				>
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={fileEdit.locked || views.busy(view) || views.dirty(view)}
-					onclick={async () => {
-						const key = view;
-						if ((await views.remove(key)) && view === key && !views.dirty(key))
-							view = TABLES;
+					disabled={views.dirty(view)}
+					onclick={() => {
+						if (views.remove(view)) view = TABLES;
 					}}>Delete view</Button
 				>
 			{/if}
@@ -232,21 +195,11 @@
 				browsing.
 			</p>
 		{/if}
-		{#if views.notice(view)}<Alert.Root
-				><Alert.Description
-					>{views.notice(view)}
-					<Button variant="link" onclick={() => void declaration.refetch()}
-						>Read again</Button
-					></Alert.Description
-				></Alert.Root
-			>{/if}
 		{#if viewError}<Alert.Root variant="destructive"
 				><Alert.Description
 					><p>View settings did not save: {viewError}</p>
 					<Button variant="link" onclick={() => openSource('epicenter.json')}
 						>Open epicenter.json</Button
-					><Button variant="ghost" onclick={() => views.dismiss(view)}
-						>Dismiss failed save</Button
 					>
 					<pre
 						class="max-h-48 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(
@@ -297,7 +250,7 @@
 											'block w-full truncate rounded px-2 py-0.5 text-left hover:bg-muted',
 											path === selected && 'bg-muted font-medium',
 										]}
-										onclick={() => (selected = path)}
+					onclick={() => (selected = path)}
 									>
 										{path}<span class="sr-only"> (not saved yet)</span>
 									</button>
@@ -335,7 +288,7 @@
 											entry.path === selected && 'bg-muted font-medium',
 										]}
 										title={entry.path}
-										onclick={() => (selected = entry.path)}
+					onclick={() => (selected = entry.path)}
 									>
 										{entry.name}{#if held.has(entry.path)}<span class="sr-only">
 												(not saved yet)</span

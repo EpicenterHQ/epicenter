@@ -24,14 +24,10 @@ export function confirmDelete(captures: Captures, stem: string) {
 			variant: 'destructive',
 		},
 		async onConfirm() {
-			const { data, error } = await captures.delete(deletion);
+			const { error } = await captures.delete(deletion);
 			if (error !== null)
 				toast.error(failed, {
 					description: describeFailure(error),
-				});
-			else if (!data.deleted && captures.isStored(stem))
-				toast.error(failed, {
-					description: 'It changed while it was being deleted, so it was kept.',
 				});
 		},
 	});

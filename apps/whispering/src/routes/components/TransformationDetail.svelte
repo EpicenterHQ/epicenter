@@ -1,13 +1,10 @@
 <!--
 	One transformation: its instructions, model, results, and a place to try
 	it. One folder edit holds title, model, instructions, and source input.
-	It saves after a pause, even after this view leaves. Changed saved source
-	causes a whole-file conflict; the draft stays pinned. Run sends what is typed first.
+	It saves accepted input after a pause, even after this view leaves.
+	Run sends what is typed first.
 -->
 <script lang="ts">
-	import { getFolder } from '$lib/folder.js';
-	import { textRead } from '$lib/file-reads.js';
-
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
@@ -23,7 +20,6 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { createQuery } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import { rowIdOf, TRANSFORMATIONS } from '$lib/definition.js';
 	import { getWhispering, type TransformationEntry } from '$lib/whispering.svelte.js';
@@ -59,27 +55,16 @@
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.edit(TRANSFORMATIONS, own);
-	const { queries } = getFolder();
-	/** What the file is while it shows as text; its reads keep the text edit current. */
-	const opened = createQuery(() => ({ ...queries.file(path, textRead), enabled: asText }));
 	/** The transformation as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
-		const shown = fileEdit.markdown;
+		const shown = fileEdit.content;
 		return shown?.issues === null ? shown : undefined;
 	});
-	// Save metadata stays passive until this view actually demands text.
-	const buffer = $derived(
-		!asText || opened.data?.kind === 'text' || whispering.isSaving(path) || whispering.isUnsaved(path)
-			? fileEdit.buffer : undefined,
-	);
-	const unsaved = $derived(buffer?.status === 'ready' ? buffer.unsaved : undefined);
-	/** The file's text as typed while an edit is unsaved, else as stored. */
-	const source = $derived(
-		asText && buffer?.status === 'ready' && (buffer.unsaved !== undefined || opened.data?.kind === 'text') ? buffer.text : undefined,
-	);
+	/** Held source remains editable after deletion or a failed storage read. */
+	const source = $derived(fileEdit.content?.text);
 	/** The current source as a row, including unsaved input and its issues. */
-	const sourceRow = $derived(asText && source !== undefined ? fileEdit.markdown : undefined);
+	const sourceRow = $derived(asText && source !== undefined ? fileEdit.content : undefined);
 	const issues = $derived(sourceRow?.issues ?? undefined);
 
 	/** Either view resolves the same current recipe, including unsaved input. */
@@ -87,11 +72,10 @@
 		row ?? (sourceRow?.issues === null ? sourceRow : undefined),
 	);
 
-	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
 
 	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
 	const id = $derived(rowIdOf(TRANSFORMATIONS, path) ?? path);
-	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
+	/** The one decision about this recipe, as it is typed; Run captures it and decides again. */
 	const resolved = $derived(whispering.resolve(recipe));
 	const connection = $derived(whispering.connections?.text);
 	/** Saved results on transcripts and on pasted text, newest first. */
@@ -142,7 +126,7 @@
 	/** Why Run is unavailable, in the order a person would fix it, or undefined when it can run. */
 	const blocked = $derived.by(() => {
 		if (entry === undefined) return 'This transformation is not in the folder.';
-		// Running settles its saves first, so what has to be sound is the text as typed.
+		// The request captures this held source, so validate what is typed.
 		if (resolved.kind === 'blocked') return resolved.reason;
 		if (view.applySource === 'pasted') {
 			if (runningOnText) return 'Running on pasted text…';
@@ -157,8 +141,7 @@
 	const fix = $derived(entry !== undefined && resolved.kind === 'blocked' ? resolved.fix : undefined);
 
 	async function run() {
-		// What is typed is the recipe that runs; it is sent, and the run settles it.
-		void fileEdit.save();
+		// The run captures current input and persists its own result before sending.
 		const problem =
 			view.applySource === 'pasted'
 				? await whispering.transformText(path, view.pastedText)
@@ -233,7 +216,6 @@
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={() => shown.fields.title, (value) => fileEdit.change({ fields: { title: value } })}
-				disabled={fileEdit.locked}
 				placeholder="Title"
 				aria-label="Transformation title"
 				data-testid="transformation-title"
@@ -259,31 +241,20 @@
 		</div>
 	{/if}
 
-	{#if buffer?.error && buffer?.error.name !== 'SourceUnavailable'}
-		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{buffer?.error.message}</p>
+	{#if fileEdit.loadError}
+		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{fileEdit.loadError.message}</p>
 	{/if}
 
-	{#if unsaved !== undefined && buffer?.error?.name === 'SourceUnavailable' && (asText ? source !== undefined : row !== undefined)}
-		<div class="space-y-2 p-4" role="status">
-			<p>The saved file changed. Your draft remains available.</p>
-			<Textarea readonly aria-label="Unsaved transformation changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
-		</div>
-	{/if}
-	{#if (asText ? source === undefined : row === undefined) && unsaved !== undefined}
-		<div class="space-y-2 p-4" role="status">
-			<p>The saved file no longer reads. Your unsaved changes are kept below.</p>
-			<Textarea readonly aria-label="Unsaved transformation changes" value={fileEdit.text} class="min-h-40 font-mono text-xs" />
-		</div>
-	{:else if asText && source === undefined && opened.isError}
+	{#if source === undefined && fileEdit.loadError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">
-			<p>This transformation’s file could not be opened: {opened.error.message}</p>
-			<Button size="sm" variant="outline" onclick={() => void opened.refetch()}>Try again</Button>
+			<p>{fileEdit.loadError.message}</p>
+			<Button size="sm" variant="outline" onclick={() => void fileEdit.refresh()}>Try again</Button>
 		</div>
-	{:else if loading}
-		<Loading class="flex-1" label="Opening the transformation…" />
+	{:else if source === undefined}
+		<Loading class="flex-1" label="Opening the file…" />
 	{:else}
 	<Tabs.Root bind:value={
-		() => tab === 'try' ? 'try' : source !== undefined ? 'source' : 'instructions',
+		() => tab === 'try' ? 'try' : asText ? 'source' : 'instructions',
 		(value) => {
 			if (value === 'try') {
 				tab = 'try';
@@ -315,7 +286,7 @@
 								() => shown.body,
 								(value) => fileEdit.change({ body: value })
 							}
-							disabled={fileEdit.locked}
+
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
 						/>
@@ -350,7 +321,7 @@
 											fileEdit.change({ fields: { model: value.trim() === '' ? null : value } });
 										}
 									}
-									disabled={fileEdit.locked}
+
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
 									spellcheck={false}
@@ -421,7 +392,7 @@
 							{#if !blocked && chosen}
 								<p class="max-h-24 overflow-y-auto rounded border p-2 text-xs whitespace-pre-wrap text-muted-foreground">{chosen.result.row.body.trim()}</p>
 								<p class="text-xs text-muted-foreground">
-									Run saves your edits, then sends the instructions and this transcript. The answer is saved as a new result below; the
+									Run sends the instructions and this transcript. The answer is saved as a new result below; the
 									transcript does not change.
 								</p>
 							{/if}
@@ -441,7 +412,7 @@
 								</Button>
 								{#if !blocked}
 									<span class="text-xs text-muted-foreground">
-										Run saves your edits, then sends the instructions and this text. The answer is saved as a new result below.
+										Run sends the instructions and this text. The answer is saved as a new result below.
 									</span>
 								{/if}
 							</div>
@@ -520,7 +491,7 @@
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(shown), (value) => fileEdit.replaceText(withFileNewlines(value, shown))}
 					{@attach () => { whispering.editSource(path); }}
-					disabled={fileEdit.locked}
+
 					aria-label="Markdown source"
 					spellcheck={false}
 					data-testid="transformation-source"

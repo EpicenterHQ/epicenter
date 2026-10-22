@@ -8,7 +8,8 @@
  * files in IndexedDB instead (`browser/storage.ts`).
  *
  * `put` is the one change: one file's bytes, or its removal, landing only
- * while the path holds what the caller expects. It lands whole: a reader,
+ * while the path holds what the caller expects (`Expectation`), which may be
+ * anything at all. It lands whole: a reader,
  * and a crash, see the old file or the new one, never part of either, and a
  * new file never appears empty first. Where Sync publishes, `lock` holds the
  * folder's save lock, the one every cooperating writer takes for each
@@ -17,7 +18,13 @@
  *
  * Saves are not ordered by when their methods were called: the last to land
  * on a path wins. A change that must not overwrite bytes its caller did not
- * review carries `ifMatch`.
+ * review expects their hash; one that must not replace a file expects
+ * `'absent'`.
+ *
+ * A name that only some disks can hold (`pathProblem`) is never created.
+ * An existing one may be replaced or removed, and a write expecting `'any'`
+ * there lands only while the file is still there, checked where it lands;
+ * otherwise it is `InvalidPath`. A `HEAD` segment is never written.
  *
  * What every host shares is here once (`hostStorage`, `lockingStorage`): the
  * path rule, owning the bytes a put was handed, telling other pages what
@@ -29,6 +36,17 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { FileError } from './errors.js';
 import { pathProblem, readablePath, writableExistingPath } from './paths.js';
+
+/**
+ * What a change expects at its path when it lands: nothing there, a file, a
+ * file whose bytes hash to `sha256`, or whatever is there. A host checks it
+ * where the change lands, under the folder's save lock.
+ */
+export type Expectation =
+	| 'absent'
+	| 'present'
+	| { readonly sha256: string }
+	| 'any';
 
 export type FileRead = {
 	readonly bytes: Uint8Array;
@@ -61,17 +79,17 @@ export type FolderStorage = {
 	read(path: string): Promise<Result<FileRead, FileError>>;
 	/**
 	 * Publish `bytes` at `path`, or remove its file for `null`, only while
-	 * the path holds `ifMatch`: the SHA-256 of the file there, or `null` for
-	 * no file. `'stale'` when it does not, and nothing changed. Missing
-	 * parent directories are made for a new file. The bytes land whole. The
-	 * host checks the condition where the change lands, under the folder's
-	 * save lock, the lock the desktop shell and Bun share (ADR-0562). A reply
-	 * that was lost is `Unconfirmed`.
+	 * the path holds what `expected` says. `'stale'` when it does not, and
+	 * nothing changed; `'any'` is never stale. Removing nothing that may be
+	 * absent has landed. Missing parent directories are made for a new file.
+	 * The bytes land whole. The host checks the condition where the change
+	 * lands, under the folder's save lock, the lock the desktop shell and Bun
+	 * share (ADR-0562). A reply that was lost is `Unconfirmed`.
 	 */
 	put(
 		path: string,
 		bytes: Uint8Array | null,
-		ifMatch: string | null,
+		expected: Expectation,
 	): Promise<Result<'landed' | 'stale', FileError>>;
 	mkdir(path: string): Promise<Result<undefined, FileError>>;
 	/** Remove the empty directory at `path`. */
@@ -94,10 +112,13 @@ export type LockingStorage = FolderStorage & {
 
 /**
  * A host's own operations on its storage. The storage built over them
- * (`hostStorage`) calls writes only with a path `pathProblem` accepts, and
- * reads with a structurally safe path, including existing nonportable names.
- * `children` also accepts the root (`''`). Calls carry bytes no caller still holds. `change`
- * is `put`'s change; a listing may come in any order.
+ * (`hostStorage`) calls writes with a path `pathProblem` accepts, or with an
+ * existing nonportable name that `writableExistingPath` admits and an
+ * expectation that a file is there (never `'absent'` or, for bytes, `'any'`),
+ * and reads with a structurally safe path. `children` also accepts the root
+ * (`''`). Calls carry bytes no caller still holds. `change` is `put`'s
+ * change; a listing may come in any order. A host still checks its own path
+ * rule: the desktop shell does not trust the page's.
  */
 export type HostFiles = Pick<
 	FolderStorage,
@@ -195,19 +216,32 @@ export function hostStorage(
 		async read(path) {
 			return readablePath(path)
 				? files.read(path)
-				: FileError.InvalidPath({ path, reason: 'the path cannot be read safely' });
+				: FileError.InvalidPath({
+						path,
+						reason: 'the path cannot be read safely',
+					});
 		},
-		async put(path, bytes, ifMatch) {
-			const refused =
-				ifMatch !== null && writableExistingPath(path) ? undefined : refusal(path);
-			if (refused) return refused;
+		async put(path, bytes, expected) {
+			const refused = refusal(path);
+			// An existing nonportable name may be replaced or removed, never made.
+			if (
+				refused &&
+				(!writableExistingPath(path) ||
+					(bytes !== null && expected === 'absent'))
+			)
+				return refused;
+			const checked =
+				refused && bytes !== null && expected === 'any' ? 'present' : expected;
 			const owned = bytes === null ? null : new Uint8Array(bytes);
 			let result: Result<'landed' | 'stale', FileError>;
 			try {
-				result = await files.change(path, owned, ifMatch);
+				result = await files.change(path, owned, checked);
 			} catch (cause) {
 				result = FileError.Io({ path, operation: 'write', cause });
 			}
+			// The nonportable file went before this write landed, which cannot make it.
+			if (refused && checked !== expected && result.data === 'stale')
+				return refused;
 			if (mayHaveChanged(result)) relay([path]);
 			return result;
 		},

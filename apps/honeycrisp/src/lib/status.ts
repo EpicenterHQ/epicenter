@@ -7,8 +7,8 @@
  * saved when its text is on this device.
  */
 import type { FolderStatus, ReadError, SaveError } from '@epicenter/folder';
-import type { StatusLine } from '@epicenter/svelte/status-line';
 import type { ActionError } from '@epicenter/folder/edits';
+import type { StatusLine } from '@epicenter/svelte/status-line';
 import { extractErrorMessage } from 'wellcrafted/error';
 
 /** What a person is told about a save, read, or delete that failed. */
@@ -18,8 +18,6 @@ export function describeFailure(
 	switch (error.name) {
 		case 'StorageFailed':
 			return `This device's storage refused it: ${extractErrorMessage(error.cause)}.`;
-		case 'NotStarted':
-			return error.reason;
 		case 'Unparseable':
 			return `Its file cannot be edited as a note: ${error.reason}. Edit it as a file instead.`;
 		case 'NotText':

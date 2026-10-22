@@ -6,14 +6,17 @@
  *
  * The shell answers each storage method itself (`tauri-files.ts`,
  * ADR-0581), in the directory bound to the calling window: it checks every
- * path, stages a new file's bytes and renames them over the path, and checks
- * the bytes a save expects there under the directory's save lock, the one
- * Bun processes take too. The page reaches nothing else on disk.
+ * path and stages a new file's bytes and renames them over the path under
+ * the directory's save lock, the one Bun processes take too. Ordinary saves
+ * replace the file unconditionally. The page reaches nothing else on disk.
  *
- * Outside edits are discovered by the page's query refresh policy. This
- * handle still reports its own saves and other handles' saves in this page.
+ * The binding owns one recursive native watch. This handle installs its scoped
+ * listener before returning the handle and releases it on close; its readers observe outside
+ * edits without a file-query timer. Notifications carry paths, never bytes or
+ * publication receipts.
  */
 import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
 import { hostStorage } from '../boundary.js';
@@ -21,8 +24,9 @@ import { saveDelay } from '../edit-owner.js';
 import { OpenFolderError } from '../errors.js';
 import type { DefaultFolderOptions, Folder } from '../folder.js';
 import { tauriHostFiles } from '../tauri-files.js';
-import { commands, type WindowError } from './bindings.gen.js';
+import { commands, events, type WindowError } from './bindings.gen.js';
 import { createNativeFolder, invalidTable } from './engine.js';
+import type { FolderObservation } from './watch.js';
 
 /** What a refused open tells the page. */
 function openRefusal(refusal: WindowError) {
@@ -79,13 +83,47 @@ export async function openTauriFolder<
 			return OpenFolderError.Unavailable({ cause: error });
 		return openRefusal(error);
 	}
-	return Ok(
-		createNativeFolder({
-			storage: hostStorage(tauriHostFiles()),
-			tables,
-			// Every handle in this page is over the window's one directory.
-			directory: 'tauri:window',
-			saveAfterMs,
-		}),
-	);
+	// No owner or reader exists yet. Listening before constructing and returning
+	// the passive handle covers every initial read, without replaying old hints.
+	let observe: ((paths: FolderObservation) => void) | undefined;
+	let stop: () => void;
+	try {
+		stop = await events
+			.folderChanged(getCurrentWebview())
+			.listen(({ payload }) => {
+				const paths: unknown =
+					typeof payload === 'object' && payload !== null
+						? payload.paths
+						: undefined;
+				observe?.(
+					Array.isArray(paths) &&
+						paths.every((path) => typeof path === 'string')
+						? paths
+						: null,
+				);
+			});
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
+	try {
+		return Ok(
+			createNativeFolder({
+				storage: hostStorage(tauriHostFiles()),
+				tables,
+				// Every handle in this page is over the window's one directory.
+				directory: 'tauri:window',
+				saveAfterMs,
+				watch(listener) {
+					observe = listener;
+					return () => {
+						observe = undefined;
+						stop();
+					};
+				},
+			}),
+		);
+	} catch (cause) {
+		stop();
+		throw cause;
+	}
 }

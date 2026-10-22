@@ -19,10 +19,10 @@ test('closing reaches every current reader after earlier readers unmount', async
 	const context = createFolderContext(folder);
 	const release = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
-	const action = folder.run([], async () => {
+	const action = folder.run(async () => {
 		started.resolve();
 		await release.promise;
-		expectOk(await folder.files.write('finished.txt', null, 'done'));
+		expectOk(await folder.files.write('finished.txt', 'done'));
 	});
 	const readers: ReturnType<typeof follow<boolean>>[] = [];
 	try {

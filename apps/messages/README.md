@@ -38,18 +38,19 @@ shell and its compiled CLI must also be rebuilt for the new command.
 | Data | Owner and location |
 | --- | --- |
 | Conversation and message history, accounts, delivery | Beeper; fetched into an in-memory query cache, never mirrored into this folder |
-| Draft text and send recovery state | `drafts/<mode>-<digest>.md` in the app's bound data folder; IndexedDB in the browser |
+| Current composition | `drafts/<mode>-<digest>.md` in the bound folder; IndexedDB in the browser |
+| Latest submitted attempt and checked outcome | `attempts/<mode>-<digest>.md`, written only by serialized send/recovery workflows |
 | Beeper access token | Device keychain, through the Epicenter CLI; scoped to the installation's app-data directory |
 | Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
 | Source code and fictional fixtures | This source repository |
 
 Folder's edit owner handles draft autosave and failures; `FolderApp` owns
-storage closure. Selecting a conversation initializes its empty draft file.
+storage closure. Selecting a conversation creates no file; first input creates its draft.
 Text typed into it uses Folder's file edit handle, so leaving the view retains
 input. The conversation list shows **Draft** and a one-line preview from that
 same input, including before autosave and after a failed save. Empty replies
-show the latest message instead. A send in progress says **Sending**; an
-uncertain outcome says **Check send**, retaining its text. Only drafts matching
+show the latest message instead. An unresolved attempt says **Check send**, retaining its submitted text separately
+from the next composition. Only drafts matching
 the current demo/live mode and connection profile are shown.
 
 `createQuery(() => context.queries.rows('drafts'))` discovers the saved Markdown
@@ -101,17 +102,29 @@ for an open conversation and every five seconds for the list while visible.
 The app sends no read receipts and provides no archive, delete, edit, reaction,
 account-management or new-conversation operation.
 
-Opening a draft and sending enter Folder work before their first asynchronous
-step. A send reserves its draft path when it is called, saves held typing and
-writes `state: sending` durably; a second send of the same draft meanwhile is
-refused. Only then does it send one request. A confirmation
-means Beeper accepted the request, not that the network delivered it. The app
-saves the pending ID and clears the draft after that acknowledgement. An
-unknown outcome or interrupted attempt retains the original text in `sending`
-state across reloads. It cannot send again until you check Beeper and explicitly
-keep the text as a draft or clear it. An admitted send can save its receipt
-while the folder closes; closing waits for that admitted work. Nothing sends on opening, refresh, retry,
-reload, reconnect, or draft autosave.
+A send enters Folder work before waiting on the local draft queue or browser
+Web Lock. Inside that turn it reads the persisted attempt and refuses another
+send while the outcome is unresolved. It saves the attempted message durably
+before contacting Beeper. Composer autosave cannot erase that record because it
+writes a different file. Send captures its displayed source and preceding attempt
+before waiting, and refuses if another submission has since been recorded. Only one latest attempt is retained for each draft. Its unique `attemptId` binds
+checked recovery to the exact operation the person saw, even for identical messages.
+
+After its attempt is durable, the send clears its captured composition only if
+that source stayed unchanged during publication. Any newer composition, including
+identical text typed after another change, remains available. Receipt publication
+updates only the attempt. A remounted recovery action takes the same turn and
+rechecks persistence, so it cannot restore a message that has since succeeded.
+**I checked** explicitly acknowledges an unresolved outcome. The submitted text
+remains available to copy. Existing unresolved records in draft files still
+require checked recovery before composing again. Normal close waits for admitted
+sends and receipts; reload, reconnect, and draft autosave never replay them.
+
+This is local send recovery, not backend idempotency or a multi-device outbox.
+Intentional external edits to attempt records can change the protocol. Browser
+Web Locks coordinate participating tabs; the desktop shell uses one window per
+folder. Memory retention does not provide durable crash recovery for text whose
+publication failed.
 
 References: [Beeper Desktop API](https://developers.beeper.com/desktop-api/),
 [authentication](https://developers.beeper.com/desktop-api/auth/).

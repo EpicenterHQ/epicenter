@@ -3,7 +3,8 @@
 //! command (ADR-0581).
 //!
 //! A page names folder-relative paths. New paths pass `paths::path_problem`;
-//! witnessed saves may repair existing structurally safe names. Every path
+//! a save may replace or remove an existing structurally safe name that only
+//! some disks hold, but never make one. Every path
 //! is literal, as in the Bun
 //! directory storage (`directory-store.ts`), whose outcomes these match:
 //!
@@ -276,6 +277,42 @@ pub enum StorageError {
 pub enum PutOutcome {
     Landed,
     Stale,
+}
+
+/// What a `put` expects at its path when it lands: `Expectation` in
+/// `boundary.ts`. `Any` is never stale.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Expectation {
+    /// Nothing at all is there.
+    Absent,
+    /// A regular file is there, whatever its bytes.
+    Present,
+    /// A regular file whose bytes have this lowercase hexadecimal SHA-256.
+    Sha256(String),
+    /// Whatever is there.
+    Any,
+}
+
+impl Expectation {
+    /// The page's `expected` header: `any`, `absent`, `present`, or a
+    /// lowercase hexadecimal SHA-256.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "any" => Ok(Self::Any),
+            "absent" => Ok(Self::Absent),
+            "present" => Ok(Self::Present),
+            hash if hash.len() == 64
+                && hash
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
+            {
+                Ok(Self::Sha256(hash.to_string()))
+            }
+            other => Err(format!(
+                "expected is {other:?}, not any, absent, present, or a SHA-256"
+            )),
+        }
+    }
 }
 
 /// One file in a listing.
@@ -683,20 +720,23 @@ fn file_sha256(target: &Path) -> io::Result<String> {
     Ok(hex(&hasher.finalize()))
 }
 
-/// Whether `target` holds what a put expects: no entry at all for `None`,
-/// or a regular file whose bytes hash to `if_match`.
-fn holds(target: &Path, if_match: Option<&str>) -> io::Result<bool> {
+/// Whether `target` holds what a put expects.
+fn holds(target: &Path, expected: &Expectation) -> io::Result<bool> {
+    if *expected == Expectation::Any {
+        return Ok(true);
+    }
     let found = match fs::symlink_metadata(target) {
         Ok(metadata) => Some(metadata),
         Err(cause) if cause.kind() == ErrorKind::NotFound => None,
         Err(cause) => return Err(cause),
     };
-    match (if_match, found) {
-        (None, found) => Ok(found.is_none()),
-        (Some(expected), Some(metadata)) if metadata.is_file() => {
-            Ok(file_sha256(target)? == expected)
+    match (expected, found) {
+        (Expectation::Absent, found) => Ok(found.is_none()),
+        (Expectation::Present, Some(metadata)) => Ok(metadata.is_file()),
+        (Expectation::Sha256(hash), Some(metadata)) if metadata.is_file() => {
+            Ok(file_sha256(target)? == *hash)
         }
-        (Some(_), _) => Ok(false),
+        _ => Ok(false),
     }
 }
 
@@ -832,8 +872,15 @@ fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
 }
 
 /// Publish `bytes` at `path`, or remove its file for `None`, only while the
-/// path holds `if_match`: the SHA-256 of the file there, or `None` for
-/// nothing there. `Stale` when it does not, and nothing changed.
+/// path holds what `expected` says. `Stale` when it does not, and nothing
+/// changed; `Any` is never stale, and removing nothing that may be absent
+/// has landed.
+///
+/// A new file must satisfy the portable rule (`path_problem`). An existing
+/// nonportable name may be replaced or removed, never made: a write
+/// expecting `Any` there lands only while a file is there, checked holding
+/// the turn, and is `InvalidPath` otherwise. HEAD can make a plain
+/// directory a Git repository, so it stays private even when it exists.
 ///
 /// `turn` takes the folder's publishing turn. Held, the put walks the path
 /// again (no link, every name stored as asked, as `find` checks), checks
@@ -846,13 +893,11 @@ pub fn put<Turn>(
     root: &Path,
     path: &str,
     bytes: Option<&[u8]>,
-    if_match: Option<&str>,
+    expected: &Expectation,
     turn: impl FnOnce() -> Result<Turn, String>,
 ) -> Result<PutOutcome, StorageError> {
-    // An existing nonportable name may be changed only with its exact file
-    // witness. HEAD can make a plain directory a Git repository, so it stays
-    // private even when it exists. A new file must satisfy the portable rule.
-    if if_match.is_some() {
+    let nonportable = admit(path).err();
+    if let Some(refused) = &nonportable {
         if let Some(reason) = readable_path_problem(path).or_else(|| {
             path.split('/')
                 .any(|part| part.eq_ignore_ascii_case("head"))
@@ -865,9 +910,14 @@ pub fn put<Turn>(
                 reason: reason.to_string(),
             });
         }
-    } else {
-        admit(path)?;
+        if bytes.is_some() && *expected == Expectation::Absent {
+            return Err(refused.clone());
+        }
     }
+    // A write that may make a nonportable name must find its file there.
+    let requires_file = nonportable.is_some() && bytes.is_some() && *expected == Expectation::Any;
+    let present = Expectation::Present;
+    let expected = if requires_file { &present } else { expected };
     let operation = if bytes.is_some() { "write" } else { "remove" };
     let failed = |cause: &dyn std::fmt::Display| io_error(path, operation, cause);
     // Refuse what cannot land before staging anything.
@@ -878,15 +928,18 @@ pub fn put<Turn>(
     let target = full(root, path);
     let names: Vec<&str> = path.split('/').collect();
 
+    let removed_nothing = || -> Result<PutOutcome, StorageError> {
+        Ok(if matches!(expected, Expectation::Absent | Expectation::Any) {
+            PutOutcome::Landed
+        } else {
+            PutOutcome::Stale
+        })
+    };
     let Some(bytes) = bytes else {
         if !matches!(found, Found::File { .. }) {
-            return Ok(if if_match.is_none() {
-                PutOutcome::Landed
-            } else {
-                PutOutcome::Stale
-            });
+            return removed_nothing();
         }
-        if if_match.is_none() {
+        if *expected == Expectation::Absent {
             return Ok(PutOutcome::Stale);
         }
         let _held = turn().map_err(|message| failed(&message))?;
@@ -894,8 +947,10 @@ pub fn put<Turn>(
         if let Some(refused) = put_refusal(path, &found) {
             return Err(refused);
         }
-        let holds = matches!(found, Found::File { .. })
-            && holds(&target, if_match).map_err(|cause| failed(&cause))?;
+        if !matches!(found, Found::File { .. }) {
+            return removed_nothing();
+        }
+        let holds = holds(&target, expected).map_err(|cause| failed(&cause))?;
         pause_after_check();
         if !holds {
             return Ok(PutOutcome::Stale);
@@ -906,6 +961,11 @@ pub fn put<Turn>(
 
     if let Found::UnderFile { ancestor } = found {
         return Err(StorageError::NotADirectory { path: ancestor });
+    }
+    if let Some(refused) = nonportable.as_ref().filter(|_| requires_file) {
+        if !matches!(found, Found::File { .. }) {
+            return Err(refused.clone());
+        }
     }
     let scratch = prepare_scratch(root)
         .map_err(|message| failed(&message))?
@@ -946,10 +1006,13 @@ pub fn put<Turn>(
         if let Found::UnderFile { ancestor } = found {
             return Err(StorageError::NotADirectory { path: ancestor });
         }
-        let holds = holds(&target, if_match).map_err(|cause| failed(&cause))?;
+        let holds = holds(&target, expected).map_err(|cause| failed(&cause))?;
         pause_after_check();
         if !holds {
-            return Ok(PutOutcome::Stale);
+            return match &nonportable {
+                Some(refused) if requires_file => Err(refused.clone()),
+                _ => Ok(PutOutcome::Stale),
+            };
         }
         keep_mode(&target, &scratch).map_err(|cause| failed(&cause))?;
         let made = make_parents(root, &names[..names.len() - 1]).map_err(|cause| failed(&cause))?;
