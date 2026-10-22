@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
+- **Amended by:** [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md), which removes path reservations and save-before-action behavior. The original decision and amendments below preserve the preceding lifecycle models.
 - **Amends:** ADR-0574, ADR-0656, and ADR-0657 at action admission and orderly teardown. ADR-0662's FileEdit and MarkdownContent contract remains.
 
 ## Context
