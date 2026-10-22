@@ -1,6 +1,6 @@
 # Svelte Lifecycle And Reactivity Patterns
 
-Detailed Svelte 5 guidance for keyed resources, async gates, shallow aliases, finite union mapping, SvelteMap, reactive table state, and state modules.
+Detailed Svelte 5 guidance for keyed resources, async gates, shallow aliases, finite union mapping, SvelteMap, Folder reads and editing, and state modules.
 
 # Prop-Keyed Resources: Let the Tree Own the Lifecycle
 
@@ -113,7 +113,12 @@ Svelte's deep proxy can break handles whose methods rely on `this` being the ori
 
 ## Project-specific application
 
-In this codebase, the rule applies to any component calling `*Docs.open()` (Yjs doc handles from `createDisposableCache`). Search: `$state<ReturnType<typeof .*\.open>`. Every hit is a candidate for the rule above.
+For Folder-backed apps, `<FolderApp>` owns asynchronous opening and synchronous
+context close, including a folder whose opening finishes after unmount. The
+mounted product root receives the opened context and creates its product state
+over it. File views acquire editors from that Folder; they do not open or close
+storage per row. Key widgets by file identity when they need separate local
+state. See [Folder reads and editing](#folder-reads-and-editing).
 
 ## Imperative Widgets: Own The Whole Runtime Boundary
 
@@ -303,7 +308,8 @@ value with `set(id, next)`.
 
 | Data Shape | Use | Example |
 |---|---|---|
-| Epicenter store table rows | `fromData` reactive tables | notes, folders |
+| Folder listings | Context query cache | saved notes and folders |
+| Editable file content | `createFileEdit` tracked getters | source, fields, body, save feedback |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
@@ -315,57 +321,46 @@ sorting inside a getter returns a fresh array on every access, which sends
 TanStack Table into an infinite loop. See
 `docs/articles/sveltemap-over-state-for-keyed-collections.md`.
 
-# Reactive Table State Pattern
+# Folder reads and editing
 
-Store reads are synchronous and return plain JSON, so the source of truth is a
-re-read, not a long-lived reactive collection. `fromData` from
-`@epicenter/svelte` packages that re-read once: it mirrors an opened
-workspace's declared `tables`/`kv` and makes every read verb reactive
-(`rows`, `nonconforming`, `list`, `get`, `ids`, `document`), while `create`,
-`update`, and `delete` pass through unchanged. The signal it rides names the
-rows a commit touched (ADR-0221) and fires for a local write and for bytes that
-arrived from another device alike. Text typed inside a row's content node is
-not a table commit; `watch(node, listener)` is its signal.
+The opened Folder context owns the query cache for saved listings and derived
+views. Each path's editor owns its acquired working document and accepted input.
+Use the app's typed `getFolder()` during component initialization. In an app
+whose folder declares a `notes` table:
 
-```typescript
-// Adapt the supplied store; repeated calls reuse its projection.
-const app = fromData(data);
-const table = app.tables.notes;
+```svelte
+<script lang="ts">
+	import { createQuery } from '@tanstack/svelte-query';
+	import { getFolder } from '$lib/folder.js';
 
-// Derived views: filtering and sorting are cached here, not in the getter.
-const all = $derived(table.rows.filter((note) => note.deletedAt === null));
-
-return {
-	get all() {
-		return all;
-	},
-	get(id: NoteId) {
-		return table.rows.find((note) => note.id === id);
-	},
-};
+	const { queries } = getFolder();
+	const notes = createQuery(() => queries.rows('notes'));
+	const validNotes = $derived(notes.data?.filter((row) => row.issues === null) ?? []);
+</script>
 ```
 
-There is no `refresh`, no generation counter, no `await` on a read, and no
-`Symbol.dispose`. A table is HELD: `fromData` seeds a `SvelteMap` projection
-keyed by row id on the first call for a raw store, patches it with the ids each commit names,
-and never tears it down, so the projection and its subscription die with the
-document. Repeated calls with the same raw store return that same projection
-without adding subscriptions. The cache keys by object identity, so another
-opened store receives its own projection. That is not ref-counting, and the difference matters: a projection
-detached from its source stays alive and stops being true. `kv` and
-`persistence` are read-through on `createSubscriber` instead, because ten keys
-and one enum are not worth holding.
+The context invalidates affected queries from Folder change notifications.
+Do not copy query results into a second state array with a manual subscription.
+Filtering and sorting belong in `$derived` when several consumers need the
+computed view.
 
-A read inside `$derived` or a template tracks; a read in an event handler is
-fresh and untracked. Do not hand-roll `db.<table>.subscribe(listener)` feeding
-`$state.raw` for table reads; that pattern is what the adapter replaced. For
-one value off a source that is not a table, use `fromSubscription(subscribe,
-read)`.
+Lists and raw file reads return stored data without acquiring or updating an
+editor. A tracked `createFileEdit` getter subscribes and starts the editor's
+initial read. For a one-off `set()` on an unopened or inactive clean editor,
+await its `refresh()` and check closing again before writing. A complete
+one-shot document uses `write()`. The [editor ownership guidance](component-ui-patterns.md#file-editor-views)
+explains these boundaries and failed-save retention.
 
-Adapter: `packages/svelte/src/from-data.svelte.ts`. Full app exemplar:
-`apps/honeycrisp/src/lib/app.svelte.ts`.
+The mounted app creates product state over that opened context. The context's
+`close(): void` synchronously releases page listeners, the query client, and
+Folder storage; it submits no input and waits for no saves. Await an actual
+write or editor save when durable bytes are required. Keep product cleanup
+idempotent so it still releases its resources if the context closed first.
 
-See the `typescript` skill for iterator helpers (`.toArray()`, `.filter()`, `.find()` on `IteratorObject`).
+Examples: `apps/honeycrisp/src/routes/components/NoteList.svelte` reads the
+context's queries; `apps/honeycrisp/src/routes/components/HoneycrispApp.svelte`
+creates the mounted product owner. The [Folder guide](../../../../packages/folder/README.md#editors)
+owns the current editor contract.
 
 ### Template Props
 
@@ -394,29 +389,27 @@ See `docs/articles/derived-vs-getter-caching-matters.md` for rationale.
 
 # Reactive State Module Conventions
 
-State modules use a factory function that returns a flat object with getters and methods, exported as a singleton.
+Export a factory for state tied to an opened Folder or mounted app. The app
+root creates one instance and supplies it through props or typed context.
+A module-level singleton would retain the first app's state across replacement
+or share it between separate opened folders. Global preference state can have a
+separate deliberate lifetime.
+
+Keep local view state separate from the Folder's document and query owners.
+For example, a `.svelte.ts` module can own a selection:
 
 ```typescript
-function createBookmarkState(db: AppData) {
-	let rows = $state.raw<Bookmark[]>([]);
-	function read() {
-		rows = db.tables.bookmarks.rows;
-	}
-	read();
-	const stop = db.tables.bookmarks.subscribe(read);
-
-	const bookmarks = $derived(rows.filter((b) => b.deletedAt === null));
-
+export function createNoteSelection() {
+	let path = $state<string>();
 	return {
-		[Symbol.dispose]: stop,
-		get bookmarks() { return bookmarks; },
-		add(fields: BookmarkFields) { db.tables.bookmarks.create(fields); },
-		remove(id: BookmarkId) { db.tables.bookmarks.delete(id); },
+		get current() { return path; },
+		select(next: string | undefined) { path = next; },
 	};
 }
-
-export const bookmarkState = createBookmarkState(db);
 ```
+
+Create that selection in its owning component, rather than exporting an
+initialized instance from the module. File content still belongs to its editor.
 
 ## Naming
 
@@ -437,33 +430,3 @@ Use the `State` suffix when the export name would collide with a key property (`
 | **Keyed lookup** | `.get(key)` | `toolTrustState.get(name)`, `deviceConfig.get(key)` |
 
 The `.current` convention comes from [runed](https://github.com/svecosystem/runed) (the standard Svelte 5 utility library). All 34+ runed utilities use `.current`. Never use `.value` (Vue convention).
-
-## Persisted State Utilities
-
-For localStorage/sessionStorage persistence, use `createPersistedState` (single value) or `createPersistedMap` (typed multi-key config) from `@epicenter/svelte`.
-
-```typescript
-// Single value: .current accessor
-import { createPersistedState } from '@epicenter/svelte';
-const theme = createPersistedState({
-	key: 'app-theme',
-	schema: type("'light' | 'dark'"),
-	defaultValue: 'dark',
-});
-theme.current; // read
-theme.current = 'light'; // write + persist
-
-// Multi-key config: .get()/.set() with SvelteMap (per-key reactivity)
-import { createPersistedMap, defineEntry } from '@epicenter/svelte';
-const config = createPersistedMap({
-	prefix: 'myapp.config.',
-	definitions: {
-		'theme': defineEntry(type("'light' | 'dark'"), 'dark'),
-		'fontSize': defineEntry(type('number'), 14),
-	},
-});
-config.get('theme'); // typed read
-config.set('theme', 'light'); // typed write + persist
-```
-
-Both accept `storage?: Storage` (defaults to `window.localStorage`) for dependency injection.
