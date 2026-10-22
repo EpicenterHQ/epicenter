@@ -1,0 +1,268 @@
+[
+	{
+		"name": "first use creates a missing root and records child",
+		"root": "new/root",
+		"homes": {},
+		"allowed": true
+	},
+	{
+		"name": "first use reuses an existing records child",
+		"root": "root",
+		"homes": {},
+		"directories": ["root/so.epicenter"],
+		"files": ["root/so.epicenter/keep.md"],
+		"allowed": true
+	},
+	{
+		"name": "a saved home survives a changed root",
+		"root": "unused/root",
+		"homes": {
+			"epicenter": "records"
+		},
+		"directories": ["records"],
+		"allowed": true
+	},
+	{
+		"name": "a missing saved home is never recreated",
+		"root": "root",
+		"homes": {
+			"epicenter": "missing"
+		},
+		"allowed": false
+	},
+	{
+		"name": "an occupied default file is retained",
+		"root": "root",
+		"homes": {},
+		"files": ["root/so.epicenter"],
+		"allowed": false
+	},
+	{
+		"name": "a linked default leaf is refused",
+		"root": "root",
+		"homes": {},
+		"directories": ["elsewhere"],
+		"links": {
+			"root/so.epicenter": "elsewhere"
+		},
+		"allowed": false
+	},
+	{
+		"name": "a linked saved leaf is refused",
+		"root": "root",
+		"homes": {
+			"epicenter": "alias"
+		},
+		"directories": ["records"],
+		"links": {
+			"alias": "records"
+		},
+		"allowed": false
+	},
+	{
+		"name": "a linked parent is allowed",
+		"root": "alias",
+		"homes": {},
+		"directories": ["real"],
+		"links": {
+			"alias": "real"
+		},
+		"allowed": true
+	},
+	{
+		"name": "a changed root inside an app home cannot allocate records",
+		"root": "work",
+		"homes": {
+			"todos": "work"
+		},
+		"directories": ["work"],
+		"allowed": false
+	},
+	{
+		"name": "saved records inside an app home are refused",
+		"root": "root",
+		"homes": {
+			"epicenter": "work/records",
+			"todos": "work"
+		},
+		"directories": ["work/records"],
+		"allowed": false
+	},
+	{
+		"name": "records containing an app home are refused",
+		"root": "root",
+		"homes": {
+			"epicenter": "records",
+			"todos": "records/work"
+		},
+		"directories": ["records/work"],
+		"allowed": false
+	},
+	{
+		"name": "records equal to an app home are refused",
+		"root": "root",
+		"homes": {
+			"epicenter": "work",
+			"todos": "work"
+		},
+		"directories": ["work"],
+		"allowed": false
+	},
+	{
+		"name": "records staging cannot contain an app home",
+		"root": "root",
+		"homes": {
+			"epicenter": "records",
+			"todos": ".records.epicenter-scratch/work"
+		},
+		"directories": ["records", ".records.epicenter-scratch/work"],
+		"allowed": false
+	},
+	{
+		"name": "records cannot be inside application data",
+		"root": "root",
+		"homes": {
+			"epicenter": "machine/records"
+		},
+		"directories": ["machine/records"],
+		"allowed": false
+	},
+	{
+		"name": "records cannot contain application data",
+		"data": "container/machine",
+		"root": "root",
+		"homes": {
+			"epicenter": "container"
+		},
+		"allowed": false
+	},
+	{
+		"name": "records staging cannot contain application data",
+		"data": ".records.epicenter-scratch/machine",
+		"root": "root",
+		"homes": {
+			"epicenter": "records"
+		},
+		"directories": ["records"],
+		"allowed": false
+	},
+	{
+		"name": "saved records remain valid when equal to a later discovery root",
+		"root": "root",
+		"homes": {
+			"epicenter": "root"
+		},
+		"directories": ["root"],
+		"allowed": true
+	},
+	{
+		"name": "saved records remain valid when containing a later discovery root",
+		"root": "container/root",
+		"homes": {
+			"epicenter": "container"
+		},
+		"directories": ["container/root"],
+		"allowed": true
+	},
+	{
+		"name": "similar sibling names do not overlap",
+		"root": "root",
+		"homes": {
+			"epicenter": "records",
+			"todos": "records-other"
+		},
+		"directories": ["records", "records-other"],
+		"allowed": true
+	},
+	{
+		"name": "a linked parent cannot hide an app home overlap",
+		"root": "alias",
+		"homes": {
+			"todos": "work"
+		},
+		"directories": ["work"],
+		"links": {
+			"alias": "work"
+		},
+		"allowed": false
+	},
+	{
+		"name": "records cannot occupy an app staging directory",
+		"root": "root",
+		"homes": {
+			"epicenter": ".Todos.epicenter-scratch",
+			"todos": "Todos"
+		},
+		"directories": ["Todos", ".Todos.epicenter-scratch"],
+		"allowed": false
+	},
+	{
+		"name": "records cannot be inside an app staging directory",
+		"root": "root",
+		"homes": {
+			"epicenter": ".Todos.epicenter-scratch/records",
+			"todos": "Todos"
+		},
+		"directories": ["Todos", ".Todos.epicenter-scratch/records"],
+		"allowed": false
+	},
+	{
+		"name": "an app staging directory cannot be inside records",
+		"root": "root",
+		"homes": {
+			"epicenter": "records",
+			"todos": "records/Todos"
+		},
+		"directories": ["records/Todos"],
+		"allowed": false
+	},
+	{
+		"name": "a linked parent cannot hide an app staging collision",
+		"root": "root",
+		"homes": {
+			"epicenter": "alias/.Todos.epicenter-scratch",
+			"todos": "work/Todos"
+		},
+		"directories": ["work/Todos", "work/.Todos.epicenter-scratch"],
+		"links": {
+			"alias": "work"
+		},
+		"allowed": false
+	},
+	{
+		"name": "a discovery root occupied by a file does not block saved records",
+		"root": "occupied",
+		"homes": {
+			"epicenter": "records"
+		},
+		"directories": ["records"],
+		"files": ["occupied"],
+		"allowed": true
+	},
+	{
+		"name": "saved records cannot use an unrelated staging namespace",
+		"root": "root",
+		"homes": {
+			"epicenter": ".other.EPICENTER-SCRATCH/records"
+		},
+		"directories": [".other.EPICENTER-SCRATCH/records"],
+		"allowed": false
+	},
+	{
+		"name": "first use cannot allocate records beneath a staging namespace",
+		"root": ".other.epicenter-scratch",
+		"homes": {},
+		"directories": [".other.epicenter-scratch"],
+		"allowed": false
+	},
+	{
+		"name": "an unrelated invalid app home does not veto valid records",
+		"root": "root",
+		"homes": {
+			"epicenter": "records",
+			"capture": "elsewhere/.old.epicenter-scratch"
+		},
+		"directories": ["records", "elsewhere/.old.epicenter-scratch"],
+		"allowed": true
+	}
+]

@@ -88,21 +88,31 @@ by default, so set that override when working with development storage.
 
 ```json
 {
-  "epicenter": "/Users/braden/Epicenter/My setup",
+  "homes": {
+    "epicenter": "/Users/braden/Epicenter/My setup",
+    "todos": "/Users/braden/Code/Todos"
+  },
   "folders": ["/Users/braden/Code/vault"]
 }
 ```
 
-`epicenter` selects Epicenter's portable records directory. It is `null`
-before Settings first opens or a connection is first saved. That first use
+`homes.epicenter` selects Epicenter's portable records directory. An absent
+entry means Settings has not opened and no connection has been saved.
+Other entries select app homes, shared by standalone and hosted shells. That first use
 selects the existing default `<folder root>/so.epicenter`, creating it when
 needed. A stored selection must exist; a missing one is never recreated.
+The CLI and native allocators both prepare a missing initial root and refuse
+records that overlap application data, another app's home, or the discovery
+root. Shared allocation cases cover both implementations, including staging
+directories and linked parents. Refused selections leave configuration unchanged.
 To relocate the records, quit Epicenter, move or locate the directory, update
-this path, and reopen. There is no selection UI yet.
+this path, and reopen. Native **Home Folders** menus can select an existing
+home without moving files; restart Epicenter after changing its records home.
 
 `folders add` checks an existing directory and remembers its absolute path
 once. Relative arguments resolve against the current working directory.
-`folders list --json` returns `{"epicenter": <path or null>, "folders":
+`folders list --json` returns `{"epicenter": <records path or null>, "homes":
+{<app>: <path>}, "folders":
 [{"path", "problem"}]}`; unavailable entries stay listed. `folders forget`
 removes a shortcut even when its target is gone. It deletes no files and
 changes neither the selected records folder nor Git configuration. Folders
@@ -110,7 +120,8 @@ under the scanned root remain discoverable without a shortcut.
 
 Listing creates nothing. Mutations read/change/replace under the same SQLite
 save lock as the native writer, preserving the other field and concurrent
-updates. Existing path arrays convert on the next real change. Unsupported
+updates. Existing path arrays and the older `epicenter` field convert to `homes` on
+the next real change, preserving selected paths. Unsupported
 or malformed contents remain untouched. The launcher observes writes made
 by the CLI. This file is machine-local; the records directory can sync
 through its own Git remote.
@@ -230,7 +241,8 @@ Whispering's two rows of `so.epicenter/connections`,
 `whispering-transcription` or `whispering-text`
 (`WHISPERING_CONNECTION_IDS` in `@epicenter/ai/connection-table`), for the
 desktop shell's `whispering_connection_read` and `whispering_connection_set`.
-It takes no path: `so.epicenter` is under `EPICENTER_FOLDER_DIR`'s folder. Each
+It takes no path: `homes.epicenter` selects the records, initially
+`so.epicenter` under `EPICENTER_FOLDER_DIR`'s folder. Each
 run opens it with `connectionsTables`, reads or saves the one row, and closes
 it; a save takes the folder's save lock, as Settings' saves do. It needs no
 account, keychain, network, Git, or `epicenter.json`. `read` answers

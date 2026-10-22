@@ -1,7 +1,7 @@
 /** The launcher asks native code to open editors and never acquires their folders. */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import type { AcceptedOpening, RememberedFolders } from '../ui/bindings.gen';
+import type { AcceptedOpening } from '../ui/bindings.gen';
 import type { OpeningHost } from './openings.svelte';
 
 const { createFolderOpenings, folderName } = await import(
@@ -11,7 +11,6 @@ const path = '/Users/me/Library/Application Support/so.epicenter.todos';
 function fixture() {
 	const calls: string[] = [];
 	const pending = new Set([path]);
-	let listed: RememberedFolders = { folders: [], problem: null };
 	let problem: string | null = null;
 	let rememberProblem: string | null = null;
 	const host: OpeningHost = {
@@ -23,29 +22,11 @@ function fixture() {
 			calls.push('accept ' + path);
 			pending.delete(path);
 			if (problem !== null) return { data: null, error: problem };
-			listed = {
-				folders: [
-					{ path, remembered: rememberProblem === null, problem: null },
-				],
-				problem: null,
-			};
 			return { data: { rememberProblem }, error: null };
-		},
-		async openRememberedFolder(path) {
-			calls.push('open ' + path);
-			return { data: null, error: problem };
 		},
 		async dismissFolderOpening(path) {
 			calls.push('dismiss ' + path);
 			pending.delete(path);
-		},
-		async listRememberedFolders() {
-			calls.push('list');
-			return listed;
-		},
-		async forgetRememberedFolder(path) {
-			calls.push('forget ' + path);
-			return { data: null, error: problem };
 		},
 	};
 	return {
@@ -73,12 +54,11 @@ test('dismissal accepts and opens nothing', async () => {
 	expect(f.openings.requests).toEqual([]);
 	expect(f.calls).toEqual(['dismiss ' + path, 'pending']);
 });
-test('acceptance asks native code to open a separate editor and refreshes shortcuts', async () => {
+test('acceptance asks native code to open a separate editor and refreshes pending requests', async () => {
 	const f = fixture();
 	await f.openings.accept(path);
-	expect(f.calls).toEqual(['accept ' + path, 'pending', 'list']);
+	expect(f.calls).toEqual(['accept ' + path, 'pending']);
 	expect(f.openings.requests).toEqual([]);
-	expect(f.openings.remembered?.folders[0]?.path).toBe(path);
 	expect(f.openings.failure).toBeUndefined();
 });
 test('refusal stays visible without a second open request', async () => {
@@ -95,7 +75,6 @@ test('failed remembering leaves the opened folder available this run and says wh
 	f.failRemembering('folders.json was left unchanged.');
 	await f.openings.accept(path);
 	expect(f.openings.notice).toContain('folders.json was left unchanged.');
-	expect(f.openings.remembered?.folders[0]?.remembered).toBe(false);
 });
 test('a second acceptance waits until the first completes', async () => {
 	const f = fixture();
@@ -112,29 +91,6 @@ test('a second acceptance waits until the first completes', async () => {
 	finish({ data: { rememberProblem: null }, error: null });
 	await first;
 	expect(f.openings.accepting).toBeUndefined();
-});
-test('reopening calls the native membership check and refreshes availability', async () => {
-	const f = fixture();
-	f.refuse('This folder is not in the remembered folders.');
-	await f.openings.open(path);
-	expect(f.calls).toEqual(['open ' + path, 'list']);
-	expect(f.openings.failure).toContain('not in the remembered folders');
-});
-test('a failed forgetting stays listed and says why', async () => {
-	const f = fixture();
-	await f.openings.accept(path);
-	f.refuse('folders.json was left unchanged.');
-	await f.openings.forget(path);
-	expect(f.openings.failure).toContain('did not forget');
-	expect(f.openings.remembered?.folders[0]?.path).toBe(path);
-});
-test('native rejection is shown even when the invocation throws', async () => {
-	const f = fixture();
-	f.host.openRememberedFolder = async () => {
-		throw new Error('window failed');
-	};
-	await f.openings.open(path);
-	expect(f.openings.failure).toContain('window failed');
 });
 test('folder names work for platform paths', () => {
 	expect(folderName(path)).toBe('so.epicenter.todos');

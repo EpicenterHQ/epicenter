@@ -262,12 +262,26 @@ test('a save makes so.epicenter inside the Epicenter folder, never the Epicenter
 	expect((await run(['set', 'text'], save)).code).toBe(0);
 	expect(await readFile(rowFile(), 'utf8')).toBe('---\nmodel: m\n---\n');
 
-	const gone = await setup({ folderDir: false });
-	const refused = await gone.run(['set', 'text'], save);
-	expect(refused.code).toBe(2);
-	expect(refused.reply.name).toBe('FolderUnusable');
-	expect(refused.reply.error).toContain('is not there');
-	expect(existsSync(gone.epicenter)).toBe(false);
+	const firstUse = await setup({ folderDir: false });
+	expect((await firstUse.run(['set', 'text'], save)).code).toBe(0);
+	expect(await readFile(firstUse.rowFile(), 'utf8')).toBe(
+		'---\nmodel: m\n---\n',
+	);
+});
+
+test('a connection save cannot select records inside an existing app home', async () => {
+	const { scratch, epicenter, settings, run } = await setup();
+	const data = join(scratch, 'data');
+	await mkdir(data);
+	const config = join(data, 'folders.json');
+	const original = JSON.stringify({ homes: { todos: epicenter }, folders: [] });
+	await writeFile(config, original);
+	const result = await run(['set', 'text'], { fields: { model: 'm' } });
+	expect(result.code).toBe(2);
+	expect(result.reply.name).toBe('FolderUnusable');
+	expect(result.reply.error).toContain('cannot overlap the todos home');
+	expect(await readFile(config, 'utf8')).toBe(original);
+	expect(existsSync(settings)).toBe(false);
 });
 
 test('a link or a file at so.epicenter is refused, and nothing is read or written through it', async () => {

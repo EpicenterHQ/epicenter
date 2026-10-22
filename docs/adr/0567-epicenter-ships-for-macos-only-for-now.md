@@ -58,8 +58,8 @@ target.** That record names, for the platform:
 
 - the bundle target in `tauri.conf.json` and the workflow that builds and
   signs it;
-- the app's data, cache, and folder directories, in `DesktopPaths::resolve`
-  (`apps/epicenter/src-tauri/src/app_data.rs`) and `resolveAppPaths` alike;
+- the app's data, cache, and folder directories, in the folder plugin's
+  `defaults::DesktopPaths::resolve` and the CLI's `resolveAppPaths` alike;
 - what Git's configuration names in place of `~/.local/bin/epicenter`, and
   how it survives moving or updating the app (ADR-0566);
 - how the shell stops a CLI child and every process it started;

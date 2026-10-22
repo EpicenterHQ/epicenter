@@ -78,7 +78,7 @@ ENGINE  @epicenter/folder: files, tables typed by a definition, one write, merge
     id as a folder id.
   - `packages/cli` is the desktop host's TypeScript half (ADR-0556) and the
     only owner of the install layout, which
-    `apps/epicenter/src-tauri/src/app_data.rs` duplicates today
+    `487d27a014:apps/epicenter/src-tauri/src/app_data.rs` duplicates today
     (`apps_dir`, `builds_dir`); publishing and installing are separate
     modules there.
   - `<FolderApp>` in `packages/svelte` loses its `app` prop and names its

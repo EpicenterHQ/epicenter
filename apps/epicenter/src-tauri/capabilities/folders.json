@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "folders",
-	"description": "The Folders window is Epicenter's launcher (ADR-0537). It lists the data folders under the Epicenter folder root by name and title, and opens none itself: choosing one opens that folder's own editor window (open_folder_editor). It opens Todos, Capture, Honeycrisp, or Whispering, which Epicenter bundles, on the app's default folder or a listed one (open_bundled_app), or on a folder the person chooses in the native picker, which Rust opens and answers (choose_folder_for_app), and opens Settings. The shell binds no folder to this window, so it holds no folder command. It listens for the shell's epicenter://data-folders-changed, sent when the list of data folders may have changed. Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561). It shows incoming folder-opening requests; accepting or reopening a remembered path opens a separate editor, while the launcher stays unbound.",
+	"description": "Epicenter’s Folders launcher lists root children, selected homes, bookmarks, and accepted temporary paths as one derived directory list. It opens editors or bundled apps through current native row IDs, or uses the Rust-owned picker for a one-time folder choice. Forget bookmark removes shortcuts without changing homes or open windows. Incoming handoffs still require acceptance. The launcher is bound to no folder, holds no folder-storage command, and is served on the local epicenter-app scheme.",
 	"local": true,
 	"windows": ["folders"],
 	"permissions": [
@@ -15,8 +15,6 @@
 		"allow-pending-folder-openings",
 		"allow-accept-folder-opening",
 		"allow-dismiss-folder-opening",
-		"allow-list-remembered-folders",
-		"allow-forget-remembered-folder",
-		"allow-open-remembered-folder"
+		"allow-forget-folder-bookmarks"
 	]
 }

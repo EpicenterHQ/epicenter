@@ -1,19 +1,19 @@
 //! Standalone Todos opens one directory in one window.
 //!
-//! The native wrapper defaults to `~/Epicenter/Todos` (or the development
-//! root) and binds it before loading the static page.
+//! The native wrapper selects the same machine-local home as Epicenter,
+//! initially `~/Epicenter/Todos`, and binds it before loading the page.
 //! The page calls `openFolder({ tables })` and never selects or discovers a
 //! path. Epicenter can load the same page
 //! over another folder selected by its own launcher. Standalone Todos has
-//! no folder picker, recent-folder list, or extra-folder windows.
+//! a native home picker, but no recent-folder list or extra-folder windows.
 
 use std::error::Error;
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager, WebviewUrl};
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-use tauri_plugin_epicenter_folder::{Directory, FolderExt, Folders};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
+use tauri_plugin_epicenter_folder::homes::TODOS;
+use tauri_plugin_epicenter_folder::{FolderExt, Folders};
 use tauri_plugin_opener::OpenerExt;
 
 pub fn run() {
@@ -24,6 +24,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![open_in_epicenter])
         .setup(|app| {
+            let paths = DesktopPaths::resolve(app.handle())?;
+            app.manage(paths);
+            tauri_plugin_epicenter_folder::home_menu::install(app.handle(), &[TODOS])?;
             if let Err(error) = open_default(app.handle()) {
                 report_open_error(app.handle(), error.to_string());
             }
@@ -81,14 +84,9 @@ fn quit_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu
     Ok(menu)
 }
 
-/// Create and bind the fixed default before constructing the app's window.
+/// Open and bind the shared home before constructing the app's window.
 fn open_default(app: &AppHandle) -> Result<(), Box<dyn Error>> {
-    let root = default_folder(
-        &app.config().identifier,
-        &app.path().home_dir()?,
-        std::env::var_os("EPICENTER_FOLDER_DIR").as_deref(),
-    )?;
-    let directory = Directory::create(&root)?;
+    let directory = app.state::<DesktopPaths>().open_home(TODOS)?;
     // Keep WebView runtime files outside the authored Folder.
     let webview_data = app.path().app_cache_dir()?.join("webview");
     app.open_folder_window("todos", directory, WebviewUrl::default(), move |builder| {
@@ -101,44 +99,25 @@ fn open_default(app: &AppHandle) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn default_folder(
-    identifier: &str,
-    home: &Path,
-    override_value: Option<&OsStr>,
-) -> Result<PathBuf, String> {
-    let base = match override_value {
-        Some(value) if !value.is_empty() => {
-            let path = Path::new(value);
-            if !path.is_absolute() {
-                return Err(format!(
-                    "EPICENTER_FOLDER_DIR must be an absolute path, not {value:?}."
-                ));
-            }
-            path.to_path_buf()
-        }
-        _ => {
-            let name = match identifier {
-                "so.epicenter.todos" => "Epicenter",
-                "so.epicenter.todos.dev" => "Epicenter Dev",
-                _ => {
-                    return Err(format!(
-                        "No authored root for {identifier}; set EPICENTER_FOLDER_DIR explicitly"
-                    ))
-                }
-            };
-            home.join(name)
-        }
-    };
-    Ok(base.join("Todos"))
-}
-
 fn report_open_error(app: &AppHandle, message: String) {
     let handle = app.clone();
     app.dialog()
-        .message(message)
+        .message(format!("{message}\n\nChoose an existing home folder or quit. No replacement folder was created."))
         .title("Todos could not open its folder")
         .kind(MessageDialogKind::Error)
-        .show(move |_| handle.exit(1));
+        .buttons(MessageDialogButtons::OkCancelCustom("Choose Home Folder…".into(), "Quit".into()))
+        .show(move |choose| {
+            if !choose { handle.exit(1); return; }
+            tauri::async_runtime::spawn_blocking(move || {
+                match tauri_plugin_epicenter_folder::home_menu::choose_home(&handle, TODOS) {
+                    Ok(Some(_)) => {
+                        if let Err(error) = open_default(&handle) { report_open_error(&handle, error.to_string()); }
+                    }
+                    Ok(None) => handle.exit(1),
+                    Err(error) => report_open_error(&handle, error),
+                }
+            });
+        });
 }
 
 /// Ask the operating system to open Epicenter on the directory the calling
@@ -195,28 +174,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn roots_match_host_storage_environments_and_require_absolute_overrides() {
-        let home = Path::new("/home/person");
-        assert_eq!(
-            default_folder("so.epicenter.todos", home, None).unwrap(),
-            home.join("Epicenter/Todos")
-        );
-        assert_eq!(
-            default_folder("so.epicenter.todos.dev", home, None).unwrap(),
-            home.join("Epicenter Dev/Todos")
-        );
-        assert_eq!(
-            default_folder("so.epicenter.todos", home, Some(OsStr::new("/other"))).unwrap(),
-            Path::new("/other/Todos")
-        );
-        assert!(default_folder("so.epicenter.todos", home, Some(OsStr::new("relative"))).is_err());
-        assert_eq!(
-            default_folder("unrecognized", home, Some(OsStr::new("/other"))).unwrap(),
-            Path::new("/other/Todos")
-        );
-    }
-
     /// A mock app with the folder plugin, and Todos's default folder at
     /// `root`, which does not exist yet.
     struct Fixture {
@@ -233,7 +190,7 @@ mod tests {
 
     impl Fixture {
         fn launch(&self) -> String {
-            let directory = Directory::create(&self.root).unwrap();
+            let directory = self.app.state::<DesktopPaths>().open_home(TODOS).unwrap();
             self.app
                 .open_folder_window("todos", directory, Default::default(), |builder| {
                     Ok(builder)
@@ -265,6 +222,10 @@ mod tests {
             .plugin(tauri_plugin_epicenter_folder::init())
             .build(context)
             .expect("mock app");
+        app.manage(DesktopPaths {
+            data_dir: fs::canonicalize(temp.path()).unwrap().join("app-data"),
+            folder_dir: root.parent().unwrap().to_path_buf(),
+        });
         Fixture {
             app,
             root,
@@ -362,10 +323,9 @@ mod tests {
         assert_eq!(todo_files(&todos), json!(["milk.md"]));
     }
 
-    /// The default removed while its window is open is refused when the page
-    /// opens it again, and is made again only when native startup prepares the default.
+    /// A selected home is never silently replaced with an empty directory.
     #[test]
-    fn a_removed_default_is_refused_until_native_startup_prepares_it() {
+    fn a_removed_home_is_refused_by_the_page_and_the_next_native_launch() {
         let fixture = fixture();
         let todos = fixture.window(&fixture.launch());
         fs::remove_dir(&fixture.root).unwrap();
@@ -374,9 +334,41 @@ mod tests {
             json!({ "name": "Missing" })
         );
         assert!(!fixture.root.exists());
-        Directory::create(&fixture.root).unwrap();
+        assert!(fixture
+            .app
+            .state::<DesktopPaths>()
+            .open_home(TODOS)
+            .is_err());
+        assert!(!fixture.root.exists());
+        fs::create_dir(&fixture.root).unwrap();
         assert!(fixture.root.is_dir());
         invoke(&todos, "open_folder", json!({})).unwrap();
+    }
+
+    #[test]
+    fn standalone_uses_the_shared_selection_without_changing_a_live_window() {
+        let fixture = fixture();
+        let original = fixture.launch();
+        let paths = fixture.app.state::<DesktopPaths>();
+        let chosen = fixture._temp.path().join("different");
+        fs::create_dir(&chosen).unwrap();
+        tauri_plugin_epicenter_folder::homes::select_home(
+            &paths.data_dir,
+            &paths.folder_dir,
+            TODOS,
+            &chosen,
+        )
+        .unwrap();
+        let next = fixture.launch();
+        assert_ne!(original, next);
+        assert_eq!(
+            fixture.app.folders().bound(&original).unwrap().root(),
+            fixture.root
+        );
+        assert_eq!(
+            fixture.app.folders().bound(&next).unwrap().root(),
+            fs::canonicalize(chosen).unwrap()
+        );
     }
 
     #[test]

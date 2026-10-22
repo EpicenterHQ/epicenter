@@ -90,13 +90,7 @@ export const commands = {
 	takePendingHomeSection: () => __TAURI_INVOKE<
 /**  Local transcription model administration. */
 "transcription" | null>("take_pending_home_section"),
-	/**
-	 *  List the data folders under the Epicenter folder root.
-	 * 
-	 *  Granted to the `folders` window alone. Off the main thread, since it
-	 *  reads the disk.
-	 */
-	listDataFolders: () => typedError<DataFolder[], string>(__TAURI_INVOKE("list_data_folders")),
+	listDataFolders: () => __TAURI_INVOKE<FolderListing>("list_data_folders"),
 	/**
 	 *  The directories apps asked Epicenter to open that the person has not
 	 *  accepted or dismissed, oldest first. Reads none of them.
@@ -106,26 +100,10 @@ export const commands = {
 	acceptFolderOpening: (path: string) => typedError<AcceptedOpening, string>(__TAURI_INVOKE("accept_folder_opening", { path })),
 	/**  Let go of an app's request to open `path` without reading it. */
 	dismissFolderOpening: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_opening", { path }),
-	/**
-	 *  The folders `folders.json` remembers and those accepted this run, each
-	 *  with its availability problem, if any. Off the main thread, since
-	 *  it reads the disk.
-	 */
-	listRememberedFolders: () => __TAURI_INVOKE<RememberedFolders>("list_remembered_folders"),
-	/**
-	 *  Forget the remembered path `path`, exactly as listed, whether or not it is
-	 *  there. Deletes no files. A folder open now stays open.
-	 */
-	forgetRememberedFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("forget_remembered_folder", { path })),
-	/**
-	 *  Open the listed folder `name` in its own editor window, or reveal the one
-	 *  already open on it. The page passes the name the listing gave it, never a
-	 *  path; the shell finds the directory again and binds it to the window.
-	 */
-	openFolderEditor: (name: string) => typedError<null, string>(__TAURI_INVOKE("open_folder_editor", { name })),
+	/**  Forget all shortcuts represented by this row. Other sources keep it visible. */
+	forgetFolderBookmarks: (id: string) => typedError<null, string>(__TAURI_INVOKE("forget_folder_bookmarks", { id })),
+	openFolderEditor: (id: string) => typedError<null, string>(__TAURI_INVOKE("open_folder_editor", { id })),
 	folderQuery: (sql: string) => typedError<QueryAnswer, CliError>(__TAURI_INVOKE("folder_query", { sql })),
-	/**  Open a currently remembered or this-run accepted path in its own editor. */
-	openRememberedFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_remembered_folder", { path })),
 	/**
 	 *  Send one request over an AI connection with the key saved on this
 	 *  computer, through `epicenter send` (ADR-0557). Each line of its NDJSON
@@ -187,8 +165,8 @@ export const commands = {
 	 */
 	whisperingConnectionSet: (connection: WhisperingConnection, fields: ConnectionRowAssignment_Deserialize) => typedError<ConnectionRow_Serialize, CliError>(__TAURI_INVOKE("whispering_connection_set", { connection, fields })),
 	/**
-	 *  Open bundled app `app` on its fixed default folder, or with `folder`, on
-	 *  the folder the Folders window listed under that directory name. A window
+	 *  Open bundled app `app` on its selected home, or with `folder`, on
+	 *  the folder identified by a current row in the combined listing. A window
 	 *  already open on the folder is revealed.
 	 */
 	openBundledApp: (app: BundledApp, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_bundled_app", { app, folder })),
@@ -501,19 +479,6 @@ export type ConnectionRow_Serialize = {
 	fields: ConnectionRowFields | null,
 };
 
-/**  One data folder the Folders window lists. */
-export type DataFolder = {
-	/**
-	 *  The directory's name under the Epicenter folder, which the Folders
-	 *  window passes back to open it. Never a path.
-	 */
-	name: string,
-	/**  `epicenter.json`'s `title` when it is a string, else the directory name. */
-	title: string,
-	/**  This is the selected folder Settings edits, independent of its name. */
-	epicenter: boolean,
-};
-
 /**
  *  Cumulative download progress for one model: bytes received so far across all
  *  of its files, and the grand total to expect. The frontend turns it into a
@@ -528,6 +493,12 @@ export type DownloadProgress = {
 	bytesReceived: number | null,
 	/**  Grand total bytes for the whole model (sum of the catalog file sizes). */
 	totalBytes: number | null,
+};
+
+export type FolderListing = {
+	folders: ListedFolder[],
+	/**  An unavailable source must not hide folders found through another one. */
+	problems: string[],
 };
 
 /**
@@ -557,6 +528,21 @@ export type InferenceModel = {
 
 /**  One step of an issue's path: a field name or an index. */
 export type IssuePathStep = string | number;
+
+export type ListedFolder = {
+	id: string,
+	title: string,
+	/**  Display only. Opening passes the ID and rechecks current membership. */
+	path: string,
+	/**  Protected directories remain editable, but cannot open in ordinary apps. */
+	protected: boolean,
+	/**  Display titles of apps whose ordinary launch uses this directory. */
+	homes: string[],
+	/**  Original shortcut spellings, removed together by Forget bookmark. */
+	bookmarks: string[],
+	temporary: boolean,
+	problem: string | null,
+};
 
 /**
  *  Whether the active-model transcription route is ready and which hints it accepts.
@@ -611,22 +597,6 @@ export type QueryAnswer = {
 };
 
 export type QueryCell = null | number | null | string | number[];
-
-/**  One remembered folder, or one accepted this run. */
-export type RememberedFolder = {
-	/**  The absolute path as stored, which `forget_remembered_folder` matches. */
-	path: string,
-	/**  Whether `folders.json` holds it; `false` when remembering it failed. */
-	remembered: boolean,
-	/**  Why it cannot open now, such as a folder that is not there. */
-	problem: string | null,
-};
-
-export type RememberedFolders = {
-	folders: RememberedFolder[],
-	/**  Why `folders.json` could not be read; it is left as it is. */
-	problem: string | null,
-};
 
 /**
  *  Failures the Home administration commands can report. Both are actionable:

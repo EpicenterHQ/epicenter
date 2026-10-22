@@ -36,7 +36,7 @@ An app's id and title live in `epicenter.app.json`, which `parseManifest`
 reads (`f16c69134b49:packages/cli/src/installed-apps.ts`), and its tables live in
 `defineFolder` in code: two sources for one app. Installed apps are full
 clones in `<folder_dir>/Apps/<app-id>/` (`apps_dir` and `APPS_DIRECTORY`,
-`apps/epicenter/src-tauri/src/app_data.rs:81-88`; `APPS_DIRECTORY` and
+`487d27a014:apps/epicenter/src-tauri/src/app_data.rs:81-88`; `APPS_DIRECTORY` and
 `appsDir`, `packages/cli/src/app-paths.ts:32`, `:85`), each with
 `node_modules` from `bun install` at its root (ADR-0552).
 

@@ -56,7 +56,7 @@ dunce = "1"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
 # The folder save lock, which also takes turns on `folders.json` with any
-# other writer of it (`folders_config.rs`).
+# other writer of it (`epicenter_folder_core::homes`).
 epicenter-folder-core = { path = "../../../packages/tauri-plugin-epicenter-folder/core" }
 tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
 anyhow = "1"

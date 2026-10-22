@@ -1,31 +1,6 @@
-//! The data folders under the Epicenter folder root, as the Folders window
-//! lists them (ADR-0535), and the editor window it opens on one.
-//!
-//! A data folder is a direct child of `folder_dir` that is a real directory,
-//! not a link or a dot entry. The Folders window shows each by its
-//! directory name and title, and opens none itself: it is a launcher. A
-//! window that edits a listed folder is opened in trusted Rust, which
-//! derives the path from `folder_dir` and the listed name again, checks it
-//! is still a real direct child, and binds it to the window before the
-//! WebView exists (`folder_windows`). No list of registered folders is kept:
-//! the directory is the record.
-//!
-//! - Epicenter's selected records folder (`folders_config`) holds its AI
-//!   connections. Settings binds it through `folders_config::open_epicenter`; only an
-//!   unselected initial default is created. Under the folder root it is
-//!   listed like any other folder, and its
-//!   editor window may open it. No bundled app or handoff opens it, the app
-//!   data, Settings' sibling staging directory, or a directory holding any
-//!   of them (`overlaps_epicenter_files`).
-//! - A listed folder's editor, `files:<digest>`, serves the Folders build's
-//!   `/folders/editor/` route, which selects the editor's UI. It edits that
-//!   one folder's files as text and is destroyed when it closes. A folder
-//!   missing when it is opened is refused, never created.
-//!
-//! The shell watches the root (`watch_data_folders`) and tells the Folders
-//! window when the listing may have changed, so it lists again.
-//!
-//! The reply carries directory names and titles, never paths.
+//! Root-child discovery and launcher invalidation. The combined folder list
+//! lives in folder_listing; listing never registers or allocates a directory.
+//! The root and its child declarations are watched alongside folders.json.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -35,12 +10,14 @@ use std::time::Duration;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, NoCache};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_epicenter_folder::Directory;
 
-use crate::app_data::DesktopPaths;
-use crate::{folder_windows, folders_config};
-use crate::{BuiltInApp, DesktopAppHandle};
+#[cfg(test)]
+use crate::folder_windows;
+use crate::folders_config;
+use crate::BuiltInApp;
+use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 
 /// The optional declaration supplying a title while listing files.
 const DECLARATION: &str = "epicenter.json";
@@ -52,83 +29,26 @@ const DECLARATION: &str = "epicenter.json";
 /// they are refused while that root contains the selected records. The
 /// listed-folder editor does not ask, and may open Settings' folder.
 pub fn overlaps_epicenter_files(paths: &DesktopPaths, directory: &Directory) -> bool {
-    let mut kept = vec![resolved(&paths.data_dir)];
     // Broken preferences must stay repairable without blocking unrelated
     // folder editors. Settings itself requires a readable selection.
-    if let Ok(settings) = folders_config::epicenter_path(&paths.data_dir, &paths.folder_dir) {
-        let settings = resolved(&settings);
-        if let Ok(scratch) = epicenter_folder_core::storage::scratch_directory(&settings) {
-            kept.push(resolved(&scratch));
-        }
-        kept.push(settings);
-    }
-    kept.iter().any(|path| overlaps(directory.root(), path))
+    let records = folders_config::read(&paths.data_dir)
+        .ok()
+        .and_then(|config| folders_config::protected_records(&config, &paths.folder_dir));
+    folders_config::check_app_directory(&paths.data_dir, records.as_deref(), directory.root())
+        .is_err()
 }
 
-/// Resolve each existing component and normalize missing components too. A
-/// missing segment followed by `..` must still name the eventual directory:
-/// the OS will create that segment before walking back through it.
-fn resolved(path: &Path) -> PathBuf {
-    let mut result = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::ParentDir => {
-                result.pop();
-            }
-            Component::CurDir => {}
-            _ => {
-                result.push(component.as_os_str());
-                if let Ok(canonical) = dunce::canonicalize(&result) {
-                    result = canonical;
-                }
-            }
-        }
-    }
-    result
-}
-
-/// Compare containment even when the OS exposes one directory through two
-/// absolute paths that canonicalization does not merge (for example a macOS
-/// firmlink, or another casing on a disk that ignores case). A missing
-/// protected leaf still has the lexical fallback above.
-fn overlaps(candidate: &Path, protected: &Path) -> bool {
-    candidate.starts_with(protected)
-        || protected.starts_with(candidate)
-        || candidate
-            .ancestors()
-            .any(|ancestor| same_file::is_same_file(ancestor, protected).unwrap_or(false))
-        || protected
-            .ancestors()
-            .any(|ancestor| same_file::is_same_file(ancestor, candidate).unwrap_or(false))
-}
-
-/// One data folder the Folders window lists.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+/// One visible child discovered under the configured root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DataFolder {
-    /// The directory's name under the Epicenter folder, which the Folders
-    /// window passes back to open it. Never a path.
+pub(crate) struct RootFolder {
+    /// The directory entry name, used only to assemble its native path.
     pub name: String,
     /// `epicenter.json`'s `title` when it is a string, else the directory name.
     pub title: String,
-    /// This is the selected folder Settings edits, independent of its name.
-    pub epicenter: bool,
 }
 
-/// List the data folders under the Epicenter folder root.
-///
-/// Granted to the `folders` window alone. Off the main thread, since it
-/// reads the disk.
-#[tauri::command(async)]
-#[specta::specta]
-pub fn list_data_folders(app: DesktopAppHandle) -> Result<Vec<DataFolder>, String> {
-    let paths = app.state::<DesktopPaths>();
-    let epicenter = folders_config::epicenter_path(&paths.data_dir, &paths.folder_dir).ok();
-    list_in(&paths.folder_dir, epicenter.as_deref())
-}
-
-/// The path of the data folder the Folders window listed as `name`: a real
-/// directory directly under `folder_dir`, found again now. A name that is
+/// Discover a real directory directly under `folder_dir`. A name that is
 /// not one directory entry, a dot entry, a link, or a directory that is gone
 /// is refused, and nothing is made.
 pub fn listed_folder(folder_dir: &Path, name: &str) -> Result<PathBuf, String> {
@@ -149,36 +69,7 @@ pub fn listed_folder(folder_dir: &Path, name: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// The editor window for the listed folder `name`, bound to it.
-fn listed_directory(folder_dir: &Path, name: &str) -> Result<Directory, String> {
-    let path = listed_folder(folder_dir, name)?;
-    let directory = Directory::existing(&path)
-        .map_err(|error| format!("The folder \"{name}\" could not be opened: {error}"))?;
-    Ok(directory)
-}
-
-/// Open the listed folder `name` in its own editor window, or reveal the one
-/// already open on it. The page passes the name the listing gave it, never a
-/// path; the shell finds the directory again and binds it to the window.
-#[tauri::command]
-#[specta::specta]
-pub async fn open_folder_editor(handle: DesktopAppHandle, name: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let paths = handle.state::<DesktopPaths>();
-        let directory = listed_directory(&paths.folder_dir, &name)?;
-        folder_windows::open_editor(&handle, directory)
-            .map(|_| ())
-            .map_err(|error| format!("{error:#}"))
-    })
-    .await
-    .map_err(|error| format!("the folder could not be opened: {error}"))?
-}
-
-pub(crate) fn list_in(
-    folder_dir: &Path,
-    epicenter: Option<&Path>,
-) -> Result<Vec<DataFolder>, String> {
-    let epicenter = epicenter.map(resolved);
+pub(crate) fn list_in(folder_dir: &Path) -> Result<Vec<RootFolder>, String> {
     let entries = match fs::read_dir(folder_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -190,28 +81,31 @@ pub(crate) fn list_in(
             continue;
         };
         // `file_type` does not follow links, so a linked directory is skipped.
-        let is_directory = entry.file_type().is_ok_and(|kind| kind.is_dir());
+        let is_directory = listed_folder(folder_dir, &name).is_ok();
         if name.starts_with('.') || !is_directory {
             continue;
         }
-        let declaration = entry.path().join(DECLARATION);
-        let title = fs::symlink_metadata(&declaration)
-            .ok()
-            .filter(|stats| stats.is_file())
-            .and_then(|_| fs::read_to_string(&declaration).ok())
-            .as_deref()
-            .and_then(declared_title)
-            .unwrap_or_else(|| name.clone());
-        listed.push(DataFolder {
-            name,
-            title,
-            epicenter: epicenter
-                .as_ref()
-                .is_some_and(|selected| resolved(&entry.path()) == *selected),
-        });
+        let title = folder_title(&entry.path());
+        listed.push(RootFolder { name, title });
     }
     listed.sort_by_cached_key(|folder| (folder.title.to_lowercase(), folder.name.clone()));
     Ok(listed)
+}
+
+pub(crate) fn folder_title(path: &Path) -> String {
+    let declaration = path.join(DECLARATION);
+    fs::symlink_metadata(&declaration)
+        .ok()
+        .filter(|stats| stats.is_file())
+        .and_then(|_| fs::read_to_string(&declaration).ok())
+        .as_deref()
+        .and_then(declared_title)
+        .unwrap_or_else(|| {
+            path.file_name()
+                .unwrap_or(path.as_os_str())
+                .to_string_lossy()
+                .into_owned()
+        })
 }
 
 /// The event the Folders window hears when the listing may have changed. It
@@ -233,7 +127,7 @@ pub struct DataFoldersWatch {
 /// root, or a folder's optional `epicenter.json` title. The watch is recursive
 /// because a declaration is one level down; every deeper change, such as a row saved
 /// in a folder, is ignored. A rescan or a watch error is reported too. A
-/// root that cannot be watched leaves the listing as the window last read it.
+/// An unavailable root does not prevent configuration watching or startup.
 pub fn watch_data_folders<R: Runtime>(
     app: &AppHandle<R>,
     folder_dir: &Path,
@@ -261,11 +155,6 @@ pub fn watch_data_folders<R: Runtime>(
             };
             if changed {
                 let _ = app.emit_to(BuiltInApp::Folders.id(), DATA_FOLDERS_CHANGED, ());
-                let _ = app.emit_to(
-                    BuiltInApp::Folders.id(),
-                    crate::folder_opening::FOLDER_OPENINGS_CHANGED,
-                    (),
-                );
             }
         },
         NoCache,
@@ -273,11 +162,20 @@ pub fn watch_data_folders<R: Runtime>(
     )
     .map_err(|cause| format!("'{}' could not be watched: {cause}", folder_dir.display()))?;
     debouncer
-        .watch(folder_dir, RecursiveMode::Recursive)
-        .map_err(|cause| format!("'{}' could not be watched: {cause}", folder_dir.display()))?;
-    debouncer
         .watch(data_dir, RecursiveMode::NonRecursive)
         .map_err(|error| format!("{} could not be watched: {error}", data_dir.display()))?;
+    // Creating the discovery root enables first-use watching, but is never a
+    // prerequisite for saved homes and bookmarks elsewhere on the machine.
+    if let Err(error) = fs::create_dir_all(folder_dir)
+        .map_err(|error| error.to_string())
+        .and_then(|()| {
+            debouncer
+                .watch(folder_dir, RecursiveMode::Recursive)
+                .map_err(|error| error.to_string())
+        })
+    {
+        log::warn!("{} could not be watched: {error}", folder_dir.display());
+    }
     Ok(DataFoldersWatch {
         _debouncer: debouncer,
     })
@@ -319,7 +217,7 @@ mod tests {
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
     use tauri::utils::acl::ExecutionContext;
     use tauri::webview::InvokeRequest;
-    use tauri::{App, WebviewWindow, WebviewWindowBuilder};
+    use tauri::{App, Manager, WebviewWindow, WebviewWindowBuilder};
     use tauri_plugin_epicenter_folder::FolderExt;
 
     use super::*;
@@ -337,8 +235,8 @@ mod tests {
     }
 
     impl Fixture {
-        fn list(&self) -> Vec<DataFolder> {
-            list_in(&self.folder_dir, None).unwrap()
+        fn list(&self) -> Vec<RootFolder> {
+            list_in(&self.folder_dir).unwrap()
         }
 
         /// What `open_folder_editor` does, with a mock window for the WebView.
@@ -346,7 +244,11 @@ mod tests {
             let before = self.app.webview_windows().len();
             let window = folder_windows::open_editor(
                 self.app.handle(),
-                listed_directory(&self.folder_dir, name)?,
+                crate::folder_listing::listed_directory(
+                    &self.app.state::<DesktopPaths>(),
+                    &self.app.state::<crate::folder_opening::FolderOpenings>(),
+                    &crate::folder_listing::folder_id(&self.folder_dir.join(name)),
+                )?,
             )
             .map_err(|error| format!("{error:#}"))?;
             Ok((
@@ -383,6 +285,11 @@ mod tests {
             .plugin(tauri_plugin_epicenter_folder::init())
             .build(context)
             .expect("mock app");
+        app.manage(DesktopPaths {
+            data_dir: folder_dir.join(".app-data"),
+            folder_dir: folder_dir.clone(),
+        });
+        app.manage(crate::folder_opening::FolderOpenings::default());
         Fixture { app, folder_dir }
     }
 
@@ -467,7 +374,7 @@ mod tests {
                 .build()
                 .unwrap();
         let (heard, hearing) = std::sync::mpsc::channel();
-        window.listen(crate::folder_opening::FOLDER_OPENINGS_CHANGED, move |_| {
+        window.listen(DATA_FOLDERS_CHANGED, move |_| {
             let _ = heard.send(());
         });
         let _watch = watch_data_folders(fixture.app.handle(), &fixture.folder_dir, &data).unwrap();
@@ -477,6 +384,31 @@ mod tests {
         hearing
             .recv_timeout(Duration::from_secs(5))
             .expect("configuration writes refresh the launcher");
+    }
+
+    #[test]
+    fn an_unavailable_root_does_not_prevent_config_watching() {
+        use tauri::Listener;
+        let fixture = fixture("blocked-root-watch");
+        let data = fixture.folder_dir.join(".app-data");
+        let occupied = fixture.folder_dir.join("occupied");
+        fs::write(&occupied, "keep").unwrap();
+        let window =
+            WebviewWindowBuilder::new(&fixture.app, BuiltInApp::Folders.id(), Default::default())
+                .build()
+                .unwrap();
+        let (heard, hearing) = std::sync::mpsc::channel();
+        window.listen(DATA_FOLDERS_CHANGED, move |_| {
+            let _ = heard.send(());
+        });
+        let _watch = watch_data_folders(fixture.app.handle(), &occupied, &data).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        while hearing.try_recv().is_ok() {}
+        folders_config::add(&data, "/outside/root").unwrap();
+        hearing
+            .recv_timeout(Duration::from_secs(5))
+            .expect("configuration remains watched");
+        assert_eq!(fs::read_to_string(occupied).unwrap(), "keep");
     }
 
     #[test]
@@ -490,7 +422,7 @@ mod tests {
         fs::write(
             folders_config::file(&data),
             serde_json::to_vec(&folders_config::FoldersConfig {
-                epicenter: Some(selected.to_str().unwrap().into()),
+                homes: [("epicenter".into(), selected.to_str().unwrap().into())].into(),
                 folders: vec![],
             })
             .unwrap(),
@@ -501,9 +433,7 @@ mod tests {
             folder_dir: fixture.folder_dir.clone(),
         };
         assert_eq!(
-            folders_config::open_epicenter(&paths.data_dir, &paths.folder_dir)
-                .unwrap()
-                .root(),
+            paths.open_home(folders_config::EPICENTER).unwrap().root(),
             selected
         );
         assert!(overlaps_epicenter_files(
@@ -514,20 +444,27 @@ mod tests {
             &paths,
             &Directory::existing(&fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER)).unwrap()
         ));
-        let listed = list_in(&fixture.folder_dir, Some(&selected)).unwrap();
+        let listed =
+            crate::folder_listing::list(&paths, &crate::folder_opening::FolderOpenings::default())
+                .folders;
         assert!(
             listed
                 .iter()
-                .find(|folder| folder.name == "My setup")
+                .find(|folder| folder.path == selected.to_str().unwrap())
                 .unwrap()
-                .epicenter
+                .protected
         );
         assert!(
             !listed
                 .iter()
-                .find(|folder| folder.name == DEFAULT_EPICENTER_FOLDER)
+                .find(|folder| folder.path
+                    == fixture
+                        .folder_dir
+                        .join(DEFAULT_EPICENTER_FOLDER)
+                        .to_str()
+                        .unwrap())
                 .unwrap()
-                .epicenter
+                .protected
         );
     }
 
@@ -571,20 +508,17 @@ mod tests {
         assert_eq!(
             fixture.list(),
             [
-                DataFolder {
+                RootFolder {
                     name: "odd".into(),
-                    title: "odd".into(),
-                    epicenter: false
+                    title: "odd".into()
                 },
-                DataFolder {
+                RootFolder {
                     name: "plain".into(),
-                    title: "plain".into(),
-                    epicenter: false
+                    title: "plain".into()
                 },
-                DataFolder {
+                RootFolder {
                     name: "vault".into(),
-                    title: "vault".into(),
-                    epicenter: false
+                    title: "vault".into()
                 },
             ]
         );
@@ -629,20 +563,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_reply_names_no_path() {
-        let fixture = fixture("no-path");
-        data_folder(&fixture, "vault", "{}");
-        data_folder(&fixture, "so.epicenter.capture", "{}");
-        let reply = serde_json::to_string(&fixture.list()).unwrap();
-        assert!(!reply.contains('/'), "{reply}");
-        assert!(!reply.contains('\\'), "{reply}");
-        assert!(
-            !reply.contains(fixture.folder_dir.to_str().unwrap()),
-            "{reply}"
-        );
-    }
-
     /// Choosing a listed folder opens a separate editor window bound to that
     /// folder alone; choosing it again reveals the same window.
     #[test]
@@ -684,7 +604,7 @@ mod tests {
             data_dir: fixture.folder_dir.join(".app-data"),
             folder_dir: fixture.folder_dir.clone(),
         };
-        let settings = folders_config::open_epicenter(&paths.data_dir, &paths.folder_dir).unwrap();
+        let settings = paths.open_home(folders_config::EPICENTER).unwrap();
         assert!(fixture.folder_dir.join(DEFAULT_EPICENTER_FOLDER).is_dir());
         assert!(overlaps_epicenter_files(&paths, &settings));
         fs::write(fixture.folder_dir.join("so.epicenter/notes.md"), "").unwrap();
@@ -716,7 +636,32 @@ mod tests {
         };
         assert!(!fixture.folder_dir.join("absent").exists());
 
-        for protected in [&scratch, &private] {
+        fs::write(
+            folders_config::file(&private),
+            serde_json::to_vec(&folders_config::FoldersConfig {
+                homes: [(
+                    "epicenter".into(),
+                    fixture
+                        .folder_dir
+                        .join(DEFAULT_EPICENTER_FOLDER)
+                        .to_str()
+                        .unwrap()
+                        .into(),
+                )]
+                .into(),
+                folders: vec![],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let selected_paths = DesktopPaths {
+            data_dir: private.clone(),
+            ..paths.clone()
+        };
+        let directory = Directory::existing(&scratch).unwrap();
+        assert!(overlaps_epicenter_files(&selected_paths, &directory));
+
+        for protected in [&private] {
             let directory = Directory::existing(protected).unwrap();
             assert!(overlaps_epicenter_files(&paths, &directory));
         }
@@ -724,6 +669,23 @@ mod tests {
         fs::create_dir(&ordinary).unwrap();
         let directory = Directory::existing(&ordinary).unwrap();
         assert!(!overlaps_epicenter_files(&paths, &directory));
+    }
+
+    #[test]
+    fn unreadable_home_configuration_keeps_ordinary_folders_available_for_repair() {
+        let fixture = fixture("repair-homes");
+        let paths = DesktopPaths {
+            data_dir: fixture.folder_dir.join(".app-data"),
+            folder_dir: fixture.folder_dir.clone(),
+        };
+        fs::create_dir(&paths.data_dir).unwrap();
+        let config = folders_config::file(&paths.data_dir);
+        fs::write(&config, "needs repair").unwrap();
+        let ordinary = Directory::create(&fixture.folder_dir.join("ordinary")).unwrap();
+        let private = Directory::existing(&paths.data_dir).unwrap();
+        assert!(!overlaps_epicenter_files(&paths, &ordinary));
+        assert!(overlaps_epicenter_files(&paths, &private));
+        assert_eq!(fs::read_to_string(config).unwrap(), "needs repair");
     }
 
     /// A listed folder that is gone, a name that is not one directory entry,
@@ -736,7 +698,7 @@ mod tests {
         fs::remove_dir_all(fixture.folder_dir.join("vault")).unwrap();
         assert_eq!(
             fixture.open_editor("vault").unwrap_err(),
-            "The folder \"vault\" is not there anymore."
+            "This folder is no longer in the list."
         );
         assert!(!fixture.folder_dir.join("vault").exists());
 

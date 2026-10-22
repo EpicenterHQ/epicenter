@@ -869,9 +869,12 @@ version = "0.0.1"
 dependencies = [
  "dunce",
  "rusqlite",
+ "same-file",
  "serde",
+ "serde_json",
  "sha2",
  "specta",
+ "tempfile",
 ]
 
 [[package]]
@@ -3664,6 +3667,7 @@ dependencies = [
  "specta-typescript",
  "tauri",
  "tauri-plugin",
+ "tauri-plugin-dialog",
  "tauri-specta",
 ]
 

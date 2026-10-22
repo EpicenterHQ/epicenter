@@ -132,6 +132,9 @@ path and must be absolute.
 Development uses `so.epicenter.dev` for data and settings.
 Production's authored folder root is `~/Epicenter`; development's is `~/Epicenter Dev`.
 `EPICENTER_FOLDER_DIR` overrides the authored folder root and must be absolute.
+Native locations live in `tauri_plugin_epicenter_folder::defaults::DesktopPaths`,
+shared with standalone Todos. Both shells use the durable `homes::TODOS` definition;
+changing the app's display name does not redirect its authored work.
 The shell resolves both directories once and sets `EPICENTER_DATA_DIR` and
 `EPICENTER_FOLDER_DIR` on every `epicenter` command it runs, so the CLI
 writes where the shell reads. A terminal's `epicenter` uses the same
@@ -151,6 +154,9 @@ Files split by what they cost to lose (ADR-0539):
   folders.json                                selected records path and added folder shortcuts
   local-transcription.json                    the active local model and when to unload it
 ```
+
+Home paths live in `homes` in AppData's `folders.json`, shared with standalone
+Todos. Release and development configurations remain separate.
 
 An earlier version installed apps from Git repositories. Its bare clones in
 `apps/<app-id>/` under the application-data directory, and its builds, logs,
@@ -273,21 +279,29 @@ Its page source is `src/folders`, built by `build:folders` into
 `epicenter://app/folders` opens it. The shell binds no folder to it, and its
 capability grants no folder command.
 
-The page asks the shell for `list_data_folders`. The shell lists real,
-non-hidden child directories under the authored folder root, including ones
-without `epicenter.json`, by directory name and title. An existing
-declaration can provide a display title; it is not required to open or edit
-files. Epicenter's own folder, `so.epicenter` by default, is listed like any other, and a
-folder named by the id of an app an earlier version installed, such as
-`so.epicenter.todos`, is a data folder like any other. Nothing is registered
-by listing.
+The page asks the shell for one derived listing: real non-hidden root
+children, selected app homes, saved bookmarks, and this-run openings whose
+bookmark could not be saved. References resolving to the same directory
+share one row. Each row shows its path and which apps use it as home.
+Different directories with the same name remain separate. An optional
+`epicenter.json` can supply a display title; opening needs no declaration.
+Missing homes and bookmarks remain visible with their problem. Listing
+creates no folders or registration records.
+
+Rows have native IDs derived from resolved paths. Opening an editor or using
+**Open with…** passes that ID, and Rust rebuilds current membership and checks
+the directory before binding a window. A display name, supplied path, or stale
+row cannot select another directory. Epicenter's selected records directory
+can open in the generic editor, while bundled apps keep their existing
+protected-directory checks.
 
 The shell watches the root from setup until exit (`watch_data_folders`). When
 an entry directly under it, or a folder's `epicenter.json`, is created,
 changed, or removed, it sends `epicenter://data-folders-changed` to the
 `folders` window, which calls `list_data_folders` again. A rescan or a watch
 error is sent the same way. Deeper changes, such as a row saved in a folder,
-are not.
+are not. The listing also refreshes when the launcher gains focus, so
+external homes and bookmarks are checked again.
 
 ### Incoming folders and remembered paths
 
@@ -297,18 +311,25 @@ After the editor opens, a visible direct child of the Epicenter folder root
 is already in the Folders listing and needs no shortcut. For another folder,
 Epicenter adds the original path to `folders` in `<app data>/folders.json`.
 Failed persistence leaves the editor open and the shortcut available for this
-run, with the problem shown. **Opened folders** lists stored paths and this
-run's unpersisted acceptances. Reopening through that list requires fresh
-membership and checks the directory again. Missing or refused entries remain
-visible and can be forgotten. **Forget** removes only the shortcut; existing
-editors and their drafts stay open.
+run, with the problem shown. They appear in the same list as root children
+and app homes. **Forget bookmark** removes every bookmark spelling merged
+into that row and its temporary shortcut. A root-discovered folder or saved
+home stays listed; existing editors and their drafts stay open.
 
-The same object's `epicenter` field selects Epicenter's portable records
-directory. `null` means no selection has been made. Settings or the first
-connection save selects the initial default `so.epicenter` under the folder
-root. A stored selection is opened as it stands; a missing one is never
-recreated. To relocate it, quit Epicenter, move or locate the records, edit
-that path, and reopen. There is no selection UI yet.
+The same object's `homes` map holds selected home paths: `epicenter` for
+Epicenter's portable records, `todos` for Todos, and each other bundled app
+by its stable page key. Each home follows one rule: first ordinary use
+selects and remembers its suggested child of the folder root, creating it
+if missing. A saved home must exist, even after the root changes.
+
+**Home Folders** in the native menu selects an existing home for any
+bundled app. Standalone Todos offers the same action, reads the same
+configuration, and calls the same native allocator. Selecting moves no files
+and changes no existing window binding. The next ordinary app launch uses
+the selected home. Relocating Epicenter's records remains a manual operation
+with Epicenter quit; the menu does not expose it while Settings is bound to
+its current records. The selection stays in machine-local AppData rather than inside the
+portable records whose location it selects.
 
 The CLI's `epicenter folders add|list|forget` edits the same configuration.
 Both writers hold the file's save lock across read/change/replace, preserving
@@ -321,13 +342,12 @@ next real update without losing their paths. See
 
 ### Folder editor windows
 
-Choosing a listed folder calls `open_folder_editor(name)`. The shell finds the
-directory again as a real direct child of the folder root (a name that is not
-one entry, a dot entry, a link, or a folder that is gone is refused, and
-nothing is created), binds it to a new window labelled `files:<digest of the
-canonical root>`, and opens that window at `/folders/editor/`, which the
-scheme serves from the Folders build; the route selects the editor's page. A
-second choice of the same folder reveals its window.
+Choosing a listed folder calls `open_folder_editor(id)`. The shell rebuilds
+the combined list and requires a current, available row with that ID. It
+binds that exact directory to a window labelled `files:<digest of the
+canonical root>` and opens `/folders/editor/`. Choosing it again reveals
+the existing window. This works for homes and bookmarks outside the root
+without copying or creating a directory.
 
 The editor mounts `<FolderApp>` with no table schemas, so Files, grid, board,
 and SQL share one open Folder and its window lifetime. Files opens exact source
@@ -427,7 +447,7 @@ Manual refresh and returning to the window reconcile gaps without periodic polli
 
 Beside each listed directory except the selected Epicenter records directory, "Open with…" offers every
 bundled app (`src/folders/openers.ts`). The Apps list offers Open, on the
-app's default folder, and Choose folder…, which asks the shell to show the
+app's selected home, and Choose folder…, which asks the shell to show the
 native folder picker. The app interprets its files through its own schemas.
 The Folders view does not use `epicenter.json` to authorize any of them.
 
@@ -435,7 +455,7 @@ The Folders view does not use `epicenter.json` to authorize any of them.
 
 Epicenter bundles Todos, Capture, Honeycrisp, Whispering, and Messages
 (`src-tauri/src/bundled_apps.rs`). One closed table, `BundledApp`, names for
-each its page, its fixed default folder, its window label and capability, and
+each its page, its initial home-folder name, its window label and capability, and
 its build path:
 
 | Page | Default folder | Window label | Capability |
@@ -457,16 +477,16 @@ Git action.
 The Folders window opens one in three ways, each deciding the folder in Rust:
 
 - **Open**, under Apps, calls `open_bundled_app(app, null)`. The shell opens
-  the app's fixed default, such as `<folderDir>/Todos` (`~/Epicenter/Todos` in
-  production), and creates it first when it is missing. Its durable folder
+  the app's saved home. On first use it selects `<folderDir>/Todos`, for
+  example `~/Epicenter/Todos` in production, creating it if needed. Once
+  selected, a missing home is refused rather than recreated. Its durable folder
   name is independent of the displayed app title and app id. The app's rows
   land directly in it, such as `todos/<id>.md`. A disk that stores the default
   under another casing opens that directory.
-- **Open with…**, beside a listed folder, calls `open_bundled_app(app, name)`.
-  The shell finds the directory again as a real direct child of the folder
-  root. A folder that is gone, a name that is not one listed entry, or
-  Epicenter's own folder is refused; nothing is created and the default is
-  never opened instead.
+- **Open with…**, beside a listed folder, calls `open_bundled_app(app, id)`.
+  Rust rechecks membership in the combined list, including outside homes and
+  bookmarks. A missing, stale, or protected directory is refused. Nothing
+  is created and the app's home is never opened as a replacement.
 - **Choose folder…**, under Apps, calls `choose_folder_for_app(app)`. The
   shell shows the native folder picker and opens the app on what the person
   chose; cancelling opens nothing. The chosen directory must exist and be a
@@ -484,7 +504,7 @@ two directories with one name in different places are two windows. The page
 calls `openFolder({ tables })`, which opens the folder bound to its window;
 Whispering's recorder writes into the same folder, and no call names it. Two
 apps opened on one folder are two windows with separate bindings to one root, sharing its save lock. A folder removed after its window opened is refused `Missing` when
-the page opens it again; a later Open recreates only an app's fixed default.
+the page opens it again; a later Open also refuses the selected missing home.
 
 The native Folder reads ordinary files as they stand. File writes, table assignments,
 and editor saves publish without a source precondition. The last publication wins. Opening writes

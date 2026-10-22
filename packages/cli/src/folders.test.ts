@@ -89,7 +89,7 @@ test('list and help create nothing; add is idempotent and does not select a reco
 		reply: { changed: false },
 	});
 	expect(await readFile(config, 'utf8')).toBe(before);
-	expect(JSON.parse(before)).toEqual({ epicenter: null, folders: [folder] });
+	expect(JSON.parse(before)).toEqual({ homes: {}, folders: [folder] });
 });
 
 test('add and forget preserve the selected folder and delete no source files', async () => {
@@ -102,7 +102,7 @@ test('add and forget preserve the selected folder and delete no source files', a
 		reply: { changed: true },
 	});
 	expect(JSON.parse(await readFile(config, 'utf8'))).toEqual({
-		epicenter: records,
+		homes: { epicenter: records },
 		folders: [],
 	});
 	expect(await readFile(join(folder, 'keep.md'), 'utf8')).toBe('Keep this.');
@@ -116,7 +116,7 @@ test('old arrays retain exact spellings and convert on the first real change', a
 	expect(await readFile(config, 'utf8')).toBe(original);
 	await run('folders', 'add', folder);
 	expect(JSON.parse(await readFile(config, 'utf8'))).toEqual({
-		epicenter: null,
+		homes: {},
 		folders: ['relative/entry', '/gone/away', folder],
 	});
 	await run('folders', 'forget', 'relative/entry');
@@ -166,8 +166,26 @@ test('concurrent CLI writers preserve every shortcut and the selected records fo
 	);
 	expect(replies.map(({ code }) => code)).toEqual(folders.map(() => 0));
 	const saved = JSON.parse(await readFile(config, 'utf8'));
-	expect(saved.epicenter).toBe(records);
+	expect(saved.homes.epicenter).toBe(records);
 	expect(saved.folders.sort()).toEqual(folders);
+});
+
+test('shortcut and connection writers preserve every shared app home', async () => {
+	const { folder, records, authored, config, write, run } = await setup();
+	const homes = {
+		epicenter: records,
+		todos: folder,
+		honeycrisp: join(authored, 'Notes'),
+	};
+	await write({ homes, folders: [] });
+	expect((await run('folders', 'list')).reply.homes).toEqual(homes);
+	expect((await run('folders', 'add', folder)).code).toBe(0);
+	expect((await run('whispering-connection', 'read', 'text')).code).toBe(0);
+	expect((await run('folders', 'forget', folder)).code).toBe(0);
+	expect(JSON.parse(await readFile(config, 'utf8'))).toEqual({
+		homes,
+		folders: [],
+	});
 });
 
 test('invalid UTF-8 inside a path is refused without replacing its bytes', async () => {

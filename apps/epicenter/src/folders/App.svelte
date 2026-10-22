@@ -1,34 +1,21 @@
 <script lang="ts">
 	/**
-	 * The Folders window, which is what opening Epicenter shows (ADR-0537): a
-	 * launcher over every data folder under the Epicenter folder and the apps
-	 * Epicenter bundles. It opens no folder itself. The shell lists the
-	 * folders by directory name and title (`list_data_folders`), and the list
-	 * is read again when the shell reports that one appeared, went, or changed
-	 * its `epicenter.json` (`DATA_FOLDERS_CHANGED`).
-	 *
-	 * Choosing a folder opens its own editor window (`open_folder_editor`),
-	 * or reveals the one already open on it; that window edits the folder's
-	 * files as text. "Open with" opens an app on that folder, and the Apps
-	 * list opens an app on its default folder, or on a folder the person
-	 * chooses in the native picker, which the shell opens and answers
-	 * (`open_bundled_app`, `choose_folder_for_app`). Every app Epicenter
-	 * bundles is offered on every folder but Epicenter's own (`openers.ts`).
-	 * Nothing is installed, built, or approved, and the page passes only a
-	 * listed name, never a path. The Settings button opens Settings with
-	 * `open_home`.
+	 * The launcher reads one derived directory list from the native shell.
+	 * Row IDs select current membership; paths are displayed, never supplied
+	 * as folder grants. Incoming handoffs remain pending until accepted.
 	 */
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { onMount } from 'svelte';
-	import { commands, type DataFolder } from '../ui/bindings.gen';
+	import { commands, type ListedFolder } from '../ui/bindings.gen';
 	import { createLaunch } from '../ui/launch.svelte.ts';
 	import { bundledOpeners } from './openers.ts';
 	import { createFolderOpenings, folderName, FOLDER_OPENINGS_CHANGED } from './openings.svelte.ts';
 
-	let folders = $state<DataFolder[] | undefined>(undefined);
+	let folders = $state.raw<ListedFolder[] | undefined>(undefined);
+	let sourceProblems = $state.raw<string[]>([]);
 	let listProblem = $state<string | undefined>(undefined);
 
 	/**
@@ -50,7 +37,7 @@
 	const listed = $derived(
 		(folders ?? []).map((folder) => ({
 			folder,
-			openers: folder.epicenter ? [] : bundledOpeners,
+			openers: folder.protected || folder.problem !== null ? [] : bundledOpeners,
 		})),
 	);
 	/** Listings that resolve out of order keep only the newest. */
@@ -59,10 +46,11 @@
 	async function list() {
 		const seq = ++listSeq;
 		try {
-			const { data, error } = await commands.listDataFolders();
+			const data = await commands.listDataFolders();
 			if (seq !== listSeq) return;
-			folders = data ?? undefined;
-			listProblem = error ?? undefined;
+			folders = data.folders;
+			sourceProblems = data.problems;
+			listProblem = undefined;
 		} catch (error) {
 			if (seq !== listSeq) return;
 			listProblem = error instanceof Error ? error.message : String(error);
@@ -91,7 +79,7 @@
 	onMount(() => {
 		const refreshOpenings = () => {
 			void openings.refresh();
-			void openings.list();
+			void list();
 		};
 		// The window's own listener: a global one would hear other windows' events too.
 		const stopListing = getCurrentWebviewWindow().listen(
@@ -103,11 +91,18 @@
 			refreshOpenings,
 		);
 		// Subscribe before reading: a request arriving during startup must not be missed.
-		void stopOpenings.then(refreshOpenings, refreshOpenings);
+		void stopOpenings.then(
+			() => void openings.refresh(),
+			() => void openings.refresh(),
+		);
 		void stopListing.then(list, list);
+		const stopFocus = getCurrentWebviewWindow().onFocusChanged(({ payload }) => {
+			if (payload) refreshOpenings();
+		});
 		return () => {
 			void stopOpenings.then((stop) => stop());
 			void stopListing.then((stop) => stop());
+			void stopFocus.then((stop) => stop());
 		};
 	});
 </script>
@@ -123,11 +118,14 @@
 		{#if launcher.failure ?? settingsProblem}
 			<div class="px-3">
 				<Alert.Root variant="destructive">
-					<Alert.Title>Could not open</Alert.Title>
+					<Alert.Title>Could not finish</Alert.Title>
 					<Alert.Description>{launcher.failure ?? settingsProblem}</Alert.Description>
 				</Alert.Root>
 			</div>
 		{/if}
+		{#each sourceProblems as problem}
+			<p class="px-4 text-sm text-destructive" role="alert">{problem}</p>
+		{/each}
 		{#if listProblem !== undefined}
 			<div class="px-3">
 				<Alert.Root variant="destructive">
@@ -138,20 +136,34 @@
 			<p class="px-4 text-sm text-muted-foreground">Reading…</p>
 		{:else if folders.length === 0}
 			<p class="px-4 text-sm text-muted-foreground">
-				No data folders yet. Add a directory under your Epicenter folder to open its files here.
+				No folders yet. Open an app to select its home, or add a folder under your Epicenter root.
 			</p>
 		{:else}
 			<ul class="flex flex-col gap-0.5 px-2" aria-label="Folders">
-				{#each listed as { folder, openers } (folder.name)}
+				{#each listed as { folder, openers } (folder.id)}
 					<li class="flex items-center gap-1">
 						<button
 							type="button"
 							class="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
 							title="Open the files of {folder.title} in a window of their own"
+							disabled={folder.problem !== null}
 							onclick={() =>
-								void opened(folder.title, () => launcher.editFolder(folder.name))}
+								void opened(folder.title, () => launcher.editFolder(folder.id, folder.title))}
 						>
-							{folder.title}
+							<span class="block truncate">{folder.title}</span>
+							<span class="block truncate text-xs text-muted-foreground" title={folder.path}>
+								{folder.path}
+							</span>
+							{#if folder.homes.length > 0}
+								<span class="block text-xs text-muted-foreground">
+									Home for {folder.homes.join(', ')}
+								</span>
+							{/if}
+							{#if folder.problem !== null}
+								<span class="block text-xs text-destructive">{folder.problem}</span>
+							{:else if folder.temporary}
+								<span class="block text-xs text-muted-foreground">Opened this time only</span>
+							{/if}
 						</button>
 						{#if openers.length > 0}
 							<DropdownMenu.Root>
@@ -165,7 +177,7 @@
 										<DropdownMenu.Item
 											onclick={() =>
 												void opened(application.title, () =>
-													launcher.launch(application, folder.name),
+													launcher.launch(application, folder.id),
 												)}
 										>
 											{application.title}
@@ -173,6 +185,18 @@
 									{/each}
 								</DropdownMenu.Content>
 							</DropdownMenu.Root>
+						{/if}
+						{#if folder.bookmarks.length > 0 || folder.temporary}
+							<Button
+								variant="ghost"
+								size="xs"
+								onclick={async () => {
+									await launcher.forgetBookmarks(folder.id, folder.title);
+									await list();
+								}}
+							>
+								Forget bookmark
+							</Button>
 						{/if}
 					</li>
 				{/each}
@@ -202,7 +226,7 @@
 							variant="ghost"
 							size="xs"
 							disabled={openings.accepting !== undefined}
-							onclick={() => void openings.accept(path)}
+							onclick={() => void opened(folderName(path), () => openings.accept(path))}
 						>
 							Open
 						</Button>
@@ -214,34 +238,6 @@
 						>
 							Dismiss
 						</Button>
-					</div>
-				{/each}
-			</section>
-		{/if}
-		{#if openings.remembered !== undefined && (openings.remembered.folders.length > 0 || openings.remembered.problem !== null)}
-			<section class="px-4" aria-label="Opened folders">
-				<h2 class="text-sm font-semibold">Opened folders</h2>
-				{#if openings.remembered.problem}
-					<p class="text-xs text-destructive">{openings.remembered.problem}</p>
-				{/if}
-				{#each openings.remembered.folders as entry (entry.path)}
-					<div class="flex items-center gap-2 py-1">
-						<button
-							type="button"
-							class="min-w-0 flex-1 text-left"
-							disabled={entry.problem !== null}
-							onclick={() => void openings.open(entry.path)}
-						>
-							<span class="block truncate">{folderName(entry.path)}</span>
-							<span class="block truncate text-xs text-muted-foreground">
-								{entry.problem ?? (entry.remembered ? entry.path : 'Opened this time only')}
-							</span>
-						</button>
-						{#if entry.remembered}
-							<Button variant="ghost" size="xs" onclick={() => void openings.forget(entry.path)}>
-								Forget
-							</Button>
-						{/if}
 					</div>
 				{/each}
 			</section>

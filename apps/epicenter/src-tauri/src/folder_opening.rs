@@ -12,8 +12,8 @@
 //! window. The launcher stays unbound. An accepted path absent from the folder
 //! root listing is remembered in `folders.json`; a visible direct child is
 //! already discoverable there. Bookmarks are shortcuts, never permissions.
-//! Reopening through a bookmark requires a stored or this-run accepted path
-//! and checks it again.
+//! Bookmarks and this-run acceptances join the one derived folder listing.
+//! Opening a row rechecks current membership and its directory.
 //! Like a bundled app's launcher, the handoff refuses paths overlapping
 //! Epicenter's own folder or app data (`overlaps_epicenter_files`). Receiving or
 //! dismissing a request reads none of its files.
@@ -28,10 +28,10 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_epicenter_folder::Directory;
 
-use crate::app_data::DesktopPaths;
 use crate::data_folders::overlaps_epicenter_files;
 use crate::folders_config;
 use crate::{BuiltInApp, DesktopAppHandle};
+use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 
 /// The event the Folders window hears when the pending requests changed. It
 /// carries nothing: the window asks `pending_folder_openings` again.
@@ -155,11 +155,11 @@ impl FolderOpenings {
         }
     }
 
-    fn temporary(&self) -> Vec<String> {
+    pub(crate) fn temporary(&self) -> Vec<String> {
         self.lock().temporary.clone()
     }
 
-    fn forget(&self, directory: &str) {
+    pub(crate) fn forget(&self, directory: &str) {
         self.lock().temporary.retain(|path| path != directory);
     }
 }
@@ -209,26 +209,6 @@ pub struct AcceptedOpening {
     pub remember_problem: Option<String>,
 }
 
-/// One remembered folder, or one accepted this run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RememberedFolder {
-    /// The absolute path as stored, which `forget_remembered_folder` matches.
-    pub path: String,
-    /// Whether `folders.json` holds it; `false` when remembering it failed.
-    pub remembered: bool,
-    /// Why it cannot open now, such as a folder that is not there.
-    pub problem: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RememberedFolders {
-    pub folders: Vec<RememberedFolder>,
-    /// Why `folders.json` could not be read; it is left as it is.
-    pub problem: Option<String>,
-}
-
 /// Consume only a pending request, then resolve it without creating anything.
 fn requested_directory(
     openings: &FolderOpenings,
@@ -271,57 +251,6 @@ fn remember_accepted(
     AcceptedOpening { remember_problem }
 }
 
-/// A stale launcher row is no authority: require current bookmark membership,
-/// then resolve and check the path again before opening its editor.
-fn remembered_directory(
-    openings: &FolderOpenings,
-    paths: &DesktopPaths,
-    path: &str,
-) -> Result<Directory, String> {
-    let temporary = openings.temporary().iter().any(|entry| entry == path);
-    if !temporary
-        && !folders_config::read(&paths.data_dir)?
-            .folders
-            .iter()
-            .any(|entry| entry == path)
-    {
-        return Err("This folder is not in the remembered folders.".to_string());
-    }
-    admit(paths, path)
-}
-
-fn remembered(openings: &FolderOpenings, paths: &DesktopPaths) -> RememberedFolders {
-    let (stored, problem) = match folders_config::read(&paths.data_dir) {
-        Ok(stored) => (stored.folders, None),
-        Err(problem) => (Vec::new(), Some(problem)),
-    };
-    let mut listed: Vec<(String, bool)> = Vec::new();
-    let candidates = stored
-        .into_iter()
-        .map(|path| (path, true))
-        .chain(openings.temporary().into_iter().map(|path| (path, false)));
-    for (path, remembered) in candidates {
-        if !listed.iter().any(|(seen, _)| *seen == path) {
-            listed.push((path, remembered));
-        }
-    }
-    let entries = listed
-        .into_iter()
-        .map(|(path, remembered)| {
-            let problem = admit(paths, &path).err();
-            RememberedFolder {
-                path,
-                remembered,
-                problem,
-            }
-        })
-        .collect();
-    RememberedFolders {
-        folders: entries,
-        problem,
-    }
-}
-
 /// The directories apps asked Epicenter to open that the person has not
 /// accepted or dismissed, oldest first. Reads none of them.
 #[tauri::command]
@@ -353,24 +282,6 @@ pub async fn accept_folder_opening(
     .map_err(|error| format!("the folder could not be opened: {error}"))?
 }
 
-/// Open a currently remembered or this-run accepted path in its own editor.
-#[tauri::command]
-#[specta::specta]
-pub async fn open_remembered_folder(app: DesktopAppHandle, path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let directory = remembered_directory(
-            &app.state::<FolderOpenings>(),
-            &app.state::<DesktopPaths>(),
-            &path,
-        )?;
-        crate::folder_windows::open_editor(&app, directory)
-            .map(|_| ())
-            .map_err(|error| format!("{error:#}"))
-    })
-    .await
-    .map_err(|error| format!("the folder could not be opened: {error}"))?
-}
-
 /// Let go of an app's request to open `path` without reading it.
 #[tauri::command]
 #[specta::specta]
@@ -378,25 +289,6 @@ pub fn dismiss_folder_opening(app: DesktopAppHandle, path: String) {
     if app.state::<FolderOpenings>().take(&path) {
         let _ = app.emit_to(BuiltInApp::Folders.id(), FOLDER_OPENINGS_CHANGED, ());
     }
-}
-
-/// The folders `folders.json` remembers and those accepted this run, each
-/// with its availability problem, if any. Off the main thread, since
-/// it reads the disk.
-#[tauri::command(async)]
-#[specta::specta]
-pub fn list_remembered_folders(app: DesktopAppHandle) -> RememberedFolders {
-    remembered(&app.state::<FolderOpenings>(), &app.state::<DesktopPaths>())
-}
-
-/// Forget the remembered path `path`, exactly as listed, whether or not it is
-/// there. Deletes no files. A folder open now stays open.
-#[tauri::command(async)]
-#[specta::specta]
-pub fn forget_remembered_folder(app: DesktopAppHandle, path: String) -> Result<(), String> {
-    folders_config::forget(&app.state::<DesktopPaths>().data_dir, &path)?;
-    app.state::<FolderOpenings>().forget(&path);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -439,8 +331,18 @@ mod tests {
             ))
         }
         fn reopen(&self, path: &Path) -> Result<String, String> {
+            let listing = crate::folder_listing::list(&self.paths, &self.openings);
+            let spelling = path.to_str().unwrap();
+            let entry = listing
+                .folders
+                .iter()
+                .find(|entry| {
+                    entry.bookmarks.iter().any(|bookmark| bookmark == spelling)
+                        || entry.path == spelling
+                })
+                .ok_or("This folder is no longer in the list.")?;
             let directory =
-                remembered_directory(&self.openings, &self.paths, path.to_str().unwrap())?;
+                crate::folder_listing::listed_directory(&self.paths, &self.openings, &entry.id)?;
             Ok(self.editor(directory))
         }
         fn editor(&self, directory: Directory) -> String {
@@ -449,8 +351,12 @@ mod tests {
                 .label()
                 .to_owned()
         }
-        fn listed(&self) -> RememberedFolders {
-            remembered(&self.openings, &self.paths)
+        fn listed(&self) -> crate::folder_listing::FolderListing {
+            let mut listing = crate::folder_listing::list(&self.paths, &self.openings);
+            listing
+                .folders
+                .retain(|entry| !entry.bookmarks.is_empty() || entry.temporary);
+            listing
         }
         fn root(&self, label: &str) -> PathBuf {
             self.app
@@ -731,22 +637,16 @@ mod tests {
         f.request(&f.elsewhere);
         f.accept(&f.elsewhere).unwrap();
         let restarted = FolderOpenings::default();
-        let listed = remembered(&restarted, &f.paths);
-        assert_eq!(
-            listed.folders,
-            [RememberedFolder {
-                path: f.elsewhere.to_str().unwrap().into(),
-                remembered: true,
-                problem: None
-            }]
-        );
-        assert!(remembered_directory(&restarted, &f.paths, f.elsewhere.to_str().unwrap()).is_ok());
+        let mut listed = crate::folder_listing::list(&f.paths, &restarted);
+        listed.folders.retain(|entry| !entry.bookmarks.is_empty());
+        assert_eq!(listed.folders.len(), 1);
+        assert_eq!(listed.folders[0].path, f.elsewhere.to_str().unwrap());
+        assert_eq!(listed.folders[0].bookmarks, [f.elsewhere.to_str().unwrap()]);
+        assert!(f.reopen(&f.elsewhere).is_ok());
         fs::remove_dir_all(&f.elsewhere).unwrap();
-        assert!(remembered(&restarted, &f.paths).folders[0]
-            .problem
-            .is_some());
+        assert!(f.listed().folders[0].problem.is_some());
         folders_config::forget(&f.paths.data_dir, f.elsewhere.to_str().unwrap()).unwrap();
-        assert!(remembered(&restarted, &f.paths).folders.is_empty());
+        assert!(f.listed().folders.is_empty());
         assert!(!f.elsewhere.exists());
     }
     #[test]
@@ -772,8 +672,8 @@ mod tests {
         assert_eq!(fs::read_to_string(&list).unwrap(), "{\"not\":\"a list\"}");
         assert!(f.reopen(&f.elsewhere).is_ok());
         let listed = f.listed();
-        assert!(listed.problem.is_some());
-        assert!(!listed.folders[0].remembered);
+        assert!(!listed.problems.is_empty());
+        assert!(listed.folders[0].bookmarks.is_empty());
         assert_eq!(listed.folders[0].problem, None);
     }
     #[test]
@@ -801,15 +701,24 @@ mod tests {
         )
         .unwrap();
         let listed = f.listed();
-        assert_eq!(
-            listed
-                .folders
-                .iter()
-                .map(|f| f.problem.is_some())
-                .collect::<Vec<_>>(),
-            [true, true, false]
-        );
+        assert!(listed
+            .folders
+            .iter()
+            .find(|entry| entry.bookmarks.iter().any(|path| path == "relative/notes"))
+            .unwrap()
+            .problem
+            .is_some());
+        assert!(listed
+            .folders
+            .iter()
+            .find(|entry| entry.protected)
+            .unwrap()
+            .problem
+            .is_none());
         assert!(f.app.webview_windows().is_empty());
-        assert!(f.reopen(&own).is_err());
+        assert!(
+            f.reopen(&own).is_ok(),
+            "the unified list permits the records folder in its generic editor"
+        );
     }
 }

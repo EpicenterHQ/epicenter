@@ -17,14 +17,15 @@ use tauri_specta::Event as _;
 #[cfg(test)]
 mod command_names;
 
-pub mod app_data;
 mod bundled_apps;
 mod cli;
 mod data_folders;
+mod folder_listing;
 mod folder_opening;
 mod folder_query;
 mod folder_windows;
-mod folders_config;
+use epicenter_folder_core::homes as folders_config;
+use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 #[cfg(target_os = "macos")]
 mod macos_tabs;
 mod scheme;
@@ -68,7 +69,7 @@ const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 /// Epicenter bundles, open one window per folder through `open_bundled_app`
 /// and `choose_folder_for_app` (`bundled_apps.rs`), and each listed folder's
 /// editor opens in a window of its own through `open_folder_editor`
-/// (`data_folders.rs`).
+/// (`folder_listing.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
@@ -137,15 +138,13 @@ macro_rules! shell_commands {
             get_local_transcription_readiness,
             open_home,
             take_pending_home_section,
-            data_folders::list_data_folders,
+            folder_listing::list_data_folders,
             folder_opening::pending_folder_openings,
             folder_opening::accept_folder_opening,
             folder_opening::dismiss_folder_opening,
-            folder_opening::list_remembered_folders,
-            folder_opening::forget_remembered_folder,
-            data_folders::open_folder_editor,
+            folder_listing::forget_folder_bookmarks,
+            folder_listing::open_folder_editor,
             folder_query::folder_query,
-            folder_opening::open_remembered_folder,
             cli::ai_send,
             cli::account_send,
             cli::ai_key_set,
@@ -381,8 +380,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             macos_tabs::install(app.handle())?;
 
-            let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
-            std::fs::create_dir_all(&desktop_paths.folder_dir)?;
+            let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
             match data_folders::watch_data_folders(
                 app.handle(),
                 &desktop_paths.folder_dir,
@@ -406,6 +404,11 @@ pub fn run() {
                 desktop_paths.data_dir.join("local-transcription.json"),
             );
             app.manage(desktop_paths);
+            let homes: Vec<_> = bundled_apps::BundledApp::ALL
+                .into_iter()
+                .map(|app| app.home())
+                .collect();
+            tauri_plugin_epicenter_folder::home_menu::install(app.handle(), &homes)?;
 
             let cache = ModelCache::new(settings);
             cache.start_idle_watcher();
@@ -671,8 +674,9 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     };
     let window = match built_in {
         BuiltInApp::Home => {
-            let paths = app.state::<app_data::DesktopPaths>();
-            let directory = folders_config::open_epicenter(&paths.data_dir, &paths.folder_dir)
+            let paths = app.state::<DesktopPaths>();
+            let directory = paths
+                .open_home(folders_config::EPICENTER)
                 .map_err(anyhow::Error::msg)?;
             app.folders()
                 .bind_while_building(built_in.id(), directory, build)?
@@ -730,7 +734,14 @@ mod tests {
     const FOLDER_EDITOR: &str = include_str!("../capabilities/folder-editor.json");
 
     /// Every capability file, for checks that hold for all of them.
-    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, BUNDLED_APP, WHISPERING, FOLDER_EDITOR, MESSAGES];
+    const ALL_CAPABILITIES: &[&str] = &[
+        FOLDERS,
+        HOME,
+        BUNDLED_APP,
+        WHISPERING,
+        FOLDER_EDITOR,
+        MESSAGES,
+    ];
 
     /// The windows a page with label prefix `prefix` opens in, on two folders.
     fn folder_labels(prefix: &str) -> [String; 2] {
@@ -1281,13 +1292,11 @@ mod tests {
     /// folder command, and administers no model or connection.
     #[test]
     fn the_folders_window_is_a_launcher_without_folder_commands() {
-        const OPENING: [&str; 6] = [
+        const OPENING: [&str; 4] = [
             "allow-pending-folder-openings",
             "allow-accept-folder-opening",
             "allow-dismiss-folder-opening",
-            "allow-list-remembered-folders",
-            "allow-forget-remembered-folder",
-            "allow-open-remembered-folder",
+            "allow-forget-folder-bookmarks",
         ];
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
         assert_eq!(capability["windows"], serde_json::json!(["folders"]));
@@ -1304,9 +1313,7 @@ mod tests {
                 OPENING[0],
                 OPENING[1],
                 OPENING[2],
-                OPENING[3],
-                OPENING[4],
-                OPENING[5]
+                OPENING[3]
             ]),
             "folders"
         );

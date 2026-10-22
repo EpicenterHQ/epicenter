@@ -35,19 +35,48 @@ the directory before building the WebView:
 
 ```rust
 use tauri::{Manager, WebviewUrl};
-use tauri_plugin_epicenter_folder::{Directory, FolderExt};
+use tauri_plugin_epicenter_folder::{defaults::DesktopPaths, homes::TODOS, FolderExt};
 
 tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
-        // A fixed authored default the shell computes: made when missing.
-        let directory = Directory::create(&app.path().home_dir()?.join("Epicenter/Todos"))?;
+        let paths = DesktopPaths::resolve(app.handle())?;
+        let directory = paths.open_home(TODOS)?;
+        app.manage(paths);
         app.open_folder_window("todos", directory, WebviewUrl::default(), |builder| {
             Ok(builder.title("Todos"))
         })?;
         Ok(())
     })
 ```
+
+`defaults::DesktopPaths::resolve(app)` resolves one shared configuration
+directory and initial authored root. Both shells use Epicenter's machine-local
+`folders.json`, including when Epicenter is not installed. Release uses the
+`so.epicenter` scope; development uses `so.epicenter.dev`. A nonempty absolute
+`EPICENTER_DATA_DIR` overrides that shared directory, and
+`EPICENTER_FOLDER_DIR` overrides the initial root suggestion.
+
+`DesktopPaths::open_home` selects and remembers the initial child on first
+use. Saved homes must exist, regardless of later root changes.
+`homes::select_home` selects an existing directory under the same
+cross-process configuration lock; it moves no files or bindings.
+`home_menu::install` exposes that operation for ordinary app homes in the
+native menu; shells must also register the dialog plugin. Epicenter records
+relocation requires quitting the host and changing its selection manually.
+Picker-selected
+one-time directories bypass home allocation and must exist.
+
+`homes::check_app_directory` owns the protected-folder rule for both app homes
+and one-time launches. The host can omit unreadable records configuration to
+keep unrelated folders available for repair; machine application data stays
+protected. Both the authored root and its sibling save staging directory
+are checked. An existing unselected records default remains protected for
+older installations, while saved app homes take precedence over that fallback.
+Authored roots cannot be staging directories or their descendants. Native and CLI
+records allocation run the same cases from
+`fixtures/home-allocation.json`, including rejected selections leaving
+configuration and existing files unchanged.
 
 `Directory::create(path)` prepares a fixed default computed by the shell,
 creating it when missing and retaining its canonical root.

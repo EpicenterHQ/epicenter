@@ -15,9 +15,9 @@ publish = false
 dunce = "1"
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3.8"
+same-file = "1"
 # Hashes a publishing rename's destination against the page's expectation.
 sha2 = "0.10"
 specta = { version = "=2.0.0-rc.26", features = ["derive"] }
-
-[dev-dependencies]
-serde_json = "1"

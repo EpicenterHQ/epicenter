@@ -9,10 +9,9 @@
  * and remember the path. The launcher never owns a folder or its drafts.
  * Existing editors keep their own input while another window opens.
  *
- * The remembered list includes folders that are not there now. Each keeps
- * its stored path, so it can be forgotten.
+ * Root children, homes, and accepted shortcuts appear in the unified folder list.
  */
-import type { AcceptedOpening, RememberedFolders } from '../ui/bindings.gen';
+import type { commands } from '../ui/bindings.gen';
 
 /**
  * The shell's event when the pending requests changed:
@@ -21,19 +20,11 @@ import type { AcceptedOpening, RememberedFolders } from '../ui/bindings.gen';
  */
 export const FOLDER_OPENINGS_CHANGED = 'epicenter://folder-openings-changed';
 
-type Answer<T> = Promise<
-	{ data: T; error: null } | { data: null; error: string }
+/** Native requests remain separate from the derived folder list. */
+export type OpeningHost = Pick<
+	typeof commands,
+	'pendingFolderOpenings' | 'acceptFolderOpening' | 'dismissFolderOpening'
 >;
-
-/** The shell commands this needs, as `commands` in `bindings.gen.ts` has them. */
-export type OpeningHost = {
-	pendingFolderOpenings(): Promise<string[]>;
-	acceptFolderOpening(path: string): Answer<AcceptedOpening>;
-	openRememberedFolder(path: string): Answer<null>;
-	dismissFolderOpening(path: string): Promise<void>;
-	listRememberedFolders(): Promise<RememberedFolders>;
-	forgetRememberedFolder(path: string): Answer<null>;
-};
 
 /** The last segment of `path`, which names the folder in the list. */
 export function folderName(path: string) {
@@ -46,13 +37,11 @@ function described(cause: unknown) {
 
 export function createFolderOpenings({ host }: { host: OpeningHost }) {
 	let requests = $state<string[]>([]);
-	let remembered = $state.raw<RememberedFolders>();
 	let failure = $state<string>();
 	let notice = $state<string>();
 	let accepting = $state<string>();
 	/** Reads that resolve out of order keep only the newest. */
 	let requestSeq = 0;
-	let listSeq = 0;
 
 	async function refresh() {
 		const seq = ++requestSeq;
@@ -65,25 +54,10 @@ export function createFolderOpenings({ host }: { host: OpeningHost }) {
 		}
 	}
 
-	async function list() {
-		const seq = ++listSeq;
-		try {
-			const listed = await host.listRememberedFolders();
-			if (seq === listSeq) remembered = listed;
-		} catch (cause) {
-			if (seq === listSeq)
-				failure = `Could not list the opened folders. ${described(cause)}`;
-		}
-	}
-
 	return {
 		/** The paths apps asked to open, waiting for the person. */
 		get requests() {
 			return requests;
-		},
-		/** The remembered folders and those accepted this run. */
-		get remembered() {
-			return remembered;
 		},
 		/** Why the last acceptance, dismissal, forgetting, or read failed. */
 		get failure() {
@@ -98,7 +72,6 @@ export function createFolderOpenings({ host }: { host: OpeningHost }) {
 			return accepting;
 		},
 		refresh,
-		list,
 
 		/** Open `path`, which an app asked for, now that the person accepted it. */
 		async accept(path: string) {
@@ -107,13 +80,13 @@ export function createFolderOpenings({ host }: { host: OpeningHost }) {
 			notice = undefined;
 			accepting = path;
 			try {
-				let answer: Awaited<Answer<AcceptedOpening>>;
+				let answer: Awaited<ReturnType<OpeningHost['acceptFolderOpening']>>;
 				try {
 					answer = await host.acceptFolderOpening(path);
 				} catch (cause) {
 					answer = { data: null, error: described(cause) };
 				}
-				await Promise.all([refresh(), list()]);
+				await refresh();
 				if (answer.error !== null) {
 					failure = `${path} did not open. ${answer.error}`;
 					return;
@@ -128,19 +101,6 @@ export function createFolderOpenings({ host }: { host: OpeningHost }) {
 			}
 		},
 
-		/** Ask Rust to recheck a currently remembered path and open its editor. */
-		async open(path: string) {
-			failure = undefined;
-			try {
-				const answer = await host.openRememberedFolder(path);
-				if (answer.error !== null)
-					failure = `${path} did not open. ${answer.error}`;
-			} catch (cause) {
-				failure = `Could not show ${folderName(path)}. ${described(cause)}`;
-			}
-			await list();
-		},
-
 		/** Let go of the request for `path`; nothing reads it. */
 		async dismiss(path: string) {
 			failure = undefined;
@@ -150,20 +110,6 @@ export function createFolderOpenings({ host }: { host: OpeningHost }) {
 				failure = `Could not dismiss the request for ${path}. ${described(cause)}`;
 			}
 			await refresh();
-		},
-
-		/** Forget the remembered `path`. Its files stay where they are. */
-		async forget(path: string) {
-			failure = undefined;
-			let error: string | null;
-			try {
-				({ error } = await host.forgetRememberedFolder(path));
-			} catch (cause) {
-				error = described(cause);
-			}
-			if (error !== null)
-				failure = `Epicenter did not forget ${path}. ${error}`;
-			await list();
 		},
 	};
 }

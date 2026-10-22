@@ -1,7 +1,7 @@
 /**
  * Where the Epicenter app keeps what the CLI reads and writes on this
- * machine, by the desktop shell's rule (`DesktopPaths::resolve` in
- * `apps/epicenter/src-tauri/src/app_data.rs`), so the CLI in a terminal and
+ * machine, by the shared native rule (`DesktopPaths::resolve` in
+ * `packages/tauri-plugin-epicenter-folder/src/defaults.rs`), so the CLI in a terminal and
  * the CLI the app runs read and write the same places.
  *
  * ```txt

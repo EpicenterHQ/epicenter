@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
+- **Amended by:** [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md), which shares explicit home selections across native shells.
 - **Amends:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) at allowing a standalone app's authored default inside AppData; [ADR-0644](0644-the-shell-assigns-a-native-windows-default-folder.md) and [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) at assigning standalone Todos its whole AppData directory. Their native shell ownership of the folder grant remains.
 - **Restores:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md)'s visible authored-root rule for native application defaults, with its later changes to app installation and Epicenter's own records intact.
 - **Relates:** [ADR-0201](0201-epicenter-owns-one-app-data-root-and-an-app-partitions-its-one-directory-by-a-stable-authority-identifier.md) governs the host and CLI's shared AppData root; [ADR-0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) proposes when application SQLite earns its place; [ADR-0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) governs handoff of a directory outside the root. This decision defines no shared SQLite API.

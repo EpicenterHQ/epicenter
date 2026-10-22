@@ -26,6 +26,7 @@ percent-encoding = "2"
 serde_json = "1"
 sha2 = "0.10"
 tauri = "2.12"
+tauri-plugin-dialog = "2.7"
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
 
 [dev-dependencies]

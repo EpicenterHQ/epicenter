@@ -9,6 +9,7 @@
 //! never here (ADR-0559).
 
 pub mod directory;
+pub mod homes;
 pub mod lock;
 pub mod page_files;
 pub mod paths;

@@ -127,7 +127,7 @@ author's source.**
   --ignore-scripts`, then `bun run build`.
 - Builds will live in app data, so an installed app opens with no network
   and nothing purges a build. Today both `builds_dir` in
-  `apps/epicenter/src-tauri/src/app_data.rs` and `buildsDir` in
+  `487d27a014:apps/epicenter/src-tauri/src/app_data.rs` and `buildsDir` in
   `packages/cli/src/app-paths.ts` join the cache directory. Today's restore
   of a damaged build from the clone is deleted only once both join the data
   directory.
