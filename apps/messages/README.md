@@ -69,8 +69,8 @@ working snapshot cannot prove what was saved. These stored reads do not acquire
 or update the composer document.
 
 `createQuery(() => context.queries.rows('drafts'))` discovers the saved Markdown
-files. Tracked `reactiveDocument` adapters from `@epicenter/svelte/document` supply
-their current frontmatter and body, and a derived map joins previews to conversations by `chatId`. The query
+files. Tracked `liveSnapshot` views from `@epicenter/svelte/snapshot` supply
+their `.current.content` frontmatter and body, and a derived map joins previews to conversations by `chatId`. The query
 cache owns listing and refresh, and Folder owns accepted input and saving;
 there is no second draft store or SQL cache.
 

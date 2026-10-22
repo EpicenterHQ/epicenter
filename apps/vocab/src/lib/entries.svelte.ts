@@ -20,9 +20,7 @@
  * only when none is there.
  */
 
-import type { ReadError, SaveError } from '@epicenter/folder';
 import { ActionError, type SaveFailure } from '@epicenter/folder/document';
-import { reactiveDocument } from '@epicenter/svelte/document';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -135,24 +133,9 @@ export function createEntries(local: VocabContext) {
 		return Ok('added');
 	}
 
-	/** The folder's edit of the word at `id`, read reactively, with the learner's two edits. */
+	/** The folder's working document of the word at `id`, observed by its caller. */
 	function document(id: string) {
-		const fileEdit = reactiveDocument(folder.tables.entries.document(id));
-		return Object.assign(fileEdit, {
-			/**
-			 * Type the note; it is saved a second after the last change. Half of
-			 * a surrogate pair is kept as U+FFFD, which the folder can save.
-			 */
-			setNote: (note: string) =>
-				fileEdit.patch({ fields: { note: note.toWellFormed() } }),
-			/** Press a stage; it is saved at once. */
-			setStage(stage: Stage) {
-				const changed = fileEdit.patch({ fields: { stage } });
-				if (changed.error !== null) return changed;
-				void fileEdit.save();
-				return changed;
-			},
-		});
+		return folder.tables.entries.document(id);
 	}
 
 	return {
@@ -162,8 +145,7 @@ export function createEntries(local: VocabContext) {
 		},
 		/**
 		 * The word at `id` as views show and type into it: the folder's edit of
-		 * its row, acquired and observed by its mounted edit subscription;
-		 * `setNote` and `setStage` type over the word it shows now.
+		 * its row, acquired and observed by its mounted subscription.
 		 */
 		document,
 
@@ -190,10 +172,18 @@ export function createEntries(local: VocabContext) {
 		 * Half of a surrogate pair is kept as U+FFFD, which the folder can
 		 * save. Answers the edit's acceptance result, including its refusal.
 		 */
-		setNote: (entry: Entry, note: string) => document(entry.id).setNote(note),
+		setNote: (entry: Entry, note: string) =>
+			folder.tables.entries.document(entry.id).patch({
+				fields: { note: note.toWellFormed() },
+			}),
 		/** Press a stage of `entry`; it is saved at once. Answers the edit's acceptance result. */
-		setStage: (entry: Entry, stage: Stage) =>
-			document(entry.id).setStage(stage),
+		setStage(entry: Entry, stage: Stage) {
+			const edit = folder.tables.entries.document(entry.id);
+			const changed = edit.patch({ fields: { stage } });
+			if (changed.error !== null) return changed;
+			void edit.save();
+			return changed;
+		},
 		/** Delete the path without publishing an unsubmitted draft first. */
 		delete(entry: Entry) {
 			return folder.files.delete(rowPath('entries', entry.id));

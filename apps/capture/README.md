@@ -173,8 +173,8 @@ writes. Confirmed departure accepts losing unfinished work; callers needing
 durable bytes await the write or save they started.
 
 The folder owns one working source per capture path. Both the capture view and Edit as
-text use `reactiveDocument(folder.tables.captures.document(stem))` from
-`@epicenter/svelte/document`. The adapter's `content` provides exact text with its interpreted fields,
+text use `liveSnapshot(folder.tables.captures.document(stem))` from
+`@epicenter/svelte/snapshot`. The view's `.current.content` provides exact text with its interpreted fields,
 body, and issues. Structured controls
 call `patch({ fields, body })`; Edit as text calls `replace(text)`.
 Switching between valid views saves and refreshes nothing: both show the same
@@ -182,8 +182,8 @@ unsaved input and any save failure. The current editable document determines
 whether it can be shown as a capture.
 
 The document's `getSnapshot()` is a pure cached read. Its Svelte
-adapter exposes tracked `content`, `loadError`, `isDirty`, `isSaving`, and
-`saveError` getters. Observation activates initial reading; there is no editor
+view exposes a tracked `.current` snapshot with `content`, `loadError`,
+`isDirty`, `isSaving`, and `saveError`. Commands stay on the handle. Observation activates initial reading; there is no editor
 query or mirrored component state. Dirty publication intent and admitted
 saving operations are independent. Acquired content survives view unmount,
 clean deletion, binary replacement, and failed refresh for the folder lifetime.

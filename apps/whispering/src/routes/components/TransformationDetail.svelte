@@ -5,6 +5,7 @@
 	Run sends what is typed first.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
@@ -46,7 +47,6 @@
 	const whispering = getWhispering();
 	const { view } = whispering;
 
-	const asText = $derived(whispering.showsText(path));
 	// The parent keys this view by the file; keep its original path.
 	// svelte-ignore state_referenced_locally
 	const own = path;
@@ -55,16 +55,18 @@
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.document(TRANSFORMATIONS, own);
+	const snapshot = liveSnapshot(fileEdit);
+	const asText = $derived(whispering.showsText(path, snapshot.current));
 	/** The transformation as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
-		const shown = fileEdit.content;
+		const shown = snapshot.current.content;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** Held source remains editable after deletion or a failed storage read. */
-	const source = $derived(fileEdit.content?.text);
+	const source = $derived(snapshot.current.content?.text);
 	/** The current source as a row, including unsaved input and its issues. */
-	const sourceRow = $derived(asText && source !== undefined ? fileEdit.content : undefined);
+	const sourceRow = $derived(asText && source !== undefined ? snapshot.current.content : undefined);
 	const issues = $derived(sourceRow?.issues ?? undefined);
 
 	/** Either view resolves the same current recipe, including unsaved input. */
@@ -241,13 +243,13 @@
 		</div>
 	{/if}
 
-	{#if fileEdit.loadError}
-		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{fileEdit.loadError.message}</p>
+	{#if snapshot.current.loadError}
+		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{snapshot.current.loadError.message}</p>
 	{/if}
 
-	{#if source === undefined && fileEdit.loadError}
+	{#if source === undefined && snapshot.current.loadError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">
-			<p>{fileEdit.loadError.message}</p>
+			<p>{snapshot.current.loadError.message}</p>
 			<Button size="sm" variant="outline" onclick={() => void fileEdit.refresh()}>Try again</Button>
 		</div>
 	{:else if source === undefined}

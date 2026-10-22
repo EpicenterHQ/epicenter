@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -16,7 +17,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import FileEditor from './FileEditor.svelte';
 	import { fileTree } from './files';
-	import { reactiveDocument } from '@epicenter/svelte/document';
+
 
 	/** Files, recipes and held input share one window and one open folder. */
 
@@ -39,9 +40,10 @@
 		selected = path;
 		view = 'files';
 	}
-	const declaration = reactiveDocument(folder.files.document('epicenter.json'));
-	const saved = $derived(readSavedViews(declaration.content?.text ?? '{}'));
-	const loadProblem = $derived(declaration.loadError?.name === 'Missing' ? undefined : declaration.loadError?.message);
+	const declaration = folder.files.document('epicenter.json');
+	const snapshot = liveSnapshot(declaration);
+	const saved = $derived(readSavedViews(snapshot.current.content?.text ?? '{}'));
+	const loadProblem = $derived(snapshot.current.loadError?.name === 'Missing' ? undefined : snapshot.current.loadError?.message);
 	const views = createViews({
 		saved: () => saved.data?.views ?? {},
 		declaration,
@@ -133,10 +135,10 @@
 			>
 		</div>
 	{/if}
-	{#if declaration.saveError}
+	{#if snapshot.current.saveError}
 		<Alert.Root variant="destructive" class="rounded-none border-x-0">
 			<Alert.Description>
-				<p>epicenter.json did not save: {declaration.saveError.message}</p>
+				<p>epicenter.json did not save: {snapshot.current.saveError.message}</p>
 				<Button variant="link" onclick={() => void declaration.save()}>Retry declaration save</Button>
 				<Button variant="link" onclick={() => openSource('epicenter.json')}>Open epicenter.json</Button>
 			</Alert.Description>
@@ -157,7 +159,7 @@
 				>{/if}
 			<Button
 				size="sm"
-				disabled={(declaration.content === undefined && declaration.loadError?.name !== 'Missing') ||
+				disabled={(snapshot.current.content === undefined && snapshot.current.loadError?.name !== 'Missing') ||
 					needsDirectory}
 				onclick={() => view = views.save(view)}
 				>{viewError ? 'Retry save' : 'Save view'}</Button
@@ -165,7 +167,7 @@
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={(declaration.content === undefined && declaration.loadError?.name !== 'Missing') ||
+				disabled={(snapshot.current.content === undefined && snapshot.current.loadError?.name !== 'Missing') ||
 					needsDirectory}
 				onclick={() => view = views.save(view, true)}>Save as new</Button
 			>

@@ -4,26 +4,22 @@
  *
  * A file whose frontmatter does not read needs its whole text replaced, so
  * the repair types through the folder's edit of the file
- * (`reactiveDocument(folder.tables.entries.document(id))`), whose text is the file's
+ * (`folder.tables.entries.document(id)`), whose text is the file's
  * exact editable source. The folder holds what is typed, writes it a second after
  * the last keystroke and at once on `save()`, one write at a time, in call order. A reread never replaces pending local input. A failed write keeps the
  * text and its error; `save()` tries again, and so does further
  * typing. The repair itself holds only which file is open.
  */
-import { reactiveDocument } from '@epicenter/svelte/document';
+
 import type { VocabFolder } from './data.js';
 
 export function createRepair(folder: Pick<VocabFolder, 'tables'>) {
 	/** The word file open for repair, by its row ID. */
 	let open = $state<string | undefined>();
 
-	/** Recreate the adapter only when the selected path changes. */
-	const fileEdit = $derived(
-		open === undefined
-			? undefined
-			: reactiveDocument(folder.tables.entries.document(open)),
-	);
-	const view = () => fileEdit;
+	/** The core handle is already stable for this path; the view owns observation. */
+	const view = () =>
+		open === undefined ? undefined : folder.tables.entries.document(open);
 	return {
 		/** The row ID of the word file open for repair, if any. */
 		get open() {
@@ -44,7 +40,7 @@ export function createRepair(folder: Pick<VocabFolder, 'tables'>) {
 		view,
 		/** Return to the structured view as soon as the current document is valid. */
 		close(): boolean {
-			if (view()?.content?.issues !== null) return false;
+			if (view()?.getSnapshot().content?.issues !== null) return false;
 			open = undefined;
 			return true;
 		},

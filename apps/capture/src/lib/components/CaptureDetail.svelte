@@ -13,6 +13,7 @@
 	values the file does not have, and Edit as text is the way to repair it.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -22,7 +23,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { reactiveDocument } from '@epicenter/svelte/document';
+
 	import { tick, untrack } from 'svelte';
 	import { createCaptureActions } from '$lib/capture-actions.svelte.js';
 	import { type Captures, capturePath, describeFailure, instantOf, readCaptureBody } from '$lib/captures.svelte.js';
@@ -41,11 +42,12 @@
 	// The view is keyed by the capture, so neither changes for this view.
 	const path = untrack(() => capturePath(stem));
 	/** The capture's commands, typing into the folder's edit of it, which every view shows. */
-	const fileEdit = untrack(() => reactiveDocument(captures.folder.tables.captures.document(stem)));
+	const fileEdit = untrack(() => captures.folder.tables.captures.document(stem));
+	const snapshot = liveSnapshot(fileEdit);
 	const actions = untrack(() => createCaptureActions(fileEdit));
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
-	const stored = $derived(fileEdit.content?.issues === null ? fileEdit.content : undefined);
+	const stored = $derived(snapshot.current.content?.issues === null ? snapshot.current.content : undefined);
 	/** The body as text and thoughts, or why it cannot be edited here. */
 	const reading = $derived(stored === undefined ? undefined : readCaptureBody(stored));
 	const text = $derived(reading?.data?.text ?? '');
@@ -97,7 +99,7 @@
 
 	/** Export current acquired text without publishing or recreating the file. */
 	function download() {
-		const content = fileEdit.content;
+		const content = snapshot.current.content;
 		if (content === undefined) {
 			toast.error('Could not download this capture', { description: 'Its text is not available yet.' });
 			return;
@@ -114,7 +116,7 @@
 		});
 	}
 
-	const unsavedText = $derived(fileEdit.content?.text ?? '');
+	const unsavedText = $derived(snapshot.current.content?.text ?? '');
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
 		confirmationDialog.open({
@@ -129,10 +131,10 @@
 </script>
 
 {#snippet saveFailed()}
-	{#if fileEdit.saveError}
+	{#if snapshot.current.saveError}
 		<Alert.Root variant="destructive" aria-label="Not saved">
 			<Alert.Title>Your edit is not saved</Alert.Title>
-			<Alert.Description>{describeFailure(fileEdit.saveError)} Your edit is still here.</Alert.Description>
+			<Alert.Description>{describeFailure(snapshot.current.saveError)} Your edit is still here.</Alert.Description>
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
 				<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
 				<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
@@ -157,28 +159,28 @@
 		<div>
 			<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		</div>
-		{#if fileEdit.content?.issues}
+		{#if snapshot.current.content?.issues}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This file does not read as a capture</Empty.Title>
-					<Empty.Description>{fileEdit.content.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
+					<Empty.Description>{snapshot.current.content.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
 					<Empty.Content>
 						<Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
 					</Empty.Content>
 			</Empty.Root>
-		{:else if fileEdit.loadError?.name === 'Missing'}
+		{:else if snapshot.current.loadError?.name === 'Missing'}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This capture is no longer here</Empty.Title>
 					<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 				</Empty.Header>
 			</Empty.Root>
-		{:else if fileEdit.loadError}
+		{:else if snapshot.current.loadError}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This capture could not be read</Empty.Title>
-					<Empty.Description>{fileEdit.loadError.message}</Empty.Description>
+					<Empty.Description>{snapshot.current.loadError.message}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content>
 					<Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Try again</Button>
@@ -216,11 +218,11 @@
 	</div>
 
 	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-		{#if fileEdit.saveError}
+		{#if snapshot.current.saveError}
 			Not saved
-		{:else if fileEdit.isDirty || fileEdit.isSaving}
+		{:else if snapshot.current.isDirty || snapshot.current.isSaving}
 			Saving…
-		{:else if fileEdit.loadError}
+		{:else if snapshot.current.loadError}
 			Text kept here
 		{:else}
 			Saved to {path}
@@ -229,10 +231,10 @@
 
 	{@render saveFailed()}
 
-	{#if actions.refusal || fileEdit.loadError}
+	{#if actions.refusal || snapshot.current.loadError}
 		<Alert.Root aria-label="Not applied">
 			<Alert.Title>Not applied</Alert.Title>
-			<Alert.Description>{actions.refusal ?? fileEdit.loadError?.message}</Alert.Description>
+			<Alert.Description>{actions.refusal ?? snapshot.current.loadError?.message}</Alert.Description>
 		</Alert.Root>
 	{/if}
 

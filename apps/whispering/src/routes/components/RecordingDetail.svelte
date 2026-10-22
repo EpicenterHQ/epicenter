@@ -4,6 +4,7 @@
 	Acquired text and autosave outlive this view.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -47,7 +48,6 @@
 	 * then notes. What describes the files (when, how long, where, which ID) is
 	 * kept, one press away, under File details.
 	 */
-	const asText = $derived(whispering.showsText(path));
 	// The parent keys this view by the file; keep its original path.
 	// svelte-ignore state_referenced_locally
 	const own = path;
@@ -56,16 +56,18 @@
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.document(RECORDINGS, own);
+	const snapshot = liveSnapshot(fileEdit);
+	const asText = $derived(whispering.showsText(path, snapshot.current));
 	/** The recording as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
-		const shown = fileEdit.content;
+		const shown = snapshot.current.content;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** Held source remains editable after deletion or a failed storage read. */
-	const text = $derived(fileEdit.content?.text);
+	const text = $derived(snapshot.current.content?.text);
 	/** Why the current source does not read as a recording, including unsaved input. */
-	const issues = $derived(asText && text !== undefined ? (fileEdit.content?.issues ?? undefined) : undefined);
+	const issues = $derived(asText && text !== undefined ? (snapshot.current.content?.issues ?? undefined) : undefined);
 	const id = $derived(rowIdOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 
@@ -129,13 +131,13 @@
 		</div>
 	{/if}
 
-	{#if fileEdit.loadError}
-		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{fileEdit.loadError.message}</p>
+	{#if snapshot.current.loadError}
+		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{snapshot.current.loadError.message}</p>
 	{/if}
 
-	{#if text === undefined && fileEdit.loadError}
+	{#if text === undefined && snapshot.current.loadError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">
-			<p>{fileEdit.loadError.message}</p>
+			<p>{snapshot.current.loadError.message}</p>
 			<Button size="sm" variant="outline" onclick={() => void fileEdit.refresh()}>Try again</Button>
 		</div>
 	{:else if text === undefined}

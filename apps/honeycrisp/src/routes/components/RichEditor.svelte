@@ -1,6 +1,6 @@
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import type { FileDocument } from '@epicenter/folder/document';
-	import { reactiveDocument } from '@epicenter/svelte/document';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import * as Popover from '@epicenter/ui/popover';
@@ -72,10 +72,8 @@
 	 * or a save landing, gives the same string, so nothing below runs
 	 * again.
 	 */
-	// The parent keys this editor by its file path.
-	// svelte-ignore state_referenced_locally
-	const trackedEdit = reactiveDocument(fileEdit);
-	const body = $derived(noteBody(trackedEdit.content));
+	const snapshot = $derived(liveSnapshot(fileEdit));
+	const body = $derived(noteBody(snapshot.current.content));
 	/** The body as a document, or why it cannot be one. */
 	const rich = $derived(body === undefined ? undefined : bodyCodec.decode(body));
 	/**

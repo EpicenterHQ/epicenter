@@ -22,7 +22,6 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { expectOk } from 'wellcrafted/testing';
 import {
 	desktop,
 	nativeDialog,
@@ -36,7 +35,6 @@ import {
 	openTestServices,
 	whisperingDirectory,
 } from './services.test-support.js';
-import type { Whispering } from './whispering.svelte.js';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -94,8 +92,8 @@ test('text held by the Folder prompts; Cancel retains it', async () => {
 
 	expect(nativeDialog.count).toBe(1);
 	expect(nativeWindow.destroyed).toBe(0);
-	expect(text.view.content?.text).toBe(typed);
-	expect(text.view.isDirty).toBe(true);
+	expect(text.view.getSnapshot().content?.text).toBe(typed);
+	expect(text.view.getSnapshot().isDirty).toBe(true);
 	await window.whispering.document(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
@@ -115,8 +113,8 @@ test('a failed save keeps the window until another save attempt saves the text',
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeDialog.count).toBe(1);
-	expect(text.view.content?.text).toBe(typed);
-	expect(text.view.isDirty).toBe(true);
+	expect(text.view.getSnapshot().content?.text).toBe(typed);
+	expect(text.view.getSnapshot().isDirty).toBe(true);
 	expect(window.whispering.unsaved).toBe(true);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(before);
 
@@ -137,8 +135,8 @@ test('a thrown file write leaves a failed draft that can save again', async () =
 	await window.whispering.document(path).save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
-	expect(text.view.content?.text).toBe(typed);
-	expect(text.view.isDirty).toBe(true);
+	expect(text.view.getSnapshot().content?.text).toBe(typed);
+	expect(text.view.getSnapshot().isDirty).toBe(true);
 	expect(window.whispering.unsaved).toBe(true);
 	window.control.throwWrite = false;
 	await window.context.folder.files.document(path).save();

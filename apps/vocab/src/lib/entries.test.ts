@@ -280,18 +280,18 @@ test('a saved stage stays shown when the reread fails, and pressing the old stag
 	};
 	try {
 		const card = vocab.entries.document(word.id);
-		expect(card.content?.fields?.stage).toBe('new');
-		expectOk(card.setStage('usable'));
+		expect(card.getSnapshot().content?.fields?.stage).toBe('new');
+		expectOk(vocab.entries.setStage(word, 'usable'));
 		await folder.tables.entries.document(word.id).save();
 		await quiet(vocab);
 		// The list still holds the word as read before the save.
 		expect(context.word().stage).toBe('new');
-		expect(card.isDirty).toBe(false);
-		expect(card.content?.fields?.stage).toBe('usable');
+		expect(card.getSnapshot().isDirty).toBe(false);
+		expect(card.getSnapshot().content?.fields?.stage).toBe('usable');
 
-		expectOk(card.setStage('new'));
+		expectOk(vocab.entries.setStage(word, 'new'));
 		await folder.tables.entries.document(word.id).save();
-		expect(card.content?.fields?.stage).toBe('new');
+		expect(card.getSnapshot().content?.fields?.stage).toBe('new');
 	} finally {
 		folder.tables.entries.list = list;
 	}
@@ -381,7 +381,7 @@ test('a file that is not a valid word is named for repair, written as typed text
 	expect(repair.start('broken')).toBe(true);
 	// The list read the file; the repair shows its exact text.
 	const view = repair.view()!;
-	expect(view.content?.text).toBe(broken);
+	expect(view.getSnapshot().content?.text).toBe(broken);
 	// Switching repairs leaves the first path's input with the folder.
 	view.replace(broken.replace('stage: mastered', 'stage: usab'));
 	expect(repair.start('unparsed')).toBe(true);
@@ -390,11 +390,14 @@ test('a file that is not a valid word is named for repair, written as typed text
 		vocab.folder.getStatus().saving ||
 			vocab.folder.getStatus().unsaved.length > 0,
 	).toBe(true);
-	expect(view.content?.text).toBe(
+	expect(view.getSnapshot().content?.text).toBe(
 		broken.replace('stage: mastered', 'stage: usab'),
 	);
 	view.replace(broken.replace('stage: mastered', 'stage: usable'));
-	await until(() => !repair.view()?.isDirty, 'the repair to save');
+	await until(
+		() => !repair.view()?.getSnapshot().isDirty,
+		'the repair to save',
+	);
 	await quiet(vocab);
 	expect(await fileText(folder, 'entries/broken.md')).toBe(
 		broken.replace('stage: mastered', 'stage: usable'),
@@ -423,14 +426,15 @@ test('a valid unsaved repair returns to structured editing without saving or ref
 	const fileEdit = repair.view()!;
 	const fixed = broken.replace('stage: invalid', 'stage: usable');
 	expectOk(fileEdit.replace(fixed));
-	expect(fileEdit.content?.issues).toBeNull();
+	expect(fileEdit.getSnapshot().content?.issues).toBeNull();
 	expect(repair.close()).toBe(true);
 	expect(repair.open).toBeUndefined();
 	expect(await fileText(folder, path)).toBe(broken);
-	expect(opened.vocab.entries.document('broken').content?.fields?.stage).toBe(
-		'usable',
-	);
-	expect(fileEdit.isDirty).toBe(true);
+	expect(
+		opened.vocab.entries.document('broken').getSnapshot().content?.fields
+			?.stage,
+	).toBe('usable');
+	expect(fileEdit.getSnapshot().isDirty).toBe(true);
 });
 
 test('delete consumes unsubmitted input and accepts newer input that may recreate the path', async () => {

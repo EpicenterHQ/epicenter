@@ -33,7 +33,7 @@ import {
 import type { EntryRows } from '../../lib/entries.svelte.js';
 import { cached, openVocab, quiet } from '../../lib/query.test-support.js';
 
-const { flushSync, mount, unmount } = await import('svelte');
+const { flushSync, mount, unmount, tick } = await import('svelte');
 const { wordsOf } = await import('../../lib/entries.svelte.js');
 const { confirmationDialog } = await import(
 	'@epicenter/ui/confirmation-dialog'
@@ -296,6 +296,23 @@ test('an orphan failure card follows current editor text for Copy and Discard', 
 	const { default: WordsViewHost } = await import(
 		'./fixtures/WordsViewHost.svelte'
 	);
+	const acquire = opened.vocab.entries.document;
+	let starts = 0;
+	let stops = 0;
+	opened.vocab.entries.document = (id) => {
+		const document = acquire(id);
+		return {
+			...document,
+			subscribe(listener) {
+				starts++;
+				const stop = document.subscribe(listener);
+				return () => {
+					stops++;
+					stop();
+				};
+			},
+		};
+	};
 	const view = mount(WordsViewHost, {
 		target,
 		props: { client: opened.vocab.queryClient, entries: opened.vocab.entries },
@@ -314,11 +331,15 @@ test('an orphan failure card follows current editor text for Copy and Discard', 
 			'the orphan failure card',
 		);
 
+		await tick();
+		const beforeTyping = { starts, stops };
 		expectOk(edit.replace('\uFEFForphan newest\r\n'));
 		flushSync();
 		expect(
 			target.querySelector('[aria-label="Unsaved change"]')?.textContent,
 		).toBe('\uFEFForphan newest\r\n');
+		await tick();
+		expect({ starts, stops }).toEqual(beforeTyping);
 		Object.defineProperty(navigator, 'clipboard', {
 			configurable: true,
 			value: { writeText: async (text: string) => void copied.push(text) },
@@ -338,6 +359,9 @@ test('an orphan failure card follows current editor text for Copy and Discard', 
 		if (clipboard === undefined) Reflect.deleteProperty(navigator, 'clipboard');
 		else Object.defineProperty(navigator, 'clipboard', clipboard);
 		await unmount(view);
+		await tick();
+		opened.vocab.entries.document = acquire;
+		expect(stops).toBe(starts);
 		target.remove();
 	}
 });
@@ -388,4 +412,70 @@ test('Save again publishes the current orphan text and clears its failure card',
 		await unmount(view);
 		target.remove();
 	}
+});
+
+test('focus-word views follow input without rebuilding subscriptions and release on unmount', async () => {
+	await using browser = createBrowser();
+	const folder = await browser.open({ saveAfterMs: 60_000 });
+	await using opened = await openVocab(folder);
+	const { entries, queryClient } = opened.vocab;
+	expectOk(await entries.add('lucid'));
+	const id = cached(opened.vocab, 'lucid').id;
+	const acquire = entries.document;
+	const starts: string[] = [];
+	const stops: string[] = [];
+	entries.document = (id) => {
+		const document = acquire(id);
+		return {
+			...document,
+			subscribe(listener) {
+				starts.push(id);
+				const stop = document.subscribe(listener);
+				return () => {
+					stops.push(id);
+					stop();
+				};
+			},
+		};
+	};
+	const { default: FocusWordsHost } = await import(
+		'./fixtures/FocusWordsHost.svelte'
+	);
+	const target = document.createElement('div');
+	document.body.append(target);
+	const view = mount(FocusWordsHost, {
+		target,
+		props: {
+			client: queryClient,
+			entries,
+			focus: [
+				{ entryId: id, text: 'lucid' },
+				{ entryId: 'missing', text: 'absent' },
+			],
+		},
+	});
+	try {
+		await until(
+			() => target.querySelector('[aria-pressed="true"]') !== null,
+			'the current stage',
+		);
+		expect(starts).toEqual([id]);
+		const edit = folder.tables.entries.document(id);
+		for (const stage of ['recognized', 'understood', 'usable'] as const) {
+			expectOk(edit.patch({ fields: { stage } }));
+			flushSync();
+			await tick();
+		}
+		expect(target.querySelector('[aria-pressed="true"]')?.textContent).toBe(
+			'Use',
+		);
+		expect(starts).toEqual([id]);
+		expect(stops).toEqual([]);
+	} finally {
+		await unmount(view);
+		await tick();
+		entries.document = acquire;
+		target.remove();
+	}
+	expect(stops).toEqual(starts);
 });

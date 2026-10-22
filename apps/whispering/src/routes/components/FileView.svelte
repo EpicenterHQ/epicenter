@@ -5,6 +5,7 @@
 	after a pause, even after this view leaves, one write at a time for this file.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { textRead } from '$lib/file-reads.js';
 	import { getFolder } from '$lib/folder.js';
@@ -46,30 +47,30 @@
 	const own = path;
 	const table = $derived(rowTableOf(path));
 	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
-	const asText = $derived(!audio && whispering.showsText(path));
 	/**
 	 * One file edit supplies the transcript body, whole text and diagnostics.
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.document(own);
-	const { folder, queries } = getFolder();
-	const sourceEdit = folder.files.document(own);
+	const snapshot = liveSnapshot(fileEdit);
+	const asText = $derived(!audio && (table === undefined || whispering.showsText(path, snapshot.current)));
+	const { queries } = getFolder();
 	/** Classify unopened files before activating an editor; retained source takes precedence. */
 	const opened = createQuery(() => ({ ...queries.file(path, textRead), enabled: asText }));
 	/** A transcript that reads: its body is edited here, its fields kept. */
 	const transcript = $derived.by(() => {
 		if (table !== TRANSCRIPTIONS || asText) return undefined;
-		const shown = fileEdit.content;
+		const shown = snapshot.current.content;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** Held source remains editable after deletion or a failed storage read. */
 	const shouldEdit = $derived(!audio && (
-		!asText || opened.data?.kind === 'text' || sourceEdit.getSnapshot().content !== undefined
+		!asText || opened.data?.kind === 'text' || fileEdit.getSnapshot().content !== undefined
 	));
-	const text = $derived(shouldEdit ? fileEdit.content?.text : undefined);
+	const text = $derived(shouldEdit ? snapshot.current.content?.text : undefined);
 	/** Why the current source does not read as a row, including unsaved input. */
 	const issues = $derived(
-		table === undefined || text === undefined ? undefined : (fileEdit.content?.issues ?? undefined),
+		table === undefined || text === undefined ? undefined : (snapshot.current.content?.issues ?? undefined),
 	);
 
 	function show(source: boolean) {
@@ -117,8 +118,8 @@
 		</Button>
 	</div>
 
-	{#if shouldEdit && fileEdit.loadError}
-		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{fileEdit.loadError.message}</p>
+	{#if shouldEdit && snapshot.current.loadError}
+		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{snapshot.current.loadError.message}</p>
 	{/if}
 
 	{#if audio && text === undefined}
@@ -156,7 +157,7 @@
 				aria-label="Contents of {name}"
 			/>
 		</div>
-	{:else if !asText && text === undefined && fileEdit.loadError?.name === 'Missing'}
+	{:else if !asText && text === undefined && snapshot.current.loadError?.name === 'Missing'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>{name} is no longer in the folder</Empty.Title>
 			<Empty.Description>It was renamed or deleted, here or by another program.</Empty.Description>

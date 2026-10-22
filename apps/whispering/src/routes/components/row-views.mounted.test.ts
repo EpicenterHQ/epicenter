@@ -702,7 +702,7 @@ for (const item of [
 			await show(whispering, context, item.path);
 			disk.refusing = true;
 			const view = whispering.document(item.table, item.path);
-			expect(view.content).toBeDefined();
+			expect(view.getSnapshot().content).toBeDefined();
 			expectOk(
 				view.patch({
 					fields: { title: 'Keep my title', [item.remove]: undefined },
@@ -722,7 +722,7 @@ for (const item of [
 			const retained = target.querySelector<HTMLTextAreaElement>(
 				'textarea[aria-label="Markdown source"]',
 			);
-			expect(retained?.value).toBe(view.content?.text);
+			expect(retained?.value).toBe(view.getSnapshot().content?.text);
 			expect(retained?.readOnly).toBe(false);
 			expect(retained?.value).toContain('title: Keep my title');
 			expect(retained?.value).not.toContain(`${item.remove}:`);

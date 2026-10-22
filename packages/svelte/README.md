@@ -151,7 +151,7 @@ descendants, omitted paths mean all, and `[]` means none. Active editor readers
 refresh now, while inactive acquired sources become stale for their next
 subscription. Returning to a visible window reconciles active queries and
 editors after missed events. These events are best effort, not a durable change
-log. `fileDocument.refresh()` returns an individual acquisition result. No query
+log. `document.refresh()` returns an individual acquisition result. No query
 reads for an editor.
 
 Every context has its own QueryClient and `['folder']` query prefix. Generated
@@ -182,61 +182,85 @@ A save indicator that needs no file contents reads `getStatus().unsaved` and
 read. An open editor reads its own `isDirty`, `isSaving` and `saveError`, so
 another file's failure is never shown as its.
 
-## Reactive documents
+## Snapshot observation
 
-The folder owns each path's source, accepted input, reads and write lane
+Folder owns each path's source, accepted input, reads and write lane
 ([working documents](../folder/README.md#working-documents)). A table binds its
 schema to the same handle that `folder.files.document(path, schema?)` returns.
-`saveAfterMs` belongs to the folder opener, not this adapter.
+`saveAfterMs` belongs to the folder opener.
 
 ```ts
-import { reactiveDocument } from '@epicenter/svelte/document';
+import { liveSnapshot } from '@epicenter/svelte/snapshot';
 import { toastOnError } from '@epicenter/ui/sonner';
 
 // Fixed address, for example in a component keyed by its note.
-const fileDocument = reactiveDocument(folder.tables.notes.document(id));
-fileDocument.content; // { text, body, fields, issues } | undefined
-toastOnError(fileDocument.patch({ fields: { done: true }, body: 'Two litres\n' }), 'That change was not made');
-toastOnError(fileDocument.replace(editedSource), 'That change was not made');
+const document = folder.tables.notes.document(id);
+const snapshot = liveSnapshot(document);
+snapshot.current.content; // { text, body, fields, issues } | undefined
+snapshot.current.isSaving;
+toastOnError(document.patch({ fields: { done: true }, body: 'Two litres\n' }), 'That change was not made');
+toastOnError(document.replace(editedSource), 'That change was not made');
 
-// Follow a changing path prop; repeated wrapping reuses the passive adapter.
-const sourceDocument = $derived(reactiveDocument(folder.files.document(path)));
+// Read-only view following a changing path prop: one derived is enough.
+const file = $derived(liveSnapshot(folder.files.document(path)));
+
+// Keep the command handle separately when the component also edits.
+const selectedDocument = $derived(folder.tables.notes.document(id));
+const selectedSnapshot = $derived(liveSnapshot(selectedDocument));
 ```
 
-`reactiveDocument(handle)` returns a `ReactiveDocument` from
-`@epicenter/svelte/document`. It exposes the document's cached snapshot as
-tracked getters: `.content`, `.loadError`, `.isDirty`, `.isSaving`, and
-`.saveError`. Commands remain methods: `replace`, `patch`, `save`, `refresh`, and
-`discard`.
+`liveSnapshot(source)` accepts any object with `getSnapshot()` and
+`subscribe(listener)`. Its only property is the readonly `.current` getter.
+It owns no value copy or commands and has no document-specific type or cache.
+Commands and explicit passive `getSnapshot()` reads stay on the original handle.
 
-`reactiveDocument` privately reuses a passive adapter by document handle through
-a WeakMap. Repeated wrapping is safe, including inside derived collections:
-unaffected documents keep their existing observations when the collection
-recomputes. Use the underlying document handle to identify a document; adapter
-equality is not a separate public contract. No whole-Folder wrapper is needed.
+Each view uses Svelte's `createSubscriber` to share one source subscription
+among its tracking effects. The first tracked `.current` read subscribes before
+reading the snapshot, acquiring unknown or invalidated document text. The
+subscription's immediate notification needs no extra invalidation: the getter
+reads its current snapshot after subscribing. Later notifications invalidate
+reactive readers. The last tracking effect leaving releases that view's
+subscription. Construction and untracked `.current` reads subscribe to nothing.
+No `onMount(() => document.refresh())` is needed.
 
-Each adapter uses Svelte's `createSubscriber` to bridge its tracked getters to
-one document subscription while any effect reads it. The last effect leaving
-releases that subscription; retaining or reusing the adapter does not keep it
-active. Derive from a changing path prop so the view follows the selected
-handle. Caller-managed adapter caching is unnecessary.
+A fixed document needs no `$derived`: `const note = liveSnapshot(handle)`
+keeps following snapshot changes through `note.current`. Use
+`$derived(liveSnapshot(folder.tables.notes.document(id)))` when `id` can change.
+This calculation follows source identity; reading `.current` follows its value.
+A custom source factory that reads other reactive state also rebuilds its view
+when that state changes.
 
-The first tracked getter read subscribes before reading the cached snapshot,
-starting acquisition when the source is unknown or invalidated. Every getter
-participates, including `.isDirty`. Construction and plain reads outside
-tracking subscribe to nothing. No `onMount(() => fileDocument.refresh())` is
-needed. The last observer leaving stops further read demand after any ongoing
-read. The Folder retains acquired source, input, timers, saves, and failures
-until `folder.close()`; unmounting a view does not close its document.
+Stable view construction avoids subscription work. For collections, construct
+views over the members, then read `.current` in a separate calculation. Building
+a view inside the calculation that reads it is correct, but replaces its
+subscription whenever that calculation reruns. An aggregate does that for every
+member on each update. Keyed template blocks can construct their own views with
+`{@const note = liveSnapshot(handle)}`; there is no need for an intermediate
+array used only to hold views.
+
+Query refreshes can rebuild collection views even when membership is unchanged.
+Membership calculations that also read save status can rebuild on clean/dirty
+transitions. No wrapper memoization or caller-managed document cache is needed.
+Independent views of the same handle have separate listener registrations and
+share Folder's source, acquisition work, and publication queue.
+
+An untracked `.current` read stays passive. Reading a derived value that itself
+reads `.current` can establish tracking, so imperative actions should use the
+handle's `getSnapshot()` directly. A snapshot view does not itself subscribe
+until a reactive consumer reads it.
+
+The last document observer leaving stops further read demand after any ongoing
+read. Folder retains acquired source, input, timers, saves, and failures until
+`folder.close()`; unmounting a view does not close its document.
 
 Save-only UI reads the context's `getStatus().savingPaths`, `.unsaved`, and
 `.failures`, filtered by path. That subscription is passive. Reading any
-tracked editor getter, even `.isDirty`, demands content. Keep immediate input
+tracked snapshot getter, even when only reading `.current.isDirty`, demands content. Keep immediate input
 refusals at the interaction boundary, using inline feedback or `toastOnError`;
 they are returned Results, not observable save failures.
 
-`.content` is absent while text is awaited (`.loadError` undefined) or when
-acquisition failed (`.loadError` set: `Missing`, `NotText` or `ReadFailed`).
+`snapshot.current.content` is absent while text is awaited (`snapshot.current.loadError` undefined) or when
+acquisition failed (`snapshot.current.loadError` set: `Missing`, `NotText` or `ReadFailed`).
 Present content is editable even with a `loadError`, which says the latest
 read found no text, such as after another program deleted the file.
 `issues === null` narrows fields to the bound schema. A malformed header has
@@ -244,24 +268,24 @@ read found no text, such as after another program deleted the file.
 identifies it. Keep exact source through `.content.text` for repair.
 
 ```svelte
-{#each fileDocuments as fileDocument (fileDocument.path)}
-  {@const content = fileDocument.content}
+{#each observedDocuments as { document, snapshot } (document.path)}
+  {@const content = snapshot.current.content}
   {#if content}
-    <textarea bind:value={() => content.text, (text) => toastOnError(fileDocument.replace(text), 'That change was not made')}></textarea>
-    {#if fileDocument.loadError}
-      <p role="alert">{fileDocument.loadError.message}</p>
+    <textarea bind:value={() => content.text, (text) => toastOnError(document.replace(text), 'That change was not made')}></textarea>
+    {#if snapshot.current.loadError}
+      <p role="alert">{snapshot.current.loadError.message}</p>
     {/if}
-    {#if fileDocument.saveError}
-      <p role="alert">{fileDocument.saveError.message}</p>
-      <button onclick={() => fileDocument.save()}>Retry saving</button>
-    {:else if fileDocument.isSaving}
+    {#if snapshot.current.saveError}
+      <p role="alert">{snapshot.current.saveError.message}</p>
+      <button onclick={() => document.save()}>Retry saving</button>
+    {:else if snapshot.current.isSaving}
       <p>Saving…</p>
-    {:else if fileDocument.isDirty}
+    {:else if snapshot.current.isDirty}
       <p>Unsaved changes</p>
     {/if}
-  {:else if fileDocument.loadError}
-    <p role="alert">{fileDocument.loadError.message}</p>
-    <button onclick={() => fileDocument.refresh()}>Read again</button>
+  {:else if snapshot.current.loadError}
+    <p role="alert">{snapshot.current.loadError.message}</p>
+    <button onclick={() => document.refresh()}>Read again</button>
   {:else}
     <p>Loading…</p>
   {/if}
@@ -273,20 +297,20 @@ the nearest template block containing its controls, then narrow that local
 before creating the callbacks:
 
 ```svelte
-{#each fileDocuments as fileDocument (fileDocument.path)}
-  {@const content = fileDocument.content}
+{#each observedDocuments as { document, snapshot } (document.path)}
+  {@const content = snapshot.current.content}
   {#if content && content.issues === null}
     <Input
-      bind:value={() => content.fields.title, (title) => fileDocument.patch({ fields: { title } })}
-      onblur={() => void fileDocument.save()}
+      bind:value={() => content.fields.title, (title) => document.patch({ fields: { title } })}
+      onblur={() => void document.save()}
     />
   {/if}
 {/each}
 ```
 
-Avoid a script alias that merely repeats `fileDocument.content`. A plain script
+Avoid a script alias that merely repeats `snapshot.current.content`. A plain script
 `const` captures a value instead of following it. Name the shared handle or its
-reactive adapter `fileDocument`.
+snapshot view created by `liveSnapshot`.
 
 `patch({ fields?, body? })` and `replace(text)` return synchronous
 `Result<void, ChangeError>`: success means accepted into memory. Full text can
@@ -301,7 +325,7 @@ publication before notifying observers. Its Promise returns
 published content, without a row ID, even when newer input is pending. No-input
 `save()` publishes the then-current content, including clean content or a
 retry. A control that needs synchronous acceptance can check `replace(text)`
-or `patch(patch)` and then call `void fileDocument.save()`; this publishes the source after
+or `patch(patch)` and then call `void document.save()`; this publishes the source after
 acceptance and any observer notification. `discard()` drops unpublished input,
 answers its text, and writes nothing. Writes are unconditional: the last
 publication wins.

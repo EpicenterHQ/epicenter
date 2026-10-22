@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { reactiveDocument } from '@epicenter/svelte/document';
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
+
 	import { getFolder } from './folder.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -16,7 +17,7 @@
 	/**
 	 * One AI connection: its row in `so.epicenter`, whose title and model are
 	 * edited in place through the folder's edit of the row
-	 * (`reactiveDocument(folder.tables.connections.document(id))`): what is typed shows at
+	 * (`folder.tables.connections.document(id)`): what is typed shows at
 	 * once and saves a second after the last keystroke, even after the editor
 	 * goes away. For an `openai-compatible` connection, the
 	 * endpoint and key this computer keeps for it are in the keychain
@@ -35,10 +36,11 @@
 	const id = row.id;
 	// The list keys each editor by its id, in one opened folder. The list's
 	// read answered the edit's document.
-	const fileEdit = reactiveDocument(folder.tables.connections.document(id));
+	const fileEdit = folder.tables.connections.document(id);
+	const snapshot = liveSnapshot(fileEdit);
 	/** The connection with what is typed over it, or as the list read it while that is not known. */
-	const fields = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields : row.fields);
-	const failure = $derived(fileEdit.saveError);
+	const fields = $derived(snapshot.current.content?.issues === null ? snapshot.current.content.fields : row.fields);
+	const failure = $derived(snapshot.current.saveError);
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -114,7 +116,7 @@
 			<Input
 				bind:value={() => fields.title, (value) => type('title', value)}
 
-				aria-invalid={fileEdit.saveError !== undefined || fileEdit.loadError !== undefined}
+				aria-invalid={snapshot.current.saveError !== undefined || snapshot.current.loadError !== undefined}
 			/>
 		</label>
 		<label class="grid gap-1">
@@ -123,13 +125,13 @@
 				bind:value={() => fields.model, (value) => type('model', value)}
 				placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
 
-				aria-invalid={fileEdit.saveError !== undefined || fileEdit.loadError !== undefined}
+				aria-invalid={snapshot.current.saveError !== undefined || snapshot.current.loadError !== undefined}
 			/>
 		</label>
 	</div>
 	{#if inputProblem}<p role="alert" class="text-sm text-destructive">{inputProblem}</p>{/if}
-	{#if fileEdit.loadError}
-		<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>
+	{#if snapshot.current.loadError}
+		<p role="alert" class="text-sm text-destructive">{snapshot.current.loadError.message}</p>
 	{/if}
 	{#if failure !== undefined}
 		<p role="alert" class="text-destructive">

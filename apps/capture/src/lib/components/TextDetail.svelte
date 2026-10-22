@@ -12,6 +12,7 @@
 	keys this view by the capture.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
@@ -21,7 +22,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { reactiveDocument } from '@epicenter/svelte/document';
+
 	import { createMutation } from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
 	import { resultMutationOptions } from 'wellcrafted/query';
@@ -41,19 +42,20 @@
 	// The view is keyed by the capture, so its path never changes for this view.
 	const path = untrack(() => capturePath(stem));
 	/** The folder's edit of the file: its exact text as stored, and what is typed over it. */
-	const fileEdit = untrack(() => reactiveDocument(captures.folder.tables.captures.document(stem)));
-	const unreadable = $derived(fileEdit.loadError?.name === 'NotText');
-	const text = $derived(fileEdit.content?.text);
+	const fileEdit = untrack(() => captures.folder.tables.captures.document(stem));
+	const snapshot = liveSnapshot(fileEdit);
+	const unreadable = $derived(snapshot.current.loadError?.name === 'NotText');
+	const text = $derived(snapshot.current.content?.text);
 	const finishDraft = createMutation(() => resultMutationOptions({
 		mutationKey: ['captures', 'finish-draft', stem],
 		mutationFn: () => captures.finishDraft(stem),
 	}));
-	const draft = $derived(fileEdit.content?.issues === null && fileEdit.content.fields.draft === true);
+	const draft = $derived(snapshot.current.content?.issues === null && snapshot.current.content.fields.draft === true);
 	const locked = $derived(captures.fenced);
 	let refusal = $state<string | undefined>();
 
 	function finish() {
-		if (locked || finishDraft.isPending || !draft || !fileEdit.content?.body?.trim()) return;
+		if (locked || finishDraft.isPending || !draft || !snapshot.current.content?.body?.trim()) return;
 		finishDraft.mutate();
 	}
 	/** The thought's lines to select as the text appears, when opened to edit one. */
@@ -66,7 +68,7 @@
 
 	/** Why the current edit is not a capture yet: each with its line when it has one. */
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
-		const row = fileEdit.content;
+		const row = snapshot.current.content;
 		if (row === undefined) return [];
 		if (row.issues !== null) return row.issues;
 		const { error: refusal } = readCaptureBody(row);
@@ -94,7 +96,7 @@
 		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{path}</h1>
 		{#if text !== undefined}
 			{#if draft}
-				<Button size="sm" disabled={locked || finishDraft.isPending || !fileEdit.content?.body?.trim()} onclick={finish}>
+				<Button size="sm" disabled={locked || finishDraft.isPending || !snapshot.current.content?.body?.trim()} onclick={finish}>
 					{finishDraft.isPending ? 'Adding…' : 'Add capture'}
 				</Button>
 			{:else}
@@ -115,10 +117,10 @@
 		</Alert.Root>
 	{/if}
 
-	{#if fileEdit.saveError}
+	{#if snapshot.current.saveError}
 		<Alert.Root variant="destructive" aria-label="Not saved">
 			<Alert.Title>Your edit is not saved</Alert.Title>
-			<Alert.Description>{describeFailure(fileEdit.saveError)} Your edit is still here.</Alert.Description>
+			<Alert.Description>{describeFailure(snapshot.current.saveError)} Your edit is still here.</Alert.Description>
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
 				<Button size="sm" variant="outline" onclick={async () => {
 					const saved = await fileEdit.save();
@@ -140,11 +142,11 @@
 	{#if text !== undefined}
 		{@const shown = text}
 		<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-			{#if fileEdit.saveError}
+			{#if snapshot.current.saveError}
 				Not saved
-			{:else if fileEdit.isDirty || fileEdit.isSaving}
+			{:else if snapshot.current.isDirty || snapshot.current.isSaving}
 				Saving…
-			{:else if fileEdit.loadError}
+			{:else if snapshot.current.loadError}
 				Text kept here
 			{:else}
 				Saved to {path}
@@ -155,7 +157,7 @@
 			<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					{!fileEdit.isDirty
+					{!snapshot.current.isDirty
 						? 'This text does not read as a capture yet. Fix it here; it saves when you pause.'
 						: 'This text does not read as a capture yet. It is checked as you type.'}
 				</p>
@@ -172,7 +174,7 @@
 			class="min-h-96 font-mono text-xs"
 			spellcheck={false}
 			readonly={locked}
-			aria-invalid={fileEdit.loadError !== undefined || refusal !== undefined}
+			aria-invalid={snapshot.current.loadError !== undefined || refusal !== undefined}
 			bind:value={
 				() => shown.replace(/\r\n?/g, '\n'),
 				(typing) => {
@@ -190,7 +192,7 @@
 			}}
 			{@attach selectThought}
 		/>
-		{#if fileEdit.loadError}<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message} Your previous text is kept.</p>{/if}
+		{#if snapshot.current.loadError}<p role="alert" class="text-sm text-destructive">{snapshot.current.loadError.message} Your previous text is kept.</p>{/if}
 	{:else if unreadable}
 		<Empty.Root role="alert">
 			<Empty.Header>
@@ -198,18 +200,18 @@
 				<Empty.Description>It is not text. Nothing in it was changed.</Empty.Description>
 			</Empty.Header>
 		</Empty.Root>
-	{:else if fileEdit.loadError?.name === 'Missing'}
+	{:else if snapshot.current.loadError?.name === 'Missing'}
 		<Empty.Root role="alert">
 			<Empty.Header>
 				<Empty.Title>This capture is no longer here</Empty.Title>
 				<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 			</Empty.Header>
 		</Empty.Root>
-	{:else if fileEdit.loadError}
+	{:else if snapshot.current.loadError}
 		<Empty.Root role="alert">
 			<Empty.Header>
 				<Empty.Title>This capture could not be opened</Empty.Title>
-				<Empty.Description>{fileEdit.loadError.message}</Empty.Description>
+				<Empty.Description>{snapshot.current.loadError.message}</Empty.Description>
 			</Empty.Header>
 			<Empty.Content>
 				<Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Try again</Button>

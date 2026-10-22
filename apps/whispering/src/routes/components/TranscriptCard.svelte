@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { toast, toastOnError } from '@epicenter/ui/sonner';
@@ -34,12 +35,13 @@
 	const own = result.path;
 
 	/** Edited here unless the person opened its file as text in Files. */
-	const asText = $derived(whispering.showsText(result.path));
 	/** This card's transcript row: the folder's edit of it, as stored with what is typed over it. */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.document(TRANSCRIPTIONS, own);
+	const snapshot = liveSnapshot(fileEdit);
+	const asText = $derived(whispering.showsText(result.path, snapshot.current));
 	const row = $derived.by(() => {
-		const shown = fileEdit.content;
+		const shown = snapshot.current.content;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** The text now: as typed while an edit is unsaved, else as the file holds it. */

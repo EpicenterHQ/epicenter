@@ -44,7 +44,6 @@ import { isMissing } from '../local-folder.test-support.js';
 const { flushSync, mount, unmount } = await import('svelte');
 const { openCaptures, until } = await import('../local-folder.test-support.js');
 const { createCaptureActions } = await import('../capture-actions.svelte.ts');
-const { reactiveDocument } = await import('@epicenter/svelte/document');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 
 // A desktop-width window: `min-width` queries match, so the UI kit's modal
@@ -299,7 +298,7 @@ test("a thought's Edit as text opens the file with that thought's lines selected
 	const harness = await setup({ [PATH]: crlf }, 'capture');
 	// What the menu item does, over the list the view shows.
 	const actions = createCaptureActions(
-		reactiveDocument(harness.folder.tables.captures.document('one')),
+		harness.folder.tables.captures.document('one'),
 	);
 	const range = actions.locateThought(1, ['first', 'second\nmore']);
 	if (range === undefined) throw new Error('The thought was not found');

@@ -5,7 +5,7 @@
  *
  * The timeline reads the one rows query of the captures table. The capture
  * view and Edit as text share one file edit
- * (`reactiveDocument(folder.tables.captures.document(stem))`), read as a structured
+ * (`folder.tables.captures.document(stem)`), read as a structured
  * document or exact text. The
  * folder holds each capture as stored and what is typed over
  * it, one kind of input per path, and saves it a second after the last

@@ -84,9 +84,9 @@ nor an app chooses a native path, and no URL carries one. A refused open
 shows the refusal; the app does not open different storage as a fallback.
 
 Stored row reads return saved source without acquiring working documents. A view
-observes `reactiveDocument(folder.tables.todos.document(id))` from
-`@epicenter/svelte/document`; tracked getters acquire the shared source and
-controls send `patch({ fields })`, `patch({ body })`, or `replace(text)`.
+observes `liveSnapshot(folder.tables.todos.document(id))` from
+`@epicenter/svelte/snapshot`; the tracked `.current` getter acquires the shared source and
+the original handle accepts `patch({ fields })`, `patch({ body })`, or `replace(text)`.
 The shared folder context owns query keys and the one `onChange` listener that
 refreshes affected paths. The view reports "Saved on this device" only after
 the storage save succeeds and no input is held. Account, inference, and future Git exchange have separate

@@ -4,7 +4,7 @@
  *
  * Queries list and derive; they own no editable document and acquire no
  * editor text. The folder's editor of a row or file reads its own source
- * (`@epicenter/svelte/document`). The context invalidates queries from Folder
+ * (`@epicenter/folder/document`). The context invalidates queries from Folder
  * change notifications; active editors reconcile those hints independently.
  */
 import type { Folder, FolderFiles, Row } from '@epicenter/folder';

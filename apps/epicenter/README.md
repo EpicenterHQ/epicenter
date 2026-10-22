@@ -396,14 +396,15 @@ Cards have no separate rank or drag-order record.
 
 The opened Folder owns acquired text and unfinished input for each path until
 close. Files, grid, and board use
-`reactiveDocument(folder.files.document(path, schema))` from
-`@epicenter/svelte/document`. Repeated wrapping reuses a passive adapter by
-handle; tracked getters share its subscription until the last tracking effect
-leaves. The views keep no separate save queue. Its tracked getters are `content`, `loadError`, `isDirty`,
-`isSaving`, and `saveError`; `content` contains exact `text`, `fields`, `body`,
-and interpretation `issues`. The neutral editor exposes the same cached snapshot
-through `getSnapshot()` and `subscribe(listener)`. Subscription emits immediately
-and activates the first read.
+`liveSnapshot(folder.files.document(path, schema))` from
+`@epicenter/svelte/snapshot`. Each view's tracked `.current` getter observes the
+Folder-owned snapshot while effects read it; the last reader leaving releases
+that view's subscription. Construct views separately from calculations that
+read their changing values. Views keep no separate save queue or document cache.
+The snapshot contains `content`, `loadError`, `isDirty`, `isSaving`, and
+`saveError`; `content` contains exact `text`, `fields`, `body`, and interpretation
+`issues`. Commands and passive `getSnapshot()` reads stay on the original
+`FileDocument`. Subscription emits immediately and activates the first read.
 
 `replace(text)` and `patch({ fields?, body? })` accept input immediately.
 Full text can be accepted before acquisition; structured patches need acquired

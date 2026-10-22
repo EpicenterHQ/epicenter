@@ -34,7 +34,7 @@ async function rowEditor<T extends RowTable>(
 	const view = whispering.document(table, path);
 	await view.refresh();
 	const shown = (): Shown<T> | undefined => {
-		const row = view.content;
+		const row = view.getSnapshot().content;
 		return row?.fields === undefined || row.body === undefined
 			? undefined
 			: { fields: row.fields as Shown<T>['fields'], body: row.body };
@@ -94,7 +94,7 @@ export function textEditor(whispering: Whispering, path: string) {
 	return {
 		view,
 		get draft(): string {
-			const text = view.content?.text;
+			const text = view.getSnapshot().content?.text;
 			if (text === undefined) throw new Error(`${path} is not open as text`);
 			return text;
 		},

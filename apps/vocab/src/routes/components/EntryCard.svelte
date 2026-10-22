@@ -6,6 +6,7 @@
 	Each save publishes the current whole source; outside writers may overwrite it.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { Label } from '@epicenter/ui/label';
@@ -27,14 +28,15 @@
 
 	// The list keys each card by its word; keep this card's original ID.
 	// svelte-ignore state_referenced_locally
-	const id = entry.id;
+	const editingEntry = entry;
 	/** Edits wait while the word is deleted or open as text, and once Vocab closes. */
 
 	/** The folder's edit of the word, the note and stage typed over it. */
 	// svelte-ignore state_referenced_locally
-	const fileEdit = entries.document(id);
+	const fileEdit = entries.document(editingEntry.id);
+	const snapshot = liveSnapshot(fileEdit);
 	/** The word with what is typed over it, or as the list read it while that is not known. */
-	const shown = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields : entry.row.fields);
+	const shown = $derived(snapshot.current.content?.issues === null ? snapshot.current.content.fields : entry.row.fields);
 
 
 
@@ -54,17 +56,17 @@
 		aria-label="Your note for {entry.text}"
 		placeholder="Your note"
 
-		bind:value={() => shown.note, (typed) => toastOnError(fileEdit.setNote(typed), 'That change was not made')}
+		bind:value={() => shown.note, (typed) => toastOnError(entries.setNote(editingEntry, typed), 'That change was not made')}
 	/>
-	{#if fileEdit.loadError}
-		<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>
+	{#if snapshot.current.loadError}
+		<p role="alert" class="text-sm text-destructive">{snapshot.current.loadError.message}</p>
 	{/if}
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
-		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option}  onclick={() => toastOnError(fileEdit.setStage(option), 'That change was not made')}>{STAGE_LABELS[option]}</Button>{/each}
+		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option}  onclick={() => toastOnError(entries.setStage(editingEntry, option), 'That change was not made')}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">
-			{#if fileEdit.saveError}
-				Not saved: {describeFailure(fileEdit.saveError)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
-			{:else if fileEdit.isDirty || fileEdit.isSaving}
+			{#if snapshot.current.saveError}
+				Not saved: {describeFailure(snapshot.current.saveError)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
+			{:else if snapshot.current.isDirty || snapshot.current.isSaving}
 				Saving…
 			{/if}
 		</span>

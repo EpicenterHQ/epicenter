@@ -98,10 +98,11 @@ read of `content`, `loadError`, `isDirty`, `isSaving`, and `saveError`.
 `issues === null` means the structured interpretation is valid.
 `patch({ fields?, body? })` patches acquired source; `replace(text)`
 replaces it completely, even before acquisition. Svelte uses
-`reactiveDocument(handle)` from `@epicenter/svelte/document`; its tracked
-getters, including `.content`, observe the shared source. Repeated wrapping
-reuses a passive adapter by handle; observation starts the first read, and the
-last tracking effect leaving releases its subscription; no editor query or mirrored component content is needed. Folder-wide
+`liveSnapshot(handle)` from `@epicenter/svelte/snapshot`; its tracked
+`.current` getter observes the shared snapshot. Commands stay on the handle.
+Observation starts the first read, and the last tracking effect leaving
+releases that view's subscription. Views keep no mirrored content or editor
+query. Folder-wide
 save indicators read aggregate status without opening files.
 
 The rich-text view sends transactions through the neutral editor. Its own

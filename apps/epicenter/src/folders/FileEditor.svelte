@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { reactiveDocument } from '@epicenter/svelte/document';
+
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { getFolder } from './context.js';
 
@@ -12,8 +13,9 @@
 	// The parent keys this view by path.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
-	const fileEdit = reactiveDocument(folder.files.document(path));
-	const content = $derived(fileEdit.content);
+	const fileEdit = folder.files.document(path);
+	const snapshot = liveSnapshot(fileEdit);
+	const content = $derived(snapshot.current.content);
 	let inputProblem = $state<string>();
 	/** A textarea would rewrite mixed line endings or lone carriage returns. */
 	function hasMixedNewlines(text: string) {
@@ -26,16 +28,16 @@
 	<header class="flex items-center gap-3 border-b px-4 py-2">
 		<h3 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h3>
 		<span class="text-xs text-muted-foreground" role="status">
-			{#if fileEdit.saveError}Not saved
-			{:else if fileEdit.isDirty || fileEdit.isSaving}Saving…
-			{:else if fileEdit.content}Saved when you pause or leave the box.{/if}
+			{#if snapshot.current.saveError}Not saved
+			{:else if snapshot.current.isDirty || snapshot.current.isSaving}Saving…
+			{:else if snapshot.current.content}Saved when you pause or leave the box.{/if}
 		</span>
 	</header>
 	{#if inputProblem}<p role="alert" class="px-4 py-2 text-sm text-destructive">{inputProblem}</p>{/if}
-	{#if fileEdit.saveError}
+	{#if snapshot.current.saveError}
 		<Alert.Root variant="destructive" class="rounded-none border-x-0 border-t-0">
 			<Alert.Description>
-				<p>Your edit was not saved: {fileEdit.saveError.message}</p>
+				<p>Your edit was not saved: {snapshot.current.saveError.message}</p>
 				<div class="mt-1 flex gap-2">
 					<Button size="xs" variant="outline" onclick={() => void fileEdit.save()}>Try again</Button>
 					<Button size="xs" variant="ghost" onclick={() => fileEdit.discard()}>Discard edit</Button>
@@ -43,11 +45,11 @@
 			</Alert.Description>
 		</Alert.Root>
 	{/if}
-	{#if fileEdit.loadError}
+	{#if snapshot.current.loadError}
 		<div class="p-4">
 			<Alert.Root variant="destructive">
 				<Alert.Description>
-					{fileEdit.loadError.message}
+					{snapshot.current.loadError.message}
 					<Button size="xs" variant="outline" onclick={() => void fileEdit.refresh()}>Try reading again</Button>
 				</Alert.Description>
 			</Alert.Root>
@@ -70,7 +72,7 @@
 				}}
 			/>
 		{/if}
-	{:else if !fileEdit.loadError}
+	{:else if !snapshot.current.loadError}
 		<p class="p-4 text-sm text-muted-foreground">Reading…</p>
 	{/if}
 </section>

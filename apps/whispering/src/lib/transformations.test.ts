@@ -480,7 +480,9 @@ test('a transformation captures failed transcript input without retrying its pub
 	expect(transformed).toHaveLength(1);
 	expect(transformed[0]?.input).toBe('Mine.\n');
 	expect(await readFile(join(root, transcript.path), 'utf8')).toBe(before);
-	expect(whispering.document(transcript.path).saveError).toBeDefined();
+	expect(
+		whispering.document(transcript.path).getSnapshot().saveError,
+	).toBeDefined();
 });
 
 // ============================================================================

@@ -5,10 +5,11 @@
 	list read: what is typed shows in the list once it is saved.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { toastOnError } from '@epicenter/ui/sonner';
-	import { reactiveDocument } from '@epicenter/svelte/document';
+
 	import { getFolder } from '$lib/folder.js';
 	import { labelOf, type Todo, todoPath } from '$lib/local-todos.js';
 
@@ -25,10 +26,10 @@
 		onOpen?: (id: string) => void;
 	} = $props();
 
-	const id = $derived(todo.id);
 	// Tracking the checkbox acquires its own editable source; the list stays passive.
-	const fileEdit = $derived(reactiveDocument(folder.tables.todos.document(id)));
-	const done = $derived(fileEdit.content?.issues === null ? fileEdit.content.fields.done : todo.fields.done);
+	const fileEdit = $derived(folder.tables.todos.document(todo.id));
+	const snapshot = $derived(liveSnapshot(fileEdit));
+	const done = $derived(snapshot.current.content?.issues === null ? snapshot.current.content.fields.done : todo.fields.done);
 	const label = $derived(labelOf(todo));
 </script>
 
@@ -46,7 +47,7 @@
 			}
 		}
 
-		disabled={fileEdit.content?.issues !== null}
+		disabled={snapshot.current.content?.issues !== null}
 		aria-label="{done ? 'Reopen' : 'Complete'} {label}"
 	/>
 	<Button

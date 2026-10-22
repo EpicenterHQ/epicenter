@@ -27,3 +27,13 @@ export function cell<T>(initial: T) {
 		},
 	};
 }
+
+/** A derived calculation, to test identity changes separately from snapshot reads. */
+export function derive<T>(read: () => T) {
+	const value = $derived.by(read);
+	return {
+		get value() {
+			return value;
+		},
+	};
+}

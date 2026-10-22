@@ -9,7 +9,6 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readSavedViews, type SavedView } from '@epicenter/folder/declaration';
-import { reactiveDocument } from '@epicenter/svelte/document';
 import { expectOk } from 'wellcrafted/testing';
 import { FileError } from '../../../../packages/folder/src/errors.js';
 import { createNativeFolder } from '../../../../packages/folder/src/native/engine.js';
@@ -41,11 +40,12 @@ async function setup(source: Record<string, unknown> = { views: { a: grid } }) {
 	});
 	const neutral = folder.files.document('epicenter.json');
 	expectOk(await neutral.refresh());
-	const declaration = reactiveDocument(neutral);
+	const declaration = neutral;
 	const views = createViews({
 		declaration,
 		saved: () =>
-			expectOk(readSavedViews(declaration.content?.text ?? '{}')).views,
+			expectOk(readSavedViews(declaration.getSnapshot().content?.text ?? '{}'))
+				.views,
 	});
 	return {
 		folder,

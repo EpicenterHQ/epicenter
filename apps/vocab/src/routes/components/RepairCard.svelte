@@ -7,6 +7,7 @@
 	and stage" closes the repair and the list shows it as a word.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -23,12 +24,13 @@
 	// svelte-ignore state_referenced_locally
 	const { repair } = entries;
 	const fileEdit = untrack(() => repair.view());
+	const snapshot = fileEdit === undefined ? undefined : liveSnapshot(fileEdit);
 
 </script>
 
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
-	{#if fileEdit}
-		{@const stored = fileEdit.content}
+	{#if fileEdit && snapshot}
+		{@const stored = snapshot.current.content}
 		{#if stored}
 			<p>
 				<code>{path}</code>
@@ -40,14 +42,14 @@
 				aria-label="File text for {path}"
 				bind:value={() => stored.text, (next) => toastOnError(fileEdit.replace(withFileNewlines(next, stored.text)), 'That change was not made')}
 			/>
-			{#if fileEdit.loadError}
-				<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>
+			{#if snapshot.current.loadError}
+				<p role="alert" class="text-sm text-destructive">{snapshot.current.loadError.message}</p>
 			{/if}
-			{#if fileEdit.saveError}
-				<p role="alert" class="text-destructive">Not saved: {describeFailure(fileEdit.saveError)}
+			{#if snapshot.current.saveError}
+				<p role="alert" class="text-destructive">Not saved: {describeFailure(snapshot.current.saveError)}
 					<Button variant="link" size="xs" onclick={() => void fileEdit.save()}>Try again</Button>
 				</p>
-			{:else if fileEdit.isDirty || fileEdit.isSaving}
+			{:else if snapshot.current.isDirty || snapshot.current.isSaving}
 				<p role="status" class="text-muted-foreground">Saving…</p>
 			{/if}
 			{#if stored.issues}
@@ -59,8 +61,8 @@
 			{:else}
 				<Button size="sm" variant="outline" onclick={() => void repair.close()}>Show note and stage</Button>
 			{/if}
-		{:else if fileEdit.loadError}
-			<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {fileEdit.loadError.message}</p>
+		{:else if snapshot.current.loadError}
+			<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {snapshot.current.loadError.message}</p>
 			<Button size="sm" variant="outline" onclick={() => void fileEdit.refresh()}>Read again</Button>
 		{:else}
 			<p>Reading <code>{path}</code>…</p>

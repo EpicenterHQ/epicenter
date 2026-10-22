@@ -377,8 +377,8 @@ visibility reconciliation complement best-effort notifications without polling.
 Table and raw file reads leave working documents untouched. Document
 subscriptions acquire their own source; save-status readers acquire no content.
 
-Svelte's `reactiveDocument(document)` from `@epicenter/svelte/document` exposes
-the snapshot as tracked getters. React's `useDocument(document)` from
+Svelte's `liveSnapshot(document)` from `@epicenter/svelte/snapshot` exposes
+the snapshot through its tracked `.current` getter. React's `useDocument(document)` from
 `@epicenter/react/document` reads the cached snapshot through
 `useSyncExternalStore`. Each view observes the Folder-owned document; commands
 stay on the handle.

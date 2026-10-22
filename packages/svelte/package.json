@@ -14,7 +14,7 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
-		"./document": "./src/document.ts",
+		"./snapshot": "./src/snapshot.ts",
 		"./folder": "./src/folder-context.ts",
 		"./folder-app": "./src/folder-app.svelte",
 		"./status-line": "./src/status-line.ts",

@@ -5,6 +5,7 @@
 	while its body is unchanged, including when only the header changes.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
@@ -15,9 +16,9 @@
 	import * as Tabs from '@epicenter/ui/tabs';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import type { ReactiveDocument } from '@epicenter/svelte/document';
+	import type { FileDocument } from '@epicenter/folder/document';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { folderLabel, type HoneycrispTables, type NoteFields, noteIdOf } from '$lib/data.js';
+	import { folderLabel, type HoneycrispTables, type NoteFields } from '$lib/data.js';
 	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
 	import { noteBody } from '$lib/editor/rich-text.js';
 	import RichEditor from './RichEditor.svelte';
@@ -30,7 +31,7 @@
 		notes: Notes;
 		/** Fixed for this component's lifetime, including presentation changes. */
 		path: string;
-		fileEdit: ReactiveDocument<HoneycrispTables['notes']>;
+		fileEdit: FileDocument<HoneycrispTables['notes']>;
 	} = $props();
 
 	// The parent keys this view by its path. While the parent replaces it,
@@ -41,10 +42,8 @@
 		...notes.queries.rows('folders'),
 		select: foldersOf,
 	}));
-	/** The note as the rich-text view reads and edits it, when it reads as one. */
-	// svelte-ignore state_referenced_locally
-	const sourceEdit = notes.folder.tables.notes.document(noteIdOf(path) ?? '');
-	const shownNote = $derived(fileEdit.content?.issues === null ? fileEdit.content : undefined);
+	const snapshot = $derived(liveSnapshot(fileEdit));
+	const shownNote = $derived(snapshot.current.content?.issues === null ? snapshot.current.content : undefined);
 	/**
 	 * Edits wait once the notes are closing. Retained text stays editable
 	 * after a delete or failed read; `FileDetail` shows why beside it.
@@ -68,8 +67,8 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#if fileEdit.content !== undefined && fileEdit.loadError}
-		<p class="px-3 py-2 text-sm text-destructive" role="alert">{fileEdit.loadError.message} Your previous text is kept.</p>
+	{#if snapshot.current.content !== undefined && snapshot.current.loadError}
+		<p class="px-3 py-2 text-sm text-destructive" role="alert">{snapshot.current.loadError.message} Your previous text is kept.</p>
 	{/if}
 	{#if shownNote !== undefined}
 		{@const row = shownNote}
@@ -122,7 +121,7 @@
 			     survives a look at the source that changes nothing. -->
 			<Tabs.Content value="rich" forceMount class="min-h-0 flex-1">
 				<RichEditor
-					fileEdit={sourceEdit}
+					{fileEdit}
 					focusRequest={notes.focusRequest}
 					closing={notes.fenced}
 					onOpenSource={() => (tab = 'source')}
@@ -142,8 +141,8 @@
 			</Tabs.Content>
 		</Tabs.Root>
 
-	{:else if fileEdit.content?.issues}
-		{@const issues = fileEdit.content.issues}
+	{:else if snapshot.current.content?.issues}
+		{@const issues = snapshot.current.content.issues}
 		<Empty.Root class="flex-1" data-testid="needs-repair">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 			{#if issues.some((issue) => issue.kind === 'not-text')}
@@ -159,15 +158,15 @@
 				<Button variant="outline" size="sm" onclick={() => notes.open(path, 'text')}>Repair as text</Button>
 			{/if}
 		</Empty.Root>
-	{:else if fileEdit.loadError?.name === 'Missing'}
+	{:else if snapshot.current.loadError?.name === 'Missing'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>This note is no longer in the folder</Empty.Title>
 			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 		</Empty.Root>
-	{:else if fileEdit.loadError}
+	{:else if snapshot.current.loadError}
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read the note</Empty.Title>
-			<Empty.Description>{fileEdit.loadError.message}</Empty.Description>
+			<Empty.Description>{snapshot.current.loadError.message}</Empty.Description>
 			<Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Try again</Button>
 		</Empty.Root>
 	{:else}

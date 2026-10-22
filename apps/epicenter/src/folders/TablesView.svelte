@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { getFolder } from './context.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -8,7 +9,7 @@
 	import * as Table from '@epicenter/ui/table';
 	import * as Alert from '@epicenter/ui/alert';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { reactiveDocument } from '@epicenter/svelte/document';
+
 	import { applyView, boardLanes } from './view';
 	import TableControls from './TableControls.svelte';
 	import type { TableView } from './views.svelte';
@@ -65,19 +66,20 @@
 	);
 	const columns = $derived(view.columns ?? availableColumns);
 	// Query structural sharing retains equal portable schema identities across refreshes.
-	const edits = $derived(documents.map((doc) => ({
-		doc,
-		fileEdit: reactiveDocument(folder.files.document(doc.path, tableFor(doc.path))),
-	})));
+	const observed = $derived(documents.map((doc) => {
+		const fileEdit = folder.files.document(doc.path, tableFor(doc.path));
+		return { doc, fileEdit, snapshot: liveSnapshot(fileEdit) };
+	}));
 	const rows = $derived(
-		edits.map(({ doc, fileEdit }) => {
-			const content = fileEdit.content;
+		observed.map(({ doc, fileEdit, snapshot }) => {
+			const content = snapshot.current.content;
 			const shown = content === undefined ? doc : { ...doc, ...content };
 			return {
 				doc,
 				fileEdit,
+				snapshot: snapshot.current,
 				shown,
-				held: fileEdit.isDirty || fileEdit.isSaving,
+				held: snapshot.current.isDirty || snapshot.current.isSaving,
 				canEdit: content !== undefined &&
 					!content.issues?.some((issue) => issue.kind !== 'schema'),
 			};
@@ -293,11 +295,11 @@
 												>{/each}</Select.Content
 										></Select.Root
 									>
-									{#if row.fileEdit.loadError}<p class="text-sm text-destructive">{row.fileEdit.loadError.message}</p>
+									{#if row.snapshot.loadError}<p class="text-sm text-destructive">{row.snapshot.loadError.message}</p>
 										<Button size="xs" variant="outline" onclick={() => void row.fileEdit.refresh()}>Read again</Button>
 									{/if}
-									{#if row.fileEdit.saveError}<p class="text-sm text-destructive">
-											{row.fileEdit.saveError.message}
+									{#if row.snapshot.saveError}<p class="text-sm text-destructive">
+											{row.snapshot.saveError.message}
 										</p>
 										<Button
 											size="xs"
@@ -383,7 +385,7 @@
 				>
 				<Table.Body>
 					{#each rows as row (row.doc.path)}
-						{@const { doc, fileEdit, shown, canEdit } = row}
+						{@const { doc, fileEdit, snapshot, shown, canEdit } = row}
 						<Table.Row>
 							<Table.Cell
 								><Button variant="link" onclick={() => openSource(doc.path)}
@@ -442,11 +444,11 @@
 								</Table.Cell>
 							{/each}
 							<Table.Cell>
-								{#if fileEdit.loadError}<p class="text-destructive">{fileEdit.loadError.message}</p>
+								{#if snapshot.loadError}<p class="text-destructive">{snapshot.loadError.message}</p>
 									<Button size="xs" variant="outline" onclick={() => void fileEdit.refresh()}>Read again</Button>
 								{/if}
-								{#if fileEdit.saveError}<p class="text-destructive">
-										{fileEdit.saveError.message}
+								{#if snapshot.saveError}<p class="text-destructive">
+										{snapshot.saveError.message}
 									</p>
 									<Button
 										size="xs"

@@ -8,7 +8,7 @@ import {
 	captureBody,
 	type captureTables,
 } from '@epicenter/capture';
-import type { ReactiveDocument } from '@epicenter/svelte/document';
+import type { FileDocument } from '@epicenter/folder/document';
 
 /** A range of a file's text as a text box shows it, with LF lines. */
 export type TextRange = { readonly start: number; readonly end: number };
@@ -22,14 +22,14 @@ const sameList = (a: readonly string[], b: readonly string[]) =>
 
 /** Commands that change the capture through `fileEdit`. */
 export function createCaptureActions(
-	fileEdit: ReactiveDocument<(typeof captureTables)['captures']>,
+	fileEdit: FileDocument<(typeof captureTables)['captures']>,
 ) {
 	/** Why the last change was not taken; the next change clears it. */
 	let refusal = $state<string | undefined>();
 
 	/** The body this command composes over: the capture as it reads now. */
 	const shown = () => {
-		const row = fileEdit.content;
+		const row = fileEdit.getSnapshot().content;
 		if (row?.issues !== null || row.fields.draft === true) return undefined;
 		const { data, error } = captureBody.decode(row.body);
 		return error === null ? { body: row.body, ...data } : undefined;
@@ -102,7 +102,7 @@ export function createCaptureActions(
 			list: readonly string[],
 		): TextRange | undefined {
 			const now = current(list);
-			const row = fileEdit.content;
+			const row = fileEdit.getSnapshot().content;
 			const span =
 				now === undefined
 					? undefined

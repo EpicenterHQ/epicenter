@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { Input } from '@epicenter/ui/input';
@@ -32,8 +33,9 @@
 	let focusIds = $state<string[]>([]);
 	const listing = createQuery(() => entries.entriesQuery());
 	// Membership comes from the listing; interpretation follows each path's current edit.
-	const currentRows = $derived((listing.data ?? []).map((listed): EntryRows[number] => {
-		const markdown = entries.document(listed.id).content;
+	const observed = $derived((listing.data ?? []).map(listed => ({ listed, snapshot: liveSnapshot(entries.document(listed.id)) })));
+	const currentRows = $derived(observed.map(({ listed, snapshot }): EntryRows[number] => {
+		const markdown = snapshot.current.content;
 		if (markdown === undefined) return listed;
 		return markdown.issues === null
 			? { id: listed.id, ...markdown }
@@ -47,6 +49,7 @@
 			? []
 			: entries.failures.filter((draft) => !words.some((entry) => rowPath('entries', entry.id) === draft.path)),
 	);
+
 	const selectedFocus = $derived(focusIds.map((id) => words.find((entry) => entry.id === id)).filter((entry): entry is Entry => !!entry));
 	const shown = $derived(words.filter((entry) =>
 		(stage === 'all' || entry.stage === stage) && `${entry.text} ${entry.note}`.toLowerCase().includes(search.trim().toLowerCase()),
@@ -137,17 +140,18 @@
 			<!-- Typing that did not save for a word no longer listed as one: kept to copy until the learner lets it go. -->
 			<section class="space-y-3 rounded-lg border border-destructive/50 p-3 text-xs" aria-label="Unsaved changes">
 				{#each orphaned as draft (draft.path)}
-					{@const held = entries.document(draft.path.slice('entries/'.length, -'.md'.length))}
-					{@const saving = held.isSaving}
-					{@const content = held.content}
+					{@const document = entries.document(draft.path.slice('entries/'.length, -'.md'.length))}
+					{@const snapshot = liveSnapshot(document)}
+					{@const saving = snapshot.current.isSaving}
+					{@const content = snapshot.current.content}
 					{#if content}
 						<div class="space-y-1" role="alert">
 							<p>A change to <code>{draft.path}</code> was not saved, and the file is no longer a word here. {describeFailure(draft.error)}</p>
 							<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{content.text}</pre>
 							<div class="flex gap-1">
-								<Button size="xs" variant="outline" disabled={saving} onclick={() => void held.save()}>Save again</Button>
+								<Button size="xs" variant="outline" disabled={saving} onclick={() => void document.save()}>Save again</Button>
 								<CopyButton size="xs" variant="ghost" text={content.text}>Copy</CopyButton>
-								<Button size="xs" variant="ghost-destructive" disabled={saving} onclick={() => held.discard()}>Discard</Button>
+								<Button size="xs" variant="ghost-destructive" disabled={saving} onclick={() => document.discard()}>Discard</Button>
 							</div>
 						</div>
 					{/if}

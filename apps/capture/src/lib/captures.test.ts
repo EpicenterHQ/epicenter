@@ -35,7 +35,6 @@ import {
 
 const { timelineOf } = await import('./captures.svelte.ts');
 const { createCaptureActions } = await import('./capture-actions.svelte.ts');
-const { reactiveDocument } = await import('@epicenter/svelte/document');
 
 const harnesses: CapturesHarness[] = [];
 afterEach(async () => {
@@ -58,9 +57,7 @@ const withBody = (body: string) =>
 
 /** Capture commands over the Folder edit, as the view constructs them. */
 function actionsOf({ folder }: CapturesHarness, stem = 'one') {
-	return createCaptureActions(
-		reactiveDocument(folder.tables.captures.document(stem)),
-	);
+	return createCaptureActions(folder.tables.captures.document(stem));
 }
 
 /** The folder's edit of capture `one` as its exact text, read. */

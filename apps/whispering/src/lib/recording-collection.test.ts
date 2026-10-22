@@ -690,9 +690,10 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 		kind: 'file',
 		path: TRANSCRIPT,
 	});
-	expect(whispering.document('transcriptions', TRANSCRIPT).content?.body).toBe(
-		'Yesterday I finished the importer. Today: the exporter.\n',
-	);
+	expect(
+		whispering.document('transcriptions', TRANSCRIPT).getSnapshot().content
+			?.body,
+	).toBe('Yesterday I finished the importer. Today: the exporter.\n');
 });
 
 test('typing over an outside transcript change publishes the complete held source', async () => {

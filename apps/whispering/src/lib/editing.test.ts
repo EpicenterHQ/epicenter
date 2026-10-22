@@ -361,7 +361,7 @@ test('Discard lets go of typing that did not save, hands it back, and leaves the
 
 	expect(whispering.isUnsaved(editor.path)).toBe(false);
 	expect(whispering.unsaved).toBe(false);
-	expect(whispering.document(editor.path).isDirty).toBe(false);
+	expect(whispering.document(editor.path).getSnapshot().isDirty).toBe(false);
 	failWrites();
 	await settle(whispering, context);
 	expect(await text(root, editor.path)).toBe(before);
@@ -386,7 +386,7 @@ test('discarded field input preserves removals, literal values and the body for 
 	expect(discarded).toContain('title: "[remove field]"');
 	expect(discarded).not.toContain('durationMs:');
 	expect(discarded).toEndWith('Kept notes.\n');
-	expect(edit.isDirty).toBe(false);
+	expect(edit.getSnapshot().isDirty).toBe(false);
 	expect(await text(root, editor.path)).toBe(before);
 	failWrites();
 });
@@ -418,7 +418,7 @@ test('a clean recording deleted elsewhere retains its selected source without re
 
 	expect(whispering.entries).toEqual([]);
 	expect(whispering.selection).toMatchObject({ kind: 'recording', path });
-	expect(whispering.document(path).content?.text).toBeDefined();
+	expect(whispering.document(path).getSnapshot().content?.text).toBeDefined();
 	expect(await text(root, path)).toBeUndefined();
 	expect(expectOk(await readBytes(context.folder, audioPath)).length).toBe(
 		32044,
@@ -464,7 +464,7 @@ test('text typed over an outside change is the next complete publication', async
 	source.input(recordingText('Mine'));
 	await settle(whispering, context);
 	expect(await text(root, editor.path)).toBe(recordingText('Mine'));
-	expect(source.view.isDirty).toBe(false);
+	expect(source.view.getSnapshot().isDirty).toBe(false);
 });
 
 test('Source shows unsaved row input while its save is still running', async () => {
@@ -477,10 +477,10 @@ test('Source shows unsaved row input while its save is still running', async () 
 	});
 	await held;
 	expect(await whispering.editSource(path)).toBeUndefined();
-	expect(whispering.document(path).content?.text).toEndWith(
+	expect(whispering.document(path).getSnapshot().content?.text).toEndWith(
 		'---\nTyped in the fields.\n',
 	);
-	expect(whispering.document(path).isSaving).toBe(true);
+	expect(whispering.document(path).getSnapshot().isSaving).toBe(true);
 	release();
 	expect(whispering.showsText(path)).toBe(true);
 	const source = await openText(whispering, context, path);
@@ -508,8 +508,10 @@ test('switching between fields and Source preserves failed input and recovery in
 	expect(whispering.isUnsaved(path)).toBe(true);
 	expect(await whispering.editSource(path)).toBeUndefined();
 	expect(whispering.showsText(path)).toBe(true);
-	expect(whispering.document(path).content?.text).toEndWith('Older body.\n');
-	expect(whispering.document(path).saveError).toBeDefined();
+	expect(whispering.document(path).getSnapshot().content?.text).toEndWith(
+		'Older body.\n',
+	);
+	expect(whispering.document(path).getSnapshot().saveError).toBeDefined();
 	expect(whispering.discard(path)).toContain('Older body.\n');
 	expect(whispering.isUnsaved(path)).toBe(false);
 

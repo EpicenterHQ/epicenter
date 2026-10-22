@@ -71,7 +71,7 @@ export function observe(vocab: Vocab) {
 export async function quiet(vocab: Vocab) {
 	const idle = () =>
 		!vocab.folder.getStatus().saving &&
-		!vocab.entries.repair.view()?.isSaving &&
+		!vocab.entries.repair.view()?.getSnapshot().isSaving &&
 		vocab.queryClient.isFetching() === 0 &&
 		rows(vocab).every((row) => {
 			const snapshot = vocab.folder.tables.entries

@@ -69,8 +69,8 @@ program added survives every edit. A table owns exactly one Markdown file per
 row; any other file is an ordinary file reached through `folder.files`.
 Folder owns one working source per path; each schema-bound `FileDocument`
 provides a cached snapshot of its interpretation. Content supplies exact text,
-fields, body, and issues. `reactiveDocument(handle)` from
-`@epicenter/svelte/document` exposes tracked getters for Svelte; input uses
+fields, body, and issues. `liveSnapshot(handle)` from
+`@epicenter/svelte/snapshot` exposes a tracked `.current` snapshot for Svelte; input uses
 commands through function bindings. Views hold no copy
 of the document. Acquired text survives unmount, deletion, binary replacement,
 and failed reads. Only accepted local input initiates autosave. All file and
@@ -580,11 +580,11 @@ A read never replaces unfinished input.
   `loadError`, `isDirty`, `isSaving`, and `saveError`. Content carries exact text,
   interpreted fields and body, and issues. `subscribe` emits immediately and
   requests acquisition when source is unknown or invalidated.
-  `reactiveDocument(handle)` exposes tracked getters over this same snapshot.
+  `liveSnapshot(handle)` exposes this same snapshot through its tracked `.current` getter.
   Function bindings call `patch({ fields?, body? })` or `replace(text)`.
   `save(input?)` returns the exact immutable captured Markdown content or an
   error. Its optional input is accepted and publication admitted before
-  observers run. Switching views requires no save or reread. Each adapter owns
+  observers run. Switching views requires no save or reread. Each observation view owns
   its subscription; the Folder retains source, autosave, and failures after
   unmount. Only Folder close releases them, without flushing or draining work.
 - **A failed save** keeps its accepted input and error. Aggregate status carries

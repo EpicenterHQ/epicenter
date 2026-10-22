@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { getFolder } from './folder.js';
-	import { reactiveDocument } from '@epicenter/svelte/document';
+
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -12,12 +13,14 @@
 	// The parent keys this composer by its durable draft ID.
 	// svelte-ignore state_referenced_locally
 	const draftId = id;
-	const fileEdit = reactiveDocument(folder.tables.drafts.document(draftId));
-	const attemptEdit = reactiveDocument(folder.tables.attempts.document(draftId));
-	const ready = $derived(fileEdit.content !== undefined || fileEdit.loadError?.name === 'Missing');
-	const invalid = $derived(fileEdit.content !== undefined && fileEdit.content.issues !== null);
-	const attempted = $derived(attemptEdit.loadError?.name !== 'Missing' && attemptEdit.content?.issues === null ? attemptEdit.content : undefined);
-	const legacy = $derived(attemptEdit.loadError?.name === 'Missing' && fileEdit.content?.issues === null && fileEdit.content.fields.state === 'sending' ? fileEdit.content : undefined);
+	const fileEdit = folder.tables.drafts.document(draftId);
+	const snapshot = liveSnapshot(fileEdit);
+	const attemptEdit = folder.tables.attempts.document(draftId);
+	const attemptSnapshot = liveSnapshot(attemptEdit);
+	const ready = $derived(snapshot.current.content !== undefined || snapshot.current.loadError?.name === 'Missing');
+	const invalid = $derived(snapshot.current.content !== undefined && snapshot.current.content.issues !== null);
+	const attempted = $derived(attemptSnapshot.current.loadError?.name !== 'Missing' && attemptSnapshot.current.content?.issues === null ? attemptSnapshot.current.content : undefined);
+	const legacy = $derived(attemptSnapshot.current.loadError?.name === 'Missing' && snapshot.current.content?.issues === null && snapshot.current.content.fields.state === 'sending' ? snapshot.current.content : undefined);
 	const lastAttempt = $derived(attempted ? { content: attempted, checked: { attemptId: attempted.fields.attemptId } } : legacy ? { content: legacy, checked: { legacyText: legacy.text } } : undefined);
 	const pending = $derived(attempted?.fields.state === 'sending' || legacy !== undefined);
 	let message = $state('');
@@ -57,7 +60,7 @@
 		{/if}
 	{/if}
 	{#if !ready}
-		{#if fileEdit.loadError}<p role="alert" class="text-sm text-destructive">Could not open this draft: {fileEdit.loadError.message}</p><Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Read again</Button>
+		{#if snapshot.current.loadError}<p role="alert" class="text-sm text-destructive">Could not open this draft: {snapshot.current.loadError.message}</p><Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Read again</Button>
 		{:else}<p class="text-sm text-muted-foreground">Opening draft…</p>{/if}
 	{:else if invalid}
 		<p role="alert" class="text-sm text-destructive">This draft needs Markdown repair before composing.</p>
@@ -66,16 +69,16 @@
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
 		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000}
-			bind:value={() => fileEdit.content?.body ?? '', body => { message = changeDraft(folder, draftId, chatId, backend, body).error?.message ?? ''; }} />
+			bind:value={() => snapshot.current.content?.body ?? '', body => { message = changeDraft(folder, draftId, chatId, backend, body).error?.message ?? ''; }} />
 		<div class="flex items-center justify-between gap-3">
-			<span class="text-xs text-muted-foreground">{fileEdit.saveError ? 'Draft could not be saved' : fileEdit.isDirty || fileEdit.isSaving ? 'Saving draft…' : 'Draft saved on this device'}</span>
-			<Button disabled={send.isPending || recover.isPending || pending || !fileEdit.content?.body?.trim()} onclick={() => send.mutate()}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
+			<span class="text-xs text-muted-foreground">{snapshot.current.saveError ? 'Draft could not be saved' : snapshot.current.isDirty || snapshot.current.isSaving ? 'Saving draft…' : 'Draft saved on this device'}</span>
+			<Button disabled={send.isPending || recover.isPending || pending || !snapshot.current.content?.body?.trim()} onclick={() => send.mutate()}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>
 	{/if}
-	{#if fileEdit.loadError && fileEdit.content}<p role="alert" class="text-sm text-destructive">{fileEdit.loadError.message}</p>{/if}
-	{#if attemptEdit.loadError && attemptEdit.loadError.name !== 'Missing'}<p role="alert" class="text-sm text-destructive">Could not check the latest send: {attemptEdit.loadError.message}</p><Button variant="outline" size="sm" onclick={() => void attemptEdit.refresh()}>Check again</Button>{/if}
+	{#if snapshot.current.loadError && snapshot.current.content}<p role="alert" class="text-sm text-destructive">{snapshot.current.loadError.message}</p>{/if}
+	{#if attemptSnapshot.current.loadError && attemptSnapshot.current.loadError.name !== 'Missing'}<p role="alert" class="text-sm text-destructive">Could not check the latest send: {attemptSnapshot.current.loadError.message}</p><Button variant="outline" size="sm" onclick={() => void attemptEdit.refresh()}>Check again</Button>{/if}
 	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
-	{#if fileEdit.saveError}
+	{#if snapshot.current.saveError}
 		<p role="alert" class="text-sm text-destructive">Your draft has not saved. Keep this window open.</p>
 		<Button variant="outline" size="sm" onclick={() => void fileEdit.save()}>Save draft again</Button>
 	{/if}

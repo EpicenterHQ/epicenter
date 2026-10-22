@@ -9,7 +9,7 @@
  * read are listed to edit; the rest are named, with why, for repair as text.
  *
  * Typing is never lost to a reread. Fields, body and whole text use one
- * ReactiveDocument interface, selected through a typed table or file path. Each
+ * FileDocument interface, selected through a typed table or file path. Each
  * failed save is reported. Folder saves a second after the last
  * change. The source draft remains owned by Folder after the view leaves.
  * Saves publish complete sources in call order. A failed publication keeps
@@ -31,12 +31,12 @@
 
 import { InstantString } from '@epicenter/definition';
 import type { Row } from '@epicenter/folder';
-import type { SaveFailure } from '@epicenter/folder/document';
+import type {
+	DocumentSnapshot,
+	FileDocument,
+	SaveFailure,
+} from '@epicenter/folder/document';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
-import {
-	type ReactiveDocument,
-	reactiveDocument,
-} from '@epicenter/svelte/document';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
@@ -46,6 +46,7 @@ import {
 import { customAlphabet } from 'nanoid';
 import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
+import type { TSchema } from 'typebox';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
@@ -76,7 +77,7 @@ import {
 } from './deletion.js';
 import { maintainExclusions } from './exclusions.js';
 import { textRead } from './file-reads.js';
-import { describeError, listingOf, nameProblem, readBytes } from './files.js';
+import { describeError, listingOf, nameProblem } from './files.js';
 import type { WhisperingContext } from './folder.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { PostProcessingChoice } from './post-processing.js';
@@ -445,24 +446,21 @@ export function createWhispering(context: WhisperingContext) {
 
 	// --- editing ---------------------------------------------------------------
 
-	/** One tracked file edit; table access also binds its read schema. */
-	function documentAt(path: string): ReactiveDocument;
+	/** Select a core document; table access also binds its read schema. */
+	function documentAt(path: string): FileDocument;
 	function documentAt<T extends RowTable>(
 		table: T,
 		path: string,
-	): ReactiveDocument<WhisperingTables[T]>;
-	function documentAt(tableOrPath: string, path?: string): ReactiveDocument {
+	): FileDocument<WhisperingTables[T]>;
+	function documentAt(tableOrPath: string, path?: string) {
 		const target = path ?? tableOrPath;
 		const table =
 			path === undefined ? rowTableOf(target) : (tableOrPath as RowTable);
-		if (table === undefined)
-			return reactiveDocument(folder.files.document(target));
+		if (table === undefined) return folder.files.document(target);
 		const id = rowIdOf(table, target);
 		if (id === undefined)
 			throw new Error(`${target} is not a file in the ${table} table.`);
-		return reactiveDocument<WhisperingTables[RowTable]>(
-			folder.tables[table].document(id),
-		);
+		return folder.tables[table].document(id);
 	}
 	// Each failed publication is told once. Its editor remains the only owner
 	// of copyable text, including typing accepted after this status snapshot.
@@ -496,14 +494,18 @@ export function createWhispering(context: WhisperingContext) {
 	 * Whether `path` shows as its exact text: a row file the person opened in
 	 * Source, or one whose text does not read as a row.
 	 */
-	function showsText(path: string): boolean {
+	function showsText(
+		path: string,
+		snapshot: DocumentSnapshot<TSchema> = documentAt(path).getSnapshot(),
+	): boolean {
 		const table = rowTableOf(path);
 		if (table === undefined) return true;
 		if (asText.has(path)) return true;
 		const stem = rowIdOf(table, path) as string;
-		const edit = documentAt(table, path);
 		const saved = listed(table)?.find((item) => item.id === stem);
-		const row = edit.isDirty ? edit.content : (saved ?? edit.content);
+		const row = snapshot.isDirty
+			? snapshot.content
+			: (saved ?? snapshot.content);
 		return row !== undefined && row.issues !== null;
 	}
 
@@ -1032,7 +1034,7 @@ export function createWhispering(context: WhisperingContext) {
 			const why = refused();
 			if (why !== undefined) return why;
 			const fileEdit = documentAt(path);
-			if (fileEdit.content?.issues !== null) return STILL_TEXT;
+			if (fileEdit.getSnapshot().content?.issues !== null) return STILL_TEXT;
 			asText.delete(path);
 			return undefined;
 		},

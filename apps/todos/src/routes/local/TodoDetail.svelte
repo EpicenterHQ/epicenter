@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -8,7 +9,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast, toastOnError } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { reactiveDocument } from '@epicenter/svelte/document';
+
 	import { getFolder } from '$lib/folder.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { describeFailure, labelOf, todoPath } from '$lib/local-todos.js';
@@ -34,8 +35,9 @@
 	const id = shownId;
 	const path = todoPath(id);
 	/** The todo as stored, with what is typed over it; the folder keeps both after this view. */
-	const fileEdit = reactiveDocument(folder.tables.todos.document(id));
-	const todo = $derived(fileEdit.content?.issues === null ? fileEdit.content : undefined);
+	const fileEdit = folder.tables.todos.document(id);
+	const snapshot = liveSnapshot(fileEdit);
+	const todo = $derived(snapshot.current.content?.issues === null ? snapshot.current.content : undefined);
 
 
 	function confirmDiscard() {
@@ -79,9 +81,9 @@
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
-	{#if fileEdit.loadError && fileEdit.content}
+	{#if snapshot.current.loadError && snapshot.current.content}
 		<div class="border-b bg-destructive/10 px-4 py-2 text-xs text-destructive" role="status">
-			Could not read the latest todo: {fileEdit.loadError.message}.
+			Could not read the latest todo: {snapshot.current.loadError.message}.
 			<Button variant="link" size="xs" onclick={() => void fileEdit.refresh()}>Try again</Button>
 		</div>
 	{/if}
@@ -111,11 +113,11 @@
 		</div>
 
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{#if fileEdit.saveError}
-				Not saved: {describeFailure(fileEdit.saveError)}
+			{#if snapshot.current.saveError}
+				Not saved: {describeFailure(snapshot.current.saveError)}
 				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void fileEdit.save()}>Try again</Button>
 				<Button variant="link" size="xs" class="h-auto p-0" onclick={confirmDiscard}>Discard changes</Button>
-			{:else if fileEdit.isDirty || fileEdit.isSaving}
+			{:else if snapshot.current.isDirty || snapshot.current.isSaving}
 				Saving…
 			{:else}
 				Saved on this device
@@ -133,8 +135,8 @@
 		</div>
 
 		{@render fileBar(labelOf({ id, fields: shown.fields }))}
-	{:else if fileEdit.content}
-		{@const broken = fileEdit.content}
+	{:else if snapshot.current.content}
+		{@const broken = snapshot.current.content}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<h2 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h2>
@@ -156,13 +158,13 @@
 			class="min-h-48 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap"
 			aria-label="Text of {path}">{broken.text}</pre>
 		{@render fileBar(`${id}.md`)}
-	{:else if fileEdit.loadError && fileEdit.loadError.name !== 'Missing'}
+	{:else if snapshot.current.loadError && snapshot.current.loadError.name !== 'Missing'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read this todo</Empty.Title>
-			<Empty.Description>{fileEdit.loadError.message}</Empty.Description>
+			<Empty.Description>{snapshot.current.loadError.message}</Empty.Description>
 			<Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Try again</Button>
 		</Empty.Root>
-	{:else if !fileEdit.loadError}
+	{:else if !snapshot.current.loadError}
 		<Loading class="flex-1" label="Opening the todo…" />
 	{:else}
 		<Empty.Root class="flex-1">

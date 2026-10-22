@@ -6,6 +6,7 @@
 	or leaving this view keeps that work with Folder. Retry is explicit here.
 -->
 <script lang="ts">
+	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -18,7 +19,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { InstantString } from '@epicenter/definition';
 	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
-	import { reactiveDocument } from '@epicenter/svelte/document';
+
 	import { createQuery } from '@tanstack/svelte-query';
 	import { folderIdOf, noteIdOf } from '$lib/data.js';
 	import { textRead } from '$lib/file-reads.js';
@@ -46,7 +47,7 @@
 	/**
 	 * What the file is: text, binary, or too large to open, with its size.
 	 * Only the whole-file presentation needs this classification. The note
-	 * list and ReactiveDocument keep the source current in either presentation.
+	 * list and document subscriptions keep the source current in either presentation.
 	 */
 	const file = createQuery(() => ({
 		...notes.queries.file(path, textRead),
@@ -55,28 +56,25 @@
 	const name = basename(path);
 	const noteId = noteIdOf(path);
 	const folderId = folderIdOf(path);
-	// All presentations use the same schema-bound adapter for this path.
+	// All presentations use the same schema-bound handle for this path.
 	// svelte-ignore state_referenced_locally
 	const noteEdit = noteId === undefined
 		? undefined
-		: reactiveDocument(notes.folder.tables.notes.document(noteId));
-	// svelte-ignore state_referenced_locally
-	const sourceEdit = folderId !== undefined
-		? notes.folder.tables.folders.document(folderId)
-		: notes.folder.files.document(path);
-	// Both handles are fixed for this keyed view; observation starts acquisition.
+		: notes.folder.tables.notes.document(noteId);
+	// The handle is fixed for this keyed view; observation starts acquisition.
 	// svelte-ignore state_referenced_locally
 	const fileEdit = noteEdit ?? (folderId !== undefined
-		? reactiveDocument(notes.folder.tables.folders.document(folderId))
-		: reactiveDocument(notes.folder.files.document(path)));
+		? notes.folder.tables.folders.document(folderId)
+		: notes.folder.files.document(path));
+	const snapshot = liveSnapshot(fileEdit);
 	const note = $derived(
-		noteEdit?.content?.issues === null ? noteEdit.content : undefined,
+		noteEdit !== undefined && snapshot.current.content?.issues === null ? snapshot.current.content : undefined,
 	);
 	// Classification limits an arbitrary file's initial acquisition only.
 	// Pure cached access keeps already acquired text visible on every refresh.
 	const content = $derived(
-		noteEdit !== undefined || file.data?.kind === 'text' || sourceEdit.getSnapshot().content !== undefined
-			? fileEdit.content : undefined,
+		noteEdit !== undefined || file.data?.kind === 'text' || fileEdit.getSnapshot().content !== undefined
+			? snapshot.current.content : undefined,
 	);
 	const text = $derived(content?.text);
 	const issues = $derived(content?.issues ?? undefined);
@@ -204,17 +202,17 @@
 
 	{#if content !== undefined || note !== undefined}
 		<div class="shrink-0 space-y-2 border-t px-4 py-2 text-xs text-muted-foreground">
-			{#if fileEdit.loadError}<p role="alert">{fileEdit.loadError.message} Your previous text is kept.</p>{/if}
-			{#if fileEdit.isDirty && fileEdit.loadError && content !== undefined}
+			{#if snapshot.current.loadError}<p role="alert">{snapshot.current.loadError.message} Your previous text is kept.</p>{/if}
+			{#if snapshot.current.isDirty && snapshot.current.loadError && content !== undefined}
 				<details><summary>Your source</summary><pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved source">{content.text}</pre></details>
 			{/if}
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="min-w-0 flex-1" role="status" data-testid="write-status">
-					{#if fileEdit.saveError}
-						Not saved: {describeFailure(fileEdit.saveError)}
-					{:else if fileEdit.isDirty || fileEdit.isSaving}
+					{#if snapshot.current.saveError}
+						Not saved: {describeFailure(snapshot.current.saveError)}
+					{:else if snapshot.current.isDirty || snapshot.current.isSaving}
 						Saving…
-					{:else if fileEdit.loadError}
+					{:else if snapshot.current.loadError}
 						Text kept here
 					{:else if content === undefined}
 						No unsaved changes
@@ -224,21 +222,21 @@
 						Saved
 					{/if}
 				</span>
-				{#if fileEdit.loadError}
+				{#if snapshot.current.loadError}
 					<Button size="sm" variant="outline" disabled={locked} onclick={() => void fileEdit.refresh()}>Try again</Button>
-					{#if fileEdit.saveError === undefined && (fileEdit.loadError.name === 'Missing' || fileEdit.loadError.name === 'NotText')}
+					{#if snapshot.current.saveError === undefined && (snapshot.current.loadError.name === 'Missing' || snapshot.current.loadError.name === 'NotText')}
 						<Button size="sm" variant="outline" disabled={locked} onclick={() => void fileEdit.save()}>Restore text</Button>
 					{/if}
 				{/if}
-				{#if fileEdit.saveError}
+				{#if snapshot.current.saveError}
 					<Button size="sm" variant="outline" disabled={locked} onclick={() => void fileEdit.save()}>Save again</Button>
 				{/if}
-				{#if fileEdit.isDirty && (fileEdit.saveError || fileEdit.loadError)}
+				{#if snapshot.current.isDirty && (snapshot.current.saveError || snapshot.current.loadError)}
 					<Button size="sm" variant="ghost-destructive" disabled={locked} onclick={confirmDiscard}>Discard changes</Button>
 				{/if}
 				{#if as === 'note' && note !== undefined}
 					<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" disabled={locked} onclick={() => notes.open(path, 'text')}>Edit as file</Button>
-					{#if typeof note.fields.deletedAt === 'string'}
+					{#if 'deletedAt' in note.fields && typeof note.fields.deletedAt === 'string'}
 						<Button size="sm" variant="outline" disabled={locked} onclick={() => report('restore the note', notes.patchNote(path, { deletedAt: null }))}>Restore</Button>
 						<Button size="sm" variant="ghost-destructive" disabled={locked} onclick={() => void confirmDelete(notes, path)}>Delete permanently</Button>
 					{:else}

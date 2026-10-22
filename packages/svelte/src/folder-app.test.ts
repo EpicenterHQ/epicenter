@@ -76,7 +76,7 @@ test.each(['refusal', 'rejection'] as const)(
 		expect(calls).toBe(2);
 		expect(target.textContent).not.toContain('Could not open storage');
 		const folder = context?.folder;
-		if (folder === undefined)
+		if (folder === undefined || folder.tables.notes === undefined)
 			throw new Error('The supplied folder was not provided');
 		expect(expectOk(await folder.tables.notes.list())).toEqual([]);
 	},
