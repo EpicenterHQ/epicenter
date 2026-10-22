@@ -7,7 +7,7 @@
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`epicenter sync`), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (`set` and its `from`).
 - **Unbuilt:** `check` listing conflict markers left by plain Git.
 
-- **Current edit implementation:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) describes the implemented whole-source draft behavior; its decision remains Proposed. `FileEdit` commands change one pinned source in call order; storage matching neither its observed source nor its draft causes a whole-file `Conflict` rather than a field or body merge. Direct `files.write`, `tables.<name>.set`, and Git sync retain their content merge rules. The earlier draft-merge descriptions below record the prior model.
+- **Current edit implementation:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md) records the retained-source model implemented in `bd78bfb52b`. Editors and direct file/table commands share each path's publication lane; local writes are unconditional whole-file last-write-wins. Git synchronization keeps its merge rules. Earlier draft-merge and guarded-save descriptions below are historical.
 
 Retired source files below use their last tracked Git snapshot (`commit:path`);
 inspect one with `git show commit:path`.

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-21
 - **Amended by:** [ADR-0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md), which replaces the public pending/read-status vocabulary with a nested buffer snapshot.
-- **Implementation:** `FileEdit` holds one exact source draft, source-only pending input, guarded source comparison and a whole-source conflict recovery action in both storage engines. The decision remains Proposed.
+- **Implementation history:** The guarded-source model was implemented in `bcf74b02b2`, then replaced by unconditional local publications in `bd78bfb52b`. [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md) records the replacement. The proposal below preserves the earlier save contract, not an outstanding integration task.
 
 ## Context
 

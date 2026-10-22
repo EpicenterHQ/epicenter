@@ -1,7 +1,8 @@
 # 0667. A file edit's ready buffer contains its unsaved state
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-22
+- **Superseded by:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md), the retained-source snapshot and unconditional local publication model implemented in `bd78bfb52b`. The nested-buffer decision below is historical.
 - **Amends:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md), the public state vocabulary. Exact-source saving and conflict guards remain unchanged.
 
 ## Context

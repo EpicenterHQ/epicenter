@@ -863,12 +863,13 @@ When you add an ADR, add its row here.
 | [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Proposed (amends 0628) |
 | [0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) | Ignore rules select Git source without a declaration policy | Proposed |
 | [0655](0655-product-root-components-use-the-app-name-and-app-suffix.md) | Product root components use the app name and App suffix | Accepted |
-| [0656](0656-a-folder-owns-typed-input-from-open-to-close.md) | A folder owns typed input from open to close | Proposed (amends 0548 and 0554) |
+| [0656](0656-a-folder-owns-typed-input-from-open-to-close.md) | A folder owns typed input from open to close | Accepted (amends 0548 and 0554; source model amended by 0668) |
 | [0658](0658-capture-compositions-are-durable-markdown-records.md) | Capture compositions are durable Markdown records from Add, not before | Accepted |
 | [0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) | Native apps default authored work to the Epicenter root | Accepted (amends 0636, 0644, and 0647; restores the native default of 0539; standalone fixed default built) |
-| [0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md) | One path edit exposes text and structured changes through one interface | Proposed (amends 0656; implemented) |
+| [0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md) | One path edit exposes text and structured changes through one interface | Proposed (historical interface; current API in 0668) |
 | [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Accepted (always-confirm Quit; unsaved-only Close) |
 | [0664](0664-folder-close-drains-admitted-work-through-one-owner.md) | Folder close drains admitted work through one owner | Accepted (amends 0574, 0656, and 0657) |
 | [0665](0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) | A Markdown file without frontmatter has empty fields and a body | Proposed |
-| [0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) | One source draft per path saves against its observed source | Proposed |
-| [0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md) | A file edit's ready buffer contains its unsaved state | Accepted (amends the public state vocabulary of 0666) |
+| [0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) | One source draft per path saves against its observed source | Proposed (historical guarded saves; replacement in 0668) |
+| [0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md) | A file edit's ready buffer contains its unsaved state | Superseded by 0668 |
+| [0668](0668-one-folder-owned-source-orders-file-publications.md) | One Folder-owned source orders file publications | Proposed (implemented in bd78bfb52b; supersedes 0667) |

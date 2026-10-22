@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at the `.md` merge unit: a headerless Markdown side also has empty fields and a body, rather than falling back solely because its fence is absent.
-- **Implementation:** File and table reads, edits, listings and Markdown merges use one framing rule. The required/optional policy is removed from the codec and edit input. The decision remains Proposed.
+- **Implementation:** File and table reads, edits, listings and Git synchronization merges use one framing rule. The required/optional policy is removed from the codec and edit input. Local publication follows [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md); it does not merge or retry against an observed source. The decision remains Proposed.
 
 ## Context
 
@@ -31,9 +31,9 @@ A closed header whose YAML cannot be interpreted exposes unavailable fields,
 the exact source, and the body after the closing fence. An unclosed opener
 exposes unavailable fields and an unavailable body, with the exact source
 retained for repair.
-A body change is refused while that boundary is unknown, including when an
-outside writer creates the unclosed opener between preparation and a guarded
-storage attempt. Failed input remains pending.
+A structured body change is refused when the local source has no known body
+boundary. A concurrent outside write does not introduce a guarded retry: local
+publication writes the already composed whole source.
 
 **Structured changes preserve the document's framing unless their content requires a fence.**
 Changing only the body of a headerless file normally leaves it headerless.
@@ -43,7 +43,7 @@ fence first preserves the body as body. Each body write is read back under the
 same rule before it is accepted as the new source. The source byte-order mark
 stays in `text`, outside the body.
 
-**Markdown merging uses that interpretation for base, current and change.**
+**Git synchronization merging uses that interpretation for base, current and change.**
 An absent fence alone does not turn a Markdown side into malformed text. Named
 fields merge by field and known bodies merge by line region under ADR-0622;
 malformed headers retain its repairable-text behavior. Neither a table schema
@@ -53,13 +53,13 @@ nor a table address chooses merge units.
 
 - Delete the required/optional frontmatter parameter, `strictRow` distinction,
   duplicate interpretation caches, and framing policy carried through pending
-  input and guarded writes. Rows and listings add identity around the common
+  input. Rows and listings add identity around the common
   Markdown value.
 - A headerless file can be a valid table row when its schema accepts `{}`. A
   schema requiring fields instead reports those fields as missing. Table and
   CLI callers that select a view by schema success must use this new result.
-- A field assignment over a headerless file may add a fence during a guarded
-  retry. An unclosed opener still blocks structured edits that need its
+- A field assignment over a headerless local source may add a fence before
+  publication. An unclosed opener still blocks structured edits that need its
   unknown boundary. Exact text and recoverable failed input remain available.
 
 ## Considered alternatives
