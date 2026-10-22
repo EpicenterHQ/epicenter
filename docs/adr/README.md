@@ -885,3 +885,4 @@ When you add an ADR, add its row here.
 | [0679](0679-the-launcher-groups-folders-by-pin-library-membership-then-recency.md) | The launcher groups folders by pin, library membership, then recency | Proposed (implemented; amends 0641 and 0671) |
 | [0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md) | Rust serves each installed app from a pinned build on its own origin | Proposed (installed-page runtime and platform probes unbuilt) |
 | [0681](0681-portable-capability-packages-follow-the-resource-they-own.md) | Portable capability packages follow the resource they own | Proposed (`@epicenter/sqlite` and `@epicenter/secrets` as separate homes; no umbrella runtime package) |
+| [0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) | Secrets use one persistent API and a shared Tauri plugin | Proposed (localStorage browser adapter; reusable native plugin and Specta bindings unbuilt) |
