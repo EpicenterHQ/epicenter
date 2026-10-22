@@ -1,6 +1,6 @@
 ---
 name: consult-claude
-description: Give Claude Opus 5.5 responsibility for reasoning, design judgment, read-only investigations, recommendations, or finished text drafts. Use when the result benefits from thoughtful reasoning or taste, when asked to consult Claude, or when a design-review workflow includes Claude. Completed edits and executable experiments belong to delegate-claude.
+description: Give Claude Opus 5.5 responsibility for reasoning, design judgment, read-only investigations, recommendations, or finished text drafts. Use when the result benefits from thoughtful reasoning or taste, when asked to consult Claude, or when supplying the Claude seat of an independent review. Completed edits and executable experiments belong to delegate-claude.
 ---
 
 # Consult Claude
@@ -20,7 +20,7 @@ before briefing Claude or wait until it is stuck. Give Claude the desired
 outcome and raw source evidence, and enough
 ownership to finish the answer. A short but consequential question can warrant
 consultation; routine mechanical work stays in Codex. A standalone
-consultation does not automatically launch the adversarial reviewer pair.
+consultation does not automatically launch an adversarial review.
 
 Choose Claude for the quality of its reasoning and judgment, including on a
 small question when the choice matters. Use Codex assistance for supporting
@@ -54,12 +54,13 @@ evidence to judge the decision; Claude can read further to verify your account.
 
 For a requested adversarial design review, have Claude apply
 [adversarial-review](../adversarial-review/SKILL.md) itself without commissioning
-another reviewer. Its coordinator owns staffing; this consultation supplies a
-Claude reviewer or a standalone opinion. For other design questions, answer the
-bounded question from source evidence; a complete architectural review is not
-implied. Treat the implementer's reasoning as contestable evidence. Ask for a
-concrete smaller alternative when that would decide the question; keeping the
-design is valid when its guarantees earn their cost.
+another reviewer. Its coordinator owns staffing and the starting questions;
+this consultation supplies the review's Claude seat or a standalone opinion.
+For other design questions, answer the bounded question from source evidence;
+a complete architectural review is not implied. Treat the implementer's reasoning
+as contestable evidence. Ask for a concrete smaller alternative when that would
+decide the question; keeping the design is valid when its guarantees earn their
+cost.
 
 ## Send a brief
 

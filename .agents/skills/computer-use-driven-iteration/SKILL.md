@@ -12,8 +12,10 @@ invariant, or smaller promise that makes a family of complexity unnecessary.
 Success is a better product with a simpler supported design, not more waves.
 
 Codex owns continuity, decisions, acceptance, and integration. Use a Codex
-model with computer-use tools for simulations and Claude Opus 5.5 for delegated
-implementation, following the agent collaboration guidance in `AGENTS.md`.
+model with computer-use tools for simulations and Claude Opus 5.5 to own
+delegated implementation waves, with a Codex helper writing substantial changes
+under Claude's direction, following the agent collaboration guidance in
+`AGENTS.md`.
 Respect explicit model choices; report unavailable capabilities and any
 substitution. The responsibilities survive changes to model availability. This
 is a Codex coordination skill; Claude receives bounded assignments through the
@@ -84,7 +86,7 @@ Use [adversarial-review](../adversarial-review/SKILL.md) at consequential design
 checkpoints, when evidence suggests a different owner, lifecycle, public
 contract, or smaller promise could remove substantial machinery, and whenever
 the user requests it. That skill owns independent reviewer setup and
-adjudication. Reflection happens every wave; a full reviewer pair does not.
+adjudication. Reflection happens every wave; a full reviewer group does not.
 Preserve reviewer independence from the implementation worker.
 
 Use [collapse-pass](../collapse-pass/SKILL.md) when accepted findings call for
