@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-22
-- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) (the present, narrower desktop runner); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) (standalone releases and fixed bundled pages); historical [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (a retired source-install and merge design).
-- **Unbuilt:** Source installation, app manifest discovery, user-owned checkout registration, installed builds, update discovery, agent-assisted merge workflow, and native admission for installed pages. The desktop currently bundles fixed app pages; it does not install their source.
+- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) (the present, narrower desktop runner); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) (standalone releases and fixed bundled pages); [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) (fixed first-party data folders); [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) (native device storage); the proposed folder launcher grouping; historical [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (a retired source-install and merge design).
+- **Unbuilt:** The CLI `apps` group, source installation, app manifest discovery, user-owned checkout registration, installed builds, update discovery, agent-assisted merge workflow, and native admission for installed pages. The desktop currently bundles fixed app pages; it does not install their source.
 
 ## Context
 
@@ -32,6 +32,11 @@ If accepted, it would amend ADR-0611 and ADR-0635 at the prohibition on
 source acquisition and builds in the desktop runner. Replacing the fixed
 first-party bundles would also amend ADR-0674's bundled-page release rule;
 standalone products would retain their independent releases.
+Installed targets are a separate distribution that ADR-0674 left out of
+scope. Fixed bundled pages would still change only with an Epicenter release.
+The recorded host API version would let independently built pages be checked
+against the host before activation, though that API version is not yet
+defined.
 
 ## Decision
 
@@ -41,8 +46,10 @@ The source repository is the unit a person and agent edit. Each app target
 has a tracked `epicenter.app.json` in its own directory, including the
 repository root when the repository contains only one app. Epicenter finds
 those manifests wherever they occur; `apps/` is a convention in this
-monorepo, not a required path in other repositories. A manifest identifies
-the app and its desktop-host build and output locations. Adding a repository
+monorepo, not a required path in other repositories. A manifest describes
+the target and its desktop-host build and output locations. Its identifier
+and title never select an installation key, origin, window label, native
+grant, device-storage scope, or library folder. Adding a repository
 discovers its app targets; the person chooses which targets to build and open.
 
 Epicenter can clone a remote into an ordinary, user-accessible source
@@ -95,6 +102,33 @@ canonical app directory has at most one installation, so adding it again
 reuses its key; distinct worktrees have distinct keys. Moving source never
 silently transfers an installation. Preserving its origin and builds after a
 move requires an explicit source rebind.
+
+The proposed CLI contract is:
+
+```text
+epicenter apps clone <git-url> <checkout-dir> [--ref <ref>]
+epicenter apps register [<app-dir>]
+epicenter apps build [<app-dir> | --id <key>]
+epicenter apps open [<app-dir> | --id <key>] --folder <data-dir>
+epicenter apps list
+```
+
+`apps clone` makes a shallow checkout at the chosen destination, refuses an
+occupied destination, reports the app targets it found, and writes no
+installation record. It is separate from the existing `epicenter clone`
+command, which clones a data folder. `apps register` requires an exact
+directory containing a tracked manifest; it defaults to the current
+directory, runs no source code, and reuses an existing installation key.
+A repository root without its own manifest is not an app selector; the CLI
+can list its discovered targets in the error. `apps build` requires a
+registered target and reports its checkout, HEAD, and local edits before
+running build scripts. `apps open` hands an existing data folder to the
+native host; installed targets have no default folder. `apps list` makes
+installation keys discoverable for scripts and missing checkouts. Rebinding
+source, removing a registration, and selecting an older build follow the
+same path-or-`--id` selector rule; their command spellings are deferred.
+The desktop UI guides the person through these CLI operations rather than
+keeping a second source-install implementation.
 
 **The checkout's branch belongs to the person and agent, not to Epicenter.**
 

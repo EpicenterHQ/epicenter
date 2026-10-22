@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-22
 - **Amends:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at the optional runner's exclusion of installed source-built pages and native app admission, if this proposal is accepted.
-- **Relates:** Historical [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) and [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) keeps standalone releases and fixed bundled pages separate.
+- **Relates:** Historical [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) and [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) keeps standalone releases and fixed bundled pages separate; [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) defines fixed first-party folders; [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) proposes runtime-bound device storage; the proposed launcher grouping concerns data folders.
 - **Unbuilt:** Installed-page serving, per-installation origins and labels, pinned-window builds, installed-page grants, and current-platform isolation probes. Rust presently serves only built-in and fixed bundled pages from `epicenter-app://localhost`.
 
 ## Context
@@ -37,8 +37,8 @@ atomically changes its active-build record. The CLI runs no persistent server
 for an installed page. Rust reads that record and serves files from its
 completed build with the scheme handler's existing containment, fallback, and
 response policy. The handler never serves the checkout's mutable `dist/`
-directory. A build is a set of static files;
-an app that requires its own long-running server is outside this runner.
+directory. A build is a set of static files; an app that requires its own
+long-running server is outside this runner.
 
 **Each local installation has a separate origin and a host-chosen identity.**
 
@@ -50,6 +50,20 @@ an `installed:` prefix outside every bundled-app selector. Rust checks that
 the requested host matches the key bound to the requesting WebView before
 serving any file, and keeps navigation on that origin. An app cannot fetch
 another installation's build through a different host from its own window.
+
+The installation key is also an installed page's only host-assigned identity
+for browser and device storage. Its browser origin storage is separated by
+that key.
+If native device storage is later granted under ADR-0678, its scope derives
+from the key in a namespace separate from the first-party logical app IDs
+compiled into standalone and bundled shells. A manifest identifier, title,
+target path, or Git remote cannot select a first-party device scope. Thus a
+source-installed Todos, including a fork of the first-party source, does not
+silently share standalone or bundled Todos's device state. Sharing that state
+would need a separate native admission and migration decision; a manifest
+claim alone cannot authorize it.
+This qualifies ADR-0678's shared first-party device scope for source-installed
+apps without changing how standalone and fixed bundled versions share it.
 
 **An open window keeps the build it opened.**
 
@@ -71,12 +85,25 @@ its binding; closing and reopening it selects the active build.
 The grant allows the folder API on the one directory that Rust binds to
 the window, its change events, and the close behavior those pages need.
 It grants no generic process execution, CLI runner, Epicenter account
-operation, recorder, or model administration. Rust admits the selected data
-folder before the WebView exists; the page supplies no filesystem path to
-its native calls. A manifest cannot expand this grant. Additional native
-powers require a separate host decision and implementation. The first
-installed app opens an existing folder selected or listed by the host; it
-does not claim a fixed first-party default folder.
+operation, recorder, model administration, or device-storage binding.
+`openDeviceStorage()` refuses an installed page without a binding. Rust
+admits the selected data folder with the same protected-directory checks
+used for bundled apps before the WebView exists; the page supplies no
+filesystem path to its native calls. A manifest cannot expand this grant.
+Additional native powers require a separate host decision and
+implementation. An installed app opens only an existing folder selected,
+listed, or handed off by the host. It has no launch default, does not create
+a library child, and cannot claim a fixed first-party default through its
+manifest. The person can explicitly open the same data folder with a
+bundled and an installed app.
+
+The launcher lists installed targets among its app launch controls, keyed
+by installation rather than title and distinguished by source directory.
+Each installed target can offer Choose folder and appear in a folder row's
+Open with menu. Its source availability and active build are visible there.
+Opening or revealing a window updates that folder's recency under the
+proposed launcher grouping;
+installations themselves are not folder pins or recent folders.
 
 A CLI command may ask the installed Epicenter desktop app to open an app
 window through a handoff. That command does not start a server or turn a
