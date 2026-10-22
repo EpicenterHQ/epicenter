@@ -50,6 +50,12 @@
 	}));
 	const draft = $derived(fileEdit.content?.issues === null && fileEdit.content.fields.draft === true);
 	const locked = $derived(captures.fenced);
+	/**
+	 * Add is running and the text still reads as the draft: typing now would
+	 * compose over the draft and undo Add when it saves. Once Add's write
+	 * lands the text is the finished capture, and typing composes over it.
+	 */
+	const adding = $derived(finishDraft.isPending && draft);
 	let refusal = $state<string | undefined>();
 
 	function finish() {
@@ -168,13 +174,13 @@
 			aria-label="Contents of {path}"
 			class="min-h-96 font-mono text-xs"
 			spellcheck={false}
-			readonly={locked}
+			readonly={locked || adding}
 			aria-invalid={fileEdit.loadError !== undefined || refusal !== undefined}
 			bind:value={
 				() => shown.replace(/\r\n?/g, '\n'),
 				(typing) => {
 					// The first change starts from the source shown; later ones keep theirs.
-					if (locked) return;
+					if (locked || adding) return;
 					const { error } = fileEdit.replaceText(withFileNewlines(typing.toWellFormed(), shown));
 					refusal = error?.message;
 					if (error === null) finishDraft.reset();

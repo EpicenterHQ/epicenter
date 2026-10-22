@@ -245,7 +245,22 @@ test('a draft an earlier version saved is listed apart, autosaves, and Add captu
 	await t.quiet();
 	expect(await t.text(DRAFT)).toBe(draftFile('Written in the draft'));
 
+	const set = t.folder.tables.captures.set;
+	const held = Promise.withResolvers<void>();
+	t.folder.tables.captures.set = async (...args) => {
+		await held.promise;
+		return set(...args);
+	};
 	click(document, 'Add capture');
+	// Until Add's write lands, typing would compose over the draft and undo it.
+	await until(() => {
+		flushSync();
+		return box.readOnly;
+	}, 'Add to run');
+	type(box, draftFile('typed while adding'));
+	expect(edit.getSnapshot().content?.body).toBe('Written in the draft');
+	t.folder.tables.captures.set = set;
+	held.resolve();
 	await until(() => {
 		flushSync();
 		return field('new-thought') !== null;
