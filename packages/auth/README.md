@@ -118,15 +118,16 @@ window regains focus. `signOut` is refused: the app signs out from Settings.
 ## Lifetime and policy
 
 `AuthState` is signed-out, signed-in with an Account, or reauth-required with
-that same Account. Store apps capture the Account from the plain client in
-their mounted working owner and keep one App per working page. Svelte adapts
-auth with `fromAuth` for UI tracking through its reactive `.state` getter.
-The raw client exposes the explicit snapshot method `getState()`. Ordinary
-persistence runs during use. Browser departures remove working UI and replace
-the document without awaiting application drains. Whispering signs out in a
-resource-free route so credential clearing can finish after the working UI
-unmounts. Unexpected retirement enters its resource-free recovery route;
-reopening requires an explicit action. Honeycrisp still uses `AppBoot` and its
+that same Account. Store apps capture the Account once in their mounted working
+owner and keep one App per working page. A Svelte app can export one
+`fromAuth(client)` facade and read `auth.state` in both places: component setup
+gets a snapshot, while a template, derived value, or effect tracks changes.
+The plain client keeps its explicit `getState()` method; the Svelte facade
+exposes `state` instead and carries through the other methods. A component with
+imperative work on auth changes can subscribe directly with `onStateChange`.
+
+Ordinary persistence runs during use. Browser departures remove working UI and replace
+the document without awaiting application drains. Honeycrisp still uses `AppBoot` and its
 `?stopped` marker. Failed navigation and browser history restoration cannot
 reactivate the retired working UI. Resource disposal and acquisition rollback
 remain independent of navigation.

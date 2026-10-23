@@ -39,12 +39,12 @@
 	// sign-in and sign-out replace this page, and a change made in another tab
 	// is offered as a reload below. The folder, the endpoints connected on this
 	// device, and the chosen model are the same either way.
-	const account = auth.getState().account;
+	const account = auth.state.account;
 	const departure = new AbortController();
 	const sources = openVocabInference(account);
 	const catalog = createInferenceCatalog({ ai: sources, signal: departure.signal, hostedModels: toHostedCatalog([VOCAB_MODEL]) });
 	const selections = createBrowserInferenceSelections('vocab');
-	const accountChanged = $derived(auth.state.account?.principalId !== account?.principalId || auth.state.account?.authorityId !== account?.authorityId);
+	const accountChanged = $derived(auth.state.account !== account);
 
 	const VIEWS = [
 		{ id: 'words', label: 'Words', icon: BookOpenIcon },
@@ -171,7 +171,7 @@
 			{#if focusOpen && selectedChat}<div class="border-b p-3 md:hidden"><FocusWords focus={selectedChat.focus} {entries} /></div>{/if}
 			{#if !selectedChatId}<p class="m-auto text-center text-muted-foreground">Choose a chat from history.</p>{/if}
 			{#if selectedChatId && selectedChat}
-				{#key selectedChatId}<ConversationView chatId={selectedChatId} {folder} write={chats.messageWriter(selectedChatId)} {catalog} {selections} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
+				{#key selectedChatId}<ConversationView chatId={selectedChatId} {account} {folder} write={chats.messageWriter(selectedChatId)} {catalog} {selections} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
 			{/if}
 		</div>
 		<aside class="hidden w-60 shrink-0 overflow-y-auto border-l p-3 md:block" aria-label="Focus words">

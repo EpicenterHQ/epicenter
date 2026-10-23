@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { Loading } from '@epicenter/ui/loading';
-	import { auth } from '$lib/auth';
+	import { auth } from '$lib/auth.svelte.js';
 
 	// Completion only, and it opens nothing: the store is opened by
 	// `+page.svelte`, which is a sibling under the same chrome-only root layout

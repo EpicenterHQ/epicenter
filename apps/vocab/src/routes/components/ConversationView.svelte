@@ -10,6 +10,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { onDestroy, onMount } from 'svelte';
 	import type { AgentMessage } from '@epicenter/agent';
+	import type { Account } from '@epicenter/auth';
 	import { auth } from '$lib/auth.svelte.js';
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
 	import type { VocabFolder } from '$lib/data.js';
@@ -21,11 +22,10 @@
 	import PhraseCapture from './PhraseCapture.svelte';
 
 	const accountManagementUrl = auth.accountManagementUrl;
-	// The account the shell opened the tutor's connections with.
-	const account = auth.getState().account;
 
 	let {
 		chatId,
+		account,
 		folder,
 		write,
 		catalog,
@@ -37,6 +37,8 @@
 		onOpeningStarted = () => {},
 	}: {
 		chatId: string;
+		/** The account captured when the parent opened this tutor. */
+		account: Account | undefined;
 		folder: Pick<VocabFolder, 'tables' | 'files'>;
 		/** Saves each message in this chat's turn. */
 		write: MessageWrite;

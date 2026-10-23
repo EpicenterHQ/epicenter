@@ -16,6 +16,7 @@ import {
 	type DesktopAccountAudience,
 	type DesktopAccountStatus,
 } from './desktop-account-auth.ts';
+import { fromAuth } from './svelte/auth.svelte.ts';
 
 const origin = 'https://api.example.test';
 const signedIn = (
@@ -79,12 +80,17 @@ test('the desktop grant is the account, and its id is the principal', async () =
 
 test('the deployment is the one the status names: the hosted one has the account website', async () => {
 	const { auth, set } = harness(signedIn());
-	expect(auth.baseURL).toBe('');
+	const reactive = fromAuth(auth);
+	expect('getState' in reactive).toBe(false);
+	expect(reactive.state.status).toBe('signed-out');
+	expect(reactive.baseURL).toBe('');
 	set({ origin: PRODUCTION_API_URL, grant: signedIn().grant });
 	await auth.refresh();
 	expect(auth.baseURL).toBe(PRODUCTION_API_URL);
+	expect(reactive.baseURL).toBe(PRODUCTION_API_URL);
 	expect(auth.getState().account?.authorityId).toBe('epicenter-api');
 	expect(auth.accountManagementUrl).toBe(createAccountManagementUrl);
+	expect(reactive.accountManagementUrl).toBe(createAccountManagementUrl);
 });
 
 test('Account.fetch sends through the app audience and getProfile through api, with no token in the page', async () => {
