@@ -1,22 +1,22 @@
 # 0683. Hosted requests use a resource-bound Account fetch
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-22
 - **Relates:** [OAuth resource tokens](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) keeps desktop tokens out of WebViews; [Hosted inference](0634-hosted-inference-is-independent-of-repository-sync.md) makes inference independent of repository access.
-- **Unbuilt:** A production desktop `Account.fetch` caller, its window permission and grant-generation check, `/v1/*` account sending, request and response cancellation, and Whispering's hosted-route migration. The desktop grant still belongs to the CLI.
+- **Implemented:** Whispering's hosted transcription and text requests use an API-bound `Account.fetch` in both builds. The browser has an explicit account connection and OAuth callback; Settings reads the `fromAuth` Svelte facade. Its client does not navigate on a renewal timer because a recording must survive while the page is open. The desktop window has a narrow account command permission and opens Epicenter Settings at Account for sign-in. The CLI checks the grant generation; the host cancels retired native sends. The desktop grant still belongs to the CLI.
 
 ## Context
 
 `@epicenter/auth` already gives an `Account` an authenticated `fetch`.
 Browser OAuth attaches the token for the resource selected when the Account
-opens. `@epicenter/ai` uses that fetch for hosted inference. The desktop
-adapter has the same public method, but no production page constructs it and
-no window can call `account_send`. Whispering instead sends hosted requests
+opens. `@epicenter/ai` uses that fetch for hosted inference. At this decision's
+start, the desktop adapter had the same public method, but no production page
+constructed it and no window could call `account_send`. Whispering sent hosted requests
 through the separate `ai_send` target. The CLI owns the desktop grant, refreshes
 its rotating token under a file lock, and sends both kinds of request.
 
-Those paths do not yet compose. Inference uses `/v1/*`, while desktop
-`account_send` currently allows only `/api/*` and profile userinfo. A desktop
+Those paths did not compose. Inference uses `/v1/*`, while desktop
+`account_send` allowed only `/api/*` and profile userinfo. A desktop
 Account is bound to either the API or Git audience; a Git-bound Account cannot
 authorize inference. The desktop adapter also checks Account retirement only
 before and after sending, without stopping the request or its response stream.
@@ -38,15 +38,17 @@ type need not acquire a resource field, since the dashboard's cookie-session
 Account has no OAuth resource.
 
 **The desktop host authorizes an account request before the credential owner
-sends it.** The host checks the calling window's permission for the bound
-resource and the normalized destination's origin, method, and path. The API
-resource permits the hosted `/v1/*` operations needed by that window; the Git
-resource permits its Git operations, including `GET /api/repos` at the API
-origin. Profile reads permit only `GET /auth/oauth2/userinfo` with the API
-resource. A command grant by itself does not authorize every audience or API
-path. The sender removes page-supplied authorization and cookies, attaches its
-own token, sends no ambient cookies, and refuses redirects. The host and CLI
-both validate the destination; the page's checks are not the authority.
+sends it.** The host checks the calling window's permission, audience, and raw
+method and path. Whispering is granted only the API audience and the exact
+`POST /v1/audio/transcriptions`, `POST /v1/chat/completions`, and
+`GET /auth/oauth2/userinfo` operations. The CLI resolves the deployment
+destination and checks its origin and permitted account path before choosing a
+token; its path rule is broader than the host's window-specific allowlist.
+A command grant by itself does not authorize every audience or API path. The
+sender removes page-supplied authorization and cookies, attaches its own
+token, sends no ambient cookies, and refuses redirects. The page's checks
+are not the authority. A future Git-bound desktop caller needs its own host
+permission and path policy.
 
 **Each desktop request is bound to the grant from which its Account was
 opened.** Sign-in creates an opaque random grant generation, stored with the
@@ -71,13 +73,28 @@ processed by the server cannot be undone.
 
 **The CLI remains the only owner of the `so.epicenter` desktop grant in this
 stage.** Desktop account requests still start a CLI child. Whispering's hosted
-branch will capture an API-bound Account and pass its `fetch` into its existing
+branch captures an API-bound Account and passes its `fetch` into its existing
 transcription and transformation request functions. The Account supplies the
 base URL and sign-in identity for that branch, rather than a second status
-read. The hosted `ai_send` target can be removed after its final caller moves;
+read. The host's hosted `ai_send` target is removed after its final caller moves;
 the CLI send bridge remains for account and bring-your-own-provider requests.
 The grant-generation check and Whispering migration ship together so a pending
 Whispering request cannot borrow a replacement grant.
+
+**Whispering's app UI uses one Svelte auth facade in both builds.** A build-time
+auth leaf keeps the vanilla client private and exposes `fromAuth(client)`.
+Settings reads reactive `auth.state`, calls the same `auth.refresh()` method
+on focus in either build, and uses `onStateChange` only to trigger an imperative
+connection reread. Browser refresh reconciles saved OAuth state; desktop refresh
+reads the shell's grant status. The browser callback completes sign-in without
+opening Whispering's folder. A
+browser connection explicitly selects the Epicenter account or a custom
+endpoint; selecting the account retains the previous custom endpoint for a
+later switch back. Both hosted routes capture the current Account before
+sending, and the browser route remains subject to the API's CORS policy.
+Browser Whispering opts out of timer-driven OAuth renewal so an active
+recording is not ended by an unattended navigation. A refused token prompts
+an explicit sign-in from Settings.
 
 When Epicenter's shell stops using the CLI for account calls, native code must
 take exclusive ownership of its desktop grant as one migration: sign-in,
