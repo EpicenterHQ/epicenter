@@ -55,10 +55,14 @@ export type CallbackAuthClient = AuthClient & {
 	>;
 };
 
-export function isCallbackAuthClient(
-	client: AuthClient,
-): client is CallbackAuthClient {
+/** Narrow the callback capability on either a plain client or a UI facade. */
+export function isCallbackAuthClient<
+	TClient extends Pick<AuthClient, 'startSignIn'>,
+>(
+	client: TClient,
+): client is TClient & Pick<CallbackAuthClient, 'completeSignIn'> {
 	return (
-		typeof (client as Partial<CallbackAuthClient>).completeSignIn === 'function'
+		typeof (client as { completeSignIn?: unknown }).completeSignIn ===
+		'function'
 	);
 }

@@ -7,12 +7,13 @@ import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expectOk } from 'wellcrafted/testing';
-import type { AuthState } from './auth-contract.js';
+import { isCallbackAuthClient, type AuthState } from './auth-contract.js';
 import { epicenterCloud } from './auth-server.js';
 import {
 	type CreateBrowserOAuthOptions,
 	createBrowserOAuth,
 } from './browser-oauth.js';
+import { fromAuth } from './svelte/auth.svelte.js';
 
 const SERVER = 'https://api.test';
 const APP = 'https://todos.test';
@@ -208,6 +209,15 @@ async function signIn(world: ReturnType<typeof createWorld>, path = '/notes') {
 	tab.location.href = `${APP}${expectOk(result).returnTo ?? '/'}`;
 	return { tab, auth: tab.create(), result };
 }
+
+test('the Svelte facade retains the browser callback capability', () => {
+	const world = createWorld();
+	using client = world.openTab('/').create();
+	const auth = fromAuth(client);
+	expect('getState' in auth).toBe(false);
+	expect(isCallbackAuthClient(auth)).toBe(true);
+	expect(typeof auth.completeSignIn).toBe('function');
+});
 
 test('sign-in navigates to the authorize endpoint with PKCE as the app client', async () => {
 	const world = createWorld();
