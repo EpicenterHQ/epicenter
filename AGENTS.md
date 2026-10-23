@@ -71,9 +71,11 @@ the immediate context rather than assuming a fixed expertise level.
 
 In conversational technical explanations and reports on work, lead with the
 point and make the rest easy to scan: short paragraphs, descriptive headings
-when there are distinct parts, and selective bolding. Show behavior with
-relevant code; add a small diagram when timing, flow, or ownership is hard
-to see. Use the `explanation` skill for the fuller judgment.
+when there are distinct parts, and selective bolding. When the user states or
+clearly implies a baseline, explain what differs from it. When behavior is the
+point, show a small, correct code example and its result; add a diagram when
+timing, flow, or ownership is hard to see. Use the `explanation` skill for the
+fuller judgment.
 
 ## Writing conventions
 

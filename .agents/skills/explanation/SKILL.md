@@ -13,13 +13,15 @@ reader must discover the relationship among them or work out why they matter.
 
 Identify what the person is trying to understand: a purpose, mechanism, choice,
 change, or check of their own mental model. Start with the answer to that
-question in their terms. If they offer a baseline, such as how they think the
-API works or what the browser already does, explain what changes relative to
-it before introducing the system's internal names.
+question in their terms. When they state or clearly hold a baseline, such as
+how they think the API works or what the browser already does, explain what
+changes relative to it before introducing the system's internal names.
+
 Introduce an internal name only after the thing it names is clear, and only
 when the person will need that name again.
 
-Choose the governing relationship before the details. For a complex model,
+Use abstraction to choose the governing relationship before the details, then
+test that account with a concrete consequence. For a complex model,
 preserve the actors, ownership, sequence, and consequences that affect the
 person's understanding or decision. Leave incidental implementation history
 for later. Do not simplify by hiding uncertainty, making proposed behavior
@@ -34,8 +36,7 @@ another model.
 ## Make the answer readable in chat
 
 Design the first screen for a skim. Put the answer or key relationship near
-the top. Give distinct ideas separate short paragraphs; most paragraphs
-should carry one idea in one to three sentences. For a longer answer, use
+the top. Give each paragraph one idea. For a longer answer, use
 descriptive headings that state the point of each section. A short answer
 may need no heading.
 
@@ -46,11 +47,13 @@ the answer. Do not turn every response into the same template.
 
 Choose a form for the relationship it makes easier to see:
 
-- **Code** shows behavior or a caller's choice. Use a small relevant example,
-  say what its non-obvious lines do, and show the expected result. Mark
-  hypothetical APIs as proposals.
+- **Code** shows behavior or a caller's choice. Use a small example that
+  exercises the hard distinction and show the resulting state or returned
+  value. Explain a non-obvious step. Include a prerequisite, timing, or failure
+  when omitting it would mislead. Mark hypothetical APIs as proposals.
 - **A diagram** shows flow, ownership, or timing that prose or code makes hard
-  to track. Combine it with code when both the caller and the sequence matter.
+  to track. Add it beside code when it reveals something the code leaves hard
+  to see; avoid repeating the same account.
 - **A list** separates parallel points; numbers mean order. Keep each item
   focused and parallel.
 - **A table** supports a genuine comparison across the same dimensions.
@@ -59,9 +62,10 @@ Choose a form for the relationship it makes easier to see:
 - **A rendered or interactive view** helps when appearance or changing state
   is itself the question. A static technical answer usually belongs in chat.
 
-Introduce each visual with the question it answers. After it, explain only
-the consequence the reader cannot easily see for themselves. More formatting
-does not rescue an answer organized around the wrong question.
+Check that prose, code, and visuals support the same prediction about what
+happens. After a visual, explain only the consequence the reader cannot easily
+see for themselves. More formatting does not rescue an answer organized around
+the wrong question.
 
 ## Show enough to judge
 
