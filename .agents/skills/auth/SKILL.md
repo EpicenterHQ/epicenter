@@ -188,10 +188,11 @@ signature padding is illegal in raw WebSocket protocol names.
 
 ## Boot selection
 
-The mounted working owner reads the plain client's `getState()` once and
-passes the captured Account to product resource opening. Imports and preloads
-acquire no resources. Keep reactive `.state` reads in UI modules adapted with
-`fromAuth`. Callback and sign-out documents acquire no primary stores. Browser
+The mounted working owner captures the Account once and passes it to product
+resource opening. A plain client uses `getState()`; a `fromAuth` facade uses
+`.state` during component setup, where the read does not track. Templates and
+derived values read `.state` to track changes. Imports and preloads acquire no
+resources. Callback and sign-out documents acquire no primary stores. Browser
 sign-in may start from a working page because the callback installs the next
 Account in a fresh document.
 
