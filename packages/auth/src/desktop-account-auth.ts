@@ -26,7 +26,7 @@ import type {
 	AuthFetch,
 	AuthState,
 } from './auth-contract.js';
-import { AuthError } from './auth-errors.js';
+import { AccountUnavailable, AuthError } from './auth-errors.js';
 import { epicenterCloud, selfHostedServer } from './auth-server.js';
 import { getProfileVia } from './read-profile.js';
 import { resolveTargetUrl } from './resolve-target-url.js';
@@ -138,6 +138,8 @@ export function createDesktopAccountAuth({
 			(resource: DesktopAccountAudience): AuthFetch =>
 			async (input, init) => {
 				signal.throwIfAborted();
+				if (state.status === 'reauth-required' && state.account === account)
+					throw AccountUnavailable({ code: 'reauth-required' }).error;
 				const target = resolveTargetUrl(input, origin);
 				if (target?.origin !== origin)
 					throw new TypeError('Account requests must target their own server.');

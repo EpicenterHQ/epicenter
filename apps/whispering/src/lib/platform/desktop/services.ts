@@ -61,10 +61,15 @@ export function createServices(
 			(async () => {
 				const current = getAuth();
 				await current.refresh();
+				const state = current.state;
 				return {
 					origin: current.baseURL,
-					account: current.state.account,
-					problem: current.problem,
+					account: state.status === 'signed-in' ? state.account : undefined,
+					problem:
+						current.problem ??
+						(state.status === 'reauth-required'
+							? 'Sign in again from Epicenter Settings to use this connection.'
+							: undefined),
 				};
 			}),
 	});

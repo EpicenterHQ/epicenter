@@ -122,7 +122,8 @@ every account send carries. The CLI checks it on the same read that selects a
 cached token and again after taking a refresh lock. Replacing a grant,
 including a new sign-in by the same person, retires the old Account. Its
 requests and response streams are canceled on retirement. A 401 publishes
-`reauth-required` on the same Account. The client reads status when the window
+`reauth-required` on the same Account and stops later sends from it until
+Settings installs a new grant. The client reads status when the window
 regains focus by default. Whispering disables that watcher and awaits a fresh
 read before capturing the Account for each hosted request. `signOut` is refused:
 the app signs out from Settings. An explicit `refresh()` reports a status-read

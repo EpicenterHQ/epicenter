@@ -212,6 +212,18 @@ test('a changed desktop grant is reported as a refusal before sending', async ()
 	expect(error.message).toContain('Nothing was sent');
 });
 
+test('an Account awaiting sign-in refuses a transformation before sending', async () => {
+	const error = expectErr(
+		await transform(async () => {
+			throw Object.assign(new Error('Sign in again.'), {
+				name: 'AccountUnavailable',
+			});
+		}),
+	);
+	expect(error.name).toBe('ConnectionUnavailable');
+	expect(error.message).toContain('Nothing was sent');
+});
+
 for (const [name, respond] of [
 	['is not JSON', () => new Response('<html>gateway</html>')],
 	['has no choices', () => Response.json({ object: 'chat.completion' })],

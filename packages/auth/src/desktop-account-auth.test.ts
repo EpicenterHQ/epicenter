@@ -128,17 +128,23 @@ test('Account.fetch sends through the app audience and getProfile through api, w
 	expect(sent.length).toBe(2);
 });
 
-test('a 401 asks for sign-in again on the same account', async () => {
-	const { auth, states } = harness(
+test('a 401 stops later sends until Settings installs a new grant', async () => {
+	const { auth, sent, states } = harness(
 		signedIn(),
 		() => new Response(null, { status: 401 }),
 	);
 	await auth.refresh();
-	const account = auth.getState().account;
-	await account?.fetch('/api/repos');
+	const account = auth.getState().account!;
+	await account.fetch('/api/repos');
 	expect(auth.getState().status).toBe('reauth-required');
 	expect(auth.getState().account).toBe(account);
 	expect(states).toEqual(['signed-in', 'reauth-required']);
+	await auth.refresh();
+	await expect(account.fetch('/api/repos')).rejects.toMatchObject({
+		name: 'AccountUnavailable',
+		code: 'reauth-required',
+	});
+	expect(sent).toHaveLength(1);
 });
 
 test('signing in again from Settings opens a new account; signing out retires the old one', async () => {

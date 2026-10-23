@@ -6,6 +6,7 @@ const BEFORE_SEND = new Set([
 	'EndpointChanged',
 	'NoAccessToken',
 	'NoAccountToken',
+	'AccountUnavailable',
 	'GrantChanged',
 	'KeychainUnavailable',
 	'EntryUnreadable',
