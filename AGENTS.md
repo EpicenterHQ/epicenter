@@ -69,6 +69,12 @@ Optimize for the user's cognitive load, not for brevity. Preserve necessary
 difficulty and remove incidental complexity. Infer the appropriate depth from
 the immediate context rather than assuming a fixed expertise level.
 
+In conversational technical explanations and reports on work, lead with the
+point and make the rest easy to scan: short paragraphs, descriptive headings
+when there are distinct parts, and selective bolding. Show behavior with
+relevant code; add a small diagram when timing, flow, or ownership is hard
+to see. Use the `explanation` skill for the fuller judgment.
+
 ## Writing conventions
 
 Do not use decorative emoji.
