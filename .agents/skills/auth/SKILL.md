@@ -196,8 +196,9 @@ resources. Callback and sign-out documents acquire no primary stores. Browser
 sign-in may start from a working page because the callback installs the next
 Account in a fresh document.
 
-Honeycrisp supports signed-out local startup. Whispering has no accounts. Vocab requires an
-Account. Honeycrisp's Local and Personal routes select independently opened
+Honeycrisp supports signed-out local startup. Whispering uses an Account for
+hosted inference and supports a custom connection without one. Vocab requires
+an Account. Honeycrisp's Local and Personal routes select independently opened
 stores. One warning before explicit account changes authorizes interruption of
 active recordings and unsaved drafts, including work started while sign-in is
 pending. Desktop acceptance disposes the boot auth owner, serializes next-boot
