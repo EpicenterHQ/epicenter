@@ -7,8 +7,10 @@
  * folder's whole life once known, and the latest accepted local input, an
  * intent with its own identity. A document shows the intent's text, or the
  * known text when there is no intent. Only accepted local input starts an
- * automatic save; observations of storage never write. Structured changes
- * accept input before publishing, just like typing followed by save.
+ * automatic save; while a path is busy, its automatic save waits and then
+ * publishes only the latest input. Observations of storage never write.
+ * Structured changes accept input before publishing, just like typing
+ * followed by save.
  *
  * The lane runs a path's commands one at a time in call order, and each one
  * admitted finishes and reports its own outcome. A successful command
@@ -16,12 +18,12 @@
  * identity, never by text, and updates what the source knows before its
  * promise resolves.
  *
- * Each source orders its own reads against changes and publications. Lists,
+ * Each source orders its reads without holding the command lane. Lists,
  * row gets, and raw file reads return data without acquiring working documents.
  * A read that something newer overtook still shows its text when it is newer
  * than anything installed, without claiming to be current, and subscribed
- * documents read again; `refresh` settles with the first read to start after
- * it, so a file that keeps changing cannot hold either off.
+ * documents read again; `refresh` settles with its requested read, so a file
+ * that keeps changing cannot hold it off.
  */
 import { type Static, type TSchema, Type } from 'typebox';
 import {
@@ -32,7 +34,7 @@ import {
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStatus } from './folder.js';
 import { callObserver } from './observer.js';
-import { ownFields, sameValue } from './shared/content/canonical.js';
+import { ownFields, parseRowSource } from './shared/content/canonical.js';
 import { type ReadError, SaveError } from './shared/errors.js';
 import { changeMarkdown, readMarkdown } from './shared/markdown-codec.js';
 import type { FileContent } from './shared/merge.js';
@@ -81,6 +83,17 @@ export const ChangeError = defineErrors({
 	InvalidText: ({ reason }: { reason: string }) => ({
 		message: `The text cannot be saved: ${reason}`,
 		reason,
+	}),
+	MalformedFrontmatter: ({
+		reason,
+		line,
+	}: {
+		reason: string;
+		line?: number;
+	}) => ({
+		message: `The frontmatter must be repaired before this document can be patched: ${reason}`,
+		reason,
+		line,
 	}),
 	InvalidFields: ({ reason }: { reason: string }) => ({
 		message: `Fields cannot be applied: ${reason}`,
@@ -171,7 +184,7 @@ export type FileDocument<TRowSchema extends TSchema = AnyFieldsSchema> = {
 	 * input. Refusal accepts nothing.
 	 */
 	replace(text: string): ChangeResult;
-	/** Patch acquired source. Autosave follows changed input; refusal accepts nothing. */
+	/** Patch acquired, parseable source. Autosave follows changed input; refusal accepts nothing. */
 	patch(patch: DocumentPatch<TRowSchema>): ChangeResult;
 	/**
 	 * Publish current content, even when clean. A string replaces complete source;
@@ -261,17 +274,18 @@ function deepFreeze<T>(value: T): T {
  */
 type Intent = {
 	readonly text: string;
-	/** Its last admitted owner, used so an older command cannot release it. */
-	owner: Command | undefined;
-	/** Its own publication failed, so only an explicit retry or flush submits it. */
-	failed: boolean;
+	readonly run: DraftRun;
+};
+
+/** Edits made without discarding share one visible publication failure. */
+type DraftRun = {
+	failure: SaveFailure | undefined;
 };
 
 type Command = {
 	readonly captured: Intent | undefined;
-	readonly epoch: number;
-	readonly payload: FileContent | null;
-	readonly ofInput: boolean;
+	readonly content: FileContent | null;
+	readonly isDocumentSave: boolean;
 	heard: boolean;
 };
 
@@ -289,7 +303,6 @@ type Lane = {
 type View = {
 	readonly schema: TSchema;
 	snapshot: DocumentSnapshot<TSchema> | undefined;
-	content: MarkdownContent<TSchema> | undefined;
 	handle: FileDocument<TSchema> | undefined;
 };
 
@@ -305,18 +318,15 @@ type Source = {
 	known: string | undefined;
 	intent: Intent | undefined;
 	loadError: LoadError | undefined;
-	failure: SaveFailure | undefined;
-	/** Bumped by `discard()`: older publications no longer touch `failure`. */
-	epoch: number;
 	timer: ReturnType<typeof setTimeout> | undefined;
+	/** Save the latest input once this path has no admitted commands. */
+	autoRequested: boolean;
 	/** A read is needed, or the running read was invalidated. */
 	stale: boolean;
-	/** A successful command superseded the running read's answer. */
-	overwritten: boolean;
-	/** Whether the read loop runs. */
-	reading: boolean;
-	/** Callers waiting for the next read to start, settled once it is taken. */
-	nextRead: PromiseWithResolvers<Result<void, LoadError>> | undefined;
+	/** Successful publications supersede reads started before them. */
+	publication: number;
+	/** Reads of one path start in request order, without blocking writes. */
+	readTail: Promise<Result<void, LoadError>> | undefined;
 	readonly subscriptions: Set<Subscription>;
 	readonly views: WeakMap<TSchema, View>;
 };
@@ -388,13 +398,11 @@ export function createDocumentOwner({
 				known: undefined,
 				intent: undefined,
 				loadError: undefined,
-				failure: undefined,
-				epoch: 0,
 				timer: undefined,
+				autoRequested: false,
 				stale: true,
-				overwritten: false,
-				reading: false,
-				nextRead: undefined,
+				publication: 0,
+				readTail: undefined,
 				subscriptions: new Set(),
 				views: new WeakMap(),
 			};
@@ -409,13 +417,9 @@ export function createDocumentOwner({
 		const unsaved = [...dirty].sort();
 		const failures = unsaved.flatMap((path) => {
 			const source = sources.get(path)!;
-			if (
-				source.failure === undefined ||
-				source.intent === undefined ||
-				source.intent.owner !== undefined
-			)
-				return [];
-			return [source.failure];
+			const intent = source.intent;
+			if (intent === undefined) return [];
+			return intent.run.failure === undefined ? [] : [intent.run.failure];
 		});
 		const savingPaths = [...lanes.keys()].sort();
 		if (
@@ -446,15 +450,17 @@ export function createDocumentOwner({
 	function snapshotOf(source: Source, view: View): DocumentSnapshot<TSchema> {
 		const previous = view.snapshot;
 		const text = textOf(source);
-		if (text === undefined) view.content = undefined;
-		else if (view.content?.text !== text)
-			view.content = deepFreeze(
-				readMarkdown(text, view.schema),
-			) as MarkdownContent<TSchema>;
-		const content = view.content;
+		const content =
+			text === undefined
+				? undefined
+				: previous?.content?.text === text
+					? previous.content
+					: (deepFreeze(
+							readMarkdown(text, view.schema),
+						) as MarkdownContent<TSchema>);
 		const isDirty = source.intent !== undefined;
 		const isSaving = (lanes.get(source.path)?.publications ?? 0) > 0;
-		const saveError = source.failure?.error;
+		const saveError = source.intent?.run.failure?.error;
 		if (
 			previous !== undefined &&
 			previous.content === content &&
@@ -505,41 +511,35 @@ export function createDocumentOwner({
 
 	const busy = (path: string) => (lanes.get(path)?.pending ?? 0) > 0;
 
-	/** Settles once every command of `path` admitted so far, and since, has finished. */
-	async function idle(path: string) {
-		for (;;) {
-			const lane = lanes.get(path);
-			if (lane === undefined || lane.pending === 0) return;
-			await lane.tail;
-		}
-	}
-
 	/**
-	 * Admit `work` to the lane of `path`, capturing its current input. The
-	 * command owns that input until it settles, including across later commands.
+	 * Admit `work` to the lane of `path`, capturing its current input. A
+	 * successful command acknowledges only that captured input.
 	 */
 	function enqueue<T extends Result<unknown, SaveError>>(
 		path: string,
-		payload: FileContent | null,
+		content: FileContent | null,
 		work: () => Promise<T>,
-		ofInput: boolean,
+		isDocumentSave: boolean,
 	): Promise<T> {
 		const admittedSource = sources.get(path);
 		const command: Command = {
 			captured: admittedSource?.intent,
-			epoch: admittedSource?.epoch ?? 0,
-			payload,
-			ofInput,
+			content,
+			isDocumentSave,
 			heard: false,
 		};
-		if (admittedSource !== undefined && command.captured !== undefined) {
+		if (
+			admittedSource !== undefined &&
+			command.captured !== undefined &&
+			isDocumentSave
+		) {
 			clearTimer(admittedSource);
-			command.captured.owner = command;
+			admittedSource.autoRequested = false;
 		}
 		const lane = laneOf(path);
 		const previous = lane.tail;
 		lane.pending++;
-		if (command.payload !== null) lane.publications++;
+		if (command.content !== null) lane.publications++;
 		const running = (async () => {
 			await previous;
 			lane.running = command;
@@ -553,7 +553,7 @@ export function createDocumentOwner({
 			if (result.error === null && !command.heard) announce(path);
 			lane.running = undefined;
 			lane.pending--;
-			if (command.payload !== null) lane.publications--;
+			if (command.content !== null) lane.publications--;
 			if (result.error === null) storageFailure = null;
 			else if (result.error.name === 'StorageFailed')
 				storageFailure = result.error;
@@ -561,25 +561,26 @@ export function createDocumentOwner({
 			try {
 				if (result.error === null) {
 					if (source !== undefined)
-						landed(source, command, observationOf(path, command.payload));
+						landed(source, command, observationOf(path, command.content));
 				} else {
-					if (command.ofInput && command.captured !== undefined)
-						command.captured.failed = true;
-					if (command.ofInput && source?.epoch === command.epoch)
-						source.failure = Object.freeze({
+					if (
+						command.isDocumentSave &&
+						source !== undefined &&
+						command.captured !== undefined
+					) {
+						if (source.intent === command.captured)
+							source.autoRequested = false;
+						command.captured.run.failure = Object.freeze({
 							path,
 							error: Object.freeze(result.error),
 						});
-					if (command.captured?.owner === command) {
-						command.captured.owner = undefined;
-						if (!command.captured.failed && source?.intent === command.captured)
-							autosave(source);
 					}
 					if (source !== undefined) touch(source);
 				}
 			} finally {
 				// Keep the lane through settlement so observers see the command order.
 				if (lane.pending === 0 && lanes.get(path) === lane) lanes.delete(path);
+				if (source !== undefined) autosave(source);
 				publishStatus();
 			}
 			return result;
@@ -603,7 +604,7 @@ export function createDocumentOwner({
 	 */
 	function invalidate(source: Source) {
 		source.stale = true;
-		if (source.subscriptions.size > 0) keepReading(source);
+		if (source.subscriptions.size > 0) ensureRead(source);
 	}
 
 	/** Install the current observation as what is stored. */
@@ -612,22 +613,6 @@ export function createDocumentOwner({
 		const error = observation.error ?? undefined;
 		if (!sameError(source.loadError, error))
 			source.loadError = error === undefined ? undefined : Object.freeze(error);
-	}
-
-	/**
-	 * Text an invalidated read found before another read is needed. It can show
-	 * unless a successful command installed newer text. Overtaken non-text
-	 * answers wait for a read that applies, so a file briefly missing while it
-	 * is replaced reports nothing.
-	 */
-	function showOvertaken(
-		source: Source,
-		observation: Result<string, LoadError>,
-	) {
-		if (observation.error !== null || source.overwritten) return;
-		source.known = observation.data;
-		source.loadError = undefined;
-		touch(source);
 	}
 
 	/** A read refused because the folder closed before it could answer. */
@@ -652,68 +637,53 @@ export function createDocumentOwner({
 		}
 	}
 
-	/** Start the read loop of `source` unless it runs or the folder closed. */
-	function keepReading(source: Source) {
-		if (!source.reading && !closed) void readLoop(source);
-	}
-
-	/**
-	 * Settles with what the next read of `source` to start finds, once it is
-	 * taken: a read that started before this call never answers it, and a
-	 * file that keeps changing cannot hold it off.
-	 */
-	function readAfterNow(source: Source): Promise<Result<void, LoadError>> {
-		source.nextRead ??= Promise.withResolvers();
-		const { promise } = source.nextRead;
-		keepReading(source);
-		return promise;
-	}
-
-	/**
-	 * Read `source` while a subscriber needs it current or a caller waits.
-	 * Each attempt starts once the path's admitted commands finished. One
-	 * that applies is installed; one something newer overtook still shows its
-	 * text, and subscribers read again.
-	 */
-	async function readLoop(source: Source) {
-		// A call, so a check after an await is not narrowed away.
-		const isClosed = () => closed;
-		source.reading = true;
-		while (!isClosed()) {
-			await idle(source.path);
-			if (isClosed()) break;
-			const waiting = source.nextRead;
-			source.nextRead = undefined;
-			if (waiting === undefined && current(source)) break;
+	/** One requested read, ordered after earlier reads and already admitted writes. */
+	function requestRead(source: Source): Promise<Result<void, LoadError>> {
+		const earlierRead = source.readTail;
+		const earlierWrite = lanes.get(source.path)?.tail;
+		const reading = (async (): Promise<Result<void, LoadError>> => {
+			await earlierRead;
+			await earlierWrite;
+			if (closed) return closedRead(source);
 			source.stale = false;
-			source.overwritten = false;
+			const publication = source.publication;
 			const observation = await observe(source.path);
-			if (isClosed()) {
-				waiting?.resolve(closedRead(source));
-				break;
+			if (closed) return closedRead(source);
+			if (
+				source.stale ||
+				source.publication !== publication ||
+				busy(source.path)
+			) {
+				source.stale = true;
+				// Show useful text while another change requires a confirming read.
+				// A successful publication after this read started takes priority.
+				if (source.publication === publication && observation.error === null) {
+					install(source, observation);
+					touch(source);
+				}
+				return observation.error === null
+					? Ok(undefined)
+					: Err(observation.error);
 			}
-			let result: Result<void, LoadError>;
-			if (current(source)) {
-				install(source, observation);
-				result =
-					source.loadError === undefined
-						? Ok(undefined)
-						: Err(source.loadError);
-				touch(source);
-			} else {
-				if (busy(source.path)) source.stale = true;
-				showOvertaken(source, observation);
-				result =
-					observation.error === null ? Ok(undefined) : Err(observation.error);
-			}
-			waiting?.resolve(result);
-			if (source.subscriptions.size === 0 && source.nextRead === undefined)
-				break;
-		}
-		source.reading = false;
-		// Closed while a caller waited: its read never happened.
-		source.nextRead?.resolve(closedRead(source));
-		source.nextRead = undefined;
+			install(source, observation);
+			touch(source);
+			return source.loadError === undefined
+				? Ok(undefined)
+				: Err(source.loadError);
+		})();
+		source.readTail = reading;
+		void reading.finally(() => {
+			if (source.readTail !== reading) return;
+			source.readTail = undefined;
+			if (!closed && source.stale && source.subscriptions.size > 0)
+				ensureRead(source);
+		});
+		return reading;
+	}
+
+	/** Coalesce background invalidations while a read is running. */
+	function ensureRead(source: Source) {
+		if (!closed && source.readTail === undefined) void requestRead(source);
 	}
 
 	function clearTimer(source: Source) {
@@ -741,8 +711,10 @@ export function createDocumentOwner({
 			clearTimer(source);
 		}
 		install(source, observation);
-		source.overwritten = true;
-		if (source.epoch === command.epoch) source.failure = undefined;
+		source.publication++;
+		if (command.captured !== undefined) {
+			command.captured.run.failure = undefined;
+		}
 		invalidate(source);
 		touch(source);
 	}
@@ -758,10 +730,15 @@ export function createDocumentOwner({
 		return enqueue(source.path, text, () => write(source.path, text), true);
 	}
 
-	/** Submit the current input, unless an admitted command already owns it. */
+	/** Write only the latest requested input after the path's admitted work. */
 	function autosave(source: Source) {
 		const intent = source.intent;
-		if (intent === undefined || intent.owner !== undefined || closed) return;
+		if (intent === undefined || closed) {
+			source.autoRequested = false;
+			return;
+		}
+		if (!source.autoRequested || busy(source.path)) return;
+		source.autoRequested = false;
 		void publish(source, intent);
 	}
 
@@ -769,6 +746,7 @@ export function createDocumentOwner({
 		clearTimer(source);
 		source.timer = setTimeout(() => {
 			source.timer = undefined;
+			source.autoRequested = true;
 			autosave(source);
 		}, pause);
 	}
@@ -786,7 +764,11 @@ export function createDocumentOwner({
 	/** Accept source without deciding when observers see it or when it saves. */
 	function commitInput(source: Source, text: string): boolean {
 		if (text === textOf(source)) return false;
-		source.intent = { text, owner: undefined, failed: false };
+		source.intent = {
+			text,
+			run: source.intent?.run ?? { failure: undefined },
+		};
+		source.autoRequested = false;
 		return true;
 	}
 
@@ -805,27 +787,33 @@ export function createDocumentOwner({
 		source: Source,
 		patch: DocumentPatch<TSchema>,
 	): Result<string, ChangeError> {
-		const owned = ownFields(patch.fields ?? {});
+		const fields = patch.fields;
+		const owned = ownFields(fields ?? {});
 		if (owned.error !== null)
 			return ChangeError.InvalidFields({ reason: owned.error.reason });
 		const text = textOf(source);
 		if (text === undefined) return ChangeError.NoContent();
-		const parsed = readMarkdown(text, anyFields);
-		const fields: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(owned.data)) {
-			if (parsed.fields !== undefined && sameValue(parsed.fields[key], value))
-				continue;
-			Object.defineProperty(fields, key, { value, enumerable: true });
+		const body = patch.body;
+		if (body !== undefined) {
+			const checked = composeText(body);
+			if (checked.error !== null) return checked;
 		}
-		const body = patch.body === parsed.body ? undefined : patch.body;
-		if (Object.keys(fields).length === 0 && body === undefined) return Ok(text);
-		const changed = changeMarkdown(parsed, {
-			fields: Object.keys(fields).length === 0 ? undefined : fields,
-			body,
-		});
-		if (changed.error !== null)
-			return ChangeError.InvalidFields({ reason: changed.error.reason });
-		return composeText(changed.data.text);
+		const changed = changeMarkdown(
+			{ text, issues: null },
+			{
+				fields: fields === undefined ? undefined : owned.data,
+				body,
+			},
+		);
+		if (changed.error === null) return Ok(changed.data.text);
+		// The codec refuses malformed source before trying the patch values.
+		const parsed = parseRowSource(text);
+		if (parsed.error !== null)
+			return ChangeError.MalformedFrontmatter({
+				reason: parsed.error.reason,
+				line: parsed.error.line,
+			});
+		return ChangeError.InvalidFields({ reason: changed.error.reason });
 	}
 
 	function patchDocument(
@@ -858,11 +846,9 @@ export function createDocumentOwner({
 		const content = snapshotOf(source, view).content;
 		if (content === undefined) return ChangeError.NoContent();
 		// Keep an explicit clean save as held input until storage acknowledges it.
-		const intent = (source.intent ??= {
-			text: content.text,
-			owner: undefined,
-			failed: false,
-		});
+		if (source.intent === undefined)
+			source.intent = { text: content.text, run: { failure: undefined } };
+		const intent = source.intent;
 		const saved = await publish(source, intent);
 		return saved.error === null ? Ok(content) : saved;
 	}
@@ -871,17 +857,15 @@ export function createDocumentOwner({
 		if (closed) return closedRead(source);
 		// What is known, or a read already running, predates this request.
 		source.stale = true;
-		return readAfterNow(source);
+		return requestRead(source);
 	}
 
 	function discard(source: Source): string | undefined {
 		clearTimer(source);
 		const dropped = source.intent?.text;
-		// Every older publication's feedback is superseded, dirty or not.
-		source.epoch++;
-		if (dropped === undefined && source.failure === undefined) return undefined;
+		source.autoRequested = false;
+		if (dropped === undefined) return undefined;
 		source.intent = undefined;
-		source.failure = undefined;
 		invalidate(source);
 		touch(source);
 		return dropped;
@@ -904,7 +888,7 @@ export function createDocumentOwner({
 		source.subscriptions.add(subscription);
 		callObserver('edit listener', listener, subscription.last!);
 		if (!current(source) && source.subscriptions.has(subscription))
-			keepReading(source);
+			ensureRead(source);
 		return () => {
 			source.subscriptions.delete(subscription);
 		};
@@ -921,7 +905,6 @@ export function createDocumentOwner({
 			const created: View = {
 				schema: readSchema,
 				snapshot: undefined,
-				content: undefined,
 				handle: undefined,
 			};
 			created.handle = Object.freeze({
@@ -940,16 +923,12 @@ export function createDocumentOwner({
 		return view.handle as unknown as FileDocument<TRowSchema>;
 	}
 
-	/**
-	 * Submit held input no admitted command owns, failed input included, now
-	 * without waiting. Input an admitted command owns is that command's to publish.
-	 */
+	/** Submit the latest held input after this path's admitted work. */
 	function flush(): void {
 		for (const path of [...dirty]) {
 			const source = sources.get(path)!;
-			const intent = source.intent;
-			if (intent === undefined || intent.owner !== undefined) continue;
-			void publish(source, intent);
+			source.autoRequested = true;
+			autosave(source);
 		}
 	}
 
@@ -973,7 +952,7 @@ export function createDocumentOwner({
 					continue;
 				source.stale = true;
 				if (source.subscriptions.size > 0) {
-					reads.push(readAfterNow(source));
+					reads.push(requestRead(source));
 				}
 			}
 			await Promise.all(reads);

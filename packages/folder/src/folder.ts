@@ -11,7 +11,8 @@
  * local-save status with held input, `flush`, and `close`. A schema only
  * interprets (ADR-0632). A row that does not fit still comes back with its
  * exact source, its raw fields, and the issues, and a save never validates
- * against the schema, so unknown fields and repairable content survive.
+ * against the schema, so unknown fields survive. Malformed source stays
+ * readable for full-text repair.
  *
  * Writes are unconditional: a file write replaces whatever is there, a
  * delete removes it, and the last to land wins. A document save can accept

@@ -5,7 +5,7 @@
  * Key behaviors:
  * - Invalid source stays visible, with positions for schema and YAML issues.
  * - Fields retain source order, undeclared data, and explicit deletion.
- * - Body-only saves preserve malformed but framed frontmatter for raw repair.
+ * - Structured edits refuse malformed frontmatter; raw text stays available for repair.
  */
 import { expect, expectTypeOf, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -163,6 +163,9 @@ test('a changed field preserves undeclared fields and source key order then appe
 
 test('a schema mismatch does not refuse saving a field or strip raw fields', () => {
 	const row = readRow('note', '---\ntitle: 42\nextra: kept\n---\nBody', schema);
+	expect(expectOk(rowChange(row, { body: 'Revised body' })).text).toBe(
+		'---\ntitle: 42\nextra: kept\n---\nRevised body',
+	);
 	const { text } = expectOk(
 		rowChange(row, { fields: { count: 'still not a number' } }),
 	);
@@ -175,15 +178,22 @@ test('a schema mismatch does not refuse saving a field or strip raw fields', () 
 	expect(sent.issues?.some((issue) => issue.kind === 'schema')).toBe(true);
 });
 
-test('body-only changes preserve valid and malformed framed header bytes', () => {
-	for (const header of [
-		'\uFEFF---\r\n# note\r\ntitle: "hello"\r\ncount: 2\r\n---\r\n',
-		'---\ntitle: [broken\n---\n',
+test('body-only changes preserve a valid framed header byte for byte', () => {
+	const header = '\uFEFF---\r\n# note\r\ntitle: "hello"\r\ncount: 2\r\n---\r\n';
+	const row = readRow('note', `${header}Old body`, schema);
+	expect(expectOk(rowChange(row, { body: 'New body' })).text).toBe(
+		`${header}New body`,
+	);
+});
+
+test('every structured change refuses malformed frontmatter', () => {
+	const row = readRow('note', '---\ntitle: [broken\n---\nOld body', schema);
+	for (const change of [
+		{ fields: { title: 'Fixed' } },
+		{ body: 'New body' },
+		{},
 	]) {
-		const row = readRow('note', header + 'Old body', schema);
-		expect(expectOk(rowChange(row, { body: 'New body' })).text).toBe(
-			header + 'New body',
-		);
+		expect(expectErr(rowChange(row, change)).reason).toContain('frontmatter');
 	}
 });
 
@@ -199,9 +209,15 @@ test('headerless rows have empty fields and a known body across table and file v
 	const row = readRow('note', 'No frontmatter', schema);
 	expect(row.fields).toEqual({});
 	expect(row.body).toBe('No frontmatter');
-	expect(expectOk(rowChange(row, { body: 'New source' })).text).toBe('New source');
-	expect(expectOk(rowChange(row, { fields: { title: 'Hello' } })).text).toBe('---\ntitle: Hello\n---\nNo frontmatter');
-	expect(expectOk(rowChange(row, { body: '---\nbody' })).text).toBe('---\n---\n---\nbody');
+	expect(expectOk(rowChange(row, { body: 'New source' })).text).toBe(
+		'New source',
+	);
+	expect(expectOk(rowChange(row, { fields: { title: 'Hello' } })).text).toBe(
+		'---\ntitle: Hello\n---\nNo frontmatter',
+	);
+	expect(expectOk(rowChange(row, { body: '---\nbody' })).text).toBe(
+		'---\n---\n---\nbody',
+	);
 });
 
 test('new rows have empty frontmatter and accept schema-invalid source', () => {

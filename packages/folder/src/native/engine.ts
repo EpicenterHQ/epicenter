@@ -13,7 +13,8 @@
  *
  * A schema only interprets. A row that does not fit comes back with its
  * exact source, its raw fields, and its issues, and a save never validates
- * against the schema, so unknown fields and repairable frontmatter survive.
+ * against the schema, so unknown fields survive. Malformed frontmatter stays
+ * readable as source for full-text repair.
  *
  * Opening writes nothing. A file a person left in the directory is read as
  * it is, and only a save of that path ever replaces it.

@@ -307,7 +307,7 @@ test('restoring committed bytes restores the same root and creates no additional
 	}
 });
 
-test('document saves patch the known row, keep other values, and refuse fields over a broken header', async () => {
+test('document saves patch the known row, keep other values, and refuse patches over a broken header', async () => {
 	const schema = {
 		type: 'object',
 		properties: { title: { type: 'string' }, done: { type: 'boolean' } },
@@ -373,13 +373,14 @@ test('document saves patch the known row, keep other values, and refuse fields o
 					.todos!.document('one')
 					.save({ fields: { title: 'repair?' } }),
 			).name,
-		).toBe('InvalidFields');
-		// The body of a broken header stays edifolder.tables.todos!.
-		expectOk(
-			await folder.tables.todos!.document('one').save({ body: 'New body\n' }),
-		);
+		).toBe('MalformedFrontmatter');
+		expect(
+			expectErr(
+				await folder.tables.todos!.document('one').save({ body: 'New body\n' }),
+			).name,
+		).toBe('MalformedFrontmatter');
 		expect(await text(repository, 'todos/one.md')).toBe(
-			'---\ntitle: [broken\n---\nNew body\n',
+			'---\ntitle: [broken\n---\nKeep body\n',
 		);
 		expectOk(
 			await folder.files.write(

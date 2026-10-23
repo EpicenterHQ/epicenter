@@ -552,7 +552,7 @@ test('a field edit keeps unknown fields and comments, and a schema never refuses
 	folder.close();
 });
 
-test('malformed frontmatter stays repairable: a body edit lands, a field edit is refused', async () => {
+test('malformed frontmatter refuses patches and full-text save repairs it', async () => {
 	const source = '---\ntitle: [unclosed\n---\nOld\n';
 	const root = await directory({ 'notes/broken.md': source });
 	const folder = await open(root);
@@ -563,13 +563,21 @@ test('malformed frontmatter stays repairable: a body edit lands, a field edit is
 				.document('broken')
 				.save({ fields: { done: true } }),
 		).name,
-	).toBe('InvalidFields');
+	).toBe('MalformedFrontmatter');
+	expect(await text(root, 'notes/broken.md')).toBe(source);
+	expect(
+		expectErr(
+			await folder.tables.notes.document('broken').save({ body: 'New\n' }),
+		).name,
+	).toBe('MalformedFrontmatter');
 	expect(await text(root, 'notes/broken.md')).toBe(source);
 	expectOk(
-		await folder.tables.notes.document('broken').save({ body: 'New\n' }),
+		await folder.tables.notes
+			.document('broken')
+			.save('---\ntitle: Fixed\n---\nNew\n'),
 	);
 	expect(await text(root, 'notes/broken.md')).toBe(
-		'---\ntitle: [unclosed\n---\nNew\n',
+		'---\ntitle: Fixed\n---\nNew\n',
 	);
 	expect(folder.getStatus().storageFailure).toBeNull();
 	folder.close();

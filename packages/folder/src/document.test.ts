@@ -525,11 +525,11 @@ test('a delete defers an unsubmitted automatic save; failure resumes it, success
 	const failing = hold('delete');
 	const refused = folder.files.delete('a.md');
 	await failing.reached;
-	// New input can admit its own automatic save behind the delete.
+	// The latest input waits without admitting a stale write behind the delete.
 	expectOk(edit.replace('Y\n'));
 	await sleep(40);
 	expect(writes()).toEqual([]);
-	expect(edit.getSnapshot().isSaving).toBe(true);
+	expect(edit.getSnapshot()).toMatchObject({ isDirty: true, isSaving: false });
 	failing.fail();
 	expect(expectErr(await refused).name).toBe('StorageFailed');
 	await sleep(40);
@@ -551,6 +551,72 @@ test('a delete defers an unsubmitted automatic save; failure resumes it, success
 		content: { text: 'Z\n' },
 		isDirty: false,
 		loadError: { name: 'Missing' },
+	});
+});
+
+test('automatic saves publish the latest input after a slow write', async () => {
+	const { folder, hold, writes, text } = setup({ 'a.md': 'A\n' }, 0);
+	const edit = folder.files.document('a.md');
+	expectOk(await edit.refresh());
+	const first = hold('write');
+	expectOk(edit.replace('first\n'));
+	await first.reached;
+	for (let index = 1; index <= 20; index++) {
+		expectOk(edit.replace(`${index}\n`));
+		await sleep(1);
+	}
+	expect(writes()).toEqual([]);
+	expect(edit.getSnapshot()).toMatchObject({ isDirty: true, isSaving: true });
+	first.proceed();
+	await flush();
+	expect(writes()).toEqual(['write a.md first\n', 'write a.md 20\n']);
+	expect(text('a.md')).toBe('20\n');
+	expect(edit.getSnapshot().isDirty).toBe(false);
+});
+
+test('a newer automatic edit still publishes when an older write fails', async () => {
+	const { folder, hold, writes, text } = setup({ 'a.md': 'A\n' }, 0);
+	const edit = folder.files.document('a.md');
+	expectOk(await edit.refresh());
+	const first = hold('write');
+	expectOk(edit.replace('first\n'));
+	await first.reached;
+	expectOk(edit.replace('latest\n'));
+	await flush();
+	first.fail();
+	await flush();
+	expect(writes()).toEqual(['write a.md latest\n']);
+	expect(text('a.md')).toBe('latest\n');
+	expect(edit.getSnapshot()).toMatchObject({
+		isDirty: false,
+		saveError: undefined,
+	});
+});
+
+test('a newer edit keeps its autosave through a failed raw write', async () => {
+	const { folder, hold, writes, text } = setup({ 'a.md': 'A\n' }, 20);
+	const edit = folder.files.document('a.md');
+	expectOk(await edit.refresh());
+	expectOk(edit.replace('failed\n'));
+	const first = hold('write');
+	const saving = edit.save();
+	await first.reached;
+	first.fail();
+	expectErr(await saving);
+	expectOk(edit.replace('latest\n'));
+	const raw = hold('write');
+	const writing = folder.files.write('a.md', 'raw\n');
+	await raw.reached;
+	await sleep(40);
+	expect(writes()).toEqual([]);
+	raw.fail();
+	expectErr(await writing);
+	await flush();
+	expect(writes()).toEqual(['write a.md latest\n']);
+	expect(text('a.md')).toBe('latest\n');
+	expect(edit.getSnapshot()).toMatchObject({
+		isDirty: false,
+		saveError: undefined,
 	});
 });
 
@@ -696,7 +762,7 @@ test('a failed publication has stable identity through typing and a fresh identi
 	const retrying = hold('write');
 	const retry = edit.save();
 	await retrying.reached;
-	expect(folder.getStatus().failures).toEqual([]);
+	expect(folder.getStatus().failures).toEqual([first]);
 	expectOk(edit.replace('\uFEFFD\r\n'));
 	expect(folder.getStatus().failures[0]).toBe(first);
 	retrying.fail();
@@ -708,8 +774,28 @@ test('a failed publication has stable identity through typing and a fresh identi
 	expect(edit.getSnapshot().content?.text).toBe('\uFEFFD\r\n');
 });
 
+test('a failed save stays visible while an already queued retry runs', async () => {
+	const { folder, hold } = setup({ 'a.md': 'A\n' });
+	const edit = folder.files.document('a.md');
+	expectOk(await edit.refresh());
+	expectOk(edit.replace('B\n'));
+	const first = hold('write');
+	const failed = edit.save();
+	await first.reached;
+	const second = hold('write');
+	const retry = edit.save();
+	first.fail();
+	expectErr(await failed);
+	await second.reached;
+	expect(folder.getStatus().failures).toHaveLength(1);
+	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
+	second.proceed();
+	expectOk(await retry);
+	expect(folder.getStatus().failures).toEqual([]);
+});
+
 test.each(['discard', 'retry'] as const)(
-	'a status listener that starts %s prevents later listeners receiving the superseded failure',
+	'a status listener that starts %s gives later listeners the current failure',
 	async (action) => {
 		const { folder, hold } = setup({ 'a.md': 'A\n' });
 		const edit = folder.files.document('a.md');
@@ -736,7 +822,12 @@ test.each(['discard', 'retry'] as const)(
 		expectErr(await saving);
 		if (retry !== undefined) expectOk(await retry);
 		expect(acted).toBe(true);
-		expect(noticed).toEqual([]);
+		expect(noticed).toHaveLength(action === 'discard' ? 0 : 1);
+		if (action === 'retry')
+			expect(noticed[0]).toMatchObject({
+				path: 'a.md',
+				error: { name: 'StorageFailed' },
+			});
 	},
 );
 
@@ -901,14 +992,21 @@ test('change patches fields and body of the current text, owns nested values, an
 	expect(edit.getSnapshot().content?.fields).toMatchObject({ title: 'B' });
 	expectOk(edit.replace('---\ntitle: [broken\n---\nbody\n'));
 	expect(expectErr(edit.patch({ fields: { title: 'C' } })).name).toBe(
-		'InvalidFields',
+		'MalformedFrontmatter',
 	);
-	expectOk(edit.patch({ body: 'repaired body\n' }));
+	expect(expectErr(edit.patch({ body: 'repaired body\n' })).name).toBe(
+		'MalformedFrontmatter',
+	);
+	expect(expectErr(edit.patch({})).name).toBe('MalformedFrontmatter');
 	expect(edit.getSnapshot().content?.text).toBe(
-		'---\ntitle: [broken\n---\nrepaired body\n',
+		'---\ntitle: [broken\n---\nbody\n',
 	);
+	expectOk(edit.replace('---\ntitle: C\n---\nrepaired body\n'));
+	expect(edit.getSnapshot().content?.issues).toBeNull();
 	expect(expectErr(edit.replace('a\0b')).name).toBe('InvalidText');
 	expect(expectErr(edit.replace('a\uD800b')).name).toBe('InvalidText');
+	expect(expectErr(edit.patch({ body: 'a\0b' })).name).toBe('InvalidText');
+	expect(expectErr(edit.patch({ body: 1 as never })).name).toBe('InvalidText');
 });
 
 test('close releases synchronously with a blocked write and never submits held input', async () => {

@@ -220,19 +220,22 @@ test('source with malformed frontmatter stays exact, readable as a file, and rep
 	expect(row.text).toBe(broken);
 	expect(row.issues?.[0]?.kind).toBe('frontmatter');
 	expectOk(await first.tables.notes.document('b').refresh());
-	// Fields cannot be edited through broken frontmatter; the body can.
+	// Structured edits refuse broken frontmatter; full text can repair it.
 	const refused = await first.tables.notes.document('b').save({
 		fields: { title: 'x' },
 	});
-	expect(expectErr(refused).name).toBe('InvalidFields');
-	expectOk(await first.tables.notes.document('b').save({ body: 'New body' }));
+	expect(expectErr(refused).name).toBe('MalformedFrontmatter');
+	expect(
+		expectErr(await first.tables.notes.document('b').save({ body: 'New body' }))
+			.name,
+	).toBe('MalformedFrontmatter');
 	first.close();
 
 	const second = await open();
 	const file = expectOk(await second.files.read('notes/b.md'));
-	expect(await file?.content.text()).toBe('---\ntitle: [broken\n---\nNew body');
+	expect(await file?.content.text()).toBe(broken);
 	const repaired = '---\ntitle: Fixed\n---\nNew body';
-	expectOk(await second.files.write('notes/b.md', repaired));
+	expectOk(await second.tables.notes.document('b').save(repaired));
 	const fixed = expectOk(await second.tables.notes.get('b'))!;
 	expect(fixed.issues).toBeNull();
 	expect(fixed.fields).toEqual({ title: 'Fixed' });

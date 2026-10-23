@@ -101,7 +101,9 @@ before anything opens.
 
 The writes and deletes of one path through one handle run one at a time, in
 call order, direct ones and documents' alike; writes of different paths run
-side by side.
+side by side. Automatic saves wait for that path's admitted work and then
+publish its latest accepted input. Edits made while a write is slow replace
+the pending automatic save instead of adding one queued write per edit.
 
 Await the actual write or editor save you started when you need durable bytes.
 Close does not submit held input or wait for per-path queues.
@@ -131,9 +133,10 @@ each `{ kind, message, path, line? }`:
 | `frontmatter` | has an opening fence but no closing fence, or has YAML that cannot be parsed |
 | `not-text` | is not UTF-8 text without NUL |
 
-A schema only interprets. It never refuses a save, and unknown fields,
-comments, and repairable frontmatter survive field and body edits. A row that does not
-fit is read, shown, and repaired, not dropped. `list()` reads every `.md`
+A schema only interprets. It never refuses a save, and unknown fields and
+comments survive field and body edits. Malformed frontmatter stays visible for
+full-text repair; structured patches refuse it. A row that does not fit is
+read, shown, and repaired, not dropped. `list()` reads every `.md`
 file directly in the table's directory; a missing directory is an empty
 table, and reading creates nothing.
 With no opening fence, the whole file is body and fields are empty.
@@ -153,9 +156,9 @@ from, and the last one to land wins.
   `Result<MarkdownContent<Schema>, ChangeError | SaveError>`: `NoContent`
   refuses before acquisition; accepted patches remain pending with `saveError`
   after publication fails. `undefined` removes a field; `body` replaces the
-  body. Later typing builds on the accepted patch. A field edit of broken
-  frontmatter is `InvalidFields`; a body edit can still land. The schema
-  never refuses a save.
+  body. Later typing builds on the accepted patch. Broken frontmatter refuses
+  both field and body patches with `MalformedFrontmatter`; use `save(text)` to
+  repair its complete source. The schema never refuses a save.
 - `tables.<name>.write(id, { fields?, body? })` publishes a complete new row,
   creating or replacing the file unconditionally. Omitted fields and body are
   empty, and the id must be nonempty. It returns `Result<Row, SaveError>` with the exact published row and
@@ -171,9 +174,10 @@ shared content rules (`shared/merge.ts`, ADR-0622).
 
 A raw write, row `write`, or delete acknowledges only the input it captured,
 after success. Failure leaves that original input held and never accepts the
-replacement payload as input; an interrupted autosave resumes with the original
-input. A document `save(input)` accepts its input, captures its interpreted
-content, and admits publication before observers can change the document.
+replacement payload as input; pending automatic input resumes after a failed
+direct operation. A document `save(input)` accepts its input, captures its
+interpreted content, and admits publication before observers can change the
+document.
 Success confirms that exact snapshot, even if newer input is already pending.
 Failure retains the accepted patch for explicit save or flush, without an
 unbounded automatic retry.
@@ -276,9 +280,10 @@ document.patch({ fields: { title: 'Milk' }, body: 'Two litres\n' });
 ```
 
 `replace(text)` accepts complete source, even before the first read.
-`patch({ fields?, body? })` applies a `DocumentPatch<Schema>` to acquired text.
-It refuses with `NoContent` before there is text, or `InvalidFields` when it
-cannot identify the region (fields of broken frontmatter). Both return
+`patch({ fields?, body? })` applies a `DocumentPatch<Schema>` to acquired text
+that the row parser can read. It refuses with `NoContent` before there is text,
+`MalformedFrontmatter` when the existing source cannot be parsed, or
+`InvalidFields` when patch values cannot be written. Both return
 synchronous `Result<void, ChangeError>` for acceptance into memory and start
 autosave. Invalid text (NUL or unpaired surrogates) refuses before acceptance.
 Show immediate refusals at the input boundary; they do not become `loadError`
@@ -311,15 +316,18 @@ with that input.
 yet; it is never inferred from comparing with storage. Only accepted input
 saves automatically, `saveAfterMs` after the last change. Reads, listings,
 and reported outside changes never write. `isSaving` is true while text
-publications of the path are admitted and not settled; deletes do not count.
+publications of the path are admitted and not settled; a pending automatic
+save behind a busy path has `isDirty: true` and `isSaving: false`. Deletes do
+not count.
 
 A save-only indicator observes `folder.getStatus()` through `onStatusChange`,
 or the Svelte context's reactive `getStatus()`, without subscribing to a document.
 `savingPaths` lists paths with queued or running writes or deletes; `saving`
 is whether that list is nonempty. `unsaved` lists accepted input awaiting
-acknowledgement, and `failures` lists held input whose save failed and is not
-being retried. Filter each by path for a per-file label. These reads start no
-file I/O. A document subscription, including tracking any Svelte adapter getter,
+acknowledgement, and `failures` lists held input whose save failed until a
+publication succeeds or the input is discarded, including while a retry runs.
+Filter each by path for a per-file label. These reads start no file I/O. A
+document subscription, including tracking any Svelte adapter getter,
 demands content and is appropriate for an editing view.
 
 Status is a read-only projection of the existing command lanes and held input.
@@ -334,13 +342,15 @@ same read without mirroring the snapshot.
 
 A publication acknowledges only the input it captured, by identity: typing
 during a save stays dirty after it lands, even when the newer text equals the
-older. A read waits for the path's admitted writes and reads again when a
-write or a reported change overtakes it, so an acknowledgement never lands
-over a newer observation. `saveError` is the last applicable failed
-publication; it survives typing and retries until a publication succeeds or
-`discard()`. Discard drops unpublished input and its pending automatic save,
-forgets the failure, writes nothing, and cancels no admitted publication;
-a publication admitted before it cannot bring its failure back.
+older. A requested read waits for writes already admitted on its path. Reads
+run in request order without blocking later writes; a read overtaken by a
+publication or reported change triggers another read for subscribers, so an
+acknowledgement never lands over a newer observation. `saveError` is the last
+applicable failed publication; it survives typing and retries until a
+publication succeeds or `discard()`. Discard drops unpublished input and its
+pending automatic save, forgets the failure, writes nothing, and cancels no
+admitted publication; a publication admitted before it cannot bring its
+failure back.
 
 `folder.files.delete(path)` and `tables.<name>.delete(id)` capture the
 document's current input and defer its pending automatic save, never blocking
@@ -350,8 +360,9 @@ leaves pending input pending and resumes its automatic save while open. After
 close, that input stays readable without another save attempt. Input
 an earlier publication already acknowledged never becomes dirty again.
 
-`folder.flush()` submits held input no admitted command owns, failed input
-included, without waiting. Editing stays open. `getStatus().failures` exposes
+`folder.flush()` requests the latest held input for each dirty path, failed
+input included, without waiting. A busy path publishes that latest input once
+its admitted work settles. Editing stays open. `getStatus().failures` exposes
 immutable in-session `SaveFailure` values, `{ path, error }`. Copyable text
 lives in the document snapshot.
 
@@ -441,7 +452,7 @@ Closing releases the watch.
 
 The shell bound one existing directory to this window before the window
 existed (`tauri-plugin-epicenter-folder`). Opening asks the shell to open it
-(`open_folder`, with no arguments); the page then reads and saves only
+(`open_folder`, with one private observation channel and no path); the page then reads and saves only
 through the shell's storage commands, one per storage method (`tauri-files.ts`,
 [ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md)),
 each answered in the calling window's directory. No command names a root,
@@ -450,8 +461,9 @@ The shell checks every path and stages and renames each save under the same
 save lock used by Bun. Ordinary saves compare no previous content. A command whose reply was lost counts
 as landed only when the path holds what was sent. The window binding starts one
 recursive native watch when first opened and retains it until destruction or
-shutdown. Each handle installs its scoped typed event listener before returning,
-then releases its listener on close. Outside changes reach `onChange` as
+shutdown. All handles in a page share one private channel, with each handle
+releasing its observer on close. Reloading replaces the watch recipient.
+Outside changes reach `onChange` as
 `other-handle` path hints; they never acknowledge accepted input. Reading the
 handle directly always reads disk.
 
@@ -463,7 +475,7 @@ replacement directory is guaranteed. A terminal watcher error requests
 reconciliation without an autonomous restart guarantee.
 Neither native backend keeps a polling fallback, durable notification delivery,
 or file-content replica. General list queries retain their refresh policy while
-their event-based coverage is completed.
+their watch coverage is completed.
 
 ## Helpers
 

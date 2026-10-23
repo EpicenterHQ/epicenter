@@ -151,3 +151,36 @@ typing retains that value, and a retry temporarily removes it from aggregate
 status while keeping the editor's failure. The exact copyable text, including
 BOM and line endings, is read from that path's current editor snapshot. This
 supersedes references above to detached recoveries or aggregate failure text.
+
+## Amendment, 2026-10-23: bounded automatic publication and independent reads
+
+An automatic save waits for the path's admitted commands to settle, then writes
+the latest accepted input. Repeated edits while storage is slow replace that
+pending automatic write. Explicit `save()`, raw writes, table writes, and
+deletes still enter the path lane at their calls and retain exact outcomes.
+Raw writes and deletes leave the input's automatic save timer running; if it
+fires while the path is busy, its one pending request runs after that work.
+`flush()` requests each dirty path's latest input; it does not enqueue each
+intermediate version. A pending automatic save remains dirty but does not count
+as `isSaving` until its write is admitted. A failed save remains visible through
+later typing in the same editing run; a discard starts a new run so a late
+failure cannot reappear.
+
+Aggregate `failures` now retains that same failure while a retry runs, until a
+success or discard. This supersedes the earlier amendment's temporary removal
+of failures during retry. The last failed attempt remains visible to recovery
+controls while another attempt is in progress; the new attempt's outcome
+replaces or clears it.
+
+Reads start in request order after writes already admitted when requested.
+They do not occupy the write lane or delay later writes. A successful
+publication that overtakes a read takes priority over that read's observation;
+subscribers reread. An overtaken text observation can still be shown while
+the confirming read is pending, but an overtaken missing or failed observation
+does not replace current text. This replaces the prior read loop's separate
+quiescence, next-read waiter, and overwritten-read state.
+
+The user-visible tradeoff is that intermediate edits made while a path is busy
+are no longer individually written to disk. The latest accepted text remains
+available in the Folder-owned document and is written when the path catches up.
+Closing the Folder still does not promise to publish pending input.

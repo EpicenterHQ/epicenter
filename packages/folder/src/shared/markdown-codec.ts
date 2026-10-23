@@ -120,7 +120,7 @@ export type MarkdownChange = {
 	body?: string;
 };
 
-/** Build the draft's sent source. Schema validation never refuses a write. */
+/** Change parseable source; schema validation never refuses a write. */
 export function changeMarkdown(
 	from: Pick<MarkdownValue, 'text' | 'issues'> | null,
 	change: MarkdownChange,
@@ -148,14 +148,7 @@ export function changeMarkdown(
 		);
 	}
 	const parsed = parseRowSource(source);
-	if (parsed.error !== null) {
-		if (change.fields !== undefined) return Err(parsed.error);
-		if (change.body === undefined) return Ok({ text: source });
-		const frame = frameRowText(source);
-		if (frame.kind === 'frontmatter')
-			return checkedText(appendBody(source, frame, change.body));
-		return Err(parsed.error);
-	}
+	if (parsed.error !== null) return Err(parsed.error);
 	const { document } = parsed.data;
 	const body = change.body ?? document.body;
 	if (change.fields === undefined) return replaceBody(source, body);
@@ -225,15 +218,7 @@ function replaceBody(source: string, body: string) {
 	// Called only after the source has parsed successfully.
 	if (frame.kind !== 'frontmatter')
 		throw new Error('A parsed row has no frontmatter frame');
-	return checkedText(appendBody(source, frame, body));
-}
-
-function appendBody(
-	source: string,
-	frame: Extract<ReturnType<typeof frameRowText>, { kind: 'frontmatter' }>,
-	body: string,
-) {
-	return joinRowText(source.slice(0, frame.bodyStart), body);
+	return checkedText(joinRowText(source.slice(0, frame.bodyStart), body));
 }
 
 function checkedText(text: string): Result<{ text: string }, CanonicalRefusal> {
