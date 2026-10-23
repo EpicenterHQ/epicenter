@@ -8,13 +8,13 @@ For general CSS and Tailwind guidelines, see the `styling` skill.
 
 # UI component boundary
 
-Apps use `@epicenter/ui` subpaths. Components and extras are vendored in
-`packages/ui/src`; this repo does not use shadcn-svelte's app-local
-`$lib/components/ui` layout or a `components.json` in the UI package. Read the
-[UI package guide](../../../../packages/ui/README.md) for imports, component
-selection, Vega styling, and the update workflow. Do not run an unpinned
-`shadcn-svelte add` or `jsrepo add` into the live package: generated files need
-review against the local overlay, imports, and component contracts.
+Apps use `@epicenter/ui` subpaths. Components and extras are vendored in the
+shared UI package; this repo does not use shadcn-svelte's app-local
+`$lib/components/ui` layout or a `components.json` in the UI package. Inspect
+the shared component's exports and source before importing or updating it. Do
+not run an unpinned `shadcn-svelte add` or `jsrepo add` into the live package:
+generated files need review against the local overlay, imports, and component
+contracts.
 
 For a changed component's current API or composition, check its local source
 and the [shadcn-svelte docs](https://shadcn-svelte.com/docs/components) or
@@ -224,9 +224,8 @@ each other and which source information survives.
 
 ## File editor views
 
-Use [Folder editing](../../../../packages/folder/README.md#working-documents)
-for how an app edits files and [the input patterns](input-ownership.md) for the
-choice between immediate editing and explicit submission.
+Use [the input patterns](input-ownership.md) for the choice between immediate
+editing and explicit submission.
 
 Files opens full text; a product list opens structured controls. An invalid file
 shows its reason and opens as text, as below; repairing text does not switch a
@@ -236,8 +235,7 @@ mode, or automatic Source fallback.
 The query cache owns saved listings; Folder owns each path's working source.
 Construct a view with `liveSnapshot(handle)` from
 `@epicenter/svelte/snapshot`, read its `.current`, and keep commands on the original handle. Reuse
-views per component, keyed block, or source identity to avoid subscription churn; see the
-[package guide](../../../../packages/svelte/README.md#snapshot-observation).
+views per component, keyed block, or source identity to avoid subscription churn.
 Tracking starts observation, and the last tracking effect leaving releases it.
 Use function bindings: `patch({ fields: { title } })` patches a field and
 `replace(text)` replaces full source. Show immediate acceptance refusals at
@@ -249,8 +247,8 @@ For an action that publishes a patch to an existing document, use
 clean document first, then check `closing` again after the await. Success
 returns the exact captured content; failure retains the accepted patch. Use
 `folder.tables.notes.write()` for a complete form submission that must leave no deferred
-input after failure. The [working document contract](../../../../packages/folder/README.md#working-documents)
-owns source acquisition, autosave, save results, and teardown behavior.
+input after failure. The working document owns source acquisition, autosave,
+save results, and teardown behavior.
 
 Keep unsubmitted Add, Send, or Save form input with the form. A rich widget
 keeps its document, selection, and history; the Folder handle owns accepted

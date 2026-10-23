@@ -360,11 +360,6 @@ Folder storage; it submits no input and waits for no saves. Await an actual
 write or editor save when durable bytes are required. Keep product cleanup
 idempotent so it still releases its resources if the context closed first.
 
-Examples: `apps/honeycrisp/src/routes/components/NoteList.svelte` reads the
-context's queries; `apps/honeycrisp/src/routes/components/HoneycrispApp.svelte`
-creates the mounted product owner. The [Folder guide](../../../../packages/folder/README.md#working-documents)
-owns the current document contract.
-
 ### Template Props
 
 For component props expecting `T[]`, derive in the script block: never materialize in the template:
