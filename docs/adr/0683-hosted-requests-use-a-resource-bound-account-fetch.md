@@ -66,10 +66,12 @@ reported distinctly from a signed-out grant.
 
 **Account and caller retirement cancel the desktop send and its response
 body.** The desktop adapter combines the caller's abort signal with the
-Account's lifetime; page teardown also stops its request. The bridge ends the
-CLI request and the returned stream while allowing an in-progress token
-refresh to save its rotated token before process exit. A request already
-processed by the server cannot be undone.
+Account's lifetime; page teardown also stops its request. The bridge asks the
+host to end the CLI request and the returned stream while allowing an
+in-progress token refresh to save its rotated token before process exit. The
+host remembers the latest 128 cancellations that arrive before their sends
+register in one window; an older cancellation can be evicted if that bound is
+exceeded. A request already processed by the server cannot be undone.
 
 **The CLI remains the only owner of the `so.epicenter` desktop grant in this
 stage.** Desktop account requests still start a CLI child. Whispering's hosted
