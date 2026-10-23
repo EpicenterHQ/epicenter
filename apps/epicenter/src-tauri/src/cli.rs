@@ -23,7 +23,7 @@
 //! only after [`STOP_GRACE`], so a refresh the child already sent reaches
 //! the keychain (ADR-0565).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
@@ -125,7 +125,7 @@ pub struct CliChildren {
 #[derive(Default)]
 struct WindowChildren {
     active: Vec<(Option<String>, Arc<Notify>)>,
-    pending_cancels: HashSet<String>,
+    pending_cancels: VecDeque<String>,
 }
 
 impl CliChildren {
@@ -147,7 +147,12 @@ impl CliChildren {
             {
                 return Err(failed("an account request with this id is already running"));
             }
-            if children.pending_cancels.remove(id) {
+            if let Some(index) = children
+                .pending_cancels
+                .iter()
+                .position(|pending| pending == id)
+            {
+                children.pending_cancels.remove(index);
                 if children.active.is_empty() && children.pending_cancels.is_empty() {
                     state.remove(window);
                 }
@@ -183,8 +188,15 @@ impl CliChildren {
             .find(|(id, _)| id.as_deref() == Some(request_id))
         {
             end.notify_one();
-        } else if children.pending_cancels.len() < 128 {
-            children.pending_cancels.insert(request_id.to_string());
+        } else if !children
+            .pending_cancels
+            .iter()
+            .any(|pending| pending == request_id)
+        {
+            if children.pending_cancels.len() == 128 {
+                children.pending_cancels.pop_front();
+            }
+            children.pending_cancels.push_back(request_id.to_string());
         }
     }
 
@@ -1844,6 +1856,18 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         tokio::time::timeout(Duration::from_millis(10), second.notified())
             .await
             .unwrap();
+    }
+
+    #[test]
+    fn newest_pre_start_cancel_survives_a_full_window_queue() {
+        let children = CliChildren::default();
+        for id in 0..128 {
+            children.cancel("whispering:first", &format!("stale-{id}"));
+        }
+        children.cancel("whispering:first", "current");
+        assert!(children.start("whispering:first", Some("current")).is_err());
+        assert!(children.start("whispering:first", Some("stale-0")).is_ok());
+        children.page_ended("whispering:first");
     }
 
     /// A page names a resource by role; an audience outside the closed set,
