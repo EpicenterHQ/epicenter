@@ -2,7 +2,7 @@ import { fromAuth } from '@epicenter/auth/svelte';
 import { createCookieSessionAuth } from '../auth/cookie-session.js';
 import { readDashboardReturnPath } from '../dashboard/navigation.js';
 
-export const authClient = createCookieSessionAuth({
+const client = createCookieSessionAuth({
 	origin: window.location.origin,
 	navigate: (url) => window.location.assign(url),
 	returnPath: () =>
@@ -12,16 +12,15 @@ export const authClient = createCookieSessionAuth({
 		),
 });
 
-// Boot code takes `authClient`; a component that must track takes `auth`.
-export const auth = fromAuth(authClient);
+export const auth = fromAuth(client);
 
 /** Settles once the first cookie session read has decided the state. */
-export const authReady = authClient.refresh();
+export const authReady = client.refresh();
 
 // Another tab can sign in as someone else or sign out. Coming back reads the
 // cookie again, so a dashboard never keeps showing a person it no longer has.
 const recheck = () => {
-	if (document.visibilityState === 'visible') void authClient.refresh();
+	if (document.visibilityState === 'visible') void client.refresh();
 };
 window.addEventListener('focus', recheck);
 document.addEventListener('visibilitychange', recheck);
@@ -30,7 +29,7 @@ if (import.meta.hot) {
 	import.meta.hot.dispose(() => {
 		window.removeEventListener('focus', recheck);
 		document.removeEventListener('visibilitychange', recheck);
-		authClient[Symbol.dispose]();
+		client[Symbol.dispose]();
 	});
 
 	// `accept` is what makes the `dispose` run. Vite disposes only the module an
