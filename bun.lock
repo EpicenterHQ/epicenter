@@ -377,6 +377,7 @@
       "version": "7.11.1",
       "dependencies": {
         "@epicenter/ai": "workspace:*",
+        "@epicenter/auth": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",

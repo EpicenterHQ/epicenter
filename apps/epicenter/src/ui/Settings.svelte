@@ -51,6 +51,7 @@
 
 	/** Where each section an app may ask for starts. */
 	const sections = $state<Record<HomeSection, HTMLElement | undefined>>({
+		account: undefined,
 		transcription: undefined,
 	});
 
@@ -112,7 +113,7 @@
 </script>
 
 {#if isDesktopHost()}
-	<div class="grid gap-3 border-b p-3">
+	<div class="grid gap-3 border-b p-3" bind:this={sections.account}>
 		<h2 class="font-medium">Account</h2>
 		{#if busy === 'reading'}
 			<p class="text-muted-foreground">Reading this computer's sign-in…</p>

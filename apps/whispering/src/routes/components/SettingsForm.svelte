@@ -4,6 +4,7 @@
 	import type { Operation } from '$lib/connections.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import ConnectionForm from './ConnectionForm.svelte';
+	import AccountStatus from './AccountStatus.svelte';
 
 	/**
 	 * Settings: this device's two connections. Everything here stays on this
@@ -17,6 +18,7 @@
 </script>
 
 <div class="flex flex-col gap-4 text-sm">
+	<AccountStatus />
 	{#if whispering.connectionsProblem}
 		<div class="flex flex-col gap-2 text-xs text-destructive" role="alert" data-testid="connections-problem">
 			<p>The connections on this device could not be read, so none is used: {whispering.connectionsProblem}</p>

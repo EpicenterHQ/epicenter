@@ -16,7 +16,6 @@ pub enum AudioError {
 
     #[error("Audio resample failed: {message}")]
     ResampleFailed { message: String },
-
 }
 
 impl AudioError {

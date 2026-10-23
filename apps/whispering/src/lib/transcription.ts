@@ -13,6 +13,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { connectionTargets, type StoredConnection } from './connections.js';
+import { refusedBeforeSend } from './request-refusal.js';
 
 export const TranscriptionError = defineErrors({
 	NotConfigured: ({ missing }: { missing: string }) => ({
@@ -182,6 +183,10 @@ export async function transcribeOverConnection(
 			credentials: 'omit',
 		});
 	} catch (cause) {
+		if (refusedBeforeSend(cause))
+			return TranscriptionError.ConnectionUnavailable({
+				reason: redact(cause.message),
+			});
 		return TranscriptionError.Unreachable({
 			url,
 			reason: redact(describe(cause)),

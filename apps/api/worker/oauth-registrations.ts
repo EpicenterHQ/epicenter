@@ -24,7 +24,7 @@ import { isLocalDeployment } from './trusted-origins.js';
 const BROWSER_APPS = [
 	{ clientId: 'so.epicenter.todos', name: 'Todos', app: APPS.TODOS },
 	{
-		clientId: 'so.epicenter.whispering',
+		clientId: APPS.WHISPERING.id,
 		name: 'Whispering',
 		app: APPS.WHISPERING,
 	},

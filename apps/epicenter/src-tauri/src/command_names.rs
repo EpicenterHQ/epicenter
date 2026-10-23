@@ -27,6 +27,7 @@ pub const COMMANDS: &[&str] = &[
     "remove_recent_folder",
     "ai_send",
     "account_send",
+    "send_cancel",
     "ai_key_set",
     "ai_key_remove",
     "ai_key_state",

@@ -23,7 +23,7 @@
 //! only after [`STOP_GRACE`], so a refresh the child already sent reaches
 //! the keychain (ADR-0565).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
@@ -119,32 +119,72 @@ fn signal_group(child: &Child, signal: libc::c_int) {
 /// run can hold it across its awaits.
 #[derive(Clone, Default)]
 pub struct CliChildren {
-    running: Arc<Mutex<HashMap<String, Vec<Arc<Notify>>>>>,
+    running: Arc<Mutex<HashMap<String, WindowChildren>>>,
+}
+
+#[derive(Default)]
+struct WindowChildren {
+    active: Vec<(Option<String>, Arc<Notify>)>,
+    pending_cancels: HashSet<String>,
 }
 
 impl CliChildren {
-    fn state(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<Arc<Notify>>>> {
+    fn state(&self) -> std::sync::MutexGuard<'_, HashMap<String, WindowChildren>> {
         self.running
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn start(&self, window: &str) -> Arc<Notify> {
+    fn start(&self, window: &str, request_id: Option<&str>) -> Result<Arc<Notify>, CliError> {
         let end = Arc::new(Notify::new());
-        self.state()
-            .entry(window.to_string())
-            .or_default()
-            .push(Arc::clone(&end));
-        end
+        let mut state = self.state();
+        let children = state.entry(window.to_string()).or_default();
+        if let Some(id) = request_id {
+            if children
+                .active
+                .iter()
+                .any(|(active, _)| active.as_deref() == Some(id))
+            {
+                return Err(failed("an account request with this id is already running"));
+            }
+            if children.pending_cancels.remove(id) {
+                if children.active.is_empty() && children.pending_cancels.is_empty() {
+                    state.remove(window);
+                }
+                return Err(failed("the account request was canceled before it started"));
+            }
+        }
+        children
+            .active
+            .push((request_id.map(str::to_string), Arc::clone(&end)));
+        Ok(end)
     }
 
     fn finish(&self, window: &str, end: &Arc<Notify>) {
         let mut state = self.state();
         if let Some(children) = state.get_mut(window) {
-            children.retain(|other| !Arc::ptr_eq(other, end));
-            if children.is_empty() {
+            children
+                .active
+                .retain(|(_, other)| !Arc::ptr_eq(other, end));
+            if children.active.is_empty() && children.pending_cancels.is_empty() {
                 state.remove(window);
             }
+        }
+    }
+
+    /// End one request from this window, even if cancellation reaches the
+    /// host before the corresponding send command registers its child.
+    fn cancel(&self, window: &str, request_id: &str) {
+        let mut state = self.state();
+        let children = state.entry(window.to_string()).or_default();
+        if let Some((_, end)) = children
+            .active
+            .iter()
+            .find(|(id, _)| id.as_deref() == Some(request_id))
+        {
+            end.notify_one();
+        } else if children.pending_cancels.len() < 128 {
+            children.pending_cancels.insert(request_id.to_string());
         }
     }
 
@@ -153,7 +193,7 @@ impl CliChildren {
     /// early does ([`Running`]): its child and the processes the child
     /// started are asked to stop, and killed after [`STOP_GRACE`].
     pub fn page_ended(&self, window: &str) {
-        for end in self.state().remove(window).unwrap_or_default() {
+        for (_, end) in self.state().remove(window).unwrap_or_default().active {
             // A run not yet waiting keeps the permit and ends when it waits.
             end.notify_one();
         }
@@ -162,7 +202,9 @@ impl CliChildren {
     /// How many children `window`'s page has running.
     #[cfg(test)]
     pub(crate) fn running(&self, window: &str) -> usize {
-        self.state().get(window).map_or(0, Vec::len)
+        self.state()
+            .get(window)
+            .map_or(0, |children| children.active.len())
     }
 }
 
@@ -272,7 +314,7 @@ pub(crate) struct Invocation {
     program: Program,
     env: Vec<(OsString, OsString)>,
     desktop: bool,
-    owner: Option<(CliChildren, String)>,
+    owner: Option<(CliChildren, String, Option<String>)>,
 }
 
 impl Invocation {
@@ -309,7 +351,14 @@ impl Invocation {
 
     /// The run belongs to `window`'s page, and ends with it.
     pub(crate) fn owned_by(mut self, children: &CliChildren, window: &str) -> Self {
-        self.owner = Some((children.clone(), window.to_string()));
+        self.owner = Some((children.clone(), window.to_string(), None));
+        self
+    }
+
+    fn request(mut self, request_id: &str) -> Self {
+        if let Some((_, _, id)) = &mut self.owner {
+            *id = Some(request_id.to_string());
+        }
         self
     }
 
@@ -330,9 +379,10 @@ impl Invocation {
         let end = self
             .owner
             .as_ref()
-            .map(|(children, window)| children.start(window));
+            .map(|(children, window, request_id)| children.start(window, request_id.as_deref()))
+            .transpose()?;
         let exit = run_child(&self.program, &args, &self.env, stdin, on_line, end.clone()).await;
-        if let (Some((children, window)), Some(end)) = (&self.owner, &end) {
+        if let (Some((children, window, _)), Some(end)) = (&self.owner, &end) {
             children.finish(window, end);
         }
         exit
@@ -580,9 +630,6 @@ pub enum AiTarget {
         connection: String,
         endpoint: String,
     },
-    Epicenter {
-        connection: String,
-    },
     Local {
         connection: String,
     },
@@ -591,9 +638,7 @@ pub enum AiTarget {
 impl AiTarget {
     fn connection(&self) -> &str {
         match self {
-            Self::OpenaiCompatible { connection, .. }
-            | Self::Epicenter { connection }
-            | Self::Local { connection } => connection,
+            Self::OpenaiCompatible { connection, .. } | Self::Local { connection } => connection,
         }
     }
 }
@@ -978,23 +1023,63 @@ pub enum AccountAudience {
 }
 
 /// The account target `epicenter send` reads: `{"kind":"account","audience"}`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum AccountTarget {
-    Account { audience: AccountAudience },
+    Account {
+        audience: AccountAudience,
+        generation: String,
+    },
 }
 
-/// `epicenter send --json --desktop` with an account target. The CLI sends
-/// only a path below the deployment's `/api/`.
+/// This installed page's account authority. A Tauri command permission alone
+/// does not grant an audience or every path at the deployment's origin.
+fn account_request_allowed(window: &str, audience: AccountAudience, request: &AiRequest) -> bool {
+    let Some((page, _)) = window.split_once(':') else {
+        return false;
+    };
+    match crate::bundled_apps::BundledApp::from_page(page) {
+        Some(crate::bundled_apps::BundledApp::Whispering) => {
+            audience == AccountAudience::Api
+                && matches!(
+                    (request.method.as_str(), request.path.as_str()),
+                    ("POST", "v1/audio/transcriptions")
+                        | ("POST", "v1/chat/completions")
+                        | ("GET", "auth/oauth2/userinfo")
+                )
+        }
+        _ => false,
+    }
+}
+
+fn request_id_valid(id: &str) -> bool {
+    id.len() == 36
+        && id.as_bytes()[14] == b'4'
+        && matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b' | b'A' | b'B')
+        && id.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
+/// `epicenter send --json --desktop` with an account target. The CLI checks
+/// the requested path and grant generation before selecting the token.
 async fn account_send_with(
     invocation: &Invocation,
     audience: AccountAudience,
+    generation: &str,
     request: &AiRequest,
     on_line: impl FnMut(String) -> Result<(), String>,
 ) -> Result<CliExit, CliError> {
     run_send(
         invocation,
-        &AccountTarget::Account { audience },
+        &AccountTarget::Account {
+            audience,
+            generation: generation.to_string(),
+        },
         request,
         on_line,
     )
@@ -1002,7 +1087,7 @@ async fn account_send_with(
 }
 
 /// Send one request to the deployment's `audience` resource with the app's
-/// grant, through `epicenter send` (ADR-0549, ADR-0556). The lines are
+/// grant, through `epicenter send` (ADR-0549, ADR-0683). The lines are
 /// `ai_send`'s: the response's head, its body in base64 chunks, and `end`,
 /// or an `error` such as `NoAccountToken` when the app is not signed in,
 /// then the shell's own `{"type":"exit","code","stderr"}`.
@@ -1011,17 +1096,43 @@ async fn account_send_with(
 pub async fn account_send(
     webview: Webview,
     audience: AccountAudience,
+    generation: String,
     request: AiRequest,
+    request_id: String,
     on_event: Channel<String>,
 ) -> Result<CliExit, CliError> {
+    if !account_request_allowed(webview.label(), audience, &request)
+        || !request_id_valid(&generation)
+        || !request_id_valid(&request_id)
+    {
+        return Err(CliError::Refused {
+            message: "the account request is not permitted for this window".into(),
+        });
+    }
     let exit = account_send_with(
-        &window_invocation(&webview)?,
+        &window_invocation(&webview)?.request(&request_id),
         audience,
+        &generation,
         &request,
         to_channel(&on_event),
     )
     .await?;
     end_channel(&on_event, exit)
+}
+
+/// Stop this window's one account request, including its response stream.
+#[tauri::command]
+#[specta::specta]
+pub fn send_cancel(webview: Webview, request_id: String) -> Result<(), CliError> {
+    if !request_id_valid(&request_id) {
+        return Err(CliError::Refused {
+            message: "the request id is invalid".into(),
+        });
+    }
+    webview
+        .state::<CliChildren>()
+        .cancel(webview.label(), &request_id);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1051,6 +1162,8 @@ pub struct AuthGrant {
     pub account: Option<AuthAccount>,
     #[serde(default)]
     pub signed_in_at: Option<String>,
+    #[serde(default)]
+    pub generation: Option<String>,
 }
 
 /// `epicenter auth status --json`: the deployment and each grant on this
@@ -1273,12 +1386,13 @@ process.exitCode = 1;
         };
         let body = vec![b'z'; 4 * 1024 * 1024];
         let mut lines = Vec::new();
-        let exit = plain(program).run(&[], Some(body), |line| {
-            lines.push(line);
-            Ok(())
-        })
-        .await
-        .unwrap();
+        let exit = plain(program)
+            .run(&[], Some(body), |line| {
+                lines.push(line);
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         assert_eq!(exit.code, 1);
         assert!(exit.stderr.ends_with("the end\n"));
@@ -1302,16 +1416,17 @@ process.exitCode = 1;
             prefix: vec!["-e".into(), "for (;;) process.stdout.write('{}\\n')".into()],
         };
         let mut seen = 0;
-        let ended = plain(program).run(&[], None, |_| {
-            seen += 1;
-            if seen == 3 {
-                Err("the page went away".into())
-            } else {
-                Ok(())
-            }
-        })
-        .await
-        .unwrap_err();
+        let ended = plain(program)
+            .run(&[], None, |_| {
+                seen += 1;
+                if seen == 3 {
+                    Err("the page went away".into())
+                } else {
+                    Ok(())
+                }
+            })
+            .await
+            .unwrap_err();
         assert_eq!(
             ended,
             CliError::Failed {
@@ -1369,7 +1484,8 @@ process.exitCode = 1;
             program: PathBuf::from("/nonexistent/epicenter-cli"),
             prefix: Vec::new(),
         };
-        let CliError::Failed { message } = plain(program).run(&[], None, |_| Ok(())).await.unwrap_err()
+        let CliError::Failed { message } =
+            plain(program).run(&[], None, |_| Ok(())).await.unwrap_err()
         else {
             panic!("not a failure");
         };
@@ -1431,7 +1547,10 @@ process.exitCode = 1;
             .await
             .expect("the child ended with its page")
             .unwrap();
-        assert!(ended.as_ref().map_or(true, |exit| exit.code != 0), "{ended:?}");
+        assert!(
+            ended.as_ref().map_or(true, |exit| exit.code != 0),
+            "{ended:?}"
+        );
         assert_eq!(children.running("folders"), 0);
         let _ = fs::remove_dir_all(dir);
     }
@@ -1566,8 +1685,9 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
 
         let refused = send_with(
             &plain(program),
-            &AiTarget::Epicenter {
+            &AiTarget::OpenaiCompatible {
                 connection: "--json".into(),
+                endpoint: "https://api.example.test/v1".into(),
             },
             &request,
             |_| Ok(()),
@@ -1606,10 +1726,16 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
             body: Some(STANDARD.encode(br#"{"folder":"so.epicenter.todos"}"#)),
         };
         let mut lines = Vec::new();
-        let exit = account_send_with(&plain(program), AccountAudience::Git, &request, |line| {
-            lines.push(line);
-            Ok(())
-        })
+        let exit = account_send_with(
+            &plain(program),
+            AccountAudience::Git,
+            "11111111-1111-4111-8111-111111111111",
+            &request,
+            |line| {
+                lines.push(line);
+                Ok(())
+            },
+        )
         .await
         .unwrap();
         assert_eq!(exit.code, 0, "{}", exit.stderr);
@@ -1618,7 +1744,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         assert_eq!(
             seen["head"],
             json!({
-                "target": { "kind": "account", "audience": "git" },
+                "target": { "kind": "account", "audience": "git", "generation": "11111111-1111-4111-8111-111111111111" },
                 "request": {
                     "method": "POST",
                     "path": "api/repos",
@@ -1628,6 +1754,96 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         );
         assert_eq!(seen["body"], r#"{"folder":"so.epicenter.todos"}"#);
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn account_requests_are_scoped_to_whisperings_methods_and_paths() {
+        let request = |method: &str, path: &str| AiRequest {
+            method: method.into(),
+            path: path.into(),
+            headers: vec![],
+            body: None,
+        };
+        assert!(account_request_allowed(
+            "whispering:folder",
+            AccountAudience::Api,
+            &request("POST", "v1/audio/transcriptions")
+        ));
+        assert!(account_request_allowed(
+            "whispering:folder",
+            AccountAudience::Api,
+            &request("POST", "v1/chat/completions")
+        ));
+        assert!(account_request_allowed(
+            "whispering:folder",
+            AccountAudience::Api,
+            &request("GET", "auth/oauth2/userinfo")
+        ));
+        for (window, audience, method, path) in [
+            (
+                "todos:folder",
+                AccountAudience::Api,
+                "POST",
+                "v1/chat/completions",
+            ),
+            (
+                "whispering:folder",
+                AccountAudience::Git,
+                "POST",
+                "v1/chat/completions",
+            ),
+            (
+                "whispering:folder",
+                AccountAudience::Api,
+                "GET",
+                "v1/chat/completions",
+            ),
+            (
+                "whispering:folder",
+                AccountAudience::Api,
+                "POST",
+                "v1/../v1/chat/completions",
+            ),
+            (
+                "whispering:folder",
+                AccountAudience::Api,
+                "POST",
+                "v1/%63hat/completions",
+            ),
+        ] {
+            assert!(!account_request_allowed(
+                window,
+                audience,
+                &request(method, path)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn one_window_cancels_only_its_named_request_even_when_cancel_arrives_first() {
+        let children = CliChildren::default();
+        children.cancel("whispering:first", "11111111-1111-4111-8111-111111111111");
+        assert!(children
+            .start(
+                "whispering:first",
+                Some("11111111-1111-4111-8111-111111111111")
+            )
+            .is_err());
+        let second = children
+            .start(
+                "whispering:second",
+                Some("11111111-1111-4111-8111-111111111111"),
+            )
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), second.notified())
+                .await
+                .is_err()
+        );
+        children.cancel("whispering:second", "11111111-1111-4111-8111-111111111111");
+        tokio::time::timeout(Duration::from_millis(10), second.notified())
+            .await
+            .unwrap();
     }
 
     /// A page names a resource by role; an audience outside the closed set,
@@ -1674,6 +1890,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         let exit = account_send_with(
             &invocation,
             AccountAudience::Api,
+            "11111111-1111-4111-8111-111111111111",
             &request("api/session"),
             |line| {
                 events.push(serde_json::from_str::<Value>(&line).unwrap());
@@ -1698,6 +1915,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         account_send_with(
             &invocation,
             AccountAudience::Api,
+            "11111111-1111-4111-8111-111111111111",
             &request("auth/oauth2/revoke"),
             |line| {
                 events.push(serde_json::from_str::<Value>(&line).unwrap());
@@ -1802,30 +2020,6 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["name"], "EndpointChanged");
 
-        let mut events = Vec::new();
-        send_with(
-            &program,
-            &AiTarget::Epicenter {
-                connection: "account".into(),
-            },
-            &request,
-            |line| {
-                events.push(serde_json::from_str::<Value>(&line).unwrap());
-                Ok(())
-            },
-        )
-        .await
-        .unwrap();
-        // `--desktop` asks for the app's grant, and this keychain holds none.
-        assert_eq!(events[0]["name"], "NoAccessToken");
-        assert!(
-            events[0]["message"]
-                .as_str()
-                .unwrap()
-                .contains("Sign in from Epicenter's Settings"),
-            "{}",
-            events[0]
-        );
         let _ = fs::remove_dir_all(dir);
     }
 

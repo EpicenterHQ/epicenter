@@ -5,6 +5,10 @@
 	"description": "Voice notes: recordings, transcripts, and settings are files in a Git-versioned folder, in Epicenter or a browser tab",
 	"type": "module",
 	"imports": {
+		"#platform/auth": {
+			"epicenter-host": "./src/lib/platform/desktop/auth.ts",
+			"default": "./src/lib/platform/auth.ts"
+		},
 		"#platform/services": {
 			"epicenter-host": "./src/lib/platform/desktop/services.ts",
 			"default": "./src/lib/platform/browser.ts"
@@ -50,6 +54,7 @@
 	},
 	"dependencies": {
 		"@epicenter/ai": "workspace:*",
+		"@epicenter/auth": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",

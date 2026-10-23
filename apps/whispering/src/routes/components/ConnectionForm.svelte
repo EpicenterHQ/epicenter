@@ -43,13 +43,25 @@
 		if (problem) toast.error(problem.title, { description: problem.description });
 		else toast.success(`${copy[operation].title} connection saved`);
 	}
+
+	async function chooseAccount() {
+		const { error } = await whispering.services.connections.useAccount!(operation);
+		if (error !== null) toast.error(error);
+		else await whispering.readConnections();
+	}
+
+	async function chooseCustom() {
+		const { error } = await whispering.services.connections.useCustom!(operation);
+		if (error !== null) toast.error(error);
+		else await whispering.readConnections();
+	}
 </script>
 
 <form class="flex flex-col gap-3 text-sm" onsubmit={save} data-testid={id}>
 	<p class="font-medium">{copy[operation].title}</p>
 	<p class="text-xs text-muted-foreground" data-testid="{id}-status">
 		{#if draft.saved}
-			Set up: {draft.saved.baseUrl} · {draft.saved.model || 'no default model'} · {draft.saved.keyPresent ? 'with a key' : 'no key'}.
+			Set up: {draft.saved.baseUrl} · {draft.saved.model || 'no default model'}.
 		{:else}
 			Not set up. Nothing is sent until you save it.
 		{/if}
@@ -58,6 +70,15 @@
 	{#if draft.readOnlyReason}
 		<p class="text-xs text-muted-foreground">{draft.readOnlyReason}</p>
 	{/if}
+	{#if whispering.services.kind === 'browser'}
+		{#if draft.saved?.source === 'account'}
+			<Button type="button" size="xs" variant="outline" class="self-start" onclick={() => void chooseCustom()}>Use a custom endpoint</Button>
+		{:else}
+			<Button type="button" size="xs" variant="outline" class="self-start" disabled={draft.unsent} onclick={() => void chooseAccount()}>Use Epicenter account</Button>
+			{#if draft.unsent}<p class="text-xs text-muted-foreground">Save or clear your edits before switching connections.</p>{/if}
+		{/if}
+	{/if}
+	{#if draft.saved?.source !== 'account'}
 	<label class="flex flex-col gap-1">
 		<span class="text-xs text-muted-foreground">API endpoint</span>
 		<Input bind:value={draft.baseUrl} autocomplete="off" spellcheck={false} disabled={readOnly} data-testid="{id}-base-url" />
@@ -104,6 +125,7 @@
 				</span>
 			{/if}
 		</div>
+	{/if}
 	{/if}
 	{#if draft.problem && !readOnly}
 		<p class="text-xs text-warning" role="status" data-testid="{id}-problem">{draft.problem}</p>

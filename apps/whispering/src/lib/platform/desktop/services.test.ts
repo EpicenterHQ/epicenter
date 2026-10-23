@@ -88,9 +88,84 @@ const { openFolder: openBrowserFolder } = await import(
 );
 const { openFolder } = await import('@epicenter/folder/tauri');
 const { createServices } = await import('./services.js');
+const { createDesktopAccount } = await import('./account.js');
 
 const ORIGIN = 'epicenter-app://localhost';
 const ENDPOINT = 'http://127.0.0.1:18080/v1';
+
+test('the desktop Account sends one hosted request with its captured grant generation', async () => {
+	const generation = '11111111-1111-4111-8111-111111111111';
+	const sent: {
+		audience: string;
+		generation: string;
+		path: string;
+		authorization: unknown;
+	}[] = [];
+	const auth = createDesktopAccount({
+		async authStatus() {
+			return {
+				status: 'ok',
+				data: {
+					origin: 'https://api.example.test',
+					grants: [
+						{
+							grant: 'desktop',
+							client: 'so.epicenter',
+							signedIn: true,
+							account: { id: 'alice' },
+							generation,
+						},
+					],
+				},
+				error: null,
+			};
+		},
+		async accountSend(audience, current, request, _id, channel) {
+			sent.push({
+				audience,
+				generation: current,
+				path: request.path,
+				authorization: request.headers.find(
+					([name]) => name.toLowerCase() === 'authorization',
+				),
+			});
+			channel.onmessage(
+				JSON.stringify({
+					type: 'head',
+					status: 200,
+					statusText: 'OK',
+					headers: [],
+				}),
+			);
+			channel.onmessage(JSON.stringify({ type: 'end' }));
+			return {
+				status: 'ok',
+				data: { code: 0, reply: null, stderr: '' },
+				error: null,
+			};
+		},
+		async sendCancel() {
+			return { status: 'ok', data: null, error: null };
+		},
+		async openHome() {},
+	});
+	await auth.refresh();
+	const response = await auth
+		.getState()
+		.account!.fetch('/v1/chat/completions', {
+			method: 'POST',
+			headers: { authorization: 'Bearer page' },
+		});
+	expect(response.status).toBe(200);
+	expect(sent).toEqual([
+		{
+			audience: 'api',
+			generation,
+			path: 'v1/chat/completions',
+			authorization: undefined,
+		},
+	]);
+});
 
 const cleanups: (() => unknown)[] = [];
 
@@ -230,13 +305,6 @@ async function epicenter() {
 		});
 	}) as typeof fetch;
 	const ai: ConnectionCommands = {
-		async authStatus() {
-			return {
-				status: 'ok',
-				data: { origin: 'https://api.example.test', grants: [] },
-				error: null,
-			};
-		},
 		async aiKeyState(connection) {
 			const { data, error } = await keyState(keychain, connection);
 			return error === null

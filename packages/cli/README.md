@@ -219,10 +219,12 @@ line, `{"target", "request"}`, then the request body's raw bytes on stdin;
 it sends an Epicenter connection to the deployment's `/v1` with an access
 token from `auth` (the desktop grant's under `--desktop`, otherwise the
 device grant's). An account target, `{"kind": "account", "audience": "api"
-| "git"}`, names one of the deployment's resources by role (ADR-0549): `send`
-sends a path below the deployment's `/api/` with that grant's token for the
-resource's audience and refuses any other path, such as `/auth/*`, before
-asking for a token. It refuses a local connection, a missing key or
+| "git"}`, names one of the deployment's resources by role (ADR-0549). A
+desktop-grant target also carries the nonsecret `generation` from `auth status`;
+without it, the CLI refuses before reading a token. The terminal's separate
+device grant keeps the two-field target. `send` permits `/api/*`, API-resource
+`/v1/*`, and API-resource `GET /auth/oauth2/userinfo`, and refuses other
+paths before asking for a token. It refuses a local connection, a missing key or
 sign-in, and a request prepared for another endpoint than the keychain
 holds, and otherwise prints the response as NDJSON: a `head`, the
 body in base64 `chunk` lines of at most 64 KiB, and `end`, or an `error`.
@@ -295,7 +297,9 @@ and both audiences. Each refresh names one audience, and the server narrows
 that access token to the audience's scopes while the grant keeps all of
 them. `auth login` then caches an API token and reads who approved the grant
 from the server's userinfo, which `auth status` reports without a network
-request. The device login also sets, in Git's global configuration, an empty
+request. A first status read upgrades a legacy desktop grant with a random
+generation under the grant lock; token refresh keeps it unchanged. The device
+login also sets, in Git's global configuration, an empty
 `credential.<git audience>.helper` and then `!'<home>/.local/bin/epicenter'
 auth git-credential`, so no broader helper is asked to store the token. Only
 `auth login` writes it.
@@ -318,7 +322,7 @@ signs out the device grant.
 
 Every built resource accepts only these tokens (ADR-0549): an Epicenter
 connection's `send` reaches `/v1` with an API token, and an account target
-reaches `/api/*` with a token for the audience it names.
+reaches its permitted deployment paths with a token for the audience it names.
 
 ## Directories
 

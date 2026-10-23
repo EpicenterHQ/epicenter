@@ -1,4 +1,9 @@
 /** Browser capture, requests and device preferences over the folder the app opened. */
+
+import {
+	AI_MODELS,
+	HOSTED_TRANSCRIPTION_MODEL,
+} from '@epicenter/constants/ai-providers';
 import { Err, Ok } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
 import { createFixtureDevice, toneWav } from '../capture.js';
@@ -13,13 +18,14 @@ import {
 } from '../connections.js';
 import { DEFAULT_TRANSCRIPTION_CONNECTION } from '../definition.js';
 import { readBytes } from '../files.js';
+import { localPreferences } from '../microphone-preference.js';
 import { transcribeOverConnection } from '../transcription.js';
 import {
 	TransformationError,
 	transformOverConnection,
 } from '../transformation.js';
 import { createWebViewMicrophone } from '../webview-microphone.js';
-import { localPreferences } from '../microphone-preference.js';
+import { getAuth } from './auth.js';
 import type { CreateServices } from './types.js';
 
 /** This tab's two connections, keys included, as one JSON object. */
@@ -48,9 +54,35 @@ function storedConnections(): Record<string, unknown> {
 }
 
 /** One saved connection, read now. Throws when it is saved and does not read as one. */
-function storedConnection(operation: Operation): StoredConnection | undefined {
+type AccountSelection = {
+	readonly kind: 'epicenter';
+	readonly model: string;
+	readonly custom?: StoredConnection;
+};
+type BrowserSelection = StoredConnection | AccountSelection;
+
+function selection(operation: Operation): BrowserSelection | undefined {
 	const value = storedConnections()[operation];
 	if (value === undefined) return undefined;
+	if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+		const record = value as Record<string, unknown>;
+		if (record.kind === 'epicenter') {
+			const custom =
+				record.custom === undefined
+					? undefined
+					: readStoredConnection(record.custom);
+			if (
+				typeof record.model === 'string' &&
+				record.model.trim() !== '' &&
+				(record.custom === undefined || custom !== undefined)
+			)
+				return {
+					kind: 'epicenter',
+					model: record.model,
+					...(custom && { custom }),
+				};
+		}
+	}
 	const stored = readStoredConnection(value);
 	if (stored === undefined)
 		throw new Error(
@@ -59,12 +91,58 @@ function storedConnection(operation: Operation): StoredConnection | undefined {
 	return stored;
 }
 
-function readConnections(): ConnectionsInfo {
-	const transcription = storedConnection('transcription');
-	const text = storedConnection('text');
+const accountConnection = (model: string): StoredConnection => ({
+	baseUrl: `${new URL(getAuth().baseURL).origin}/v1`,
+	model,
+});
+
+function storedConnection(operation: Operation): StoredConnection | undefined {
+	const current = selection(operation);
+	return current && 'kind' in current
+		? accountConnection(current.model)
+		: current;
+}
+
+function info(operation: Operation) {
+	const current = selection(operation);
+	if (current === undefined) return undefined;
+	if (!('kind' in current)) return connectionInfo(current);
+	const state = getAuth().state;
 	return {
-		transcription: transcription && connectionInfo(transcription),
-		text: text && connectionInfo(text),
+		baseUrl: accountConnection(current.model).baseUrl,
+		model: current.model,
+		keyPresent: false,
+		source: 'account' as const,
+		readOnlyReason:
+			state.status === 'signed-in'
+				? 'This connection uses your Epicenter account.'
+				: 'Sign in to Epicenter to use this connection.',
+	};
+}
+
+function readConnections(): ConnectionsInfo {
+	return {
+		transcription: info('transcription'),
+		text: info('text'),
+	};
+}
+
+function route(operation: Operation) {
+	const current = selection(operation);
+	if (!current) return undefined;
+	if (!('kind' in current))
+		return {
+			source: 'custom' as const,
+			stored: current,
+			send: (url: string, init?: RequestInit) => fetch(url, init),
+		};
+	const state = getAuth().state;
+	if (state.status !== 'signed-in')
+		throw new Error('Sign in to Epicenter in Settings before sending.');
+	return {
+		source: 'account' as const,
+		stored: accountConnection(current.model),
+		send: (url: string, init?: RequestInit) => state.account.fetch(url, init),
 	};
 }
 
@@ -93,9 +171,13 @@ export const createServices: CreateServices = (folder) => ({
 			})
 		: createWebViewMicrophone(),
 	recoverRecordings: async () => undefined,
-	transcribe: (request) =>
-		transcribeOverConnection(
-			async () => storedConnection('transcription'),
+	transcribe: (request) => {
+		let selected: ReturnType<typeof route>;
+		return transcribeOverConnection(
+			async () => {
+				selected = route('transcription');
+				return selected?.stored;
+			},
 			request,
 			async () => {
 				const { audioPath } = request;
@@ -110,23 +192,33 @@ export const createServices: CreateServices = (folder) => ({
 					mimeType: audioMimeTypeOf(audioPath) ?? 'application/octet-stream',
 				});
 			},
-		),
+			(url, init) => selected!.send(url, init),
+		);
+	},
 	async transform(request) {
+		let selected: ReturnType<typeof route>;
 		const answered = await transformOverConnection(
-			async () => storedConnection('text'),
+			async () => {
+				selected = route('text');
+				return selected?.stored;
+			},
 			request,
+			(url, init) => selected!.send(url, init),
 		);
 		// A browser reports a refused cross-origin request only as a failed
 		// fetch, so say what a tab needs that the desktop app does not.
 		const { error: transformError } = answered;
-		if (transformError?.name === 'Unreachable')
+		if (
+			transformError?.name === 'Unreachable' &&
+			selected?.source === 'custom'
+		)
 			return TransformationError.Unreachable({
 				url: transformError.url,
 				reason: `${transformError.reason}. In a browser tab the endpoint must allow requests from ${location.origin} (CORS). Whispering in Epicenter sends from Epicenter and has no such limit`,
 			});
 		return answered;
 	},
-	transformNote: `Requests are sent from this browser tab over the text connection in Settings, so its endpoint must allow requests from ${location.origin} (CORS). Most hosted providers refuse that; a local endpoint or Whispering in Epicenter works.`,
+	transformNote: `Custom endpoint requests leave this browser tab, so that endpoint must allow requests from ${location.origin} (CORS). The Epicenter account route uses Epicenter’s API.`,
 	localTranscription: undefined,
 	// One synchronous read and write per change, so a key never sits beside
 	// a base URL it was not saved for.
@@ -142,7 +234,9 @@ export const createServices: CreateServices = (folder) => ({
 				const stored = storedConnections();
 				const { data: next, error: changeError } = applyConnectionChange(
 					operation,
-					storedConnection(operation),
+					'kind' in (selection(operation) ?? {})
+						? undefined
+						: storedConnection(operation),
 					change,
 				);
 				if (changeError !== null) return Err(changeError);
@@ -150,6 +244,45 @@ export const createServices: CreateServices = (folder) => ({
 					CONNECTIONS_STORAGE,
 					JSON.stringify({ ...stored, [operation]: next }),
 				);
+				return Ok(readConnections());
+			} catch (cause) {
+				return Err(describe(cause));
+			}
+		},
+		async useAccount(operation) {
+			try {
+				const stored = storedConnections();
+				const current = selection(operation);
+				const model =
+					operation === 'transcription'
+						? HOSTED_TRANSCRIPTION_MODEL
+						: AI_MODELS[0].id;
+				localStorage.setItem(
+					CONNECTIONS_STORAGE,
+					JSON.stringify({
+						...stored,
+						[operation]: {
+							kind: 'epicenter',
+							model,
+							...((current && 'kind' in current ? current.custom : current) && {
+								custom: current && 'kind' in current ? current.custom : current,
+							}),
+						},
+					}),
+				);
+				return Ok(readConnections());
+			} catch (cause) {
+				return Err(describe(cause));
+			}
+		},
+		async useCustom(operation) {
+			try {
+				const stored = storedConnections();
+				const current = selection(operation);
+				if (current && 'kind' in current && current.custom)
+					stored[operation] = current.custom;
+				else delete stored[operation];
+				localStorage.setItem(CONNECTIONS_STORAGE, JSON.stringify(stored));
 				return Ok(readConnections());
 			} catch (cause) {
 				return Err(describe(cause));

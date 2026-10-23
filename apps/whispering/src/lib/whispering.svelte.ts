@@ -537,19 +537,21 @@ export function createWhispering(context: WhisperingContext) {
 	/** What the device has set up, never a key; undefined until read or when the read failed. */
 	let connections = $state.raw<ConnectionsInfo | undefined>();
 	let connectionsError = $state<string | undefined>();
+	let connectionReadId = 0;
 
 	function resolve(recipe: RecipeRow | undefined): ResolvedRecipe {
 		return resolveRecipe(recipe, connections?.text, connectionsError);
 	}
 
 	async function readConnections() {
+		const current = ++connectionReadId;
 		try {
 			const read = await services.connections.read();
-			if (context.closing) return;
+			if (context.closing || current !== connectionReadId) return;
 			connections = read;
 			connectionsError = undefined;
 		} catch (cause) {
-			if (context.closing) return;
+			if (context.closing || current !== connectionReadId) return;
 			connections = undefined;
 			connectionsError = describe(cause);
 		}

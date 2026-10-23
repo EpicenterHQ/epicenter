@@ -268,7 +268,14 @@ test('a missing key, an Epicenter connection, a signed-out account, a redirect, 
 	expect(JSON.stringify(account.events[0])).toContain('epicenter auth login');
 
 	const signedOut = await send(
-		encodeSendInput({ kind: 'account', audience: 'git' }, request('api/repos')),
+		encodeSendInput(
+			{
+				kind: 'account',
+				audience: 'git',
+				generation: '11111111-1111-4111-8111-111111111111',
+			},
+			request('api/repos'),
+		),
 	);
 	expect(signedOut.code).toBe(2);
 	expect(signedOut.events).toEqual([
@@ -278,7 +285,11 @@ test('a missing key, an Epicenter connection, a signed-out account, a redirect, 
 
 	const desktop = await send(
 		encodeSendInput(
-			{ kind: 'account', audience: 'api' },
+			{
+				kind: 'account',
+				audience: 'api',
+				generation: '11111111-1111-4111-8111-111111111111',
+			},
 			request('api/session'),
 		),
 		undefined,
@@ -292,7 +303,11 @@ test('a missing key, an Epicenter connection, a signed-out account, a redirect, 
 
 	const outsideApi = await send(
 		encodeSendInput(
-			{ kind: 'account', audience: 'api' },
+			{
+				kind: 'account',
+				audience: 'api',
+				generation: '11111111-1111-4111-8111-111111111111',
+			},
 			request('auth/oauth2/revoke'),
 		),
 	);

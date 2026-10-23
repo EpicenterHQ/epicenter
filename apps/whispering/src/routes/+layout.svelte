@@ -6,6 +6,7 @@
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import { openFolder } from '@epicenter/folder';
 	import { whisperingTables } from '$lib/definition.js';
+	import { page } from '$app/state';
 	import WhisperingApp from './components/WhisperingApp.svelte';
 	import '@epicenter/ui/app.css';
 	// Whispering's brand overrides, layered after the shared theme so they win.
@@ -20,6 +21,9 @@
 <svelte:head><title>Whispering</title></svelte:head>
 
 <Tooltip.Provider>
+	{#if page.route.id === '/auth/callback'}
+		{@render props.children?.()}
+	{:else}
 	<FolderApp open={() => openFolder({ tables: whisperingTables })}>
 		{#snippet children(context)}
 			<WhisperingApp {context}>
@@ -27,6 +31,7 @@
 			</WhisperingApp>
 		{/snippet}
 	</FolderApp>
+	{/if}
 </Tooltip.Provider>
 
 <ConfirmationDialog />

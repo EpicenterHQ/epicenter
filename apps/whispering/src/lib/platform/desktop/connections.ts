@@ -21,11 +21,10 @@
  * page.
  *
  * A row of kind `epicenter` sends to the deployment the app signed in to,
- * `<origin>/v1`, with an `ai` access token the CLI mints from the app's
- * sign-in (`--desktop`), which Settings makes: the page learns the origin
- * and whether the app is signed in from `auth_status`, sends through the
- * same `ai_send` with an `epicenter` target, and holds no token. Whispering
- * cannot change such a row; Settings does. A `local` row is not used.
+ * `<origin>/v1`, through an API-bound Account. Its desktop leaf reads the
+ * grant through `auth_status`, captures the Account, and calls its `fetch`;
+ * the host and CLI add the token outside the page. Whispering cannot change
+ * such a row; Settings does. A `local` row is not used.
  *
  * The rules are `connections.ts`'s: a canonical base URL, a model, and a key
  * kept only for the base URL it was saved for.
@@ -33,6 +32,7 @@
 
 import { WHISPERING_CONNECTION_IDS } from '@epicenter/ai/connection-table';
 import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
+import type { Account } from '@epicenter/auth';
 import { Channel } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -55,12 +55,14 @@ const TITLES: Record<Operation, string> = {
 	text: 'Whispering text',
 };
 
-/** Stands in for a key the keychain holds, so `applyConnectionChange` can refuse carrying it elsewhere. */
+/** Stands in for a user-supplied key the keychain holds while editing its connection. */
 const HELD_KEY = 'held in the keychain';
 
 /** Why Whispering does not change an `epicenter` row. */
 const SET_IN_SETTINGS =
 	'This connection uses your Epicenter account. Change it in Epicenter’s Settings.';
+const SIGN_IN_FROM_SETTINGS =
+	'Sign in from Epicenter’s Settings to use this connection.';
 
 /** The shell commands the connections use. */
 export type ConnectionCommands = Pick<
@@ -68,19 +70,22 @@ export type ConnectionCommands = Pick<
 	| 'aiKeyState'
 	| 'aiKeySet'
 	| 'aiSend'
-	| 'authStatus'
 	| 'whisperingConnectionRead'
 	| 'whisperingConnectionSet'
 >;
 
-/** How a connection sends: over its own endpoint and key, or with the app's sign-in. */
-type ConnectionTarget = 'openai-compatible' | 'epicenter';
-
 /** A connection as a row and the shell describe it. */
-type Resolved = {
-	readonly target: ConnectionTarget;
-	readonly connection: StoredConnection;
-};
+type Resolved =
+	| {
+			readonly target: 'epicenter';
+			readonly connection: StoredConnection;
+			readonly account: Account | undefined;
+			readonly problem: string | undefined;
+	  }
+	| {
+			readonly target: 'openai-compatible';
+			readonly connection: StoredConnection;
+	  };
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -99,7 +104,6 @@ const rowPath = (operation: Operation) =>
  */
 async function sendThroughEpicenter(
 	native: ConnectionCommands,
-	target: ConnectionTarget,
 	connection: string,
 	endpoint: string,
 	input: string,
@@ -111,9 +115,7 @@ async function sendThroughEpicenter(
 		const channel = new Channel<string>();
 		channel.onmessage = onLine;
 		const { error: refusal } = await native.aiSend(
-			target === 'epicenter'
-				? { kind: 'epicenter', connection }
-				: { kind: 'openai-compatible', connection, endpoint },
+			{ kind: 'openai-compatible', connection, endpoint },
 			wire,
 			channel,
 		);
@@ -126,9 +128,16 @@ export type DesktopConnections = ReturnType<typeof createDesktopConnections>;
 /** Whispering's connections in `so.epicenter`, read and saved through Epicenter. */
 export function createDesktopConnections({
 	commands: native,
+	account,
 }: {
 	/** Epicenter's commands; injected for tests. */
 	commands: ConnectionCommands;
+	/** Capture the current API-bound Account before an operation sends. */
+	account: () => Promise<{
+		origin: string;
+		account: Account | undefined;
+		problem?: string;
+	}>;
 }) {
 	/**
 	 * The row `operation` names as Epicenter read it, or `null` when there
@@ -153,19 +162,16 @@ export function createDesktopConnections({
 			);
 		const { kind, model } = row.fields;
 		if (kind === 'epicenter') {
-			const { data: status, error: statusError } = await native.authStatus();
-			if (statusError !== null) throw new Error(failureOf(statusError));
-			const signedIn = status.grants.some(
-				(grant) => grant.grant === 'desktop' && grant.signedIn,
-			);
+			const current = await account();
 			return {
 				row,
 				found: {
 					target: 'epicenter',
+					account: current.account,
+					problem: current.problem,
 					connection: {
-						baseUrl: `${new URL(status.origin).origin}/v1`,
+						baseUrl: `${new URL(current.origin).origin}/v1`,
 						model,
-						...(signedIn && { apiKey: HELD_KEY }),
 					},
 				},
 			};
@@ -192,9 +198,15 @@ export function createDesktopConnections({
 			found && {
 				baseUrl: found.connection.baseUrl,
 				model: found.connection.model,
-				keyPresent: found.connection.apiKey !== undefined,
+				keyPresent:
+					found.target === 'openai-compatible' &&
+					found.connection.apiKey !== undefined,
+				...(found.target === 'epicenter' && { source: 'account' as const }),
 				readOnlyReason:
-					found.target === 'epicenter' ? SET_IN_SETTINGS : undefined,
+					found.target === 'epicenter'
+						? (found.problem ??
+							(found.account ? SET_IN_SETTINGS : SIGN_IN_FROM_SETTINGS))
+						: undefined,
 			}
 		);
 	}
@@ -284,6 +296,9 @@ export function createDesktopConnections({
 		> {
 			const { found } = await stored(operation);
 			if (found === undefined) return undefined;
+			const account = found.target === 'epicenter' ? found.account : undefined;
+			if (found.target === 'epicenter' && !account)
+				throw new Error(found.problem ?? SIGN_IN_FROM_SETTINGS);
 			const id = CONNECTION_IDS[operation];
 			const { baseUrl, model } = found.connection;
 			return {
@@ -293,14 +308,10 @@ export function createDesktopConnections({
 						throw new Error(
 							`${url} is not below the ${OPERATION_NAMES[operation]} connection's base URL.`,
 						);
-					return sendThroughEpicenter(
-						native,
-						found.target,
-						id,
-						baseUrl,
-						url,
-						init,
-					);
+					if (account) {
+						return account.fetch(url, init);
+					}
+					return sendThroughEpicenter(native, id, baseUrl, url, init);
 				},
 			};
 		},

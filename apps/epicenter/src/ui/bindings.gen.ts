@@ -80,6 +80,8 @@ export const commands = {
 	 *  button (ADR-0537, ADR-0552).
 	 */
 	openHome: (section: 
+/**  Account sign-in and sign-out. */
+"account" |
 /**  Local transcription model administration. */
 "transcription" | null) => __TAURI_INVOKE<void>("open_home", { section }),
 	/**
@@ -88,6 +90,8 @@ export const commands = {
 	 *  section exactly once however many nudges arrive.
 	 */
 	takePendingHomeSection: () => __TAURI_INVOKE<
+/**  Account sign-in and sign-out. */
+"account" |
 /**  Local transcription model administration. */
 "transcription" | null>("take_pending_home_section"),
 	listDataFolders: () => __TAURI_INVOKE<FolderListing>("list_data_folders"),
@@ -116,12 +120,14 @@ export const commands = {
 	aiSend: (connection: AiTarget, request: AiRequest, onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("ai_send", { connection, request, onEvent })),
 	/**
 	 *  Send one request to the deployment's `audience` resource with the app's
-	 *  grant, through `epicenter send` (ADR-0549, ADR-0556). The lines are
+	 *  grant, through `epicenter send` (ADR-0549, ADR-0683). The lines are
 	 *  `ai_send`'s: the response's head, its body in base64 chunks, and `end`,
 	 *  or an `error` such as `NoAccountToken` when the app is not signed in,
 	 *  then the shell's own `{"type":"exit","code","stderr"}`.
 	 */
-	accountSend: (audience: AccountAudience, request: AiRequest, onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("account_send", { audience, request, onEvent })),
+	accountSend: (audience: AccountAudience, generation: string, request: AiRequest, requestId: string, onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("account_send", { audience, generation, request, requestId, onEvent })),
+	/**  Stop this window's one account request, including its response stream. */
+	sendCancel: (requestId: string) => typedError<null, CliError>(__TAURI_INVOKE("send_cancel", { requestId })),
 	/**
 	 *  Save `endpoint` and `key` for `connection` in this computer's keychain,
 	 *  through `epicenter auth key set`, which reads both on stdin. An empty key
@@ -293,7 +299,7 @@ export type AiRequest = {
  *  for; the CLI sends only while the
  *  keychain entry still holds it.
  */
-export type AiTarget = { kind: "openai-compatible"; connection: string; endpoint: string } | { kind: "epicenter"; connection: string } | { kind: "local"; connection: string };
+export type AiTarget = { kind: "openai-compatible"; connection: string; endpoint: string } | { kind: "local"; connection: string };
 
 /**
  *  Which advisory hints the run actually applied.
@@ -341,6 +347,7 @@ export type AuthGrant = {
 	signedIn: boolean,
 	account?: AuthAccount | null,
 	signedInAt?: string | null,
+	generation?: string | null,
 };
 
 /**
@@ -509,6 +516,8 @@ export type FolderListing = {
  *  here rather than parsed.
  */
 export type HomeSection = 
+/**  Account sign-in and sign-out. */
+"account" |
 /**  Local transcription model administration. */
 "transcription";
 

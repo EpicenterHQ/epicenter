@@ -37,7 +37,10 @@ export type StoredConnection = {
 export type ConnectionInfo = {
 	readonly baseUrl: string;
 	readonly model: string;
+	/** Whether a custom endpoint has a saved provider key; an account uses no provider key. */
 	readonly keyPresent: boolean;
+	/** This connection sends through the signed-in Epicenter account. */
+	readonly source?: 'account';
 	/** Set when the connection cannot be changed from the app. */
 	readonly readOnlyReason: string | undefined;
 };

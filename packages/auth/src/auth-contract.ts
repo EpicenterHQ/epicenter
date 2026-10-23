@@ -29,6 +29,8 @@ export type AuthState =
 /** Auth selects accounts; applications hold the Account they opened. */
 export type AuthClient = {
 	getState(): AuthState;
+	/** Reconcile this client's state with its credential owner. */
+	refresh(): Promise<void>;
 	baseURL: string;
 	accountManagementUrl?: typeof createAccountManagementUrl;
 	onStateChange(fn: (state: AuthState) => void): () => void;

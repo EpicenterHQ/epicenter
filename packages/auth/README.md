@@ -14,7 +14,7 @@ const state = auth.getState();
 if (state.status !== 'signed-out') {
 	const account = state.account;
 	// Keep this Account for the lifetime of the opened application.
-	const response = await account.fetch('/api/repos');
+	const response = await account.fetch('/auth/oauth2/userinfo');
 }
 ```
 
@@ -61,16 +61,20 @@ at `/auth/oauth2/token`, reads the principal from `/auth/oauth2/userinfo`, and
 stores the token. It returns `returnTo`, the path the attempt started from,
 and the page leaves with `location.replace(returnTo)`.
 
-The access token lives in `localStorage` as `{ accessToken, expiresAt,
-principalId }`, one cell per app and server, shared by the origin's tabs. Every
+The access token lives in `localStorage` with its expiry, principal ID, and a
+nonsecret attachment generation, one cell per app and server, shared by the
+origin's tabs. Every
 request reads the cell, so a tab uses another tab's renewal, and the `storage`
 event publishes another tab's sign-in or sign-out. A missing or unreadable cell
-is signed out. There is no refresh token.
+is signed out. The generation also retires an old Account when a tab misses a
+sign-out event and the same person signs in again. There is no refresh token.
 
-When the stored token is within ten minutes of expiry, the client navigates top
+By default, when the stored token is within ten minutes of expiry, the client navigates top
 level to the authorize endpoint with `prompt=none`: at construction, and from a
 timer while the page is open. The timer rereads storage first and waits again
-if another tab already renewed. While the authorization server's session cookie
+if another tab already renewed. An app with work that must survive a page
+navigation can set `automaticRenewal: false`; it then asks the person to sign
+in again after a refused token. While the authorization server's session cookie
 lasts, the renewal returns a code without a page; otherwise it answers
 `login_required`, and `completeSignIn` clears the token and returns to the
 page signed out. There is no hidden iframe. A person who never signed in is
@@ -100,20 +104,30 @@ the keychain and mints access tokens per resource. No WebView holds a token
 (ADR-0549's desktop row). Compile the shell with `EPICENTER_SERVER_ORIGIN` for
 a self-hosted build; the default is Cloud.
 
-A bundled app's window uses `createDesktopAccountAuth` from
+A bundled app's desktop leaf can use `createDesktopAccountAuth` from
 `@epicenter/auth/desktop` over three shell commands its desktop leaf binds:
 `auth_status` for who the desktop grant belongs to, `account_send` for each
 account request, and `open_home` to send the person to Settings to sign in.
 The grant's account id is the Account's `principalId` and the deployment
 `auth_status` names is its `baseURL`; the build names no deployment of its
-own, and any origin but the hosted one is a self-hosted server. `Account.fetch` carries a request below `/api/` to the CLI
-with the resource the app names (`git` for Todos' `GET /api/repos`),
-and the CLI adds the token for it; `getProfile` reads `/auth/oauth2/userinfo`
-with the `api` resource, the one path outside `/api/` an account request may
-name. A 401 publishes `reauth-required` on the same Account. A new
-grant, including the same person signing in again, opens a new Account, and a
-grant that is gone retires it. The client reads the grant again when the
-window regains focus. `signOut` is refused: the app signs out from Settings.
+own, and any origin but the hosted one is a self-hosted server. The Account is
+bound to one resource. Whispering's hosted route uses an API-bound Account for
+`POST /v1/audio/transcriptions` and `POST /v1/chat/completions`; `getProfile`
+uses that resource for `GET /auth/oauth2/userinfo`. The host grants only these
+paths to its window. Its user-supplied provider route still uses its connection
+sender. A Git-bound Account would use the Git resource for its own operations.
+
+The desktop grant has a random, nonsecret generation that status returns and
+every account send carries. The CLI checks it on the same read that selects a
+cached token and again after taking a refresh lock. Replacing a grant,
+including a new sign-in by the same person, retires the old Account. Its
+requests and response streams are canceled on retirement. A 401 publishes
+`reauth-required` on the same Account. The client reads status when the window
+regains focus by default. Whispering disables that watcher and awaits a fresh
+read before capturing the Account for each hosted request. `signOut` is refused:
+the app signs out from Settings. An explicit `refresh()` reports a status-read
+failure to its caller and leaves the last Account in place; the CLI still
+checks the grant generation before sending.
 
 ## Lifetime and policy
 
@@ -125,12 +139,33 @@ gets a snapshot, while a template, derived value, or effect tracks changes.
 The plain client keeps its explicit `getState()` method; the Svelte facade
 exposes `state` instead and carries through the other methods. A component with
 imperative work on auth changes can subscribe directly with `onStateChange`.
+Both expose `refresh()`: the browser rereads its saved OAuth cell, while the
+desktop client rereads the host's grant status. A focus check can await the
+same method in either build.
 
-Ordinary persistence runs during use. Browser departures remove working UI and replace
-the document without awaiting application drains. Honeycrisp still uses `AppBoot` and its
-`?stopped` marker. Failed navigation and browser history restoration cannot
-reactivate the retired working UI. Resource disposal and acquisition rollback
-remain independent of navigation.
+Use the plain client in framework-independent packages and CLIs with no Svelte
+app owner, or when testing the core client. Its `getState()` call makes each
+snapshot read explicit. In a Svelte app, keep that client private in the app's
+auth module and export only the facade:
+
+```ts
+const client = createBrowserOAuth(options);
+export const auth = fromAuth(client);
+```
+
+The callback route, components, and app-owned services can share that facade.
+Read `auth.state` in component setup or an event handler for a snapshot; read
+it in a template, derived value, or effect to track changes. The callback
+capability guard `isCallbackAuthClient(auth)` also accepts the facade. Vocab's
+[`auth.svelte.ts`](../../apps/vocab/src/lib/auth.svelte.ts) and Whispering's
+[`#platform/auth` leaves](../../apps/whispering/src/lib/platform/) show the
+single-export pattern for one browser build and for browser and desktop builds.
+
+Ordinary persistence runs during use. Browser departures remove working UI and
+replace the document without awaiting application drains. Honeycrisp still uses
+`AppBoot` and its `?stopped` marker. Failed navigation and browser history
+restoration cannot reactivate the retired working UI. Resource disposal and
+acquisition rollback remain independent of navigation.
 
 Access tokens last eight hours and are checked against the database on every
 request, so a revocation takes effect on the next one (ADR-0549). The

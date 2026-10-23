@@ -4,8 +4,9 @@
 Whispering is an app for voice notes. It records audio,
 transcribes it with an OpenAI-compatible endpoint you choose, turns a transcript
 into another text with prompts you write, and keeps every recording, transcript,
-prompt, and result as an ordinary file in one folder. It needs no account and
-no hosted API. Epicenter bundles the desktop page
+prompt, and result as an ordinary file in one folder. It can use a provider
+connection without an account. In either build, a connection can also use
+Epicenter's hosted API with an Epicenter sign-in. Epicenter bundles the desktop page
 ([ADR-0493](../../docs/adr/0493-whisperings-only-desktop-shell-is-epicenter.md))
 and opens it on a directory on disk. In a browser tab it keeps its folder in
 the browser's storage for the site.
@@ -24,7 +25,12 @@ to FolderApp. Its child is `<WhisperingApp {context}>`: the product root
 installs that exact context and calls `createWhispering(context)`. Whispering
 constructs its own platform services internally; callers do not assemble a
 workspace or provide a second folder lifetime. The build selects browser or
-native capture and inference through `#platform/services`.
+native capture and inference through `#platform/services`. Each `#platform/auth`
+leaf keeps a plain client private and exports one Svelte facade for the UI and
+services. Settings reads its reactive `state` and subscribes to
+`onStateChange` only to refresh connection details. Services read `state`
+outside Svelte tracking to capture an Account for a request. The OAuth callback
+completes outside FolderApp, so it opens no data folder.
 
 One Whispering owner holds capture, requests, selections and settings drafts.
 Folder owns each file's working document. Typing, recording length updates,
@@ -176,8 +182,18 @@ no path or folder. The page is the UI, and it opens the
 folder itself: it reads the files and saves them, and every read and save goes
 through the shell, which keeps them inside the folder and out of Git's private
 files. The shell's recorder writes a recording into the folder
-as it captures. Requests to an endpoint go through the `epicenter` CLI,
-which adds the connection's key.
+as it captures. Custom endpoint requests go through the `epicenter` CLI, which
+adds the connection's key. A hosted connection uses an API-bound Account; the
+CLI adds its bearer outside the window.
+
+In a browser tab, Settings can select an Epicenter account connection for
+transcription or text. The browser OAuth callback returns to the page that
+started sign-in. Hosted requests use `Account.fetch` and the API's CORS policy;
+custom endpoint requests still require that endpoint to allow this site's
+origin. Whispering does not navigate for OAuth renewal on a timer while the
+page is open, so a recording is not ended by unattended renewal. If the API
+refuses a token, Settings offers an explicit sign-in again. Switching back to
+a custom endpoint restores the prior browser connection.
 
 Checks, from `apps/whispering`:
 
@@ -424,6 +440,13 @@ and syncs with that folder; the base URL and key stay in this computer's
 keychain. A connection synced from another computer is not set up on this
 one until you save its base URL, and key, here. In a browser tab they are in
 this site's `localStorage`. Nothing about them is in Whispering's folder.
+
+An Epicenter connection is different: its row chooses the model, while the
+desktop Account supplies the deployment URL and authorization. Whispering
+captures that Account for each request and calls `account.fetch` for hosted
+transcription or text. Its window never receives the access token; the host
+allows only those hosted paths. Sign-in and sign-out stay in Epicenter's
+Settings. A new sign-in retires a request held by the old Account.
 
 You can keep editing while a connection's Save runs. Its completion preserves
 any newer endpoint, model, key choice, or key for the next explicit Save.

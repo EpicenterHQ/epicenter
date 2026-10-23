@@ -17,10 +17,12 @@ import {
 	responseEvents,
 	saveKey,
 	sendRequest,
+	sendThroughShell,
 	toSendRequest,
 } from './send.js';
 
 const endpoint = 'https://api.groq.com/openai/v1';
+const generation = '11111111-1111-4111-8111-111111111111';
 
 test('a key is saved for one canonical endpoint, and its state never carries it', async () => {
 	const secrets = createMemorySecrets();
@@ -165,7 +167,7 @@ test('an account request goes below /api/ on the deployment, with the token for 
 	});
 
 	const connected = await sendRequest({
-		target: { kind: 'account', audience: 'git' },
+		target: { kind: 'account', audience: 'git', generation },
 		request: request('api/repos'),
 		secrets,
 		account,
@@ -182,13 +184,12 @@ test('an account request goes below /api/ on the deployment, with the token for 
 		// The profile read is a GET; this request is a POST.
 		'auth/oauth2/userinfo',
 		'api',
-		'v1/chat/completions',
 		'api/../auth/sign-out',
 		'api/%2e%2e/auth/sign-out',
 		'/api%2fx',
 	]) {
 		const refused = await sendRequest({
-			target: { kind: 'account', audience: 'api' },
+			target: { kind: 'account', audience: 'api', generation },
 			request: request(path),
 			secrets,
 			account,
@@ -199,7 +200,7 @@ test('an account request goes below /api/ on the deployment, with the token for 
 	expect(minted).toEqual(['git']);
 
 	const profile = await sendRequest({
-		target: { kind: 'account', audience: 'api' },
+		target: { kind: 'account', audience: 'api', generation },
 		request: { ...request('auth/oauth2/userinfo'), method: 'GET' },
 		secrets,
 		account,
@@ -208,19 +209,29 @@ test('an account request goes below /api/ on the deployment, with the token for 
 	expect(profile.error).toBeNull();
 	expect(sent[1]?.url).toBe('https://api.example.test/auth/oauth2/userinfo');
 	expect(sent[1]?.headers.get('authorization')).toBe('Bearer at_api');
+	const inference = await sendRequest({
+		target: { kind: 'account', audience: 'api', generation },
+		request: request('v1/chat/completions'),
+		secrets,
+		account,
+		fetch,
+	});
+	expect(inference.error).toBeNull();
+	expect(sent[2]?.url).toBe('https://api.example.test/v1/chat/completions');
 
 	const absent = await sendRequest({
-		target: { kind: 'account', audience: 'api' },
+		target: { kind: 'account', audience: 'api', generation },
 		request: request('api/repos'),
 		secrets,
 		fetch,
 	});
 	expect(absent.error?.name).toBe('NoAccountToken');
 	const signedOut = await sendRequest({
-		target: { kind: 'account', audience: 'api' },
+		target: { kind: 'account', audience: 'api', generation },
 		request: request('api/repos'),
 		secrets,
-		account: async () => Err('sign in from Settings'),
+		account: async () =>
+			Err({ name: 'NotSignedIn', message: 'sign in from Settings' }),
 		fetch,
 	});
 	expect(signedOut.error).toMatchObject({
@@ -228,7 +239,7 @@ test('an account request goes below /api/ on the deployment, with the token for 
 		audience: 'api',
 		reason: 'sign in from Settings',
 	});
-	expect(sent.length).toBe(2);
+	expect(sent.length).toBe(3);
 });
 
 test('an account target reads back only with a known audience', () => {
@@ -237,12 +248,63 @@ test('an account target reads back only with a known audience', () => {
 			`${JSON.stringify({ target, request: { method: 'GET', path: 'api/repos', headers: [] } })}\n`,
 		);
 	expect(
+		decodeSendInput(head({ kind: 'account', audience: 'git', generation })).data
+			?.target,
+	).toEqual({ kind: 'account', audience: 'git', generation });
+	expect(
 		decodeSendInput(head({ kind: 'account', audience: 'git' })).data?.target,
 	).toEqual({ kind: 'account', audience: 'git' });
 	for (const audience of ['mcp', 'https://git.epicenter.so', undefined])
 		expect(
 			decodeSendInput(head({ kind: 'account', audience })).error?.name,
 		).toBe('InvalidRequest');
+});
+
+test('aborting after the response head stops the shell run and its body', async () => {
+	const controller = new AbortController();
+	let cancellations = 0;
+	const response = await sendThroughShell(
+		{ method: 'GET', path: 'v1/chat/completions', headers: [] },
+		async (_request, onLine) => {
+			onLine(
+				JSON.stringify({
+					type: 'head',
+					status: 200,
+					statusText: 'OK',
+					headers: [],
+				}),
+			);
+			return new Promise<null>(() => {});
+		},
+		{ signal: controller.signal, cancel: () => cancellations++ },
+	);
+	controller.abort();
+	expect(response.text()).rejects.toMatchObject({ name: 'AbortError' });
+	expect(cancellations).toBe(1);
+});
+
+test('a completed response does not leave an abortable native request', async () => {
+	const controller = new AbortController();
+	let cancellations = 0;
+	const response = await sendThroughShell(
+		{ method: 'GET', path: 'v1/chat/completions', headers: [] },
+		async (_request, onLine) => {
+			onLine(
+				JSON.stringify({
+					type: 'head',
+					status: 200,
+					statusText: 'OK',
+					headers: [],
+				}),
+			);
+			onLine(JSON.stringify({ type: 'end' }));
+			return null;
+		},
+		{ signal: controller.signal, cancel: () => cancellations++ },
+	);
+	expect(await response.text()).toBe('');
+	controller.abort();
+	expect(cancellations).toBe(0);
 });
 
 test('stdin carries one JSON line and the raw body, and reads back the same', async () => {

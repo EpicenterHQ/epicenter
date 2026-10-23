@@ -217,6 +217,7 @@ test('the Svelte facade retains the browser callback capability', () => {
 	expect('getState' in auth).toBe(false);
 	expect(isCallbackAuthClient(auth)).toBe(true);
 	expect(typeof auth.completeSignIn).toBe('function');
+	expect(typeof auth.refresh).toBe('function');
 });
 
 test('sign-in navigates to the authorize endpoint with PKCE as the app client', async () => {
@@ -265,6 +266,7 @@ test('completing sign-in exchanges the code, stores the token, and returns where
 		accessToken: 'token-1',
 		expiresAt: expect.any(Number),
 		principalId: 'alice',
+		generation: expect.any(String),
 	});
 	const tokenRequest = world.requests.find((r) =>
 		r.url.endsWith('/auth/oauth2/token'),
@@ -339,6 +341,20 @@ test('a second tab shares the stored token and follows another tab through stora
 	first[Symbol.dispose]();
 });
 
+test('refresh catches a missed storage event before a new request', async () => {
+	const world = createWorld();
+	const { auth: first } = await signIn(world);
+	using second = world.openTab().create();
+	const oldAccount = second.getState().account!;
+
+	expectOk(await first.signOut());
+	expect(second.getState().account).toBe(oldAccount);
+	await second.refresh();
+	expect(second.getState().status).toBe('signed-out');
+	await expect(oldAccount.fetch('/api/thing')).rejects.toBeDefined();
+	first[Symbol.dispose]();
+});
+
 test('an Account sends the token another tab renewed and survives the renewal', async () => {
 	const world = createWorld();
 	const { auth: first } = await signIn(world);
@@ -355,6 +371,20 @@ test('an Account sends the token another tab renewed and survives the renewal', 
 	);
 	expect(second.getState().account).toBe(account);
 	first[Symbol.dispose]();
+});
+
+test('a missed sign-out followed by the same person signing in retires the old Account', async () => {
+	const world = createWorld();
+	const { auth: first } = await signIn(world);
+	using second = world.openTab().create();
+	const oldAccount = second.getState().account!;
+
+	// The second tab has not processed a storage event when Alice signs out
+	// and signs back in. Its next request must not borrow the new attachment.
+	expectOk(await first.signOut());
+	await signIn(world);
+	await expect(oldAccount.fetch('/api/thing')).rejects.toBeDefined();
+	expect(second.getState().account).not.toBe(oldAccount);
 });
 
 test('another person signing in from another tab retires the earlier Account', async () => {
@@ -433,6 +463,22 @@ test('the renewal timer navigates with prompt=none ten minutes before expiry', a
 	expect(tab.assigned).toHaveLength(before + 1);
 	expect(world.pendingTimers()).toEqual([]);
 	auth[Symbol.dispose]();
+});
+
+test('an app can keep a working page open until the person explicitly renews', async () => {
+	const world = createWorld();
+	const { auth: first } = await signIn(world);
+	first[Symbol.dispose]();
+	world.advance(8 * HOUR - 9 * MINUTE);
+	const tab = world.openTab('/recordings');
+	using auth = createBrowserOAuth({ ...tab.options, automaticRenewal: false });
+	expect(auth.getState().status).toBe('signed-in');
+	expect(world.pendingTimers()).toEqual([]);
+	await auth.getState().account!.fetch('/api/thing');
+	await Bun.sleep(0);
+	expect(tab.assigned).toEqual([]);
+	expectOk(await auth.startSignIn());
+	expect(tab.assigned).toHaveLength(1);
 });
 
 test('a callback with the previous token near expiry never starts another renewal', async () => {
@@ -520,6 +566,28 @@ test('login_required from the silent renewal clears to signed-out and goes back'
 	expect(world.storage.getItem(TOKEN_KEY)).toBeNull();
 	world.notify();
 	expect(auth.getState().status).toBe('signed-out');
+});
+
+test('a late login_required cannot clear a newer sign-in from another tab', async () => {
+	const world = createWorld();
+	const { auth: first } = await signIn(world);
+	world.advance(8 * HOUR - 5 * MINUTE);
+	const tab = world.openTab('/notes');
+	const leaving = tab.create();
+	await Bun.sleep(0);
+	tab.location.href = world.server.authorize(
+		tab.assigned[0]!,
+		'login_required',
+	);
+	leaving[Symbol.dispose]();
+
+	expectOk(await first.signOut());
+	await signIn(world);
+	const newer = world.storage.getItem(TOKEN_KEY);
+	using callback = tab.create();
+	expectOk(await callback.completeSignIn());
+	expect(world.storage.getItem(TOKEN_KEY)).toBe(newer);
+	expect(callback.getState().status).toBe('signed-in');
 });
 
 test('an unsolicited login_required callback cannot sign the person out', async () => {

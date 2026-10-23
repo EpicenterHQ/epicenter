@@ -3,6 +3,8 @@
  * inference, connections, preferences, and recording recovery. These services
  * own no folder lifetime. Unsupported capabilities are undefined.
  */
+import type { AuthClient } from '@epicenter/auth';
+import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 import type { Result } from 'wellcrafted/result';
 import type { CaptureDevice } from '../capture.js';
 import type {
@@ -22,6 +24,12 @@ import type {
 	PreparedTransformation,
 	TransformationError,
 } from '../transformation.js';
+
+/** The one auth handle exposed by either build's platform leaf. */
+export type PlatformAuth = ReactiveAuthClient<AuthClient> & {
+	/** A desktop status-read problem, when the shell reports one. */
+	problem?: string;
+};
 
 export type WhisperingServices = {
 	readonly kind: 'native' | 'browser';
@@ -70,6 +78,10 @@ export type WhisperingServices = {
 			operation: Operation,
 			change: ConnectionChange,
 		): Promise<Result<ConnectionsInfo, string>>;
+		/** Browser only: select the signed-in Epicenter account for an operation. */
+		useAccount?(operation: Operation): Promise<Result<ConnectionsInfo, string>>;
+		/** Browser only: leave the account route to configure a custom endpoint. */
+		useCustom?(operation: Operation): Promise<Result<ConnectionsInfo, string>>;
 	};
 	/**
 	 * What this device remembers that is neither folder data nor a secret. It

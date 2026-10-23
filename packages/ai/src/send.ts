@@ -87,19 +87,26 @@ export const ACCOUNT_AUDIENCES = ['api', 'git'] as const;
 export type AccountAudience = (typeof ACCOUNT_AUDIENCES)[number];
 
 /**
- * The only paths an account request may reach: below `/api/`, and a `GET`
- * of the authorization server's userinfo, the profile read. The rest of
- * `/auth/*`, token revocation included, stays out of reach.
+ * Account paths at the deployment: `/api/*` for both resources, API-bound
+ * `/v1/*` inference, and API-bound `GET` userinfo. The rest of `/auth/*`,
+ * token revocation included, stays out of reach.
  */
 const ACCOUNT_PATH_PREFIX = '/api/';
+const INFERENCE_PATH_PREFIX = '/v1/';
 const USERINFO_PATH = '/auth/oauth2/userinfo';
 
 /** Whether an account request may go to `url`. */
-function isAccountPath(url: string, method: string): boolean {
+function isAccountPath(
+	url: string,
+	method: string,
+	audience: AccountAudience,
+): boolean {
 	const { pathname } = new URL(url);
 	return (
 		pathname.startsWith(ACCOUNT_PATH_PREFIX) ||
-		(pathname === USERINFO_PATH && method.toUpperCase() === 'GET')
+		(audience === 'api' &&
+			(pathname.startsWith(INFERENCE_PATH_PREFIX) ||
+				(pathname === USERINFO_PATH && method.toUpperCase() === 'GET')))
 	);
 }
 
@@ -118,7 +125,12 @@ export type SendTarget =
 	  }
 	| { readonly kind: 'epicenter'; readonly connection: string }
 	| { readonly kind: 'local'; readonly connection: string }
-	| { readonly kind: 'account'; readonly audience: AccountAudience };
+	| {
+			readonly kind: 'account';
+			readonly audience: AccountAudience;
+			/** Required for the desktop grant; the terminal's device grant needs none. */
+			readonly generation?: string;
+	  };
 
 /** An OpenAI-compatible request, relative to its connection's endpoint. */
 export type SendRequest = {
@@ -198,6 +210,10 @@ export const SendError = defineErrors({
 		message: `The Epicenter account cannot send requests to its ${audience} resource: ${reason}`,
 		audience,
 		reason,
+	}),
+	GrantChanged: () => ({
+		message:
+			'The Epicenter sign-in changed. Open a new Account before sending.',
 	}),
 	/** A local connection runs this computer's model and sends no request. */
 	LocalNotSent: ({ connection }: { connection: string }) => ({
@@ -456,7 +472,8 @@ export type EpicenterAccess = () => Promise<Result<KeyEntry, string>>;
  */
 export type AccountAccess = (
 	audience: AccountAudience,
-) => Promise<Result<KeyEntry, string>>;
+	generation?: string,
+) => Promise<Result<KeyEntry, { name: string; message: string }>>;
 
 /**
  * Send an account request to the deployment's origin with `access`'s token.
@@ -465,12 +482,13 @@ export type AccountAccess = (
  */
 async function sendToAccount(
 	audience: AccountAudience,
+	generation: string | undefined,
 	request: SendRequest,
 	access: AccountAccess | undefined,
 	options: { fetch?: typeof globalThis.fetch; signal?: AbortSignal },
 ): Promise<Result<Response, SendError>> {
 	const refusePath = SendError.InvalidRequest({
-		reason: `'${request.path}' is not an account path: one below ${ACCOUNT_PATH_PREFIX}, or a GET of ${USERINFO_PATH}`,
+		reason: `'${request.path}' is not an account path for ${audience}: use ${ACCOUNT_PATH_PREFIX}, API-bound ${INFERENCE_PATH_PREFIX}, or API-bound GET ${USERINFO_PATH}`,
 	});
 	// Checked before any token is minted, against a stand-in origin.
 	const { data: probe, error: probeError } = requestUrl(
@@ -478,21 +496,23 @@ async function sendToAccount(
 		request.path,
 	);
 	if (probeError !== null) return Err(probeError);
-	if (!isAccountPath(probe, request.method)) return refusePath;
+	if (!isAccountPath(probe, request.method, audience)) return refusePath;
 	if (!access)
 		return SendError.NoAccountToken({
 			audience,
 			reason: 'nothing here signs in to Epicenter',
 		});
-	const { data: entry, error } = await access(audience);
+	const { data: entry, error } = await access(audience, generation);
 	if (error !== null)
-		return SendError.NoAccountToken({ audience, reason: error });
+		return error.name === 'GrantChanged'
+			? SendError.GrantChanged()
+			: SendError.NoAccountToken({ audience, reason: error.message });
 	const { data: url, error: urlError } = requestUrl(
 		entry.endpoint,
 		request.path,
 	);
 	if (urlError !== null) return Err(urlError);
-	if (!isAccountPath(url, request.method)) return refusePath;
+	if (!isAccountPath(url, request.method, audience)) return refusePath;
 	return sendToEndpoint(entry, request, options);
 }
 
@@ -523,7 +543,10 @@ export async function sendRequest({
 	signal?: AbortSignal;
 }): Promise<Result<Response, SendError>> {
 	if (target.kind === 'account')
-		return sendToAccount(target.audience, request, account, { fetch, signal });
+		return sendToAccount(target.audience, target.generation, request, account, {
+			fetch,
+			signal,
+		});
 	if (!isConnectionId(target.connection)) return refuseId(target.connection);
 	switch (target.kind) {
 		case 'epicenter': {
@@ -621,13 +644,22 @@ const isPair = (value: unknown): value is [string, string] =>
 
 function readTarget(value: unknown): SendTarget | undefined {
 	if (typeof value !== 'object' || value === null) return undefined;
-	const { kind, connection, endpoint, audience } = value as Record<
+	const { kind, connection, endpoint, audience, generation } = value as Record<
 		string,
 		unknown
 	>;
 	if (kind === 'account')
-		return ACCOUNT_AUDIENCES.includes(audience as AccountAudience)
-			? { kind, audience: audience as AccountAudience }
+		return ACCOUNT_AUDIENCES.includes(audience as AccountAudience) &&
+			(generation === undefined ||
+				(typeof generation === 'string' &&
+					/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+						generation,
+					)))
+			? {
+					kind,
+					audience: audience as AccountAudience,
+					...(generation !== undefined && { generation: generation as string }),
+				}
 			: undefined;
 	if (typeof connection !== 'string') return undefined;
 	if (kind === 'openai-compatible')
@@ -758,13 +790,25 @@ export type SendFailure = { readonly name: string; readonly message: string };
  * chunks that follow. A failure before the head resolves `response` to that
  * failure; after it, the body errors with it.
  */
-export function createResponseReader() {
+export function createResponseReader(
+	onCancel?: () => void,
+	onFinish?: () => void,
+) {
 	const settled = Promise.withResolvers<Result<Response, SendFailure>>();
 	let body: ReadableStreamDefaultController<Uint8Array> | undefined;
 	let finished = false;
-	function fail(failure: SendFailure) {
-		if (finished) return;
+	function finish(): boolean {
+		if (finished) return false;
 		finished = true;
+		onFinish?.();
+		return true;
+	}
+	function cancel() {
+		if (!finish()) return;
+		onCancel?.();
+	}
+	function fail(failure: SendFailure) {
+		if (!finish()) return;
 		if (body) body.error(Object.assign(new Error(failure.message), failure));
 		else settled.resolve(Err(failure));
 	}
@@ -781,6 +825,7 @@ export function createResponseReader() {
 					start(controller) {
 						body = controller;
 					},
+					cancel,
 				});
 				const nullBody = [101, 204, 205, 304].includes(event.status);
 				settled.resolve(
@@ -808,7 +853,7 @@ export function createResponseReader() {
 						name: 'InvalidResponse',
 						message: 'The response ended before its head.',
 					});
-				finished = true;
+				finish();
 				body.close();
 				return;
 			case 'error':
@@ -818,6 +863,7 @@ export function createResponseReader() {
 	return {
 		push,
 		fail,
+		cancel,
 		/** Resolves at the head, or with why none came. */
 		response: settled.promise,
 	};
@@ -879,8 +925,25 @@ export async function sendThroughShell(
 		request: ShellSendRequest,
 		onLine: (line: string) => void,
 	) => Promise<SendFailure | null>,
+	{ signal, cancel }: { signal?: AbortSignal; cancel?: () => void } = {},
 ): Promise<Response> {
-	const reader = createResponseReader();
+	if (signal?.aborted)
+		throw new DOMException('The request was aborted.', 'AbortError');
+	let cancelled = false;
+	const cancelRun = () => {
+		if (cancelled) return;
+		cancelled = true;
+		cancel?.();
+	};
+	let abort = () => {};
+	const reader = createResponseReader(cancelRun, () =>
+		signal?.removeEventListener('abort', abort),
+	);
+	abort = () => {
+		reader.fail({ name: 'AbortError', message: 'The request was aborted.' });
+		cancelRun();
+	};
+	signal?.addEventListener('abort', abort, { once: true });
 	function onLine(line: string) {
 		let event: SendEvent | ShellExitLine;
 		try {
@@ -915,7 +978,8 @@ export async function sendThroughShell(
 		(cause: unknown) => reader.fail(rejectionOf(cause)),
 	);
 	const { data: response, error } = await reader.response;
-	if (error !== null)
+	if (error !== null) {
 		throw Object.assign(new Error(error.message), { name: error.name });
+	}
 	return response;
 }

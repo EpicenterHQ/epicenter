@@ -108,6 +108,8 @@ type CachedToken = { token: string; expiresAt: number };
 /** One grant's keychain entry. */
 export type StoredGrant = {
 	client: string;
+	/** Nonsecret identity of this sign-in. Unchanged by token refresh. */
+	generation?: string;
 	/** The deployment origin the grant belongs to. */
 	issuer: string;
 	refreshToken: string;
@@ -183,6 +185,10 @@ export const AuthError = defineErrors({
 		message: `Signing in stopped: ${reason}`,
 		reason,
 	}),
+	GrantChanged: ({ grant }: { grant: GrantKind }) => ({
+		message: `The ${grant} sign-in changed. Open a new Account before sending.`,
+		grant,
+	}),
 });
 export type AuthError = InferErrors<typeof AuthError>;
 
@@ -230,6 +236,32 @@ async function writeGrant(
 	} catch (cause) {
 		return AuthError.KeychainUnavailable({ reason: describe(cause) });
 	}
+}
+
+/** Upgrade an old desktop grant once, under the same lock as token refresh. */
+async function readGrantWithGeneration(
+	ctx: AuthContext,
+	grant: GrantKind,
+): Promise<Result<StoredGrant | null, AuthError>> {
+	const outside = await readGrant(ctx, grant);
+	if (
+		outside.error !== null ||
+		outside.data?.generation ||
+		outside.data === null
+	)
+		return outside;
+	return holdingGrantLock(ctx, grant, async () => {
+		const inside = await readGrant(ctx, grant);
+		if (
+			inside.error !== null ||
+			inside.data?.generation ||
+			inside.data === null
+		)
+			return inside;
+		const updated = { ...inside.data, generation: crypto.randomUUID() };
+		const written = await writeGrant(ctx, grant, updated);
+		return written.error === null ? Ok(updated) : Err(written.error);
+	});
 }
 
 /**
@@ -410,6 +442,7 @@ export async function accessToken(
 	ctx: AuthContext,
 	grant: GrantKind,
 	audience: string = ctx.deployment.audiences.api,
+	expectedGeneration?: string,
 ): Promise<Result<CachedToken, AuthError>> {
 	if (!knownAudiences(ctx).includes(audience))
 		return AuthError.UnknownResource({
@@ -420,6 +453,11 @@ export async function accessToken(
 	if (outside.error !== null) return Err(outside.error);
 	if (outside.data === null)
 		return AuthError.NotSignedIn({ grant, origin: ctx.deployment.origin });
+	if (
+		expectedGeneration !== undefined &&
+		outside.data.generation !== expectedGeneration
+	)
+		return AuthError.GrantChanged({ grant });
 	const cached = outside.data.access[audience];
 	if (cached && usable(ctx, cached)) return Ok(cached);
 
@@ -429,6 +467,11 @@ export async function accessToken(
 		if (inside.error !== null) return Err(inside.error);
 		if (inside.data === null)
 			return AuthError.NotSignedIn({ grant, origin: ctx.deployment.origin });
+		if (
+			expectedGeneration !== undefined &&
+			inside.data.generation !== expectedGeneration
+		)
+			return AuthError.GrantChanged({ grant });
 		const reread = inside.data.access[audience];
 		if (reread && usable(ctx, reread)) return Ok(reread);
 		let refreshed = await refreshOnce(ctx, grant, inside.data, audience);
@@ -439,6 +482,11 @@ export async function accessToken(
 			if (again.error !== null) return Err(again.error);
 			if (again.data === null)
 				return AuthError.NotSignedIn({ grant, origin: ctx.deployment.origin });
+			if (
+				expectedGeneration !== undefined &&
+				again.data.generation !== expectedGeneration
+			)
+				return AuthError.GrantChanged({ grant });
 			refreshed = await refreshOnce(ctx, grant, again.data, audience);
 		}
 		if (refreshed.error === 'invalid_grant')
@@ -484,15 +532,21 @@ export function accountAccess(
 	ctx: AuthContext,
 	grant: GrantKind,
 ): AccountAccess {
-	return async (audience) => {
+	return async (audience, generation) => {
+		if (grant === 'desktop' && generation === undefined)
+			return Err({
+				name: 'GrantChanged',
+				message: 'A desktop account request must name its sign-in generation.',
+			});
 		const { data, error } = await accessToken(
 			ctx,
 			grant,
 			ctx.deployment.audiences[audience],
+			generation,
 		);
 		return error === null
 			? Ok({ endpoint: ctx.deployment.origin, key: data.token })
-			: Err(error.message);
+			: Err({ name: error.name, message: error.message });
 	};
 }
 
@@ -516,6 +570,7 @@ async function keepGrant(
 		});
 	const stored: StoredGrant = {
 		client: AUTH_CLIENTS[grant],
+		generation: crypto.randomUUID(),
 		issuer: ctx.deployment.origin,
 		refreshToken: issued.refresh_token,
 		scope: SCOPE,
@@ -535,13 +590,21 @@ async function keepGrant(
 		writeGrant(ctx, grant, stored),
 	);
 	if (written.error !== null) return Err(written.error);
-	const api = await accessToken(ctx, grant, ctx.deployment.audiences.api);
+	const api = await accessToken(
+		ctx,
+		grant,
+		ctx.deployment.audiences.api,
+		stored.generation,
+	);
 	if (api.error !== null) return Err(api.error);
 	const account = await readAccount(ctx, api.data.token);
 	return holdingGrantLock(ctx, grant, async () => {
 		const current = await readGrant(ctx, grant);
 		if (current.error !== null) return Err(current.error);
-		const next = { ...(current.data ?? stored), account };
+		const active = current.data;
+		if (!active || active.generation !== stored.generation)
+			return AuthError.GrantChanged({ grant });
+		const next = { ...active, account };
 		const { error } = await writeGrant(ctx, grant, next);
 		return error === null ? Ok(next) : Err(error);
 	});
@@ -751,6 +814,7 @@ export type GrantStatus =
 			grant: GrantKind;
 			client: string;
 			signedIn: true;
+			generation: string | null;
 			account: Account | null;
 			scope: string;
 			signedInAt: string;
@@ -762,7 +826,10 @@ export async function authStatus(
 ): Promise<Result<GrantStatus[], AuthError>> {
 	const grants: GrantStatus[] = [];
 	for (const grant of ['device', 'desktop'] as const) {
-		const { data, error } = await readGrant(ctx, grant);
+		const { data, error } =
+			grant === 'desktop'
+				? await readGrantWithGeneration(ctx, grant)
+				: await readGrant(ctx, grant);
 		if (error !== null) return Err(error);
 		grants.push(
 			data === null
@@ -771,6 +838,7 @@ export async function authStatus(
 						grant,
 						client: data.client,
 						signedIn: true,
+						generation: data.generation ?? null,
 						account: data.account,
 						scope: data.scope,
 						signedInAt: data.signedInAt,

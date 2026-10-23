@@ -18,6 +18,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { connectionTargets, type StoredConnection } from './connections.js';
+import { refusedBeforeSend } from './request-refusal.js';
 
 export const TransformationError = defineErrors({
 	NotConfigured: ({ missing }: { missing: string }) => ({
@@ -189,6 +190,10 @@ export async function transformOverConnection(
 			credentials: 'omit',
 		});
 	} catch (cause) {
+		if (refusedBeforeSend(cause))
+			return TransformationError.ConnectionUnavailable({
+				reason: redact(cause.message),
+			});
 		return TransformationError.Unreachable({
 			url,
 			reason: redact(describe(cause)),

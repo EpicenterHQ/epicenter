@@ -338,7 +338,7 @@
 						</Field.Field>
 						<div class="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="transform-note">
 							{#if connection}
-								<p>Sends to the text connection: {connection.baseUrl}{connection.keyPresent ? ', with its key' : ', with no key'}.</p>
+								<p>Sends to the text connection: {connection.baseUrl}.</p>
 							{:else if whispering.connectionsProblem}
 								<p class="text-destructive">The text connection could not be read: {whispering.connectionsProblem}</p>
 							{:else}

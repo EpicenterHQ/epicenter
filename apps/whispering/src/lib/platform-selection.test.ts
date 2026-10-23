@@ -55,6 +55,7 @@ describe('#platform/services', () => {
 			);
 
 			expect(reaches(modules, 'lib/platform/desktop/services.ts')).toBe(true);
+			expect(reaches(modules, 'lib/platform/desktop/auth.ts')).toBe(true);
 			expect(reaches(modules, 'lib/tauri/bindings.gen.ts')).toBe(true);
 			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 			expect(modules.some(folderModule('native/tauri.ts'))).toBe(true);
@@ -79,6 +80,7 @@ describe('#platform/services', () => {
 			const modules = await bundledModules(appDir, SEAM_ENTRY, 'browser');
 
 			expect(reaches(modules, 'lib/platform/browser.ts')).toBe(true);
+			expect(reaches(modules, 'lib/platform/auth.ts')).toBe(true);
 			expect(modules.some(folderModule('browser.ts'))).toBe(true);
 			expect(modules.some(folderModule('local-folder.ts'))).toBe(true);
 			expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);

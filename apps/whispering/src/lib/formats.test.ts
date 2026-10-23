@@ -92,3 +92,13 @@ test('transcription failures say what happened, without the key', async () => {
 	);
 	expect(malformed?.name).toBe('Malformed');
 });
+
+test('a refused desktop transcription reports that nothing was sent', async () => {
+	const { error } = await transcribe(async () => {
+		throw Object.assign(new Error('Epicenter refused this request.'), {
+			name: 'Refused',
+		});
+	});
+	expect(error?.name).toBe('ConnectionUnavailable');
+	expect(error?.message).toContain('Nothing was sent');
+});

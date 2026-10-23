@@ -200,6 +200,18 @@ test('an endpoint that cannot be reached is an Unreachable error, without the ke
 	expect(JSON.stringify(error)).not.toContain(KEY);
 });
 
+test('a changed desktop grant is reported as a refusal before sending', async () => {
+	const error = expectErr(
+		await transform(async () => {
+			throw Object.assign(new Error('The Epicenter sign-in changed.'), {
+				name: 'GrantChanged',
+			});
+		}),
+	);
+	expect(error.name).toBe('ConnectionUnavailable');
+	expect(error.message).toContain('Nothing was sent');
+});
+
 for (const [name, respond] of [
 	['is not JSON', () => new Response('<html>gateway</html>')],
 	['has no choices', () => Response.json({ object: 'chat.completion' })],

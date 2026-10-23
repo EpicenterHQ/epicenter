@@ -150,6 +150,7 @@ macro_rules! shell_commands {
             folder_query::folder_query,
             cli::ai_send,
             cli::account_send,
+            cli::send_cancel,
             cli::ai_key_set,
             cli::ai_key_remove,
             cli::ai_key_state,
@@ -261,6 +262,8 @@ mod export_bindings {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "kebab-case")]
 pub enum HomeSection {
+    /// Account sign-in and sign-out.
+    Account,
     /// Local transcription model administration.
     Transcription,
 }
@@ -977,8 +980,9 @@ mod tests {
     /// Settings' privacy panes (ADR-0555); transcription with the active
     /// local model, its readiness, and opening Settings to fix it
     /// (ADR-0180); and its AI connections, their two rows by operation, and
-    /// who Epicenter is signed in as (ADR-0557, ADR-0558). No second folder,
-    /// folder history, account request, key removal, or model
+    /// who Epicenter is signed in as (ADR-0557, ADR-0558). Its hosted Account
+    /// sends only through `account_send` and `send_cancel` (ADR-0683). No second folder,
+    /// folder history, key removal, or model
     /// administration.
     #[test]
     fn whispering_windows_hold_what_whispering_calls() {
@@ -1007,6 +1011,8 @@ mod tests {
                 "allow-get-local-transcription-readiness",
                 "allow-open-home",
                 "allow-ai-send",
+                "allow-account-send",
+                "allow-send-cancel",
                 "allow-ai-key-set",
                 "allow-ai-key-state",
                 "allow-auth-status",
@@ -1052,8 +1058,8 @@ mod tests {
 
     /// Who Epicenter is signed in as reaches Settings and Whispering; signing
     /// in and out reaches Settings alone (ADR-0558). No page makes an account
-    /// request now: `account_send` stays registered, and no capability grants
-    /// it until a page calls it.
+    /// request through its resource-bound Account; Settings alone owns the
+    /// desktop grant's login and logout.
     #[test]
     fn signing_in_and_out_is_granted_to_settings_alone() {
         for encoded in ALL_CAPABILITIES {
@@ -1063,7 +1069,8 @@ mod tests {
             let identifier = capability["identifier"].as_str().unwrap();
             let settings = *encoded == HOME;
             let whispering = *encoded == WHISPERING;
-            assert!(!grants("allow-account-send"), "{identifier}");
+            assert_eq!(grants("allow-account-send"), whispering, "{identifier}");
+            assert_eq!(grants("allow-send-cancel"), whispering, "{identifier}");
             assert_eq!(
                 grants("allow-auth-status"),
                 settings || whispering,

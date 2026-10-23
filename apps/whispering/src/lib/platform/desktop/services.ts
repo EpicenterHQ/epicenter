@@ -2,6 +2,7 @@
  * The shell owns microphone capture and credentials. This module opens no storage.
  */
 
+import type { Account } from '@epicenter/auth';
 import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../../audio-format.js';
@@ -23,6 +24,7 @@ import {
 	transformOverConnection,
 } from '../../transformation.js';
 import type { WhisperingServices } from '../types.js';
+import { getAuth } from './auth.js';
 import {
 	type ConnectionCommands,
 	createDesktopConnections,
@@ -41,13 +43,30 @@ export function createServices(
 	{
 		commands: native = commands,
 		connectionCommands = commands,
+		account,
 	}: {
 		commands?: LocalTranscriptionCommands;
 		connectionCommands?: ConnectionCommands;
+		account?: () => Promise<{
+			origin: string;
+			account: Account | undefined;
+			problem?: string;
+		}>;
 	} = {},
 ): WhisperingServices {
 	const connections = createDesktopConnections({
 		commands: connectionCommands,
+		account:
+			account ??
+			(async () => {
+				const current = getAuth();
+				await current.refresh();
+				return {
+					origin: current.baseURL,
+					account: current.state.account,
+					problem: current.problem,
+				};
+			}),
 	});
 
 	const readAudioBytes = (path: string) => readBytes(folder, path);

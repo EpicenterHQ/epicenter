@@ -23,14 +23,15 @@ import {
 	createMemorySecrets,
 	responseEvents,
 	sendRequest,
+	toSendRequest,
 } from '@epicenter/ai/send';
+import { createDesktopAccountAuth } from '@epicenter/auth/desktop';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { resolveAppPaths } from '../../../../../../packages/cli/src/app-paths.js';
 import {
 	type AuthContext,
 	accountAccess,
 	authStatus,
-	epicenterAccess,
 	loginWithLoopback,
 	resolveDeployment,
 } from '../../../../../../packages/cli/src/auth.js';
@@ -50,7 +51,6 @@ import {
 } from '../../../../../../packages/server/src/bun.js';
 import { startDisposablePostgres } from '../../../../../../packages/server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../../../../packages/server/src/test-helpers/oauth-client.js';
-import type { AuthStatus } from '../../tauri/bindings.gen.js';
 import type { ConnectionCommands } from './connections.js';
 
 mock.module('@tauri-apps/api/core', () => ({
@@ -219,15 +219,6 @@ function shell(): ConnectionCommands {
 		async whisperingConnectionSet(connection, fields) {
 			return reply(await setConnectionRow(paths, connection, { fields }));
 		},
-		async authStatus() {
-			const { data: grants, error } = await authStatus(ctx);
-			if (error !== null) throw new Error(error.message);
-			return {
-				status: 'ok',
-				data: { origin: ctx.deployment.origin, grants } as AuthStatus,
-				error: null,
-			};
-		},
 		async aiSend(target, request, channel) {
 			const { data: response, error } = await sendRequest({
 				target,
@@ -236,7 +227,6 @@ function shell(): ConnectionCommands {
 					body: request.body === null ? undefined : base64ToBytes(request.body),
 				},
 				secrets: ctx.secrets,
-				epicenter: epicenterAccess(ctx, 'desktop'),
 				account: accountAccess(ctx, 'desktop'),
 				fetch: (async (input: Request | string | URL, init?: RequestInit) =>
 					app.fetch(new Request(input, init))) as typeof fetch,
@@ -272,12 +262,54 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 	expect(created).toBeNull();
 
 	await folder.close();
-	const connections = createDesktopConnections({ commands: shell() });
+	const auth = createDesktopAccountAuth({
+		audience: 'api',
+		async status() {
+			const { data: grants, error } = await authStatus(ctx);
+			if (error !== null) throw new Error(error.message);
+			const grant = grants.find((item) => item.grant === 'desktop');
+			return {
+				origin,
+				grant:
+					grant?.signedIn && grant.account && grant.generation
+						? { accountId: grant.account.id, generation: grant.generation }
+						: null,
+			};
+		},
+		async send(audience, generation, request) {
+			const { data: wire, error: invalid } = await toSendRequest(
+				origin,
+				request,
+			);
+			if (invalid !== null) throw new Error(invalid.message);
+			const { data: response, error } = await sendRequest({
+				target: { kind: 'account', audience, generation },
+				request: wire,
+				secrets: ctx.secrets,
+				account: accountAccess(ctx, 'desktop'),
+				fetch: (async (input: Request | string | URL, init?: RequestInit) =>
+					app.fetch(new Request(input, init))) as typeof fetch,
+			});
+			if (error !== null)
+				throw Object.assign(new Error(error.message), { name: error.name });
+			return response;
+		},
+		openSignIn: async () => {},
+		watch: () => () => {},
+	});
+	const connections = createDesktopConnections({
+		commands: shell(),
+		account: async () => {
+			await auth.refresh();
+			return { origin: auth.baseURL, account: auth.getState().account };
+		},
+	});
 	const info = await connections.read();
 	expect(info.transcription).toMatchObject({
 		baseUrl: `${origin}/v1`,
 		model: 'whisper-1',
-		keyPresent: true,
+		keyPresent: false,
+		source: 'account',
 	});
 	expect(info.transcription?.readOnlyReason).toContain('Epicenter’s Settings');
 	// Whispering does not change a connection Settings owns.
@@ -308,4 +340,14 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 		path: '/v1/audio/transcriptions',
 		body: JSON.stringify({ model: 'whisper-1' }),
 	});
+
+	const signedOut = createDesktopConnections({
+		commands: shell(),
+		account: async () => ({ origin, account: undefined }),
+	});
+	const signedOutInfo = await signedOut.read();
+	expect(signedOutInfo.transcription?.keyPresent).toBe(false);
+	expect(signedOutInfo.transcription?.readOnlyReason).toContain('Sign in');
+	expect(signedOut.route('transcription')).rejects.toThrow('Sign in');
+	expect(reached).toHaveLength(1);
 }, 60_000);

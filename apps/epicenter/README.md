@@ -80,18 +80,18 @@ The one binary has these uses:
   `/auth/oauth2/authorize`, then `{"signedIn"}` or `{"error"}`; every line
   goes to `onEvent`. `auth_status()` runs `epicenter auth status --desktop
   --json` and `auth_logout()` runs `epicenter auth logout --desktop --json`.
-  `ai_send` runs `epicenter send --json --desktop`, so an Epicenter
-  connection sends with the app's grant.
-- `account_send(audience, request, onEvent)` is a page's account request
-  (ADR-0549, ADR-0556). No capability grants it now that no page calls it;
-  it stays registered for the next page that does. It runs `epicenter send --json --desktop` with the
-  target `{"kind":"account","audience"}`, where `audience` is `api` or `git`,
-  a closed enum that names one of the deployment's resources by role. The CLI
-  sends only a path below the deployment's `/api/`, adds the app's grant's
-  access token for that resource, and streams the response back as
-  `ai_send`'s lines do, followed by the same `{"type":"exit"}` line; with no
-  sign-in it answers `NoAccountToken`. No page holds an access token
-  (ADR-0549's desktop row), so there is no command that hands one out.
+  `ai_send` runs `epicenter send --json --desktop` for user-supplied provider
+  connections.
+- `account_send(audience, generation, request, requestId, onEvent)` sends a
+  page's resource-bound Account request (ADR-0683). Whispering alone has this
+  command permission, and Rust admits only its API-resource hosted
+  transcription, completion, and profile paths. The target sent to the CLI
+  includes the Account's captured grant generation. The CLI checks that
+  generation before selecting a cached or refreshed token, then streams the
+  response through the same event protocol as `ai_send`. A replaced sign-in
+  answers `GrantChanged`; a missing grant answers `NoAccountToken`.
+  `send_cancel(requestId)` stops that window's one request and response stream.
+  No page or Rust command receives an access token (ADR-0549).
   Each of these passes the shell's configured server as `EPICENTER_API_URL`,
   so the CLI and the shell name one deployment. The grant's refresh token and
   cached access tokens are in the CLI's keychain entry; no token reaches a
@@ -585,8 +585,10 @@ Whispering's page calls:
 - `list_inference_models`, `transcribe_audio_bytes`,
   `get_local_transcription_readiness`, and `open_home`, for optional local
   transcription with the active model (ADR-0180);
-- `ai_send`, `ai_key_set`, `ai_key_state`, and `auth_status`, for its AI
-  connections (ADR-0557, ADR-0558);
+- `ai_send`, `ai_key_set`, and `ai_key_state`, for user-supplied AI
+  connections (ADR-0557);
+- `auth_status`, `account_send`, and `send_cancel`, for its API-bound
+  Epicenter Account (ADR-0683);
 - `whispering_connection_read` and `whispering_connection_set`, for its two
   connection rows in Epicenter's records folder. The page names
   `transcription` or `text`; the shell runs
@@ -598,7 +600,7 @@ Whispering's page calls:
   Settings opens the same records folder.
 
 No bundled app's window is granted folder history (`status`, `history`,
-`save_version`, `sync`), `account_send`, `ai_key_remove`, or model
+`save_version`, `sync`), `ai_key_remove`, or model
 administration. Whispering's page opens its folder and recovers interrupted
 recordings before any connection or account is read, so local recording and
 editing never wait for sign-in.

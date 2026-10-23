@@ -64,6 +64,8 @@ export type CreateBrowserOAuthOptions = {
 	now?: () => number;
 	/** Schedule renewal and return the function that cancels it. */
 	schedule?: (callback: () => void, ms: number) => () => void;
+	/** Disable timer-driven navigation for apps with work that must survive while the page stays open. */
+	automaticRenewal?: boolean;
 	log?: Logger;
 };
 
@@ -73,6 +75,8 @@ const StoredToken = type({
 	accessToken: 'string > 0',
 	expiresAt: 'number',
 	principalId: PrincipalId,
+	/** Missing only on cells written before attachment generations existed. */
+	'generation?': 'string > 0',
 });
 type StoredToken = typeof StoredToken.infer;
 
@@ -82,6 +86,8 @@ const Attempt = type({
 	state: 'string > 0',
 	returnTo: 'string',
 	createdAt: 'number',
+	attachmentGeneration: 'string | null',
+	accessToken: 'string | null',
 });
 type Attempt = typeof Attempt.infer;
 
@@ -109,6 +115,7 @@ const BrowserOAuthDiagnostic = defineErrors({
 
 type Attachment = {
 	account: Account;
+	generation: string;
 	lifetime: AbortController;
 	/** The token the server refused, while the Account waits for a new one. */
 	refusedToken: string | null;
@@ -122,6 +129,8 @@ function base64url(bytes: Uint8Array) {
 }
 
 const randomToken = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
+
+const generationOf = (stored: StoredToken) => stored.generation ?? 'legacy';
 
 async function challengeFor(verifier: string) {
 	const digest = await crypto.subtle.digest(
@@ -169,6 +178,7 @@ export function createBrowserOAuth({
 		const timer = globalThis.setTimeout(callback, ms);
 		return () => globalThis.clearTimeout(timer);
 	},
+	automaticRenewal = true,
 	log = createLogger('auth/browser-oauth'),
 }: CreateBrowserOAuthOptions): CallbackAuthClient {
 	const { baseURL, authorityId } = server;
@@ -239,9 +249,12 @@ export function createBrowserOAuth({
 		if (disposed) return null;
 		const stored = readToken();
 		if (!stored) retire();
-		else if (attachment?.account.principalId !== stored.principalId) {
+		else if (
+			attachment?.account.principalId !== stored.principalId ||
+			attachment.generation !== generationOf(stored)
+		) {
 			retire();
-			attachment = createAttachment(stored.principalId);
+			attachment = createAttachment(stored.principalId, generationOf(stored));
 		} else if (attachment.refusedToken !== stored.accessToken) {
 			attachment.refusedToken = null;
 		}
@@ -256,7 +269,8 @@ export function createBrowserOAuth({
 	function scheduleRenewal(stored: StoredToken | null) {
 		cancelRenewal?.();
 		cancelRenewal = undefined;
-		if (!stored || disposed || onCallback || authorization) return;
+		if (!automaticRenewal || !stored || disposed || onCallback || authorization)
+			return;
 		if (needsRenewal(stored)) {
 			void authorizeOnce(true).catch((cause) => {
 				log.error(BrowserOAuthDiagnostic.RenewalFailed({ cause }));
@@ -274,7 +288,10 @@ export function createBrowserOAuth({
 		}, delay);
 	}
 
-	function createAttachment(principalId: PrincipalId): Attachment {
+	function createAttachment(
+		principalId: PrincipalId,
+		generation: string,
+	): Attachment {
 		const lifetime = new AbortController();
 		const accountFetch: AuthFetch = async (input, init) => {
 			const target = resolveTargetUrl(input, baseURL);
@@ -345,6 +362,7 @@ export function createBrowserOAuth({
 				fetch: accountFetch,
 				getProfile: () => getProfileVia(accountFetch, baseURL),
 			}),
+			generation,
 			lifetime,
 			refusedToken: null,
 		};
@@ -367,11 +385,14 @@ export function createBrowserOAuth({
 
 	async function navigateToAuthorize(silent: boolean) {
 		const verifier = randomToken();
+		const current = readToken();
 		const attempt: Attempt = {
 			verifier,
 			state: randomToken(),
 			returnTo: currentPath(),
 			createdAt: now(),
+			attachmentGeneration: current ? generationOf(current) : null,
+			accessToken: current?.accessToken ?? null,
 		};
 		const url = new URL('/auth/oauth2/authorize', serverOrigin);
 		url.search = new URLSearchParams({
@@ -489,8 +510,14 @@ export function createBrowserOAuth({
 			const error = params.get('error');
 			if (error === 'login_required') {
 				// The silent renewal's answer when the authorization server has no
-				// session: the person is signed out, which is not a failure.
-				storage.removeItem(tokenKey);
+				// session. A newer token or sign-in from another tab survives it.
+				const current = readToken();
+				if (
+					(current ? generationOf(current) : null) ===
+						attempt.attachmentGeneration &&
+					(current?.accessToken ?? null) === attempt.accessToken
+				)
+					storage.removeItem(tokenKey);
 				sync();
 				return Ok({ returnTo });
 			}
@@ -509,10 +536,20 @@ export function createBrowserOAuth({
 				void revoke(token.access_token);
 				throw cause;
 			}
+			const current = readToken();
+			const currentGeneration = current ? generationOf(current) : null;
+			if (currentGeneration !== attempt.attachmentGeneration) {
+				void revoke(token.access_token);
+				throw new Error('The account changed during sign-in.');
+			}
 			const stored: StoredToken = {
 				accessToken: token.access_token,
 				expiresAt: issuedAt + token.expires_in * 1000,
 				principalId,
+				generation:
+					current?.principalId === principalId
+						? generationOf(current)
+						: randomToken(),
 			};
 			storage.setItem(tokenKey, JSON.stringify(stored));
 			sync();
@@ -527,6 +564,9 @@ export function createBrowserOAuth({
 
 	return {
 		getState: () => state,
+		async refresh() {
+			sync();
+		},
 		baseURL,
 		...(accountManagement
 			? { accountManagementUrl: createAccountManagementUrl }

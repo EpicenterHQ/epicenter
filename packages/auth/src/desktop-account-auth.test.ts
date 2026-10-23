@@ -21,26 +21,31 @@ import { fromAuth } from './svelte/auth.svelte.ts';
 const origin = 'https://api.example.test';
 const signedIn = (
 	accountId = 'alice',
-	signedInAt = '2026-10-16T00:00:00.000Z',
-): DesktopAccountStatus => ({ origin, grant: { accountId, signedInAt } });
+	generation = '11111111-1111-4111-8111-111111111111',
+): DesktopAccountStatus => ({ origin, grant: { accountId, generation } });
 
 function harness(
 	initial: DesktopAccountStatus,
 	respond: (
 		audience: DesktopAccountAudience,
+		generation: string,
 		request: Request,
 	) => Response = () => Response.json({}),
 ) {
 	let current = initial;
-	const sent: { audience: DesktopAccountAudience; request: Request }[] = [];
+	const sent: {
+		audience: DesktopAccountAudience;
+		generation: string;
+		request: Request;
+	}[] = [];
 	let opened = 0;
 	let refreshFromWatch: (() => void) | undefined;
 	const auth = createDesktopAccountAuth({
 		audience: 'git',
 		status: async () => current,
-		send: async (audience, request) => {
-			sent.push({ audience, request });
-			return respond(audience, request);
+		send: async (audience, generation, request) => {
+			sent.push({ audience, generation, request });
+			return respond(audience, generation, request);
 		},
 		openSignIn: async () => {
 			opened++;
@@ -106,6 +111,7 @@ test('Account.fetch sends through the app audience and getProfile through api, w
 		headers: { authorization: 'Bearer page' },
 	});
 	expect(sent[0]?.audience).toBe('git');
+	expect(sent[0]?.generation).toBe(signedIn().grant?.generation);
 	expect(sent[0]?.request.url).toBe(`${origin}/api/repos`);
 	expect(sent[0]?.request.method).toBe('GET');
 	expect(sent[0]?.request.headers.get('authorization')).toBeNull();
@@ -147,7 +153,7 @@ test('signing in again from Settings opens a new account; signing out retires th
 	await h.auth.refresh();
 	expect(h.auth.getState().account).toBe(first);
 
-	h.set(signedIn('alice', '2026-10-17T00:00:00.000Z'));
+	h.set(signedIn('alice', '22222222-2222-4222-8222-222222222222'));
 	await h.auth.refresh();
 	const second = h.auth.getState().account!;
 	expect(second).not.toBe(first);
@@ -186,4 +192,122 @@ test('a grant that ended reads the status again', async () => {
 	await Bun.sleep(0);
 	await Bun.sleep(0);
 	expect(ended).toBe(true);
+});
+
+test('a replaced grant cannot send through a retained Account', async () => {
+	let current = signedIn();
+	let dispatched = 0;
+	const auth = createDesktopAccountAuth({
+		audience: 'api',
+		status: async () => current,
+		async send(_audience, generation) {
+			if (generation !== current.grant?.generation)
+				throw Object.assign(new Error('The sign-in changed.'), {
+					name: 'GrantChanged',
+				});
+			dispatched++;
+			return Response.json({});
+		},
+		openSignIn: async () => {},
+		watch: () => () => {},
+	});
+	await auth.refresh();
+	const first = auth.getState().account!;
+	current = signedIn('bob', '22222222-2222-4222-8222-222222222222');
+	expect(first.fetch('/v1/chat/completions')).rejects.toMatchObject({
+		name: 'GrantChanged',
+	});
+	await Bun.sleep(0);
+	expect(dispatched).toBe(0);
+	expect(auth.getState().account?.principalId).toBe(asPrincipalId('bob'));
+	expect(first.fetch('/v1/chat/completions')).rejects.toMatchObject({
+		name: 'AbortError',
+	});
+});
+
+test('retiring an Account aborts its in-flight desktop request', async () => {
+	let current: DesktopAccountStatus = signedIn();
+	let sentSignal: AbortSignal | undefined;
+	const auth = createDesktopAccountAuth({
+		audience: 'api',
+		status: async () => current,
+		send: async (_audience, _generation, request) => {
+			sentSignal = request.signal;
+			return new Promise<Response>((_resolve, reject) => {
+				request.signal.addEventListener(
+					'abort',
+					() => reject(request.signal.reason),
+					{ once: true },
+				);
+			});
+		},
+		openSignIn: async () => {},
+		watch: () => () => {},
+	});
+	await auth.refresh();
+	const pending = auth.getState().account!.fetch('/v1/chat/completions');
+	await Bun.sleep(0);
+	current = { origin, grant: null };
+	await auth.refresh();
+	expect(sentSignal?.aborted).toBe(true);
+	expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+});
+
+test('an older status reply cannot restore a replaced Account', async () => {
+	const first = Promise.withResolvers<DesktopAccountStatus>();
+	const second = Promise.withResolvers<DesktopAccountStatus>();
+	let reads = 0;
+	const auth = createDesktopAccountAuth({
+		audience: 'api',
+		status: () => (++reads === 1 ? first.promise : second.promise),
+		send: async () => Response.json({}),
+		openSignIn: async () => {},
+		watch: () => () => {},
+	});
+	const older = auth.refresh();
+	const newer = auth.refresh();
+	second.resolve(signedIn('bob', '22222222-2222-4222-8222-222222222222'));
+	await newer;
+	first.resolve(signedIn('alice'));
+	await older;
+	expect(auth.getState().account?.principalId).toBe(asPrincipalId('bob'));
+});
+
+test('an older refresh waits for the newer status before its caller uses the Account', async () => {
+	const first = Promise.withResolvers<DesktopAccountStatus>();
+	const second = Promise.withResolvers<DesktopAccountStatus>();
+	let reads = 0;
+	const auth = createDesktopAccountAuth({
+		audience: 'api',
+		status: () => (++reads === 1 ? first.promise : second.promise),
+		send: async () => Response.json({}),
+		openSignIn: async () => {},
+		watch: () => () => {},
+	});
+	const older = auth.refresh();
+	const newer = auth.refresh();
+	first.resolve(signedIn('alice'));
+	let returned = false;
+	void older.then(() => {
+		returned = true;
+	});
+	await Bun.sleep(0);
+	expect(returned).toBe(false);
+	second.resolve(signedIn('bob', '22222222-2222-4222-8222-222222222222'));
+	await Promise.all([older, newer]);
+	expect(auth.getState().account?.principalId).toBe(asPrincipalId('bob'));
+});
+
+test('an explicit status read reports a shell failure', async () => {
+	const auth = createDesktopAccountAuth({
+		audience: 'api',
+		status: async () => {
+			throw new Error('status command unavailable');
+		},
+		send: async () => Response.json({}),
+		openSignIn: async () => {},
+		watch: () => () => {},
+	});
+	expect(auth.refresh()).rejects.toThrow('status command unavailable');
+	expect(auth.getState().status).toBe('signed-out');
 });
