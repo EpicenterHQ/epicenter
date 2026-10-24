@@ -415,6 +415,45 @@ test('reads, writes, and deletes share one path slot while other paths proceed',
 	);
 });
 
+test('refresh callers join a read waiting at the end of the path slot', async () => {
+	const { folder, hold, reads } = setup({ 'a.md': 'old' });
+	const edit = folder.files.document('a.md');
+	const gate = hold('write');
+	const writing = folder.files.write('a.md', 'new');
+	await gate.reached;
+	const first = edit.refresh();
+	const second = edit.refresh();
+	gate.proceed();
+	expectOk(await writing);
+	expectOk(await first);
+	expectOk(await second);
+	expect(reads()).toEqual(['read a.md']);
+	expect(edit.getSnapshot().text).toBe('new');
+});
+
+test('a refresh after an intervening write gets a later read', async () => {
+	const { folder, hold, log } = setup({ 'a.md': 'old' });
+	const edit = folder.files.document('a.md');
+	const gate = hold('write');
+	const firstWrite = folder.files.write('a.md', 'first');
+	await gate.reached;
+	const firstRead = edit.refresh();
+	const secondWrite = folder.files.write('a.md', 'second');
+	const secondRead = edit.refresh();
+	gate.proceed();
+	expectOk(await firstWrite);
+	expectOk(await firstRead);
+	expectOk(await secondWrite);
+	expectOk(await secondRead);
+	expect(log).toEqual([
+		'write a.md first',
+		'read a.md',
+		'write a.md second',
+		'read a.md',
+	]);
+	expect(edit.getSnapshot().text).toBe('second');
+});
+
 test('close drops queued autosave, lets the started fake write settle, and refuses queued reads', async () => {
 	const { folder, hold, writes } = setup({}, 5);
 	const edit = folder.files.document('a.md');
@@ -531,17 +570,21 @@ test('folder status follows pending writes without demanding document content', 
 	stop();
 });
 
-test('a reported outside edit during a read triggers another read', async () => {
-	const { folder, hold, outside, reads } = setup({ 'a.md': 'first' });
+test('outside hints during a read share one follow-up before a later write', async () => {
+	const { folder, hold, outside, reads, log } = setup({ 'a.md': 'first' });
 	const edit = folder.files.document('a.md');
 	const gate = hold('read');
 	const { stop } = record(edit);
 	await gate.reached;
 	outside('a.md', 'second');
+	outside('a.md', 'third');
+	const writing = folder.files.write('a.md', 'fourth');
 	gate.proceed();
+	expectOk(await writing);
 	await flush();
 	expect(reads()).toEqual(['read a.md', 'read a.md']);
-	expect(edit.getSnapshot().text).toBe('second');
+	expect(log).toEqual(['read a.md', 'read a.md', 'write a.md fourth']);
+	expect(edit.getSnapshot().text).toBe('fourth');
 	stop();
 });
 

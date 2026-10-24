@@ -173,7 +173,8 @@ type DocumentState = {
 	timer: ReturnType<typeof setTimeout> | undefined;
 	autoRequested: boolean;
 	needsRead: boolean;
-	readQueued: boolean;
+	/** A read still waiting at the end of this path's I/O slot. */
+	waitingRead: Promise<Result<void, LoadError>> | undefined;
 	tail: Promise<void>;
 	pending: number;
 	writes: PendingWrite[];
@@ -314,6 +315,8 @@ export function createDocumentOwner({
 		state: DocumentState,
 		work: () => Promise<T>,
 	): Promise<T> {
+		// A later read must follow this work rather than join an earlier read.
+		state.waitingRead = undefined;
 		const prior = state.tail;
 		state.pending++;
 		const task = (async () => {
@@ -409,10 +412,12 @@ export function createDocumentOwner({
 		});
 
 	function requestRead(state: DocumentState): Promise<Result<void, LoadError>> {
-		state.readQueued = true;
+		if (state.waitingRead !== undefined) return state.waitingRead;
 		const result = enqueue(
 			state,
 			async (): Promise<Result<void, LoadError>> => {
+				// Another read may already wait behind a later write.
+				if (state.waitingRead === result) state.waitingRead = undefined;
 				if (closed) return closedRead(state);
 				state.needsRead = false;
 				let observation: Result<string, LoadError>;
@@ -442,17 +447,12 @@ export function createDocumentOwner({
 					: Err(observation.error);
 			},
 		);
-		void result.then(() => {
-			state.readQueued = false;
-			if (!closed && state.needsRead && state.listeners.size > 0)
-				void requestRead(state);
-		});
+		state.waitingRead = result;
 		return result;
 	}
 
 	function demandRead(state: DocumentState) {
-		if (!closed && state.needsRead && !state.readQueued)
-			void requestRead(state);
+		if (!closed && state.needsRead) void requestRead(state);
 	}
 
 	function replace(state: DocumentState, text: string): ChangeResult {
@@ -527,7 +527,7 @@ export function createDocumentOwner({
 				timer: undefined,
 				autoRequested: false,
 				needsRead: true,
-				readQueued: false,
+				waitingRead: undefined,
 				tail: Promise.resolve(),
 				pending: 0,
 				writes: [],
