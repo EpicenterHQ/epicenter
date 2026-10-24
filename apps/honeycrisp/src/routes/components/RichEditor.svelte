@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { liveSnapshot } from '@epicenter/svelte/snapshot';
-	import type { FileDocument } from '@epicenter/folder/document';
+	import type { TextDocument } from '@epicenter/folder/document';
+	import type { FolderTable } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import * as Popover from '@epicenter/ui/popover';
@@ -44,13 +45,15 @@
 
 	let {
 		fileEdit,
+		parse,
 		focusRequest,
 		closing,
 		onOpenSource,
 		onRefuse,
 	}: {
 		/** The note as shown: its draft while an edit is held, else the cache's. */
-		fileEdit: FileDocument<HoneycrispTables['notes']>;
+		fileEdit: TextDocument<HoneycrispTables['notes']>;
+		parse: FolderTable<HoneycrispTables['notes']>['parse'];
 		focusRequest: number;
 		closing: boolean;
 		onOpenSource: () => void;
@@ -73,7 +76,7 @@
 	 * again.
 	 */
 	const snapshot = $derived(liveSnapshot(fileEdit));
-	const body = $derived(noteBody(snapshot.current.content));
+	const body = $derived(noteBody(snapshot.current.text === undefined ? undefined : parse(snapshot.current.text)));
 	/** The body as a document, or why it cannot be one. */
 	const rich = $derived(body === undefined ? undefined : bodyCodec.decode(body));
 	/**
@@ -189,7 +192,7 @@
 				if (!alive || this.isDestroyed) return;
 				// A refused or stale transaction changes nothing on screen; a
 				// taken one is already in the note's draft, and its save started.
-				const next = stateAfter(this.state, transaction, fileEdit, onRefuse);
+				const next = stateAfter(this.state, transaction, fileEdit, parse, onRefuse);
 				if (next !== undefined) show(this, next);
 			},
 		}));

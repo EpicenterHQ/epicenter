@@ -183,11 +183,15 @@ test('field assignments use the current source after a Settings publication', as
 	expectOk(
 		await folder.tables.connections.document('whispering-text').refresh(),
 	);
+	const settingsDocument = folder.files.document(
+		'connections/whispering-text.md',
+	);
 	expectOk(
-		await folder.files.document('connections/whispering-text.md').save({
+		settingsDocument.patch({
 			fields: { title: 'Renamed in Settings', note: 'from Settings' },
 		}),
 	);
+	expectOk(await settingsDocument.save());
 	await folder.close();
 
 	const saved = await run(['set', 'text'], {

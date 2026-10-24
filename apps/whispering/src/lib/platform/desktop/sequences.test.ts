@@ -97,7 +97,7 @@ async function open(files: Record<string, string>, path = PATH) {
 	return {
 		whispering,
 		context,
-		session: await transformationEditor(whispering),
+		session: await transformationEditor(whispering, context),
 	};
 }
 

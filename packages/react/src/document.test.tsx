@@ -17,7 +17,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import type { FolderTable } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
-import type { FileDocument } from '@epicenter/folder/document';
+import type { TextDocument } from '@epicenter/folder/document';
 import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Window } from 'happy-dom';
 import { act, type ReactNode } from 'react';
@@ -115,7 +115,7 @@ async function until(done: () => boolean) {
 /** `table`, counting each editor's live subscriptions. */
 function counted(table: Notes) {
 	const live: Record<string, number> = {};
-	const edits = new Map<string, FileDocument<typeof notes>>();
+	const edits = new Map<string, TextDocument<typeof notes>>();
 	const wrapped: Notes = {
 		...table,
 		document(id) {
@@ -143,9 +143,10 @@ function counted(table: Notes) {
 /** A title input over one row, as an app's detail view types it. */
 function Title({ table, id }: { table: Notes; id: string }) {
 	const edit = table.document(id);
-	const { content, loadError, isDirty } = useDocument(edit);
-	if (content === undefined)
+	const { text, loadError, isDirty } = useDocument(edit);
+	if (text === undefined)
 		return <p>{loadError === undefined ? 'Loading' : loadError.name}</p>;
+	const content = table.parse(text);
 	return (
 		<label>
 			<input
@@ -206,8 +207,9 @@ test('the last body replacement in one event determines the input', async () => 
 	const { folder } = await setup();
 	const edit = folder.tables.notes.document('milk');
 	function Body() {
-		const { content } = useDocument(edit);
-		if (content === undefined) return <p>Loading</p>;
+		const { text } = useDocument(edit);
+		if (text === undefined) return <p>Loading</p>;
+		const content = folder.tables.notes.parse(text);
 		return (
 			<input
 				value={content.body ?? ''}
@@ -222,7 +224,7 @@ test('the last body replacement in one event determines the input', async () => 
 	await until(() => view.container.querySelector('input') !== null);
 	await act(async () => type(view.input(), 'typed'));
 	expect(view.input().value).toBe('typed!');
-	expect(edit.getSnapshot().content?.body).toBe('typed!');
+	expect(folder.tables.notes.parse(edit.getSnapshot().text!).body).toBe('typed!');
 });
 
 test('a reused view follows its path, and the row it left keeps its input', async () => {
@@ -234,10 +236,8 @@ test('a reused view follows its path, and the row it left keeps its input', asyn
 		view.root.render(<Title table={folder.tables.notes} id="bread" />),
 	);
 	await until(() => view.container.querySelector('input')?.value === 'Bread');
-	expect(folder.tables.notes.document('milk').getSnapshot()).toMatchObject({
-		isDirty: true,
-		content: { fields: { title: 'Oat milk' } },
-	});
+	expect(folder.tables.notes.document('milk').getSnapshot().isDirty).toBe(true);
+	expect(folder.tables.notes.document('milk').getSnapshot().text).toContain('title: Oat milk');
 	await act(async () =>
 		view.root.render(<Title table={folder.tables.notes} id="milk" />),
 	);
@@ -255,6 +255,6 @@ test('unmounting lets go of the subscription while input stays with the folder',
 	expect(live.milk).toBe(0);
 	expect(folder.getStatus().unsaved).toEqual(['notes/milk.md']);
 	expect(
-		folder.tables.notes.document('milk').getSnapshot().content?.fields,
+		folder.tables.notes.parse(folder.tables.notes.document('milk').getSnapshot().text!).fields,
 	).toEqual({ title: 'Oat milk', done: false });
 });

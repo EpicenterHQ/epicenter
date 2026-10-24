@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { DocumentSnapshot } from '@epicenter/folder/document';
 	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { type getFolder, setFolder } from './folder.js';
 
@@ -48,24 +49,41 @@
 		...getStatus().unsaved.filter(path => /^drafts\/[^/]+\.md$/.test(path)).map(path => path.slice('drafts/'.length, -'.md'.length)),
 	])].map(id => liveSnapshot(folder.tables.drafts.document(id))));
 	const attemptEdits = $derived((attempts.data ?? []).map(row => liveSnapshot(folder.tables.attempts.document(row.id))));
+	// A keystroke changes one snapshot. Reuse parsed previews for every other draft.
+	const previewCache = new WeakMap<DocumentSnapshot, { chatId: string; mode: string; profile: string; state: string; text: string } | null>();
 	const draftPreviews = $derived.by(() => {
 		const previews = new Map<string, { label: string; text: string }>();
 		for (const edit of draftEdits) {
-			const row = edit.current.content;
-			if (row === undefined || row.issues !== null) continue;
-			const { fields, body } = row;
-			if (fields.mode !== backend.mode || fields.profile !== backend.profile) continue;
-			const text = body.trim().replace(/\s+/g, ' ');
-			if (text === '') continue;
+			const snapshot = edit.current;
+			if (snapshot.text === undefined) continue;
+			let preview = previewCache.get(snapshot);
+			if (preview === undefined) {
+				const row = folder.tables.drafts.parse(snapshot.text);
+				preview = row.issues === null ? {
+					chatId: row.fields.chatId, mode: row.fields.mode, profile: row.fields.profile,
+					state: row.fields.state, text: row.body.trim().replace(/\s+/g, ' '),
+				} : null;
+				previewCache.set(snapshot, preview);
+			}
+			if (preview === null || preview.mode !== backend.mode || preview.profile !== backend.profile || preview.text === '') continue;
 			let label = 'Draft';
-			if (fields.state === 'sending') label = 'Check send';
-			previews.set(fields.chatId, { label, text });
+			if (preview.state === 'sending') label = 'Check send';
+			previews.set(preview.chatId, { label, text: preview.text });
 		}
 		for (const edit of attemptEdits) {
-			const row = edit.current.content;
-			if (edit.current.loadError?.name === 'Missing' || row?.issues !== null || row.fields.state !== 'sending') continue;
-			if (row.fields.mode !== backend.mode || row.fields.profile !== backend.profile) continue;
-			previews.set(row.fields.chatId, { label: 'Check send', text: row.body.trim().replace(/\s+/g, ' ') });
+			const snapshot = edit.current;
+			if (snapshot.loadError?.name === 'Missing' || snapshot.text === undefined) continue;
+			let preview = previewCache.get(snapshot);
+			if (preview === undefined) {
+				const row = folder.tables.attempts.parse(snapshot.text);
+				preview = row.issues === null ? {
+					chatId: row.fields.chatId, mode: row.fields.mode, profile: row.fields.profile,
+					state: row.fields.state, text: row.body.trim().replace(/\s+/g, ' '),
+				} : null;
+				previewCache.set(snapshot, preview);
+			}
+			if (preview === null || preview.state !== 'sending' || preview.mode !== backend.mode || preview.profile !== backend.profile) continue;
+			previews.set(preview.chatId, { label: 'Check send', text: preview.text });
 		}
 		return previews;
 	});

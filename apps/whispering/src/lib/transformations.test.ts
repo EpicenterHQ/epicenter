@@ -116,7 +116,7 @@ async function cleanupProfile(
 	context: WhisperingContext,
 ) {
 	expect(await whispering.createTransformation(CLEANUP)).toBeUndefined();
-	const session = await transformationEditor(whispering);
+	const session = await transformationEditor(whispering, context);
 	session.edit((row) => {
 		row.fields.model = 'chat-model';
 	});
@@ -172,7 +172,7 @@ test('editing a transformation keeps fields the app does not know and the person
 	await writeFile(path, source);
 	await settle(whispering, context);
 	whispering.open('transformations/mine.md');
-	const editor = await transformationEditor(whispering);
+	const editor = await transformationEditor(whispering, context);
 	// Opening reads; it writes nothing.
 	expect(whispering.isSaving(editor.path)).toBe(false);
 	expect(await readFile(path, 'utf8')).toBe(source);
@@ -233,7 +233,9 @@ test('a transformation that does not read is named for repair, cannot run, and i
 	expect(transformed).toHaveLength(1);
 	// Repaired, it is edited as fields again, with its unknown field kept.
 	expect(await whispering.useForm(path)).toBeUndefined();
-	expect((await transformationEditor(whispering)).draft.fields).toMatchObject({
+	expect(
+		(await transformationEditor(whispering, context)).draft.fields,
+	).toMatchObject({
 		title: 'Repaired',
 		mood: 'curious',
 	});
@@ -320,7 +322,7 @@ test('a transformation with no instructions, or a transcript with no text, sends
 		root,
 	);
 	await whispering.createTransformation({ title: 'Empty', prompt: '' });
-	const editor = await transformationEditor(whispering);
+	const editor = await transformationEditor(whispering, context);
 
 	expect(await whispering.transform(transcript.path, editor.path)).toBe(
 		'Write instructions to run this.',
@@ -433,9 +435,13 @@ test('a transcript whose recording was deleted outside refuses', async () => {
 });
 
 /** A transcript's file opened from Files, as its view edits it. */
-async function openedTranscript(whispering: Whispering, path: string) {
+async function openedTranscript(
+	whispering: Whispering,
+	context: WhisperingContext,
+	path: string,
+) {
 	whispering.open(path);
-	return await transcriptEditor(whispering, path);
+	return await transcriptEditor(whispering, context, path);
 }
 
 test('a transformation captures accepted transcript input without publishing it', async () => {
@@ -458,7 +464,7 @@ test('a transformation captures failed transcript input without retrying its pub
 	const { context, whispering, root, transformed } = await open();
 	const { transcript } = await transcribed(whispering, context, root);
 	const editor = await cleanupProfile(whispering, context);
-	const source = await openedTranscript(whispering, transcript.path);
+	const source = await openedTranscript(whispering, context, transcript.path);
 	const before = await readFile(join(root, transcript.path), 'utf8');
 	chmodSync(join(root, 'transcriptions'), 0o555);
 	try {
@@ -888,12 +894,12 @@ async function fillRace(typed: string) {
 		const document = acquire(stem);
 		return {
 			...document,
-			async save(change) {
+			async save() {
 				if (stem === output.stem && !filled) {
 					filled = true;
 					await writeFile(path, `${await readFile(path, 'utf8')}${typed}`);
 				}
-				return document.save(change);
+				return document.save();
 			},
 		};
 	};
@@ -985,7 +991,7 @@ test('two asks for the same transcript and transformation at once send one reque
 	expect(
 		await whispering.createTransformation(STARTER_TRANSFORMATIONS[1]!),
 	).toBeUndefined();
-	const summarize = await transformationEditor(whispering);
+	const summarize = await transformationEditor(whispering, context);
 	summarize.edit((row) => {
 		row.fields.model = 'chat-model';
 	});
@@ -1074,8 +1080,12 @@ test('a transformation uses clean retained recipe and transcript source without 
 	const instructions = context.folder.files.document(recipe.path);
 	expectOk(await input.refresh());
 	expectOk(await instructions.refresh());
-	const capturedInput = input.getSnapshot().content?.body;
-	const capturedPrompt = instructions.getSnapshot().content?.body;
+	const capturedInput = context.folder.tables.transcriptions.parse(
+		input.getSnapshot().text!,
+	).body;
+	const capturedPrompt = context.folder.tables.transformations.parse(
+		instructions.getSnapshot().text!,
+	).body;
 	await rm(join(root, transcript.path));
 	await rm(join(root, recipe.path));
 	expect(

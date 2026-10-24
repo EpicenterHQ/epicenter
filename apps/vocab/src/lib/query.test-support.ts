@@ -77,7 +77,7 @@ export async function quiet(vocab: Vocab) {
 			const snapshot = vocab.folder.tables.entries
 				.document(row.id)
 				.getSnapshot();
-			return snapshot.content !== undefined || snapshot.loadError !== undefined;
+			return snapshot.text !== undefined || snapshot.loadError !== undefined;
 		});
 	for (let tries = 0; tries < 400; tries++) {
 		if (idle()) {

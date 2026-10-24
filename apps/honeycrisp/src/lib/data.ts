@@ -15,8 +15,7 @@
  * through `editor/markdown.ts`.
  */
 import { field } from '@epicenter/definition';
-import type { Row } from '@epicenter/folder';
-import type { MarkdownContent } from '@epicenter/folder/document';
+import type { FolderTable, Row } from '@epicenter/folder';
 import { type Static, Type } from 'typebox';
 
 export const honeycrispTables = {
@@ -47,7 +46,7 @@ export type NoteRow = Row<HoneycrispTables['notes']>;
 export type FolderRow = Row<HoneycrispTables['folders']>;
 
 export type NoteMarkdown = Extract<
-	MarkdownContent<HoneycrispTables['notes']>,
+	ReturnType<FolderTable<HoneycrispTables['notes']>['parse']>,
 	{ issues: null }
 >;
 

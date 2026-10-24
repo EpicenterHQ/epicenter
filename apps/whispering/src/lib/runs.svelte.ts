@@ -20,9 +20,8 @@
  * checked is left absent; admitted publications finish in call order.
  */
 import type { Row } from '@epicenter/folder';
-import { ChangeError, type FileDocument } from '@epicenter/folder/document';
+import { ChangeError, type TextDocument } from '@epicenter/folder/document';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-import type { TSchema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
 import {
@@ -225,29 +224,28 @@ export function createRuns({
 	}
 
 	/** Capture pending input, or refresh clean source before preparing a request. */
-	async function currentContent<Schema extends TSchema>(
-		edit: FileDocument<Schema>,
-	) {
+	async function currentText(edit: TextDocument) {
 		const snapshot = edit.getSnapshot();
-		if (snapshot.isDirty && snapshot.content !== undefined)
-			return Ok(snapshot.content);
+		if (snapshot.isDirty && snapshot.text !== undefined)
+			return Ok(snapshot.text);
 		const { error } = await edit.refresh();
 		// A retained document remains usable as an explicitly selected input.
-		if (error?.name === 'Missing' && snapshot.content !== undefined)
-			return Ok(snapshot.content);
+		if (error?.name === 'Missing' && snapshot.text !== undefined)
+			return Ok(snapshot.text);
 		if (error !== null) return Err(describeError(error));
-		const content = edit.getSnapshot().content;
-		return content === undefined
+		const text = edit.getSnapshot().text;
+		return text === undefined
 			? Err('This file has no editable text.')
-			: Ok(content);
+			: Ok(text);
 	}
 
 	/** Validate held recording facts and discover its current audio sibling. */
 	async function audioAt(recording: string): Promise<Result<string, string>> {
-		const { data: entry, error } = await currentContent(
+		const { data: text, error } = await currentText(
 			folder.tables.recordings.document(recording),
 		);
 		if (error !== null) return Err(error);
+		const entry = folder.tables.recordings.parse(text);
 		if (entry.issues !== null)
 			return Err(
 				`The recording needs repair before it is transcribed: ${unread(entry)}`,
@@ -284,9 +282,11 @@ export function createRuns({
 				return { message: describeError(loaded.error), body };
 			if (body === undefined && !document.getSnapshot().isDirty)
 				return undefined;
-			const { error } = await document.save(
-				body === undefined ? undefined : { body },
-			);
+			if (body !== undefined) {
+				const { error } = document.patch({ body });
+				if (error !== null) return { message: describeError(error), body };
+			}
+			const { error } = await document.save();
 			return error === null
 				? undefined
 				: {
@@ -369,10 +369,11 @@ export function createRuns({
 	): Promise<Result<{ stem: string; resolved: ResolvedRecipe }, string>> {
 		const stem = rowIdOf(TRANSFORMATIONS, path);
 		if (stem === undefined) return Err(`${path} is not a transformation.`);
-		const { data: stored, error } = await currentContent(
+		const { data: text, error } = await currentText(
 			folder.tables.transformations.document(stem),
 		);
 		if (error !== null) return Err(error);
+		const stored = folder.tables.transformations.parse(text);
 		return Ok({
 			stem,
 			resolved: resolve(stored.issues === null ? stored : undefined),
@@ -394,10 +395,11 @@ export function createRuns({
 		const transcriptionId = rowIdOf(TRANSCRIPTIONS, path);
 		if (transcriptionId === undefined)
 			return Err(`${path} is not a transcript.`);
-		const { data: stored, error } = await currentContent(
+		const { data: text, error } = await currentText(
 			folder.tables.transcriptions.document(transcriptionId),
 		);
 		if (error !== null) return Err(error);
+		const stored = folder.tables.transcriptions.parse(text);
 		if (stored.issues !== null)
 			return Err(
 				`${path} needs repair before it can be transformed: ${unread(stored)} Fix it from Files.`,
@@ -492,8 +494,9 @@ export function createRuns({
 		if (loaded.error?.name === 'Missing')
 			return Err(`${path} is no longer in the folder.`);
 		if (loaded.error !== null) return Err(describeError(loaded.error));
-		const stored = edit.getSnapshot().content;
-		if (stored === undefined) return Err('This file has no editable text.');
+		const text = edit.getSnapshot().text;
+		if (text === undefined) return Err('This file has no editable text.');
+		const stored = folder.tables[table].parse(text);
 		if (stored.issues !== null)
 			return Err(
 				`${path} needs repair before it runs again: ${unread(stored)}`,

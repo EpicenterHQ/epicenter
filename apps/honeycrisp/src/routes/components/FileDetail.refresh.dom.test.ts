@@ -139,9 +139,9 @@ test('failed source input stays visible when the saved file becomes binary', asy
 	await local.refresh(['draft.txt']);
 	flushSync();
 	expect(input()?.value).toBe('Keep this unsaved text');
-	expect(
-		notes.folder.files.document('draft.txt').getSnapshot().content?.text,
-	).toBe('Keep this unsaved text');
+	expect(notes.folder.files.document('draft.txt').getSnapshot().text).toBe(
+		'Keep this unsaved text',
+	);
 });
 
 test('failed row changes remain editable after deletion and Save again recreates the file', async () => {
@@ -249,11 +249,11 @@ test.each(['missing', 'binary'] as const)(
 		}, 'the retained clean text in a second view');
 		type(target.querySelector('textarea'), 'Typed after replacement');
 		flushSync();
-		expect(folder.files.document('draft.txt').getSnapshot().content?.text).toBe(
+		expect(folder.files.document('draft.txt').getSnapshot().text).toBe(
 			'Typed after replacement',
 		);
 		type(retired, 'Late input from a destroyed view');
-		expect(folder.files.document('draft.txt').getSnapshot().content?.text).toBe(
+		expect(folder.files.document('draft.txt').getSnapshot().text).toBe(
 			'Typed after replacement',
 		);
 		expectOk(await folder.files.document('draft.txt').save());
@@ -295,7 +295,7 @@ test('classifying initial large UTF-8 text does not acquire or mount its editor'
 	);
 	expect(classified.kind).toBe('tooLarge');
 	expect(
-		fixture.folder.files.document(path).getSnapshot().content,
+		fixture.folder.files.document(path).getSnapshot().text,
 	).toBeUndefined();
 	const target = document.createElement('main');
 	document.body.append(target);
@@ -317,7 +317,7 @@ test('classifying initial large UTF-8 text does not acquire or mount its editor'
 	}, 'the initial file-size limit');
 	expect(target.querySelector('textarea')).toBeNull();
 	expect(
-		fixture.folder.files.document(path).getSnapshot().content,
+		fixture.folder.files.document(path).getSnapshot().text,
 	).toBeUndefined();
 	expect(fixture.saves(path)).toBe(0);
 });

@@ -56,7 +56,7 @@
 	const name = basename(path);
 	const noteId = noteIdOf(path);
 	const folderId = folderIdOf(path);
-	// All presentations use the same schema-bound handle for this path.
+	// All presentations use the same text document for this path.
 	// svelte-ignore state_referenced_locally
 	const noteEdit = noteId === undefined
 		? undefined
@@ -67,17 +67,23 @@
 		? notes.folder.tables.folders.document(folderId)
 		: notes.folder.files.document(path));
 	const snapshot = liveSnapshot(fileEdit);
+	const parsed = $derived.by(() => {
+		const text = snapshot.current.text;
+		if (text === undefined) return undefined;
+		if (noteId !== undefined) return notes.folder.tables.notes.parse(text);
+		if (folderId !== undefined) return notes.folder.tables.folders.parse(text);
+		return undefined;
+	});
 	const note = $derived(
-		noteEdit !== undefined && snapshot.current.content?.issues === null ? snapshot.current.content : undefined,
+		noteEdit !== undefined && parsed?.issues === null ? parsed : undefined,
 	);
 	// Classification limits an arbitrary file's initial acquisition only.
 	// Pure cached access keeps already acquired text visible on every refresh.
-	const content = $derived(
-		noteEdit !== undefined || file.data?.kind === 'text' || fileEdit.getSnapshot().content !== undefined
-			? snapshot.current.content : undefined,
+	const text = $derived(
+		noteEdit !== undefined || file.data?.kind === 'text' || fileEdit.getSnapshot().text !== undefined
+			? snapshot.current.text : undefined,
 	);
-	const text = $derived(content?.text);
-	const issues = $derived(content?.issues ?? undefined);
+	const issues = $derived(parsed?.issues ?? undefined);
 	const locked = $derived(notes.fenced);
 
 	function confirmDiscard() {
@@ -200,11 +206,11 @@
 		</section>
 	{/if}
 
-	{#if content !== undefined || note !== undefined}
+	{#if text !== undefined || note !== undefined}
 		<div class="shrink-0 space-y-2 border-t px-4 py-2 text-xs text-muted-foreground">
 			{#if snapshot.current.loadError}<p role="alert">{snapshot.current.loadError.message} Your previous text is kept.</p>{/if}
-			{#if snapshot.current.isDirty && snapshot.current.loadError && content !== undefined}
-				<details><summary>Your source</summary><pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved source">{content.text}</pre></details>
+			{#if snapshot.current.isDirty && snapshot.current.loadError && text !== undefined}
+				<details><summary>Your source</summary><pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved source">{text}</pre></details>
 			{/if}
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="min-w-0 flex-1" role="status" data-testid="write-status">
@@ -214,7 +220,7 @@
 						Saving…
 					{:else if snapshot.current.loadError}
 						Text kept here
-					{:else if content === undefined}
+					{:else if text === undefined}
 						No unsaved changes
 					{:else if as === 'note'}
 						Saved to <code class="font-mono">{path}</code>
@@ -242,7 +248,7 @@
 					{:else}
 						<Button size="sm" variant="ghost-destructive" disabled={locked} onclick={() => report('delete the note', notes.patchNote(path, { deletedAt: InstantString.now() }))}>Move to Recently Deleted</Button>
 					{/if}
-				{:else if as === 'text' && (content !== undefined || (file.data !== undefined && file.data.kind !== 'missing'))}
+				{:else if as === 'text' && (text !== undefined || (file.data !== undefined && file.data.kind !== 'missing'))}
 					<Button size="sm" variant="ghost-destructive" disabled={locked} onclick={() => void confirmDelete(notes, path)}>Delete</Button>
 				{/if}
 			</div>

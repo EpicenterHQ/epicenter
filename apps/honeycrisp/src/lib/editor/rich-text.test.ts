@@ -47,6 +47,7 @@ import {
 } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { expectOk } from 'wellcrafted/testing';
+import type { NotesFixture } from '../local.test-support.js';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
 import { noteSchema } from './schema.js';
 
@@ -60,6 +61,10 @@ const { editingPlugins, noteBody, stateAfter, stateShowing } = await import(
 );
 
 const cleanup: (() => unknown)[] = [];
+
+function parsed(folder: NotesFixture['folder'], text: string | undefined) {
+	return text === undefined ? undefined : folder.tables.notes.parse(text);
+}
 
 afterEach(async () => {
 	for (const stop of cleanup.splice(0).reverse()) await stop();
@@ -89,7 +94,7 @@ async function noteOver(text: string) {
 		failures: () => local.getStatus().failures,
 		/** The note as shown now: with what is typed over it. */
 		draft: () => {
-			const row = note.getSnapshot().content;
+			const row = parsed(notes.folder, note.getSnapshot().text);
 			if (row?.issues !== null) throw new Error('The note is not in the cache');
 			return row;
 		},
@@ -114,7 +119,8 @@ async function open(
 ) {
 	const opened = await noteOver(text);
 	const { note, notes } = opened;
-	const body = () => noteBody(note.getSnapshot().content) ?? '';
+	const body = () =>
+		noteBody(parsed(notes.folder, note.getSnapshot().text)) ?? '';
 	const initial = bodyCodec.decode(body());
 	if (!initial.supported) throw new Error('The note is not rich text');
 	/** Why the last edit was refused. */
@@ -126,9 +132,15 @@ async function open(
 	});
 	/** Deliver a transaction as the view does. Returns whether it was displayed. */
 	const dispatch = (transaction: Transaction) => {
-		const next = stateAfter(state, transaction, note, (reason) => {
-			refusal = reason;
-		});
+		const next = stateAfter(
+			state,
+			transaction,
+			note,
+			notes.folder.tables.notes.parse,
+			(reason) => {
+				refusal = reason;
+			},
+		);
 		if (next !== undefined) state = next;
 		return next !== undefined;
 	};
@@ -307,13 +319,15 @@ describe('every displayed edit is in the note', () => {
 
 	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
-		const { type, end, body, settled, failures, stored, writes, note } =
+		const { type, end, body, settled, failures, stored, writes, note, notes } =
 			await open('', {
 				text: crlf,
 			});
 		expect(body()).toBe('\none\n\ntwo\n');
-		expect(note.getSnapshot().content?.body).toBe('\r\none\r\n\r\ntwo\r\n');
-		expect(note.getSnapshot().content?.text).toBe(crlf);
+		expect(parsed(notes.folder, note.getSnapshot().text)?.body).toBe(
+			'\r\none\r\n\r\ntwo\r\n',
+		);
+		expect(note.getSnapshot().text).toBe(crlf);
 		expect(writes()).toBe(0);
 		end();
 		type('!');
@@ -578,7 +592,8 @@ describe('the editor follows the note', () => {
 		const tab = await fixture.otherTab();
 		expectOk(await tab.tables.notes.document('a').refresh());
 
-		expectOk(await tab.tables.notes.document('a').save({ body: 'theirs\n' }));
+		expectOk(tab.tables.notes.document('a').patch({ body: 'theirs\n' }));
+		expectOk(await tab.tables.notes.document('a').save());
 		await until(() => body() === 'theirs\n', 'their save');
 		await settled();
 		follow();
@@ -607,11 +622,8 @@ describe('the editor follows the note', () => {
 		const tab = await fixture.otherTab();
 		expectOk(await tab.tables.notes.document('a').refresh());
 
-		expectOk(
-			await tab.tables.notes.document('a').save({
-				body: 'one\n\ntheirs\n',
-			}),
-		);
+		expectOk(tab.tables.notes.document('a').patch({ body: 'one\n\ntheirs\n' }));
+		expectOk(await tab.tables.notes.document('a').save());
 		await until(
 			() => rows(notes)[0]?.body === 'one\n\ntheirs\n',
 			'their save to be read',
@@ -643,7 +655,8 @@ describe('the editor follows the note', () => {
 		const tab = await fixture.otherTab();
 		expectOk(await tab.tables.notes.document('a').refresh());
 
-		expectOk(await tab.tables.notes.document('a').save({ body: 'theirs\n' }));
+		expectOk(tab.tables.notes.document('a').patch({ body: 'theirs\n' }));
+		expectOk(await tab.tables.notes.document('a').save());
 		const edit = fixture.folder.tables.notes.document('a');
 		expect(body()).toBe('one!\n');
 		edit.discard();

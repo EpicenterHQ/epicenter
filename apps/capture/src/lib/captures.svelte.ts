@@ -250,6 +250,8 @@ export function createCaptures(context: CaptureFolder) {
 
 	const rowsData = () => queryClient.getQueryData<CaptureRow[]>(rowsKey);
 	const rowOf = (stem: string) => rowsData()?.find((row) => row.id === stem);
+	const parsedText = (text: string | undefined) =>
+		text === undefined ? undefined : folder.tables.captures.parse(text);
 
 	/**
 	 * Show either view of the path's current edit; invalid content stays as
@@ -259,8 +261,8 @@ export function createCaptures(context: CaptureFolder) {
 		if (mode === 'capture') {
 			const snapshot = folder.tables.captures.document(stem).getSnapshot();
 			const row = snapshot.isDirty
-				? snapshot.content
-				: (rowOf(stem) ?? snapshot.content);
+				? parsedText(snapshot.text)
+				: (rowOf(stem) ?? parsedText(snapshot.text));
 			if (
 				row !== undefined &&
 				(row.issues !== null ||
@@ -373,7 +375,7 @@ export function createCaptures(context: CaptureFolder) {
 				if (context.closing) return ActionError.Closing();
 				if (loaded.error !== null) return loaded;
 			}
-			const row = edit.getSnapshot().content;
+			const row = parsedText(edit.getSnapshot().text);
 			if (row === undefined)
 				return CaptureError.Refused({
 					message: 'This draft is no longer here.',
@@ -386,10 +388,12 @@ export function createCaptures(context: CaptureFolder) {
 			if (row.fields.draft === true) {
 				if (row.body.trim() === '')
 					return CaptureError.Refused({ message: 'Write something first.' });
-				const saved = await edit.save({
+				const changed = edit.patch({
 					fields: { draft: undefined, capturedAt: new Date().toISOString() },
 					body: composeBody(row.body).body,
 				});
+				if (changed.error !== null) return changed;
+				const saved = await edit.save();
 				if (saved.error !== null) return saved;
 			} else if (edit.getSnapshot().isDirty) {
 				// Retry finalized input without composing its thoughts twice.
@@ -406,8 +410,8 @@ export function createCaptures(context: CaptureFolder) {
 		deletionFor(stem: string): Deletion {
 			const snapshot = folder.tables.captures.document(stem).getSnapshot();
 			const row = snapshot.isDirty
-				? snapshot.content
-				: (rowOf(stem) ?? snapshot.content);
+				? parsedText(snapshot.text)
+				: (rowOf(stem) ?? parsedText(snapshot.text));
 			const reading =
 				row?.issues === null ? readCaptureBody(row).data : undefined;
 			return {

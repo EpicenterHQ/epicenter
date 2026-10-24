@@ -1,6 +1,6 @@
 # 0676. Structured edits share the acquired working document
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0688](0688-one-folder-owned-text-document-per-path.md)
 - **Date:** 2026-10-22
 - **Amends:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md) at table edits, source acquisition, and failed structured publications. Synchronous disposal remains independent.
 

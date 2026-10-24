@@ -4,7 +4,7 @@ import {
 	type SavedView,
 	type SavedViewChange,
 } from '@epicenter/folder/declaration';
-import type { FileDocument } from '@epicenter/folder/document';
+import type { TextDocument } from '@epicenter/folder/document';
 import { SvelteMap } from 'svelte/reactivity';
 import { Err, Ok } from 'wellcrafted/result';
 import type { QueryAnswer } from '../ui/bindings.gen';
@@ -27,7 +27,7 @@ export function createViews({
 	declaration,
 }: {
 	saved: () => Record<string, SavedView>;
-	declaration: FileDocument;
+	declaration: TextDocument;
 }) {
 	/** Unsubmitted form values; successful admission retires them before I/O. */
 	const forms = new SvelteMap<string, SavedView>([
@@ -55,14 +55,14 @@ export function createViews({
 	}
 	/** No await separates the source read, replacement, and captured publication. */
 	function publish(change: SavedViewChange) {
-		const { content, loadError } = declaration.getSnapshot();
-		if (content === undefined && loadError?.name !== 'Missing')
+		const { text, loadError } = declaration.getSnapshot();
+		if (text === undefined && loadError?.name !== 'Missing')
 			return Err({
 				reason:
 					loadError?.message ??
 					'Reading epicenter.json; try again when it is available',
 			});
-		const changed = changeSavedView(content?.text ?? '{}', change);
+		const changed = changeSavedView(text ?? '{}', change);
 		if (changed.error !== null) return changed;
 		const replaced = declaration.replace(changed.data);
 		if (replaced.error !== null) return Err({ reason: replaced.error.message });

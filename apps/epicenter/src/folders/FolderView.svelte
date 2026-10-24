@@ -42,7 +42,7 @@
 	}
 	const declaration = folder.files.document('epicenter.json');
 	const snapshot = liveSnapshot(declaration);
-	const saved = $derived(readSavedViews(snapshot.current.content?.text ?? '{}'));
+	const saved = $derived(readSavedViews(snapshot.current.text ?? '{}'));
 	const loadProblem = $derived(snapshot.current.loadError?.name === 'Missing' ? undefined : snapshot.current.loadError?.message);
 	const views = createViews({
 		saved: () => saved.data?.views ?? {},
@@ -159,7 +159,7 @@
 				>{/if}
 			<Button
 				size="sm"
-				disabled={(snapshot.current.content === undefined && snapshot.current.loadError?.name !== 'Missing') ||
+				disabled={(snapshot.current.text === undefined && snapshot.current.loadError?.name !== 'Missing') ||
 					needsDirectory}
 				onclick={() => view = views.save(view)}
 				>{viewError ? 'Retry save' : 'Save view'}</Button
@@ -167,7 +167,7 @@
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={(snapshot.current.content === undefined && snapshot.current.loadError?.name !== 'Missing') ||
+				disabled={(snapshot.current.text === undefined && snapshot.current.loadError?.name !== 'Missing') ||
 					needsDirectory}
 				onclick={() => view = views.save(view, true)}>Save as new</Button
 			>

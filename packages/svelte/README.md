@@ -133,7 +133,7 @@ and derive; the editable source of a row or file belongs to its editor (below),
 which acquires it on subscription or refresh. Lists and file queries return
 read results without loading an editor. An editing view subscribes to its own
 source; a programmatic action explicitly refreshes its document before calling
-`document.save(patch)`. `folder.tables.notes.write(id, document)` publishes a complete new
+`document.patch(patch)` and `document.save()`. `folder.tables.notes.write(id, row)` publishes a complete new
 row once, without retaining a failed creation as input. File queries can still
 classify size and audio before opening text. The key carries
 the decoded data type into `queryClient.getQueryData(options.queryKey)`. There is
@@ -184,9 +184,10 @@ another file's failure is never shown as its.
 
 ## Snapshot observation
 
-Folder owns each path's source, accepted input, reads and write lane
-([working documents](../folder/README.md#working-documents)). A table binds its
-schema to the same handle that `folder.files.document(path, schema?)` returns.
+Folder owns each path's text, accepted input, reads and write lane
+([working documents](../folder/README.md#working-documents)). A table returns
+the same path-owned handle as `folder.files.document(path)` and supplies a pure
+`parse(text)` method when a view needs structured content.
 `saveAfterMs` belongs to the folder opener.
 
 ```ts
@@ -196,8 +197,11 @@ import { toastOnError } from '@epicenter/ui/sonner';
 // Fixed address, for example in a component keyed by its note.
 const document = folder.tables.notes.document(id);
 const snapshot = liveSnapshot(document);
-snapshot.current.content; // { text, body, fields, issues } | undefined
+snapshot.current.text; // string | undefined
 snapshot.current.isSaving;
+const note = snapshot.current.text === undefined
+  ? undefined
+  : folder.tables.notes.parse(snapshot.current.text);
 toastOnError(document.patch({ fields: { done: true }, body: 'Two litres\n' }), 'That change was not made');
 toastOnError(document.replace(editedSource), 'That change was not made');
 
@@ -259,19 +263,19 @@ tracked snapshot getter, even when only reading `.current.isDirty`, demands cont
 refusals at the interaction boundary, using inline feedback or `toastOnError`;
 they are returned Results, not observable save failures.
 
-`snapshot.current.content` is absent while text is awaited (`snapshot.current.loadError` undefined) or when
+`snapshot.current.text` is absent while text is awaited (`snapshot.current.loadError` undefined) or when
 acquisition failed (`snapshot.current.loadError` set: `Missing`, `NotText` or `ReadFailed`).
-Present content is editable even with a `loadError`, which says the latest
+Present text is editable even with a `loadError`, which says the latest
 read found no text, such as after another program deleted the file.
-`issues === null` narrows fields to the bound schema. A malformed header has
-`fields: undefined`; its body is available only when a closing fence
-identifies it. Keep exact source through `.content.text` for repair.
+`folder.tables.notes.parse(text)` checks the header against the table schema.
+The document keeps exact source text for repair even when the parsed header has
+issues.
 
 ```svelte
 {#each observedDocuments as { document, snapshot } (document.path)}
-  {@const content = snapshot.current.content}
-  {#if content}
-    <textarea bind:value={() => content.text, (text) => toastOnError(document.replace(text), 'That change was not made')}></textarea>
+  {@const text = snapshot.current.text}
+  {#if text !== undefined}
+    <textarea bind:value={() => text, (next) => toastOnError(document.replace(next), 'That change was not made')}></textarea>
     {#if snapshot.current.loadError}
       <p role="alert">{snapshot.current.loadError.message}</p>
     {/if}
@@ -298,17 +302,18 @@ before creating the callbacks:
 
 ```svelte
 {#each observedDocuments as { document, snapshot } (document.path)}
-  {@const content = snapshot.current.content}
-  {#if content && content.issues === null}
+  {@const text = snapshot.current.text}
+  {@const note = text === undefined ? undefined : folder.tables.notes.parse(text)}
+  {#if note && note.issues === null}
     <Input
-      bind:value={() => content.fields.title, (title) => document.patch({ fields: { title } })}
+      bind:value={() => note.fields.title, (title) => document.patch({ fields: { title } })}
       onblur={() => void document.save()}
     />
   {/if}
 {/each}
 ```
 
-Avoid a script alias that merely repeats `snapshot.current.content`. A plain script
+Avoid a script alias that merely repeats `snapshot.current.text`. A plain script
 `const` captures a value instead of following it. Name the shared handle or its
 snapshot view created by `liveSnapshot`.
 
@@ -318,14 +323,10 @@ be accepted before acquisition; a structured patch needs acquired text. Both
 autosave. Multiple views share one source, so switching views shows the same
 text immediately.
 
-`save(input?)` accepts a complete source string or a structured patch, applies
-that input synchronously, captures its immutable content, and admits
-publication before notifying observers. Its Promise returns
-`Result<MarkdownContent<Schema>, ChangeError | SaveError>` with that exact
-published content, without a row ID, even when newer input is pending. No-input
-`save()` publishes the then-current content, including clean content or a
-retry. A control that needs synchronous acceptance can check `replace(text)`
-or `patch(patch)` and then call `void document.save()`; this publishes the source after
+`save()` captures the then-current text and admits an exact publication. Its
+Promise returns `Result<void, ChangeError | SaveError>` for that write, even
+when newer input is pending. A control can check `replace(text)` or
+`patch(patch)` and then call `void document.save()`; this publishes the source after
 acceptance and any observer notification. `discard()` drops unpublished input,
 answers its text, and writes nothing. Writes are unconditional: the last
 publication wins.

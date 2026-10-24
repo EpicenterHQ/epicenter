@@ -17,10 +17,12 @@
 	const snapshot = liveSnapshot(fileEdit);
 	const attemptEdit = folder.tables.attempts.document(draftId);
 	const attemptSnapshot = liveSnapshot(attemptEdit);
-	const ready = $derived(snapshot.current.content !== undefined || snapshot.current.loadError?.name === 'Missing');
-	const invalid = $derived(snapshot.current.content !== undefined && snapshot.current.content.issues !== null);
-	const attempted = $derived(attemptSnapshot.current.loadError?.name !== 'Missing' && attemptSnapshot.current.content?.issues === null ? attemptSnapshot.current.content : undefined);
-	const legacy = $derived(attemptSnapshot.current.loadError?.name === 'Missing' && snapshot.current.content?.issues === null && snapshot.current.content.fields.state === 'sending' ? snapshot.current.content : undefined);
+	const draft = $derived(snapshot.current.text === undefined ? undefined : folder.tables.drafts.parse(snapshot.current.text));
+	const attempt = $derived(attemptSnapshot.current.text === undefined ? undefined : folder.tables.attempts.parse(attemptSnapshot.current.text));
+	const ready = $derived(snapshot.current.text !== undefined || snapshot.current.loadError?.name === 'Missing');
+	const invalid = $derived(draft !== undefined && draft.issues !== null);
+	const attempted = $derived(attemptSnapshot.current.loadError?.name !== 'Missing' && attempt?.issues === null ? attempt : undefined);
+	const legacy = $derived(attemptSnapshot.current.loadError?.name === 'Missing' && draft?.issues === null && draft.fields.state === 'sending' ? draft : undefined);
 	const lastAttempt = $derived(attempted ? { content: attempted, checked: { attemptId: attempted.fields.attemptId } } : legacy ? { content: legacy, checked: { legacyText: legacy.text } } : undefined);
 	const pending = $derived(attempted?.fields.state === 'sending' || legacy !== undefined);
 	let message = $state('');
@@ -69,13 +71,13 @@
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
 		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000}
-			bind:value={() => snapshot.current.content?.body ?? '', body => { message = changeDraft(folder, draftId, chatId, backend, body).error?.message ?? ''; }} />
+			bind:value={() => draft?.body ?? '', body => { message = changeDraft(folder, draftId, chatId, backend, body).error?.message ?? ''; }} />
 		<div class="flex items-center justify-between gap-3">
 			<span class="text-xs text-muted-foreground">{snapshot.current.saveError ? 'Draft could not be saved' : snapshot.current.isDirty || snapshot.current.isSaving ? 'Saving draft…' : 'Draft saved on this device'}</span>
-			<Button disabled={send.isPending || recover.isPending || pending || !snapshot.current.content?.body?.trim()} onclick={() => send.mutate()}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
+			<Button disabled={send.isPending || recover.isPending || pending || !draft?.body?.trim()} onclick={() => send.mutate()}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>
 	{/if}
-	{#if snapshot.current.loadError && snapshot.current.content}<p role="alert" class="text-sm text-destructive">{snapshot.current.loadError.message}</p>{/if}
+	{#if snapshot.current.loadError && snapshot.current.text}<p role="alert" class="text-sm text-destructive">{snapshot.current.loadError.message}</p>{/if}
 	{#if attemptSnapshot.current.loadError && attemptSnapshot.current.loadError.name !== 'Missing'}<p role="alert" class="text-sm text-destructive">Could not check the latest send: {attemptSnapshot.current.loadError.message}</p><Button variant="outline" size="sm" onclick={() => void attemptEdit.refresh()}>Check again</Button>{/if}
 	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
 	{#if snapshot.current.saveError}

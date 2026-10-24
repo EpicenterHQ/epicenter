@@ -30,8 +30,9 @@
 
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
 	{#if fileEdit && snapshot}
-		{@const stored = snapshot.current.content}
-		{#if stored}
+		{@const text = snapshot.current.text}
+		{#if text !== undefined}
+			{@const stored = entries.parse(text)}
 			<p>
 				<code>{path}</code>
 				{stored.issues === null ? 'now reads as a word.' : 'is not a valid word, so its note and stage cannot be shown.'}

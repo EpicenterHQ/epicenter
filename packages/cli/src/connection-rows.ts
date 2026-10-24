@@ -14,7 +14,6 @@ import {
 	type WhisperingConnection,
 } from '@epicenter/ai/connection-table';
 import { type Folder, openFolder } from '@epicenter/folder/bun';
-import type { MarkdownContent } from '@epicenter/folder/document';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -51,7 +50,9 @@ export const ConnectionRowError = defineErrors({
 });
 export type ConnectionRowError = InferErrors<typeof ConnectionRowError>;
 
-type StoredContent = MarkdownContent<(typeof connectionsTables)['connections']>;
+type StoredContent = ReturnType<
+	Folder<typeof connectionsTables>['tables']['connections']['parse']
+>;
 
 function connectionOf(
 	operation: string,
@@ -167,16 +168,34 @@ export async function setConnectionRow(
 				path: `${directory}/connections/${id}.md`,
 				reason: acquired.error.message,
 			});
-		const { data, error: saveError } =
-			acquired.error?.name === 'Missing'
-				? await folder.tables.connections.write(id, { fields })
-				: await document.save({ fields });
-		if (saveError !== null)
+		if (acquired.error?.name === 'Missing') {
+			const written = await folder.tables.connections.write(id, { fields });
+			if (written.error !== null)
+				return ConnectionRowError.SaveFailed({
+					path: `${directory}/connections/${id}.md`,
+					reason: written.error.message,
+				});
+			return Ok(answerOf(written.data));
+		}
+		const changed = document.patch({ fields });
+		if (changed.error !== null)
 			return ConnectionRowError.SaveFailed({
-				path: `${directory}/connections/${WHISPERING_CONNECTION_IDS[connection]}.md`,
-				reason: saveError.message,
+				path: `${directory}/connections/${id}.md`,
+				reason: changed.error.message,
 			});
-		return Ok(answerOf(data));
+		const captured = document.getSnapshot().text;
+		if (captured === undefined)
+			return ConnectionRowError.SaveFailed({
+				path: `${directory}/connections/${id}.md`,
+				reason: 'The changed row has no text to save.',
+			});
+		const saved = await document.save();
+		if (saved.error !== null)
+			return ConnectionRowError.SaveFailed({
+				path: `${directory}/connections/${id}.md`,
+				reason: saved.error.message,
+			});
+		return Ok(answerOf(folder.tables.connections.parse(captured)));
 	});
 }
 

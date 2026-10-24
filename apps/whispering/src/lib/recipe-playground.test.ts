@@ -213,7 +213,7 @@ test('the Run check, the post-processing choice, the menu, and the run agree abo
 		// The draft on the recipe's page is read by the same resolver.
 		whispering.open(path);
 		const shown = whispering.resolve(
-			(await transformationEditor(whispering)).draft,
+			(await transformationEditor(whispering, context)).draft,
 		);
 		whispering.view.postProcessing = path;
 		const chosen = whispering.postProcessing;
@@ -348,7 +348,7 @@ test('what is written is what was sent: edits to the recipe or the connection wh
 		transform: () => answer.promise,
 	});
 	const path = await recipe(whispering);
-	const editor = await transformationEditor(whispering);
+	const editor = await transformationEditor(whispering, context);
 	const stem = selectedStem(whispering);
 	editor.edit((row) => {
 		row.body = 'Draft instructions.\n';

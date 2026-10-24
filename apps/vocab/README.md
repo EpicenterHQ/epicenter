@@ -55,9 +55,10 @@ complete document once. Failure leaves retry data with the submitting form or
 message workflow, without a pending document that autosave can publish later.
 Ordinary note and stage controls call `document.patch({ fields })`; repair text
 calls `document.replace(text)`. Both share the word document. Programmatic
-`document.save(patch)` accepts the change and admits its captured publication
-before notifying observers. Success returns that exact Markdown content; it
-does not imply that newer input has also saved.
+`document.patch({ fields })` accepts the change synchronously and updates the
+visible text. `document.save()` captures that text for one exact publication;
+its result confirms that write, even if newer input has since arrived. The
+table's pure `parse(text)` interprets a loaded snapshot separately.
 
 ### Saving a phrase
 

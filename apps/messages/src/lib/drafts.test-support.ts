@@ -1,6 +1,18 @@
+import type { DocumentPatch } from '@epicenter/folder/document';
 import { expectOk } from 'wellcrafted/testing';
 import type { Backend } from './backend.js';
+import { messagesTables } from './definition.js';
 import { draftId, type MessagesFolder } from './drafts.js';
+
+export function saveDraft(
+	folder: MessagesFolder,
+	id: string,
+	change: DocumentPatch<typeof messagesTables.drafts>,
+) {
+	const document = folder.tables.drafts.document(id);
+	expectOk(document.patch(change));
+	return document.save();
+}
 
 /** Deliberate persisted fixtures; selecting a conversation itself creates no file. */
 export async function seedDraft(

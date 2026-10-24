@@ -67,13 +67,14 @@ schema only interprets (ADR-0632): a row that does not fit comes back with its
 exact source and its issues, and a save never validates, so a field another
 program added survives every edit. A table owns exactly one Markdown file per
 row; any other file is an ordinary file reached through `folder.files`.
-Folder owns one working source per path; each schema-bound `FileDocument`
-provides a cached snapshot of its interpretation. Content supplies exact text,
-fields, body, and issues. `liveSnapshot(handle)` from
+Folder owns one working text per path; `TextDocument` exposes its cached exact
+text, and each table's `parse(text)` interprets fields, body, and issues.
+`liveSnapshot(handle)` from
 `@epicenter/svelte/snapshot` exposes a tracked `.current` snapshot for Svelte; input uses
 commands through function bindings. Views hold no copy
 of the document. Acquired text survives unmount, deletion, binary replacement,
-and failed reads. Only accepted local input initiates autosave. All file and
+and failed reads, including clean source read before an outside deletion.
+Only accepted local input initiates autosave. All file and
 table publications share the folder's per-path lane and the last publication
 wins. The package's [README](../../packages/folder/README.md) is the contract.
 
@@ -509,7 +510,7 @@ Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
    be saved refuses, and nothing is sent.
 2. The request goes out. While it is out the row shows as running.
 3. The answer is saved into the acquired current document with
-   `document.save({ body })`, after an explicit refresh that preserves local
+   `document.patch({ body })` and then `document.save()`, after an explicit refresh that preserves local
    input. A row already absent when checked is left absent. The read and publication
    are separate operations; a deletion racing a later admitted answer may be
    followed by that publication. A failed publication is retried after a wait
@@ -576,15 +577,15 @@ A read never replaces unfinished input.
   Save completion and closing do not wait for display refresh.
 - **One working document** is observed through
   `folder.tables.recordings.document(id)` or `folder.files.document(path)`. Its
-  cached `getSnapshot()` contains `content`,
-  `loadError`, `isDirty`, `isSaving`, and `saveError`. Content carries exact text,
-  interpreted fields and body, and issues. `subscribe` emits immediately and
+  cached `getSnapshot()` contains `text`,
+  `loadError`, `isDirty`, `isSaving`, and `saveError`. Each table's `parse(text)`
+  interprets fields, body, and issues when needed. `subscribe` emits immediately and
   requests acquisition when source is unknown or invalidated.
   `liveSnapshot(handle)` exposes this same snapshot through its tracked `.current` getter.
   Function bindings call `patch({ fields?, body? })` or `replace(text)`.
-  `save(input?)` returns the exact immutable captured Markdown content or an
-  error. Its optional input is accepted and publication admitted before
-  observers run. Switching views requires no save or reread. Each observation view owns
+  `save()` publishes the text captured at the call and returns success or an
+  error. `patch` and `replace` accept input synchronously before observers run.
+  Switching views requires no save or reread. Each observation view owns
   its subscription; the Folder retains source, autosave, and failures after
   unmount. Only Folder close releases them, without flushing or draining work.
 - **A failed save** keeps its accepted input and error. Aggregate status carries

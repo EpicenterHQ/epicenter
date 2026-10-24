@@ -29,7 +29,8 @@
 	// Tracking the checkbox acquires its own editable source; the list stays passive.
 	const fileEdit = $derived(folder.tables.todos.document(todo.id));
 	const snapshot = $derived(liveSnapshot(fileEdit));
-	const done = $derived(snapshot.current.content?.issues === null ? snapshot.current.content.fields.done : todo.fields.done);
+	const content = $derived(snapshot.current.text === undefined ? undefined : folder.tables.todos.parse(snapshot.current.text));
+	const done = $derived(content?.issues === null ? content.fields.done : todo.fields.done);
 	const label = $derived(labelOf(todo));
 </script>
 
@@ -47,7 +48,7 @@
 			}
 		}
 
-		disabled={snapshot.current.content?.issues !== null}
+		disabled={content?.issues !== null}
 		aria-label="{done ? 'Reopen' : 'Complete'} {label}"
 	/>
 	<Button

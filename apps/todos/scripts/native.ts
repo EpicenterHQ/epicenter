@@ -76,9 +76,9 @@ try {
 				print({ error: read.error.message });
 				break;
 			}
-			const saved = await folder.tables.todos.document(id).save({
-				fields: { done: true },
-			});
+			const document = folder.tables.todos.document(id);
+			const changed = document.patch({ fields: { done: true } });
+			const saved = changed.error === null ? await document.save() : changed;
 			if (saved.error !== null) exitCode = 1;
 			print(
 				saved.error === null

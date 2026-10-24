@@ -374,7 +374,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 		},
 	);
 
-	test('an older mixed-source read cannot hide a newer repaired document', async () => {
+	test('a raw repair waits for an older read and then replaces its mixed source', async () => {
 		const source = 'alpha\r\nbeta\n';
 		const disk = await standIn({ 'a.md': source });
 		const page = openEditor(disk.folder);
@@ -401,15 +401,12 @@ describe.skipIf(!browser)('folder editor', async () => {
 			const refreshing = page.context.refresh(['a.md']);
 			await captured.promise;
 			const saving = disk.folder.files.write('a.md', 'repaired\n');
+			expect(disk.held).toHaveLength(0);
+			release.resolve();
+			await refreshing;
 			await until(() => disk.held.length === 1, 'the repair');
 			disk.held.shift()!.answer(Ok(undefined));
 			expectOk(await saving);
-			await until(
-				() => page.box()?.value === 'repaired\n',
-				'the repair before the older read answers',
-			);
-			release.resolve();
-			await refreshing;
 			await until(
 				() => page.box()?.value === 'repaired\n',
 				'the repaired text',
@@ -446,7 +443,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await page.context.refresh(['a.md']);
 			expect(page.box()?.value).toBe('---\ntitle: Typed\n---\nbody\n');
 			expect(page.box()?.readOnly).toBe(false);
-			expect(textEdit.getSnapshot().content?.text).toBe(
+			expect(textEdit.getSnapshot().text).toBe(
 				'---\r\ntitle: Typed\r\n---\r\nbody\r\n',
 			);
 		} finally {
@@ -490,9 +487,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await disk.put('a.md', 'alpha\nexternal\n');
 			await page.context.refresh(['a.md']);
 			type(page.box(), 'alpha\nmine\nlast\n');
-			expect(
-				disk.folder.files.document('a.md').getSnapshot().content?.text,
-			).toBe('alpha\r\nmine\r\nlast\r\n');
+			expect(disk.folder.files.document('a.md').getSnapshot().text).toBe(
+				'alpha\r\nmine\r\nlast\r\n',
+			);
 		} finally {
 			await page.close();
 			page.context.close();
@@ -620,9 +617,9 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await page.close();
 			expect(context.close()).toBeUndefined();
 			expect(held).toHaveLength(0);
-			expect(
-				disk.folder.files.document('a.md').getSnapshot().content?.text,
-			).toBe('alpha\nhidden\nshown\nlast\n');
+			expect(disk.folder.files.document('a.md').getSnapshot().text).toBe(
+				'alpha\nhidden\nshown\nlast\n',
+			);
 			expect(await disk.text('a.md')).toBe('alpha\nhidden\n');
 		} finally {
 			await page.close();
@@ -729,9 +726,8 @@ describe.skipIf(!browser)('folder editor', async () => {
 			) as HTMLInputElement;
 			type(cell, 'mine');
 			expect(
-				disk.folder.files.document('todos/a.md').getSnapshot().content?.fields
-					?.title,
-			).toBe('mine');
+				disk.folder.files.document('todos/a.md').getSnapshot().text,
+			).toContain('title: mine');
 			blur(cell);
 			await until(() => disk.held.length === 1, 'the field save');
 			disk.held.shift()!.answer(Err(new Error('disk full')));
@@ -756,10 +752,10 @@ describe.skipIf(!browser)('folder editor', async () => {
 				'source takeover',
 			);
 			expect(
-				disk.folder.files.document('todos/a.md').getSnapshot().content?.text,
+				disk.folder.files.document('todos/a.md').getSnapshot().text,
 			).toContain('title: mine');
 			expect(
-				disk.folder.files.document('todos/a.md').getSnapshot().content?.text,
+				disk.folder.files.document('todos/a.md').getSnapshot().text,
 			).toContain('source after failure');
 			press(button('SQL'));
 			await until(
@@ -951,9 +947,8 @@ describe.skipIf(!browser)('folder editor', async () => {
 				.find((option) => option.textContent?.trim() === 'done')!
 				.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
 			expect(
-				disk.folder.files.document('tasks/a.md').getSnapshot().content?.fields
-					?.status,
-			).toBe('done');
+				disk.folder.files.document('tasks/a.md').getSnapshot().text,
+			).toContain('status: done');
 			await until(() => disk.held.length === 1, 'move save');
 			expect(disk.held[0]?.content).toContain('status: done');
 			disk.held.shift()!.answer(Err(new Error('disk full')));
@@ -1179,19 +1174,14 @@ describe.skipIf(!browser)('folder editor', async () => {
 				page.context.queryClient.getQueryData<
 					import('@epicenter/folder/documents').DocumentReading
 				>(key)!;
-			const firstEdit = disk.folder.files.document(
-				'notes/a.md',
-				before.tables.notes,
-			);
+			const firstEdit = disk.folder.files.document('notes/a.md');
 			await page.context.refresh();
 			const after =
 				page.context.queryClient.getQueryData<
 					import('@epicenter/folder/documents').DocumentReading
 				>(key)!;
 			expect(after.tables.notes).toBe(before.tables.notes);
-			expect(disk.folder.files.document('notes/a.md', after.tables.notes)).toBe(
-				firstEdit,
-			);
+			expect(disk.folder.files.document('notes/a.md')).toBe(firstEdit);
 			expect(cell()).toBe(original);
 			expect(document.activeElement).toBe(original);
 			expect(original.selectionStart).toBe(1);
@@ -1286,9 +1276,8 @@ describe.skipIf(!browser)('folder editor', async () => {
 			type(original, 'Typed here');
 			flushSync();
 			expect(
-				disk.folder.files.document('todos/a.md').getSnapshot().content?.fields
-					?.title,
-			).toBe('Typed here');
+				disk.folder.files.document('todos/a.md').getSnapshot().text,
+			).toContain('title: Typed here');
 			disk.listing.failure = new Error('Folder temporarily unreadable');
 			await page.context.refresh();
 			flushSync();
@@ -1318,9 +1307,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(page.box()?.readOnly).toBe(false);
 			type(page.box(), '---\ntitle: Repaired\n---\nbody\n');
 			await until(() => fileEdit.getSnapshot().isDirty, 'the source repair');
-			expect(fileEdit.getSnapshot().content?.fields).toEqual({
-				title: 'Repaired',
-			});
+			expect(fileEdit.getSnapshot().text).toContain('title: Repaired');
 		} finally {
 			await closeRefusing(page, disk);
 		}

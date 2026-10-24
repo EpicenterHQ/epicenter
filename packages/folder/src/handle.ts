@@ -1,6 +1,6 @@
 /**
  * The caller-facing `Folder` over an engine, the same on every host: its one
- * document owner, whose per-path lane every write and delete enters and which
+ * document owner, whose per-path I/O slot every document read, write and delete enters and which
  * composes row changes, local save status, synchronous release, and the error
  * a released handle throws. The browser's default
  * local folder (`local-folder.ts`) and the native directory folder
@@ -22,7 +22,7 @@ import { callObserver } from './observer.js';
 import { readablePath } from './paths.js';
 import { ownFields } from './shared/content/canonical.js';
 import { SaveError } from './shared/errors.js';
-import { changeMarkdown } from './shared/markdown-codec.js';
+import { changeMarkdown, readMarkdown } from './shared/markdown-codec.js';
 import { readRow } from './shared/row.js';
 
 /** An engine's files: raw reads and unconditional writes, unordered and untracked. */
@@ -45,9 +45,9 @@ export type FolderEngine = {
 	readonly files: EngineFiles;
 	readonly tables: Record<string, EngineTable>;
 	/**
-	 * Hear every committed change, calling the listener before the write
-	 * resolves. Changes another handle, a sync, or a watcher reports reach
-	 * the editors of their paths, which read again.
+	 * Hear committed changes from the engine. The handle suppresses path-scoped
+	 * `this-handle` notices and announces them after the document owner installs
+	 * the outcome. Unknown-scope and `other-handle` notices invalidate documents.
 	 */
 	subscribe(listener: (change: FolderChange) => void): () => void;
 	/** Release listeners and storage; the handle calls it once, at close; admitted writes may still finish or fail afterwards. */
@@ -101,18 +101,13 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	}
 
 	/**
-	 * Tell the document owner what changed that no command of this handle
-	 * explains, then this handle's listeners. An engine reports a write's
-	 * change while that write runs, and only one command of a path runs at a
-	 * time, so an own notice of a path whose command runs is that command's.
+	 * An engine can report a write before its awaiting caller has installed the
+	 * new document text. That path is announced after installation instead.
+	 * Other changes still reach listeners immediately.
 	 */
 	function hear(change: FolderChange) {
-		if (change.paths === null) documents.changed(null);
-		else if (change.origin === 'other-handle') documents.changed(change.paths);
-		else {
-			const elsewhere = documents.heard(change.paths);
-			if (elsewhere.length > 0) documents.changed(elsewhere);
-		}
+		if (change.origin === 'this-handle' && change.paths !== null) return;
+		documents.changed(change.paths);
 		tell(change);
 	}
 
@@ -120,7 +115,8 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 		read: (path) => engine.files.read(path),
 		write: (path, content) => engine.files.write(path, content),
 		saveAfterMs,
-		// A write that stored what was already there reports no change itself.
+		// Notify after installing the successful command's text, whether or not
+		// the engine emitted its own early notice.
 		announce: (path) => tell({ paths: [path], origin: 'this-handle' }),
 	});
 	const stopEngine = engine.subscribe(hear);
@@ -143,12 +139,12 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 			assertOpen();
 			return documents.remove(path, () => engine.files.delete(path));
 		},
-		document(path, schema) {
+		document(path) {
 			if (!readablePath(path))
 				throw new RangeError(
 					`Not a folder-relative file path: ${String(path)}`,
 				);
-			return documents.document(path, schema);
+			return documents.document(path);
 		},
 	};
 
@@ -189,7 +185,10 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 				document(id) {
 					if (!readableId(name, id))
 						throw new RangeError(`Not a row ID in ${name}: ${String(id)}`);
-					return documents.document(rowPath(id), schema);
+					return documents.document(rowPath(id));
+				},
+				parse(text) {
+					return readMarkdown(text, schema);
 				},
 			};
 

@@ -79,7 +79,7 @@ test('transcribing captures accepted recording notes without publishing them', a
 	expect(expectOk(await folder.tables.recordings.get(entry.stem))?.body).toBe(
 		'',
 	);
-	expect(edit.getSnapshot().content?.body).toBe(
+	expect(folder.tables.recordings.parse(edit.getSnapshot().text!).body).toBe(
 		'Notes accepted before transcription.\n',
 	);
 	expect(edit.getSnapshot().isDirty).toBe(true);
@@ -275,9 +275,9 @@ test('running a failed result again refuses held answer input without publishing
 		'already has its answer',
 	);
 	expect(transcribed).toHaveLength(1);
-	expect(edit.getSnapshot().content?.body).toBe(
-		'An answer supplied by the person.\n',
-	);
+	expect(
+		folder.tables.transcriptions.parse(edit.getSnapshot().text!).body,
+	).toBe('An answer supplied by the person.\n');
 	expect(edit.getSnapshot().isDirty).toBe(true);
 	expect(
 		expectOk(await folder.tables.transcriptions.get(transcript.stem))?.body,

@@ -220,6 +220,57 @@ test('Delete asks first; Cancel changes nothing, and confirming deletes the word
 	expect(await context.saved()).toBeUndefined();
 });
 
+test('editing one word in Words view does not reparse unchanged documents', async () => {
+	await using browser = createBrowser();
+	const folder = await browser.open({ saveAfterMs: 60_000 });
+	await using opened = await openVocab(folder);
+	const { entries } = opened.vocab;
+	const words = ['lucid', 'subtle', 'opaque'];
+	for (const word of words) expectOk(await entries.add(word));
+	const documents = words.map((word) =>
+		folder.tables.entries.document(cached(opened.vocab, word).id),
+	);
+	const originalParse = entries.parse;
+	const parsed: string[] = [];
+	entries.parse = (text) => {
+		parsed.push(text);
+		return originalParse(text);
+	};
+	const { default: WordsViewHost } = await import(
+		'./fixtures/WordsViewHost.svelte'
+	);
+	const target = document.createElement('div');
+	document.body.append(target);
+	const view = mount(WordsViewHost, {
+		target,
+		props: { client: opened.vocab.queryClient, entries },
+	});
+	try {
+		await until(
+			() =>
+				words.every((word) =>
+					target.querySelector(`textarea[aria-label="Your note for ${word}"]`),
+				),
+			'all word cards',
+		);
+		await quiet(opened.vocab);
+		await tick();
+		parsed.length = 0;
+		const unchanged = documents
+			.slice(1)
+			.map((document) => document.getSnapshot().text);
+		expectOk(documents[0]!.patch({ fields: { note: 'held' } }));
+		flushSync();
+		await tick();
+		expect(parsed).toContain(documents[0]!.getSnapshot().text ?? '');
+		expect(parsed.some((text) => unchanged.includes(text))).toBe(false);
+	} finally {
+		await unmount(view);
+		entries.parse = originalParse;
+		target.remove();
+	}
+});
+
 test('a valid unsaved repair opens its structured controls even when saving fails', async () => {
 	await using browser = createBrowser();
 	const folder = await browser.open({ saveAfterMs: 60_000 });
@@ -405,7 +456,7 @@ test('Save again publishes the current orphan text and clears its failure card',
 		);
 		expect(edit.getSnapshot()).toMatchObject({
 			isDirty: false,
-			content: { text: 'orphan saved\n' },
+			text: 'orphan saved\n',
 		});
 	} finally {
 		IDBObjectStore.prototype.put = put;

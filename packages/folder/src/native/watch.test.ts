@@ -123,7 +123,7 @@ async function until(check: () => boolean) {
 	}
 }
 
-test('directory events reconcile subscribed descendants while retaining text and never publishing', async () => {
+test('directory events retain last readable text and report missing storage without publishing', async () => {
 	const { root, folder } = await fixture();
 	const own: FolderChange[] = [];
 	folder.onChange((change) => {
@@ -131,29 +131,29 @@ test('directory events reconcile subscribed descendants while retaining text and
 	});
 	const edit = folder.files.document('notes/a.md');
 	cleanup.push(edit.subscribe(() => {}));
-	await until(() => edit.getSnapshot().content?.text === 'before');
+	await until(() => edit.getSnapshot().text === 'before');
 	await writeFile(join(root, 'notes/a.md'), 'outside');
-	await until(() => edit.getSnapshot().content?.text === 'outside');
+	await until(() => edit.getSnapshot().text === 'outside');
 	await rename(join(root, 'notes'), join(root, 'archive'));
 	await until(() => edit.getSnapshot().loadError?.name === 'Missing');
 	expect(edit.getSnapshot()).toMatchObject({
-		content: { text: 'outside' },
+		text: 'outside',
 		isDirty: false,
 		isSaving: false,
 	});
 	const moved = folder.files.document('archive/a.md');
 	const stop = moved.subscribe(() => {});
-	await until(() => moved.getSnapshot().content?.text === 'outside');
+	await until(() => moved.getSnapshot().text === 'outside');
 	stop();
 	const deleted = nextChange(folder, 'archive/a.md');
 	await rm(join(root, 'archive'), { recursive: true });
 	await deleted;
-	// An inactive acquired editor keeps its source until a reader asks again.
-	expect(moved.getSnapshot().content?.text).toBe('outside');
+	// An inactive document keeps its observed source until a reader asks again.
+	expect(moved.getSnapshot().text).toBe('outside');
 	cleanup.push(moved.subscribe(() => {}));
 	await until(() => moved.getSnapshot().loadError?.name === 'Missing');
 	expect(moved.getSnapshot()).toMatchObject({
-		content: { text: 'outside' },
+		text: 'outside',
 		isDirty: false,
 		isSaving: false,
 	});

@@ -191,11 +191,12 @@ test('a schema that does not fit never refuses a save or discards unknown fields
 	const row = expectOk(await first.tables.notes.get('a'))!;
 	expect(row.fields).toEqual({ '10': 'ten', title: 42, extra: 'kept' });
 	expect(row.issues?.map((issue) => issue.kind)).toEqual(['schema']);
-	expectOk(await first.tables.notes.document('a').refresh());
-	const sent = expectOk(
-		// @ts-expect-error Schemas interpret untyped input; they never refuse publication.
-		await first.tables.notes.document('a').save({ fields: { done: 'maybe' } }),
-	);
+	const edit = first.tables.notes.document('a');
+	expectOk(await edit.refresh());
+	// @ts-expect-error Schema types input; runtime still accepts the field.
+	expectOk(edit.patch({ fields: { done: 'maybe' } }));
+	expectOk(await edit.save());
+	const sent = first.tables.notes.parse(edit.getSnapshot().text!);
 	expect(sent.fields).toEqual({
 		'10': 'ten',
 		title: 42,
@@ -219,23 +220,23 @@ test('source with malformed frontmatter stays exact, readable as a file, and rep
 	const row = expectOk(await first.tables.notes.get('b'))!;
 	expect(row.text).toBe(broken);
 	expect(row.issues?.[0]?.kind).toBe('frontmatter');
-	expectOk(await first.tables.notes.document('b').refresh());
+	const edit = first.tables.notes.document('b');
+	expectOk(await edit.refresh());
 	// Structured edits refuse broken frontmatter; full text can repair it.
-	const refused = await first.tables.notes.document('b').save({
-		fields: { title: 'x' },
-	});
+	const refused = edit.patch({ fields: { title: 'x' } });
 	expect(expectErr(refused).name).toBe('MalformedFrontmatter');
-	expect(
-		expectErr(await first.tables.notes.document('b').save({ body: 'New body' }))
-			.name,
-	).toBe('MalformedFrontmatter');
+	expect(expectErr(edit.patch({ body: 'New body' })).name).toBe(
+		'MalformedFrontmatter',
+	);
 	first.close();
 
 	const second = await open();
 	const file = expectOk(await second.files.read('notes/b.md'));
 	expect(await file?.content.text()).toBe(broken);
 	const repaired = '---\ntitle: Fixed\n---\nNew body';
-	expectOk(await second.tables.notes.document('b').save(repaired));
+	const repair = second.tables.notes.document('b');
+	expectOk(repair.replace(repaired));
+	expectOk(await repair.save());
 	const fixed = expectOk(await second.tables.notes.get('b'))!;
 	expect(fixed.issues).toBeNull();
 	expect(fixed.fields).toEqual({ title: 'Fixed' });
@@ -254,12 +255,10 @@ test('an acquired row set applies its fields after reading another writer', asyn
 				'---\ntitle: outside\n---\nbody\n',
 			),
 		);
-		expectOk(await first.tables.notes.document('a').refresh());
-		expectOk(
-			await first.tables.notes
-				.document('a')
-				.save({ fields: { title: 'before' } }),
-		);
+		const edit = first.tables.notes.document('a');
+		expectOk(await edit.refresh());
+		expectOk(edit.patch({ fields: { title: 'before' } }));
+		expectOk(await edit.save());
 		expect(expectOk(await first.tables.notes.get('a'))?.fields?.title).toBe(
 			'before',
 		);
@@ -489,21 +488,18 @@ test('earlier nonportable browser paths remain readable for repair', async () =>
 	});
 	const raw = expectOk(await folder.tables.notes.get('a: b'))!;
 	expect(raw.fields).toEqual({ title: 'Kept' });
-	expectOk(await folder.tables.notes.document('a: b').refresh());
+	const edit = folder.tables.notes.document('a: b');
+	expectOk(await edit.refresh());
 	// An existing nonportable row can be repaired and removed, never made.
-	expectOk(
-		await folder.tables.notes.document('a: b').save({ body: 'Repaired\n' }),
-	);
+	expectOk(edit.patch({ body: 'Repaired\n' }));
+	expectOk(await edit.save());
 	expect(
 		await expectOk(await folder.files.read('notes/a: b.md'))?.content.text(),
 	).toContain('Repaired');
 	expectOk(await folder.tables.notes.delete('a: b'));
 	expect(expectOk(await folder.tables.notes.get('a: b'))).toBeUndefined();
-	expect(
-		expectErr(
-			await folder.tables.notes.document('a: b').save({ body: 'again' }),
-		).name,
-	).toBe('InvalidPath');
+	expectOk(edit.replace('again'));
+	expect(expectErr(await edit.save()).name).toBe('InvalidPath');
 	expect(
 		expectErr(await folder.files.write('notes/a: b.md', 'again')).name,
 	).toBe('InvalidPath');

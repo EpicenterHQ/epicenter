@@ -48,29 +48,32 @@
 	const table = $derived(rowTableOf(path));
 	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
 	/**
-	 * One file edit supplies the transcript body, whole text and diagnostics.
+	 * One file edit supplies the text; the table interprets transcript rows.
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.document(own);
 	const snapshot = liveSnapshot(fileEdit);
 	const asText = $derived(!audio && (table === undefined || whispering.showsText(path, snapshot.current)));
-	const { queries } = getFolder();
+	const { folder, queries } = getFolder();
+	const content = $derived(table !== undefined && snapshot.current.text !== undefined
+		? folder.tables[table].parse(snapshot.current.text)
+		: undefined);
 	/** Classify unopened files before activating an editor; retained source takes precedence. */
 	const opened = createQuery(() => ({ ...queries.file(path, textRead), enabled: asText }));
 	/** A transcript that reads: its body is edited here, its fields kept. */
 	const transcript = $derived.by(() => {
 		if (table !== TRANSCRIPTIONS || asText) return undefined;
-		const shown = snapshot.current.content;
+		const shown = content;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** Held source remains editable after deletion or a failed storage read. */
 	const shouldEdit = $derived(!audio && (
-		!asText || opened.data?.kind === 'text' || fileEdit.getSnapshot().content !== undefined
+		!asText || opened.data?.kind === 'text' || fileEdit.getSnapshot().text !== undefined
 	));
-	const text = $derived(shouldEdit ? snapshot.current.content?.text : undefined);
+	const text = $derived(shouldEdit ? snapshot.current.text : undefined);
 	/** Why the current source does not read as a row, including unsaved input. */
 	const issues = $derived(
-		table === undefined || text === undefined ? undefined : (snapshot.current.content?.issues ?? undefined),
+		table === undefined || text === undefined ? undefined : (content?.issues ?? undefined),
 	);
 
 	function show(source: boolean) {

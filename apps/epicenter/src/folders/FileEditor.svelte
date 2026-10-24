@@ -15,7 +15,7 @@
 	const path = shownPath;
 	const fileEdit = folder.files.document(path);
 	const snapshot = liveSnapshot(fileEdit);
-	const content = $derived(snapshot.current.content);
+	const text = $derived(snapshot.current.text);
 	let inputProblem = $state<string>();
 	/** A textarea would rewrite mixed line endings or lone carriage returns. */
 	function hasMixedNewlines(text: string) {
@@ -30,7 +30,7 @@
 		<span class="text-xs text-muted-foreground" role="status">
 			{#if snapshot.current.saveError}Not saved
 			{:else if snapshot.current.isDirty || snapshot.current.isSaving}Saving…
-			{:else if snapshot.current.content}Saved when you pause or leave the box.{/if}
+			{:else if snapshot.current.text !== undefined}Saved when you pause or leave the box.{/if}
 		</span>
 	</header>
 	{#if inputProblem}<p role="alert" class="px-4 py-2 text-sm text-destructive">{inputProblem}</p>{/if}
@@ -55,19 +55,19 @@
 			</Alert.Root>
 		</div>
 	{/if}
-	{#if content}
-		{#if hasMixedNewlines(content.text)}
+	{#if text !== undefined}
+		{#if hasMixedNewlines(text)}
 			<div class="flex min-h-0 flex-1 flex-col gap-2 p-4">
 				<p class="text-sm text-muted-foreground">This file mixes line endings, which editing here would change, so it is shown as it is and not edited.</p>
-				<pre class="min-h-0 flex-1 overflow-auto rounded-md border p-2 font-mono text-xs whitespace-pre-wrap">{content.text}</pre>
+				<pre class="min-h-0 flex-1 overflow-auto rounded-md border p-2 font-mono text-xs whitespace-pre-wrap">{text}</pre>
 			</div>
 		{:else}
 			<Textarea
 				class="min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm outline-none"
 				aria-label="Text of {path}"
 				spellcheck="false"
-				bind:value={() => content.text.replaceAll('\r\n', '\n'), (value) => {
-					const { error } = fileEdit.replace(withFileNewlines(value, content.text));
+				bind:value={() => text.replaceAll('\r\n', '\n'), (value) => {
+					const { error } = fileEdit.replace(withFileNewlines(value, text));
 					inputProblem = error?.message;
 				}}
 			/>

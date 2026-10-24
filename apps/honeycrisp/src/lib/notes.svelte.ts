@@ -142,14 +142,18 @@ export function createNotes(local: NotesFolder) {
 	function rowsOf(table: TableName) {
 		return queryClient.getQueryData<NoteRow[] | FolderRow[]>(rowsKey(table));
 	}
+	const parsedNote = (text: string | undefined) =>
+		text === undefined ? undefined : folder.tables.notes.parse(text);
+	const parsedFolder = (text: string | undefined) =>
+		text === undefined ? undefined : folder.tables.folders.parse(text);
 
 	/** The note the cache holds for `id`, if it reads as one. */
 	function storedNote(id: string): NoteMarkdown | undefined {
 		const snapshot = folder.tables.notes.document(id).getSnapshot();
 		const listed = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		const row = snapshot.isDirty
-			? snapshot.content
-			: (listed ?? snapshot.content);
+			? parsedNote(snapshot.text)
+			: (listed ?? parsedNote(snapshot.text));
 		return row?.issues === null ? row : undefined;
 	}
 
@@ -165,15 +169,17 @@ export function createNotes(local: NotesFolder) {
 			if (local.closing) return CLOSING;
 			if (loaded.error !== null) return describeFailure(loaded.error);
 		}
-		const content = fileEdit.getSnapshot().content;
+		const content = parsedNote(fileEdit.getSnapshot().text);
 		if (content === undefined) return NOT_LISTED;
 		if (content.issues !== null) return NOT_A_NOTE;
-		const saved = await fileEdit.save({
+		const changed = fileEdit.patch({
 			fields:
 				fields.title === undefined
 					? fields
 					: { ...fields, title: fields.title.toWellFormed() },
 		});
+		if (changed.error !== null) return describeFailure(changed.error);
+		const saved = await fileEdit.save();
 		return saved.error === null ? undefined : describeFailure(saved.error);
 	}
 
@@ -199,8 +205,8 @@ export function createNotes(local: NotesFolder) {
 		const snapshot = folder.tables.notes.document(id).getSnapshot();
 		const listed = rowsOf(NOTES)?.find((candidate) => candidate.id === id);
 		const row = snapshot.isDirty
-			? snapshot.content
-			: (listed ?? snapshot.content);
+			? parsedNote(snapshot.text)
+			: (listed ?? parsedNote(snapshot.text));
 		return row === undefined || row.issues === null ? 'note' : 'text';
 	}
 
@@ -243,7 +249,7 @@ export function createNotes(local: NotesFolder) {
 		]);
 		return [...ids].flatMap((id) => {
 			const snapshot = folder.tables.notes.document(id).getSnapshot();
-			const content = snapshot.isDirty ? snapshot.content : undefined;
+			const content = snapshot.isDirty ? parsedNote(snapshot.text) : undefined;
 			const row =
 				content === undefined
 					? listed.find((note) => note.id === id)
@@ -271,12 +277,14 @@ export function createNotes(local: NotesFolder) {
 				if (local.closing) return CLOSING;
 				if (loaded.error !== null) return describeFailure(loaded.error);
 			}
-			const content = edit.getSnapshot().content;
+			const content = parsedNote(edit.getSnapshot().text);
 			if (content?.issues !== null || content.fields.folderId !== entry.id)
 				continue;
-			const saved = await edit.save({
+			const changed = edit.patch({
 				fields: { folderId: null },
 			});
+			if (changed.error !== null) return describeFailure(changed.error);
+			const saved = await edit.save();
 			if (saved.error !== null) return describeFailure(saved.error);
 		}
 		const reread = await folder.tables.notes.list();
@@ -409,8 +417,11 @@ export function createNotes(local: NotesFolder) {
 				if (local.closing) return CLOSING;
 				if (loaded.error !== null) return describeFailure(loaded.error);
 			}
-			if (fileEdit.getSnapshot().content?.issues !== null) return NOT_LISTED;
-			const saved = await fileEdit.save({ fields });
+			if (parsedFolder(fileEdit.getSnapshot().text)?.issues !== null)
+				return NOT_LISTED;
+			const changed = fileEdit.patch({ fields });
+			if (changed.error !== null) return describeFailure(changed.error);
+			const saved = await fileEdit.save();
 			return saved.error === null ? undefined : describeFailure(saved.error);
 		},
 
@@ -472,7 +483,7 @@ export function createNotes(local: NotesFolder) {
 			const row =
 				id === undefined || storedNote(id) === undefined
 					? undefined
-					: folder.tables.notes.document(id).getSnapshot().content;
+					: parsedNote(folder.tables.notes.document(id).getSnapshot().text);
 			return Ok({
 				path,
 				title:

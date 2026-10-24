@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { DocumentSnapshot } from '@epicenter/folder/document';
 	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -32,14 +33,20 @@
 	let selected = $state<string[]>([]);
 	let focusIds = $state<string[]>([]);
 	const listing = createQuery(() => entries.entriesQuery());
+	const parsedRows = new WeakMap<DocumentSnapshot, EntryRows[number]>();
 	// Membership comes from the listing; interpretation follows each path's current edit.
 	const observed = $derived((listing.data ?? []).map(listed => ({ listed, snapshot: liveSnapshot(entries.document(listed.id)) })));
 	const currentRows = $derived(observed.map(({ listed, snapshot }): EntryRows[number] => {
-		const markdown = snapshot.current.content;
-		if (markdown === undefined) return listed;
-		return markdown.issues === null
+		const current = snapshot.current;
+		if (current.text === undefined) return listed;
+		const cached = parsedRows.get(current);
+		if (cached !== undefined) return cached;
+		const markdown = entries.parse(current.text);
+		const row: EntryRows[number] = markdown.issues === null
 			? { id: listed.id, ...markdown }
 			: { id: listed.id, ...markdown, issues: [...markdown.issues] };
+		parsedRows.set(current, row);
+		return row;
 	}));
 	const words = $derived(wordsOf(currentRows));
 	const repairs = $derived(repairsOf(currentRows));
@@ -143,14 +150,14 @@
 					{@const document = entries.document(draft.path.slice('entries/'.length, -'.md'.length))}
 					{@const snapshot = liveSnapshot(document)}
 					{@const saving = snapshot.current.isSaving}
-					{@const content = snapshot.current.content}
-					{#if content}
+					{@const content = snapshot.current.text}
+					{#if content !== undefined}
 						<div class="space-y-1" role="alert">
 							<p>A change to <code>{draft.path}</code> was not saved, and the file is no longer a word here. {describeFailure(draft.error)}</p>
-							<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{content.text}</pre>
+							<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{content}</pre>
 							<div class="flex gap-1">
 								<Button size="xs" variant="outline" disabled={saving} onclick={() => void document.save()}>Save again</Button>
-								<CopyButton size="xs" variant="ghost" text={content.text}>Copy</CopyButton>
+								<CopyButton size="xs" variant="ghost" text={content}>Copy</CopyButton>
 								<Button size="xs" variant="ghost-destructive" disabled={saving} onclick={() => document.discard()}>Discard</Button>
 							</div>
 						</div>

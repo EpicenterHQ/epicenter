@@ -550,12 +550,14 @@ test('a row save whose reply the shell never sent is confirmed by what landed, a
 	// The shell writes, and its reply never reaches the page. The page reads
 	// the file back, finds exactly what it wrote, and the save is confirmed.
 	granting.control.loseReplies = 1;
-	const confirmed = expectOk(
-		await openedFolder.tables.transformations
-			.document('clean')
-			.save({ body: 'Tidy it.\n' }),
-	);
-	expect(confirmed.body).toBe('Tidy it.\n');
+	const document = openedFolder.tables.transformations.document('clean');
+	expectOk(document.patch({ body: 'Tidy it.\n' }));
+	const confirmed = expectOk(await document.save());
+	expect(confirmed).toBeUndefined();
+	expect(
+		openedFolder.tables.transformations.parse(document.getSnapshot().text!)
+			.body,
+	).toBe('Tidy it.\n');
 	expect(granting.kinds).toEqual(['write']);
 
 	// Again, and now the file cannot be read back either: nothing says
@@ -565,11 +567,8 @@ test('a row save whose reply the shell never sent is confirmed by what landed, a
 		granting.control.beforeChange = undefined;
 		granting.control.failReads.add(PATH);
 	};
-	const lost = await openedFolder.tables.transformations
-		.document('clean')
-		.save({
-			body: 'Tidy it again.\n',
-		});
+	expectOk(document.patch({ body: 'Tidy it again.\n' }));
+	const lost = await document.save();
 	expect(lost.error?.name).toBe('StorageFailed');
 	expect(granting.kinds).toEqual(['write', 'write']);
 

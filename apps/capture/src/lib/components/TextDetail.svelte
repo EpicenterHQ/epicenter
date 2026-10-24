@@ -45,17 +45,18 @@
 	const fileEdit = untrack(() => captures.folder.tables.captures.document(stem));
 	const snapshot = liveSnapshot(fileEdit);
 	const unreadable = $derived(snapshot.current.loadError?.name === 'NotText');
-	const text = $derived(snapshot.current.content?.text);
+	const text = $derived(snapshot.current.text);
+	const parsed = $derived(text === undefined ? undefined : captures.folder.tables.captures.parse(text));
 	const finishDraft = createMutation(() => resultMutationOptions({
 		mutationKey: ['captures', 'finish-draft', stem],
 		mutationFn: () => captures.finishDraft(stem),
 	}));
-	const draft = $derived(snapshot.current.content?.issues === null && snapshot.current.content.fields.draft === true);
+	const draft = $derived(parsed?.issues === null && parsed.fields.draft === true);
 	const locked = $derived(captures.fenced);
 	let refusal = $state<string | undefined>();
 
 	function finish() {
-		if (locked || finishDraft.isPending || !draft || !snapshot.current.content?.body?.trim()) return;
+		if (locked || finishDraft.isPending || !draft || !parsed?.body?.trim()) return;
 		finishDraft.mutate();
 	}
 	/** The thought's lines to select as the text appears, when opened to edit one. */
@@ -68,7 +69,7 @@
 
 	/** Why the current edit is not a capture yet: each with its line when it has one. */
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
-		const row = snapshot.current.content;
+		const row = parsed;
 		if (row === undefined) return [];
 		if (row.issues !== null) return row.issues;
 		const { error: refusal } = readCaptureBody(row);
@@ -96,7 +97,7 @@
 		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{path}</h1>
 		{#if text !== undefined}
 			{#if draft}
-				<Button size="sm" disabled={locked || finishDraft.isPending || !snapshot.current.content?.body?.trim()} onclick={finish}>
+				<Button size="sm" disabled={locked || finishDraft.isPending || !parsed?.body?.trim()} onclick={finish}>
 					{finishDraft.isPending ? 'Adding…' : 'Add capture'}
 				</Button>
 			{:else}

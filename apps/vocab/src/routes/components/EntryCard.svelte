@@ -36,7 +36,8 @@
 	const fileEdit = entries.document(editingEntry.id);
 	const snapshot = liveSnapshot(fileEdit);
 	/** The word with what is typed over it, or as the list read it while that is not known. */
-	const shown = $derived(snapshot.current.content?.issues === null ? snapshot.current.content.fields : entry.row.fields);
+	const content = $derived(snapshot.current.text === undefined ? undefined : entries.parse(snapshot.current.text));
+	const shown = $derived(content?.issues === null ? content.fields : entry.row.fields);
 
 
 

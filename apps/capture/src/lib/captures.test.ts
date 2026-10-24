@@ -57,7 +57,14 @@ const withBody = (body: string) =>
 
 /** Capture commands over the Folder edit, as the view constructs them. */
 function actionsOf({ folder }: CapturesHarness, stem = 'one') {
-	return createCaptureActions(folder.tables.captures.document(stem));
+	return createCaptureActions(
+		folder.tables.captures.document(stem),
+		folder.tables.captures.parse,
+	);
+}
+
+function parsed({ folder }: CapturesHarness, text: string | undefined) {
+	return text === undefined ? undefined : folder.tables.captures.parse(text);
 }
 
 /** The folder's edit of capture `one` as its exact text, read. */
@@ -171,7 +178,7 @@ test('an edit saves after a pause and keeps undeclared frontmatter', async () =>
 	const fileEdit = harness.folder.tables.captures.document('one');
 	actions.inputText('Edited');
 	// The row's body starts after the frontmatter, at its blank separator line.
-	expect(fileEdit.getSnapshot().content?.body).toBe(
+	expect(parsed(harness, fileEdit.getSnapshot().text)?.body).toBe(
 		'\nEdited\n\n## Thoughts\n\n- first\n  nested line\n',
 	);
 	expect(
@@ -207,12 +214,14 @@ test("another tab's change preserves input until a complete source publication",
 		'the other tab’s change',
 	);
 	// The cache has the outside change; the Folder still holds the input typed here.
-	expect(fileEdit.getSnapshot().content?.body).toContain('Typed here');
+	expect(parsed(harness, fileEdit.getSnapshot().text)?.body).toContain(
+		'Typed here',
+	);
 
 	await fileEdit.save();
 	expect(fileEdit.getSnapshot().saveError).toBeUndefined();
 	expect(await harness.text(PATH)).not.toContain('mood: calm');
-	const content = fileEdit.getSnapshot().content;
+	const content = parsed(harness, fileEdit.getSnapshot().text);
 	if (content === undefined)
 		throw new Error('The capture lost acquired content');
 	expectOk(
@@ -243,7 +252,9 @@ test('a failed save keeps the edit and its reason; saving again lands it', async
 		'the failure',
 	);
 
-	expect(fileEdit.getSnapshot().content?.body).toContain('- kept');
+	expect(parsed(harness, fileEdit.getSnapshot().text)?.body).toContain(
+		'- kept',
+	);
 	expect(harness.captures.saveLabel).toBe('Not saved');
 	expect(harness.captures.failures).toEqual([
 		{
@@ -300,12 +311,17 @@ test('adding a thought uses the current Folder edit after another tab changes it
 		HAND.replace('Text', 'Text changed elsewhere'),
 	);
 	await until(
-		() => fileEdit.getSnapshot().content?.body?.includes('elsewhere') === true,
+		() =>
+			parsed(harness, fileEdit.getSnapshot().text)?.body?.includes(
+				'elsewhere',
+			) === true,
 		'the other tab',
 	);
 	// A thought adds over what the Folder edit shows now.
 	expect(actions.addThought('shared')).toBe(true);
-	expect(fileEdit.getSnapshot().content?.body).toContain('- shared');
+	expect(parsed(harness, fileEdit.getSnapshot().text)?.body).toContain(
+		'- shared',
+	);
 	await harness.quiet();
 	const saved = (await harness.text(PATH)) ?? '';
 	expect(saved).toContain('Text changed elsewhere');
@@ -343,10 +359,7 @@ async function thoughtsElsewhere(harness: CapturesHarness, thoughts: string) {
 	const fileEdit = harness.folder.tables.captures.document('one');
 	const changed = withBody(`Text\n\n## Thoughts\n\n${thoughts}`);
 	await harness.writeElsewhere(PATH, changed);
-	await until(
-		() => fileEdit.getSnapshot().content?.text === changed,
-		'the other tab',
-	);
+	await until(() => fileEdit.getSnapshot().text === changed, 'the other tab');
 }
 
 test('a command on a list another tab changed is refused, though a view still showed it', async () => {
@@ -427,7 +440,7 @@ test('a file repaired as text opens as a capture before saving', async () => {
 	await captures.open('one', 'capture');
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(
-		harness.folder.tables.captures.document('one').getSnapshot().content?.text,
+		harness.folder.tables.captures.document('one').getSnapshot().text,
 	).toBe(fixed);
 	expect(await harness.text(PATH)).toBe(broken);
 });
@@ -442,7 +455,7 @@ test('unfinished Markdown typed as text saves exactly; a failed save keeps it un
 	await edit.save();
 
 	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
-	expect(edit.getSnapshot().content?.text).toBe(unfinished);
+	expect(edit.getSnapshot().text).toBe(unfinished);
 	expect(harness.captures.saveLabel).toBe('Not saved');
 
 	restore();
@@ -463,9 +476,7 @@ test('a failed whole-file save retains exact text for recovery while open', asyn
 	expect(unsaved).toMatchObject([
 		{ path: PATH, error: { name: 'StorageFailed' } },
 	]);
-	expect(harness.folder.files.document(PATH).getSnapshot().content?.text).toBe(
-		changed,
-	);
+	expect(harness.folder.files.document(PATH).getSnapshot().text).toBe(changed);
 	expect(await harness.text(PATH)).toBe(HAND);
 });
 
@@ -529,7 +540,7 @@ test('switching from failed text to a capture keeps input and error until anothe
 	await captures.open('one', 'capture');
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(
-		harness.folder.tables.captures.document('one').getSnapshot().content?.text,
+		harness.folder.tables.captures.document('one').getSnapshot().text,
 	).toBe(changed);
 	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
 	expect(await harness.text(PATH)).toBe(HAND);

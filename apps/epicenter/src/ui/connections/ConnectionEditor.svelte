@@ -39,7 +39,10 @@
 	const fileEdit = folder.tables.connections.document(id);
 	const snapshot = liveSnapshot(fileEdit);
 	/** The connection with what is typed over it, or as the list read it while that is not known. */
-	const fields = $derived(snapshot.current.content?.issues === null ? snapshot.current.content.fields : row.fields);
+	const parsed = $derived(snapshot.current.text === undefined
+		? undefined
+		: folder.tables.connections.parse(snapshot.current.text));
+	const fields = $derived(parsed?.issues === null ? parsed.fields : row.fields);
 	const failure = $derived(snapshot.current.saveError);
 
 	const keyState = createQuery(() => ({

@@ -57,8 +57,8 @@ The composer subscription acquires text; listing drafts does not populate the
 working documents. Typing, programmatic clearing, and checked recovery edit
 that same accepted document. Typing calls `document.patch({ body })`, or
 `document.replace(text)` when composing a new draft before acquisition. Checked
-recovery uses `document.save(text)` to accept and publish its exact source.
-A save publishes a captured snapshot and returns
+recovery calls `document.replace(text)` then `await document.save()` to publish
+its exact source. A save captures the accepted text when called and returns
 success or failure; failure keeps the accepted change pending. If clearing
 fails during send preparation, the empty composer remains pending, nothing is
 sent, and the durable attempt retains the submitted body for checked recovery.
@@ -70,7 +70,10 @@ or update the composer document.
 
 `createQuery(() => context.queries.rows('drafts'))` discovers the saved Markdown
 files. Tracked `liveSnapshot` views from `@epicenter/svelte/snapshot` supply
-their `.current.content` frontmatter and body, and a derived map joins previews to conversations by `chatId`. The query
+their `.current.text`. `folder.tables.drafts.parse(text)` interprets each
+text with the draft schema. A component-local weak cache avoids parsing
+unchanged draft previews on each keystroke. A derived map joins previews to
+conversations by `chatId`. The query
 cache owns listing and refresh, and Folder owns accepted input and saving;
 there is no second draft store or SQL cache.
 

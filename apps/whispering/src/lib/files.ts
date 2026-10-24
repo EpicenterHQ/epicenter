@@ -18,7 +18,7 @@ export function nameProblem(
 
 /**
  * Whispering errors state failures precisely; these are the ones a person acts
- * on. A save that failed changed nothing (ADR-0632).
+ * on. A storage failure can leave the outcome unconfirmed on a native host.
  */
 export function describeError(
 	error:
@@ -29,7 +29,7 @@ export function describeError(
 	const known = error as SaveError | ReadError;
 	switch (known.name) {
 		case 'StorageFailed':
-			return `The folder’s storage refused it, so nothing was changed: ${extractErrorMessage(known.cause)}`;
+			return `The folder could not confirm this change: ${extractErrorMessage(known.cause)}`;
 		case 'Unparseable':
 			return `Its fields could not be changed, because its frontmatter does not read: ${known.reason}. Fix it in Source.`;
 		case 'NotText':

@@ -8,7 +8,8 @@ import {
 	captureBody,
 	type captureTables,
 } from '@epicenter/capture';
-import type { FileDocument } from '@epicenter/folder/document';
+import type { FolderTable } from '@epicenter/folder';
+import type { TextDocument } from '@epicenter/folder/document';
 
 /** A range of a file's text as a text box shows it, with LF lines. */
 export type TextRange = { readonly start: number; readonly end: number };
@@ -22,14 +23,16 @@ const sameList = (a: readonly string[], b: readonly string[]) =>
 
 /** Commands that change the capture through `fileEdit`. */
 export function createCaptureActions(
-	fileEdit: FileDocument<(typeof captureTables)['captures']>,
+	fileEdit: TextDocument<(typeof captureTables)['captures']>,
+	parse: FolderTable<(typeof captureTables)['captures']>['parse'],
 ) {
 	/** Why the last change was not taken; the next change clears it. */
 	let refusal = $state<string | undefined>();
 
 	/** The body this command composes over: the capture as it reads now. */
 	const shown = () => {
-		const row = fileEdit.getSnapshot().content;
+		const text = fileEdit.getSnapshot().text;
+		const row = text === undefined ? undefined : parse(text);
 		if (row?.issues !== null || row.fields.draft === true) return undefined;
 		const { data, error } = captureBody.decode(row.body);
 		return error === null ? { body: row.body, ...data } : undefined;
@@ -102,7 +105,8 @@ export function createCaptureActions(
 			list: readonly string[],
 		): TextRange | undefined {
 			const now = current(list);
-			const row = fileEdit.getSnapshot().content;
+			const text = fileEdit.getSnapshot().text;
+			const row = text === undefined ? undefined : parse(text);
 			const span =
 				now === undefined
 					? undefined

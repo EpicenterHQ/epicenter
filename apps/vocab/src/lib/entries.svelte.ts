@@ -139,6 +139,8 @@ export function createEntries(local: VocabContext) {
 	}
 
 	return {
+		/** Interpret editable source as an entry without reading storage. */
+		parse: folder.tables.entries.parse,
 		/** The word rows, narrowed by `select` for one view. */
 		entriesQuery<TData = EntryRows>(select?: (rows: EntryRows) => TData) {
 			return { ...queries.rows('entries'), select };

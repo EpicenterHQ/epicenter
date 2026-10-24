@@ -8,6 +8,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
+	import { getFolder } from '$lib/folder.js';
 	import { getWhispering, type TranscriptionEntry } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
 	import { confirmDelete, copyText, formatTime } from './file-actions.js';
@@ -39,9 +40,11 @@
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.document(TRANSCRIPTIONS, own);
 	const snapshot = liveSnapshot(fileEdit);
+	const { folder } = getFolder();
 	const asText = $derived(whispering.showsText(result.path, snapshot.current));
 	const row = $derived.by(() => {
-		const shown = snapshot.current.content;
+		const text = snapshot.current.text;
+		const shown = text === undefined ? undefined : folder.tables.transcriptions.parse(text);
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** The text now: as typed while an edit is unsaved, else as the file holds it. */

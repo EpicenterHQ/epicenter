@@ -80,7 +80,7 @@ test('native events update queries and an editor without periodic reads or repla
 	const { directory, folder, cached } = await setup(true);
 	const edit = folder.tables.notes.document('milk');
 	cleanup.push(edit.subscribe(() => {}));
-	await until(() => edit.getSnapshot().content !== undefined);
+	await until(() => edit.getSnapshot().text !== undefined);
 	await writeFile(
 		join(directory, 'notes/milk.md'),
 		initial.replace('two', 'Outside edit'),
@@ -88,7 +88,7 @@ test('native events update queries and an editor without periodic reads or repla
 	// The folder-wide hint reaches both the owner and the query context.
 	await until(() => cached().body?.includes('Outside edit') === true);
 	await until(
-		() => edit.getSnapshot().content?.body?.includes('Outside edit') === true,
+		() => folder.tables.notes.parse(edit.getSnapshot().text ?? '').body?.includes('Outside edit') === true,
 	);
 	expectOk(edit.patch({ fields: { title: 'Typed here' } }));
 	await writeFile(
@@ -97,11 +97,9 @@ test('native events update queries and an editor without periodic reads or repla
 	);
 	await until(() => cached().body?.includes('Second outside edit') === true);
 	await Bun.sleep(50);
-	expect(edit.getSnapshot()).toMatchObject({
-		isDirty: true,
-		content: { fields: { title: 'Typed here' } },
-	});
-	expect(edit.getSnapshot().content?.body).toBe('one\n\nOutside edit\n');
+	expect(edit.getSnapshot().isDirty).toBe(true);
+	expect(edit.getSnapshot().text).toContain('title: Typed here');
+	expect(folder.tables.notes.parse(edit.getSnapshot().text!).body).toBe('one\n\nOutside edit\n');
 	// The last publication wins whole.
 	expectOk(await edit.save());
 	await until(() => cached().fields?.title === 'Typed here');
@@ -112,7 +110,7 @@ test('without a delivered hint there is no polling; becoming visible reconciles 
 	const { directory, reads, cached, folder } = await setup();
 	const edit = folder.tables.notes.document('milk');
 	cleanup.push(edit.subscribe(() => {}));
-	await until(() => edit.getSnapshot().content !== undefined);
+	await until(() => edit.getSnapshot().text !== undefined);
 	visibility('hidden');
 	const before = reads();
 	await writeFile(
@@ -125,7 +123,7 @@ test('without a delivered hint there is no polling; becoming visible reconciles 
 	visibility('visible');
 	await until(() => cached().fields?.title === 'Outside', 700);
 	await until(
-		() => edit.getSnapshot().content?.fields?.title === 'Outside',
+		() => folder.tables.notes.parse(edit.getSnapshot().text ?? '').fields?.title === 'Outside',
 		700,
 	);
 	expect(reads()).toBe(before + 1);
@@ -203,7 +201,7 @@ test('a save lands without waiting for a slow scan, whose older rows never repla
 	expect(edit.getSnapshot().isDirty).toBe(false);
 	expect(folder.getStatus().saving).toBe(false);
 	expect(before.fields?.title).toBe('Milk');
-	const title = () => edit.getSnapshot().content?.fields?.title;
+	const title = () => folder.tables.notes.parse(edit.getSnapshot().text ?? '').fields?.title;
 	expect(title()).toBe('Saved while reading');
 	// A second invalidation joins the same scan.
 	const again = context.refresh(['notes']);

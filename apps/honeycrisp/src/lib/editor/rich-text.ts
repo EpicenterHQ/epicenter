@@ -2,7 +2,7 @@
  * The rich-text view's editing: its commands and plugins, and the two rules
  * that keep its ProseMirror state the note's body.
  *
- * The note's body comes from `FileDocument.getSnapshot().content`, with line feeds for
+ * The note's body comes from interpreting the document's current text, with line feeds for
  * presentation: the folder's edit includes what is typed (ADR-0548). The
  * view's `EditorState` adds only what the note has no place for: the
  * cursor, pending formatting, undo history, and an empty paragraph Markdown
@@ -27,7 +27,8 @@
  * Neither needs a DOM. The view calls both; tests drive them the same way.
  */
 
-import type { FileDocument, MarkdownContent } from '@epicenter/folder/document';
+import type { FolderTable } from '@epicenter/folder';
+import type { TextDocument } from '@epicenter/folder/document';
 import {
 	baseKeymap,
 	chainCommands,
@@ -163,7 +164,9 @@ export function stateShowing(state: EditorState, doc: Node): EditorState {
 
 /** The valid note's body shown by Honeycrisp, with line feeds and no source mutation. */
 export function noteBody(
-	markdown: MarkdownContent<HoneycrispTables['notes']> | undefined,
+	markdown:
+		| ReturnType<FolderTable<HoneycrispTables['notes']>['parse']>
+		| undefined,
 ): string | undefined {
 	return markdown?.issues === null
 		? markdown.body.replace(/\r\n?/g, '\n')
@@ -188,14 +191,16 @@ export function noteBody(
 export function stateAfter(
 	state: EditorState,
 	transaction: Transaction,
-	fileEdit: FileDocument<HoneycrispTables['notes']>,
+	fileEdit: TextDocument<HoneycrispTables['notes']>,
+	parse: FolderTable<HoneycrispTables['notes']>['parse'],
 	refuse: (reason: string) => void,
 ): EditorState | undefined {
 	if (transaction.before !== state.doc) return undefined;
 	// A selection or pending formatting writes nothing: opening a note never
 	// changes its file.
 	if (!transaction.docChanged) return state.apply(transaction);
-	const body = noteBody(fileEdit.getSnapshot().content);
+	const text = fileEdit.getSnapshot().text;
+	const body = noteBody(text === undefined ? undefined : parse(text));
 	if (body === undefined) return undefined;
 	const current = bodyCodec.decode(body);
 	if (!current.supported) return undefined;

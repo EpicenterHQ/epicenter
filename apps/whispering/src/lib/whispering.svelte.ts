@@ -9,7 +9,7 @@
  * read are listed to edit; the rest are named, with why, for repair as text.
  *
  * Typing is never lost to a reread. Fields, body and whole text use one
- * FileDocument interface, selected through a typed table or file path. Each
+ * TextDocument interface, selected through a typed table or file path. Each
  * failed save is reported. Folder saves a second after the last
  * change. The source draft remains owned by Folder after the view leaves.
  * Saves publish complete sources in call order. A failed publication keeps
@@ -33,8 +33,8 @@ import { InstantString } from '@epicenter/definition';
 import { type Row, SaveError } from '@epicenter/folder';
 import type {
 	DocumentSnapshot,
-	FileDocument,
 	SaveFailure,
+	TextDocument,
 } from '@epicenter/folder/document';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
@@ -46,7 +46,6 @@ import {
 import { customAlphabet } from 'nanoid';
 import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
-import type { TSchema } from 'typebox';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, type Result } from 'wellcrafted/result';
@@ -448,12 +447,12 @@ export function createWhispering(context: WhisperingContext) {
 
 	// --- editing ---------------------------------------------------------------
 
-	/** Select a core document; table access also binds its read schema. */
-	function documentAt(path: string): FileDocument;
+	/** Select a shared document; table access narrows patch field names. */
+	function documentAt(path: string): TextDocument;
 	function documentAt<T extends RowTable>(
 		table: T,
 		path: string,
-	): FileDocument<WhisperingTables[T]>;
+	): TextDocument<WhisperingTables[T]>;
 	function documentAt(tableOrPath: string, path?: string) {
 		const target = path ?? tableOrPath;
 		const table =
@@ -477,7 +476,7 @@ export function createWhispering(context: WhisperingContext) {
 				error: failure.error,
 				getText: () => {
 					const snapshot = edit.getSnapshot();
-					return snapshot.isDirty ? snapshot.content?.text : undefined;
+					return snapshot.isDirty ? snapshot.text : undefined;
 				},
 				save: () => {
 					if (context.closing || !edit.getSnapshot().isDirty) return false;
@@ -498,16 +497,18 @@ export function createWhispering(context: WhisperingContext) {
 	 */
 	function showsText(
 		path: string,
-		snapshot: DocumentSnapshot<TSchema> = documentAt(path).getSnapshot(),
+		snapshot: DocumentSnapshot = documentAt(path).getSnapshot(),
 	): boolean {
 		const table = rowTableOf(path);
 		if (table === undefined) return true;
 		if (asText.has(path)) return true;
 		const stem = rowIdOf(table, path) as string;
 		const saved = listed(table)?.find((item) => item.id === stem);
-		const row = snapshot.isDirty
-			? snapshot.content
-			: (saved ?? snapshot.content);
+		const parsed =
+			snapshot.text === undefined
+				? undefined
+				: folder.tables[table].parse(snapshot.text);
+		const row = snapshot.isDirty ? parsed : (saved ?? parsed);
 		return row !== undefined && row.issues !== null;
 	}
 
@@ -700,9 +701,12 @@ export function createWhispering(context: WhisperingContext) {
 			if (loaded.error?.name === 'Missing' || context.closing) return undefined;
 			if (loaded.error !== null)
 				return `The recording is saved, but its length could not be written: ${describeError(loaded.error)}`;
-			const { error: saveError } = await document.save({
+			const { error: changeError } = document.patch({
 				fields: { durationMs: stopped.durationMs },
 			});
+			if (changeError !== null)
+				return `The recording is saved, but its length could not be written: ${describeError(changeError)}`;
+			const { error: saveError } = await document.save();
 			return saveError === null
 				? undefined
 				: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
@@ -895,7 +899,7 @@ export function createWhispering(context: WhisperingContext) {
 				read !== undefined &&
 				!read.paths.has(path) &&
 				!context.getStatus().unsaved.includes(path) &&
-				folder.files.document(path).getSnapshot().content === undefined
+				folder.files.document(path).getSnapshot().text === undefined
 			)
 				return undefined;
 			return {
@@ -917,7 +921,7 @@ export function createWhispering(context: WhisperingContext) {
 				read !== undefined &&
 				!read.paths.has(path) &&
 				!context.getStatus().unsaved.includes(path) &&
-				folder.files.document(path).getSnapshot().content === undefined
+				folder.files.document(path).getSnapshot().text === undefined
 			)
 				return undefined;
 			return {
@@ -984,8 +988,15 @@ export function createWhispering(context: WhisperingContext) {
 		useForm(path: string): string | undefined {
 			const why = refused();
 			if (why !== undefined) return why;
+			const table = rowTableOf(path);
+			if (table === undefined) return STILL_TEXT;
 			const fileEdit = documentAt(path);
-			if (fileEdit.getSnapshot().content?.issues !== null) return STILL_TEXT;
+			const text = fileEdit.getSnapshot().text;
+			if (
+				text === undefined ||
+				folder.tables[table].parse(text).issues !== null
+			)
+				return STILL_TEXT;
 			asText.delete(path);
 			return undefined;
 		},
@@ -1343,11 +1354,10 @@ export function createWhispering(context: WhisperingContext) {
 			if (taken(to)) return TAKEN;
 			const sourceEdit = folder.files.document(path);
 			const before = sourceEdit.getSnapshot();
-			const captured = before.isDirty ? before.content : undefined;
+			const captured = before.isDirty ? before.text : undefined;
 
 			let bytes: Uint8Array;
-			if (captured !== undefined)
-				bytes = new TextEncoder().encode(captured.text);
+			if (captured !== undefined) bytes = new TextEncoder().encode(captured);
 			else {
 				const { data: found, error } = await folder.files.read(path);
 				if (error !== null) return describeError(error);
@@ -1356,7 +1366,7 @@ export function createWhispering(context: WhisperingContext) {
 			}
 			// Compare information, including text copied from an unopened source.
 			// A binary copy has no editable text to compare.
-			let copiedText = captured?.text;
+			let copiedText = captured;
 			if (copiedText === undefined) {
 				try {
 					copiedText = new TextDecoder('utf-8', {
@@ -1372,11 +1382,11 @@ export function createWhispering(context: WhisperingContext) {
 			if (context.closing)
 				return `${to} was saved. ${path} was kept because the folder is closing.`;
 			const current = sourceEdit.getSnapshot();
-			const currentText = current.content?.text;
+			const currentText = current.text;
 			if (
 				currentText !== undefined &&
 				currentText !== copiedText &&
-				(current.isDirty || currentText !== before.content?.text)
+				(current.isDirty || currentText !== before.text)
 			)
 				return `${to} was saved. Different text arrived during the copy, so ${path} was kept with that text.`;
 			const { error: removeError } = await folder.files.delete(path);

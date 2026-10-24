@@ -16,7 +16,7 @@ import {
 import { createDemoBackend } from './backend.js';
 import { messagesTables } from './definition.js';
 import { draftId } from './drafts.js';
-import { seedDraft } from './drafts.test-support.js';
+import { saveDraft, seedDraft } from './drafts.test-support.js';
 
 mock.module('$app/navigation', () => ({ beforeNavigate() {} }));
 const { flushSync, mount, unmount } = await import('svelte');
@@ -156,7 +156,7 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 	const demo = createDemoBackend();
 	const maya = await seedDraft(app.folder, demo, 'demo-maya');
 	expectOk(
-		await app.folder.tables.drafts.document(maya.id).save({
+		await saveDraft(app.folder, maya.id, {
 			body: 'Saved in Markdown',
 		}),
 	);
@@ -166,7 +166,7 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 		'demo-garden',
 	);
 	expectOk(
-		await app.folder.tables.drafts.document(live.id).save({
+		await saveDraft(app.folder, live.id, {
 			body: 'Live private draft',
 		}),
 	);
@@ -176,7 +176,7 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 		'demo-noah',
 	);
 	expectOk(
-		await app.folder.tables.drafts.document(other.id).save({
+		await saveDraft(app.folder, other.id, {
 			body: 'Another account’s draft',
 		}),
 	);
@@ -210,6 +210,48 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 		'the outside edit',
 	);
 	expect(expectOk(await app.folder.files.list())).toHaveLength(3);
+});
+
+test('editing one draft parses only its changed preview', async () => {
+	const app = await setup();
+	const backend = createDemoBackend();
+	const drafts = await Promise.all(
+		['demo-maya', 'demo-noah', 'demo-garden'].map((chatId) =>
+			seedDraft(app.folder, backend, chatId),
+		),
+	);
+	for (const [index, draft] of drafts.entries())
+		expectOk(await saveDraft(app.folder, draft.id, { body: `Reply ${index}` }));
+	await until(
+		() =>
+			app.conversation('Maya Chen').textContent?.includes('Draft: Reply 0') ===
+				true &&
+			app.conversation('Noah Patel').textContent?.includes('Draft: Reply 1') ===
+				true &&
+			app
+				.conversation('Community garden')
+				.textContent?.includes('Draft: Reply 2') === true,
+		'all three previews',
+	);
+	const parse = app.folder.tables.drafts.parse;
+	let parses = 0;
+	app.folder.tables.drafts.parse = (text) => {
+		parses++;
+		return parse(text);
+	};
+	const maya = drafts[0];
+	if (maya === undefined) throw new Error('Maya draft was not seeded');
+	expectOk(
+		app.folder.tables.drafts.document(maya.id).patch({ body: 'Updated reply' }),
+	);
+	await until(
+		() =>
+			app
+				.conversation('Maya Chen')
+				.textContent?.includes('Draft: Updated reply') === true,
+		'the changed preview',
+	);
+	expect(parses).toBe(1);
 });
 
 test('failed autosave retains its preview, uncertain sends are distinct, and sending clears Draft', async () => {

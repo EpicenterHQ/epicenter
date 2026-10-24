@@ -325,37 +325,28 @@ test('document saves patch the known row, keep other values, and refuse patches 
 			}),
 		);
 		expect(first.issues).toBeNull();
-		expectOk(await folder.tables.todos!.document('one').refresh());
-		const phone = expectOk(
-			await folder.tables
-				.todos!.document('one')
-				.save({ fields: { done: true } }),
-		);
+		const edit = folder.tables.todos!.document('one');
+		expectOk(await edit.refresh());
+		expectOk(edit.patch({ fields: { done: true } }));
+		expectOk(await edit.save());
+		const phone = folder.tables.todos!.parse(edit.getSnapshot().text!);
 		expect(phone.fields).toMatchObject({ done: true });
-		const laptop = expectOk(
-			await folder.tables
-				.todos!.document('one')
-				.save({ fields: { title: 'Laptop' } }),
-		);
-		// A save answers the content it stored: the patch over what was known.
+		expectOk(edit.patch({ fields: { title: 'Laptop' } }));
+		expectOk(await edit.save());
+		const laptop = folder.tables.todos!.parse(edit.getSnapshot().text!);
+		// Parsing the saved text answers the patch over what was known.
 		expect(laptop.fields).toMatchObject({ done: true });
 		expect(laptop.body).toBe('Body\n');
-		expectOk(
-			await folder.tables
-				.todos!.document('one')
-				.save({ fields: { title: 'Laptop again' } }),
-		);
+		expectOk(edit.patch({ fields: { title: 'Laptop again' } }));
+		expectOk(await edit.save());
 		const landed = expectOk(await folder.tables.todos!.get('one'))!;
 		expect(landed.fields).toEqual({
 			title: 'Laptop again',
 			done: true,
 			extra: 'untouched',
 		});
-		expectOk(
-			await folder.tables
-				.todos!.document('one')
-				.save({ fields: { title: 12 } }),
-		);
+		expectOk(edit.patch({ fields: { title: 12 } }));
+		expectOk(await edit.save());
 		const raw = expectOk(await folder.tables.todos!.get('one'))!;
 		expect(raw.issues?.[0]?.kind).toBe('schema');
 		expect(raw.fields).toMatchObject({ title: 12 });
@@ -367,18 +358,13 @@ test('document saves patch the known row, keep other values, and refuse patches 
 		);
 		const malformed = expectOk(await folder.tables.todos!.get('one'))!;
 		expect(malformed.issues?.[0]?.kind).toBe('frontmatter');
-		expect(
-			expectErr(
-				await folder.tables
-					.todos!.document('one')
-					.save({ fields: { title: 'repair?' } }),
-			).name,
-		).toBe('MalformedFrontmatter');
-		expect(
-			expectErr(
-				await folder.tables.todos!.document('one').save({ body: 'New body\n' }),
-			).name,
-		).toBe('MalformedFrontmatter');
+		expectOk(await edit.refresh());
+		expect(expectErr(edit.patch({ fields: { title: 'repair?' } })).name).toBe(
+			'MalformedFrontmatter',
+		);
+		expect(expectErr(edit.patch({ body: 'New body\n' })).name).toBe(
+			'MalformedFrontmatter',
+		);
 		expect(await text(repository, 'todos/one.md')).toBe(
 			'---\ntitle: [broken\n---\nKeep body\n',
 		);
@@ -418,12 +404,10 @@ test('row deletion removes the row as stored and keeps adjacent files', async ()
 		expect(
 			await repository.storage.acknowledge(committed.base, committed.head),
 		).toBe(true);
-		expectOk(await folder.tables.notes!.document('one').refresh());
-		expectOk(
-			await folder.tables
-				.notes!.document('one')
-				.save({ fields: { title: 'After' } }),
-		);
+		const edit = folder.tables.notes!.document('one');
+		expectOk(await edit.refresh());
+		expectOk(edit.patch({ fields: { title: 'After' } }));
+		expectOk(await edit.save());
 		expectOk(await folder.tables.notes!.delete('one'));
 		expect(expectOk(await repository.files.list('notes/one/'))).toEqual([
 			'notes/one/nested/a.txt',
@@ -513,7 +497,7 @@ test('an editor save racing another connection lands its exact text, and the las
 			isDirty: false,
 			saveError: undefined,
 		});
-		expect(edit.getSnapshot().content?.text).toBe(stored);
+		expect(edit.getSnapshot().text).toBe(stored);
 	} finally {
 		await folder.close();
 		b.close();

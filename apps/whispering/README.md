@@ -44,7 +44,7 @@ Recording rows, transformation recipes, and result placeholders are created
 through their named table, for example `folder.tables.recordings.write`, as
 one-shot complete document publications. A failed creation
 leaves no accepted input for autosave. Existing rows use an acquired document and
-`document.save(patch)`; lists and raw reads do not acquire text. Background completion
+`document.patch(patch)` followed by `document.save()`; lists and raw reads do not acquire text. Background completion
 refreshes the document before applying its patch, preserving local input while
 leaving a file already deleted on disk absent.
 Its startup maintains exclusions before recovery and reads. Its synchronous

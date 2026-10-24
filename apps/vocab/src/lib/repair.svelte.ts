@@ -40,7 +40,12 @@ export function createRepair(folder: Pick<VocabFolder, 'tables'>) {
 		view,
 		/** Return to the structured view as soon as the current document is valid. */
 		close(): boolean {
-			if (view()?.getSnapshot().content?.issues !== null) return false;
+			const text = view()?.getSnapshot().text;
+			if (
+				text === undefined ||
+				folder.tables.entries.parse(text).issues !== null
+			)
+				return false;
 			open = undefined;
 			return true;
 		},

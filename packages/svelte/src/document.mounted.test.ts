@@ -88,7 +88,7 @@ test('mounted row and text views follow each other and can revert held input', a
 	).toBe('one');
 	expect(
 		target.querySelector('[aria-label="Shared pending"]')?.textContent,
-	).toBe(edit.getSnapshot().content?.text);
+	).toBe(edit.getSnapshot().text);
 	type(
 		field('Whole row text'),
 		field('Whole row text').value.replace('THREE', 'Three from text'),
@@ -98,7 +98,7 @@ test('mounted row and text views follow each other and can revert held input', a
 	expect(field('Row 1').value).toBe('one\ntwo\nThree from text\n');
 	expect(
 		target.querySelector('[aria-label="Shared pending"]')?.textContent,
-	).toBe(edit.getSnapshot().content?.text);
+	).toBe(edit.getSnapshot().text);
 	type(field('Row 1'), 'one\ntwo\nTHREE\n');
 	flushSync();
 	expect(field('Whole row text').value).toContain('one\ntwo\nTHREE\n');
@@ -178,10 +178,8 @@ test('unmounted views leave held input with the folder, and a new mount shows it
 	first.target.remove();
 	await tick();
 	const edit = folder.tables.notes.document('a');
-	expect(edit.getSnapshot()).toMatchObject({
-		isDirty: true,
-		content: { body: 'typed before unmount\n' },
-	});
+	expect(edit.getSnapshot().isDirty).toBe(true);
+	expect(edit.getSnapshot().text).toContain('typed before unmount\n');
 	const second = show();
 	cleanup.push(async () => {
 		await unmount(second.component);

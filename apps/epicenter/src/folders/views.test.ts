@@ -44,8 +44,7 @@ async function setup(source: Record<string, unknown> = { views: { a: grid } }) {
 	const views = createViews({
 		declaration,
 		saved: () =>
-			expectOk(readSavedViews(declaration.getSnapshot().content?.text ?? '{}'))
-				.views,
+			expectOk(readSavedViews(declaration.getSnapshot().text ?? '{}')).views,
 	});
 	return {
 		folder,
@@ -128,7 +127,7 @@ test('malformed current source refuses submission and keeps the unsubmitted form
 		expect(fixture.views.save('saved:a')).toBe('saved:a');
 		expect(fixture.views.error('saved:a')).toBeDefined();
 		expect(fixture.views.dirty('saved:a')).toBe(true);
-		expect(fixture.neutral.getSnapshot().content?.text).toBe('{broken');
+		expect(fixture.neutral.getSnapshot().text).toBe('{broken');
 		fixture.neutral.discard();
 	} finally {
 		await fixture.close();

@@ -182,11 +182,13 @@ test('existing empty and nonportable row stems remain visible for repair', async
 	// An existing nonportable row can be repaired and removed, never made.
 	expectOk(await folder.tables.notes.document('').refresh());
 	expectOk(await folder.tables.notes.document('a: b').refresh());
-	expectOk(await folder.tables.notes.document('').save({ body: 'new' }));
+	const empty = folder.tables.notes.document('');
+	expectOk(empty.patch({ body: 'new' }));
+	expectOk(await empty.save());
 	expect(await text(root, 'notes/.md')).toBe('---\ntitle: Empty\n---\nnew');
-	expectOk(
-		await folder.tables.notes.document('a: b').save({ body: 'Repaired\n' }),
-	);
+	const edit = folder.tables.notes.document('a: b');
+	expectOk(edit.patch({ body: 'Repaired\n' }));
+	expectOk(await edit.save());
 	expect(await text(root, 'notes/a: b.md')).toContain('Repaired');
 	expectOk(
 		await folder.tables.notes.write('a: b', { body: 'Complete replacement\n' }),
@@ -196,11 +198,8 @@ test('existing empty and nonportable row stems remain visible for repair', async
 	);
 	expectOk(await folder.tables.notes.delete('a: b'));
 	expect(await text(root, 'notes/a: b.md')).toBeUndefined();
-	expect(
-		expectErr(
-			await folder.tables.notes.document('a: b').save({ body: 'again' }),
-		).name,
-	).toBe('InvalidPath');
+	expectOk(edit.replace('again'));
+	expect(expectErr(await edit.save()).name).toBe('InvalidPath');
 	expect(
 		expectErr(await folder.files.write('notes/a: b.md', 'again')).name,
 	).toBe('InvalidPath');
@@ -301,12 +300,10 @@ test('a .git file or link opens and saves, and is left as it is', async () => {
 	for (const root of [worktree, linked]) {
 		const folder = await open(root);
 		expect(expectOk(await folder.files.list())).toEqual(['notes/one.md']);
-		expectOk(await folder.tables.notes.document('one').refresh());
-		expectOk(
-			await folder.tables.notes
-				.document('one')
-				.save({ fields: { done: true } }),
-		);
+		const edit = folder.tables.notes.document('one');
+		expectOk(await edit.refresh());
+		expectOk(edit.patch({ fields: { done: true } }));
+		expectOk(await edit.save());
 		expectOk(await folder.files.write('new.md', 'new\n'));
 		expect(await text(root, 'notes/one.md')).toBe(
 			'---\ntitle: One\ndone: true\n---\n',
@@ -532,21 +529,20 @@ test('a field edit keeps unknown fields and comments, and a schema never refuses
 		'notes/extra.md': '---\n# kept\ntitle: Eggs\nfrom: phone\n---\nBody\n',
 	});
 	const folder = await open(root);
-	expectOk(await folder.tables.notes.document('extra').refresh());
-	const stored = expectOk(
-		await folder.tables.notes
-			.document('extra')
-			.save({ fields: { done: true } }),
-	);
+	const edit = folder.tables.notes.document('extra');
+	expectOk(await edit.refresh());
+	expectOk(edit.patch({ fields: { done: true } }));
+	expectOk(await edit.save());
+	const stored = folder.tables.notes.parse(edit.getSnapshot().text!);
 	expect(await text(root, 'notes/extra.md')).toBe(
 		'---\n# kept\ntitle: Eggs\nfrom: phone\ndone: true\n---\nBody\n',
 	);
 	expect(await text(root, 'notes/extra.md')).toBe(stored.text);
 	// A value the schema refuses is still saved, and reads back with its issue.
-	const wrong = expectOk(
-		// @ts-expect-error Schemas interpret untyped input; they never refuse publication.
-		await folder.tables.notes.document('extra').save({ fields: { title: 7 } }),
-	);
+	// @ts-expect-error Schema types input; runtime still accepts it.
+	expectOk(edit.patch({ fields: { title: 7 } }));
+	expectOk(await edit.save());
+	const wrong = folder.tables.notes.parse(edit.getSnapshot().text!);
 	expect(wrong.issues?.[0]?.kind).toBe('schema');
 	expect(await text(root, 'notes/extra.md')).toContain('title: 7');
 	folder.close();
@@ -556,26 +552,18 @@ test('malformed frontmatter refuses patches and full-text save repairs it', asyn
 	const source = '---\ntitle: [unclosed\n---\nOld\n';
 	const root = await directory({ 'notes/broken.md': source });
 	const folder = await open(root);
-	expectOk(await folder.tables.notes.document('broken').refresh());
-	expect(
-		expectErr(
-			await folder.tables.notes
-				.document('broken')
-				.save({ fields: { done: true } }),
-		).name,
-	).toBe('MalformedFrontmatter');
-	expect(await text(root, 'notes/broken.md')).toBe(source);
-	expect(
-		expectErr(
-			await folder.tables.notes.document('broken').save({ body: 'New\n' }),
-		).name,
-	).toBe('MalformedFrontmatter');
-	expect(await text(root, 'notes/broken.md')).toBe(source);
-	expectOk(
-		await folder.tables.notes
-			.document('broken')
-			.save('---\ntitle: Fixed\n---\nNew\n'),
+	const edit = folder.tables.notes.document('broken');
+	expectOk(await edit.refresh());
+	expect(expectErr(edit.patch({ fields: { done: true } })).name).toBe(
+		'MalformedFrontmatter',
 	);
+	expect(await text(root, 'notes/broken.md')).toBe(source);
+	expect(expectErr(edit.patch({ body: 'New\n' })).name).toBe(
+		'MalformedFrontmatter',
+	);
+	expect(await text(root, 'notes/broken.md')).toBe(source);
+	expectOk(edit.replace('---\ntitle: Fixed\n---\nNew\n'));
+	expectOk(await edit.save());
 	expect(await text(root, 'notes/broken.md')).toBe(
 		'---\ntitle: Fixed\n---\nNew\n',
 	);
@@ -612,9 +600,10 @@ test('a row set patches the row another program landed', async () => {
 		'---\ntitle: Theirs\nfrom: phone\n---\nTheir body\n',
 	);
 	expectOk(await folder.tables.notes.document('one').refresh());
-	const stored = expectOk(
-		await folder.tables.notes.document('one').save({ fields: { done: true } }),
-	);
+	const edit = folder.tables.notes.document('one');
+	expectOk(edit.patch({ fields: { done: true } }));
+	expectOk(await edit.save());
+	const stored = folder.tables.notes.parse(edit.getSnapshot().text!);
 	expect(stored.text).toBe(
 		'---\ntitle: Theirs\nfrom: phone\ndone: true\n---\nTheir body\n',
 	);
@@ -665,11 +654,9 @@ test('a row delete removes the row as stored and keeps adjacent files', async ()
 		'notes/one/nested/a.txt',
 	]);
 	expectOk(await folder.tables.notes.document('one').refresh());
-	expectOk(
-		await folder.tables.notes
-			.document('one')
-			.save({ fields: { title: 'After' } }),
-	);
+	const edit = folder.tables.notes.document('one');
+	expectOk(edit.patch({ fields: { title: 'After' } }));
+	expectOk(await edit.save());
 	expectOk(await folder.tables.notes.delete('one'));
 	expect(expectOk(await folder.files.list('notes/one/'))).toEqual([
 		'notes/one/nested/a.txt',
@@ -786,30 +773,23 @@ test.skipIf(process.platform === 'win32')(
 			expectOk(edit.replace(row('Old', 'Typed\n')));
 			await chmod(join(root, 'notes'), 0o555);
 			try {
-				expect(
-					expectErr(
-						await folder.tables.notes
-							.document('a')
-							.save({ fields: { title: 'New' } }),
-					).name,
-				).toBe('StorageFailed');
+				expectOk(edit.patch({ fields: { title: 'New' } }));
+				expect(expectErr(await edit.save()).name).toBe('StorageFailed');
 			} finally {
 				await chmod(join(root, 'notes'), 0o755);
 			}
 			expect(edit.getSnapshot()).toMatchObject({
 				isDirty: true,
 				saveError: { name: 'StorageFailed' },
-				content: { text: row('New', 'Typed\n') },
+				text: row('New', 'Typed\n'),
 			});
-			const setting = folder.tables.notes.document('a').save({
-				fields: { title: 'New' },
-			});
+			const setting = edit.save();
 			expectOk(edit.replace(row('Old', 'Later\n')));
 			expectOk(await setting);
 			expect(await text(root, 'notes/a.md')).toBe(row('New', 'Typed\n'));
 			expect(edit.getSnapshot()).toMatchObject({
 				isDirty: true,
-				content: { text: row('Old', 'Later\n') },
+				text: row('Old', 'Later\n'),
 			});
 			expectOk(await edit.save());
 			expect(await text(root, 'notes/a.md')).toBe(row('Old', 'Later\n'));

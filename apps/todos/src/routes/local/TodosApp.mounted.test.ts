@@ -309,7 +309,7 @@ test('the list labels a todo by its saved title while its checkbox shows what is
 	});
 });
 
-test('a missing todo shows absence, while an acquired todo keeps its usable text after deletion', async () => {
+test('a deleted todo shows absence even when its editor was already open', async () => {
 	freshProfile();
 	resetUrl('http://localhost/?todo=ghost');
 	const ghost = await openPage();
@@ -318,21 +318,18 @@ test('a missing todo shows absence, while an acquired todo keeps its usable text
 		'the missing todo',
 	);
 	ghost.close();
-	const { get, text, folder } = await onMilk();
-	const title = get(TITLE);
+	const { target, get, text, folder } = await onMilk();
+	expect(get(TITLE).value).toBe('Milk');
 	expectOk(await folder.tables.todos.delete('milk'));
 	await until(
-		() => text(DETAIL)?.includes('Could not read the latest todo') ?? false,
+		() => text(DETAIL)?.includes('This todo is no longer here') ?? false,
 		'the deletion observation',
 	);
-	expect(get(TITLE)).toBe(title);
-	expect(title.value).toBe('Milk');
-	type(title, 'Recreated milk');
-	await until(
-		() => get(STATUS).textContent?.trim() === 'Saved on this device',
-		'the recreation',
-	);
-	expect((await stored('milk'))?.fields?.title).toBe('Recreated milk');
+	expect(target.querySelector(TITLE)).toBeNull();
+	expect(
+		target.querySelector('button[aria-label="Complete Milk"]:not([disabled])'),
+	).toBeNull();
+	expect(await stored('milk')).toBeUndefined();
 });
 
 test('a failed save keeps the typing and offers Try again', async () => {

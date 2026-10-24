@@ -185,7 +185,7 @@ async function record(whispering: Whispering, context: WhisperingContext) {
 	await whispering.stopRecording();
 	expect(whispering.recorderError).toBeUndefined();
 	await settle(whispering, context);
-	return await recordingEditor(whispering);
+	return await recordingEditor(whispering, context);
 }
 
 /** Transcribe the selected recording; answers its transcript's editor. */
@@ -196,7 +196,7 @@ async function transcript(whispering: Whispering, context: WhisperingContext) {
 	await settle(whispering, context);
 	const [result] = whispering.resultsFor(entry.stem);
 	if (result === undefined) throw new Error('Expected a transcript');
-	return await transcriptEditor(whispering, result.path);
+	return await transcriptEditor(whispering, context, result.path);
 }
 
 /** The listed recording at `path`, as the table shows it. */
@@ -275,10 +275,10 @@ test('a read keeps accepted notes and a retry publishes that complete source', a
 	await settle(whispering, context);
 	const edit = context.folder.files.document(editor.path);
 	expect(edit.getSnapshot().isDirty).toBe(true);
-	const held = edit.getSnapshot().content?.text;
+	const held = edit.getSnapshot().text;
 	await writeElsewhere(root, editor.path, recordingText('Theirs'));
 	await edit.refresh();
-	expect(edit.getSnapshot().content?.text).toBe(held);
+	expect(edit.getSnapshot().text).toBe(held);
 	expect(await text(root, editor.path)).toBe(recordingText('Theirs'));
 	expectOk(await edit.save());
 	expect(await text(root, editor.path)).toBe(held);
@@ -398,7 +398,7 @@ test('typing into a retained recording source recreates its deleted file', async
 	const edit = context.folder.files.document(editor.path);
 	await edit.refresh();
 	expect(edit.getSnapshot().loadError?.name).toBe('Missing');
-	expect(edit.getSnapshot().content).toBeDefined();
+	expect(edit.getSnapshot().text).toBeDefined();
 	editor.edit((row) => {
 		row.body = 'Typed after deletion.\n';
 	});
@@ -418,7 +418,7 @@ test('a clean recording deleted elsewhere retains its selected source without re
 
 	expect(whispering.entries).toEqual([]);
 	expect(whispering.selection).toMatchObject({ kind: 'recording', path });
-	expect(whispering.document(path).getSnapshot().content?.text).toBeDefined();
+	expect(whispering.document(path).getSnapshot().text).toBeDefined();
 	expect(await text(root, path)).toBeUndefined();
 	expect(expectOk(await readBytes(context.folder, audioPath)).length).toBe(
 		32044,
@@ -451,7 +451,7 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	expect(whispering.repairs).toEqual([]);
 	expect(await whispering.useForm(path)).toBeUndefined();
 	expect(whispering.showsText(path)).toBe(false);
-	expect((await recordingEditor(whispering)).draft.fields.title).toBe(
+	expect((await recordingEditor(whispering, context)).draft.fields.title).toBe(
 		'Repaired',
 	);
 });
@@ -477,7 +477,7 @@ test('Source shows unsaved row input while its save is still running', async () 
 	});
 	await held;
 	expect(await whispering.editSource(path)).toBeUndefined();
-	expect(whispering.document(path).getSnapshot().content?.text).toEndWith(
+	expect(whispering.document(path).getSnapshot().text).toEndWith(
 		'---\nTyped in the fields.\n',
 	);
 	expect(whispering.document(path).getSnapshot().isSaving).toBe(true);
@@ -490,7 +490,7 @@ test('Source shows unsaved row input while its save is still running', async () 
 	await settle(whispering, context);
 	expect(await text(root, path)).toEndWith('---\nTyped as text.\n');
 	expect(await whispering.useForm(path)).toBeUndefined();
-	expect((await recordingEditor(whispering)).draft.body).toBe(
+	expect((await recordingEditor(whispering, context)).draft.body).toBe(
 		'Typed as text.\n',
 	);
 });
@@ -508,7 +508,7 @@ test('switching between fields and Source preserves failed input and recovery in
 	expect(whispering.isUnsaved(path)).toBe(true);
 	expect(await whispering.editSource(path)).toBeUndefined();
 	expect(whispering.showsText(path)).toBe(true);
-	expect(whispering.document(path).getSnapshot().content?.text).toEndWith(
+	expect(whispering.document(path).getSnapshot().text).toEndWith(
 		'Older body.\n',
 	);
 	expect(whispering.document(path).getSnapshot().saveError).toBeDefined();
@@ -526,7 +526,7 @@ test('switching between fields and Source preserves failed input and recovery in
 	expect(whispering.isUnsaved(path)).toBe(true);
 	expect(await whispering.useForm(path)).toBeUndefined();
 	expect(whispering.showsText(path)).toBe(false);
-	expect((await recordingEditor(whispering)).draft.body).toBe(
+	expect((await recordingEditor(whispering, context)).draft.body).toBe(
 		'Newer source.\n',
 	);
 	expect(whispering.isUnsaved(path)).toBe(true);
@@ -537,7 +537,7 @@ test('switching between fields and Source preserves failed input and recovery in
 	await settle(whispering, context);
 	expect(await text(root, path)).toEndWith('---\nNewer source.\n');
 	expect(await whispering.useForm(path)).toBeUndefined();
-	expect((await recordingEditor(whispering)).draft.body).toBe(
+	expect((await recordingEditor(whispering, context)).draft.body).toBe(
 		'Newer source.\n',
 	);
 });
@@ -700,7 +700,7 @@ test('save indicators and failure recovery do not demand file contents', async (
 	const { whispering, context } = await open();
 	const path = 'unopened.txt';
 	const edit = context.folder.files.document(path);
-	expect(edit.getSnapshot().content).toBeUndefined();
+	expect(edit.getSnapshot().text).toBeUndefined();
 
 	expect(whispering.isSaving(path)).toBe(false);
 	expect(whispering.isUnsaved(path)).toBe(false);
@@ -709,5 +709,5 @@ test('save indicators and failure recovery do not demand file contents', async (
 	).toBe(false);
 	await Bun.sleep(0);
 
-	expect(edit.getSnapshot().content).toBeUndefined();
+	expect(edit.getSnapshot().text).toBeUndefined();
 });

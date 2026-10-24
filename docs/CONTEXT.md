@@ -151,25 +151,31 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 File writes and document saves publish a complete file unconditionally.
 `files.write(path, content)` submits complete content; `folder.tables.notes.write(id, document)`
 does the same for a row without accepting pending input on failure.
-`folder.tables.notes.document(id).save(input)` accepts local input and admits its captured
-publication before notifying observers. A structured patch preserves unrelated
-source, including unknown fields. None of these operations makes a merge
+`folder.tables.notes.document(id).patch(input)` accepts local input synchronously;
+`save()` publishes the text visible at its call and reports that publication's
+result. A structured patch preserves unrelated source, including unknown
+fields. None of these operations makes a merge
 promise against outside writers. Git sync retains its separate three-way merge
 and conditional storage publication rules.
 
-One working source belongs to the folder for each path. Stable `FileDocument`
-handles interpret that source through their schemas. `document()` is passive;
-subscriptions or explicit refresh acquire content. `replace(text)` replaces
-source, while `patch({ fields?, body? })` patches acquired source; both accept
-input synchronously and schedule autosave. `getSnapshot()` returns cached content, `loadError`,
-`isDirty`, `isSaving`, and `saveError`. Dirty means accepted publication intent;
-saving means admitted unsettled text publications. Both may be true. A save
-captures current text at the call and resolves for that publication, even if
-newer input arrives. Reads never replace pending local input and never cause
-writes. All acquired text remains available through unmounts, deletion, binary
-replacement, and failed refresh, until the folder closes. Explicit local input
-can recreate a missing file. Holding text in memory does not provide crash
-recovery. See [Working documents](../packages/folder/README.md#working-documents).
+One `TextDocument` belongs to the folder for each path. File and table access to
+the same path return that same object; a table's `parse(text)` separately
+interprets source through its schema. `document()` is passive; subscriptions or
+explicit refresh acquire text. `replace(text)` replaces source, while
+`patch({ fields?, body? })` patches current source; both accept input
+synchronously and schedule autosave. `getSnapshot()` returns cached `text`,
+`loadError`, `isDirty`, `isSaving`, and `saveError`. Dirty means accepted text
+awaiting publication; saving means an admitted write or delete has not settled.
+Both may be true. A save captures current text at the call and resolves for
+that publication, even if newer input arrives. Reads never replace pending
+local input and never cause writes. A clean document follows readable storage
+changes; a missing or non-text read keeps its last readable text with a load
+error. Editing kept text schedules autosave, which can restore a missing path
+or overwrite a non-text file. An accepted local draft remains visible through
+unmounts and failed refresh.
+A later successful raw write or delete supersedes an earlier draft. Explicit
+local input can recreate a missing file. Holding text in memory does not
+provide crash recovery. See [Working documents](../packages/folder/README.md#working-documents).
 
 During sync, the same merge roles describe a base tree, the fetched remote
 tree, and the local tree being merged. These are roles in Epicenter's merge, not Git's

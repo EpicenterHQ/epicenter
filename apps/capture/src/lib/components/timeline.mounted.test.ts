@@ -31,11 +31,18 @@ import {
 	setWide,
 	type,
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
-import { isMissing } from '../local-folder.test-support.js';
+import {
+	type CapturesHarness,
+	isMissing,
+} from '../local-folder.test-support.js';
 
 const { flushSync, mount, tick, unmount } = await import('svelte');
 const { openCaptures, until } = await import('../local-folder.test-support.js');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
+
+function parsed(t: Pick<CapturesHarness, 'folder'>, text: string | undefined) {
+	return text === undefined ? undefined : t.folder.tables.captures.parse(text);
+}
 
 // A desktop-width window: `min-width` queries match, so the UI kit's modal
 // renders as a dialog.
@@ -241,7 +248,7 @@ test('a draft an earlier version saved is listed apart, autosaves, and Add captu
 	expect(t.captures.opened).toEqual({ stem: 'draft', mode: 'text' });
 	expect(box.value).toBe(draftFile(''));
 	type(box, draftFile('Written in the draft'));
-	expect(edit.getSnapshot().content?.body).toBe('Written in the draft');
+	expect(parsed(t, edit.getSnapshot().text)?.body).toBe('Written in the draft');
 	await t.quiet();
 	expect(await t.text(DRAFT)).toBe(draftFile('Written in the draft'));
 
@@ -262,12 +269,12 @@ test('a draft an earlier version saved is listed apart, autosaves, and Add captu
 test('the draft text box writes nothing after its view is gone', async () => {
 	const { t, box, edit } = await openDraft();
 	type(box, draftFile('typed in the draft'));
-	expect(edit.getSnapshot().content?.body).toBe('typed in the draft');
+	expect(parsed(t, edit.getSnapshot().text)?.body).toBe('typed in the draft');
 
 	t.close();
 	flushSync();
 	type(box, draftFile('delivered after the view went'));
-	expect(edit.getSnapshot().content?.body).toBe('typed in the draft');
+	expect(parsed(t, edit.getSnapshot().text)?.body).toBe('typed in the draft');
 	expect(t.captures.fenced).toBe(false);
 });
 
@@ -382,7 +389,7 @@ test('a NUL paste is refused visibly and leaves current source unchanged', async
 			false
 		);
 	}, 'the input refusal');
-	expect(edit.getSnapshot().content?.text).toBe(draftFile('Before'));
+	expect(edit.getSnapshot().text).toBe(draftFile('Before'));
 	expect(edit.getSnapshot().isDirty).toBe(false);
 	expect(edit.getSnapshot().saveError).toBeUndefined();
 	await until(
@@ -446,7 +453,7 @@ test('Finish composes pending whole-file content, keeping unknown frontmatter an
 		.replace('Before', 'New\r\nbody');
 	type(box, typed);
 	const edit = t.folder.tables.captures.document('draft');
-	expect(edit.getSnapshot().content?.text).toBe(typed);
+	expect(edit.getSnapshot().text).toBe(typed);
 	click(document, 'Add capture');
 	await until(() => {
 		flushSync();
@@ -487,9 +494,9 @@ test('input accepted after Finish writes remains current through its refresh', a
 			'New typing during refresh',
 		);
 		type(box, newer);
-		expect(
-			t.folder.tables.captures.document('draft').getSnapshot().content?.text,
-		).toBe(newer);
+		expect(t.folder.tables.captures.document('draft').getSnapshot().text).toBe(
+			newer,
+		);
 		expect(
 			t.folder.tables.captures.document('draft').getSnapshot().isDirty,
 		).toBe(true);
@@ -542,7 +549,8 @@ test('a capture that becomes a draft offers an explicit text editor that stays m
 	expectOk(await t.folder.tables.captures.document('draft').refresh());
 	type(oldCaptureText, 'Stale structured input');
 	expect(
-		t.folder.tables.captures.document('draft').getSnapshot().content?.body,
+		parsed(t, t.folder.tables.captures.document('draft').getSnapshot().text)
+			?.body,
 	).toBe('Before');
 	await until(() => {
 		flushSync();

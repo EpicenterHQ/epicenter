@@ -280,10 +280,10 @@ test('a Stop pressed again joins the first, which ends once the length is writte
 				const document = acquire(id);
 				return {
 					...document,
-					async save(change) {
+					async save() {
 						reached.resolve();
 						await release.promise;
-						return document.save(change);
+						return document.save();
 					},
 				};
 			},
@@ -454,7 +454,10 @@ test('a failed duration save remains in the working document and later typing sa
 	try {
 		await whispering.stopRecording();
 		expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
-		expect(edit.getSnapshot().content?.fields?.durationMs).toBe(1000);
+		expect(
+			test.folder.tables.recordings.parse(edit.getSnapshot().text!).fields
+				?.durationMs,
+		).toBe(1000);
 		expect(edit.getSnapshot().isDirty).toBe(true);
 	} finally {
 		chmodSync(directory, 0o755);
@@ -490,8 +493,8 @@ test('a title typed while the length saves composes over it, and its save keeps 
 	// and its next save publishes both. Close itself submits nothing.
 	const working = edit.getSnapshot();
 	expect(working.isDirty).toBe(true);
-	expect(working.content?.text).toContain('durationMs: 1000');
-	expect(working.content?.text).toContain('Typed while stopping');
+	expect(working.text).toContain('durationMs: 1000');
+	expect(working.text).toContain('Typed while stopping');
 	expectOk(await edit.save());
 	const saved = await readFile(join(test.root, path), 'utf8');
 	expect(saved).toContain('durationMs: 1000');

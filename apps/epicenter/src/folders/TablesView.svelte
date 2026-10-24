@@ -9,6 +9,8 @@
 	import * as Table from '@epicenter/ui/table';
 	import * as Alert from '@epicenter/ui/alert';
 	import { createQuery } from '@tanstack/svelte-query';
+	import { readDocument, type Document } from '@epicenter/folder/documents';
+	import type { DocumentSnapshot } from '@epicenter/folder/document';
 
 	import { applyView, boardLanes } from './view';
 	import TableControls from './TableControls.svelte';
@@ -65,23 +67,39 @@
 		].sort(),
 	);
 	const columns = $derived(view.columns ?? availableColumns);
+	const encoder = new TextEncoder();
+	const interpreted = new WeakMap<DocumentSnapshot, {
+		schema: ReturnType<typeof tableFor>;
+		value: Document;
+	}>();
+	function currentDocument(path: string, text: string, snapshot: DocumentSnapshot): Document {
+		const schema = tableFor(path);
+		const previous = interpreted.get(snapshot);
+		if (previous !== undefined && previous.schema === schema) return previous.value;
+		const value = readDocument(path, encoder.encode(text), schema);
+		interpreted.set(snapshot, { schema, value });
+		return value;
+	}
 	// Query structural sharing retains equal portable schema identities across refreshes.
 	const observed = $derived(documents.map((doc) => {
-		const fileEdit = folder.files.document(doc.path, tableFor(doc.path));
+		const fileEdit = folder.files.document(doc.path);
 		return { doc, fileEdit, snapshot: liveSnapshot(fileEdit) };
 	}));
 	const rows = $derived(
 		observed.map(({ doc, fileEdit, snapshot }) => {
-			const content = snapshot.current.content;
-			const shown = content === undefined ? doc : { ...doc, ...content };
+			const current = snapshot.current;
+			const text = current.text;
+			const shown = text === undefined || text === doc.text
+				? doc
+				: currentDocument(doc.path, text, current);
 			return {
 				doc,
 				fileEdit,
-				snapshot: snapshot.current,
+				snapshot: current,
 				shown,
-				held: snapshot.current.isDirty || snapshot.current.isSaving,
-				canEdit: content !== undefined &&
-					!content.issues?.some((issue) => issue.kind !== 'schema'),
+				held: current.isDirty || current.isSaving,
+				canEdit: text !== undefined &&
+					!shown.issues?.some((issue) => issue.kind !== 'schema'),
 			};
 		}),
 	);

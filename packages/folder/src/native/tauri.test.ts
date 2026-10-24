@@ -194,11 +194,9 @@ test('an acquired row set publishes one unconditional put even over a racing out
 		overtaken = true;
 		await shell.write('notes/milk.md', '---\ntitle: Oat\n---\nTheir body\n');
 	};
-	expectOk(
-		await folder.tables.notes
-			.document('milk')
-			.save({ fields: { title: 'Soy' } }),
-	);
+	const edit = folder.tables.notes.document('milk');
+	expectOk(edit.patch({ fields: { title: 'Soy' } }));
+	expectOk(await edit.save());
 	// Composed over what it read; a write landing after that read is replaced whole.
 	expect(await shell.text('notes/milk.md')).toBe(
 		'---\ntitle: Soy\n---\nBody\n',
@@ -207,9 +205,9 @@ test('an acquired row set publishes one unconditional put even over a racing out
 	expect(puts.map((call) => call.args.expected)).toEqual(['any']);
 	// The editor of the row knows the composed text without reading again.
 	const reads = shell.calls.filter((call) => call.cmd === 'read_folder_file');
-	expect(
-		folder.tables.notes.document('milk').getSnapshot().content?.fields,
-	).toEqual({ title: 'Soy' });
+	expect(folder.tables.notes.parse(edit.getSnapshot().text!).fields).toEqual({
+		title: 'Soy',
+	});
 	expect(
 		shell.calls.filter((call) => call.cmd === 'read_folder_file'),
 	).toHaveLength(reads.length);

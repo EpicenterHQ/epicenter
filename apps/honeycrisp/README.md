@@ -92,9 +92,9 @@ cancel a publication already admitted or restore an earlier saved version.
 
 Structured and whole-file editing use one folder-owned source per path.
 `folder.tables.notes.document(id)` interprets it as a note;
-`folder.files.document(path)` exposes full text. `getSnapshot()` is a pure cached
-read of `content`, `loadError`, `isDirty`, `isSaving`, and `saveError`.
-`content` holds exact `text` with interpreted `fields`, `body`, and `issues`.
+`folder.files.document(path)` returns that same path's document. `getSnapshot()` is a pure cached
+read of `text`, `loadError`, `isDirty`, `isSaving`, and `saveError`.
+`folder.tables.notes.parse(text)` interprets fields, body, and issues when needed;
 `issues === null` means the structured interpretation is valid.
 `patch({ fields?, body? })` patches acquired source; `replace(text)`
 replaces it completely, even before acquisition. Svelte uses
@@ -153,8 +153,8 @@ New notes use `folder.tables.notes.write`; folders use
 `folder.tables.folders.write`. The submitted fields and body form a complete
 document, and a failed creation leaves no deferred edit. Existing
 notes and folders use the shared working document. A list action refreshes clean source before editing, preserving pending local
-input; `document.save(patch)` then accepts the patch and publishes
-that exact captured content. Typing during that publication builds on the accepted patch. A
+input; `document.patch({ fields })` accepts the change synchronously, then
+`await document.save()` publishes that exact captured text. Typing during that publication builds on the accepted patch. A
 failed publication returns its error and keeps the change available for retry.
 Lists and raw reads remain independent of editable text acquisition.
 

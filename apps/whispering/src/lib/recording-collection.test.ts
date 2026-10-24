@@ -663,7 +663,7 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 	whispering.open(path('standup'));
 	const before = await readFile(join(root, TRANSCRIPT), 'utf8');
 
-	const editor = await transcriptEditor(whispering, TRANSCRIPT);
+	const editor = await transcriptEditor(whispering, context, TRANSCRIPT);
 	editor.edit((row) => {
 		row.body = 'Yesterday I finished the importer. Today: the exporter.\n';
 	});
@@ -691,8 +691,9 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 		path: TRANSCRIPT,
 	});
 	expect(
-		whispering.document('transcriptions', TRANSCRIPT).getSnapshot().content
-			?.body,
+		context.folder.tables.transcriptions.parse(
+			whispering.document('transcriptions', TRANSCRIPT).getSnapshot().text!,
+		).body,
 	).toBe('Yesterday I finished the importer. Today: the exporter.\n');
 });
 
@@ -701,7 +702,7 @@ test('typing over an outside transcript change publishes the complete held sourc
 	whispering.open(path('standup'));
 	const notices: WriteFailure[] = [];
 	whispering.onWriteFailure((notice) => notices.push(notice));
-	const editor = await transcriptEditor(whispering, TRANSCRIPT);
+	const editor = await transcriptEditor(whispering, context, TRANSCRIPT);
 	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8')).replace(
 		'importer',
 		'migration',
@@ -725,7 +726,7 @@ test('closing the details and changing page lose no typing: the draft belongs to
 	const { context, whispering, view, root } = await history();
 	whispering.open(path('standup'));
 	view.showingDetail = true;
-	const draft = await transcriptEditor(whispering, TRANSCRIPT);
+	const draft = await transcriptEditor(whispering, context, TRANSCRIPT);
 	draft.edit((row) => {
 		row.body = 'Typed just before closing the details.\n';
 	});
@@ -838,7 +839,7 @@ test('nothing is opened or read after closing', async () => {
 
 test('close does not save held transcript input', async () => {
 	const { context, whispering, root } = await history();
-	(await transcriptEditor(whispering, TRANSCRIPT)).edit((row) => {
+	(await transcriptEditor(whispering, context, TRANSCRIPT)).edit((row) => {
 		row.body = 'Typed just before quitting.\n';
 	});
 

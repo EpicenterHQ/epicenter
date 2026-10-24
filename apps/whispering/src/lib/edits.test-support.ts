@@ -24,6 +24,7 @@ type Shown<T extends RowTable> = {
 
 async function rowEditor<T extends RowTable>(
 	whispering: Whispering,
+	context: WhisperingContext,
 	table: T,
 	path: string | undefined,
 ) {
@@ -34,7 +35,9 @@ async function rowEditor<T extends RowTable>(
 	const view = whispering.document(table, path);
 	await view.refresh();
 	const shown = (): Shown<T> | undefined => {
-		const row = view.getSnapshot().content;
+		const text = view.getSnapshot().text;
+		const row =
+			text === undefined ? undefined : context.folder.tables[table].parse(text);
 		return row?.fields === undefined || row.body === undefined
 			? undefined
 			: { fields: row.fields as Shown<T>['fields'], body: row.body };
@@ -71,20 +74,29 @@ async function rowEditor<T extends RowTable>(
 }
 
 /** The selected recording, as its detail view edits it. */
-export const recordingEditor = (whispering: Whispering) =>
-	rowEditor(whispering, 'recordings', whispering.selectedPath);
+export const recordingEditor = (
+	whispering: Whispering,
+	context: WhisperingContext,
+) => rowEditor(whispering, context, 'recordings', whispering.selectedPath);
 
 /** The selected transformation, as its detail view edits it. */
-export const transformationEditor = (whispering: Whispering) =>
+export const transformationEditor = (
+	whispering: Whispering,
+	context: WhisperingContext,
+) =>
 	rowEditor(
 		whispering,
+		context,
 		'transformations',
 		whispering.selectedTransformationPath,
 	);
 
 /** The transcript at `path`, as its card edits it. */
-export const transcriptEditor = (whispering: Whispering, path: string) =>
-	rowEditor(whispering, 'transcriptions', path);
+export const transcriptEditor = (
+	whispering: Whispering,
+	context: WhisperingContext,
+	path: string,
+) => rowEditor(whispering, context, 'transcriptions', path);
 
 /** The text of `path`, as a text view edits it; the file must be open as text. */
 export function textEditor(whispering: Whispering, path: string) {
@@ -94,7 +106,7 @@ export function textEditor(whispering: Whispering, path: string) {
 	return {
 		view,
 		get draft(): string {
-			const text = view.getSnapshot().content?.text;
+			const text = view.getSnapshot().text;
 			if (text === undefined) throw new Error(`${path} is not open as text`);
 			return text;
 		},

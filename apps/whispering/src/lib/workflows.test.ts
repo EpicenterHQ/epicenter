@@ -415,11 +415,13 @@ test('Stop combines held title input with duration before a later explicit save'
 	await edit.refresh();
 	expectOk(edit.patch({ fields: { title: 'Standup notes' } }));
 	await whispering.stopRecording();
-	const captured = edit.getSnapshot().content!.text;
-	expect(edit.getSnapshot().content?.fields).toMatchObject({
-		title: 'Standup notes',
-		durationMs: 1000,
-	});
+	const captured = edit.getSnapshot().text!;
+	expect(context.folder.tables.recordings.parse(captured).fields).toMatchObject(
+		{
+			title: 'Standup notes',
+			durationMs: 1000,
+		},
+	);
 	await edit.save();
 	await settle(whispering, context);
 	expect(await readFile(join(root, entry.path), 'utf8')).toBe(captured);
@@ -576,7 +578,9 @@ test('files in an ordinary directory read as they are, extra fields included', a
 	// Editing the notes keeps the field this version does not know.
 	const view = whispering.document('recordings', entry.path);
 	expectOk(await view.refresh());
-	expect(view.getSnapshot().content?.body).toBeDefined();
+	expect(
+		context.folder.tables.recordings.parse(view.getSnapshot().text!).body,
+	).toBeDefined();
 	view.patch({ body: 'My notes, edited\n' });
 	await view.save();
 	await settle(whispering, context);
@@ -1241,7 +1245,7 @@ test('recording and transformation files keep their names, and a transcript keep
 	expect(
 		whispering
 			.document('transcriptions', 'transcriptions/renamed.md')
-			.getSnapshot().content,
+			.getSnapshot().text,
 	).toBeDefined();
 	expect(whispering.resultsFor(entry.stem).map((item) => item.path)).toEqual([
 		'transcriptions/renamed.md',
@@ -1395,11 +1399,11 @@ test('stopping Whispering fences direct row and source input while keeping accep
 	const textEdit = context.folder.files.document(entry.path);
 	await textEdit.refresh();
 	rowEdit.patch({ body: 'Accepted before stop' });
-	const accepted = rowEdit.getSnapshot().content?.text;
+	const accepted = rowEdit.getSnapshot().text;
 	whispering.dispose();
 	expect(rowEdit.patch({ fields: { title: 'Too late' } }).error).not.toBeNull();
 	expect(textEdit.replace('Too late').error).not.toBeNull();
-	expect(rowEdit.getSnapshot().content?.text).toBe(accepted);
+	expect(rowEdit.getSnapshot().text).toBe(accepted);
 	expect(expectErr(await rowEdit.save()).name).toBe('Closing');
 	context.close();
 	expect(rowEdit.getSnapshot().isDirty).toBe(true);
@@ -1438,7 +1442,7 @@ test.each(['Captured source', 'Newer accepted input'])(
 		expect(await readFile(join(root, 'to.txt'), 'utf8')).toBe(
 			'Captured source',
 		);
-		expect(source.getSnapshot().content?.text).toBe('Newer accepted input');
+		expect(source.getSnapshot().text).toBe('Newer accepted input');
 		await source.save();
 		expect(await readFile(join(root, 'from.txt'), 'utf8')).toBe(
 			'Newer accepted input',
@@ -1543,7 +1547,7 @@ test('same-text input accepted during result deletion survives and can recreate 
 	release.resolve();
 	expect(await deleting).toBeUndefined();
 	expect(edit.getSnapshot().isDirty).toBe(true);
-	expect(edit.getSnapshot().content?.text).toBe('Exact held text.\n');
+	expect(edit.getSnapshot().text).toBe('Exact held text.\n');
 	expect(await Bun.file(join(root, path)).exists()).toBe(false);
 	expectOk(await edit.save());
 	expect(await readFile(join(root, path), 'utf8')).toBe('Exact held text.\n');
@@ -1564,12 +1568,12 @@ test.each([false, true])(
 		const original = '\ufeffUnopened café\r\n';
 		await writeFile(join(root, 'unopened.txt'), original);
 		const edit = context.folder.files.document('unopened.txt');
-		expect(edit.getSnapshot().content).toBeUndefined();
+		expect(edit.getSnapshot().text).toBeUndefined();
 		const renaming = whispering.rename('unopened.txt', 'renamed.txt');
 		await reached.promise;
 		if (acquireDuringCopy) {
 			expectOk(await edit.refresh());
-			expect(edit.getSnapshot().content?.text).toBe(original);
+			expect(edit.getSnapshot().text).toBe(original);
 		}
 		release.resolve();
 		expect(await renaming).toBeUndefined();

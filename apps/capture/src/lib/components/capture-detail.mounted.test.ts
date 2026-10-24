@@ -100,7 +100,7 @@ async function setup(
 		const snapshot = harness.folder.tables.captures
 			.document('one')
 			.getSnapshot();
-		return snapshot.content !== undefined || snapshot.loadError !== undefined;
+		return snapshot.text !== undefined || snapshot.loadError !== undefined;
 	}, 'the initial editor acquisition');
 	await settle(harness);
 	return { ...harness, target };
@@ -299,6 +299,7 @@ test("a thought's Edit as text opens the file with that thought's lines selected
 	// What the menu item does, over the list the view shows.
 	const actions = createCaptureActions(
 		harness.folder.tables.captures.document('one'),
+		harness.folder.tables.captures.parse,
 	);
 	const range = actions.locateThought(1, ['first', 'second\nmore']);
 	if (range === undefined) throw new Error('The thought was not found');

@@ -328,14 +328,14 @@ test('the clean save line leaves an existing unopened file unread', async () => 
 		'./test-fixtures/SaveStatusHost.svelte'
 	);
 	const edit = context.folder.files.document(path);
-	expect(edit.getSnapshot().content).toBeUndefined();
+	expect(edit.getSnapshot().text).toBeUndefined();
 	const host = mount(SaveStatusHost, { target, props: { context, path } });
 	cleanups.push(() => unmount(host));
 	flushSync();
 	await quiet(context);
 	flushSync();
 	expect(writeStatus(target)).toBe('No unsaved changes');
-	expect(edit.getSnapshot().content).toBeUndefined();
+	expect(edit.getSnapshot().text).toBeUndefined();
 	expect(edit.getSnapshot().loadError).toBeUndefined();
 });
 
@@ -702,7 +702,7 @@ for (const item of [
 			await show(whispering, context, item.path);
 			disk.refusing = true;
 			const view = whispering.document(item.table, item.path);
-			expect(view.getSnapshot().content).toBeDefined();
+			expect(view.getSnapshot().text).toBeDefined();
 			expectOk(
 				view.patch({
 					fields: { title: 'Keep my title', [item.remove]: undefined },
@@ -722,7 +722,7 @@ for (const item of [
 			const retained = target.querySelector<HTMLTextAreaElement>(
 				'textarea[aria-label="Markdown source"]',
 			);
-			expect(retained?.value).toBe(view.getSnapshot().content?.text);
+			expect(retained?.value).toBe(view.getSnapshot().text);
 			expect(retained?.readOnly).toBe(false);
 			expect(retained?.value).toContain('title: Keep my title');
 			expect(retained?.value).not.toContain(`${item.remove}:`);
@@ -920,8 +920,8 @@ for (const item of [
 			whispering.editSource(item.path);
 			flushSync();
 			const owner = context.folder.files.document(item.path);
-			const acquired = owner.getSnapshot().content;
-			expect(acquired?.text).toBe(item.source);
+			const acquired = owner.getSnapshot().text;
+			expect(acquired).toBe(item.source);
 			expect(owner.getSnapshot().isDirty).toBe(false);
 			const writes = disk.writes;
 			page.shown = false;
@@ -929,7 +929,7 @@ for (const item of [
 			if (replacement === 'missing') await rm(join(root, item.path));
 			else await writeFile(join(root, item.path), new Uint8Array([0, 1, 2]));
 			await owner.refresh();
-			expect(owner.getSnapshot().content).toBe(acquired);
+			expect(owner.getSnapshot().text).toBe(acquired);
 			expect(owner.getSnapshot().loadError?.name).toBe(
 				replacement === 'missing' ? 'Missing' : 'NotText',
 			);

@@ -35,6 +35,7 @@ import {
 	click,
 	type,
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import type { NotesFixture } from '../../lib/local.test-support.js';
 
 // jsdom has no layout, and its ranges cannot be measured. ProseMirror
 // measures the cursor to scroll it into view after typing; it gets no boxes.
@@ -51,6 +52,9 @@ const { default: FileDetail } = await import('./FileDetail.svelte');
 const { default: Host } = await import('../../lib/ui-host.test-support.svelte');
 
 const PATH = 'notes/a.md';
+function parsed(folder: NotesFixture['folder'], text: string | undefined) {
+	return text === undefined ? undefined : folder.tables.notes.parse(text);
+}
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const stop of cleanup.splice(0).reverse()) await stop();
@@ -71,14 +75,15 @@ test('failed changes share one recovery surface across note and whole-file prese
 		);
 	}, 'the whole-file editor');
 	expect(notes.selected?.as).toBe('text');
-	expect(
-		notes.folder.files.document(PATH).getSnapshot().content?.text,
-	).toContain(body);
+	expect(notes.folder.files.document(PATH).getSnapshot().text).toContain(body);
 	expect(
 		notes.folder.files.document(PATH).getSnapshot().saveError,
 	).toBeDefined();
 	expect(
-		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+		parsed(
+			notes.folder,
+			notes.folder.tables.notes.document('a').getSnapshot().text,
+		)?.body,
 	).toBe(body);
 	expect(
 		target.querySelector('[aria-label="Unsaved note changes"]'),
@@ -262,7 +267,7 @@ test('typing a title saves it, and switching tabs or typing keeps the one rich-t
 	expect(rich.isConnected).toBe(true);
 });
 
-test('title and Source inputs replace lone surrogates before reaching FileDocument', async () => {
+test('title and Source inputs replace lone surrogates before reaching the document', async () => {
 	const { notes, target, settle, text } = await view();
 	type(titleOf(target), 'Title\uD800');
 	blur(titleOf(target));
@@ -274,9 +279,10 @@ test('title and Source inputs replace lone surrogates before reaching FileDocume
 	);
 	await tick();
 	await settle();
-	const markdown = notes.folder.tables.notes
-		.document('a')
-		.getSnapshot().content;
+	const markdown = parsed(
+		notes.folder,
+		notes.folder.tables.notes.document('a').getSnapshot().text,
+	);
 	expect(markdown?.fields?.title).toBe('Title\uFFFD');
 	expect(markdown?.body).toBe('Body\uFFFD\n');
 	expect(await text(PATH)).toContain('Body\uFFFD\n');
@@ -287,7 +293,10 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 	const rich = richOf(target);
 	await typeRich(rich, ' Typed');
 	expect(
-		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+		parsed(
+			notes.folder,
+			notes.folder.tables.notes.document('a').getSnapshot().text,
+		)?.body,
 	).toBe('Body. Typed\n');
 	await settle();
 	expect(await text(PATH)).toContain('Body. Typed\n');
@@ -301,7 +310,10 @@ test('rich-text typing is saved after its pause, and stays undoable after the sa
 		flushSync();
 	}
 	expect(
-		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+		parsed(
+			notes.folder,
+			notes.folder.tables.notes.document('a').getSnapshot().text,
+		)?.body,
 	).toBe('Body.\n');
 	expect(rich.textContent).toBe('Body.');
 	await settle();
@@ -320,7 +332,10 @@ test('different Source text replaces the rich-text document, and typing goes on 
 	);
 	await tick();
 	expect(
-		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+		parsed(
+			notes.folder,
+			notes.folder.tables.notes.document('a').getSnapshot().text,
+		)?.body,
 	).toBe('Different\n');
 	click(target, 'Rich text');
 	flushSync();
@@ -328,7 +343,10 @@ test('different Source text replaces the rich-text document, and typing goes on 
 	expect(undoButton(target).disabled).toBe(true);
 	await typeRich(rich, ' again');
 	expect(
-		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+		parsed(
+			notes.folder,
+			notes.folder.tables.notes.document('a').getSnapshot().text,
+		)?.body,
 	).toBe('Different again\n');
 });
 
@@ -377,7 +395,10 @@ test('changing the whole-file body replaces rich text without retaining stale Un
 	expect(undoButton(target).disabled).toBe(true);
 	await typeRich(rich, ' again');
 	expect(
-		notes.folder.tables.notes.document('a').getSnapshot().content?.body,
+		parsed(
+			notes.folder,
+			notes.folder.tables.notes.document('a').getSnapshot().text,
+		)?.body,
 	).toBe('Different again\n');
 });
 
@@ -391,11 +412,12 @@ test('a title typed before another tab saves publishes the current complete file
 	expectOk(await tab.tables.notes.document('a').refresh());
 
 	expectOk(
-		await tab.tables.notes.document('a').save({
+		tab.tables.notes.document('a').patch({
 			fields: { title: 'Theirs' },
 			body: 'Their body.\n',
 		}),
 	);
+	expectOk(await tab.tables.notes.document('a').save());
 	await folder.tables.notes.document('a').save();
 	expect(
 		folder.tables.notes.document('a').getSnapshot().saveError,
@@ -416,11 +438,12 @@ test('a change another tab saved shows in the open note', async () => {
 	expectOk(await tab.tables.notes.document('a').refresh());
 
 	expectOk(
-		await tab.tables.notes.document('a').save({
+		tab.tables.notes.document('a').patch({
 			fields: { title: 'Theirs' },
 			body: 'Their body.\n',
 		}),
 	);
+	expectOk(await tab.tables.notes.document('a').save());
 	await until(() => {
 		flushSync();
 		return titleOf(target).value === 'Theirs';
@@ -460,8 +483,10 @@ test('once the notes are closing, the controls take no input', async () => {
 	type(titleOf(target), 'Typed while closing');
 	flushSync();
 	expect(
-		notes.folder.tables.notes.document('a').getSnapshot().content?.fields
-			?.title,
+		parsed(
+			notes.folder,
+			notes.folder.tables.notes.document('a').getSnapshot().text,
+		)?.fields?.title,
 	).toBe('Alpha');
 	// The editor stays mounted while the last saves land.
 	expect(richOf(target)).toBe(rich);

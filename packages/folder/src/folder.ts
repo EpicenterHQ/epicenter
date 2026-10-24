@@ -6,8 +6,8 @@
  * (`native/`).
  *
  * The handle exposes rooted `files`, table views that interpret Markdown rows
- * through the caller's schemas, one working source per path (`document`, owned by
- * the folder for its whole life, `document-owner.ts`), change notification,
+ * through the caller's schemas, one editable text document per path (`document`,
+ * owned by the folder for its whole life, `document-owner.ts`), change notification,
  * local-save status with held input, `flush`, and `close`. A schema only
  * interprets (ADR-0632). A row that does not fit still comes back with its
  * exact source, its raw fields, and the issues, and a save never validates
@@ -15,11 +15,11 @@
  * readable for full-text repair.
  *
  * Writes are unconditional: a file write replaces whatever is there, a
- * delete removes it, and the last to land wins. A document save can accept
- * input and publish its captured content atomically. A row write publishes
- * a complete document without retaining failed publication as input. Every
- * write and delete of a path runs in one lane in call order and reports its
- * own outcome.
+ * delete removes it, and the last to land wins. A document save publishes text
+ * captured at its call. A row write publishes a complete document without
+ * retaining failed publication as input. Document reads and all writes and
+ * deletes of a path share one I/O slot in call order. Raw file reads and table
+ * list/get calls read storage directly.
  *
  * Opening authenticates nothing, selects no remote, creates no Git history,
  * and writes no schema file (ADR-0633).
@@ -30,11 +30,16 @@
  * `SaveError` results. A lost reply may follow a completed write, so failure
  * means publication could not be confirmed; accepted editor input stays held.
  */
-import type { TSchema as Schema, TRecord, TUnknown } from 'typebox';
+import type { TSchema as Schema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import type { FileDocument, SaveFailure } from './document-owner.js';
+import type {
+	AnyFieldsSchema,
+	SaveFailure,
+	TextDocument,
+} from './document-owner.js';
 import type { OpenFolderError } from './errors.js';
 import type { ReadError, SaveError } from './shared/errors.js';
+import type { MarkdownValue } from './shared/markdown-codec.js';
 import type { FileContent } from './shared/merge.js';
 import type { Issue, Row, RowChange } from './shared/row.js';
 
@@ -59,9 +64,9 @@ export type FolderStatus = {
 	/** Paths with a write or delete admitted and not yet settled. Sorted; observing reads no files. */
 	readonly savingPaths: readonly string[];
 	readonly storageFailure: Extract<SaveError, { name: 'StorageFailed' }> | null;
-	/** The paths with accepted input no publication has acknowledged. Sorted. */
+	/** The paths with pending local drafts. Sorted. */
 	readonly unsaved: readonly string[];
-	/** Held input whose last publication failed and that no save is retrying. */
+	/** Pending drafts whose document publication failed, hidden while that exact draft retries. */
 	readonly failures: readonly SaveFailure[];
 	/** Whether `close` was called: no input, action, or listener is taken from then on. */
 	readonly closing: boolean;
@@ -86,15 +91,14 @@ export type FolderFileOperations = {
 
 export type FolderFiles = FolderFileOperations & {
 	/**
-	 * The shared working document of `path`, viewed through `schema`. The same
-	 * path and schema answer the same handle. Acquisition reads nothing and
+	 * The shared working text of `path`. Every caller of the same path gets
+	 * the same object. Acquisition reads nothing and
 	 * subscribes to nothing; input lives with the folder, not a component.
 	 * Throws RangeError for a structurally invalid path, before acquiring state.
 	 */
-	document<TSchema extends Schema = TRecord<string, TUnknown>>(
+	document<TSchema extends Schema = AnyFieldsSchema>(
 		path: string,
-		schema?: TSchema,
-	): FileDocument<TSchema>;
+	): TextDocument<TSchema>;
 };
 
 /** What every engine stores a table's rows through; `FolderTable` adds editors over them. */
@@ -123,11 +127,13 @@ export type FolderTableOperations<TSchema extends Schema = Schema> = {
 export type FolderTable<TSchema extends Schema = Schema> =
 	FolderTableOperations<TSchema> & {
 		/**
-		 * The shared document of row `id`, as `files.document` gives with this
-		 * schema. Throws RangeError for an ID containing path separators or
+		 * The shared document of row `id`, as `files.document` gives for its path.
+		 * Throws RangeError for an ID containing path separators or
 		 * otherwise structurally invalid; existing nonportable stems remain readable.
 		 */
-		document(id: string): FileDocument<TSchema>;
+		document(id: string): TextDocument<TSchema>;
+		/** Interpret current or saved text with this table's schema, without I/O. */
+		parse(text: string): MarkdownValue<TSchema>;
 	};
 
 /**
@@ -137,9 +143,9 @@ export type FolderTable<TSchema extends Schema = Schema> =
  * `change.paths` says where (`null` when unknown).
  */
 export type Folder<TTables extends Record<string, Schema>> = {
-	/** Reconcile known editors: read current subscribers, mark inactive sources stale.
-	 * Omit paths for all sources; paths also cover descendants. Never publishes input.
-	 * Failures remain on editor snapshots; use edit.refresh() for an individual Result.
+	/** Reconcile opened documents: read current subscribers, mark inactive ones stale.
+	 * Omit paths for all documents; paths also cover descendants. Never publishes input.
+	 * Use a document's `refresh()` for an individual Result.
 	 */
 	refresh(paths?: readonly string[]): Promise<void>;
 	readonly files: FolderFiles;
@@ -155,7 +161,7 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	getStatus(): FolderStatus;
 	/** Called when save status changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
-	/** Submit held input no admitted command owns, failed input included, without waiting. */
+	/** Submit pending drafts, failed input included, without waiting. */
 	flush(): void;
 	/**
 	 * Refuse new work and synchronously release listeners and storage, once.

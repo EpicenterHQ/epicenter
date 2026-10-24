@@ -8,11 +8,11 @@ Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
 Add publishes a complete document with `folder.tables.todos.write`; a failed Add leaves its
 form text available without a deferred autosave. Existing todo controls edit
 one shared working document per path. The mounted document subscription acquires
-text; listing todos does not. Immediate controls call `document.patch({ fields, body })`.
-Programmatic patches use `document.save(patch)`
-after acquisition, accepting the patch before saving and returning the exact
-captured Markdown content or an error. A failed publication leaves that
-accepted edit pending.
+text; listing todos does not. Immediate controls call
+`document.patch({ fields?, body? })` after acquisition, accepting edits
+synchronously. Programmatic actions then call `document.save()` when they need
+to await publication of the current text. A failed publication leaves that
+accepted edit pending for retry.
 
 ## Run the browser app
 

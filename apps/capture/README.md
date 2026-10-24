@@ -147,9 +147,10 @@ while promotion is saving stays current and is published afterward.
 Creation is a one-shot publication: failure leaves the form's text in the form,
 with no pending document that a later flush can create. Existing captures use
 one working document per path for typing, thoughts, and programmatic field
-changes. `document.save(patch)` patches an acquired document and saves its captured
-snapshot; it reports success or failure, retaining an accepted patch if saving
-fails. List and raw reads do not acquire editable text; the mounted document
+changes. `document.patch({ fields, body })` accepts the change synchronously;
+`await document.save()` publishes the text captured at that call and reports
+success or failure. A failed publication keeps the accepted change for retry.
+List and raw reads do not acquire editable text; the mounted document
 subscription or explicit `refresh()` does.
 
 ## How it is wired
@@ -174,15 +175,15 @@ durable bytes await the write or save they started.
 
 The folder owns one working source per capture path. Both the capture view and Edit as
 text use `liveSnapshot(folder.tables.captures.document(stem))` from
-`@epicenter/svelte/snapshot`. The view's `.current.content` provides exact text with its interpreted fields,
-body, and issues. Structured controls
+`@epicenter/svelte/snapshot`. The view's `.current.text` provides exact text;
+`folder.tables.captures.parse(text)` interprets fields, body, and issues when needed. Structured controls
 call `patch({ fields, body })`; Edit as text calls `replace(text)`.
 Switching between valid views saves and refreshes nothing: both show the same
 unsaved input and any save failure. The current editable document determines
 whether it can be shown as a capture.
 
 The document's `getSnapshot()` is a pure cached read. Its Svelte
-view exposes a tracked `.current` snapshot with `content`, `loadError`,
+view exposes a tracked `.current` snapshot with `text`, `loadError`,
 `isDirty`, `isSaving`, and `saveError`. Commands stay on the handle. Observation activates initial reading; there is no editor
 query or mirrored component state. Dirty publication intent and admitted
 saving operations are independent. Acquired content survives view unmount,

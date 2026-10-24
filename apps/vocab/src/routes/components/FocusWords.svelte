@@ -25,7 +25,9 @@
 		<p class="font-medium">{item.text}</p>
 		{#if entry}
 			{@const snapshot = liveSnapshot(entries.document(item.entryId))}
-			{@const stage = snapshot.current.content?.issues === null ? snapshot.current.content.fields.stage : entry.row.fields.stage}
+			{@const text = snapshot.current.text}
+			{@const content = text === undefined ? undefined : entries.parse(text)}
+			{@const stage = content?.issues === null ? content.fields.stage : entry.row.fields.stage}
 			<div class="mt-1 flex flex-wrap gap-1" aria-label="Your stage for {item.text}">
 				{#each STAGES as option}
 					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option}  onclick={() => toastOnError(entries.setStage(entry, option), 'That change was not made')}>{STAGE_LABELS[option]}</Button>

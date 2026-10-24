@@ -879,7 +879,7 @@ When you add an ADR, add its row here.
 | [0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) | Native app defaults are fixed reverse-DNS children of one library | Proposed (amends 0670 and 0671) |
 | [0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) | A SQLite handle owns one connection until asynchronous disposal | Proposed (amends 0201 at native app-scoped host SQL; handles and disposal unbuilt; browser OPFS prototype only) |
 | [0674](0674-standalone-apps-release-independently-from-one-monorepo.md) | Standalone apps release independently from one monorepo | Accepted |
-| [0676](0676-structured-edits-share-the-acquired-working-document.md) | Structured edits share the acquired working document | Accepted (amends 0668) |
+| [0676](0676-structured-edits-share-the-acquired-working-document.md) | Structured edits share the acquired working document | Superseded by 0688 |
 | [0677](0677-one-source-repository-can-provide-many-desktop-apps.md) | One source repository can provide many desktop apps | Proposed (source installation and host builds unbuilt) |
 | [0678](0678-app-storage-openers-use-runtime-bound-scopes.md) | App storage openers use runtime-bound scopes | Proposed (device storage and shared file/SQLite paths unbuilt; browser OPFS prototype only; SQLite handles in 0673) |
 | [0679](0679-the-launcher-groups-folders-by-pin-library-membership-then-recency.md) | The launcher groups folders by pin, library membership, then recency | Proposed (implemented; amends 0641 and 0671) |
@@ -887,3 +887,4 @@ When you add an ADR, add its row here.
 | [0681](0681-portable-capability-packages-follow-the-resource-they-own.md) | Portable capability packages follow the resource they own | Proposed (`@epicenter/sqlite` and `@epicenter/secrets` as separate homes; no umbrella runtime package) |
 | [0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) | Secrets use one persistent API and a shared Tauri plugin | Proposed (localStorage browser adapter; reusable native plugin and Specta bindings unbuilt) |
 | [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (Whispering desktop caller implemented) |
+| [0688](0688-one-folder-owned-text-document-per-path.md) | One Folder-owned text document per path | Accepted (supersedes 0676's document API and owner) |

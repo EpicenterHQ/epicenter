@@ -390,21 +390,22 @@ Boards group one field into distinct string, number, boolean, and null lanes.
 Enum and boolean schema hints retain empty destinations. **No value** represents
 an absent field. Object and array values appear in **Other**, which cannot be
 chosen as a move destination. Moving a card changes its grouping field through
-the same `FileDocument` (`folder.files.document(path)`) as
+the same `TextDocument` (`folder.files.document(path)`) as
 grid and Files edits. Failed moves retain their input for retry or discard.
 Cards have no separate rank or drag-order record.
 
 The opened Folder owns acquired text and unfinished input for each path until
 close. Files, grid, and board use
-`liveSnapshot(folder.files.document(path, schema))` from
+`liveSnapshot(folder.files.document(path))` from
 `@epicenter/svelte/snapshot`. Each view's tracked `.current` getter observes the
 Folder-owned snapshot while effects read it; the last reader leaving releases
 that view's subscription. Construct views separately from calculations that
 read their changing values. Views keep no separate save queue or document cache.
-The snapshot contains `content`, `loadError`, `isDirty`, `isSaving`, and
-`saveError`; `content` contains exact `text`, `fields`, `body`, and interpretation
-`issues`. Commands and passive `getSnapshot()` reads stay on the original
-`FileDocument`. Subscription emits immediately and activates the first read.
+The snapshot contains exact `text`, `loadError`, `isDirty`, `isSaving`, and
+`saveError`. Tables interprets that text with its current declared schema;
+the document owns no parsed fields or interpretation issues. Commands and
+passive `getSnapshot()` reads stay on the original `TextDocument`.
+Subscription emits immediately and activates the first read.
 
 `replace(text)` and `patch({ fields?, body? })` accept input immediately.
 Full text can be accepted before acquisition; structured patches need acquired
@@ -448,7 +449,8 @@ A saved view reads the current `epicenter.json` editor content. Editing its
 controls creates an unsubmitted form value retained across selections. **Reload
 settings** drops that form and refreshes the declaration. Saving transforms the
 current held declaration text, preserving unrelated JSON sections and other
-views, then calls `document.save(text)` to capture and publish that source. There is no
+views, then calls `document.replace(text)` and `document.save()` without an
+await between them to publish that exact source. There is no
 source precondition or separate native writer.
 
 A submitted copy gets its new key immediately, while the declaration owner keeps

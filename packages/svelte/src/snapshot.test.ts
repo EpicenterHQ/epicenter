@@ -20,7 +20,7 @@ import './svelte-modules.test-support.js';
 import 'fake-indexeddb/auto';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
-import type { FileDocument } from '@epicenter/folder/document';
+import type { TextDocument } from '@epicenter/folder/document';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -58,7 +58,7 @@ async function setup() {
 	);
 	const edit = folder.tables.notes.document('milk');
 	const calls: string[] = [];
-	const counted: FileDocument<typeof notes> = {
+	const counted: TextDocument<typeof notes> = {
 		...edit,
 		getSnapshot() {
 			calls.push('getSnapshot');
@@ -82,16 +82,19 @@ test('constructing views and reading untracked snapshots subscribes to nothing',
 	const another = liveSnapshot(counted);
 	expect(calls).toEqual([]);
 	// A read outside any effect answers the current snapshot and subscribes to nothing.
-	expect(view.current.content).toBeUndefined();
+	expect(view.current.text).toBeUndefined();
 	expect(calls).toEqual(['getSnapshot']);
-	expect(another.current.content).toBeUndefined();
+	expect(another.current.text).toBeUndefined();
 	expect(calls).toEqual(['getSnapshot', 'getSnapshot']);
 });
 
 test('tracking subscribes before reading, starts the first read, and skips the startup notification', async () => {
-	const { counted, calls } = await setup();
+	const { folder, counted, calls } = await setup();
 	const view = liveSnapshot(counted);
-	const titles = follow(() => view.current.content?.fields?.title);
+	const titles = follow(() => {
+		const text = view.current.text;
+		return text === undefined ? undefined : folder.tables.notes.parse(text).fields?.title;
+	});
 	cleanup.push(titles.stop);
 	flushSync();
 	expect(calls.slice(0, 2)).toEqual(['subscribe', 'getSnapshot']);
@@ -102,12 +105,15 @@ test('tracking subscribes before reading, starts the first read, and skips the s
 });
 
 test('effects share a view subscription; independent views share the core document', async () => {
-	const { counted, calls, edit } = await setup();
+	const { folder, counted, calls, edit } = await setup();
 	const view = liveSnapshot(counted);
-	const content = follow(() => view.current.content?.text);
+	const content = follow(() => view.current.text);
 	const dirty = follow(() => view.current.isDirty);
 	const another = liveSnapshot(counted);
-	const again = follow(() => another.current.content?.body);
+	const again = follow(() => {
+		const text = another.current.text;
+		return text === undefined ? undefined : folder.tables.notes.parse(text).body;
+	});
 	flushSync();
 	await until(() => content.values.at(-1) !== undefined);
 	expect(calls.filter((call) => call === 'subscribe')).toHaveLength(2);
@@ -131,16 +137,17 @@ test('effects share a view subscription; independent views share the core docume
 	await tick();
 	expect(calls.filter((call) => call === 'unsubscribe')).toHaveLength(2);
 	// Unmounted, the input stays with the folder.
-	expect(edit.getSnapshot()).toMatchObject({
-		isDirty: true,
-		content: { body: 'Four litres\n' },
-	});
+	expect(edit.getSnapshot().isDirty).toBe(true);
+	expect(edit.getSnapshot().text).toContain('Four litres\n');
 });
 
 test('each accepted change re-runs a reader once, and commands reach the folder', async () => {
 	const { counted, folder, edit } = await setup();
 	const view = liveSnapshot(counted);
-	const bodies = follow(() => view.current.content?.body);
+	const bodies = follow(() => {
+		const text = view.current.text;
+		return text === undefined ? undefined : folder.tables.notes.parse(text).body;
+	});
 	cleanup.push(bodies.stop);
 	flushSync();
 	await until(() => bodies.values.at(-1) === 'Two litres\n');
@@ -165,10 +172,13 @@ test('each accepted change re-runs a reader once, and commands reach the folder'
 });
 
 test('a stable snapshot view does not rebuild subscriptions on input', async () => {
-	const { counted, calls, edit } = await setup();
+	const { folder, counted, calls, edit } = await setup();
 	expectOk(await edit.refresh());
 	const snapshot = liveSnapshot(counted);
-	const bodies = follow(() => snapshot.current.content?.body);
+	const bodies = follow(() => {
+		const text = snapshot.current.text;
+		return text === undefined ? undefined : folder.tables.notes.parse(text).body;
+	});
 	flushSync();
 	for (const body of ['One\n', 'Two\n', 'Three\n', 'Four\n', 'Five\n']) {
 		expectOk(edit.patch({ body }));

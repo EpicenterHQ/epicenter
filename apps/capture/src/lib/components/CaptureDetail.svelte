@@ -44,10 +44,11 @@
 	/** The capture's commands, typing into the folder's edit of it, which every view shows. */
 	const fileEdit = untrack(() => captures.folder.tables.captures.document(stem));
 	const snapshot = liveSnapshot(fileEdit);
-	const actions = untrack(() => createCaptureActions(fileEdit));
+	const actions = untrack(() => createCaptureActions(fileEdit, captures.folder.tables.captures.parse));
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
-	const stored = $derived(snapshot.current.content?.issues === null ? snapshot.current.content : undefined);
+	const parsed = $derived(snapshot.current.text === undefined ? undefined : captures.folder.tables.captures.parse(snapshot.current.text));
+	const stored = $derived(parsed?.issues === null ? parsed : undefined);
 	/** The body as text and thoughts, or why it cannot be edited here. */
 	const reading = $derived(stored === undefined ? undefined : readCaptureBody(stored));
 	const text = $derived(reading?.data?.text ?? '');
@@ -99,12 +100,12 @@
 
 	/** Export current acquired text without publishing or recreating the file. */
 	function download() {
-		const content = snapshot.current.content;
-		if (content === undefined) {
+		const text = snapshot.current.text;
+		if (text === undefined) {
 			toast.error('Could not download this capture', { description: 'Its text is not available yet.' });
 			return;
 		}
-		downloadText(`${stem}.md`, content.text);
+		downloadText(`${stem}.md`, text);
 	}
 
 	function confirmDiscard() {
@@ -116,7 +117,7 @@
 		});
 	}
 
-	const unsavedText = $derived(snapshot.current.content?.text ?? '');
+	const unsavedText = $derived(snapshot.current.text ?? '');
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
 		confirmationDialog.open({
@@ -159,11 +160,11 @@
 		<div>
 			<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		</div>
-		{#if snapshot.current.content?.issues}
+		{#if parsed?.issues}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This file does not read as a capture</Empty.Title>
-					<Empty.Description>{snapshot.current.content.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
+					<Empty.Description>{parsed.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
 					<Empty.Content>
 						<Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>

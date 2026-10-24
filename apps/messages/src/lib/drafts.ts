@@ -52,9 +52,14 @@ export function changeDraft(
 ): Result<void, ChangeError | DraftError> {
 	const edit = folder.tables.drafts.document(id);
 	const snapshot = edit.getSnapshot();
-	if (snapshot.content !== undefined) {
-		const attempt = folder.tables.attempts.document(id).getSnapshot().content;
-		if (snapshot.content.fields?.state === 'sending' && attempt === undefined)
+	if (snapshot.text !== undefined) {
+		const draft = folder.tables.drafts.parse(snapshot.text);
+		const attempt = folder.tables.attempts.document(id).getSnapshot().text;
+		if (
+			draft.issues === null &&
+			draft.fields.state === 'sending' &&
+			attempt === undefined
+		)
 			return unresolved();
 		return edit.patch({ body });
 	}
@@ -146,8 +151,13 @@ export async function sendDraft(
 ): Promise<Result<string, Failure>> {
 	if (folder.getStatus().closing) return ActionError.Closing();
 	const edit = folder.tables.drafts.document(id);
-	const offered = edit.getSnapshot().content;
-	if (offered === undefined || offered.issues !== null)
+	const offeredText = edit.getSnapshot().text;
+	if (offeredText === undefined)
+		return DraftError.Refused({
+			message: 'Wait for this draft to open, or repair it as Markdown.',
+		});
+	const offered = folder.tables.drafts.parse(offeredText);
+	if (offered.issues !== null)
 		return DraftError.Refused({
 			message: 'Wait for this draft to open, or repair it as Markdown.',
 		});
@@ -155,13 +165,12 @@ export async function sendDraft(
 	const previousId =
 		knownAttempt.loadError?.name === 'Missing'
 			? undefined
-			: knownAttempt.content?.fields?.attemptId;
+			: knownAttempt.text === undefined
+				? undefined
+				: folder.tables.attempts.parse(knownAttempt.text).fields?.attemptId;
 	let changed = false;
 	const stop = edit.subscribe((snapshot) => {
-		if (
-			snapshot.content !== undefined &&
-			snapshot.content.text !== offered.text
-		)
+		if (snapshot.text !== undefined && snapshot.text !== offeredText)
 			changed = true;
 	});
 	try {
@@ -227,11 +236,13 @@ export async function sendDraft(
 				);
 				if (saved.error !== null) return saved;
 				if (folder.getStatus().closing) return closedBeforeSend();
-				if (!changed && edit.getSnapshot().content?.text === row.text) {
-					const cleared = await edit.save({
+				if (!changed && edit.getSnapshot().text === offeredText) {
+					const clear = edit.patch({
 						body: '',
 						fields: { state: 'draft', pendingId: '' },
 					});
+					if (clear.error !== null) return clear;
+					const cleared = await edit.save();
 					if (cleared.error !== null)
 						return DraftError.Refused({
 							message: `Nothing was sent. Your reply is kept in the recorded attempt. Choose "I checked: keep as draft" to restore it. Saving the cleared draft failed: ${cleared.error.message}`,
@@ -351,13 +362,14 @@ export async function recoverDraft(
 			const loaded = await edit.refresh();
 			if (loaded.error !== null) return loaded;
 		}
-		const current = edit.getSnapshot().content;
+		const currentText = edit.getSnapshot().text;
+		const current =
+			currentText === undefined
+				? undefined
+				: folder.tables.drafts.parse(currentText);
 		let changed = false;
 		const stop = edit.subscribe((snapshot) => {
-			if (
-				snapshot.content !== undefined &&
-				snapshot.content.text !== current?.text
-			)
+			if (snapshot.text !== undefined && snapshot.text !== currentText)
 				changed = true;
 		});
 		try {
@@ -397,7 +409,9 @@ export async function recoverDraft(
 			);
 			if (restoredText.error !== null)
 				return DraftError.Refused({ message: restoredText.error.reason });
-			const restored = await edit.save(restoredText.data.text);
+			const accepted = edit.replace(restoredText.data.text);
+			if (accepted.error !== null) return accepted;
+			const restored = await edit.save();
 			return restored.error !== null ? restored : Ok(undefined);
 		} finally {
 			stop();

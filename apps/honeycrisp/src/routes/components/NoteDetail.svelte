@@ -16,7 +16,7 @@
 	import * as Tabs from '@epicenter/ui/tabs';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import type { FileDocument } from '@epicenter/folder/document';
+	import type { TextDocument } from '@epicenter/folder/document';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { folderLabel, type HoneycrispTables, type NoteFields } from '$lib/data.js';
 	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
@@ -31,7 +31,7 @@
 		notes: Notes;
 		/** Fixed for this component's lifetime, including presentation changes. */
 		path: string;
-		fileEdit: FileDocument<HoneycrispTables['notes']>;
+		fileEdit: TextDocument<HoneycrispTables['notes']>;
 	} = $props();
 
 	// The parent keys this view by its path. While the parent replaces it,
@@ -43,7 +43,8 @@
 		select: foldersOf,
 	}));
 	const snapshot = $derived(liveSnapshot(fileEdit));
-	const shownNote = $derived(snapshot.current.content?.issues === null ? snapshot.current.content : undefined);
+	const parsed = $derived(snapshot.current.text === undefined ? undefined : notes.folder.tables.notes.parse(snapshot.current.text));
+	const shownNote = $derived(parsed?.issues === null ? parsed : undefined);
 	/**
 	 * Edits wait once the notes are closing. Retained text stays editable
 	 * after a delete or failed read; `FileDetail` shows why beside it.
@@ -67,7 +68,7 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#if snapshot.current.content !== undefined && snapshot.current.loadError}
+	{#if snapshot.current.text !== undefined && snapshot.current.loadError}
 		<p class="px-3 py-2 text-sm text-destructive" role="alert">{snapshot.current.loadError.message} Your previous text is kept.</p>
 	{/if}
 	{#if shownNote !== undefined}
@@ -122,6 +123,7 @@
 			<Tabs.Content value="rich" forceMount class="min-h-0 flex-1">
 				<RichEditor
 					{fileEdit}
+					parse={notes.folder.tables.notes.parse}
 					focusRequest={notes.focusRequest}
 					closing={notes.fenced}
 					onOpenSource={() => (tab = 'source')}
@@ -141,8 +143,8 @@
 			</Tabs.Content>
 		</Tabs.Root>
 
-	{:else if snapshot.current.content?.issues}
-		{@const issues = snapshot.current.content.issues}
+	{:else if parsed?.issues}
+		{@const issues = parsed.issues}
 		<Empty.Root class="flex-1" data-testid="needs-repair">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 			{#if issues.some((issue) => issue.kind === 'not-text')}

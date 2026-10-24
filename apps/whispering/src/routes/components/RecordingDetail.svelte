@@ -17,6 +17,7 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
+	import { getFolder } from '$lib/folder.js';
 	import { RECORDINGS, rowIdOf } from '$lib/definition.js';
 	import { getWhispering, type RecordingEntry } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './AudioAbsent.svelte';
@@ -52,22 +53,26 @@
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	/**
-	 * One file edit supplies fields, body, whole text and diagnostics.
+	 * One file edit supplies text; the table interprets fields and body.
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.document(RECORDINGS, own);
 	const snapshot = liveSnapshot(fileEdit);
+	const { folder } = getFolder();
+	const content = $derived(snapshot.current.text === undefined
+		? undefined
+		: folder.tables.recordings.parse(snapshot.current.text));
 	const asText = $derived(whispering.showsText(path, snapshot.current));
 	/** The recording as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
-		const shown = snapshot.current.content;
+		const shown = content;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** Held source remains editable after deletion or a failed storage read. */
-	const text = $derived(snapshot.current.content?.text);
+	const text = $derived(snapshot.current.text);
 	/** Why the current source does not read as a recording, including unsaved input. */
-	const issues = $derived(asText && text !== undefined ? (snapshot.current.content?.issues ?? undefined) : undefined);
+	const issues = $derived(asText && text !== undefined ? (content?.issues ?? undefined) : undefined);
 	const id = $derived(rowIdOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 

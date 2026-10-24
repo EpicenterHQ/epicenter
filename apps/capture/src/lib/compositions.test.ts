@@ -53,6 +53,10 @@ async function setup(drafts: Record<string, string>) {
 	return harness;
 }
 
+function parsed(t: CapturesHarness, text: string | undefined) {
+	return text === undefined ? undefined : t.folder.tables.captures.parse(text);
+}
+
 /** The draft `stem`, read, with `raw` typed over it. */
 async function typeInto(t: CapturesHarness, stem: string, raw: string) {
 	const edit = t.folder.tables.captures.document(stem);
@@ -137,8 +141,8 @@ test('a blank draft is refused by Add and remains', async () => {
 		name: 'Refused',
 		message: 'Write something first.',
 	});
-	expect(edit.getSnapshot().content?.body).toBe('   ');
-	expect(edit.getSnapshot().content?.fields?.draft).toBe(true);
+	expect(parsed(t, edit.getSnapshot().text)?.body).toBe('   ');
+	expect(parsed(t, edit.getSnapshot().text)?.fields?.draft).toBe(true);
 });
 
 test('failed autosave keeps raw input and deletion removes it without a save requirement', async () => {
@@ -147,13 +151,13 @@ test('failed autosave keeps raw input and deletion removes it without a save req
 	const restore = t.failSaves();
 	await edit.save();
 	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
-	expect(edit.getSnapshot().content?.body).toBe('unfinished ```\n');
+	expect(parsed(t, edit.getSnapshot().text)?.body).toBe('unfinished ```\n');
 	expect(t.captures.failures.map((failure) => failure.path)).toContain(path);
 	const refused = expectErr(
 		await t.captures.delete(t.captures.deletionFor(stem)),
 	);
 	expect(describeFailure(refused)).toContain('storage');
-	expect(edit.getSnapshot().content?.body).toBe('unfinished ```\n');
+	expect(parsed(t, edit.getSnapshot().text)?.body).toBe('unfinished ```\n');
 	restore();
 	await edit.save();
 	expect(edit.getSnapshot().isDirty).toBe(false);
@@ -172,10 +176,10 @@ test('a failed promotion retains finalized input for explicit retry without appe
 		'StorageFailed',
 	);
 	expect(edit.getSnapshot().isDirty).toBe(true);
-	expect(edit.getSnapshot().content?.body).toBe(
+	expect(parsed(t, edit.getSnapshot().text)?.body).toBe(
 		composeBody('Still composing\n').body,
 	);
-	expect(edit.getSnapshot().content?.fields?.draft).toBeUndefined();
+	expect(parsed(t, edit.getSnapshot().text)?.fields?.draft).toBeUndefined();
 	expect(await t.text('captures/one.md')).toBe(draftFile('Still composing\n'));
 	restore();
 	expectOk(await t.captures.finishDraft('one'));
@@ -238,11 +242,11 @@ test("another tab's finish preserves held input and a later save replaces the co
 	cleanup.push(() => otherContext.close());
 	const otherCaptures = createCaptures(otherContext);
 	expectOk(edit.replace(draftFile('Typed here')));
-	const held = edit.getSnapshot().content?.text;
+	const held = edit.getSnapshot().text;
 	expectOk(await otherCaptures.finishDraft('one'));
 	const finished = await t.text('captures/one.md');
 	await edit.refresh();
-	expect(edit.getSnapshot().content?.text).toBe(held);
+	expect(edit.getSnapshot().text).toBe(held);
 	expectOk(await edit.save());
 	expect(edit.getSnapshot().saveError).toBeUndefined();
 	expect(edit.getSnapshot().isDirty).toBe(false);
@@ -271,7 +275,7 @@ test('typing as Add starts saving builds on the finished capture, never the draf
 	const stop = t.folder.onStatusChange(({ savingPaths }) => {
 		if (typed || !savingPaths.includes(path)) return;
 		typed = true;
-		const text = edit.getSnapshot().content?.text ?? '';
+		const text = edit.getSnapshot().text ?? '';
 		expectOk(edit.replace(`${text}- typed while adding\n`));
 	});
 	expectOk(await t.captures.finishDraft('one'));
@@ -279,10 +283,8 @@ test('typing as Add starts saving builds on the finished capture, never the draf
 	expect(typed).toBe(true);
 	const working = edit.getSnapshot();
 	expect(working.isDirty).toBe(true);
-	expect(working.content?.fields?.draft).toBeUndefined();
-	expect(working.content?.text).toContain(
-		'## Thoughts\n- typed while adding\n',
-	);
+	expect(parsed(t, working.text)?.fields?.draft).toBeUndefined();
+	expect(working.text).toContain('## Thoughts\n- typed while adding\n');
 	expectOk(await edit.save());
 	const row = expectOk(await t.folder.tables.captures.get('one'));
 	expect(row?.fields?.draft).toBeUndefined();

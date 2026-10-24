@@ -37,7 +37,8 @@
 	/** The todo as stored, with what is typed over it; the folder keeps both after this view. */
 	const fileEdit = folder.tables.todos.document(id);
 	const snapshot = liveSnapshot(fileEdit);
-	const todo = $derived(snapshot.current.content?.issues === null ? snapshot.current.content : undefined);
+	const content = $derived(snapshot.current.text === undefined ? undefined : folder.tables.todos.parse(snapshot.current.text));
+	const todo = $derived(content?.issues === null ? content : undefined);
 
 
 	function confirmDiscard() {
@@ -81,7 +82,7 @@
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
-	{#if snapshot.current.loadError && snapshot.current.content}
+	{#if snapshot.current.loadError && content}
 		<div class="border-b bg-destructive/10 px-4 py-2 text-xs text-destructive" role="status">
 			Could not read the latest todo: {snapshot.current.loadError.message}.
 			<Button variant="link" size="xs" onclick={() => void fileEdit.refresh()}>Try again</Button>
@@ -135,8 +136,8 @@
 		</div>
 
 		{@render fileBar(labelOf({ id, fields: shown.fields }))}
-	{:else if snapshot.current.content}
-		{@const broken = snapshot.current.content}
+	{:else if content}
+		{@const broken = content}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<h2 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h2>

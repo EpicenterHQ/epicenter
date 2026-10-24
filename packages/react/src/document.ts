@@ -5,20 +5,17 @@
  * and apply to its live source in call order, including several handlers in
  * one event.
  */
-import type {
-	DocumentSnapshot,
-	FileDocument,
-} from '@epicenter/folder/document';
+import type { DocumentSnapshot, TextDocument } from '@epicenter/folder/document';
 import { useSyncExternalStore } from 'react';
 import type { TSchema } from 'typebox';
 
-/** The snapshot of `edit` this render reads. */
+/** The cached text and status of `document` this render reads. */
 export function useDocument<TDocumentSchema extends TSchema>(
-	edit: FileDocument<TDocumentSchema>,
-): DocumentSnapshot<TDocumentSchema> {
+	document: TextDocument<TDocumentSchema>,
+): DocumentSnapshot {
 	return useSyncExternalStore(
-		edit.subscribe,
-		edit.getSnapshot,
-		edit.getSnapshot,
+		document.subscribe,
+		document.getSnapshot,
+		document.getSnapshot,
 	);
 }

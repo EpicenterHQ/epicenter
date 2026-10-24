@@ -245,11 +245,10 @@ export function withResultFailures<TTable extends FolderTable>(
 			const document = table.document(id);
 			return {
 				...document,
-				async save(change) {
-					if (failures.answers === 0) return document.save(change);
+				async save() {
+					if (failures.answers === 0) return document.save();
 					failures.answers -= 1;
-					// A failure before calling the Folder has accepted no input.
-					// Storage failures after acceptance belong below the handle.
+					// The preceding patch is already accepted by Folder.
 					throw new Error(
 						'Repository save failed: the disk refused the result',
 					);

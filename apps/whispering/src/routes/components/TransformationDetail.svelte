@@ -21,6 +21,7 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
+	import { getFolder } from '$lib/folder.js';
 	import { tick } from 'svelte';
 	import { rowIdOf, TRANSFORMATIONS } from '$lib/definition.js';
 	import { getWhispering, type TransformationEntry } from '$lib/whispering.svelte.js';
@@ -51,22 +52,26 @@
 	// svelte-ignore state_referenced_locally
 	const own = path;
 	/**
-	 * One file edit supplies fields, body, whole text and diagnostics.
+	 * One file edit supplies text; the table interprets fields and body.
 	 */
 	// svelte-ignore state_referenced_locally
 	const fileEdit = whispering.document(TRANSFORMATIONS, own);
 	const snapshot = liveSnapshot(fileEdit);
+	const { folder } = getFolder();
+	const content = $derived(snapshot.current.text === undefined
+		? undefined
+		: folder.tables.transformations.parse(snapshot.current.text));
 	const asText = $derived(whispering.showsText(path, snapshot.current));
 	/** The transformation as shown, while its fields are what is edited and it reads as one. */
 	const row = $derived.by(() => {
 		if (asText) return undefined;
-		const shown = snapshot.current.content;
+		const shown = content;
 		return shown?.issues === null ? shown : undefined;
 	});
 	/** Held source remains editable after deletion or a failed storage read. */
-	const source = $derived(snapshot.current.content?.text);
+	const source = $derived(snapshot.current.text);
 	/** The current source as a row, including unsaved input and its issues. */
-	const sourceRow = $derived(asText && source !== undefined ? snapshot.current.content : undefined);
+	const sourceRow = $derived(asText && source !== undefined ? content : undefined);
 	const issues = $derived(sourceRow?.issues ?? undefined);
 
 	/** Either view resolves the same current recipe, including unsaved input. */
