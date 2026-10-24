@@ -51,7 +51,7 @@ verify it against the code. The constraints below apply to every edit here.
 
 ## Editor ownership
 
-- The Folder's `FileDocument` owns the note's body.
+- The Folder's `TextDocument` owns the note's text; the notes table interprets its body.
   ProseMirror's `EditorState` owns only what that document has no place for: the
   cursor, pending formatting, undo history, and an empty paragraph Markdown
   cannot spell yet. Its document is never a third copy of the body.

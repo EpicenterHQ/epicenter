@@ -79,7 +79,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   field, and never hold desktop audio in the page to save later: Rust writes it
   as it captures. Recorder commands never delete captured audio. Create a row
   with `folder.tables.recordings.write(id, document)`; update an acquired row through
-  `document.save({ fields, body })`, preserving the shared working source.
+  `document.patch({ fields, body })` followed by `document.save()`, preserving the shared working source.
   Never serialize row text by hand in the app.
 - **Fixture audio is debug-only, and failure injection is test-only.** Fixture
   audio is a development browser build's, and the UI says so while it is
