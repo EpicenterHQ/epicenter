@@ -48,9 +48,9 @@ the answer. Do not turn every response into the same template.
 Choose a form for the relationship it makes easier to see:
 
 - **Code** shows behavior or a caller's choice. Use a small example that
-  exercises the hard distinction and show the resulting state or returned
-  value. Explain a non-obvious step. Include a prerequisite, timing, or failure
-  when omitting it would mislead. Mark hypothetical APIs as proposals.
+  makes the point visible: show the relevant expressions and their results.
+  Explain the mechanism when it helps answer the question. Mark hypothetical
+  APIs as proposals.
 - **A diagram** shows flow, ownership, or timing that prose or code makes hard
   to track. Add it beside code when it reveals something the code leaves hard
   to see; avoid repeating the same account.
@@ -70,10 +70,13 @@ the wrong question.
 ## Show enough to judge
 
 For a concrete change, show the relevant code, wording, or visible result
-alongside the explanation. A file link or summary can orient the person, but
-does not replace the material they asked to inspect. For a report, draw the
-account from the diff, tests, and actual behavior; describe what changed in
-ordinary terms rather than the work's internal vocabulary.
+alongside the explanation. For existing work, use excerpts from the actual
+files or results. Clearly label proposed edits, illustrative examples, and
+pseudocode. Use focused excerpts and marked omissions, preserving context
+that affects their meaning. A file link or summary can orient the person, but
+does not replace the relevant material. For a report, draw the account from
+the diff, tests, and actual behavior; describe what changed in ordinary terms
+rather than the work's internal vocabulary.
 
 When a decision is needed, explain the options that matter, their costs, and
 your recommendation. Put the decision after the evidence it depends on, where
