@@ -60,7 +60,7 @@ import {
 	deferred,
 	eventually,
 	openTestServices,
-	settled,
+	waitForSaves,
 } from './services.test-support.js';
 import type { Whispering } from './whispering.svelte.js';
 
@@ -185,7 +185,6 @@ async function history(transcribe?: Transcribe) {
 	return {
 		whispering,
 		folder,
-		failed: test.failed,
 		view: whispering.view,
 		sent,
 		root: test.root,
@@ -367,8 +366,8 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 	// A new order and a refresh change nothing about what is selected.
 	view.recordingQuery = '';
 	view.recordingSort = nextSort(view.recordingSort, 'title');
-	folder.checkpoint();
-	await settled(folder);
+	folder.refresh();
+	await waitForSaves(folder);
 	const sorted = shownRows(whispering, view.recordingQuery, view.recordingSort);
 	expect(
 		stems(selectionIn(view.recordingSelected, sorted, whispering).rows),
@@ -657,7 +656,7 @@ test('a transcript’s body is saved beside its recording, which stays selected,
 	// Saving from the moment it is typed.
 	expect(whispering.saving).toBe(true);
 	expectOk(await saving);
-	await settled(folder);
+	await waitForSaves(folder);
 	// The list shows the saved text, once it landed.
 	expect(transcriptExcerpt(rowOf(whispering, 'standup'), '')).toBe(
 		'Yesterday I finished the importer. Today: the exporter.',
@@ -683,19 +682,19 @@ test('a transcript’s body is saved beside its recording, which stays selected,
 });
 
 test('a transcript body saved over an outside change sets the body over the file as it is then', async () => {
-	const { folder, whispering, root, failed } = await history();
+	const { folder, whispering, root } = await history();
 	whispering.open(path('standup'));
 	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8'))
 		.replace('importer', 'migration')
 		.replace('model: verification-model', 'model: outside-model');
 	await writeFile(join(root, TRANSCRIPT), outside);
+	await folder.refresh();
 
 	expectOk(
 		await folder.tables.transcriptions.update(TRANSCRIPT_ID, {
 			body: 'What I typed.\n',
 		}),
 	);
-	expect(failed).toHaveLength(0);
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	expect(saved).toContain('What I typed.');
 	expect(saved).not.toContain('migration');

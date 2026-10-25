@@ -42,7 +42,7 @@ async function open(source?: string | Uint8Array) {
 /** This origin's browser folder, as the browser build opens it. */
 async function openBrowser() {
 	const folder = expectOk(
-		await openBrowserFolder({ tables: whisperingTables, throttleMs: 0 }),
+		await openBrowserFolder({ tables: whisperingTables }),
 	);
 	cleanups.push(() => folder.close());
 	return folder;

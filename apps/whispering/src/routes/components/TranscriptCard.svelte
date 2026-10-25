@@ -9,10 +9,12 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { getFolder } from '$lib/folder.js';
+	import { WRITE_FAILED } from '$lib/files.js';
 	import { getWhispering, type TranscriptionEntry } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
 	import { confirmDelete, copyText, formatTime } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { onMount } from 'svelte';
 	import ResultStatus from './ResultStatus.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
@@ -41,6 +43,17 @@
 		() => result.row.body,
 		(body) => folder.tables.transcriptions.update(stem, { body }),
 	);
+	async function saveBeforeRename() {
+		for (;;) {
+			const typed = body.value;
+			if (typed === result.row.body) break;
+			const saved = await folder.tables.transcriptions.update(stem, { body: typed });
+			if (saved.error !== null) return saved;
+			if (body.value === typed) break;
+		}
+		body.discard();
+	}
+	onMount(() => whispering.registerRenameDraft(result.path, saveBeforeRename));
 	const text = $derived(body.value);
 	const progress = $derived(whispering.resultState(result.path, text));
 
@@ -63,7 +76,7 @@
 			path,
 			asText ? {} : { input: text },
 		);
-		if (problem) toast.error('The transformation did not run', { description: problem });
+		if (problem && problem !== WRITE_FAILED) toast.error('The transformation did not run', { description: problem });
 	}
 </script>
 

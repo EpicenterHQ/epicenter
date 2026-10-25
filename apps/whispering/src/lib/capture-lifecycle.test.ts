@@ -36,7 +36,7 @@ import {
 	eventually,
 	openMemoryTestFolder,
 	openTestServices,
-	settled,
+	waitForSaves,
 } from './services.test-support.js';
 import {
 	closeTestWhispering,
@@ -258,7 +258,7 @@ test('a Stop pressed again joins the first, which ends once the length is writte
 		memory: true,
 	});
 	await whispering.startRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 	const release = deferred<void>();
 	host!.control.putGate = release.promise;
 	const first = whispering.stopRecording();
@@ -345,7 +345,7 @@ test('a Stop whose row was still saving when closing began writes no length', as
 	host!.control.putGate = undefined;
 	release.resolve();
 	await Promise.all([starting, stopping]);
-	await settled(folder);
+	await waitForSaves(folder);
 	const [row] = folder.tables.recordings.rows;
 	expect(row?.issues).toBeNull();
 	expect(row?.fields).not.toHaveProperty('durationMs');
@@ -423,7 +423,7 @@ test('a length that could not be written is reported, and the row keeps what lan
 test('a title saved while Stop writes the length lands beside it', async () => {
 	const { whispering, folder, test } = await open();
 	await whispering.startRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 	const [name] = await rows(test.root);
 	const id = name!.slice(0, -'.md'.length);
 	const stopping = whispering.stopRecording();
@@ -432,7 +432,7 @@ test('a title saved while Stop writes the length lands beside it', async () => {
 	});
 	await stopping;
 	expectOk(await titled);
-	await settled(folder);
+	await waitForSaves(folder);
 	expect(folder.tables.recordings.row(id)?.fields).toMatchObject({
 		title: 'Typed while stopping',
 		durationMs: 1000,

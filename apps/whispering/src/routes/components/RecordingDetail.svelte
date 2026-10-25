@@ -97,11 +97,16 @@
 		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 	}
 
-	/** Change editors once this file's saves answer, so the other editor sees them. */
+	/** Returning to fields first writes the shown Source text. */
 	async function show(toSource: boolean) {
-		folder.checkpoint();
-		await folder.settled(own);
-		if (toSource ? title.error || notes.error : source.error) return;
+		if (!toSource && source.value !== text) {
+			const saved = await folder.write(own, source.value);
+			if (saved.error !== null) {
+				toast.error('The fields were not opened', { description: saved.error.message });
+				return;
+			}
+			source.discard();
+		}
 		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(toSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 	}
@@ -152,7 +157,7 @@
 	{#if file?.readError}
 		<div class="flex flex-col items-start gap-2 border-b px-4 py-2 text-sm" role="alert" data-testid="row-unopened">
 			<p class="text-destructive">This file could not be read: {file.readError.message}</p>
-			<Button size="sm" variant="outline" onclick={() => folder.checkpoint()}>Try again</Button>
+			<Button size="sm" variant="outline" onclick={() => folder.refresh()}>Try again</Button>
 		</div>
 	{/if}
 

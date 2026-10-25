@@ -39,7 +39,7 @@ import type { WhisperingServices } from './platform/types.js';
 import {
 	deferred,
 	openTestServices,
-	settled,
+	waitForSaves,
 	TEST_BASE_URL,
 	type TestServicesOptions,
 } from './services.test-support.js';
@@ -116,7 +116,7 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 	// Nothing is transcribed by recording either.
 	expect(transcribed).toEqual([]);
 	await whispering.transcribe(whispering.entries[0]!);
-	await settled(folder);
+	await waitForSaves(folder);
 
 	expect(transformed).toEqual([]);
 	expect(await names(root, 'transformation_runs')).toEqual([]);

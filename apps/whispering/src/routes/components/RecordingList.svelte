@@ -35,6 +35,7 @@
 		transcriptsToCopy,
 	} from '$lib/recording-collection.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
+	import { WRITE_FAILED } from '$lib/files.js';
 	import { copyText, formatTime } from './file-actions.js';
 
 	/**
@@ -177,11 +178,12 @@
 				view.recordingBulk = { label: 'Deleting', done: 0, total: captured.deletions.length };
 				try {
 					const { deleted, problems } = await deleteCaptured(whispering, captured.deletions);
-					if (problems.length > 0)
+					const refusals = problems.filter(({ reason }) => reason !== WRITE_FAILED);
+					if (refusals.length > 0)
 						toast.error(`${several(deleted, 'recording', 'recordings')} deleted, ${problems.length} not`, {
-							description: reasons(problems),
+							description: reasons(refusals),
 						});
-					else toast.success(`${several(deleted, 'recording', 'recordings')} deleted`);
+					else if (problems.length === 0) toast.success(`${several(deleted, 'recording', 'recordings')} deleted`);
 				} finally {
 					view.recordingBulk = undefined;
 				}
@@ -412,7 +414,7 @@
 					<li>
 						<button type="button" class="font-mono underline" onclick={() => void openRow(item.path)}>{item.path}</button>: {item.reason}
 						{#if item.unreadable}
-							<Button size="xs" variant="outline" class="ml-1" onclick={() => whispering.checkpoint()}>Try again</Button>
+							<Button size="xs" variant="outline" class="ml-1" onclick={() => whispering.refresh()}>Try again</Button>
 						{/if}
 					</li>
 				{/each}

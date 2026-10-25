@@ -12,6 +12,7 @@
 	import { STARTER_TRANSFORMATIONS } from '$lib/definition.js';
 	import { getWhispering, type TransformationEntry } from '$lib/whispering.svelte.js';
 	import { recipeModel } from '$lib/recipe.js';
+	import { WRITE_FAILED } from '$lib/files.js';
 
 	let { onOpen }: { onOpen?: () => void } = $props();
 	const whispering = getWhispering();
@@ -23,8 +24,8 @@
 		creating = true;
 		try {
 			const problem = await whispering.createTransformation(starter);
-			if (problem) toast.error('Could not create the transformation', { description: problem });
-			else onOpen?.();
+			if (problem === undefined) onOpen?.();
+			else if (problem !== WRITE_FAILED) toast.error('Could not create the transformation', { description: problem });
 		} finally {
 			creating = false;
 		}
@@ -128,7 +129,7 @@
 							if (whispering.open(item.path)) onOpen?.();
 						}}>{item.path}</button>: {item.reason}
 						{#if item.unreadable}
-							<Button size="xs" variant="outline" class="ml-1" onclick={() => whispering.checkpoint()}>Try again</Button>
+							<Button size="xs" variant="outline" class="ml-1" onclick={() => whispering.refresh()}>Try again</Button>
 						{/if}
 					</li>
 				{/each}

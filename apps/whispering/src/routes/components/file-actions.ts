@@ -7,6 +7,7 @@ import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeDeletion } from '$lib/deletion.js';
+import { WRITE_FAILED } from '$lib/files.js';
 import type { Whispering } from '$lib/whispering.svelte.js';
 
 export { recordingTitle } from '$lib/deletion.js';
@@ -67,7 +68,7 @@ export async function confirmDelete(whispering: Whispering, path: string) {
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
 			const problem = await whispering.delete(deletion);
-			if (problem)
+			if (problem && problem !== WRITE_FAILED)
 				toast.error(`Could not delete ${basename(path)}`, {
 					description: problem,
 				});

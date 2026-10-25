@@ -10,8 +10,7 @@
  *
  * Nothing here holds text ahead of the disk: what a person types is a draft
  * in the view that shows it, and each write answers once it landed and the
- * mirror shows it. A write that does not land is reported by `<OpenFolder>`,
- * with the text to copy.
+ * mirror shows it. The caller of a write presents a failure.
  *
  * Closing waits for nothing here: `dispose` refuses new work and late answers
  * and returns. `<OpenFolder>` closes the folder after this, sending the
@@ -29,7 +28,8 @@
 
 import { InstantString } from '@epicenter/definition';
 import {
-	type FileValue,
+	type FolderFile,
+	type WriteError,
 	type Row,
 	type RowIssue,
 	readRow,
@@ -68,7 +68,7 @@ import {
 	runDeletion,
 } from './deletion.js';
 import { maintainExclusions } from './exclusions.js';
-import { describeError, listingOf, nameProblem } from './files.js';
+import { describeError, listingOf, nameProblem, type PresentWriteFailure, WRITE_FAILED } from './files.js';
 import type { WhisperingFolder } from './folder.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { PostProcessingChoice } from './post-processing.js';
@@ -85,6 +85,8 @@ import { createSettingsDraft } from './settings-draft.svelte.js';
 export const STOPPED = 'Whispering stopped before it finished starting.';
 
 export type TableName = keyof WhisperingTables;
+type RenameDraftAnswer = { readonly error: WriteError | null };
+type RenameDraftSave = () => Promise<RenameDraftAnswer | undefined>;
 /** The tables whose rows this window edits. */
 export type RowTable =
 	| typeof RECORDINGS
@@ -254,7 +256,7 @@ function perListing<TListing extends object, TValue>(
 	};
 }
 
-export function createWhispering(folder: WhisperingFolder) {
+export function createWhispering(folder: WhisperingFolder, presentWriteFailure: PresentWriteFailure) {
 	const services = createServices(folder);
 	/** What the shell shows. Held here so no route owns it. */
 	const view = $state({
@@ -324,7 +326,7 @@ export function createWhispering(folder: WhisperingFolder) {
 		// SAFETY: the table key selects the same schema as ListedRow<T>.
 		return folder.tables[table].rows as readonly ListedRow<T>[];
 	}
-	const listedFiles = perListing((files: readonly FileValue[]) =>
+	const listedFiles = perListing((files: readonly FolderFile[]) =>
 		listingOf(files.map((file) => file.path)),
 	);
 	/** The folder's complete file listing, read reactively. */
@@ -380,6 +382,8 @@ export function createWhispering(folder: WhisperingFolder) {
 
 	/** Row files the person chose to edit as their exact text. */
 	const asText = new SvelteSet<string>();
+	/** The mounted editor, if any, supplies text ahead of the folder for rename. */
+	const renameDrafts = new Map<string, Set<RenameDraftSave>>();
 
 	/**
 	 * Whether `path` shows as its exact text: a row file the person opened in
@@ -403,6 +407,10 @@ export function createWhispering(folder: WhisperingFolder) {
 	/** After a delete, the view state and selection let the file go. */
 	function deleted(path: string) {
 		runs.forget(path);
+		const recording = rowIdOf(RECORDINGS, path);
+		if (recording !== undefined) justFinished.delete(recording);
+		for (const [id, audioPath] of justFinished)
+			if (audioPath === path) justFinished.delete(id);
 		asText.delete(path);
 		if (selectedPath === path) selectedPath = undefined;
 		if (selectedTransformationPath === path)
@@ -486,6 +494,7 @@ export function createWhispering(folder: WhisperingFolder) {
 
 	const runs = createRuns({
 		folder,
+		presentWriteFailure,
 		transcribe: (request) => services.transcribe(request),
 		transform: (request) => services.transform(request),
 		makeId: recordingId,
@@ -555,7 +564,10 @@ export function createWhispering(folder: WhisperingFolder) {
 		const { data: stopped, error: stopError } = await stopping;
 		if (stopError === null) justFinished.set(id, capture.audioPath);
 		// Look at the folder now, so the finished audio is listed soon.
-		folder.checkpoint();
+		void folder.refresh().then(() => {
+			if (!listing().byStem.get(recordingAudioStem(id))?.some((path) => audioMimeTypeOf(path) !== undefined))
+				justFinished.delete(id);
+		});
 		captureState = { phase: 'idle' };
 		// Closed meanwhile: the folder is closing, so the length is not written.
 		if (disposed) return;
@@ -774,13 +786,22 @@ export function createWhispering(folder: WhisperingFolder) {
 
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText,
+		registerRenameDraft(path: string, save: RenameDraftSave) {
+			const saves = renameDrafts.get(path) ?? new Set<RenameDraftSave>();
+			saves.add(save);
+			renameDrafts.set(path, saves);
+			return () => {
+				saves.delete(save);
+				if (saves.size === 0) renameDrafts.delete(path);
+			};
+		},
 		/** Whether a save is waiting or running; read reactively. */
 		get saving() {
 			return folder.saving;
 		},
 		/** Look at the folder again, as Try again after a read failed. */
-		checkpoint(): void {
-			folder.checkpoint();
+		refresh(): void {
+			void folder.refresh();
 		},
 		/** Show a row file as its exact text; nothing is saved or read. */
 		editSource(path: string): string | undefined {
@@ -1048,7 +1069,10 @@ export function createWhispering(folder: WhisperingFolder) {
 					fields: { title, model: null },
 					body: prompt,
 				});
-				if (error !== null) return describeError(error);
+				if (error !== null) {
+					presentWriteFailure('Could not create the transformation', error);
+					return WRITE_FAILED;
+				}
 			} catch (cause) {
 				return describe(cause);
 			}
@@ -1068,8 +1092,8 @@ export function createWhispering(folder: WhisperingFolder) {
 		/**
 		 * Copy the file as the mirror shows it, or its bytes for a file the
 		 * mirror does not keep, to a new name, then delete the old path. It
-		 * waits for no save: while one runs it refuses, and when the file
-		 * changes during the copy both are kept.
+		 * first saves the mounted editor's typed text. If the file changes during
+		 * the copy, both files are kept.
 		 */
 		async rename(path: string, name: string): Promise<string | undefined> {
 			const why = refused();
@@ -1090,8 +1114,13 @@ export function createWhispering(folder: WhisperingFolder) {
 			)
 				return TRANSCRIPT_NAME;
 			if (taken(to)) return TAKEN;
-			if (folder.saving)
-				return 'A save is still running. Rename again in a moment.';
+			for (const save of renameDrafts.get(path) ?? []) {
+				const pending = await save();
+				if (pending?.error) {
+					presentWriteFailure('Could not rename the file', pending.error);
+					return WRITE_FAILED;
+				}
+			}
 			const before = folder.file(path);
 			if (before === undefined) return `No file exists at '${path}'.`;
 			let data: string | Uint8Array;
@@ -1103,15 +1132,20 @@ export function createWhispering(folder: WhisperingFolder) {
 				data = bytes;
 			}
 			const { error: copyError } = await folder.write(to, data);
-			if (copyError !== null) return describeError(copyError);
+			if (copyError !== null) {
+				presentWriteFailure('Could not rename the file', copyError);
+				return WRITE_FAILED;
+			}
 			if (disposed)
 				return `${to} was saved. ${path} was kept because the folder is closing.`;
 			const current = folder.file(path);
-			if (folder.saving || current !== before)
+			if (current !== before)
 				return `${to} was saved. Different text arrived during the copy, so ${path} was kept with that text.`;
 			const { error: removeError } = await folder.delete(path);
-			if (removeError !== null)
-				return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
+			if (removeError !== null) {
+				presentWriteFailure(`${to} was saved, but ${path} was not deleted`, removeError);
+				return WRITE_FAILED;
+			}
 			if (!disposed) moved(path, to);
 			return undefined;
 		},
@@ -1125,7 +1159,10 @@ export function createWhispering(folder: WhisperingFolder) {
 				const path = joinPath(directory, name);
 				if (taken(path)) return `"${name}" already exists here.`;
 				const { error } = await folder.write(path, '');
-				if (error !== null) return describeError(error);
+				if (error !== null) {
+					presentWriteFailure('Could not create the file', error);
+					return WRITE_FAILED;
+				}
 				open(path);
 				return undefined;
 			} catch (cause) {
@@ -1164,6 +1201,7 @@ export function createWhispering(folder: WhisperingFolder) {
 					{
 						folder,
 						dropFailed: runs.dropFailed,
+						presentWriteFailure,
 						deleted: (path) => {
 							if (!disposed) deleted(path);
 						},

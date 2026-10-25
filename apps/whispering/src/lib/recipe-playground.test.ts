@@ -48,7 +48,7 @@ import {
 	deferred,
 	eventually,
 	openTestServices,
-	settled,
+	waitForSaves,
 	TEST_BASE_URL,
 	type TestServicesOptions,
 } from './services.test-support.js';
@@ -125,10 +125,10 @@ function shownRecipe(
 async function transcribed(whispering: Whispering, folder: WhisperingFolder) {
 	await whispering.startRecording();
 	await whispering.stopRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 	const recording = whispering.entries[0]!;
 	await whispering.transcribe(recording);
-	await settled(folder);
+	await waitForSaves(folder);
 	return { recording, transcript: whispering.resultsFor(recording.stem)[0]! };
 }
 
@@ -264,7 +264,7 @@ async function newestText(
 	folder: WhisperingFolder,
 	stem: string,
 ) {
-	await settled(folder);
+	await waitForSaves(folder);
 	const output = whispering.textOutputsOf(stem)[0]!;
 	return {
 		output,

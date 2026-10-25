@@ -27,8 +27,8 @@
  * - A row with no body and no request in this window is unfinished; running
  *   it again fills the same row, and deleting it discards it; after a reload
  *   a row whose answer was not written is unfinished
- * - Renaming copies the file as the folder shows it, refuses while a save
- *   runs, and keeps both files when the original changes during the copy;
+ * - Renaming copies the file as the folder shows it, waits behind unrelated
+ *   saves, and keeps both files when the original changes during the copy;
  *   recording and transformation files keep their names
  * - Stop waits for its own initial row save across overlapping captures
  * - Closing refuses new work and selection without draining workflows; the
@@ -46,6 +46,7 @@ import { chmodSync } from 'node:fs';
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { Folder } from '@epicenter/folder/next';
+import { SaveError } from '@epicenter/folder/next/testing';
 import { pathProblem } from '@epicenter/folder/file-browser';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -53,7 +54,7 @@ import { audioMimeTypeOf } from './audio-format.js';
 import { createFixtureDevice, toneWav } from './capture.js';
 import { recordingAudioStem, type WhisperingTables } from './definition.js';
 import { describeDeletion } from './deletion.js';
-import { readBytes } from './files.js';
+import { readBytes, type PresentWriteFailure, WRITE_FAILED } from './files.js';
 import type { WhisperingFolder } from './folder.js';
 import { createMicrophoneDevice } from './microphone.js';
 import type { WhisperingServices } from './platform/types.js';
@@ -62,7 +63,7 @@ import {
 	eventually,
 	openMemoryTestFolder,
 	openTestFolder,
-	settled,
+	waitForSaves,
 	TEST_BASE_URL,
 	testConnections,
 	whisperingDirectory,
@@ -96,6 +97,7 @@ type Options = {
 	nativeCapture?: boolean;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Parameters<typeof testConnections>[0];
+	presentWriteFailure?: PresentWriteFailure;
 };
 
 async function open({
@@ -104,6 +106,7 @@ async function open({
 	memory = false,
 	nativeCapture = false,
 	connections,
+	presentWriteFailure,
 }: Options = {}) {
 	const directory =
 		root ?? (await whisperingDirectory('whispering-whispering-'));
@@ -153,7 +156,7 @@ async function open({
 			setMicrophone: async () => undefined,
 		},
 	};
-	const { whispering } = await openTestWhispering({ services, folder });
+	const { whispering } = await openTestWhispering({ services, folder, presentWriteFailure });
 	fixtures.push({ whispering, folder, opened });
 	return {
 		whispering,
@@ -187,7 +190,7 @@ async function record(whispering: Whispering, folder: WhisperingFolder) {
 	await whispering.startRecording();
 	expect(whispering.recorder.phase).toBe('recording');
 	await whispering.stopRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 }
 
 /** Close `whispering` in the test, so the next opening reads what it left. */
@@ -324,28 +327,29 @@ test('a recording being captured, and once it stops, has its audio here, never a
 	await whispering.startRecording();
 	// The fixture's audio is written when it stops, so until then the
 	// listing lacks it.
-	await settled(folder);
+	await waitForSaves(folder);
 	const [entry] = whispering.entries;
 	expect(whispering.audioOf(entry!).kind).toBe('here');
 
 	await whispering.stopRecording();
 	expect(whispering.audioOf(whispering.entries[0]!).kind).toBe('here');
-	await settled(folder);
+	await waitForSaves(folder);
 	expect(whispering.audioOf(whispering.entries[0]!).kind).toBe('here');
 });
 
-test('just-stopped audio the shell writes is here before the folder lists it, and the listing decides once it does', async () => {
+test('just-stopped audio without a listed sibling becomes absent after refresh', async () => {
 	const { folder, whispering, root } = await open({ nativeCapture: true });
 	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	const audioPath = entry.path.replace(/\.md$/, '.wav');
-	// Nothing listed it yet: it plays from where the capture wrote it.
+	// Stop's refresh found no sibling, so the transient capture path is cleared.
+	await folder.refresh();
 	expect(folder.file(audioPath)).toBeUndefined();
-	expect(whispering.audioOf(entry)).toEqual({ kind: 'here', path: audioPath });
+	expect(whispering.audioOf(entry).kind).toBe('absent');
 
 	// The shell's file arrives, and the folder lists it.
 	await writeFile(join(root, audioPath), toneWav());
-	folder.checkpoint();
+	folder.refresh();
 	await eventually(() => folder.file(audioPath) !== undefined);
 	expect(whispering.audioOf(entry)).toEqual({ kind: 'here', path: audioPath });
 
@@ -360,7 +364,7 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 	await whispering.startRecording();
 
 	expect(whispering.recorder.phase).toBe('recording');
-	await settled(folder);
+	await waitForSaves(folder);
 	const [entry] = whispering.entries;
 	expect(entry?.row.fields).toMatchObject({
 		capture: 'fixture',
@@ -368,7 +372,7 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 	expect(entry?.row.fields.durationMs).toBeUndefined();
 
 	await whispering.stopRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 
 	expect(
 		whispering.entries.map((stored) => stored.row.fields.durationMs),
@@ -391,7 +395,7 @@ test('Stop pressed while the row’s first save runs writes the length once the 
 	host!.control.putGate = undefined;
 	release.resolve();
 	await Promise.all([starting, stopping]);
-	await settled(folder);
+	await waitForSaves(folder);
 
 	expect(whispering.recorderError).toBeUndefined();
 	const [entry] = whispering.entries;
@@ -422,7 +426,7 @@ test('each capture’s Stop waits for its own row while a second capture starts'
 	}
 	expect(whispering.recorder.phase).toBe('recording');
 	await whispering.stopRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 	expect(whispering.entries).toHaveLength(2);
 	for (const entry of whispering.entries)
 		expect(entry.row.fields.durationMs).toBe(1000);
@@ -433,7 +437,7 @@ test('a recording still recording is not transcribed', async () => {
 	const { folder, whispering, transcribed } = await open();
 
 	await whispering.startRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 	const [entry] = whispering.entries;
 	await whispering.transcribe(entry!);
 
@@ -517,7 +521,7 @@ test('a field another program added survives every edit of the row', async () =>
 		join(root, entry.path),
 		recordingText('Theirs').replace('---\n', '---\nspeaker: Ada\n'),
 	);
-	folder.checkpoint();
+	folder.refresh();
 	await eventually(() => whispering.entries[0]?.row.fields.title === 'Theirs');
 
 	expectOk(
@@ -599,7 +603,7 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	const audioPath = entry.path.replace(/\.md$/, '.wav');
 
 	await whispering.transcribe(entry);
-	await settled(folder);
+	await waitForSaves(folder);
 
 	expect(transcribed).toEqual([
 		{
@@ -692,6 +696,7 @@ test('an answer sets the row body over the file as it is then, keeping its other
 		file,
 		(await readFile(file, 'utf8')).replace(/^---\n/, '---\nlanguage: en\n'),
 	);
+	await folder.refresh();
 
 	answer.resolve(Ok({ text: 'arrived' }));
 	await transcribing;
@@ -811,7 +816,7 @@ test('a running transcription cannot be asked for again; deleting its row discar
 	expect(await whispering.delete(deletion)).toBeUndefined();
 	answer.resolve(Ok({ text: 'too late' }));
 	await transcribing;
-	await settled(folder);
+	await waitForSaves(folder);
 
 	expect(await transcripts(root)).toEqual([]);
 	expect(whispering.resultsFor(entry.stem)).toEqual([]);
@@ -1008,6 +1013,21 @@ test('a rename never replaces a file already at the new name', async () => {
 	expect(await readFile(join(root, 'b.txt'), 'utf8')).toBe('b\n');
 });
 
+test('a failed delete presents its write failure exactly once', async () => {
+	const shown: string[] = [];
+	const { folder, host, whispering } = await open({
+		memory: true,
+		presentWriteFailure: (action, error) => shown.push(`${action}: ${error.message}`),
+	});
+	expectOk(await folder.write('notes.txt', 'Keep this'));
+	const deletion = expectOk(await whispering.deletionFor('notes.txt'));
+	host!.control.failPut.set('notes.txt', SaveError.StorageFailed({ cause: 'disk full' }).error);
+	expect(await whispering.delete(deletion)).toBe(WRITE_FAILED);
+	expect(shown).toHaveLength(1);
+	expect(shown[0]).toContain('Could not delete notes.txt');
+	expect(folder.file('notes.txt')?.data).toBe('Keep this');
+});
+
 test('renaming audio no recording names moves its exact bytes', async () => {
 	const { folder, whispering, root } = await open();
 	expectOk(await folder.write('recordings/loose.wav', toneWav()));
@@ -1028,7 +1048,7 @@ test('renaming text copies its exact bytes, a byte order mark and line endings i
 	const { folder, whispering, root } = await open();
 	const original = '﻿Unopened café\r\n';
 	await writeFile(join(root, 'unopened.txt'), original);
-	folder.checkpoint();
+	folder.refresh();
 	await eventually(() => folder.file('unopened.txt') !== undefined);
 
 	expect(await whispering.rename('unopened.txt', 'renamed.txt')).toBeUndefined();
@@ -1038,27 +1058,26 @@ test('renaming text copies its exact bytes, a byte order mark and line endings i
 	expect(await Bun.file(join(root, 'unopened.txt')).exists()).toBe(false);
 });
 
-test('a rename is refused while a save runs, and nothing is copied', async () => {
+test('an unrelated pending save does not refuse a rename or leave both files', async () => {
 	const { folder, host, whispering } = await open({ memory: true });
 	expectOk(await folder.write('from.txt', 'Saved text'));
 	const release = deferred<void>();
 	host!.control.putGate = release.promise;
 	const saving = folder.write('other.txt', 'Still saving');
+	const renaming = whispering.rename('from.txt', 'to.txt');
 	try {
 		expect(folder.saving).toBe(true);
-		expect(await whispering.rename('from.txt', 'to.txt')).toBe(
-			'A save is still running. Rename again in a moment.',
-		);
 	} finally {
 		host!.control.putGate = undefined;
 		release.resolve();
 	}
 	expectOk(await saving);
-	expect(folder.file('to.txt')).toBeUndefined();
-	expect(folder.file('from.txt')?.data).toBe('Saved text');
+	expect(await renaming).toBeUndefined();
+	expect(folder.file('to.txt')?.data).toBe('Saved text');
+	expect(folder.file('from.txt')).toBeUndefined();
 });
 
-test('a rename keeps both files when a write to the original arrives during the copy', async () => {
+test('a write queued during a copy takes its turn before the rename deletes the source', async () => {
 	const { folder, host, whispering } = await open({ memory: true });
 	expectOk(await folder.write('from.txt', 'Copied text'));
 	let typed: ReturnType<typeof folder.write> | undefined;
@@ -1067,14 +1086,11 @@ test('a rename keeps both files when a write to the original arrives during the 
 		if (path === 'to.txt') typed = folder.write('from.txt', 'Newer text');
 	};
 
-	expect(await whispering.rename('from.txt', 'to.txt')).toContain(
-		'Different text arrived',
-	);
+	expect(await whispering.rename('from.txt', 'to.txt')).toBeUndefined();
 	expectOk(await typed!);
 	expect(host!.text('to.txt')).toBe('Copied text');
-	expect(host!.text('from.txt')).toBe('Newer text');
-	expect(folder.file('from.txt')?.data).toBe('Newer text');
-	expect(whispering.selectedPath).not.toBe('to.txt');
+	expect(host!.text('from.txt')).toBeUndefined();
+	expect(folder.file('from.txt')).toBeUndefined();
 });
 
 test('recording and transformation files keep their names, and a transcript keeps its extension', async () => {

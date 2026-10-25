@@ -30,6 +30,7 @@
 	import { confirmDelete, copyPath, lf } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { onMount } from 'svelte';
 
 	let {
 		path,
@@ -71,11 +72,40 @@
 			: (readRow(source.value, whisperingTables[table]).issues ?? undefined),
 	);
 
-	/** Change editors once this file's saves answer, so the other editor sees them. */
+	async function saveBeforeRename() {
+		for (;;) {
+			const typedSource = source.value;
+			const typedBody = body.value;
+			const sourcePending = text !== undefined && typedSource !== text;
+			const bodyPending = transcriptId !== undefined && typedBody !== (stored?.issues === null ? stored.body : '');
+			const saveSource = () => sourcePending ? folder.write(own, typedSource) : undefined;
+			const saveBody = () => bodyPending
+				? folder.tables.transcriptions.update(transcriptId ?? '', { body: typedBody })
+				: undefined;
+			const saves = transcript ? [saveSource, saveBody] : [saveBody, saveSource];
+			for (const save of saves) {
+				const answer = save();
+				if (answer === undefined) continue;
+				const saved = await answer;
+				if (saved.error !== null) return saved;
+			}
+			if (source.value === typedSource && body.value === typedBody) break;
+		}
+		source.discard();
+		body.discard();
+	}
+	onMount(() => whispering.registerRenameDraft(own, saveBeforeRename));
+
+	/** Returning to fields first writes the shown Source text. */
 	async function show(toSource: boolean) {
-		folder.checkpoint();
-		await folder.settled(own);
-		if (toSource ? body.error : source.error) return;
+		if (!toSource && source.value !== text) {
+			const saved = await folder.write(own, source.value);
+			if (saved.error !== null) {
+				toast.error('The text was not opened alone', { description: saved.error.message });
+				return;
+			}
+			source.discard();
+		}
 		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem)
 			toast.error(toSource ? 'The text was not opened for editing' : 'The text was not opened alone', {
@@ -121,14 +151,17 @@
 			<Empty.Title>{name} is no longer in the folder</Empty.Title>
 			<Empty.Description>It was renamed or deleted, here or by another program.</Empty.Description>
 		</Empty.Root>
-	{:else if file.readError}
+	{:else if file.readError && text === undefined}
 		<Empty.Root class="flex-1" data-testid="file-read-error">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 			<Empty.Title>Could not read this file</Empty.Title>
 			<Empty.Description>{file.readError.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Try again</Button>
+			<Button variant="outline" size="sm" onclick={() => folder.refresh()}>Try again</Button>
 		</Empty.Root>
 	{:else if transcript}
+		{#if file.readError}
+			<div role="alert" class="border-b px-4 py-2 text-sm text-destructive">Could not read the latest file: {file.readError.message} <Button variant="outline" size="xs" onclick={() => void folder.refresh()}>Try again</Button></div>
+		{/if}
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<p class="text-xs text-muted-foreground">
 				The transcript’s text, the body of its file. Its fields are kept as they are.
@@ -142,6 +175,9 @@
 			<UnsavedEdit draft={body} />
 		</div>
 	{:else if text !== undefined}
+		{#if file.readError}
+			<div role="alert" class="border-b px-4 py-2 text-sm text-destructive">Could not read the latest file: {file.readError.message} <Button variant="outline" size="xs" onclick={() => void folder.refresh()}>Try again</Button></div>
+		{/if}
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
