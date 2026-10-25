@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
 import OpenAI from 'openai';
 import { expectOk } from 'wellcrafted/testing';
-import { createMemory } from '../folder.test-support.js';
+import { createMemory, tableFiles, until } from '../folder.test-support.js';
 
 const { createVocabChat } = await import('./session.svelte.js');
 const { createChatMessageStore } = await import('./messages.svelte.js');
@@ -22,39 +22,62 @@ const welcome: AgentMessage = {
 	parts: [{ type: 'text', text: 'Welcome.' }],
 };
 
-async function setup() {
+const asked: AgentMessage = {
+	id: 'question',
+	role: 'user',
+	createdAt: 2,
+	parts: [{ type: 'text', text: 'Is this right?' }],
+};
+
+async function setup({ question = false } = {}) {
 	const { folder, core, host } = await createMemory();
 	const chatId = expectOk(
 		await startChat(folder.tables.chats, [{ entryId: 'entry', text: 'lucid' }]),
 	).id;
-	expectOk(
-		await createChatMessageStore(folder, chatId).set(welcome.id, welcome),
-	);
+	const store = createChatMessageStore(folder, chatId);
+	expectOk(await store.set(welcome.id, welcome));
+	if (question) expectOk(await store.set(asked.id, asked));
 	let requests = 0;
+	const tutor = {
+		finishReason: 'stop',
+		status: 200,
+		held: undefined as Promise<void> | undefined,
+		answers: [] as Promise<void>[],
+	};
 	const client = new OpenAI({
 		apiKey: 'test',
 		baseURL: 'https://tutor.test/v1',
 		maxRetries: 0,
 		fetch: async () => {
 			requests++;
+			if (tutor.status !== 200)
+				return Response.json(
+					{ error: { message: 'The tutor is unavailable.' } },
+					{ status: tutor.status },
+				);
+			const event = (finishReason: string | null) =>
+				new TextEncoder().encode(
+					`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'Nice.' }, finish_reason: finishReason }] })}\n\n`,
+				);
+			const held = tutor.held;
+			const answered = Promise.withResolvers<void>();
+			tutor.answers.push(answered.promise);
 			return new Response(
 				new ReadableStream<Uint8Array>({
-					start(controller) {
-						const event = {
-							choices: [
-								{
-									index: 0,
-									delta: { content: 'Nice.' },
-									finish_reason: 'stop',
-								},
-							],
-						};
-						controller.enqueue(
-							new TextEncoder().encode(
-								`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`,
-							),
-						);
-						controller.close();
+					async start(controller) {
+						try {
+							if (held) {
+								controller.enqueue(event(null));
+								await held;
+							}
+							controller.enqueue(event(tutor.finishReason));
+							controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+							controller.close();
+						} catch {
+							// Stopping can cancel the stream before its held answer resumes.
+						} finally {
+							answered.resolve();
+						}
 					},
 				}),
 				{ headers: { 'content-type': 'text/event-stream' } },
@@ -80,9 +103,11 @@ async function setup() {
 	});
 	return {
 		chat,
+		folder,
 		core,
 		host,
 		chatId,
+		tutor,
 		get requests() {
 			return requests;
 		},
@@ -95,7 +120,7 @@ async function settle(chat: ReturnType<typeof createVocabChat>) {
 }
 
 test('a submitted draft stays until its message is saved, then clears', async () => {
-	const { chat, core, requests } = await setup();
+	const { chat, core } = await setup();
 	chat.inputValue = 'It was a lucid talk.';
 	const sending = chat.sendMessage();
 	expect(chat.inputValue).toBe('It was a lucid talk.');
@@ -176,6 +201,93 @@ test('a refused tutor answer is retried without another tutor request', async ()
 	await context.chat.saveAgain();
 	expect(context.chat.unsaved).toHaveLength(0);
 	expect(context.requests).toBe(1);
+	context.chat[Symbol.dispose]();
+	await context.core.close();
+});
+
+test('an answer cut off at the output limit saves nothing', async () => {
+	const context = await setup({ question: true });
+	context.tutor.finishReason = 'length';
+	await context.chat.retry();
+	await settle(context.chat);
+	expect(context.requests).toBe(1);
+	expect(context.chat.error?.code).toBe('length');
+	expect(context.chat.unsaved).toEqual([]);
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+		'user',
+	]);
+	expect(tableFiles(context.folder, 'messages')).toHaveLength(2);
+	context.chat[Symbol.dispose]();
+	await context.core.close();
+});
+
+test('a failed tutor request saves nothing and can be retried', async () => {
+	const context = await setup({ question: true });
+	context.tutor.status = 500;
+	await context.chat.retry();
+	await settle(context.chat);
+	expect(context.requests).toBe(1);
+	expect(context.chat.error).not.toBeNull();
+	expect(context.chat.unsaved).toEqual([]);
+	expect(context.chat.canAsk).toBe(true);
+	expect(tableFiles(context.folder, 'messages')).toHaveLength(2);
+	context.chat[Symbol.dispose]();
+	await context.core.close();
+});
+
+test('a stopped answer is never saved after the rest arrives', async () => {
+	const context = await setup({ question: true });
+	const answering = Promise.withResolvers<void>();
+	context.tutor.held = answering.promise;
+	await context.chat.retry();
+	await until(() => context.chat.streaming !== null, 'partial tutor answer');
+	context.chat.stop();
+	answering.resolve();
+	await Promise.all(context.tutor.answers);
+	await settle(context.chat);
+	expect(context.chat.streaming).toBeNull();
+	expect(context.chat.unsaved).toEqual([]);
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+		'user',
+	]);
+	expect(tableFiles(context.folder, 'messages')).toHaveLength(2);
+	context.chat[Symbol.dispose]();
+	await context.core.close();
+});
+
+test('stopping while the learner message saves prevents the tutor start', async () => {
+	const context = await setup();
+	const saving = Promise.withResolvers<void>();
+	context.host.control.putGate = saving.promise;
+	context.chat.inputValue = 'It was a lucid talk.';
+	const sending = context.chat.sendMessage();
+	await until(() => context.chat.isSaving, 'learner message save');
+	context.chat.stop();
+	saving.resolve();
+	await sending;
+	await settle(context.chat);
+	expect(context.requests).toBe(0);
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+		'user',
+	]);
+	expect(context.chat.unsaved).toEqual([]);
+	expect(context.chat.canAsk).toBe(true);
+	expect(tableFiles(context.folder, 'messages')).toHaveLength(2);
+	context.chat[Symbol.dispose]();
+	await context.core.close();
+});
+
+test('an opening is not asked twice over a chat that already has one', async () => {
+	const context = await setup();
+	await context.chat.retry();
+	await settle(context.chat);
+	expect(context.requests).toBe(0);
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+	]);
 	context.chat[Symbol.dispose]();
 	await context.core.close();
 });

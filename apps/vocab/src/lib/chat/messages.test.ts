@@ -1,8 +1,14 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
-import { expectOk } from 'wellcrafted/testing';
-import { createBrowser, createMemory, until } from '../folder.test-support.js';
+import { expectErr, expectOk } from 'wellcrafted/testing';
+import {
+	createBrowser,
+	createMemory,
+	fileText,
+	tableFiles,
+	until,
+} from '../folder.test-support.js';
 
 const { createChatMessageStore, messageId } = await import(
 	'./messages.svelte.js'
@@ -114,6 +120,83 @@ test('chat listing follows the mirror', async () => {
 		await startChat(folder.tables.chats, [{ entryId: 'word', text: 'lucid' }]),
 	);
 	expect(chats.listing.chats[0]?.id).toBe(started.id);
+	await core.close();
+});
+
+test('a refused focus writes no chat file', async () => {
+	const { folder, core } = await createMemory();
+	expect(expectErr(await startChat(folder.tables.chats, [])).name).toBe(
+		'InvalidFocus',
+	);
+	expect(
+		expectErr(
+			await startChat(
+				folder.tables.chats,
+				Array.from({ length: 4 }, (_, index) => ({
+					entryId: String(index),
+					text: 'word',
+				})),
+			),
+		).name,
+	).toBe('InvalidFocus');
+	expect(tableFiles(folder, 'chats')).toEqual([]);
+	await core.close();
+});
+
+test('chats stay newest first when an older chat gets a message', async () => {
+	const { folder, core } = await createMemory();
+	const chats = createChats(folder);
+	const older = expectOk(
+		await chats.start([{ entryId: 'entry', text: 'lucid' }]),
+	);
+	await Bun.sleep(2);
+	const newer = expectOk(
+		await chats.start([{ entryId: 'entry', text: 'opaque' }]),
+	);
+	expectOk(
+		await createChatMessageStore(folder, older.id).set(
+			'one',
+			message('one', 'hello'),
+		),
+	);
+	expect(chats.listing.chats.map(({ id, title }) => ({ id, title }))).toEqual([
+		{ id: newer.id, title: 'opaque' },
+		{ id: older.id, title: 'lucid' },
+	]);
+	await core.close();
+});
+
+test('an invalid chat file is listed with its path and reason', async () => {
+	const broken = '---\ncreatedAt: 2026-01-01T00:00:00.000Z\nfocus: []\n---\n';
+	const { folder, core } = await createMemory({ 'chats/broken.md': broken });
+	const listing = createChats(folder).listing;
+	expect(listing.chats).toEqual([]);
+	expect(listing.unreadable).toHaveLength(1);
+	expect(listing.unreadable[0]).toMatchObject({
+		path: 'chats/broken.md',
+		id: 'broken',
+	});
+	expect(listing.unreadable[0]?.reason.length).toBeGreaterThan(0);
+	expect(fileText(folder, 'chats/broken.md')).toBe(broken);
+	await core.close();
+});
+
+test('an unreadable message is reported without hiding valid messages', async () => {
+	const { folder, core } = await createMemory();
+	const store = createChatMessageStore(folder, 'chat-a');
+	expectOk(await store.set('one', message('one', 'saved')));
+	const wrongShape = '---\nchat: chat-a\nmessage:\n  id: broken\n---\n';
+	expectOk(await folder.write('messages/chat-a.wrong-shape.md', wrongShape));
+	expectOk(await folder.write('messages/unparsed.md', 'not a row\n'));
+	expect([...store.entries()].map(({ key }) => key)).toEqual(['one']);
+	expect(store.unreadable).toHaveLength(1);
+	expect(store.unreadable[0]).toMatchObject({
+		path: 'messages/chat-a.wrong-shape.md',
+		id: 'chat-a.wrong-shape',
+	});
+	expect(store.unreadable[0]?.reason.length).toBeGreaterThan(0);
+	expect(fileText(folder, 'messages/chat-a.wrong-shape.md')).toBe(wrongShape);
+	expect(createChats(folder).listing.unreadable).toEqual([]);
 	await core.close();
 });
 

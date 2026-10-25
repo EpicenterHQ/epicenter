@@ -9,6 +9,9 @@ import {
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { createEntries } = await import('../../lib/entries.svelte.js');
+const { confirmationDialog } = await import(
+	'@epicenter/ui/confirmation-dialog'
+);
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { cardProps } = await import('./card-props.test-support.svelte.js');
@@ -103,5 +106,19 @@ test('note and stage updates merge over one path', async () => {
 			row.fields.note === 'new note'
 		);
 	}, 'merged updates');
+	await context.close();
+});
+
+test('Delete asks first; Cancel changes nothing, and confirming deletes the word', async () => {
+	const context = await setup();
+	const before = context.folder.tables.entries.row(context.id);
+	click(context.target, 'Delete');
+	expect(confirmationDialog.isOpen).toBe(true);
+	expect(confirmationDialog.options?.title).toContain('lucid');
+	confirmationDialog.cancel();
+	expect(context.folder.tables.entries.row(context.id)).toEqual(before);
+	click(context.target, 'Delete');
+	await confirmationDialog.confirm();
+	expect(context.folder.tables.entries.row(context.id)).toBeUndefined();
 	await context.close();
 });
