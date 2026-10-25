@@ -1,10 +1,6 @@
-<script module lang="ts">
-	import type { MessagesFolder } from './drafts.js';
-	const lastSaves = new WeakMap<MessagesFolder, Map<string, Promise<unknown>>>();
-</script>
-
 <script lang="ts">
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -18,25 +14,10 @@
 	// The parent keys this composer by its durable draft ID.
 	// svelte-ignore state_referenced_locally
 	const draftId = id;
-	const previousSave = lastSaves.get(folder)?.get(draftId);
-	let ready = $state(previousSave === undefined);
-	if (previousSave) {
-		folder.checkpoint();
-		void previousSave.then(() => { ready = true; });
-	}
+	const ready = folder.settled(`drafts/${draftId}.md`);
 	const row = $derived(folder.tables.drafts.row(draftId));
 	const attempt = $derived(folder.tables.attempts.row(draftId));
 	let creating = false;
-	function remember(saved: Promise<unknown>) {
-		let byId = lastSaves.get(folder);
-		if (!byId) {
-			byId = new Map();
-			lastSaves.set(folder, byId);
-		}
-		byId.set(draftId, saved);
-		void saved.then(() => { if (byId.get(draftId) === saved) byId.delete(draftId); });
-		return saved;
-	}
 	const reply = draft(
 		() => row?.issues === null ? row.body : '',
 		(body) => {
@@ -46,10 +27,10 @@
 					fields: { chatId, profile: backend.profile, mode: backend.mode },
 					body,
 				});
-			void saved.then(() => { creating = false; });
-				return remember(saved);
+				void saved.then(() => { creating = false; });
+				return saved;
 			}
-			return remember(folder.tables.drafts.update(draftId, { body }));
+			return folder.tables.drafts.update(draftId, { body });
 		},
 	);
 	const pending = $derived(attempt?.issues === null && attempt.fields.state === 'sending');
@@ -58,7 +39,7 @@
 		mutationFn: async ({ text, previousAttemptId }: { text: string; previousAttemptId: string | undefined }) => {
 			const result = await sendDraft(folder, {
 				id: draftId, chatId, backend, text, previousAttemptId,
-				unchanged: () => reply.text === text,
+				unchanged: () => reply.value === text,
 			});
 			if (result.error !== null) { message = result.error.message; return; }
 			message = backend.mode === 'demo' ? 'Demo message sent.' : 'Accepted by Beeper. Delivery status appears in the conversation.';
@@ -70,7 +51,7 @@
 		mutationFn: async ({ checkedAttemptId, keep }: { checkedAttemptId: string; keep: boolean }) => {
 			const result = await recoverDraft(folder, {
 				id: draftId, chatId, backend, checkedAttemptId, keep,
-				composerEmpty: () => reply.text === '',
+				composerEmpty: () => reply.value === '',
 			});
 			message = result.error?.message ?? '';
 		},
@@ -94,17 +75,18 @@
 		<p role="alert" class="text-sm text-destructive">The latest send attempt needs Markdown repair.</p>
 		{#if attempt.issues.some((issue) => issue.kind === 'unreadable')}<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Read again</Button>{/if}
 	{/if}
-	{#if ready}
+	{#await ready then _}
 	{#if row?.issues}
 		<p role="alert" class="text-sm text-destructive">This draft needs Markdown repair before composing.</p>
 		{#if row.issues.some((issue) => issue.kind === 'unreadable')}<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Read again</Button>{/if}
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
-		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={reply.text} />
+		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={reply.value} />
+		<UnsavedEdit draft={reply} />
 		<div class="flex items-center justify-end gap-3">
-			<Button disabled={send.isPending || recover.isPending || pending || !!attempt?.issues || !reply.text.trim()} onclick={() => send.mutate({ text: reply.text, previousAttemptId: attempt?.issues === null ? attempt.fields.attemptId : undefined })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
+			<Button disabled={send.isPending || recover.isPending || pending || !!attempt?.issues || !reply.value.trim()} onclick={() => send.mutate({ text: reply.value, previousAttemptId: attempt?.issues === null ? attempt.fields.attemptId : undefined })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>
 	{/if}
-	{/if}
+	{/await}
 	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
 </div>
