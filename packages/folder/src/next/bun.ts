@@ -9,7 +9,6 @@ import { OpenFolderError } from '../errors.js';
 import { localRoot, scratchDirectory } from '../native/directory.js';
 import { nativeStorage, savingPrimitives } from '../native/storage.js';
 import { watchDirectory } from '../native/watch.js';
-import { invalidTable } from '../paths.js';
 import {
 	createFolder,
 	type Opened,
@@ -24,8 +23,6 @@ export async function openFolder<const T extends Tables>({
 	directory,
 	...options
 }: OpenOptions<T> & { readonly directory: string }): Opened<T> {
-	const table = invalidTable(options.tables);
-	if (table !== undefined) return OpenFolderError.InvalidTable({ table });
 	const { data: root, error } = await localRoot(directory);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
 	// What a stopped write staged an hour or more ago goes before opening.

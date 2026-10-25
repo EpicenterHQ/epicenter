@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 import { SaveError } from '../shared/errors.js';
-import { createFolder, readRow, typedText } from './folder.js';
+import { createFolder, readRow } from './folder.js';
 import { memoryHost, tick } from './testing.js';
 
 const tables = {
@@ -47,6 +47,30 @@ describe('opening', () => {
 		memory.control.listFails = true;
 		const opened = await createFolder(memory.storage, { tables });
 		expect(opened.error?.name).toBe('Unavailable');
+	});
+
+	test('an invalid table name refuses before listing', async () => {
+		const memory = memoryHost();
+		const opened = await createFolder(memory.storage, {
+			tables: { 'bad/name': tables.notes },
+		});
+		expect(opened.error).toMatchObject({
+			name: 'InvalidTable',
+			table: 'bad/name',
+		});
+		expect(memory.log.lists).toBe(0);
+	});
+
+	test('a malformed Unicode table name is refused before listing', async () => {
+		const memory = memoryHost();
+		const opened = await createFolder(memory.storage, {
+			tables: { '\ud800': tables.notes },
+		});
+		expect(opened.error).toMatchObject({
+			name: 'InvalidTable',
+			table: '\ud800',
+		});
+		expect(memory.log.lists).toBe(0);
 	});
 
 	test('a row that does not read as one carries its issues', async () => {
@@ -146,6 +170,78 @@ describe('patching', () => {
 });
 
 describe('saving', () => {
+	test('settled sends this path now without relisting and waits for later writes', async () => {
+		const memory = memoryHost({ 'notes/a.md': note('title: A') });
+		const folder = expectOk(
+			await createFolder(memory.storage, { tables, throttleMs: 10_000 }),
+		);
+		let release: () => void = () => {};
+		memory.control.putGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const first = folder.tables.notes.update('a', { body: 'First\n' });
+		const done = folder.settled('notes/a.md');
+		let settled = false;
+		void done.then(() => {
+			settled = true;
+		});
+		await tick();
+		expect(memory.log.puts).toHaveLength(1);
+		const second = folder.tables.notes.update('a', { body: 'Second\n' });
+		memory.control.putGate = undefined;
+		release();
+		let answered = false;
+		void second.then(() => {
+			answered = true;
+		});
+		await done;
+		expect(settled).toBe(true);
+		expect(answered).toBe(true);
+		expect((await first).error).toBeNull();
+		expect((await second).error).toBeNull();
+		expect(memory.text('notes/a.md')).toBe(note('title: A', 'Second\n'));
+		expect(memory.log.lists).toBe(1);
+	});
+
+	test('a quiet disk still throttles successive writes to one path', async () => {
+		const memory = memoryHost({ 'notes/a.md': note('title: A') });
+		const folder = expectOk(
+			await createFolder(memory.storage, { tables, throttleMs: 100 }),
+		);
+		const saves = [];
+		for (let index = 0; index < 20; index++) {
+			saves.push(folder.tables.notes.update('a', { body: `${index}\n` }));
+			await tick(20);
+		}
+		await folder.settled('notes/a.md');
+		await Promise.all(saves);
+		expect(memory.log.puts.length).toBeLessThanOrEqual(6);
+		expect(memory.text('notes/a.md')).toBe(note('title: A', '19\n'));
+	});
+
+	test('onFailed reports one failed batch with its last typed text after Saved answers', async () => {
+		const { folder, control } = await setup({ 'notes/a.md': note('title: A') });
+		control.failPut.set(
+			'notes/a.md',
+			SaveError.StorageFailed({ cause: 'disk full' }).error,
+		);
+		const order: string[] = [];
+		const failures: import('./folder.js').SaveFailure[] = [];
+		folder.onFailed((failure) => {
+			order.push('failure');
+			failures.push(failure);
+		});
+		const first = folder.tables.notes.update('a', { body: 'First' });
+		const second = folder.tables.notes.update('a', { body: 'Second' });
+		void second.then(() => order.push('saved'));
+		await Promise.all([first, second]);
+		await folder.settled('notes/a.md');
+		expect(order).toEqual(['saved', 'failure']);
+		expect(failures).toMatchObject([{ path: 'notes/a.md', text: 'Second' }]);
+		await folder.tables.notes.create('a', { fields: { title: 'Duplicate' } });
+		await tick();
+		expect(failures).toHaveLength(1);
+	});
 	test('writes queued before the first send fold into one', async () => {
 		const { notes, log, text } = await setup({
 			'notes/a.md': note('title: A'),
@@ -536,17 +632,5 @@ describe('readRow', () => {
 		});
 		const broken = readRow(note('pinned: true'), tables.notes);
 		expect(broken.issues?.[0]?.kind).toBe('schema');
-	});
-});
-
-describe('typedText', () => {
-	test('offers a non-empty body, or the one string field a patch sets', () => {
-		expect(typedText({ body: 'Typed\n' })).toBe('Typed\n');
-		expect(typedText({ fields: { title: 'A title' } })).toBe('A title');
-		expect(typedText({ fields: { title: 'A', note: 'B' } })).toBeUndefined();
-		expect(typedText({ fields: { done: true } })).toBeUndefined();
-		expect(typedText({ fields: { text: 'word', note: '' }, body: '' })).toBe(
-			'word',
-		);
 	});
 });

@@ -30,6 +30,7 @@
 import type { TSchema as Schema, Static } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { OpenFolderError } from '../errors.js';
+import { invalidTable } from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import {
 	type Issue as MarkdownIssue,
@@ -93,6 +94,12 @@ export type Patch<S extends Schema = Schema> = {
 };
 /** Answers once the write landed and the mirror shows it, or why it did not land. */
 export type Saved = Promise<Result<void, WriteError>>;
+/** One failed send for a path, with the last typed text in its batch. */
+export type SaveFailure = {
+	path: string;
+	error: WriteError;
+	text: string | undefined;
+};
 
 /** A folder's tables: each key is a top-level directory of `<id>.md` rows read through its schema. */
 export type Tables = Record<string, Schema>;
@@ -115,6 +122,7 @@ export type Folder<T extends Tables = Tables> = {
 	file(path: string): FileValue | undefined;
 	/** Whether a write is waiting or being saved. */
 	saving(): boolean;
+	onFailed(listener: (failure: SaveFailure) => void): () => void;
 	/** A file's bytes from storage, `null` when no file is there; for files the mirror does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
 	/** Replace the whole file. */
@@ -129,6 +137,8 @@ export type Folder<T extends Tables = Tables> = {
 	readonly tables: { readonly [K in keyof T]: Table<T[K]> };
 	/** Look at storage again, and send waiting writes now: on focus, visibility, wake, and before the page hides. */
 	checkpoint(): void;
+	/** Send this path's waiting writes now and answer after its last Saved answer. */
+	settled(path: string): Promise<void>;
 	/** Refuse new writes, send what waits, wait for the queue, then release storage. */
 	close(): Promise<void>;
 };
@@ -155,7 +165,7 @@ type Waiting = { op: Op; resolve: (result: Result<void, WriteError>) => void };
 type Lane = {
 	waiting: Waiting[];
 	sending: boolean;
-	lastSent: number;
+	force: boolean;
 	timer: ReturnType<typeof setTimeout> | undefined;
 };
 type Projector = {
@@ -193,9 +203,20 @@ export async function createFolder<const T extends Tables>(
 	host: FolderHost,
 	{ tables, throttleMs = 1000 }: OpenOptions<T>,
 ): Opened<T> {
+	// The browser repository also refuses malformed Unicode table names.
+	const invalid =
+		invalidTable(tables) ??
+		Object.keys(tables).find((name) => !name.isWellFormed());
+	if (invalid !== undefined) {
+		host.close?.();
+		return OpenFolderError.InvalidTable({ table: invalid });
+	}
 	const mirror = new Map<string, Entry>();
 	const lanes = new Map<string, Lane>();
+	const lastSent = new Map<string, number>();
+	const settledWaiters = new Map<string, Set<() => void>>();
 	const listeners = new Set<() => void>();
+	const failedListeners = new Set<(failure: SaveFailure) => void>();
 	const dirtyProjectors = new Set<Projector>();
 	const projectorsByDirectory = new Map<string, Projector>();
 	let filesSnapshot: readonly FileValue[] = [];
@@ -397,10 +418,13 @@ export async function createFolder<const T extends Tables>(
 	function lane(path: string): Lane {
 		let current = lanes.get(path);
 		if (current === undefined) {
+			const now = Date.now();
+			for (const [key, sent] of lastSent)
+				if (now - sent >= throttleMs) lastSent.delete(key);
 			current = {
 				waiting: [],
 				sending: false,
-				lastSent: Number.NEGATIVE_INFINITY,
+				force: settledWaiters.has(path),
 				timer: undefined,
 			};
 			lanes.set(path, current);
@@ -414,7 +438,7 @@ export async function createFolder<const T extends Tables>(
 		const saved: Saved = new Promise((resolve) =>
 			current.waiting.push({ op, resolve }),
 		);
-		schedule(path, current);
+		schedule(path, current, current.force);
 		notice();
 		return saved;
 	}
@@ -424,7 +448,11 @@ export async function createFolder<const T extends Tables>(
 		if (now) clearTimeout(current.timer);
 		else if (current.timer !== undefined) return;
 		current.timer = undefined;
-		const delay = now ? 0 : current.lastSent + throttleMs - Date.now();
+		const delay = now
+			? 0
+			: (lastSent.get(path) ?? Number.NEGATIVE_INFINITY) +
+				throttleMs -
+				Date.now();
 		if (delay > 0)
 			current.timer = setTimeout(() => schedule(path, current, true), delay);
 		else {
@@ -435,7 +463,7 @@ export async function createFolder<const T extends Tables>(
 
 	async function send(path: string, current: Lane) {
 		const batch = current.waiting.splice(0);
-		current.lastSent = Date.now();
+		lastSent.set(path, Date.now());
 		const answers = new Map<Waiting, Result<void, WriteError>>();
 		try {
 			await land(path, batch, answers);
@@ -444,10 +472,32 @@ export async function createFolder<const T extends Tables>(
 				answers.set(item, SaveError.StorageFailed({ cause }));
 		}
 		current.sending = false;
-		if (current.waiting.length > 0) schedule(path, current, !accepting);
+		if (current.waiting.length > 0)
+			schedule(path, current, current.force || !accepting);
 		else lanes.delete(path);
-		notice();
 		for (const item of batch) item.resolve(answers.get(item) ?? Ok(undefined));
+		notice();
+		const failure = [...batch]
+			.reverse()
+			.map((item) => answers.get(item)?.error)
+			.find(
+				(error) =>
+					error !== null && error !== undefined && error.name !== 'Exists',
+			);
+		queueMicrotask(() => {
+			if (failure !== undefined) {
+				const text = [...batch]
+					.reverse()
+					.map((item) => typedTextOf(item.op))
+					.find((value) => value !== undefined);
+				for (const listener of [...failedListeners])
+					listener({ path, error: failure, text });
+			}
+			if (lanes.has(path)) return;
+			const waiters = settledWaiters.get(path);
+			settledWaiters.delete(path);
+			for (const resolve of waiters ?? []) resolve();
+		});
 	}
 
 	/** Apply `batch` in order over the file as it is, put the result, and answer each write. */
@@ -641,6 +691,10 @@ export async function createFolder<const T extends Tables>(
 		files: () => filesSnapshot,
 		file: (path) => mirror.get(path)?.value,
 		saving: () => savingSnapshot,
+		onFailed(listener) {
+			failedListeners.add(listener);
+			return () => failedListeners.delete(listener);
+		},
 		async read(path) {
 			const results = await host
 				.read([path])
@@ -674,6 +728,20 @@ export async function createFolder<const T extends Tables>(
 				} else schedule(path, current, true);
 			}
 			queueRelist();
+		},
+		settled(path) {
+			const current = lanes.get(path);
+			if (current === undefined) return Promise.resolve();
+			current.force = true;
+			schedule(path, current, true);
+			return new Promise((resolve) => {
+				let waiters = settledWaiters.get(path);
+				if (waiters === undefined) {
+					waiters = new Set();
+					settledWaiters.set(path, waiters);
+				}
+				waiters.add(resolve);
+			});
 		},
 		close() {
 			closing ??= (async () => {
@@ -716,7 +784,7 @@ function sameData(a: Data | null, b: Data | null) {
  * else (a status change, several fields, an empty body) answers `undefined`,
  * since there is no typed text to give back.
  */
-export function typedText(patch: {
+function typedText(patch: {
 	readonly fields?: object;
 	readonly body?: string;
 }): string | undefined {
@@ -725,6 +793,14 @@ export function typedText(patch: {
 		(value): value is string => typeof value === 'string' && value !== '',
 	);
 	return strings.length === 1 ? strings[0] : undefined;
+}
+
+function typedTextOf(op: Op): string | undefined {
+	return op.kind === 'write'
+		? typeof op.data === 'string'
+			? op.data
+			: undefined
+		: typedText(op.patch);
 }
 
 /** What a row's text reads as through its schema: the fields, body, and any issues. */

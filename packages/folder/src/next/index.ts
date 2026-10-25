@@ -12,7 +12,8 @@ export type {
 	Row,
 	RowIssue,
 	Saved,
+	SaveFailure,
 	Table,
 	Tables,
 } from './folder.js';
-export { type RowReading, readRow, typedText } from './folder.js';
+export { type RowReading, readRow } from './folder.js';

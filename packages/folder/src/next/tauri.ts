@@ -9,7 +9,6 @@ import { hostStorage } from '../boundary.js';
 import { OpenFolderError } from '../errors.js';
 import { commands, events } from '../native/bindings.gen.js';
 import { openRefusal } from '../native/open-refusal.js';
-import { invalidTable } from '../paths.js';
 import { tauriHostFiles } from '../tauri-files.js';
 import {
 	createFolder,
@@ -24,8 +23,6 @@ export * from './index.js';
 export async function openFolder<const T extends Tables>(
 	options: OpenOptions<T>,
 ): Opened<T> {
-	const table = invalidTable(options.tables);
-	if (table !== undefined) return OpenFolderError.InvalidTable({ table });
 	if (!isTauri()) return OpenFolderError.NotTauri();
 	let opened: Awaited<ReturnType<typeof commands.openFolder>>;
 	try {

@@ -4,7 +4,7 @@
  * version and its change token, and other tabs' saves arrive as hints.
  */
 import { Ok } from 'wellcrafted/result';
-import { isTableName, openRepository } from '../browser/repository.js';
+import { openRepository } from '../browser/repository.js';
 import { snapshotContent } from '../browser/storage.js';
 import { OpenFolderError } from '../errors.js';
 import { ReadError } from '../shared/errors.js';
@@ -24,8 +24,6 @@ const DEFAULT_KEY = 'default';
 export async function openFolder<const T extends Tables>(
 	options: OpenOptions<T>,
 ): Opened<T> {
-	for (const table of Object.keys(options.tables))
-		if (!isTableName(table)) return OpenFolderError.InvalidTable({ table });
 	if (typeof indexedDB === 'undefined')
 		return OpenFolderError.Unavailable({
 			cause: new Error('IndexedDB is not available in this page'),
