@@ -6,9 +6,8 @@
  * Key behaviors:
  * - The operation names one of two fixed rows of `so.epicenter`; no path is
  *   taken, and input beyond the closed field assignments is refused.
- * - Updating the current row preserves source details: a byte-order mark, CRLF
- *   line endings, comments, unknown fields, and the body survive a save
- *   that changes one field.
+ * - Reads answer exact source; updates keep unknown fields and body while
+ *   writing canonical frontmatter.
  * - A row whose frontmatter does not parse is answered with its issues, and
  *   a save of it is refused with its bytes untouched.
  * - Reading creates nothing; a save creates the fixed `so.epicenter` when it
@@ -31,7 +30,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { connectionsTables } from '@epicenter/ai/connection-table';
-import { openFolder } from '@epicenter/folder/bun';
+import { openFolder } from '@epicenter/folder/next/bun';
 import { expectOk } from 'wellcrafted/testing';
 
 const binary = process.env.EPICENTER_BIN;
@@ -82,6 +81,7 @@ async function setup({ folderDir = true } = {}) {
 			new Response(child.stderr).text(),
 		]);
 		const lines = out.trim().split('\n');
+		// SAFETY: every CLI reply ends with one JSON line, including errors.
 		return { code, reply: JSON.parse(lines.at(-1) as string), lines, err };
 	}
 
@@ -121,7 +121,7 @@ test('a save makes the row with the assigned fields and no endpoint or key, and 
 	expect(saved.code).toBe(0);
 	const text = await readFile(rowFile('whispering-transcription'), 'utf8');
 	expect(text).toBe(
-		'---\nkind: openai-compatible\nmodel: whisper-1\ntitle: Whispering transcription\n---\n',
+		'---\nkind: openai-compatible\ntitle: Whispering transcription\nmodel: whisper-1\n---\n',
 	);
 	expect(saved.reply).toEqual({
 		row: {
@@ -144,7 +144,7 @@ test('a save makes the row with the assigned fields and no endpoint or key, and 
 	);
 });
 
-test('a row read and saved through JSON keeps its byte-order mark, line endings, comments, unknown fields, and body', async () => {
+test('a read keeps exact source and a save writes canonical frontmatter with unknown fields and body', async () => {
 	const { run, write, rowFile } = await setup();
 	const source =
 		'﻿---\r\n# Set up in Settings\r\nkind: openai-compatible # the kind\r\ntitle: Whispering text\r\nmodel: old-model\r\nretries: 3\r\nextra:\r\n  nested: two\r\n---\r\nNotes about this endpoint.\r\n';
@@ -163,7 +163,8 @@ test('a row read and saved through JSON keeps its byte-order mark, line endings,
 		fields: { kind: 'openai-compatible', model: 'new-model' },
 	});
 	expect(saved.code).toBe(0);
-	const expected = source.replace('model: old-model', 'model: new-model');
+	const expected =
+		'---\nkind: openai-compatible\ntitle: Whispering text\nmodel: new-model\nextra:\n  nested: two\nretries: 3\n---\nNotes about this endpoint.\r\n';
 	expect(await readFile(rowFile(), 'utf8')).toBe(expected);
 	expect(saved.reply.row.text).toBe(expected);
 });
@@ -181,17 +182,11 @@ test('field assignments use the current source after a Settings publication', as
 		await openFolder({ directory: settings, tables: connectionsTables }),
 	);
 	expectOk(
-		await folder.tables.connections.document('whispering-text').refresh(),
+		await folder.write(
+			'connections/whispering-text.md',
+			'---\nkind: openai-compatible\ntitle: Renamed in Settings\nmodel: old-model\nnote: from Settings\n---\n',
+		),
 	);
-	const settingsDocument = folder.files.document(
-		'connections/whispering-text.md',
-	);
-	expectOk(
-		settingsDocument.patch({
-			fields: { title: 'Renamed in Settings', note: 'from Settings' },
-		}),
-	);
-	expectOk(await settingsDocument.save());
 	await folder.close();
 
 	const saved = await run(['set', 'text'], {
@@ -230,6 +225,75 @@ test('a row whose frontmatter does not parse is answered with its issues, and a 
 	}
 });
 
+test('a missing row needs all three fields and writes nothing when they are incomplete', async () => {
+	const { run, rowFile } = await setup();
+	const refused = await run(['set', 'text'], { fields: { model: 'm' } });
+	expect(refused.code).toBe(2);
+	expect(refused.reply.name).toBe('InvalidInput');
+	expect(refused.reply.error).toContain(
+		'a new connection row needs kind, title, and model',
+	);
+	expect(existsSync(rowFile())).toBe(false);
+});
+
+test('an unreadable row answers ReadFailed', async () => {
+	const { scratch, epicenter, settings } = await setup();
+	await mkdir(settings);
+	const folderModule = Bun.resolveSync(
+		'@epicenter/folder/next/bun',
+		import.meta.dir,
+	);
+	const script = join(scratch, 'unreadable.mjs');
+	await writeFile(
+		script,
+		`import { mock } from 'bun:test';
+mock.module(${JSON.stringify(folderModule)}, () => ({
+	openFolder: async () => ({
+		error: null,
+		data: {
+			tables: { connections: { row: () => ({
+				id: 'whispering-text',
+				path: 'connections/whispering-text.md',
+				fields: undefined,
+				body: undefined,
+				issues: [{ kind: 'unreadable', message: 'read denied', path: [] }],
+			}) } },
+			file: () => { throw new Error('unreadable source was decoded'); },
+			close: async () => {},
+		},
+	}),
+}));
+await import(${JSON.stringify(resolve(import.meta.dir, 'bin.ts'))});
+`,
+	);
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			'--no-install',
+			script,
+			'whispering-connection',
+			'read',
+			'text',
+			'--json',
+		],
+		{
+			env: {
+				PATH: process.env.PATH,
+				EPICENTER_FOLDER_DIR: epicenter,
+				EPICENTER_DATA_DIR: join(scratch, 'data'),
+			},
+			stdout: 'pipe',
+			stderr: 'pipe',
+		},
+	);
+	const [code, out] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+	]);
+	expect(code).toBe(2);
+	expect(JSON.parse(out).name).toBe('ReadFailed');
+});
+
 test('only the two operations and the closed field assignments are taken, and a refusal writes nothing', async () => {
 	const { run, epicenter } = await setup();
 	for (const operation of [
@@ -266,14 +330,18 @@ test('only the two operations and the closed field assignments are taken, and a 
 
 test('a save creates the fixed records folder and its missing root', async () => {
 	const { run, rowFile } = await setup();
-	const save = { fields: { model: 'm' } };
+	const save = {
+		fields: { kind: 'openai-compatible', title: 'Text', model: 'm' },
+	};
 	expect((await run(['set', 'text'], save)).code).toBe(0);
-	expect(await readFile(rowFile(), 'utf8')).toBe('---\nmodel: m\n---\n');
+	expect(await readFile(rowFile(), 'utf8')).toBe(
+		'---\nkind: openai-compatible\ntitle: Text\nmodel: m\n---\n',
+	);
 
 	const firstUse = await setup({ folderDir: false });
 	expect((await firstUse.run(['set', 'text'], save)).code).toBe(0);
 	expect(await readFile(firstUse.rowFile(), 'utf8')).toBe(
-		'---\nmodel: m\n---\n',
+		'---\nkind: openai-compatible\ntitle: Text\nmodel: m\n---\n',
 	);
 });
 
@@ -287,9 +355,13 @@ test('a connection save uses the fixed records folder, reading and writing no co
 		folders: [],
 	});
 	await writeFile(config, original);
-	const result = await run(['set', 'text'], { fields: { model: 'm' } });
+	const result = await run(['set', 'text'], {
+		fields: { kind: 'openai-compatible', title: 'Text', model: 'm' },
+	});
 	expect(result.code).toBe(0);
-	expect(await readFile(rowFile(), 'utf8')).toBe('---\nmodel: m\n---\n');
+	expect(await readFile(rowFile(), 'utf8')).toBe(
+		'---\nkind: openai-compatible\ntitle: Text\nmodel: m\n---\n',
+	);
 	expect(existsSync(join(scratch, 'Old records'))).toBe(false);
 	expect(await readFile(config, 'utf8')).toBe(original);
 	expect(await readdir(data)).toEqual(['folders.json']);

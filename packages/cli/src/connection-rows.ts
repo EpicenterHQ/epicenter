@@ -8,12 +8,13 @@
 
 import {
 	type ConnectionRow,
+	type ConnectionRowIssue,
 	connectionsTables,
 	isConnectionRowSetInput,
 	WHISPERING_CONNECTION_IDS,
 	type WhisperingConnection,
 } from '@epicenter/ai/connection-table';
-import { type Folder, openFolder } from '@epicenter/folder/bun';
+import { type Folder, openFolder } from '@epicenter/folder/next/bun';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -50,14 +51,11 @@ export const ConnectionRowError = defineErrors({
 });
 export type ConnectionRowError = InferErrors<typeof ConnectionRowError>;
 
-type StoredContent = ReturnType<
-	Folder<typeof connectionsTables>['tables']['connections']['parse']
->;
-
 function connectionOf(
 	operation: string,
 ): Result<WhisperingConnection, ConnectionRowError> {
 	if (Object.hasOwn(WHISPERING_CONNECTION_IDS, operation))
+		// SAFETY: the own-key check narrows operation to the fixed connection names.
 		return Ok(operation as WhisperingConnection);
 	return ConnectionRowError.InvalidInput({
 		reason: `epicenter whispering-connection takes transcription or text, not '${operation}'`,
@@ -95,12 +93,34 @@ async function withConnections<T>(
 	}
 }
 
-/** A stored row as the command answers it: source, issues, and the schema's fields. */
-function answerOf(row: StoredContent): ConnectionRow {
+/** A stored row as the command answers it: exact source, issues, and schema fields. */
+function answerOf(
+	folder: Folder<typeof connectionsTables>,
+	id: string,
+	path: string,
+): Result<ConnectionRow | null, ConnectionRowError> {
+	const row = folder.tables.connections.row(id);
+	if (row === undefined) return Ok(null);
+	const issue = row.issues?.find((issue) => issue.kind === 'unreadable');
+	if (issue !== undefined)
+		return ConnectionRowError.ReadFailed({ path, reason: issue.message });
+	const data = folder.file(row.path)?.data;
+	if (data === undefined)
+		return ConnectionRowError.ReadFailed({
+			path,
+			reason: 'The row has no readable source.',
+		});
+	const text = typeof data === 'string' ? data : new TextDecoder().decode(data);
 	if (row.issues !== null)
-		return { text: row.text, issues: row.issues, fields: null };
+		return Ok({
+			text,
+			issues: row.issues.filter(
+				(issue): issue is ConnectionRowIssue => issue.kind !== 'unreadable',
+			),
+			fields: null,
+		});
 	const { kind, title, model } = row.fields;
-	return { text: row.text, issues: null, fields: { kind, title, model } };
+	return Ok({ text, issues: null, fields: { kind, title, model } });
 }
 
 /**
@@ -119,17 +139,10 @@ export async function readConnectionRow(
 	);
 	if (directoryError !== null) return Err(directoryError);
 	if (directory === undefined) return Ok(null);
-	return withConnections(directory, async (folder) => {
-		const { data: row, error: readError } = await folder.tables.connections.get(
-			WHISPERING_CONNECTION_IDS[connection],
-		);
-		if (readError !== null)
-			return ConnectionRowError.ReadFailed({
-				path: `${directory}/connections/${WHISPERING_CONNECTION_IDS[connection]}.md`,
-				reason: readError.message,
-			});
-		return Ok(row === undefined ? null : answerOf(row));
-	});
+	const id = WHISPERING_CONNECTION_IDS[connection];
+	return withConnections(directory, async (folder) =>
+		answerOf(folder, id, `${directory}/connections/${id}.md`),
+	);
 }
 
 /**
@@ -161,48 +174,41 @@ export async function setConnectionRow(
 		});
 	const id = WHISPERING_CONNECTION_IDS[connection];
 	return withConnections(directory, async (folder) => {
-		const document = folder.tables.connections.document(id);
-		const acquired = await document.refresh();
-		if (acquired.error !== null && acquired.error.name !== 'Missing')
-			return ConnectionRowError.SaveFailed({
-				path: `${directory}/connections/${id}.md`,
-				reason: acquired.error.message,
-			});
-		if (acquired.error?.name === 'Missing') {
-			const written = await folder.tables.connections.write(id, { fields });
-			if (written.error !== null)
-				return ConnectionRowError.SaveFailed({
-					path: `${directory}/connections/${id}.md`,
-					reason: written.error.message,
+		const path = `${directory}/connections/${id}.md`;
+		const existing = folder.tables.connections.row(id);
+		let saved: Awaited<ReturnType<typeof folder.tables.connections.create>>;
+		if (existing === undefined) {
+			const { kind, title, model } = fields;
+			if (kind === undefined || title === undefined || model === undefined)
+				return ConnectionRowError.InvalidInput({
+					reason: 'a new connection row needs kind, title, and model',
 				});
-			return Ok(answerOf(written.data));
+			saved = await folder.tables.connections.create(id, {
+				fields: { kind, title, model },
+			});
+		} else {
+			saved = await folder.tables.connections.update(id, { fields });
 		}
-		const changed = document.patch({ fields });
-		if (changed.error !== null)
-			return ConnectionRowError.SaveFailed({
-				path: `${directory}/connections/${id}.md`,
-				reason: changed.error.message,
-			});
-		const captured = document.getSnapshot().text;
-		if (captured === undefined)
-			return ConnectionRowError.SaveFailed({
-				path: `${directory}/connections/${id}.md`,
-				reason: 'The changed row has no text to save.',
-			});
-		const saved = await document.save();
 		if (saved.error !== null)
 			return ConnectionRowError.SaveFailed({
-				path: `${directory}/connections/${id}.md`,
+				path,
 				reason: saved.error.message,
 			});
-		return Ok(answerOf(folder.tables.connections.parse(captured)));
+		const answered = answerOf(folder, id, path);
+		if (answered.error !== null) return Err(answered.error);
+		if (answered.data === null)
+			return ConnectionRowError.ReadFailed({
+				path,
+				reason: 'The saved row is missing.',
+			});
+		return Ok(answered.data);
 	});
 }
 
 /**
  * `epicenter whispering-connection read|set <transcription|text>`. `read`
  * answers `{"row": <row> | null}`; `set` reads `ConnectionRowSetInput` as
- * JSON on stdin and answers `{"row": <row as sent>}`. A refusal is
+ * JSON on stdin and answers `{"row": <landed row>}`. A refusal is
  * `{"error", "name"}` and exit 2. The command awaits
  * its save before answering. A stop signal may interrupt ordinary work.
  */
