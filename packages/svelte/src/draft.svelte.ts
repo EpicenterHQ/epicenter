@@ -1,42 +1,56 @@
 /**
- * Text a person is typing, ahead of the value it saves to.
+ * Input owned by one editor while its save runs.
  *
- * A folder shows only what landed, so an input bound to it would lose
- * keystrokes typed while a save is out. A draft shows what was typed until
- * that text's save answers, then follows `source` again: the landed text when
- * the save landed, the disk's when it failed (`<OpenFolder>` offers the typed
- * text to copy). Typing newer than an answer keeps the draft.
+ * Typing appears immediately. A successful latest save releases the draft to
+ * follow the landed source; a failed save keeps the typed value and its error
+ * on screen. A later edit or `retry()` saves it again, and `discard()` follows
+ * the source while ignoring any older answer still in flight.
  *
  * ```svelte
  * const title = draft(
  * 	() => todo?.fields?.title ?? '',
- * 	(title) => folder.tables.todos.update(id, { fields: { title } }),
+ * 	(value) => folder.tables.todos.update(id, { fields: { title: value } }),
  * );
- * <input bind:value={title.text} />
+ * <input bind:value={title.value} />
  * ```
- *
- * It knows nothing of folders: any value that lands later can take one.
  */
-export function draft(
-	source: () => string,
-	save: (text: string) => Promise<unknown>,
+import type { Result } from 'wellcrafted/result';
+
+export function draft<T, E>(
+	source: () => T,
+	save: (value: T) => Promise<Result<unknown, E>>,
 ) {
-	let typed = $state<string | null>(null);
+	let typed = $state<{ value: T } | null>(null);
+	let error = $state<E | null>(null);
 	let latest = 0;
-	const set = (text: string) => {
-		typed = text;
+	const set = (value: T) => {
+		typed = { value };
+		error = null;
 		const mine = ++latest;
-		void save(text).finally(() => {
-			if (mine === latest) typed = null;
+		void save(value).then((answer) => {
+			if (mine !== latest) return;
+			if (answer.error === null) typed = null;
+			else error = answer.error;
 		});
 	};
 	return {
-		get text() {
-			return typed ?? source();
+		get value() {
+			return typed === null ? source() : typed.value;
 		},
-		set text(text: string) {
-			set(text);
+		set value(value: T) {
+			set(value);
+		},
+		get error() {
+			return error;
 		},
 		set,
+		retry() {
+			if (typed !== null) set(typed.value);
+		},
+		discard() {
+			latest++;
+			typed = null;
+			error = null;
+		},
 	};
 }

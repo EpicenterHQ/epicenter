@@ -17,6 +17,7 @@
 		"./snapshot": "./src/snapshot.ts",
 		"./folder-next": "./src/folder-next.ts",
 		"./open-folder": "./src/open-folder.svelte",
+		"./unsaved-edit": "./src/unsaved-edit.svelte",
 		"./folder": "./src/folder-context.ts",
 		"./folder-app": "./src/folder-app.svelte",
 		"./status-line": "./src/status-line.ts",

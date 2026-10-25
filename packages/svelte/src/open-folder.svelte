@@ -19,18 +19,20 @@
 	closes the folder.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
-	import type { Folder, Opened } from '@epicenter/folder/next';
+	import type { Folder, Opened, SaveFailure } from '@epicenter/folder/next';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
+	import { toast } from '@epicenter/ui/sonner';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { onDestroy, type Snippet } from 'svelte';
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { createLogger } from 'wellcrafted/logger';
 	import { Ok } from 'wellcrafted/result';
-	import { type SaveFailure, type SvelteFolder, svelteFolder } from './folder-next.js';
+	import { type SvelteFolder, svelteFolder } from './folder-next.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
+	import { describeWriteError } from './write-failure.js';
 	import { holdWindowClose as registerWindowClose } from './window-close.js';
 
 	let {
@@ -52,6 +54,8 @@
 
 	let opened: Folder<TTables> | undefined;
 	let stopWindow: (() => void) | undefined;
+	let stopFailed: (() => void) | undefined;
+	const failureToasts = new Map<string, string | number>();
 	let destroyed = false;
 
 	const saving = () => opened?.saving() ?? false;
@@ -59,17 +63,19 @@
 	/** Say a write did not land, with the text it tried to save to copy. */
 	function toastFailure(failure: SaveFailure) {
 		log.error(failure.error);
-		void import('./write-failure-toast.js')
-			.then(({ toastWriteFailure }) =>
-				toastWriteFailure({
-					path: failure.path,
-					error: failure.error,
-					getText: () => failure.text,
-				}),
-			)
-			.catch((cause: unknown) =>
-				log.error(new Error('Could not show the failed-save notice', { cause })),
-			);
+		const previous = failureToasts.get(failure.path);
+		if (previous !== undefined) toast.dismiss(previous);
+		const shown = toast.error(`Could not save ${failure.path}`, {
+			description: describeWriteError(failure.error),
+			duration: failure.text === undefined ? undefined : Number.POSITIVE_INFINITY,
+			action: failure.text === undefined ? undefined : {
+				label: 'Copy your text',
+				onClick: () => {
+					if (failure.text !== undefined) void navigator.clipboard.writeText(failure.text);
+				},
+			},
+		});
+		failureToasts.set(failure.path, shown);
 	}
 
 	async function openAndWrap() {
@@ -78,9 +84,10 @@
 		const folder = result.data;
 		if (destroyed) {
 			void folder.close();
-			return Ok(svelteFolder(folder, { onFailed: toastFailure }));
+			return Ok(svelteFolder(folder));
 		}
 		opened = folder;
+		stopFailed = folder.onFailed(toastFailure);
 		// One guard per window: a folder opened beneath another leaves the
 		// window's close to the outer one. It never asks: it waits for the
 		// writes in flight, which answer in milliseconds.
@@ -93,13 +100,14 @@
 			if (destroyed) stop?.();
 			else stopWindow = stop;
 		}
-		return Ok(svelteFolder(folder, { onFailed: toastFailure }));
+		return Ok(svelteFolder(folder));
 	}
 	let opening = $state(openAndWrap());
 
 	onDestroy(() => {
 		destroyed = true;
 		stopWindow?.();
+		stopFailed?.();
 		void opened?.close();
 		void opening.catch(() => {});
 	});
