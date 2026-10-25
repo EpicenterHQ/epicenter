@@ -5,10 +5,9 @@ description: Design, write, and maintain skills and agent instructions. Use when
 
 # Skills and Instructions
 
-Preserve useful judgment in guidance a future agent can find and apply.
-A skill earns its place through knowledge, preferences, or recurring failures
-the agent would otherwise miss. Judge progress by how well the guidance helps
-the agent handle the work.
+A skill should help a future agent do the work better. Preserve knowledge,
+preferences, and lessons it would otherwise miss. Judge the skill by whether
+that guidance helps the agent make better decisions in real situations.
 
 ## Shape a change together
 
