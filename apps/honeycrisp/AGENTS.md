@@ -16,10 +16,10 @@ for the current page flow and verify it against the code.
   landed values. Await `Saved` before opening a newly created file or relying
   on a write in an action.
 - Text inputs and selects use one `draft(source, save)` per editor component,
-  including titles and folder selection. The draft holds typed input while its
-  save is pending, then follows the mirror. A failed save keeps the typed value
-  and shows `<UnsavedEdit>` beside its editor with Save again, Discard, and
-  Copy. `<OpenFolder>` also reports the failed path once.
+  including titles and folder selection. It debounces saves and holds typed
+  input until its save lands, then follows the mirror. A failed save keeps the
+  typed value and shows `<UnsavedEdit>` beside its editor with Save again,
+  Discard, and Copy. Command callers report their own failed writes.
 - Row patches use `tables.x.update(id, { fields?, body? })`; whole-file edits
   use `folder.write(path, text)`. A patch saves over the file as it is when
   sent. Canonical frontmatter keeps declared keys in schema order, then other
@@ -30,7 +30,7 @@ for the current page flow and verify it against the code.
   feeds (ADR-0572); whole-file editing keeps the file's line endings with
   `withFileNewlines`.
 - The mirror refreshes from another tab through its change hints. Opening
-  reads text files. Read errors offer `checkpoint()` as Try again.
+  reads text files. Read errors offer `refresh()` as Try again.
 - There are no versions or sync. A note that does not parse is listed for
   repair and opens as text. `readRow(raw.value, schema)` checks typed repair
   text before it saves. Folder deletion refuses when any note's relation
@@ -43,20 +43,21 @@ for the current page flow and verify it against the code.
   and an empty paragraph Markdown cannot spell. `stateAfter` validates a
   changed document, calls `body.set`, then shows it. `stateShowing` preserves
   state for equivalent content and replaces it when the shown body changes.
-- A failed rich-text save keeps the draft body and its editor history until
-  the person retries, discards, or edits again.
+- A failed rich-text save keeps the typed body visible until the person retries,
+  discards, or edits again.
 - Do not weaken `checkNoteDoc`. Fix the Markdown serializer and add tests if
   an edit ought to be spellable. New nodes or marks need both Markdown
   directions and tests.
 - The rich editor mount effect depends only on its element and `editable`
   boolean. Reading save or row changes there recreates it and loses history.
-- When switching between independent editors of the same file, checkpoint
-  and await `folder.settled(path)` before showing the other editor.
+- Switching between independent editors of the same file is immediate. Their
+  briefly stale views are accepted. Actions that require typed text on disk
+  write it explicitly and await the result before proceeding.
 
 ## Lifecycle and boundary
 
-- `<OpenFolder>` from `@epicenter/svelte/open-folder` opens, wraps, checkpoints,
-  toasts failed writes, and closes the folder. The page passes its folder to
+- `<OpenFolder>` from `@epicenter/svelte/open-folder` opens, wraps, refreshes,
+  and closes the folder. The page passes its folder to
   `HoneycrispApp`, which creates the `notes` state and provides context.
 - Shared imports use `@epicenter/folder/next`; Vite selects the platform
   opener. Do not import Bun or Node modules under `src/`.
