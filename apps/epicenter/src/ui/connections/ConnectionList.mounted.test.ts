@@ -7,7 +7,7 @@ const browser = Bun.resolveSync('svelte', import.meta.dir).endsWith(
 
 describe.skipIf(!browser)('Settings connections mirror', async () => {
 	if (!browser) return;
-	const { type } = await import(
+	const { type, click } = await import(
 		'../../../../../packages/svelte/src/svelte-dom.test-support.js'
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
@@ -110,6 +110,35 @@ describe.skipIf(!browser)('Settings connections mirror', async () => {
 				'kind: no-such-kind',
 			);
 		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('delete removes the key before the connection row', async () => {
+		const fixture = await setup({
+			'connections/account.md':
+				'---\nkind: epicenter\ntitle: Account\nmodel: ""\n---\n',
+		});
+		const { commands } = await import('../bindings.gen.js');
+		const previous = Reflect.get(commands, 'aiKeyRemove');
+		const order: string[] = [];
+		Reflect.set(commands, 'aiKeyRemove', async () => {
+			order.push('ai_key_remove');
+			return { data: true, error: null };
+		});
+		fixture.control.beforePut = (path) => order.push(path);
+		try {
+			await until(() => fixture.target.querySelector('li input') !== null);
+			click(fixture.target, 'Delete connection');
+			await until(
+				() => fixture.folder.tables.connections.row('account') === undefined,
+			);
+			expect(order).toEqual(['ai_key_remove', 'connections/account.md']);
+			expect(fixture.text('connections/account.md')).toBeUndefined();
+		} finally {
+			if (previous === undefined)
+				Reflect.deleteProperty(commands, 'aiKeyRemove');
+			else Reflect.set(commands, 'aiKeyRemove', previous);
 			await fixture.close();
 		}
 	});

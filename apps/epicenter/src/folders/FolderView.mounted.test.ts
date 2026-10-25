@@ -240,23 +240,225 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('a cell draft keeps later typing through its own save and another row change', async () => {
+	test('a missing declared field edits canonically and appears in Files', async () => {
 		const fixture = await setup({
-			'a.md': '---\ntitle: First\n---\n',
-			'b.md': '---\ntitle: Second\n---\n',
-		}, 20);
+			'epicenter.json': JSON.stringify({
+				tables: {
+					notes: {
+						type: 'object',
+						properties: { title: { type: 'string' } },
+						required: ['title'],
+					},
+				},
+			}),
+			'notes/a.md': '---\nextra: kept\n---\nBody\n',
+		});
 		try {
 			click(fixture.target, 'Tables');
-			await until(() => fixture.target.querySelector('[aria-label="a.md: title"]') !== null);
-			const input = fixture.target.querySelector<HTMLInputElement>('[aria-label="a.md: title"]');
+			await until(
+				() =>
+					fixture.target.querySelector('[aria-label="notes/a.md: title"]') !==
+					null,
+			);
+			type(
+				fixture.target.querySelector('[aria-label="notes/a.md: title"]'),
+				'Fixed',
+			);
+			await until(
+				() => fixture.text('notes/a.md')?.includes('title: Fixed') ?? false,
+			);
+			expect(fixture.text('notes/a.md')).toContain('extra: kept');
+			fixture.target
+				.querySelector('[data-row-path="notes/a.md"] button')
+				?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.box()?.value.includes('title: Fixed') ?? false);
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('browsing writes nothing and the first SQL view save creates only views', async () => {
+		const fixture = await setup({ 'a.md': 'Body\n' });
+		try {
+			click(fixture.target, 'Tables');
+			flushSync();
+			click(fixture.target, 'SQL');
+			await until(
+				() =>
+					fixture.target.querySelector('[aria-label="View title"]') !== null,
+			);
+			expect(fixture.log.puts).toHaveLength(0);
+			click(fixture.target, 'Save view');
+			await until(() => fixture.text('epicenter.json') !== undefined);
+			expect(
+				Object.keys(JSON.parse(fixture.text('epicenter.json') ?? '{}')),
+			).toEqual(['views']);
+			expect(fixture.log.puts.map((put) => put.path)).toEqual([
+				'epicenter.json',
+			]);
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('two view saves inside one throttle keep both records', async () => {
+		const fixture = await setup({ 'notes/a.md': 'Body\n' }, 30);
+		try {
+			click(fixture.target, 'Tables');
+			await until(
+				() => fixture.target.querySelector('[id="table-directory"]') !== null,
+			);
+			await choose(
+				fixture.target.querySelector('[id="table-directory"]'),
+				'notes',
+			);
+			click(fixture.target, 'Save view');
+			flushSync();
+			click(fixture.target, 'Save as new');
+			await until(
+				() =>
+					Object.keys(
+						JSON.parse(fixture.text('epicenter.json') ?? '{}').views ?? {},
+					).length === 2,
+			);
+			expect(
+				Object.keys(JSON.parse(fixture.text('epicenter.json') ?? '{}').views),
+			).toHaveLength(2);
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('board-to-grid save and Present filter replace their previous view settings', async () => {
+		const fixture = await setup({ 'notes/a.md': '---\nstatus: todo\n---\n' });
+		try {
+			click(fixture.target, 'Tables');
+			await until(
+				() => fixture.target.querySelector('[id="table-directory"]') !== null,
+			);
+			await choose(
+				fixture.target.querySelector('[id="table-directory"]'),
+				'notes',
+			);
+			click(fixture.target, 'Board');
+			flushSync();
+			click(fixture.target, 'Save view');
+			await until(
+				() => fixture.text('epicenter.json')?.includes('"board"') ?? false,
+			);
+			click(fixture.target, 'Grid');
+			flushSync();
+			click(fixture.target, 'Add filter');
+			flushSync();
+			await choose(
+				fixture.target.querySelector('[aria-label="Filter comparison 1"]'),
+				'equals',
+			);
+			type(
+				fixture.target.querySelector('[aria-label="Filter value 1"]'),
+				'todo',
+			);
+			flushSync();
+			await choose(
+				fixture.target.querySelector('[aria-label="Filter comparison 1"]'),
+				'has a value',
+			);
+			click(fixture.target, 'Save view');
+			await until(
+				() => fixture.text('epicenter.json')?.includes('"grid"') ?? false,
+			);
+			const saved = Object.values(
+				JSON.parse(fixture.text('epicenter.json') ?? '{}').views ?? {},
+			)[0];
+			expect(saved).toMatchObject({
+				type: 'grid',
+				filters: [{ operator: 'exists', value: true }],
+			});
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('a table view explains why All Markdown cannot be saved', async () => {
+		const fixture = await setup({ 'notes/a.md': 'Body\n' });
+		try {
+			click(fixture.target, 'Tables');
+			await until(
+				() =>
+					fixture.target.textContent?.includes(
+						'Choose a top-level directory',
+					) ?? false,
+			);
+			const save = [...fixture.target.querySelectorAll('button')].find(
+				(button) => button.textContent?.trim() === 'Save view',
+			);
+			expect(save?.disabled).toBe(true);
+			await choose(
+				fixture.target.querySelector('[id="table-directory"]'),
+				'notes',
+			);
+			expect(save?.disabled).toBe(false);
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('malformed Markdown remains editable in Files as source', async () => {
+		const fixture = await setup({ 'a.md': 'Body\n' });
+		try {
+			await until(() => !!fixture.file('a.md'));
+			fixture
+				.file('a.md')
+				?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.box() !== null);
+			type(fixture.box(), '---\ntitle: [\n---\nBody\n');
+			await until(() => fixture.text('a.md')?.includes('title: [') ?? false);
+			click(fixture.target, 'Tables');
+			await until(
+				() =>
+					fixture.target.querySelector('[data-row-path="a.md"] button') !==
+					null,
+			);
+			fixture.target
+				.querySelector('[data-row-path="a.md"] button')
+				?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.box()?.value.includes('title: [') ?? false);
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('a cell draft keeps later typing through its own save and another row change', async () => {
+		const fixture = await setup(
+			{
+				'a.md': '---\ntitle: First\n---\n',
+				'b.md': '---\ntitle: Second\n---\n',
+			},
+			20,
+		);
+		try {
+			click(fixture.target, 'Tables');
+			await until(
+				() =>
+					fixture.target.querySelector('[aria-label="a.md: title"]') !== null,
+			);
+			const input = fixture.target.querySelector<HTMLInputElement>(
+				'[aria-label="a.md: title"]',
+			);
 			type(input, 'First change');
-			await until(() => fixture.text('a.md')?.includes('title: First change') ?? false);
+			await until(
+				() => fixture.text('a.md')?.includes('title: First change') ?? false,
+			);
 			fixture.outside('b.md', '---\ntitle: Outside\n---\n');
 			type(input, 'Final change');
 			expect(input?.value).toBe('Final change');
-			await until(() => fixture.text('a.md')?.includes('title: Final change') ?? false);
+			await until(
+				() => fixture.text('a.md')?.includes('title: Final change') ?? false,
+			);
 			expect(input?.value).toBe('Final change');
-		} finally { await fixture.close(); }
+		} finally {
+			await fixture.close();
+		}
 	});
 
 	test('a focused row remains visible after its edit leaves the filter', async () => {
