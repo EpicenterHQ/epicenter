@@ -1,6 +1,6 @@
-import type { FolderContext } from '@epicenter/svelte/folder';
+import type { SvelteFolder } from '@epicenter/svelte/folder-next';
 import { createContext } from 'svelte';
 import type { messagesTables } from './definition.js';
 
 export const [getFolder, setFolder] =
-	createContext<FolderContext<typeof messagesTables>>();
+	createContext<SvelteFolder<typeof messagesTables>>();

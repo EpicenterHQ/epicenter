@@ -1,9 +1,8 @@
 <script lang="ts">
 	import type { Conversation, Message } from '@epicenter/cli/messages-protocol';
-	import { getFolder } from './folder.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
-	import { createInfiniteQuery, createMutation, createQuery } from '@tanstack/svelte-query';
+	import { createInfiniteQuery, createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import type { Backend } from './backend.js';
 	import { draftId } from './drafts.js';
@@ -11,11 +10,12 @@
 	import DemoAttachment from './DemoAttachment.svelte';
 	import { demoAttachments } from './demo/attachments.js';
 	let { backend, chat, onBack }: { backend: Backend; chat: Conversation; onBack: () => void } = $props();
-	const { queryClient } = getFolder();
+	const queryClient = useQueryClient();
 	let scroller: HTMLDivElement;
 	let follow = $state(true);
 	const messages = createInfiniteQuery(() => ({
 		queryKey: ['beeper', backend.mode, backend.profile, 'messages', chat.id],
+		// SAFETY: the first page has no cursor; later pages use string cursors.
 		initialPageParam: undefined as string | undefined,
 		queryFn: async ({ pageParam }) => {
 			const answer = await backend.request({ action: 'messages', chatId: chat.id, cursor: pageParam });
@@ -38,7 +38,13 @@
 	});
 	function status(message: Message) {
 		if (!message.mine || !message.status) return '';
-		return ({ SUCCESS: 'Sent', PENDING: 'Sending', FAIL_RETRIABLE: 'Send failed: check Beeper', FAIL_PERMANENT: 'Send failed: check Beeper' } as Record<string, string>)[message.status] ?? 'Check status in Beeper';
+		switch (message.status) {
+			case 'SUCCESS': return 'Sent';
+			case 'PENDING': return 'Sending';
+			case 'FAIL_RETRIABLE':
+			case 'FAIL_PERMANENT': return 'Send failed: check Beeper';
+			default: return 'Check status in Beeper';
+		}
 	}
 </script>
 

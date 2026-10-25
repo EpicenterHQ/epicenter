@@ -75,7 +75,10 @@ try {
 	await page
 		.getByLabel('Message', { exact: true })
 		.fill('A fictional draft kept through reload.');
-	await page.getByText('Draft saved on this device', { exact: true }).waitFor();
+	await page
+		.getByRole('button', { name: /Maya Chen/ })
+		.getByText('Draft: A fictional draft kept through reload.')
+		.waitFor();
 	await page.reload();
 	await page.getByRole('button', { name: /Maya Chen/ }).click();
 	assert.equal(
@@ -123,13 +126,17 @@ try {
 	assert.equal(
 		await page
 			.getByRole('button', { name: 'Send demo reply', exact: true })
-			.count(),
-		0,
+			.isDisabled(),
+		true,
 	);
 	await page.screenshot({ path: join(artifacts, 'desktop.png') });
 	await page
 		.getByRole('button', { name: 'I checked: keep as draft', exact: true })
 		.click();
+	await page
+		.getByRole('button', { name: /Maya Chen/ })
+		.getByText('Draft: Keep this after an uncertain send.')
+		.waitFor();
 	assert.equal(
 		await page.getByLabel('Message', { exact: true }).inputValue(),
 		'Keep this after an uncertain send.',
@@ -155,7 +162,10 @@ try {
 			.getByRole('img')
 			.evaluate((image: HTMLImageElement) => image.naturalWidth > 0),
 	);
-	await page.screenshot({ path: join(artifacts, 'photo-viewer.png'), animations: 'disabled' });
+	await page.screenshot({
+		path: join(artifacts, 'photo-viewer.png'),
+		animations: 'disabled',
+	});
 	await page.keyboard.press('Escape');
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.getByRole('button', { name: 'Back', exact: true }).click();
@@ -207,7 +217,10 @@ try {
 		),
 		false,
 	);
-	await page.screenshot({ path: join(artifacts, 'mobile-photo-viewer.png'), animations: 'disabled' });
+	await page.screenshot({
+		path: join(artifacts, 'mobile-photo-viewer.png'),
+		animations: 'disabled',
+	});
 	await page.keyboard.press('Escape');
 	assert.deepEqual(unexpected, []);
 	assert.deepEqual(errors, []);

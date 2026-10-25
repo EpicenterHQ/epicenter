@@ -1,21 +1,20 @@
 <script lang="ts">
-	import type { DocumentSnapshot } from '@epicenter/folder/document';
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
-	import { type getFolder, setFolder } from './folder.js';
+	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+	import { setFolder } from './folder.js';
 
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
-	import { createInfiniteQuery, createMutation, createQuery, setQueryClientContext } from '@tanstack/svelte-query';
-	import { beforeNavigate } from '$app/navigation';
+	import { QueryClient, createInfiniteQuery, createMutation, setQueryClientContext } from '@tanstack/svelte-query';
 	import { type Backend, createDemoBackend, requestBeeper } from './backend.js';
 	import ConversationView from './Conversation.svelte';
-	let { context }: { context: ReturnType<typeof getFolder> } = $props();
-	// This root keeps the opened folder until it unmounts.
+	import type { messagesTables } from './definition.js';
+	let { folder }: { folder: SvelteFolder<typeof messagesTables> } = $props();
 	// svelte-ignore state_referenced_locally
-	const { folder, queries, queryClient, getStatus } = setFolder(context);
+	setFolder(folder);
+	const queryClient = new QueryClient();
 	setQueryClientContext(queryClient);
 	const demo = createDemoBackend();
 	let backend = $state<Backend>(demo);
@@ -24,9 +23,9 @@
 	let showConnect = $state(false);
 	let token = $state('');
 	let notice = $state('');
-	beforeNavigate(({ type, cancel }) => { if (type === 'leave' && (getStatus().saving || getStatus().unsaved.length > 0)) cancel(); });
 	const chats = createInfiniteQuery(() => ({
 		queryKey: ['beeper', backend.mode, backend.profile, 'chats'],
+		// SAFETY: the first page has no cursor; later pages use string cursors.
 		initialPageParam: undefined as string | undefined,
 		queryFn: async ({ pageParam }) => {
 			const answer = await backend.request({ action: 'chats', cursor: pageParam });
@@ -40,50 +39,16 @@
 	const all = $derived([...new Map((chats.data?.pages.flatMap((page) => page.items) ?? []).map((chat) => [chat.id, chat])).values()].sort((a, b) => b.activity.localeCompare(a.activity)));
 	const visible = $derived(all.filter((chat) => `${chat.title} ${chat.network}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase())));
 	const current = $derived(all.find((chat) => chat.id === selected));
-	const drafts = createQuery(() => queries.rows('drafts'));
-	const attempts = createQuery(() => queries.rows('attempts'));
-	// The query discovers saved Markdown; Document snapshots supply current input,
-	// including text still waiting for autosave or held after a failed save.
-	const draftEdits = $derived([...new Set([
-		...(drafts.data ?? []).map(row => row.id),
-		...getStatus().unsaved.filter(path => /^drafts\/[^/]+\.md$/.test(path)).map(path => path.slice('drafts/'.length, -'.md'.length)),
-	])].map(id => liveSnapshot(folder.tables.drafts.document(id))));
-	const attemptEdits = $derived((attempts.data ?? []).map(row => liveSnapshot(folder.tables.attempts.document(row.id))));
-	// A keystroke changes one snapshot. Reuse parsed previews for every other draft.
-	const previewCache = new WeakMap<DocumentSnapshot, { chatId: string; mode: string; profile: string; state: string; text: string } | null>();
 	const draftPreviews = $derived.by(() => {
 		const previews = new Map<string, { label: string; text: string }>();
-		for (const edit of draftEdits) {
-			const snapshot = edit.current;
-			if (snapshot.text === undefined) continue;
-			let preview = previewCache.get(snapshot);
-			if (preview === undefined) {
-				const row = folder.tables.drafts.parse(snapshot.text);
-				preview = row.issues === null ? {
-					chatId: row.fields.chatId, mode: row.fields.mode, profile: row.fields.profile,
-					state: row.fields.state, text: row.body.trim().replace(/\s+/g, ' '),
-				} : null;
-				previewCache.set(snapshot, preview);
-			}
-			if (preview === null || preview.mode !== backend.mode || preview.profile !== backend.profile || preview.text === '') continue;
-			let label = 'Draft';
-			if (preview.state === 'sending') label = 'Check send';
-			previews.set(preview.chatId, { label, text: preview.text });
+		for (const row of folder.tables.drafts.rows) {
+			if (row.issues !== null || row.fields.mode !== backend.mode || row.fields.profile !== backend.profile) continue;
+			const text = row.body.trim().replace(/\s+/g, ' ');
+			if (text) previews.set(row.fields.chatId, { label: 'Draft', text });
 		}
-		for (const edit of attemptEdits) {
-			const snapshot = edit.current;
-			if (snapshot.loadError?.name === 'Missing' || snapshot.text === undefined) continue;
-			let preview = previewCache.get(snapshot);
-			if (preview === undefined) {
-				const row = folder.tables.attempts.parse(snapshot.text);
-				preview = row.issues === null ? {
-					chatId: row.fields.chatId, mode: row.fields.mode, profile: row.fields.profile,
-					state: row.fields.state, text: row.body.trim().replace(/\s+/g, ' '),
-				} : null;
-				previewCache.set(snapshot, preview);
-			}
-			if (preview === null || preview.state !== 'sending' || preview.mode !== backend.mode || preview.profile !== backend.profile) continue;
-			previews.set(preview.chatId, { label: 'Check send', text: preview.text });
+		for (const row of folder.tables.attempts.rows) {
+			if (row.issues !== null || row.fields.state !== 'sending' || row.fields.mode !== backend.mode || row.fields.profile !== backend.profile) continue;
+			previews.set(row.fields.chatId, { label: 'Check send', text: row.body.trim().replace(/\s+/g, ' ') });
 		}
 		return previews;
 	});
@@ -115,6 +80,7 @@
 <main class="flex h-dvh min-h-0 flex-col overflow-hidden">
 	<header class="flex flex-wrap items-center gap-3 border-b px-4 py-3">
 		<h1 class="font-semibold">Messages</h1>
+		<span class="text-xs text-muted-foreground">{folder.saving ? 'Saving…' : 'Saved'}</span>
 		<Badge variant={backend.mode === 'demo' ? 'secondary' : 'default'}>{backend.mode === 'demo' ? 'Demo · fictional conversations' : 'Live Beeper'}</Badge>
 		<div class="ml-auto flex gap-2">
 			<Button variant="ghost" size="sm" disabled={chats.isFetching} onclick={() => void queryClient.invalidateQueries({ queryKey: ['beeper'] })}>Refresh</Button>
@@ -144,7 +110,6 @@
 			<div class="min-h-0 flex-1 overflow-y-auto">
 				{#if chats.isPending}<Loading label="Loading conversations…" />{/if}
 				{#if chats.error}<p role="alert" class="p-3 text-sm text-destructive">{chats.error.message}</p>{/if}
-				{#if drafts.error}<p role="status" class="px-4 py-2 text-xs text-destructive">Saved draft previews could not be read. <Button variant="link" size="xs" onclick={() => void drafts.refetch()}>Try again</Button></p>{/if}
 				{#each visible as chat (chat.id)}
 					{@const draft = draftPreviews.get(chat.id)}
 					<button class="block w-full border-b px-4 py-3 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring" class:bg-accent={selected === chat.id} aria-current={selected === chat.id ? 'true' : undefined} onclick={() => { selected = chat.id; }}>

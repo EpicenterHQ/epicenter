@@ -44,44 +44,27 @@ shell and its compiled CLI must also be rebuilt for the new command.
 | Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
 | Source code and fictional fixtures | This source repository |
 
-Folder's document owner handles draft autosave and failures; `FolderApp` owns
-storage closure. Selecting a conversation creates no file; first input creates its draft.
-Text typed into it uses Folder's shared document handle, so leaving the view retains
-input. The conversation list shows **Draft** and a one-line preview from that
-same input, including before autosave and after a failed save. Empty replies
-show the latest message instead. An unresolved attempt says **Check send**, retaining its submitted text separately
-from the next composition. Only drafts matching
-the current demo/live mode and connection profile are shown.
+Selecting a conversation creates no file; the first keystroke creates its
+draft. Each composer keeps its own typed text until that save answers. The
+folder mirror shows only files that landed on storage. The conversation list
+therefore shows a **Draft** preview after a save, usually about a second after
+typing. Empty drafts show the latest message instead. An unresolved attempt
+shows **Check send** with its submitted text. Previews include only drafts
+matching the current demo/live mode and connection profile.
 
-The composer subscription acquires text; listing drafts does not populate the
-working documents. Typing, programmatic clearing, and checked recovery edit
-that same accepted document. Typing calls `document.patch({ body })`, or
-`document.replace(text)` when composing a new draft before acquisition. Checked
-recovery calls `document.replace(text)` then `await document.save()` to publish
-its exact source. A save captures the accepted text when called and returns
-success or failure; failure keeps the accepted change pending. If clearing
-fails during send preparation, the empty composer remains pending, nothing is
-sent, and the durable attempt retains the submitted body for checked recovery.
-Those attempt files are one-shot writes outside composer autosave. Send and
-recovery checks use `folder.tables.drafts.get(id)` and
-`folder.tables.attempts.get(id)` for persisted state; a
-working snapshot cannot prove what was saved. These stored reads do not acquire
-or update the composer document.
+The draft file records `chatId`, `profile`, and `mode` in Markdown frontmatter;
+its body is the composition. Old undeclared `state` and `pendingId` keys remain
+readable, but old draft-file send recovery is no longer supported. The separate
+attempt file records the latest submitted text, its unique `attemptId`, its
+`state`, and the Beeper `pendingId` when accepted. An invalid or unreadable
+draft needs Markdown repair before composition; a failed read offers **Read
+again**. A failed write leaves the mirror at its saved value, and the folder
+failure notice offers the attempted text to copy.
 
-`createQuery(() => context.queries.rows('drafts'))` discovers the saved Markdown
-files. Tracked `liveSnapshot` views from `@epicenter/svelte/snapshot` supply
-their `.current.text`. `folder.tables.drafts.parse(text)` interprets each
-text with the draft schema. A component-local weak cache avoids parsing
-unchanged draft previews on each keystroke. A derived map joins previews to
-conversations by `chatId`. The query
-cache owns listing and refresh, and Folder owns accepted input and saving;
-there is no second draft store or SQL cache.
-
-Pending or failed saves prompt before the window closes. Cancel keeps the edit available; confirming
-closes immediately and may discard unsaved input. Draft filenames hash the mode, account-set identity and chat ID;
-demo and live drafts never share a file. Markdown frontmatter records `chatId`,
-`profile`, `mode`, `state` and `pendingId`; the body is draft text. Malformed
-drafts remain on disk and block composition rather than being overwritten.
+Draft filenames hash the mode, account-set identity, and chat ID; demo and live
+drafts never share a file. The folder closes when the app unmounts. On desktop,
+window close waits for writes already in flight. Browser unload asks only while
+a write is saving.
 
 These are private personal files, not source files. The app creates no Git
 repository, commit, or remote. If you deliberately put its folder under Git,
@@ -120,33 +103,31 @@ for an open conversation and every five seconds for the list while visible.
 The app sends no read receipts and provides no archive, delete, edit, reaction,
 account-management or new-conversation operation.
 
-A send enters Folder work before waiting on the local draft queue or browser
-Web Lock. Inside that turn it reads the persisted attempt and refuses another
-send while the outcome is unresolved. It saves the attempted message durably
-before contacting Beeper. Composer autosave cannot erase that record because it
-writes a different file. Send captures its displayed source and preceding attempt
-before waiting, and refuses if another submission has since been recorded. Only one latest attempt is retained for each draft. Its unique `attemptId` binds
-checked recovery to the exact operation the person saw, even for identical messages.
+A send captures the text on screen and the latest visible attempt ID when
+clicked. Within the in-tab queue and browser Web Lock, it first reads the
+attempt file from storage and checks that it agrees with the folder mirror.
+A mismatch refuses the send and asks the folder to read again. It also refuses
+an unresolved or changed attempt, a draft with Markdown issues, and a draft
+whose conversation or connection does not match the selected chat.
 
-After its attempt is durable, the send clears its captured composition only if
-that source stayed unchanged during publication. Any newer composition, including
-identical text typed after another change, remains available. Receipt publication
-updates only the attempt. A remounted recovery action takes the same turn and
-rechecks persistence, so it cannot restore a message that has since succeeded.
-**I checked** explicitly acknowledges an unresolved outcome. The submitted text
-remains available to copy. Existing unresolved records in draft files still
-require checked recovery before composing again. Close releases synchronously without submitting input or waiting for writes.
-Send preparation checks closing after queue admission and before contacting
-the backend; if close interrupts preparation, nothing is sent. If the
-folder closes before a receipt can be saved, the durable attempt remains
-unresolved and requires checked recovery. Reload, reconnect, and draft autosave
-never replay sends.
+The app saves a new **sending** attempt before contacting Beeper. It clears the
+composer only when the displayed text is unchanged, then waits for that clear
+to land. If the clear fails, nothing is sent; the attempt is acknowledged and
+the saved draft text can be sent again. If Beeper does not confirm the send,
+the attempt stays unresolved. If Beeper accepts it, the app records the receipt
+on the attempt file. A failed receipt also leaves the attempt unresolved, so
+the person must check Beeper before another send.
+
+**I checked** acknowledges the specific attempt shown on screen. **Keep as
+draft** restores its text when the composer is empty. A stale check cannot
+restore an accepted send or acknowledge a newer attempt, even when both
+attempts have identical text. Reload, reconnect, and draft saves never replay
+sends.
 
 This is local send recovery, not backend idempotency or a multi-device outbox.
 Intentional external edits to attempt records can change the protocol. Browser
 Web Locks coordinate participating tabs; the desktop shell uses one window per
-folder. Memory retention does not provide durable crash recovery for text whose
-publication failed.
+folder.
 
 References: [Beeper Desktop API](https://developers.beeper.com/desktop-api/),
 [authentication](https://developers.beeper.com/desktop-api/auth/).
