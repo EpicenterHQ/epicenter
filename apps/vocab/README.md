@@ -12,13 +12,13 @@ Choose one to three saved expressions to start a chat. Vocab saves the focus bef
 
 ### Editing a word
 
-Each word card edits its note and stage directly. The note has one local draft per mounted card. Every change asks the folder to update only the `note` field; a stage press updates only the `stage` field. The mirror writes those field changes over the file as it is when the save runs, so unnamed fields and the Markdown body survive. A lone surrogate in a note becomes U+FFFD. The folder groups changes to one path and sends them in order. The visible note follows what was typed until that save answers, then follows the file again. A failed write leaves the disk value visible and offers the attempted text in a toast with Copy.
+Each word card edits its note and stage directly. The note has one local draft per mounted card. Every change asks the folder to update only the `note` field; a stage press updates only the `stage` field. The mirror writes those field changes over the file as it is when the save runs, so unnamed fields and the Markdown body survive. A lone surrogate in a note becomes U+FFFD. The folder groups changes to one path and sends them in order. The visible note follows what was typed until that save answers, then follows the file again. A failed write keeps the typed note visible with Save again, Discard, and Copy controls.
 
 Deleting a word asks first, then removes its path. A later write can create or update that path only according to the folder's normal write rules. The header says Saving… while any write is outstanding and Saved when none is.
 
 ### Repair as text
 
-A word file with invalid frontmatter or fields appears in the repair list. Repair as text opens its exact source in a text draft. The problem list and the Show note and stage control update from the text currently typed, even before a write lands. The control returns to the structured card only after that text reads as a valid word and its last save has landed. A read error offers Read again. A failed write is reported by the folder toast with the attempted text to copy. Non-text and unreadable files are named but cannot be opened as text for repair.
+A word file with invalid frontmatter or fields appears in the repair list. Repair as text opens its exact source in a text draft. The problem list and the Show note and stage control update from the text currently typed, even before a write lands. The control returns to the structured card only after that text reads as a valid word and its path has settled without a draft error. A read error offers Read again. A failed write keeps the typed repair visible with Save again, Discard, and Copy controls. Non-text and unreadable files are named but cannot be opened as text for repair.
 
 ### Leaving the page
 

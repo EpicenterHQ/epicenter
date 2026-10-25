@@ -1,4 +1,4 @@
-import type { SaveFailure } from '@epicenter/svelte/folder-next';
+import type { SaveFailure } from '@epicenter/folder/next';
 import { createMemory, until } from '../../lib/folder.test-support.js';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
@@ -74,7 +74,25 @@ test('note draft stays visible until save and then follows the row', async () =>
 	await context.close();
 });
 
-test('a failed note save reports its typed text and the card follows disk', async () => {
+test('typing again during a note save keeps the newer value', async () => {
+	const context = await setup();
+	const gate = Promise.withResolvers<void>();
+	context.host.control.putGate = gate.promise;
+	const note = noteOf(context.target);
+	type(note, 'first');
+	await until(() => context.folder.saving, 'first note save');
+	type(note, 'second');
+	flushSync();
+	expect(note.value).toBe('second');
+	gate.resolve();
+	await context.folder.settled(`entries/${context.id}.md`);
+	flushSync();
+	expect(note.value).toBe('second');
+	expect(context.folder.tables.entries.row(context.id)?.fields?.note).toBe('second');
+	await context.close();
+});
+
+test('a failed note keeps its typed text and can retry or discard', async () => {
 	const context = await setup();
 	const path = `entries/${context.id}.md`;
 	context.host.control.failPut.set(path, {
@@ -87,9 +105,29 @@ test('a failed note save reports its typed text and the card follows disk', asyn
 	await until(() => context.failures.length > 0, 'failed save report');
 	flushSync();
 	expect(context.failures[0]?.text).toBe('failed text');
-	expect(note.value).toBe('');
+	expect(note.value).toBe('failed text');
+	expect(context.target.textContent).toContain('Not saved:');
+	expect(context.target.textContent).toContain('Save again');
 	const row = context.folder.tables.entries.row(context.id);
 	expect(row?.issues === null && row.fields.note).toBe('');
+	context.host.control.failPut.delete(path);
+	click(context.target, 'Save again');
+	await until(() => context.folder.tables.entries.row(context.id)?.fields?.note === 'failed text', 'retried note save');
+	flushSync();
+	expect(context.target.textContent).not.toContain('Not saved:');
+	context.host.control.failPut.set(path, {
+		name: 'StorageFailed',
+		message: 'storage refused',
+		cause: 'full',
+	});
+	type(note, 'another attempt');
+	await until(() => context.failures.length > 1, 'second failed save');
+	flushSync();
+	expect(note.value).toBe('another attempt');
+	click(context.target, 'Discard');
+	flushSync();
+	expect(note.value).toBe('failed text');
+	expect(context.target.textContent).not.toContain('Not saved:');
 	await context.close();
 });
 
