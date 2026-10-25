@@ -46,7 +46,7 @@
 					fields: { chatId, profile: backend.profile, mode: backend.mode },
 					body,
 				});
-				void saved.then(({ error }) => { if (error) creating = false; });
+			void saved.then(() => { creating = false; });
 				return remember(saved);
 			}
 			return remember(folder.tables.drafts.update(draftId, { body }));

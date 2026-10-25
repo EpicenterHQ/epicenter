@@ -131,6 +131,28 @@ test('reopening a draft waits for its previous composer save', async () => {
 	}
 });
 
+test('typing recreates a draft deleted outside the app', async () => {
+	const app = await setup();
+	await app.open('Maya Chen');
+	const id = await draftId(createDemoBackend(), 'demo-maya');
+	type(app.composer(), 'First reply');
+	await until(
+		() => app.folder.tables.drafts.row(id)?.body === 'First reply',
+		'the first draft save',
+	);
+	app.host.outside(`drafts/${id}.md`, null);
+	app.folder.checkpoint();
+	await until(
+		() => app.folder.tables.drafts.row(id) === undefined,
+		'the outside deletion',
+	);
+	type(app.composer(), 'Recreated reply');
+	await until(
+		() => app.folder.tables.drafts.row(id)?.body === 'Recreated reply',
+		'the recreated draft',
+	);
+});
+
 test('saved previews stay within their mode and profile', async () => {
 	const app = await setup();
 	const demo = createDemoBackend();
