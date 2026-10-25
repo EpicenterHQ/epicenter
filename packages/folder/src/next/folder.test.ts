@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 import { SaveError } from '../shared/errors.js';
-import { createFolder, readRow } from './folder.js';
+import { createFolder, readRow, typedText } from './folder.js';
 import { memoryHost, tick } from './testing.js';
 
 const tables = {
@@ -536,5 +536,17 @@ describe('readRow', () => {
 		});
 		const broken = readRow(note('pinned: true'), tables.notes);
 		expect(broken.issues?.[0]?.kind).toBe('schema');
+	});
+});
+
+describe('typedText', () => {
+	test('offers a non-empty body, or the one string field a patch sets', () => {
+		expect(typedText({ body: 'Typed\n' })).toBe('Typed\n');
+		expect(typedText({ fields: { title: 'A title' } })).toBe('A title');
+		expect(typedText({ fields: { title: 'A', note: 'B' } })).toBeUndefined();
+		expect(typedText({ fields: { done: true } })).toBeUndefined();
+		expect(typedText({ fields: { text: 'word', note: '' }, body: '' })).toBe(
+			'word',
+		);
 	});
 });

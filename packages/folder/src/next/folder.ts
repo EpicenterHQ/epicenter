@@ -710,6 +710,23 @@ function sameData(a: Data | null, b: Data | null) {
 	if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) return false;
 	return a.length === b.length && a.every((value, index) => value === b[index]);
 }
+/**
+ * The text a person typed into a write, to offer for copying when it does
+ * not land: a non-empty body, or the one string field a patch sets. Anything
+ * else (a status change, several fields, an empty body) answers `undefined`,
+ * since there is no typed text to give back.
+ */
+export function typedText(patch: {
+	readonly fields?: object;
+	readonly body?: string;
+}): string | undefined {
+	if (patch.body !== undefined && patch.body !== '') return patch.body;
+	const strings = Object.values(patch.fields ?? {}).filter(
+		(value): value is string => typeof value === 'string' && value !== '',
+	);
+	return strings.length === 1 ? strings[0] : undefined;
+}
+
 /** What a row's text reads as through its schema: the fields, body, and any issues. */
 export type RowReading<S extends Schema = Schema> =
 	| { readonly fields: Static<S>; readonly body: string; readonly issues: null }
