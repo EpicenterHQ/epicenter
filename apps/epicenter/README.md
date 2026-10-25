@@ -55,7 +55,8 @@ CLI holds the account and every key (ADR-0556). Settings opens its records
 folder through `<OpenFolder>`, creates connection rows with
 `folder.tables.connections.create`, and updates title and model through row
 patches. Each text field keeps its own draft until its write answers. Failed
-writes are reported by the folder owner's toast, with text available to copy.
+writes keep the typed value and show Save again, Discard, and Copy beside the
+field. The folder owner also reports the failure in a toast.
 
 ## The epicenter binary
 
@@ -395,7 +396,8 @@ Enum and boolean schema hints retain empty destinations. **No value** represents
 an absent field. Object and array values appear in **Other**, which cannot be
 chosen as a move destination. Moving a card changes its grouping field through
 `folder.update(path, { fields }, { schema })`. A failed move leaves the card
-in its current lane and shows the folder owner's failure toast.
+in its current lane, keeps the chosen destination in the control, and offers
+Save again or Discard beside it.
 Cards have no separate rank or drag-order record.
 
 The mirror reads every kept text file when it opens and gives Files its exact
@@ -406,7 +408,10 @@ writes then update the mirror's landed values. Structured edits use
 `folder.update(path, patch, { schema })`, including root and nested Markdown.
 The mirror composes waiting patches on the same path, so adjacent cell edits
 do not overwrite one another. A file read failure can be retried with
-`folder.checkpoint()`; failed writes are toasted with their input available to copy.
+`folder.checkpoint()`. Failed drafts keep their value and offer Save again,
+Discard, and Copy beside the editor. The folder owner also toasts failures.
+Switching file editors waits for that path with `folder.settled(path)` before
+mounting the next editor.
 
 The folder owner checkpoints on focus, visibility, connectivity, and page hide.
 Closing an editor window waits for writes in flight before destroying it.
