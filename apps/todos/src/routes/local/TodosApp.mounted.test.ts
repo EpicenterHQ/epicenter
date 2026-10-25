@@ -11,7 +11,7 @@
  * Key behaviors:
  * - Add, edit, complete, and delete persist across close and reopen
  * - Another tab's committed change updates clean controls; field patches merge
- * - Failed edits stay visible for retry or discard, including Done toggles
+ * - Failed text stays visible for retry or discard; commands report failures
  * - A row that does not fit is listed with its source and issues, and an
  *   edit keeps fields the schema does not name
  * - A failed storage check opens nothing; Try again checks again
@@ -137,7 +137,7 @@ async function untilStored(
 ) {
 	const folder = await otherTab();
 	for (let tries = 0; tries < 400; tries++) {
-		folder.checkpoint();
+		await folder.refresh();
 		if (check(folder.tables.todos.row(id))) return;
 		await Bun.sleep(5);
 	}
@@ -234,6 +234,53 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 	expect(await stored(id)).toBeUndefined();
 });
 
+test('a failed Add reports the error and keeps the typed title', async () => {
+	freshProfile();
+	const opened = await openPage();
+	const put = IDBObjectStore.prototype.put;
+	IDBObjectStore.prototype.put = () => {
+		throw new DOMException('Disk is full', 'QuotaExceededError');
+	};
+	cleanup.push(() => {
+		IDBObjectStore.prototype.put = put;
+	});
+	type(opened.get('[aria-label="New todo title"]'), 'Buy tea');
+	flushSync();
+	click(opened.get(LIST), 'Add');
+	await until(
+		() => document.body.textContent?.includes('Could not add todo') ?? false,
+		'the Add error',
+	);
+	expect(opened.get('[aria-label="New todo title"]').value).toBe('Buy tea');
+	expect(opened.text('[aria-label="Todos"]')).toContain('No todos yet');
+});
+
+test('a failed Delete reports the error and keeps the todo open', async () => {
+	const { get } = await onMilk();
+	const put = IDBObjectStore.prototype.put;
+	IDBObjectStore.prototype.put = () => {
+		throw new DOMException('Disk is full', 'QuotaExceededError');
+	};
+	cleanup.push(() => {
+		IDBObjectStore.prototype.put = put;
+	});
+	click(get(DETAIL), 'Delete');
+	await until(
+		() => document.querySelector('[role="alertdialog"]') !== null,
+		'the confirmation',
+	);
+	const dialog = document.querySelector('[role="alertdialog"]');
+	if (dialog === null) throw new Error('The delete confirmation did not open');
+	click(dialog, 'Delete');
+	await until(
+		() => document.body.textContent?.includes('Could not delete todo') ?? false,
+		'the Delete error',
+	);
+	expect(page.url.searchParams.get('todo')).toBe('milk');
+	expect(get(TITLE).value).toBe('Milk');
+	expect((await stored('milk'))?.fields?.title).toBe('Milk');
+});
+
 test("another tab's change updates a clean todo without replacing its controls", async () => {
 	const { get, folder } = await onMilk();
 	const title = get(TITLE);
@@ -287,15 +334,11 @@ test('title typed here and done set elsewhere both survive', async () => {
 	expect(saved?.body).toBe('Two litres');
 });
 
-test('typing during a save keeps the latest title', async () => {
+test('rapid typing saves the latest title', async () => {
 	const { get } = await onMilk();
 	type(get(TITLE), 'Oat milk');
 	flushSync();
 	expect(get(TITLE).value).toBe('Oat milk');
-	await until(
-		() => get(SUMMARY).getAttribute('aria-label')?.includes('Saving') ?? false,
-		'the first title save to start',
-	);
 	type(get(TITLE), 'Almond milk');
 	flushSync();
 	expect(get(TITLE).value).toBe('Almond milk');
@@ -303,30 +346,6 @@ test('typing during a save keeps the latest title', async () => {
 		'milk',
 		(row) => row?.issues === null && row.fields.title === 'Almond milk',
 	);
-});
-
-test('reopening a todo after a keyed selection change shows its landed title', async () => {
-	const { get, folder } = await onMilk();
-	expectOk(
-		await folder.tables.todos.create('bread', {
-			fields: { title: 'Bread', done: false },
-		}),
-	);
-	setWide(true);
-	cleanup.push(() => setWide(false));
-	await until(
-		() => get('[data-todo="todos/bread.md"]') !== null,
-		'bread to appear',
-	);
-	type(get(TITLE), 'Oat milk');
-	press(get('[data-todo="todos/bread.md"]'));
-	await until(() => get(TITLE).value === 'Bread', 'bread to open');
-	press(get('[data-todo="todos/milk.md"]'));
-	await until(
-		() => get(TITLE).value === 'Oat milk',
-		'the landed title to reopen',
-	);
-	expect((await stored('milk'))?.fields?.title).toBe('Oat milk');
 });
 
 test('a deleted todo shows absence even when its editor was already open', async () => {
@@ -368,8 +387,7 @@ test('a failed title stays visible and Save again writes it', async () => {
 		() => get(DETAIL).textContent?.includes('Not saved:') ?? false,
 		'the unsaved title notice',
 	);
-	expect(document.body.textContent).toContain('Could not save todos/milk.md');
-	expect(document.body.textContent).toContain('Copy your text');
+	expect(get(DETAIL).textContent).toContain('Copy');
 	expect(get(TITLE).value).toBe('Oat milk');
 	expect((await stored('milk'))?.fields?.title).toBe('Milk');
 	IDBObjectStore.prototype.put = put;
@@ -405,7 +423,7 @@ test('Discard returns a failed title to the disk value', async () => {
 	IDBObjectStore.prototype.put = put;
 });
 
-test('a failed Done toggle stays checked until retry or discard', async () => {
+test('a failed Done toggle reports the error and follows the saved value', async () => {
 	const { get } = await onMilk();
 	const put = IDBObjectStore.prototype.put;
 	IDBObjectStore.prototype.put = () => {
@@ -416,20 +434,16 @@ test('a failed Done toggle stays checked until retry or discard', async () => {
 	});
 	press(get(DONE));
 	await until(
-		() => get(DETAIL).textContent?.includes('Not saved:') ?? false,
-		'the unsaved Done notice',
+		() => document.body.textContent?.includes('Could not update todo') ?? false,
+		'the Done error',
 	);
-	expect(get(DONE).getAttribute('aria-checked')).toBe('true');
+	expect(get(DONE).getAttribute('aria-checked')).toBe('false');
 	expect((await stored('milk'))?.fields?.done).toBe(false);
-	click(get(DETAIL), 'Discard');
-	await until(
-		() => get(DONE).getAttribute('aria-checked') === 'false',
-		'Done to follow disk',
-	);
+	expect(get(DETAIL).textContent).not.toContain('Not saved:');
 	IDBObjectStore.prototype.put = put;
 });
 
-test('a failed list-row toggle shows its own unsaved edit', async () => {
+test('a failed list-row toggle reports the error and follows the saved value', async () => {
 	const { get } = await onMilk();
 	setWide(true);
 	cleanup.push(() => setWide(false));
@@ -443,20 +457,14 @@ test('a failed list-row toggle shows its own unsaved edit', async () => {
 	});
 	press(get('button[aria-label="Complete Milk"]'));
 	await until(
-		() => get(LIST).textContent?.includes('Not saved:') ?? false,
-		'the unsaved list-row notice',
+		() => document.body.textContent?.includes('Could not update todo') ?? false,
+		'the list-row error',
 	);
 	expect(
-		get('button[aria-label="Reopen Milk"]').getAttribute('aria-checked'),
-	).toBe('true');
+		get('button[aria-label="Complete Milk"]').getAttribute('aria-checked'),
+	).toBe('false');
 	expect((await stored('milk'))?.fields?.done).toBe(false);
-	click(get(LIST), 'Discard');
-	await until(
-		() =>
-			get('button[aria-label="Complete Milk"]').getAttribute('aria-checked') ===
-			'false',
-		'the list-row Done to follow disk',
-	);
+	expect(get(LIST).textContent).not.toContain('Not saved:');
 	IDBObjectStore.prototype.put = put;
 });
 

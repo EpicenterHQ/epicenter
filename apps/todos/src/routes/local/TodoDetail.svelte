@@ -8,6 +8,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { getFolder } from '$lib/folder.js';
 	import { labelOf, todoPath } from '$lib/local-todos.js';
@@ -37,10 +38,14 @@
 		() => todo?.body ?? '',
 		(text) => folder.tables.todos.update(id, { body: text }),
 	);
-	const done = draft(
-		() => todo?.fields.done ?? false,
-		(value) => folder.tables.todos.update(id, { fields: { done: value } }),
-	);
+	async function toggleDone() {
+		if (todo === undefined) return;
+		const { error } = await folder.tables.todos.update(id, {
+			fields: { done: !todo.fields.done },
+		});
+		if (error !== null)
+			toast.error('Could not update todo', { description: error.message });
+	}
 	const source = $derived(folder.file(path)?.data);
 	const unreadable = $derived(
 		row?.issues?.some((issue) => issue.kind === 'unreadable') ?? false,
@@ -53,7 +58,11 @@
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				const { error } = await folder.delete(path);
-				if (error === null) onDeleted?.();
+				if (error !== null) {
+					toast.error('Could not delete todo', { description: error.message });
+					return;
+				}
+				onDeleted?.();
 			},
 		});
 	}
@@ -80,7 +89,7 @@
 			{@render back()}
 			<Checkbox
 				aria-label="Done"
-				bind:checked={done.value}
+				bind:checked={() => todo.fields.done, () => void toggleDone()}
 			/>
 			<div class="min-w-0 flex-1 space-y-2">
 				<Input
@@ -92,7 +101,6 @@
 				<UnsavedEdit draft={title} />
 			</div>
 		</div>
-		<div class="px-3 sm:px-4"><UnsavedEdit draft={done} /></div>
 		<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-0 flex-1 field-sizing-fixed resize-none"
@@ -119,7 +127,7 @@
 				{/each}
 			</ul>
 			{#if unreadable}
-				<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Try again</Button>
+				<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button>
 			{/if}
 		</div>
 		{#if typeof source === 'string'}

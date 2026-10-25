@@ -9,6 +9,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
+	import { toast } from '@epicenter/ui/sonner';
 	import { getFolder } from '$lib/folder.js';
 	import {
 		reasonOf,
@@ -49,7 +50,10 @@
 			const { error } = await folder.tables.todos.create(id, {
 				fields: { title: typed, done: false },
 			});
-			if (error !== null) return;
+			if (error !== null) {
+				toast.error('Could not add todo', { description: error.message });
+				return;
+			}
 			title = '';
 			onOpen?.(id);
 		} finally {

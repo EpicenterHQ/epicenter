@@ -41,7 +41,6 @@
 	 */
 	async function show(id: string | undefined, { replaceState = false } = {}) {
 		if (id === open) return;
-		if (open !== undefined) await folder.settled(todoPath(open));
 		const url = new URL(page.url);
 		if (id === undefined) url.searchParams.delete('todo');
 		else url.searchParams.set('todo', id);
