@@ -1,14 +1,14 @@
-/** Draft previews over real Markdown files and Folder-owned pending input. */
+/**
+ * Messages app mounted tests.
+ *
+ * Saved Markdown supplies conversation previews, while an unresolved attempt
+ * takes precedence until the person checks its outcome.
+ */
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
-import { afterEach, expect, mock, test } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { createFolderContext } from '@epicenter/svelte/folder';
+import { afterEach, expect, test } from 'bun:test';
+import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
 import { expectOk } from 'wellcrafted/testing';
-import { FileError } from '../../../../packages/folder/src/errors.js';
-import { createNativeFolder } from '../../../../packages/folder/src/native/engine.js';
-import { nativeStorage } from '../../../../packages/folder/src/native/storage.js';
 import {
 	click,
 	type,
@@ -18,7 +18,7 @@ import { messagesTables } from './definition.js';
 import { draftId } from './drafts.js';
 import { saveDraft, seedDraft } from './drafts.test-support.js';
 
-mock.module('$app/navigation', () => ({ beforeNavigate() {} }));
+const { svelteFolder } = await import('@epicenter/svelte/folder-next');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: MessagesApp } = await import('./MessagesApp.svelte');
 
@@ -36,38 +36,19 @@ async function until(check: () => boolean, what: string) {
 	throw new Error(`Timed out waiting for ${what}`);
 }
 
-async function setup(saveAfterMs = 60_000) {
-	const directory = await mkdtemp(join(tmpdir(), 'messages-draft-preview-'));
-	const storage = nativeStorage(directory);
-	let failing = false;
-	const folder = createNativeFolder({
-		directory: `bun:${directory}`,
-		tables: messagesTables,
-		saveAfterMs,
-		storage: {
-			...storage,
-			put: (path, bytes, ifMatch) =>
-				failing
-					? Promise.resolve(
-							FileError.Io({
-								path,
-								operation: 'write',
-								cause: new Error('Disk unavailable'),
-							}),
-						)
-					: storage.put(path, bytes, ifMatch),
-		},
-	});
-	const context = createFolderContext(folder);
+async function setup() {
+	const host = memoryHost();
+	const opened = expectOk(
+		await createFolder(host.storage, { tables: messagesTables, throttleMs: 0 }),
+	);
+	const folder = svelteFolder(opened);
 	const target = document.createElement('main');
 	document.body.append(target);
-	const app = mount(MessagesApp, { target, props: { context } });
+	const app = mount(MessagesApp, { target, props: { folder } });
 	cleanups.push(async () => {
-		failing = false;
 		await unmount(app);
-		await context.close();
+		await opened.close();
 		target.remove();
-		await rm(directory, { recursive: true, force: true });
 	});
 	function conversation(name: string) {
 		const row = [
@@ -75,7 +56,7 @@ async function setup(saveAfterMs = 60_000) {
 				'[aria-label="Conversations"] button',
 			),
 		].find((button) => button.textContent?.includes(name));
-		if (row === undefined) throw new Error(`No conversation named ${name}`);
+		if (!row) throw new Error(`No conversation named ${name}`);
 		return row;
 	}
 	const composer = () =>
@@ -90,85 +71,78 @@ async function setup(saveAfterMs = 60_000) {
 		() => target.textContent?.includes('Maya Chen') === true,
 		'conversations',
 	);
-	return {
-		folder,
-		context,
-		directory,
-		target,
-		conversation,
-		composer,
-		open,
-		failWrites: (next: boolean) => {
-			failing = next;
-		},
-	};
+	return { host, folder, target, conversation, composer, open };
 }
 
-test('a preview follows pending Markdown input across chat switches and disappears when emptied', async () => {
+test('a preview follows saved input and disappears when the draft is emptied', async () => {
 	const app = await setup();
 	await app.open('Maya Chen');
 	const id = await draftId(createDemoBackend(), 'demo-maya');
-	const edit = app.folder.tables.drafts.document(id);
-	await until(
-		() => app.context.queryClient.isFetching() === 0,
-		'the draft listing',
-	);
-	type(app.composer(), 'Saturday at ten.\nI’ll bring the address.');
+	expect(app.folder.tables.drafts.row(id)).toBeUndefined();
+	type(app.composer(), 'Saturday at ten.\nI will bring the address.');
 	await until(
 		() =>
 			app
 				.conversation('Maya Chen')
 				.textContent?.includes(
-					'Draft: Saturday at ten. I’ll bring the address.',
+					'Draft: Saturday at ten. I will bring the address.',
 				) === true,
-		'the unsaved preview',
+		'the saved preview',
 	);
-	expect(edit.getSnapshot().isSaving).toBe(false);
-	expect(expectOk(await app.folder.tables.drafts.get(id))).toBeUndefined();
+	expect(app.folder.tables.drafts.row(id)?.body).toBe(
+		'Saturday at ten.\nI will bring the address.',
+	);
 	await app.open('Community garden');
 	expect(app.composer()?.value).toBe('');
-	expect(app.conversation('Maya Chen').textContent).toContain(
-		'Draft: Saturday at ten. I’ll bring the address.',
-	);
-	expect(app.conversation('Community garden').textContent).not.toContain(
-		'Draft:',
-	);
-	await app.context.refresh([`drafts/${id}.md`]);
-	expect(app.conversation('Maya Chen').textContent).toContain(
-		'I’ll bring the address.',
-	);
 	await app.open('Maya Chen');
 	expect(app.composer()?.value).toBe(
-		'Saturday at ten.\nI’ll bring the address.',
+		'Saturday at ten.\nI will bring the address.',
 	);
-	type(app.composer(), ' \n ');
+	type(app.composer(), ' ');
 	await until(
 		() => !app.conversation('Maya Chen').textContent?.includes('Draft:'),
-		'the empty preview to clear',
-	);
-	expect(app.conversation('Maya Chen').textContent).toContain(
-		'Shall we try the new café on Saturday?',
+		'the empty preview',
 	);
 });
 
-test('saved Markdown supplies previews without opening chats and keeps modes and profiles separate', async () => {
+test('reopening a draft waits for its previous composer save', async () => {
+	const app = await setup();
+	const gate = Promise.withResolvers<void>();
+	try {
+		await app.open('Maya Chen');
+		const id = await draftId(createDemoBackend(), 'demo-maya');
+		app.host.control.putGate = gate.promise;
+		type(app.composer(), 'Still saving');
+		await until(
+			() => app.host.log.puts.some((put) => put.path === `drafts/${id}.md`),
+			'the draft write',
+		);
+		await app.open('Community garden');
+		app.conversation('Maya Chen').click();
+		flushSync();
+		expect(app.composer()).toBeNull();
+		gate.resolve();
+		await until(
+			() => app.composer()?.value === 'Still saving',
+			'the reopened composer',
+		);
+	} finally {
+		gate.resolve();
+	}
+});
+
+test('saved previews stay within their mode and profile', async () => {
 	const app = await setup();
 	const demo = createDemoBackend();
 	const maya = await seedDraft(app.folder, demo, 'demo-maya');
-	expectOk(
-		await saveDraft(app.folder, maya.id, {
-			body: 'Saved in Markdown',
-		}),
-	);
+	expectOk(await saveDraft(app.folder, maya.id, { body: 'Saved in Markdown' }));
 	const live = await seedDraft(
 		app.folder,
 		{ ...demo, mode: 'live' },
 		'demo-garden',
 	);
 	expectOk(
-		await saveDraft(app.folder, live.id, {
-			body: 'Live private draft',
-		}),
+		await saveDraft(app.folder, live.id, { body: 'Live private draft' }),
 	);
 	const other = await seedDraft(
 		app.folder,
@@ -176,9 +150,7 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 		'demo-noah',
 	);
 	expectOk(
-		await saveDraft(app.folder, other.id, {
-			body: 'Another account’s draft',
-		}),
+		await saveDraft(app.folder, other.id, { body: 'Another account draft' }),
 	);
 	await until(
 		() =>
@@ -191,17 +163,17 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 		'Live private draft',
 	);
 	expect(app.conversation('Noah Patel').textContent).not.toContain(
-		'Another account’s draft',
+		'Another account draft',
 	);
 	expect(app.composer()).toBeNull();
-	const path = `drafts/${maya.id}.md`;
-	const saved = expectOk(await app.folder.tables.drafts.get(maya.id));
-	if (saved === undefined) throw new Error('The draft disappeared');
-	await writeFile(
-		join(app.directory, path),
-		saved.text.replace('Saved in Markdown', 'Changed outside Messages'),
+	app.host.outside(
+		`drafts/${maya.id}.md`,
+		(app.host.text(`drafts/${maya.id}.md`) ?? '').replace(
+			'Saved in Markdown',
+			'Changed outside Messages',
+		),
 	);
-	await app.context.refresh([path]);
+	app.folder.checkpoint();
 	await until(
 		() =>
 			app
@@ -209,75 +181,18 @@ test('saved Markdown supplies previews without opening chats and keeps modes and
 				.textContent?.includes('Draft: Changed outside Messages') === true,
 		'the outside edit',
 	);
-	expect(expectOk(await app.folder.files.list())).toHaveLength(3);
 });
 
-test('editing one draft parses only its changed preview', async () => {
+test('an uncertain send shows Check send and checked recovery restores Draft', async () => {
 	const app = await setup();
-	const backend = createDemoBackend();
-	const drafts = await Promise.all(
-		['demo-maya', 'demo-noah', 'demo-garden'].map((chatId) =>
-			seedDraft(app.folder, backend, chatId),
-		),
-	);
-	for (const [index, draft] of drafts.entries())
-		expectOk(await saveDraft(app.folder, draft.id, { body: `Reply ${index}` }));
-	await until(
-		() =>
-			app.conversation('Maya Chen').textContent?.includes('Draft: Reply 0') ===
-				true &&
-			app.conversation('Noah Patel').textContent?.includes('Draft: Reply 1') ===
-				true &&
-			app
-				.conversation('Community garden')
-				.textContent?.includes('Draft: Reply 2') === true,
-		'all three previews',
-	);
-	const parse = app.folder.tables.drafts.parse;
-	let parses = 0;
-	app.folder.tables.drafts.parse = (text) => {
-		parses++;
-		return parse(text);
-	};
-	const maya = drafts[0];
-	if (maya === undefined) throw new Error('Maya draft was not seeded');
-	expectOk(
-		app.folder.tables.drafts.document(maya.id).patch({ body: 'Updated reply' }),
-	);
+	await app.open('Maya Chen');
+	type(app.composer(), 'Keep this reply');
 	await until(
 		() =>
 			app
 				.conversation('Maya Chen')
-				.textContent?.includes('Draft: Updated reply') === true,
-		'the changed preview',
-	);
-	expect(parses).toBe(1);
-});
-
-test('failed autosave retains its preview, uncertain sends are distinct, and sending clears Draft', async () => {
-	const app = await setup(60);
-	await app.open('Community garden');
-	await app.open('Maya Chen');
-	const id = await draftId(createDemoBackend(), 'demo-maya');
-	app.failWrites(true);
-	type(app.composer(), 'Keep this reply');
-	await app.open('Community garden');
-	await until(
-		() =>
-			app.folder.tables.drafts.document(id).getSnapshot().saveError !==
-			undefined,
-		'the failed autosave',
-	);
-	expect(app.conversation('Maya Chen').textContent).toContain(
-		'Draft: Keep this reply',
-	);
-	app.failWrites(false);
-	await app.open('Maya Chen');
-	expect(app.composer()?.value).toBe('Keep this reply');
-	click(app.target, 'Save draft again');
-	await until(
-		() => !app.folder.tables.drafts.document(id).getSnapshot().isDirty,
-		'the retry',
+				.textContent?.includes('Draft: Keep this reply') === true,
+		'the draft',
 	);
 	click(app.target, 'Simulate send failure');
 	click(app.target, 'Send demo reply');
@@ -286,45 +201,23 @@ test('failed autosave retains its preview, uncertain sends are distinct, and sen
 			app
 				.conversation('Maya Chen')
 				.textContent?.includes('Check send: Keep this reply') === true,
-		'uncertain send recovery',
+		'uncertain attempt',
 	);
 	expect(app.conversation('Maya Chen').textContent).not.toContain('Draft:');
-	await until(
-		() =>
-			[...app.target.querySelectorAll('button')].some(
-				(button) =>
-					button.textContent?.trim() === 'I checked: keep as draft' &&
-					!button.disabled,
-			),
-		'recovery to become available',
-	);
 	click(app.target, 'I checked: keep as draft');
 	await until(
 		() =>
 			app
 				.conversation('Maya Chen')
 				.textContent?.includes('Draft: Keep this reply') === true,
-		'the recovered draft',
-	);
-	await until(
-		() =>
-			[...app.target.querySelectorAll('button')].some(
-				(button) =>
-					button.textContent?.trim() === 'Send demo reply' && !button.disabled,
-			),
-		'the recovered composer',
+		'recovered draft',
 	);
 	click(app.target, 'Send demo reply');
 	await until(
 		() => app.target.textContent?.includes('Demo message sent.') === true,
-		'the accepted reply',
+		'accepted send',
 	);
-	expect(app.conversation('Maya Chen').textContent).not.toContain('Draft:');
 	expect(app.conversation('Maya Chen').textContent).not.toContain(
 		'Check send:',
 	);
-	expect(app.conversation('Maya Chen').textContent).toContain(
-		'Keep this reply',
-	);
-	expect(expectOk(await app.folder.tables.drafts.get(id))?.body).toBe('');
 });

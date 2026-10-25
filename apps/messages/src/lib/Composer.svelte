@@ -1,35 +1,65 @@
-<script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
-	import { getFolder } from './folder.js';
+<script module lang="ts">
+	import type { MessagesFolder } from './drafts.js';
+	const lastSaves = new WeakMap<MessagesFolder, Map<string, Promise<unknown>>>();
+</script>
 
+<script lang="ts">
+	import { draft } from '@epicenter/svelte/folder-next';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createMutation } from '@tanstack/svelte-query';
 	import type { Backend } from './backend.js';
-	import { type CheckedAttempt, changeDraft, recoverDraft, sendDraft } from './drafts.js';
+	import { recoverDraft, sendDraft } from './drafts.js';
+	import { getFolder } from './folder.js';
+
 	let { backend, id, chatId, onAccepted }: { backend: Backend; id: string; chatId: string; onAccepted: () => void } = $props();
-	const { folder, refresh } = getFolder();
+	const folder = getFolder();
 	// The parent keys this composer by its durable draft ID.
 	// svelte-ignore state_referenced_locally
 	const draftId = id;
-	const fileEdit = folder.tables.drafts.document(draftId);
-	const snapshot = liveSnapshot(fileEdit);
-	const attemptEdit = folder.tables.attempts.document(draftId);
-	const attemptSnapshot = liveSnapshot(attemptEdit);
-	const draft = $derived(snapshot.current.text === undefined ? undefined : folder.tables.drafts.parse(snapshot.current.text));
-	const attempt = $derived(attemptSnapshot.current.text === undefined ? undefined : folder.tables.attempts.parse(attemptSnapshot.current.text));
-	const ready = $derived(snapshot.current.text !== undefined || snapshot.current.loadError?.name === 'Missing');
-	const invalid = $derived(draft !== undefined && draft.issues !== null);
-	const attempted = $derived(attemptSnapshot.current.loadError?.name !== 'Missing' && attempt?.issues === null ? attempt : undefined);
-	const legacy = $derived(attemptSnapshot.current.loadError?.name === 'Missing' && draft?.issues === null && draft.fields.state === 'sending' ? draft : undefined);
-	const lastAttempt = $derived(attempted ? { content: attempted, checked: { attemptId: attempted.fields.attemptId } } : legacy ? { content: legacy, checked: { legacyText: legacy.text } } : undefined);
-	const pending = $derived(attempted?.fields.state === 'sending' || legacy !== undefined);
+	const previousSave = lastSaves.get(folder)?.get(draftId);
+	let ready = $state(previousSave === undefined);
+	if (previousSave) {
+		folder.checkpoint();
+		void previousSave.then(() => { ready = true; });
+	}
+	const row = $derived(folder.tables.drafts.row(draftId));
+	const attempt = $derived(folder.tables.attempts.row(draftId));
+	let creating = false;
+	function remember(saved: Promise<unknown>) {
+		let byId = lastSaves.get(folder);
+		if (!byId) {
+			byId = new Map();
+			lastSaves.set(folder, byId);
+		}
+		byId.set(draftId, saved);
+		void saved.then(() => { if (byId.get(draftId) === saved) byId.delete(draftId); });
+		return saved;
+	}
+	const reply = draft(
+		() => row?.issues === null ? row.body : '',
+		(body) => {
+			if (!folder.tables.drafts.row(draftId) && !creating) {
+				creating = true;
+				const saved = folder.tables.drafts.create(draftId, {
+					fields: { chatId, profile: backend.profile, mode: backend.mode },
+					body,
+				});
+				void saved.then(({ error }) => { if (error) creating = false; });
+				return remember(saved);
+			}
+			return remember(folder.tables.drafts.update(draftId, { body }));
+		},
+	);
+	const pending = $derived(attempt?.issues === null && attempt.fields.state === 'sending');
 	let message = $state('');
 	const send = createMutation(() => ({
-		mutationFn: async () => {
-			const result = await sendDraft(folder, draftId, chatId, backend);
-			await refresh([`drafts/${draftId}.md`, `attempts/${draftId}.md`]);
+		mutationFn: async ({ text, previousAttemptId }: { text: string; previousAttemptId: string | undefined }) => {
+			const result = await sendDraft(folder, {
+				id: draftId, chatId, backend, text, previousAttemptId,
+				unchanged: () => reply.text === text,
+			});
 			if (result.error !== null) { message = result.error.message; return; }
 			message = backend.mode === 'demo' ? 'Demo message sent.' : 'Accepted by Beeper. Delivery status appears in the conversation.';
 			onAccepted();
@@ -37,9 +67,11 @@
 		onError: () => { message = 'The send outcome is unknown. Check Beeper before sending again.'; },
 	}));
 	const recover = createMutation(() => ({
-		mutationFn: async ({ checked, keep }: { checked: CheckedAttempt; keep: boolean }) => {
-			const result = await recoverDraft(folder, draftId, chatId, backend, checked, keep);
-			await refresh([`drafts/${draftId}.md`, `attempts/${draftId}.md`]);
+		mutationFn: async ({ checkedAttemptId, keep }: { checkedAttemptId: string; keep: boolean }) => {
+			const result = await recoverDraft(folder, {
+				id: draftId, chatId, backend, checkedAttemptId, keep,
+				composerEmpty: () => reply.text === '',
+			});
 			message = result.error?.message ?? '';
 		},
 		onError: () => { message = 'The checked outcome could not be saved. Check Beeper before sending again.'; },
@@ -47,41 +79,32 @@
 </script>
 
 <div class="space-y-2 border-t p-4">
-	{#if lastAttempt}
-		{@const shown = lastAttempt}
-		{@const attempt = shown.content}
+	{#if attempt?.issues === null}
 		{#if pending}
 			<p role="alert" class="text-sm">This send has no saved confirmation. Check the conversation in Beeper before continuing.</p>
 			<p class="whitespace-pre-wrap break-words text-sm">{attempt.body}</p>
 			<div class="flex flex-wrap gap-2">
-				<Button variant="outline" size="sm" disabled={send.isPending || recover.isPending} onclick={() => recover.mutate({ checked: shown.checked, keep: true })}>I checked: keep as draft</Button>
-				<Button variant="outline" size="sm" disabled={send.isPending || recover.isPending} onclick={() => recover.mutate({ checked: shown.checked, keep: false })}>Already sent: clear draft</Button>
+				<Button variant="outline" size="sm" disabled={send.isPending || recover.isPending} onclick={() => recover.mutate({ checkedAttemptId: attempt.fields.attemptId, keep: true })}>I checked: keep as draft</Button>
+				<Button variant="outline" size="sm" disabled={send.isPending || recover.isPending} onclick={() => recover.mutate({ checkedAttemptId: attempt.fields.attemptId, keep: false })}>Already sent: clear draft</Button>
 			</div>
 		{:else}
 			<details class="text-xs text-muted-foreground"><summary>Last send attempt</summary><pre class="whitespace-pre-wrap break-words">{attempt.body}</pre><CopyButton text={attempt.body} size="sm" variant="ghost">Copy</CopyButton></details>
 		{/if}
+	{:else if attempt?.issues}
+		<p role="alert" class="text-sm text-destructive">The latest send attempt needs Markdown repair.</p>
+		{#if attempt.issues.some((issue) => issue.kind === 'unreadable')}<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Read again</Button>{/if}
 	{/if}
-	{#if !ready}
-		{#if snapshot.current.loadError}<p role="alert" class="text-sm text-destructive">Could not open this draft: {snapshot.current.loadError.message}</p><Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Read again</Button>
-		{:else}<p class="text-sm text-muted-foreground">Opening draft…</p>{/if}
-	{:else if invalid}
+	{#if ready}
+	{#if row?.issues}
 		<p role="alert" class="text-sm text-destructive">This draft needs Markdown repair before composing.</p>
-	{:else if legacy}
-		<p class="text-sm">Check this existing send before composing another reply.</p>
+		{#if row.issues.some((issue) => issue.kind === 'unreadable')}<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Read again</Button>{/if}
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
-		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000}
-			bind:value={() => draft?.body ?? '', body => { message = changeDraft(folder, draftId, chatId, backend, body).error?.message ?? ''; }} />
-		<div class="flex items-center justify-between gap-3">
-			<span class="text-xs text-muted-foreground">{snapshot.current.saveError ? 'Draft could not be saved' : snapshot.current.isDirty || snapshot.current.isSaving ? 'Saving draft…' : 'Draft saved on this device'}</span>
-			<Button disabled={send.isPending || recover.isPending || pending || !draft?.body?.trim()} onclick={() => send.mutate()}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
+		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={reply.text} />
+		<div class="flex items-center justify-end gap-3">
+			<Button disabled={send.isPending || recover.isPending || pending || !!attempt?.issues || !reply.text.trim()} onclick={() => send.mutate({ text: reply.text, previousAttemptId: attempt?.issues === null ? attempt.fields.attemptId : undefined })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>
 	{/if}
-	{#if snapshot.current.loadError && snapshot.current.text}<p role="alert" class="text-sm text-destructive">{snapshot.current.loadError.message}</p>{/if}
-	{#if attemptSnapshot.current.loadError && attemptSnapshot.current.loadError.name !== 'Missing'}<p role="alert" class="text-sm text-destructive">Could not check the latest send: {attemptSnapshot.current.loadError.message}</p><Button variant="outline" size="sm" onclick={() => void attemptEdit.refresh()}>Check again</Button>{/if}
-	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
-	{#if snapshot.current.saveError}
-		<p role="alert" class="text-sm text-destructive">Your draft has not saved. Keep this window open.</p>
-		<Button variant="outline" size="sm" onclick={() => void fileEdit.save()}>Save draft again</Button>
 	{/if}
+	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
 </div>
