@@ -555,19 +555,31 @@ describe('the editor follows the note', () => {
 		expect(undoDepth(view.shown())).toBe(0);
 	});
 
-	test('a source change during a pending draft waits to replace history until the draft lands', async () => {
-        const { type, end, follow, settled, body, ...view } = await open('one\n');
-        end();
-        type('!');
-        const state = view.shown();
-        follow();
-        expect(view.shown()).toBe(state);
-        await settled();
-        follow();
-        expect(body()).toBe('one!\n');
-        expect(view.shown()).toBe(state);
-        expect(undoDepth(view.shown())).toBe(1);
-    });
+	test('a source change during a pending draft does not replace history when the draft lands', () => {
+		let source = 'one\n';
+		let typed: string | null = null;
+		const note = {
+			read: () => typed ?? source,
+			write: (body: string) => { typed = body; },
+		};
+		const initial = bodyCodec.decode(source);
+		if (!initial.supported) throw new Error('Initial body is not rich text');
+		const state = EditorState.create({ doc: initial.doc, plugins: editingPlugins() });
+		const transaction = state.tr.setSelection(TextSelection.atEnd(state.doc)).insertText('!');
+		const shown = stateAfter(state, transaction, note, () => {});
+		if (shown === undefined) throw new Error('Edit was refused');
+		expect(note.read()).toBe('one!\n');
+		source = 'theirs\n';
+		const whilePending = bodyCodec.decode(note.read());
+		if (!whilePending.supported) throw new Error('Draft is not rich text');
+		expect(stateShowing(shown, whilePending.doc)).toBe(shown);
+		source = typed ?? source;
+		typed = null;
+		const landed = bodyCodec.decode(note.read());
+		if (!landed.supported) throw new Error('Landed body is not rich text');
+		expect(stateShowing(shown, landed.doc)).toBe(shown);
+		expect(undoDepth(shown)).toBe(1);
+	});
 
 	test('a failed save replaces the editor state with the disk body', async () => {
 		const { fixture, type, end, settled, follow, body, ...view } = await open('one\n');
