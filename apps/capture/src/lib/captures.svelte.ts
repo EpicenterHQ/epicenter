@@ -108,7 +108,7 @@ export function problemOf(row: Pick<CaptureRow, 'issues'>): string {
 				issue.kind === 'schema' && issue.path.length > 0
 					? `${issue.path.join('.')} `
 					: '';
-			return `${at}${field}${issue.message}.`;
+			return `${at}${field}${issue.message.replace(/\.$/, '')}.`;
 		})
 		.join(' ');
 }
@@ -159,19 +159,40 @@ export function timelineOf(listed: readonly CaptureRow[]) {
 
 export function createCaptures(folder: CaptureFolder) {
 	let opened = $state.raw<Opened | undefined>();
-	let last: Saved = Promise.resolve(Ok(undefined));
+	const ready: Saved = Promise.resolve(Ok(undefined));
+	let last: Saved = ready;
+	let navigation = 0;
 	const timeline = $derived(timelineOf(folder.tables.captures.rows));
 
 	function track(saved: Saved): Saved {
 		last = saved;
 		return saved;
 	}
-	async function settle() {
+	async function settle(): Saved {
 		folder.checkpoint();
-		await last;
+		let seen = last;
+		let result = await seen;
+		while (seen !== last) {
+			seen = last;
+			result = await seen;
+		}
+		last = ready;
+		return result;
 	}
-	async function open(stem: string, mode: Mode, focus?: Focus) {
+	async function own(saved: Saved) {
+		track(saved);
+		const result = await saved;
+		if (last === saved) last = ready;
+		return result;
+	}
+	async function go(
+		requested: number,
+		stem: string,
+		mode: Mode,
+		focus?: Focus,
+	) {
 		await settle();
+		if (requested !== navigation) return;
 		if (mode === 'capture') {
 			const row = folder.tables.captures.row(stem);
 			if (
@@ -186,6 +207,9 @@ export function createCaptures(folder: CaptureFolder) {
 		}
 		if (focus !== undefined || opened?.stem !== stem || opened.mode !== mode)
 			opened = { stem, mode, focus };
+	}
+	function open(stem: string, mode: Mode, focus?: Focus) {
+		return go(++navigation, stem, mode, focus);
 	}
 
 	return {
@@ -202,25 +226,32 @@ export function createCaptures(folder: CaptureFolder) {
 		settle,
 		open,
 		leave() {
+			++navigation;
 			opened = undefined;
 		},
 		async create(text: string): Promise<Result<{ stem: string }, Failure>> {
 			if (text.trim() === '')
 				return CaptureError.Refused({ message: 'Write something first.' });
+			const requested = ++navigation;
 			const now = new Date();
 			const stem = newStem(now);
-			const saved = await track(
+			const saved = await own(
 				folder.tables.captures.create(stem, {
 					fields: { capturedAt: now.toISOString() },
 					body: composeBody(text.toWellFormed()).body,
 				}),
 			);
 			if (saved.error !== null) return saved;
-			await open(stem, 'capture', 'new-thought');
+			await go(requested, stem, 'capture', 'new-thought');
 			return Ok({ stem });
 		},
 		async finishDraft(stem: string): Promise<Result<void, Failure>> {
-			await settle();
+			const requested = ++navigation;
+			const settled = await settle();
+			if (settled.error !== null)
+				return CaptureError.Refused({
+					message: 'Your last edit did not save; nothing was added.',
+				});
 			const row = folder.tables.captures.row(stem);
 			if (row === undefined)
 				return CaptureError.Refused({
@@ -231,19 +262,19 @@ export function createCaptures(folder: CaptureFolder) {
 					message: 'Repair this file as text before adding it.',
 				});
 			if (row.fields.draft !== true) {
-				await open(stem, 'capture', 'new-thought');
+				await go(requested, stem, 'capture', 'new-thought');
 				return Ok(undefined);
 			}
 			if (row.body.trim() === '')
 				return CaptureError.Refused({ message: 'Write something first.' });
-			const saved = await track(
+			const saved = await own(
 				folder.tables.captures.update(stem, {
 					fields: { draft: undefined, capturedAt: new Date().toISOString() },
 					body: composeBody(row.body).body,
 				}),
 			);
 			if (saved.error !== null) return saved;
-			await open(stem, 'capture', 'new-thought');
+			await go(requested, stem, 'capture', 'new-thought');
 			return Ok(undefined);
 		},
 		deletionFor(stem: string): Deletion {
@@ -258,9 +289,11 @@ export function createCaptures(folder: CaptureFolder) {
 			};
 		},
 		async delete(deletion: Deletion): Promise<Result<void, WriteError>> {
-			const deleted = await track(folder.tables.captures.delete(deletion.stem));
-			if (deleted.error === null && opened?.stem === deletion.stem)
+			const deleted = await own(folder.tables.captures.delete(deletion.stem));
+			if (deleted.error === null && opened?.stem === deletion.stem) {
+				++navigation;
 				opened = undefined;
+			}
 			return deleted;
 		},
 	};

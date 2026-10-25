@@ -47,9 +47,12 @@
 		node.focus();
 		node.setSelectionRange(selection.start, selection.end);
 	}
-	function input(typing: string) {
+	function input(field: HTMLTextAreaElement) {
+		const typing = field.value;
 		if (typing.includes('\0')) {
 			refusal = 'A file cannot contain U+0000.';
+			const accepted = text.text;
+			queueMicrotask(() => { field.value = accepted; });
 			return;
 		}
 		refusal = undefined;
@@ -115,7 +118,8 @@
 			spellcheck={false}
 			readonly={finishing}
 			aria-invalid={refusal !== undefined}
-			bind:value={() => text.text, input}
+			value={text.text}
+			oninput={(event) => input(event.currentTarget)}
 			onkeydown={(event) => {
 				if (!isDraft || !(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
 				event.preventDefault();

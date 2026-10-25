@@ -73,6 +73,7 @@
 
 	/** What runs as the open menu closes, instead of its focus return: focus its action moved, or the view it opens. */
 	let afterMenu: (() => void) | undefined;
+	let menuThoughts: readonly string[] = [];
 	function onMenuClosed(event: Event) {
 		if (!afterMenu) return;
 		event.preventDefault();
@@ -143,6 +144,13 @@
 				<Empty.Header>
 					<Empty.Title>This capture is no longer here</Empty.Title>
 					<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
+				</Empty.Header>
+			</Empty.Root>
+		{:else if row.issues?.some((issue) => issue.kind === 'not-text')}
+			<Empty.Root role="alert">
+				<Empty.Header>
+					<Empty.Title>This file is not text</Empty.Title>
+					<Empty.Description>It cannot be edited as a capture. Nothing in it was changed.</Empty.Description>
 				</Empty.Header>
 			</Empty.Root>
 		{:else}
@@ -230,7 +238,7 @@
 							<li class="py-1 pl-1">
 								<div class="flex items-start gap-2">
 									<p class="min-w-0 flex-1 whitespace-pre-wrap break-words py-1.5 leading-relaxed {thought ? '' : 'text-muted-foreground'}">{thought || 'Empty thought'}</p>
-									<DropdownMenu.Root>
+									<DropdownMenu.Root onOpenChange={(open) => { if (open) menuThoughts = [...thoughts]; }}>
 										<DropdownMenu.Trigger>
 											{#snippet child({ props })}
 												<Button {...props} variant="ghost" size="sm" class="text-muted-foreground" aria-label="Thought actions" data-thought-actions>Actions</Button>
@@ -239,18 +247,19 @@
 										<DropdownMenu.Content align="end" class="w-48" onCloseAutoFocus={onMenuClosed}>
 											<DropdownMenu.Item onclick={() => {
 											// Settle the body before locating its lines in the saved file.
-											afterMenu = () => { void editThought(index, shown); };
+												const list = menuThoughts;
+												afterMenu = () => { void editThought(index, list); };
 											}}>Edit as text</DropdownMenu.Item>
 										<DropdownMenu.Item disabled={index === 0} onclick={() => {
-												if (actions.swapThoughts(index, index - 1, shown)) afterMenu = () => void focusThought(index - 1);
+												if (actions.swapThoughts(index, index - 1, menuThoughts)) afterMenu = () => void focusThought(index - 1);
 											}}>Move up</DropdownMenu.Item>
 										<DropdownMenu.Item disabled={index === shown.length - 1} onclick={() => {
-												if (actions.swapThoughts(index, index + 1, shown)) afterMenu = () => void focusThought(index + 1);
+												if (actions.swapThoughts(index, index + 1, menuThoughts)) afterMenu = () => void focusThought(index + 1);
 											}}>Move down</DropdownMenu.Item>
 											<DropdownMenu.Separator />
 											<DropdownMenu.Item onclick={() => copy(thought, 'Thought')}>Copy text</DropdownMenu.Item>
 											<DropdownMenu.Separator />
-										<DropdownMenu.Item variant="destructive" onclick={() => confirmDeleteThought(thought, index, shown)}>Delete thought…</DropdownMenu.Item>
+										<DropdownMenu.Item variant="destructive" onclick={() => confirmDeleteThought(thought, index, menuThoughts)}>Delete thought…</DropdownMenu.Item>
 										</DropdownMenu.Content>
 									</DropdownMenu.Root>
 								</div>
@@ -262,7 +271,14 @@
 				<form
 					onsubmit={(event) => {
 						event.preventDefault();
-						if (actions.addThought(newThought)) newThought = '';
+						const submitted = newThought;
+						if (actions.addThought(submitted)) {
+							newThought = '';
+							const saved = captures.settle();
+							void saved.then((result) => {
+								if (result.error !== null && newThought === '') newThought = submitted;
+							});
+						}
 						newThoughtField?.focus();
 					}}
 					class="flex flex-col gap-2"

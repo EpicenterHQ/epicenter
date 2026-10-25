@@ -7,7 +7,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { type Captures } from '$lib/captures.svelte.js';
+	import type { Captures } from '$lib/captures.svelte.js';
 
 	let { captures }: { captures: Captures } = $props();
 
