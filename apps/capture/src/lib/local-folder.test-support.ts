@@ -5,9 +5,12 @@
  * and failure reporting used by OpenFolder.
  */
 import { type CaptureRow, captureTables } from '@epicenter/capture';
-import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
+import {
+	createFolder,
+	memoryHost,
+	SaveError,
+} from '@epicenter/folder/next/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { SaveError } from '../../../../packages/folder/src/shared/errors.js';
 import type { Captures } from './captures.svelte.js';
 
 export async function until(check: () => boolean, what = 'the check') {

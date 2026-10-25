@@ -105,3 +105,19 @@ test('another writer updates the timeline without a query refetch', async () => 
 	});
 	expect(h.captures.timeline.rows[0]?.stem).toBe('one');
 });
+
+test('an ambiguous Add opens the saved file as text', async () => {
+	const h = await setup();
+	type(field('new-capture'), '## Thoughts\n\n## Thoughts');
+	submit(field('new-capture')?.form);
+	await until(() => {
+		flushSync();
+		return h.captures.opened !== undefined;
+	});
+	expect(h.captures.opened?.mode).toBe('text');
+	expect(
+		document.querySelector<HTMLTextAreaElement>(
+			'textarea[aria-label^="Contents of"]',
+		)?.value,
+	).toContain('## Thoughts');
+});

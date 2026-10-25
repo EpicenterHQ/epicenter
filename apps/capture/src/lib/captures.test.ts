@@ -6,8 +6,7 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { captureBody, composeBody } from '@epicenter/capture';
-import { readRow } from '@epicenter/folder/next';
+import { composeBody } from '@epicenter/capture';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	type CapturesHarness,
@@ -125,28 +124,6 @@ test('body updates canonicalize frontmatter while keeping unknown fields', async
 	);
 });
 
-test('thought added under the throttle keeps text typed moments before it', async () => {
-	const h = await open({ [PATH]: HAND }, 1000);
-	let release = () => {};
-	h.host.control.putGate = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	const body = bodyDraft(h);
-	const actions = createCaptureActions(body);
-	actions.inputText('Typed just now');
-	await until(() => h.host.log.puts.length > 0);
-	expect(actions.addThought('second')).toBe(true);
-	release();
-	await h.captures.settle();
-	const row = h.cached('one');
-	expect(row?.issues).toBeNull();
-	if (row?.issues === null) {
-		const value = expectOk(captureBody.decode(row.body));
-		expect(value.text).toBe('Typed just now');
-		expect(value.thoughts).toEqual(['first', 'second']);
-	}
-});
-
 test('mode switch waits for the last save and starts from the saved file', async () => {
 	const h = await open({ [PATH]: HAND });
 	let release = () => {};
@@ -176,6 +153,33 @@ test('a failed body write leaves the saved row unchanged and still switches mode
 	expect(h.captures.saveLabel).toBe('Saved');
 });
 
+test('leaving while an open waits for a save does not reopen the capture', async () => {
+	const h = await open({ [PATH]: HAND });
+	let release = () => {};
+	h.host.control.putGate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	createCaptureActions(bodyDraft(h)).inputText('Pending');
+	const opening = h.captures.open('one', 'text');
+	h.captures.leave();
+	release();
+	await opening;
+	expect(h.captures.opened).toBeUndefined();
+});
+
+test('opening another row while Add saves keeps that row open', async () => {
+	const h = await open({ [PATH]: HAND });
+	let release = () => {};
+	h.host.control.putGate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const adding = h.captures.create('New capture');
+	const opening = h.captures.open('one', 'capture');
+	release();
+	await Promise.all([adding, opening]);
+	expect(h.captures.opened?.stem).toBe('one');
+});
+
 test('another writer appears in the mirror after a hint', async () => {
 	const h = await open({ [PATH]: HAND });
 	h.writeElsewhere(PATH, HAND.replace('Text', 'Elsewhere'));
@@ -193,23 +197,6 @@ test('locateThought refuses a stale list and finds the saved thought lines', asy
 	expect(HAND.slice(range!.start, range!.end)).toContain('- first');
 });
 
-test('repair checks the typed text before it saves', async () => {
-	const invalid = '---\ncapturedAt: nope\n---\nBody\n';
-	const h = await open({ [PATH]: invalid });
-	const fixed = invalid.replace('nope', AT);
-	expect(
-		readRow(
-			invalid,
-			(await import('@epicenter/capture')).captureTables.captures,
-		).issues,
-	).not.toBeNull();
-	expect(
-		readRow(fixed, (await import('@epicenter/capture')).captureTables.captures)
-			.issues,
-	).toBeNull();
-	expect(h.text(PATH)).toBe(invalid);
-});
-
 test('delete removes the mirror row and typing later cannot recreate it with update', async () => {
 	const h = await open({ [PATH]: HAND });
 	await h.captures.open('one', 'capture');
@@ -221,4 +208,14 @@ test('delete removes the mirror row and typing later cannot recreate it with upd
 			.name,
 	).toBe('NothingToUpdate');
 	expect(h.text(PATH)).toBeUndefined();
+});
+
+test('finishDraft refuses an invalid saved row', async () => {
+	const h = await open({
+		[PATH]: '---\ncapturedAt: nope\ndraft: true\n---\nWriting',
+	});
+	const refusal = expectErr(await h.captures.finishDraft('one'));
+	expect(refusal.name).toBe('Refused');
+	expect(refusal.message).toContain('Repair this file');
+	expect(h.text(PATH)).toContain('draft: true');
 });

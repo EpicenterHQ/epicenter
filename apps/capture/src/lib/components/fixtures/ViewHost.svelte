@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
 	import * as Tooltip from '@epicenter/ui/tooltip';
+	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import type { Captures } from '$lib/captures.svelte.js';
 	import type { CaptureFolder } from '$lib/captures.svelte.js';
 	import { setFolder } from '$lib/folder.js';
@@ -27,3 +28,4 @@
 			{#key item}<TextDetail {captures} stem={item.stem} />{/key}
 		{/if}
 	</Tooltip.Provider>
+	<ConfirmationDialog />

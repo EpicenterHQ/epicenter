@@ -73,6 +73,22 @@ test('failed Add keeps draft on disk and a retry composes once', async () => {
 	expect(row.body.match(/## Thoughts/g)?.length).toBe(1);
 });
 
+test('leaving during a draft finish keeps the timeline open', async () => {
+	const h = await open('Writing');
+	await h.captures.open('one', 'text');
+	let release = () => {};
+	h.host.control.putGate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const finishing = h.captures.finishDraft('one');
+	h.captures.leave();
+	release();
+	expectOk(await finishing);
+	expect(h.captures.opened).toBeUndefined();
+	expect(h.cached('one')?.issues).toBeNull();
+	expect(h.captures.timeline.drafts).toEqual([]);
+});
+
 test('failed discard keeps the saved draft and retry deletes it', async () => {
 	const h = await open('Writing');
 	const deletion = h.captures.deletionFor('one');
