@@ -44,12 +44,14 @@ shell and its compiled CLI must also be rebuilt for the new command.
 | Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
 | Source code and fictional fixtures | This source repository |
 
-Selecting a conversation creates no file; the first keystroke creates its
-draft. Each composer keeps its own typed text until that save answers. If a
+Selecting a conversation creates no file; the first keystroke schedules its
+draft save. Each composer keeps its own typed text until that save answers. If a
 save fails, the text stays in the composer with Save again, Discard, and Copy
-controls. Reopening a conversation waits for its pending draft writes. The
-folder mirror shows only files that landed on storage. The conversation list
-therefore shows a **Draft** preview after a save, usually about a second after
+controls while it is open. Draft saves debounce for about a second and send the
+latest text when the composer closes or the page unloads. Switching between
+conversations can briefly show an older saved value. The folder mirror shows
+only files that landed on storage. The conversation list therefore shows a
+**Draft** preview after a save, usually about a second after
 typing. Empty drafts show the latest message instead. An unresolved attempt
 shows **Check send** with its submitted text. Previews include only drafts
 matching the current demo/live mode and connection profile.
@@ -61,7 +63,8 @@ attempt file records the latest submitted text, its unique `attemptId`, its
 `state`, and the Beeper `pendingId` when accepted. An invalid or unreadable
 draft needs Markdown repair before composition; a failed read offers **Read
 again**. A failed write leaves the mirror at its saved value. The composer
-keeps the unsaved text, and the folder also reports the failed write.
+keeps the unsaved text and shows the failed save beside the editor. Send and
+recovery commands show their own failures.
 
 Draft filenames hash the mode, account-set identity, and chat ID; demo and live
 drafts never share a file. The folder closes when the app unmounts. On desktop,
@@ -106,8 +109,9 @@ The app sends no read receipts and provides no archive, delete, edit, reaction,
 account-management or new-conversation operation.
 
 A send captures the text on screen and the latest visible attempt ID when
-clicked. Within the in-tab queue and browser Web Lock, it first reads the
-attempt file from storage and checks that it agrees with the folder mirror.
+clicked, then saves that text explicitly. Within the in-tab queue and browser
+Web Lock, it first reads the attempt file from storage and checks that it agrees
+with the folder mirror.
 A mismatch refuses the send and asks the folder to read again. It also refuses
 an unresolved or changed attempt, a draft with Markdown issues, and a draft
 whose conversation or connection does not match the selected chat.

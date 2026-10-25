@@ -24,7 +24,7 @@ const { draftId, recoverDraft, sendDraft } = await import('./drafts.js');
 async function setup() {
 	const host = memoryHost();
 	const opened = expectOk(
-		await createFolder(host.storage, { tables: messagesTables, throttleMs: 0 }),
+		await createFolder(host.storage, { tables: messagesTables }),
 	);
 	const folder = svelteFolder(opened);
 	const backend = createDemoBackend();
@@ -299,7 +299,7 @@ test('broken draft frontmatter refuses a send', async () => {
 	};
 	try {
 		host.outside(`drafts/${id}.md`, '---\nchatId: [\n---\nOriginal');
-		folder.checkpoint();
+		await folder.refresh();
 		await tick();
 		expect(folder.tables.drafts.row(id)?.issues).not.toBeNull();
 		expectErr(await send(folder, id, counting, 'Edited'));
@@ -332,7 +332,7 @@ test('a BOM in a mirrored attempt does not block the next send', async () => {
 		expectOk(await send(folder, id, backend, 'First reply'));
 		const path = `attempts/${id}.md`;
 		host.outside(path, `\uFEFF${host.text(path) ?? ''}`);
-		folder.checkpoint();
+		await folder.refresh();
 		await tick();
 		expect(folder.tables.attempts.row(id)?.issues).toBeNull();
 		expectOk(await saveDraft(folder, id, { body: 'Second reply' }));

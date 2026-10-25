@@ -14,32 +14,32 @@
 	// The parent keys this composer by its durable draft ID.
 	// svelte-ignore state_referenced_locally
 	const draftId = id;
-	const ready = folder.settled(`drafts/${draftId}.md`);
 	const row = $derived(folder.tables.drafts.row(draftId));
 	const attempt = $derived(folder.tables.attempts.row(draftId));
-	let creating = false;
-	const reply = draft(
-		() => row?.issues === null ? row.body : '',
-		(body) => {
-			if (!folder.tables.drafts.row(draftId) && !creating) {
-				creating = true;
-				const saved = folder.tables.drafts.create(draftId, {
-					fields: { chatId, profile: backend.profile, mode: backend.mode },
-					body,
-				});
-				void saved.then(() => { creating = false; });
-				return saved;
-			}
-			return folder.tables.drafts.update(draftId, { body });
-		},
-	);
+	async function saveReply(body: string) {
+		if (!folder.tables.drafts.row(draftId)) {
+			const saved = await folder.tables.drafts.create(draftId, {
+				fields: { chatId, profile: backend.profile, mode: backend.mode },
+				body,
+			});
+			if (saved.error?.name !== 'Exists') return saved;
+		}
+		return folder.tables.drafts.update(draftId, { body });
+	}
+	const reply = draft(() => row?.issues === null ? row.body : '', saveReply);
+	let editVersion = 0;
+	let latestInput = '';
 	const pending = $derived(attempt?.issues === null && attempt.fields.state === 'sending');
 	let message = $state('');
 	const send = createMutation(() => ({
-		mutationFn: async ({ text, previousAttemptId }: { text: string; previousAttemptId: string | undefined }) => {
+		mutationFn: async ({ text, previousAttemptId, version }: { text: string; previousAttemptId: string | undefined; version: number }) => {
+			const saved = await saveReply(text);
+			if (saved.error !== null) { message = 'Nothing was sent: the draft could not be saved.'; return; }
+			if (editVersion === version) reply.discard();
+			else reply.set(latestInput);
 			const result = await sendDraft(folder, {
 				id: draftId, chatId, backend, text, previousAttemptId,
-				unchanged: () => reply.value === text,
+				unchanged: () => editVersion === version,
 			});
 			if (result.error !== null) { message = result.error.message; return; }
 			message = backend.mode === 'demo' ? 'Demo message sent.' : 'Accepted by Beeper. Delivery status appears in the conversation.';
@@ -73,20 +73,18 @@
 		{/if}
 	{:else if attempt?.issues}
 		<p role="alert" class="text-sm text-destructive">The latest send attempt needs Markdown repair.</p>
-		{#if attempt.issues.some((issue) => issue.kind === 'unreadable')}<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Read again</Button>{/if}
+		{#if attempt.issues.some((issue) => issue.kind === 'unreadable')}<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Read again</Button>{/if}
 	{/if}
-	{#await ready then _}
 	{#if row?.issues}
 		<p role="alert" class="text-sm text-destructive">This draft needs Markdown repair before composing.</p>
-		{#if row.issues.some((issue) => issue.kind === 'unreadable')}<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Read again</Button>{/if}
+		{#if row.issues.some((issue) => issue.kind === 'unreadable')}<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Read again</Button>{/if}
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
-		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={reply.value} />
+		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={() => reply.value, (value) => { reply.value = value; latestInput = value; editVersion++; }} />
 		<UnsavedEdit draft={reply} />
 		<div class="flex items-center justify-end gap-3">
-			<Button disabled={send.isPending || recover.isPending || pending || !!attempt?.issues || !reply.value.trim()} onclick={() => send.mutate({ text: reply.value, previousAttemptId: attempt?.issues === null ? attempt.fields.attemptId : undefined })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
+			<Button disabled={send.isPending || recover.isPending || pending || !!attempt?.issues || !reply.value.trim()} onclick={() => send.mutate({ text: reply.value, previousAttemptId: attempt?.issues === null ? attempt.fields.attemptId : undefined, version: editVersion })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>
 	{/if}
-	{/await}
 	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
 </div>

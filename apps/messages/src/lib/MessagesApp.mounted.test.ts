@@ -43,7 +43,7 @@ async function until(check: () => boolean, what: string) {
 async function setup() {
 	const host = memoryHost();
 	const opened = expectOk(
-		await createFolder(host.storage, { tables: messagesTables, throttleMs: 0 }),
+		await createFolder(host.storage, { tables: messagesTables }),
 	);
 	const folder = svelteFolder(opened);
 	const target = document.createElement('main');
@@ -109,7 +109,99 @@ test('a preview follows saved input and disappears when the draft is emptied', a
 	);
 });
 
-test('reopening a draft waits for its previous composer save', async () => {
+test('sending before the first debounce saves the reply and clears the composer', async () => {
+	const app = await setup();
+	await app.open('Maya Chen');
+	const id = await draftId(createDemoBackend(), 'demo-maya');
+	type(app.composer(), 'Immediate reply');
+	click(app.target, 'Send demo reply');
+	await until(
+		() => app.target.textContent?.includes('Demo message sent.') === true,
+		'the immediate send',
+	);
+	expect(app.folder.tables.attempts.row(id)?.body).toBe('Immediate reply');
+	expect(app.folder.tables.drafts.row(id)?.body).toBe('');
+	expect(app.composer()?.value).toBe('');
+});
+
+test('sending while the first draft save is in flight uses the landed row', async () => {
+	const app = await setup();
+	const gate = Promise.withResolvers<void>();
+	try {
+		await app.open('Maya Chen');
+		const id = await draftId(createDemoBackend(), 'demo-maya');
+		app.host.control.putGate = gate.promise;
+		type(app.composer(), 'Queued reply');
+		await until(
+			() => app.host.log.puts.some((put) => put.path === `drafts/${id}.md`),
+			'the first draft write',
+		);
+		click(app.target, 'Send demo reply');
+		gate.resolve();
+		await until(
+			() => app.target.textContent?.includes('Demo message sent.') === true,
+			'the queued send',
+		);
+		expect(app.folder.tables.attempts.row(id)?.body).toBe('Queued reply');
+		expect(app.folder.tables.drafts.row(id)?.body).toBe('');
+	} finally {
+		gate.resolve();
+	}
+});
+
+test('typing after Send survives a queued create retry', async () => {
+	const app = await setup();
+	const gate = Promise.withResolvers<void>();
+	try {
+		await app.open('Maya Chen');
+		const id = await draftId(createDemoBackend(), 'demo-maya');
+		app.host.control.putGate = gate.promise;
+		type(app.composer(), 'First reply');
+		await until(
+			() => app.host.log.puts.some((put) => put.path === `drafts/${id}.md`),
+			'the first draft write',
+		);
+		click(app.target, 'Send demo reply');
+		type(app.composer(), 'New reply');
+		await Bun.sleep(1100);
+		gate.resolve();
+		await until(
+			() => app.target.textContent?.includes('Demo message sent.') === true,
+			'the first reply send',
+		);
+		await until(
+			() => app.folder.tables.drafts.row(id)?.body === 'New reply',
+			'the newer reply save',
+		);
+		expect(app.folder.tables.attempts.row(id)?.body).toBe('First reply');
+		expect(app.composer()?.value).toBe('New reply');
+	} finally {
+		gate.resolve();
+	}
+});
+
+test('a failed send command shows its outcome beside the composer', async () => {
+	const app = await setup();
+	await app.open('Maya Chen');
+	const id = await draftId(createDemoBackend(), 'demo-maya');
+	type(app.composer(), 'Unsent reply');
+	await until(
+		() => app.folder.tables.drafts.row(id)?.body === 'Unsent reply',
+		'the saved reply',
+	);
+	app.host.control.failPut.set(
+		`attempts/${id}.md`,
+		expectErr(SaveError.StorageFailed({ cause: 'no disk' })),
+	);
+	click(app.target, 'Send demo reply');
+	await until(
+		() => app.target.textContent?.includes('Nothing was sent: the attempt could not be saved.') === true,
+		'the send failure',
+	);
+	expect(app.composer()?.value).toBe('Unsent reply');
+});
+
+test('reopening a draft does not wait for its previous composer save', async () => {
 	const app = await setup();
 	const gate = Promise.withResolvers<void>();
 	try {
@@ -124,7 +216,7 @@ test('reopening a draft waits for its previous composer save', async () => {
 		await app.open('Community garden');
 		app.conversation('Maya Chen').click();
 		flushSync();
-		expect(app.composer()).toBeNull();
+		expect(app.composer()).not.toBeNull();
 		gate.resolve();
 		await until(
 			() => app.composer()?.value === 'Still saving',
@@ -215,7 +307,7 @@ test('typing recreates a draft deleted outside the app', async () => {
 		'the first draft save',
 	);
 	app.host.outside(`drafts/${id}.md`, null);
-	app.folder.checkpoint();
+	await app.folder.refresh();
 	await until(
 		() => app.folder.tables.drafts.row(id) === undefined,
 		'the outside deletion',
@@ -269,7 +361,7 @@ test('saved previews stay within their mode and profile', async () => {
 			'Changed outside Messages',
 		),
 	);
-	app.folder.checkpoint();
+	await app.folder.refresh();
 	await until(
 		() =>
 			app
