@@ -1,113 +1,68 @@
 # Honeycrisp App
 
-File-authoritative Markdown notes over one local folder. Read
-[the README](README.md) for how the page and the folder fit together, and
-verify it against the code. The constraints below apply to every edit here.
+File-authoritative Markdown notes over one local folder. Read [the README](README.md)
+for the current page flow and verify it against the code.
 
 ## The files are the data
 
-- The folder's current files are the saved data. Do not add a second store
-  beside them: no browser-storage copy, no mirrored checkout, no import step,
-  no cache that can disagree with a file.
-- Do not add Yjs, a CRDT, an account, or sync to this app. Nothing in
-  `src/` may import `@y/*`, `yjs`, `@epicenter/auth`, or
-  `@epicenter/sync`. `src/lib/bundle.test.ts` checks the bundles.
-- Do not add a migration, a legacy reader, or a compatibility path for an
-  earlier Honeycrisp: not the Yjs-backed one, and not the OPFS folder the
-  declaration-based build kept. Old OPFS data is left untouched and unread;
-  the shared opener owns saying so. Do not wrap a method the local folder
-  does not have (rename, move, mkdir, Git) to bring it back.
-- Opening or listing a note must not write its file. Only an edit writes.
-- Keep editable documents and accepted input in the Folder's document owner.
-  Queries list, derive, and schedule refreshes; do not add another document
-  owner or save queue in the app. Local state holds unfinished forms,
-  search, selection, and other UI state.
-- Send immediate note and folder changes through the shared Folder document.
-  Preserve pending input across rereads and view changes. A failed save
-  keeps that input and its error; a read must never replace it.
-- Whole-file input and row patches share one document owner and one save
-  queue per path.
-  Switching representations must preserve failed input for retry, copying,
-  or explicit discard. Selecting another file does not release that input.
-  Reads must not initiate saves or wait for them.
-- A save moves no timestamp (ADR-0573). Do not add a last-edited field or
-  write `updatedAt`; the list orders and groups notes by `createdAt`.
-- The folder refuses text that is not well-formed, so the title, Source, and
-  a file's text pass through `toWellFormed()`, and the rich-text view replaces a
-  lone surrogate with U+FFFD in its transaction. The folder reads a body with
-  its file's line endings; the editor presentation shows it with line feeds, so the
-  editors read and write line feeds (ADR-0572) and opening writes nothing.
-  `FileDetail` edits a file's exact text, so it keeps `withFileNewlines`.
-- Nothing goes stale on its own (`staleTime: Infinity`) and focus never
-  refetches. The folder's change channel reports this page's own saves and
-  another tab's; do not add a manual reread after an action.
-- There are no versions and no sync. Do not add Save version, Sync, or
-  Connect back until the local folder offers them.
-- A note whose text does not read as one is listed for repair and opens as
-  text, with issues interpreted from its current acquired text. Repair is text
-  editing; there is no structured partial-row repair.
-- A destructive action that must find every related file refuses when any
-  file's relation did not read (`deleteFolder`).
+- The folder mirror's current files and rows are the saved data. Do not add
+  another durable store, browser-storage copy, import step, or app save queue.
+- Do not add Yjs, a CRDT, an account, or sync. Nothing in `src/` may import
+  `@y/*`, `yjs`, `@epicenter/auth`, or `@epicenter/sync`. The bundle test checks this.
+- Do not add a migration or compatibility path for earlier Honeycrisp data.
+  The shared opener handles the old OPFS refusal. Do not restore rename, move,
+  mkdir, or Git operations that the mirror does not offer.
+- Opening or listing a note writes nothing. `folder.files` and table rows show
+  landed values. Await `Saved` before opening a newly created file or relying
+  on a write in an action.
+- Text inputs use one `draft(source, save)` per editor component, including
+  titles. The draft holds typed text while its save is pending, then follows
+  the mirror. A failed save returns the input to disk and `<OpenFolder>` offers
+  the typed text in a toast with Copy. Do not add local retry or discard UI.
+- Row patches use `tables.x.update(id, { fields?, body? })`; whole-file edits
+  use `folder.write(path, text)`. A patch saves over the file as it is when
+  sent. Canonical frontmatter keeps declared keys in schema order, then other
+  keys sorted; comments and original key order do not survive a patch.
+- A save moves no timestamp (ADR-0573). The list orders by `createdAt`.
+- Title, Source, and whole-file input pass through `toWellFormed()`. The rich
+  editor replaces lone surrogates in its transaction. Note bodies use line
+  feeds (ADR-0572); whole-file editing keeps the file's line endings with
+  `withFileNewlines`.
+- The mirror refreshes from another tab through its change hints. Opening
+  reads text files. Read errors offer `checkpoint()` as Try again.
+- There are no versions or sync. A note that does not parse is listed for
+  repair and opens as text. `readRow(raw.text, schema)` checks typed repair
+  text before it saves. Folder deletion refuses when any note's relation
+  cannot be read.
 
 ## Editor ownership
 
-- The Folder's `TextDocument` owns the note's text; the notes table interprets its body.
-  ProseMirror's `EditorState` owns only what that document has no place for: the
-  cursor, pending formatting, undo history, and an empty paragraph Markdown
-  cannot spell yet. Its document is never a third copy of the body.
-- Every ProseMirror transaction that changes the document goes through
-  `stateAfter`: reconciliation with the body shown now, checked Markdown
-  serialization, then `document.patch({ body })`, before it is shown. An edit
-  that is refused is not shown.
-- `stateShowing` follows the body shown by content: the same content keeps
-  the state; different content (Source, another tab's change) replaces it.
-- Do not weaken `checkNoteDoc` to let an edit through. If Markdown cannot
-  spell it, the edit is refused. If it should be spellable, fix the
-  serializer and add the case to `markdown.test.ts`; the property tests in
-  `markdown.fuzz.test.ts` must keep passing with zero refusals for typing
-  and for whole-word formatting.
-- Adding a node or mark to `editor/schema.ts` requires its Markdown in both
-  directions and tests for both. Source the schema cannot hold is refused by
-  `inspectNoteBody`, not dropped.
-- The rich-text view's lifetime depends on one boolean (`editable`) and its
-  element. Do not make its mount effect read anything that changes on a
-  keystroke or a write, including save and load feedback; that recreates the view and
-  erases undo history.
-- Views disable inputs once the notes are closing. Saving, deleting, and
-  refresh failures never lock acquired content.
+- `NoteDetail` owns one body draft shared by its Rich text and Source views.
+  ProseMirror's `EditorState` owns cursor, pending formatting, undo history,
+  and an empty paragraph Markdown cannot spell. `stateAfter` validates a
+  changed document, calls `body.set`, then shows it. `stateShowing` preserves
+  state for equivalent content and replaces it when the shown body changes.
+- A failed rich-text save makes the draft follow the disk body, replacing
+  editor state and history. The failed text remains available in the toast.
+- Do not weaken `checkNoteDoc`. Fix the Markdown serializer and add tests if
+  an edit ought to be spellable. New nodes or marks need both Markdown
+  directions and tests.
+- The rich editor mount effect depends only on its element and `editable`
+  boolean. Reading save or row changes there recreates it and loses history.
+- When switching between independent editors of the same file, checkpoint
+  and await the last save before showing the other editor.
 
-## Closing
+## Lifecycle and boundary
 
-- `<FolderApp>` closes the folder synchronously when the page goes away.
-  Close submits no held input and waits for no writes. Folder owns autosave
-  after input blur and view departure; the shared root calls best-effort
-  `flush()` when the page is hidden. App actions check `closing`; document
-  commands refuse new input after close. Controls in menus, popovers, and
-  dialogs must also be `disabled`, because those render outside the inert root.
-- Keep the browser unload guard in `FolderApp` and the in-page navigation
-  guard (`beforeNavigate`) in `HoneycrispApp`. They ask before leaving only
-  while the Folder has a pending save.
-
-## The boundary
-
-- The page reaches its folder only through `<FolderApp>` from
-  `@epicenter/svelte/folder-app`, which opens
-  `openFolder({ tables: honeycrispTables })`, and components through
-  `getFolder()` or the `notes` state built over it. Do not detect the
-  platform in app code, and do not import a Node or Bun module under `src/`.
-- Shared code imports the folder contract from the bare `@epicenter/folder`,
-  which each build aliases to its one adapter entry in `vite.config.ts`.
-  Do not add another folder engine or fall back to other browser storage
-  when opening fails.
-- The bundled host build opens the directory the desktop shell grants this
-  window through the same `<FolderApp>`. Never route it to the old
-  declaration-based opener or to browser storage.
-- Tests fault the folder's storage stand-in (`fake-indexeddb`), never a
-  wrapper around the folder or the notes state.
+- `<OpenFolder>` from `@epicenter/svelte/open-folder` opens, wraps, checkpoints,
+  toasts failed writes, and closes the folder. The page passes its folder to
+  `HoneycrispApp`, which creates the `notes` state and provides context.
+- Shared imports use `@epicenter/folder/next`; Vite selects the platform
+  opener. Do not import Bun or Node modules under `src/`.
+- The host build opens the desktop shell's granted directory through the
+  same component. Browser tests fault `fake-indexeddb` storage.
 
 ## Words a person reads
 
 Say note, folder, file, saved, and browser. Do not put `entry`, `buffer`,
-`scope`, `shell`, `baseline`, `canonical`, `draft`, or `row` in anything a
-person reads; those are the right words in code and the wrong ones in a
-status line.
+`scope`, `shell`, `baseline`, `canonical`, `draft`, or `row` in UI copy.
