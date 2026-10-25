@@ -9,26 +9,18 @@
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { FOLDERS, type FolderEntry, folderLabel as nameOf, NOTES, rowFile } from '$lib/data.js';
-	import { foldersOf, type Notes, notesOf } from '$lib/notes.svelte.js';
+	import { FOLDERS, type FolderEntry, folderLabel as nameOf, rowFile } from '$lib/data.js';
+	import { actionMessage, foldersOf, type Notes, notesOf } from '$lib/notes.svelte.js';
 
 	let { notes }: { notes: Notes } = $props();
 
-	const noteRows = createQuery(() => ({
-		...notes.queries.rows(NOTES),
-		select: notesOf,
-	}));
-	const folderRows = createQuery(() => ({
-		...notes.queries.rows(FOLDERS),
-		select: foldersOf,
-	}));
+	const noteRows = $derived(notesOf(notes.folder.tables.notes.rows));
 	const folders = $derived(
-		(folderRows.data ?? []).toSorted((a, b) => nameOf(a).localeCompare(nameOf(b))),
+		foldersOf(notes.folder.tables.folders.rows).toSorted((a, b) => nameOf(a).localeCompare(nameOf(b))),
 	);
 	const counts = $derived.by(() => {
 		const result = { active: 0, deleted: 0, folders: new Map<string, number>() };
-		for (const note of noteRows.data ?? []) {
+		for (const note of noteRows) {
 			const fields = note.fields;
 			if (typeof fields.deletedAt === 'string') {
 				result.deleted += 1;
@@ -56,7 +48,8 @@
 				: name === nameOf(target)
 					? undefined
 					: await notes.patchFolder(rowFile(FOLDERS, target.id), { name });
-		if (problem) toast.error('Could not save the folder', { description: problem });
+		const message = actionMessage(problem);
+		if (message) toast.error('Could not save the folder', { description: message });
 	}
 
 	function confirmDeleteFolder(folder: FolderEntry) {
@@ -66,7 +59,8 @@
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				const problem = await notes.deleteFolder(folder);
-				if (problem) toast.error('Could not delete the folder', { description: problem });
+				const message = actionMessage(problem);
+				if (message) toast.error('Could not delete the folder', { description: message });
 			},
 		});
 	}
@@ -165,16 +159,15 @@
 					<!-- An open menu is outside the app's inert root. -->
 					<DropdownMenu.Content align="start" class="w-40">
 						<DropdownMenu.Item
-							disabled={notes.fenced}
 							onSelect={() => (naming = { id: folder.id, value: nameOf(folder) })}
 						>
 							Rename
 						</DropdownMenu.Item>
-						<DropdownMenu.Item disabled={notes.fenced} onSelect={() => notes.open(rowFile(FOLDERS, folder.id), 'text')}>
+						<DropdownMenu.Item onSelect={() => notes.open(rowFile(FOLDERS, folder.id), 'text')}>
 							Open file
 						</DropdownMenu.Item>
 						<DropdownMenu.Separator />
-						<DropdownMenu.Item variant="destructive" disabled={notes.fenced} onSelect={() => confirmDeleteFolder(folder)}>
+						<DropdownMenu.Item variant="destructive" onSelect={() => confirmDeleteFolder(folder)}>
 							Delete…
 						</DropdownMenu.Item>
 					</DropdownMenu.Content>

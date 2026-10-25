@@ -1,38 +1,24 @@
 <script lang="ts">
-	import { setQueryClientContext } from '@tanstack/svelte-query';
 	import * as Empty from '@epicenter/ui/empty';
-	import { type getFolder, setFolder } from '$lib/folder.js';
-	import { Loading } from '@epicenter/ui/loading';
+	import { type NotesFolder, setFolder } from '$lib/folder.js';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
-	import { beforeNavigate } from '$app/navigation';
-	import { createNotes } from '$lib/notes.svelte.js';
+	import { actionMessage, createNotes } from '$lib/notes.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import FileDetail from './FileDetail.svelte';
 	import FolderNav from './FolderNav.svelte';
 	import NoteList from './NoteList.svelte';
 
-	// The notes over the folder `<FolderApp>` opened. The note and
-	// folder rows are read before the views show, so none starts empty.
-	let { context }: { context: ReturnType<typeof getFolder> } = $props();
+	// The notes over the folder `<OpenFolder>` opened, listed, and wrapped.
+	let { folder }: { folder: NotesFolder } = $props();
 
-	// The opened context stays fixed until this app root unmounts.
+	// The opened folder stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	const { queryClient, getStatus } = setFolder(context);
-	setQueryClientContext(queryClient);
-	// svelte-ignore state_referenced_locally
-	const notes = createNotes(context);
-	const loading = notes.load();
+	const notes = createNotes(setFolder(folder));
 
 	let filesOpen = $state(false);
 
-	// An accepted Folder change still saving holds reload and navigation.
-	// <FolderApp> owns the browser unload prompt. Once the notes are closing,
-	// `notes.fenced` holds back every input and action here.
-	beforeNavigate(({ cancel }) => {
-		if (getStatus().saving || getStatus().unsaved.length > 0) cancel();
-	});
 </script>
 
 <svelte:window
@@ -44,18 +30,13 @@
 		} else if (mod && !event.shiftKey && event.key.toLowerCase() === 'n') {
 			event.preventDefault();
 			const problem = await notes.createNote();
-			if (problem) toast.error('Could not create the note', { description: problem });
+			const message = actionMessage(problem);
+			if (message) toast.error('Could not create the note', { description: message });
 		}
 	}}
 />
 
-
-{#await loading}
-<Loading class="h-dvh" label="Reading your notes…" />
-{:then}
-<!-- Once the notes are closing nothing here takes input. The editors stay
-     mounted while the last saves land. -->
-<div class="flex h-dvh flex-col overflow-hidden" inert={notes.fenced}>
+<div class="flex h-dvh flex-col overflow-hidden">
 	<AppHeader
 		{notes}
 		{filesOpen}
@@ -93,4 +74,3 @@
 		{/if}
 	</Resizable.PaneGroup>
 </div>
-{/await}

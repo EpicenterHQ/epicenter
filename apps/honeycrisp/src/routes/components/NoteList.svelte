@@ -5,26 +5,27 @@
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { format } from 'date-fns';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { FOLDERS, folderLabel, NOTES, type NoteEntry, rowFile } from '$lib/data.js';
+	import { folderLabel, type NoteEntry } from '$lib/data.js';
 	import { getDateLabel } from '$lib/date-label.js';
 	import { displayTitle, previewText } from '$lib/note-source.js';
-	import { foldersOf, type Notes, notesOf, repairsOf, unreadableOf } from '$lib/notes.svelte.js';
+	import { actionMessage, foldersOf, type Notes, notesOf, repairsOf, unreadableOf } from '$lib/notes.svelte.js';
 	import { confirmDelete } from './file-actions.js';
 
 	let { notes }: { notes: Notes } = $props();
 
-	const noteRows = createQuery(() => notes.queries.rows(NOTES));
-	const folderRows = createQuery(() => notes.queries.rows(FOLDERS));
-	const all = $derived(noteRows.data ? notesOf(noteRows.data) : []);
-	const folders = $derived(folderRows.data ? foldersOf(folderRows.data) : []);
-	const repairs = $derived(noteRows.data ? repairsOf(noteRows.data) : []);
-	const unreadable = $derived(unreadableOf(noteRows.data, folderRows.data));
+	// Filtering by fields and searching bodies reads every note, so the list
+	// holds them all; each shows what is typed the moment it is typed.
+	const noteRows = $derived(notes.folder.tables.notes.rows);
+	const folderRows = $derived(notes.folder.tables.folders.rows);
+	const all = $derived(notesOf(noteRows));
+	const folders = $derived(foldersOf(folderRows));
+	const repairs = $derived(repairsOf(noteRows));
+	const unreadable = $derived(unreadableOf(noteRows, folderRows));
 	const selectedPath = $derived(notes.selected?.path);
 
-	const pathOf = (note: NoteEntry) => rowFile(NOTES, note.id);
+	const pathOf = (note: NoteEntry) => note.path;
 
-	/** What a row shows: the note as last saved, so an edit shows here once its save lands. */
+	/** What a row shows: the note as it is now, what is typed included. */
 	function shown(note: NoteEntry) {
 		return {
 			title: displayTitle(note.fields.title, note.body),
@@ -71,8 +72,8 @@
 		return result;
 	});
 
-	async function report(action: string, problem: Promise<string | undefined> | string | undefined) {
-		const message = await problem;
+	async function report(action: string, problem: ReturnType<Notes['patchNote']> | Promise<string | undefined>) {
+		const message = actionMessage(await problem);
 		if (message) toast.error(`Could not ${action}`, { description: message });
 	}
 </script>
@@ -95,12 +96,6 @@
 			</Button>
 		{/if}
 	</div>
-
-	{#if noteRows.isError}
-		<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-			Could not read the notes: {noteRows.error.message}.{noteRows.data ? ' Showing the last list that was read.' : ''}
-		</p>
-	{/if}
 
 	<div class="min-h-0 flex-1 overflow-y-auto p-2">
 		{#if visible.length === 0 && (notes.view.deleted || repairs.length === 0)}
@@ -126,12 +121,11 @@
 						</button>
 					</ContextMenu.Trigger>
 					<ContextMenu.Content class="w-52">
-						<ContextMenu.Item disabled={notes.fenced} onSelect={() => notes.open(repair.path)}>
+						<ContextMenu.Item onSelect={() => notes.open(repair.path)}>
 							Open to repair
 						</ContextMenu.Item>
 						<ContextMenu.Item
 							variant="destructive"
-							disabled={notes.fenced}
 							onSelect={() => void confirmDelete(notes, repair.path)}
 						>
 							Delete file…
@@ -145,7 +139,6 @@
 			{#each group.entries as note (note.id)}
 				{@const path = pathOf(note)}
 				{@const row = shown(note)}
-				{@const saving = notes.isWriting(path)}
 				<ContextMenu.Root>
 					<ContextMenu.Trigger>
 						<button
@@ -161,21 +154,14 @@
 									{row.title}
 								</span>
 								<span class="shrink-0 text-xs text-muted-foreground">
-									{#if saving}
-										saving
-									{:else}
-										{format(new Date(created(note)), 'h:mm a')}
-									{/if}
+									{format(new Date(created(note)), 'h:mm a')}
 								</span>
 							</span>
 							<span class="line-clamp-2 text-xs text-muted-foreground">{row.preview || 'No text'}</span>
 						</button>
 					</ContextMenu.Trigger>
 					<ContextMenu.Content class="w-52">
-						{#if notes.fenced}
-							<!-- An open menu is outside the app's inert root. -->
-							<ContextMenu.Item disabled>The app is closing</ContextMenu.Item>
-						{:else if isDeleted(note)}
+						{#if isDeleted(note)}
 							<ContextMenu.Item onSelect={() => void report('restore the note', notes.restoreNote(path))}>
 								Restore
 							</ContextMenu.Item>

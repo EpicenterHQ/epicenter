@@ -1,30 +1,24 @@
 <!--
-	One selected path, its presentations, and one save/recovery surface.
+	One selected path and its presentations.
 	The note presentation stays mounted while whole-file source shows, so
 	looking at source or editing only its header retains rich-text history.
-	Folder owns the input, autosave timer, and save queue. Blurring an input
-	or leaving this view keeps that work with Folder. Retry is explicit here.
+	The folder mirror owns landed files; each editor owns its pending draft.
 -->
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
+	import { InstantString } from '@epicenter/definition';
+	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
+	import { readRow } from '@epicenter/folder/next';
+	import { draft } from '@epicenter/svelte/folder-next';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
-	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Empty from '@epicenter/ui/empty';
-	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { InstantString } from '@epicenter/definition';
-	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
-
-	import { createQuery } from '@tanstack/svelte-query';
-	import { folderIdOf, noteIdOf } from '$lib/data.js';
-	import { textRead } from '$lib/file-reads.js';
-	import type { Notes } from '$lib/notes.svelte.js';
-	import { describeFailure } from '$lib/status.js';
+	import { folderIdOf, honeycrispTables, noteIdOf } from '$lib/data.js';
+	import { actionMessage, type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 	import NoteDetail from './NoteDetail.svelte';
 
@@ -43,69 +37,43 @@
 	// the prop already reads the next item, so this view keeps its own.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
-
-	/**
-	 * What the file is: text, binary, or too large to open, with its size.
-	 * Only the whole-file presentation needs this classification. The note
-	 * list and document subscriptions keep the source current in either presentation.
-	 */
-	const file = createQuery(() => ({
-		...notes.queries.file(path, textRead),
-		enabled: as === 'text',
-	}));
 	const name = basename(path);
 	const noteId = noteIdOf(path);
 	const folderId = folderIdOf(path);
-	// All presentations use the same text document for this path.
+	// The notes state is fixed for the page's life.
 	// svelte-ignore state_referenced_locally
-	const noteEdit = noteId === undefined
-		? undefined
-		: notes.folder.tables.notes.document(noteId);
-	// The handle is fixed for this keyed view; observation starts acquisition.
-	// svelte-ignore state_referenced_locally
-	const fileEdit = noteEdit ?? (folderId !== undefined
-		? notes.folder.tables.folders.document(folderId)
-		: notes.folder.files.document(path));
-	const snapshot = liveSnapshot(fileEdit);
-	const parsed = $derived.by(() => {
-		const text = snapshot.current.text;
-		if (text === undefined) return undefined;
-		if (noteId !== undefined) return notes.folder.tables.notes.parse(text);
-		if (folderId !== undefined) return notes.folder.tables.folders.parse(text);
-		return undefined;
-	});
-	const note = $derived(
-		noteEdit !== undefined && parsed?.issues === null ? parsed : undefined,
-	);
-	// Classification limits an arbitrary file's initial acquisition only.
-	// Pure cached access keeps already acquired text visible on every refresh.
-	const text = $derived(
-		noteEdit !== undefined || file.data?.kind === 'text' || fileEdit.getSnapshot().text !== undefined
-			? snapshot.current.text : undefined,
-	);
-	const issues = $derived(parsed?.issues ?? undefined);
-	const locked = $derived(notes.fenced);
+	const { folder } = notes;
 
-	function confirmDiscard() {
-		confirmationDialog.open({
-			title: 'Discard unsaved changes?',
-			description: `Copy any text you need from ${path} before discarding it. What is saved stays on this device.`,
-			confirm: { text: 'Discard changes', variant: 'destructive' },
-			onConfirm: () => {
-				fileEdit.discard();
-			},
-		});
-	}
+	/** Text this large is listed but not opened in the editor. */
+	const LARGE = 1024 * 1024;
 
-	async function report(action: string, result: Promise<string | undefined> | string | undefined) {
-		const problem = await result;
+	// Reading the file holds it while this view shows it.
+	const file = $derived(folder.file(path));
+	const noteRow = $derived(noteId === undefined ? undefined : folder.tables.notes.row(noteId));
+	const note = $derived(noteRow?.issues === null ? noteRow : undefined);
+	const text = $derived(typeof file?.data === 'string' && file.data.length <= LARGE ? file.data : undefined);
+	const raw = draft(
+		() => text?.replace(/\r\n?/g, '\n') ?? '',
+		(typed) => notes.rememberSave(path, folder.write(path, withFileNewlines(typed, text ?? ''))),
+	);
+	/** Why the text does not read as its row, apart from the file's own state. */
+	const issues = $derived(
+		text === undefined || (noteId === undefined && folderId === undefined)
+			? []
+			: readRow(raw.text, noteId !== undefined ? honeycrispTables.notes : honeycrispTables.folders).issues ?? [],
+	);
+	const unreadable = $derived(file?.readError);
+
+	async function report(action: string, result: ReturnType<Notes['patchNote']>) {
+		const problem = actionMessage(await result);
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
 	}
 
 	/** A file shown as details: its extension names the type, then its size. */
-	function details(size: number) {
+	function details(size: number | undefined) {
 		const dot = name.lastIndexOf('.');
 		const kind = dot > 0 ? `${name.slice(dot + 1).toUpperCase()} file` : 'File';
+		if (size === undefined) return kind;
 		if (size < 1024) return `${kind} · ${size} ${size === 1 ? 'byte' : 'bytes'}`;
 		if (size < 1024 * 1024) return `${kind} · ${(size / 1024).toFixed(1)} KB`;
 		return `${kind} · ${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -113,10 +81,10 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	{#if noteEdit !== undefined}
+	{#if noteId !== undefined}
 		<!-- Hidden and inert, rather than unmounted: this file's rich-text history stays here. -->
 		<div class="min-h-0 flex-1" hidden={as !== 'note'} inert={as !== 'note'}>
-			<NoteDetail {notes} {path} fileEdit={noteEdit} />
+			<NoteDetail {notes} {path} />
 		</div>
 	{/if}
 	{#if as === 'text'}
@@ -131,9 +99,9 @@
 					<Button
 						size="sm"
 						variant="outline"
-						disabled={issues !== undefined}
-						tooltip={issues !== undefined ? 'Fix the text first' : undefined}
-						onclick={() => notes.open(path, 'note')}
+						disabled={issues.length > 0}
+						tooltip={issues.length > 0 ? 'Fix the text first' : undefined}
+						onclick={() => void notes.open(path, 'note')}
 					>
 						Open as note
 					</Button>
@@ -145,10 +113,7 @@
 
 			{#if text !== undefined}
 				{@const shown = text}
-				{#if file.isError}
-					<p class="px-4 py-2 text-sm" role="alert">Could not read the saved file: {file.error.message} <Button variant="link" size="xs" onclick={() => void file.refetch()}>Try again</Button></p>
-				{/if}
-				{#if issues && (noteId !== undefined || folderId !== undefined)}
+				{#if issues.length > 0}
 					<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
 						<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 							<Badge variant="destructive">Needs repair</Badge>
@@ -156,7 +121,7 @@
 						</p>
 						<ul class="space-y-0.5 text-muted-foreground">
 							{#each issues as issue, index (index)}
-								<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
+							<li>{issue.message}</li>
 							{/each}
 						</ul>
 					</div>
@@ -166,96 +131,52 @@
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
 						aria-label="Contents of {name}"
 						spellcheck={false}
-						disabled={locked}
-						bind:value={
-							() => shown.replace(/\r\n?/g, '\n'),
-							(typed) => {
-								const changed = fileEdit.replace(withFileNewlines(typed.toWellFormed(), shown));
-								if (changed.error !== null) toast.warning('That change was not made', { description: changed.error.message });
-							}
-						}
+						bind:value={() => raw.text, (typed) => raw.set(typed.toWellFormed())}
 					/>
 				</div>
-			{:else if file.data?.kind === 'missing'}
+			{:else if file === undefined}
 				<Empty.Root class="flex-1">
 					<Empty.Title>This file is no longer in the folder</Empty.Title>
 					<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 				</Empty.Root>
-			{:else if file.data !== undefined && file.data.kind !== 'text'}
-				<Empty.Root class="flex-1">
-					<Empty.Media><FileIcon class="size-8 text-muted-foreground" /></Empty.Media>
-					<Empty.Title>{details(file.data.size)}</Empty.Title>
-					<Empty.Description>
-						{file.data.kind === 'binary'
-							? 'This file is not text, so it is listed here but not opened for editing.'
-							: 'This text file is larger than 1 MB, so it is not opened in the editor.'}
-						Delete still works on it.
-					</Empty.Description>
-				</Empty.Root>
-			{:else if file.isError}
+			{:else if unreadable !== null && unreadable !== undefined}
 				<Empty.Root class="flex-1">
 					<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 					<Empty.Title>Could not open this file</Empty.Title>
-					<Empty.Description>{file.error.message}</Empty.Description>
-					<Button variant="outline" size="sm" onclick={() => void file.refetch()}>Try again</Button>
+					<Empty.Description>{unreadable.message}</Empty.Description>
+					<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Try again</Button>
 				</Empty.Root>
 			{:else}
-				<Loading class="flex-1" label="Opening {name}…" />
+				<Empty.Root class="flex-1">
+					<Empty.Media><FileIcon class="size-8 text-muted-foreground" /></Empty.Media>
+					<Empty.Title>{details(file.data === undefined ? undefined : typeof file.data === 'string' ? new TextEncoder().encode(file.data).length : file.data.byteLength)}</Empty.Title>
+					<Empty.Description>
+						{typeof file.data === 'string'
+							? 'This text file is larger than 1 MB, so it is not opened in the editor.'
+							: 'This file is not text, so it is listed here but not opened for editing.'}
+						Delete still works on it.
+					</Empty.Description>
+				</Empty.Root>
 			{/if}
-
 		</section>
 	{/if}
 
-	{#if text !== undefined || note !== undefined}
+	{#if file !== undefined}
 		<div class="shrink-0 space-y-2 border-t px-4 py-2 text-xs text-muted-foreground">
-			{#if snapshot.current.loadError}<p role="alert">{snapshot.current.loadError.message} Your previous text is kept.</p>{/if}
-			{#if snapshot.current.isDirty && snapshot.current.loadError && text !== undefined}
-				<details><summary>Your source</summary><pre class="max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved source">{text}</pre></details>
-			{/if}
 			<div class="flex flex-wrap items-center gap-2">
-				<span class="min-w-0 flex-1" role="status" data-testid="write-status">
-					{#if snapshot.current.saveError}
-						Not saved: {describeFailure(snapshot.current.saveError)}
-					{:else if snapshot.current.isDirty || snapshot.current.isSaving}
-						Saving…
-					{:else if snapshot.current.loadError}
-						Text kept here
-					{:else if text === undefined}
-						No unsaved changes
-					{:else if as === 'note'}
-						Saved to <code class="font-mono">{path}</code>
-					{:else}
-						Saved
-					{/if}
-				</span>
-				{#if snapshot.current.loadError}
-					<Button size="sm" variant="outline" disabled={locked} onclick={() => void fileEdit.refresh()}>Try again</Button>
-					{#if snapshot.current.saveError === undefined && (snapshot.current.loadError.name === 'Missing' || snapshot.current.loadError.name === 'NotText')}
-						<Button size="sm" variant="outline" disabled={locked} onclick={() => void fileEdit.save()}>Restore text</Button>
-					{/if}
-				{/if}
-				{#if snapshot.current.saveError}
-					<Button size="sm" variant="outline" disabled={locked} onclick={() => void fileEdit.save()}>Save again</Button>
-				{/if}
-				{#if snapshot.current.isDirty && (snapshot.current.saveError || snapshot.current.loadError)}
-					<Button size="sm" variant="ghost-destructive" disabled={locked} onclick={confirmDiscard}>Discard changes</Button>
-				{/if}
+				<span class="min-w-0 flex-1"></span>
 				{#if as === 'note' && note !== undefined}
-					<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" disabled={locked} onclick={() => notes.open(path, 'text')}>Edit as file</Button>
-					{#if 'deletedAt' in note.fields && typeof note.fields.deletedAt === 'string'}
-						<Button size="sm" variant="outline" disabled={locked} onclick={() => report('restore the note', notes.patchNote(path, { deletedAt: null }))}>Restore</Button>
-						<Button size="sm" variant="ghost-destructive" disabled={locked} onclick={() => void confirmDelete(notes, path)}>Delete permanently</Button>
+					<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" onclick={() => void notes.open(path, 'text')}>Edit as file</Button>
+					{#if typeof note.fields.deletedAt === 'string'}
+						<Button size="sm" variant="outline" onclick={() => report('restore the note', notes.patchNote(path, { deletedAt: null }))}>Restore</Button>
+						<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path)}>Delete permanently</Button>
 					{:else}
-						<Button size="sm" variant="ghost-destructive" disabled={locked} onclick={() => report('delete the note', notes.patchNote(path, { deletedAt: InstantString.now() }))}>Move to Recently Deleted</Button>
+						<Button size="sm" variant="ghost-destructive" onclick={() => report('delete the note', notes.patchNote(path, { deletedAt: InstantString.now() }))}>Move to Recently Deleted</Button>
 					{/if}
-				{:else if as === 'text' && (text !== undefined || (file.data !== undefined && file.data.kind !== 'missing'))}
-					<Button size="sm" variant="ghost-destructive" disabled={locked} onclick={() => void confirmDelete(notes, path)}>Delete</Button>
+				{:else if as === 'text'}
+					<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path)}>Delete</Button>
 				{/if}
 			</div>
-		</div>
-	{:else if as === 'text' && file.data !== undefined && file.data.kind !== 'missing'}
-		<div class="shrink-0 border-t px-4 py-2">
-			<Button size="sm" variant="ghost-destructive" disabled={notes.fenced} onclick={() => void confirmDelete(notes, path)}>Delete</Button>
 		</div>
 	{/if}
 </div>

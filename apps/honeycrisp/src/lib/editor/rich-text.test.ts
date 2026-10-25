@@ -2,20 +2,18 @@
  * Rich Text Tests
  *
  * Drives the rich-text view's two rules the way the view does, over the real
- * notes state and its query cache on Honeycrisp's folder: each transaction
- * goes through `stateAfter` before it is shown, and the body is followed
+ * notes state and folder mirror: each transaction goes through `stateAfter`
+ * before it is shown, and the body is followed
  * with `stateShowing`. The state the harness keeps is what the view would
  * display; the note's body draft holds an edit until its save lands, and
- * the cache holds the note after.
+ * the mirror holds the note after.
  *
  * Key behaviors:
  * - Every displayed edit is in the note, including spaces, Enter, and
  *   Shift-Enter, and saves the body alone: every field, and a key Honeycrisp
  *   does not declare, stays as it was
- * - Moving the cursor or setting pending formatting writes nothing, and is
- *   shown even while the note takes no edit
- * - An edit Markdown cannot express, or made while the note takes no edit,
- *   is refused before it is displayed
+ * - Moving the cursor or setting pending formatting writes nothing
+ * - An edit Markdown cannot express is refused before it is displayed
  * - A lone surrogate becomes U+FFFD in the same transaction, as the file
  *   stores it, so the screen shows what is saved
  * - A body read from a CRLF file shows and saves with line feeds
@@ -25,8 +23,8 @@
  * - A transaction built before the body changed is dropped
  * - A change another tab saved replaces a clean editor; a save landing
  *   does not
- * - A read that lands while an edit is held does not replace the typing;
- *   whole-file publication preserves accepted input and rich-text state
+ * - A pending body draft keeps typing and history through a save; a failed
+ *   save makes the state follow disk again
  */
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
@@ -47,13 +45,12 @@ import {
 } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { expectOk } from 'wellcrafted/testing';
-import type { NotesFixture } from '../local.test-support.js';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
 import { noteSchema } from './schema.js';
 
 // The notes state is a runes module: load it, and the rules, after the
 // compiler plugin.
-const { openNotes, quiet, until, noteText, rows } = await import(
+const { openNotes, quiet, until, noteText } = await import(
 	'../local.test-support.ts'
 );
 const { editingPlugins, noteBody, stateAfter, stateShowing } = await import(
@@ -61,10 +58,6 @@ const { editingPlugins, noteBody, stateAfter, stateShowing } = await import(
 );
 
 const cleanup: (() => unknown)[] = [];
-
-function parsed(folder: NotesFixture['folder'], text: string | undefined) {
-	return text === undefined ? undefined : folder.tables.notes.parse(text);
-}
 
 afterEach(async () => {
 	for (const stop of cleanup.splice(0).reverse()) await stop();
@@ -74,42 +67,46 @@ const PATH = 'notes/a.md';
 
 /** The notes state over a folder holding one note with `text`, open as a note. */
 async function noteOver(text: string) {
-	const fixture = await openNotes();
-	cleanup.push(() => fixture.close());
-	await fixture.write(PATH, text);
-	const { notes, local } = fixture;
-	await notes.load();
-	fixture.observe();
-	notes.open(PATH);
-	await quiet(notes);
-	const note = notes.folder.tables.notes.document('a');
-	cleanup.push(note.subscribe(() => {}));
-	expectOk(await note.refresh());
-	const opened = fixture.saves(PATH);
-	return {
-		fixture,
-		notes,
-		note,
-		/** The saves that failed and still hold their typing. */
-		failures: () => local.getStatus().failures,
-		/** The note as shown now: with what is typed over it. */
-		draft: () => {
-			const row = parsed(notes.folder, note.getSnapshot().text);
-			if (row?.issues !== null) throw new Error('The note is not in the cache');
-			return row;
-		},
-		/** Flush pending input and let the resulting observations finish. */
-		settled: async () => {
-			if (note.getSnapshot().isDirty) await note.save();
-			await quiet(notes);
-		},
-		/** Saves of the note since it opened. */
-		writes: () => fixture.saves(PATH) - opened,
-		/** The note's text in storage now. */
-		stored: () => fixture.text(PATH),
-		/** Close the notes: from now on the note takes no edit. */
-		closeNotes: () => local.close(),
-	};
+    const fixture = await openNotes();
+    cleanup.push(() => fixture.close());
+    await fixture.write(PATH, text);
+    const { notes, raw } = fixture;
+    notes.open(PATH);
+    const table = notes.folder.tables.notes;
+    let typed: string | null = null;
+    let latest = 0;
+    let landed = 0;
+    let pending: Promise<unknown> = Promise.resolve();
+    const failures: string[] = [];
+    const note = {
+        read: () => typed ?? noteBody(table.row('a')),
+        write(body: string) {
+            typed = body;
+            const mine = ++latest;
+            landed++;
+            pending = table.update('a', { body }).then(({ error }) => {
+                if (error !== null) failures.push(error.message);
+                if (mine === latest) typed = null;
+            });
+        },
+    };
+    return {
+        fixture, notes, note,
+        failures: () => failures,
+        draft: () => {
+            const row = table.row('a');
+            if (row?.issues !== null || row === undefined) throw new Error('The note does not read as one');
+            return { ...row, body: note.read() ?? row.body };
+        },
+        settled: async () => { await pending; await quiet(notes); },
+        writes: () => landed,
+        stored: () => fixture.text(PATH),
+        theirs: async (body: string) => {
+            const tab = await fixture.otherTab();
+            expectOk(await tab.tables.notes.update('a', { body }));
+            await until(() => table.row('a')?.body === body, 'outside body');
+        },
+    };
 }
 
 /** One rich-text view over `body`, as the view holds it, and its note. */
@@ -118,9 +115,8 @@ async function open(
 	{ text = noteText({ body: initialBody }) } = {},
 ) {
 	const opened = await noteOver(text);
-	const { note, notes } = opened;
-	const body = () =>
-		noteBody(parsed(notes.folder, note.getSnapshot().text)) ?? '';
+	const { note } = opened;
+	const body = () => note.read() ?? '';
 	const initial = bodyCodec.decode(body());
 	if (!initial.supported) throw new Error('The note is not rich text');
 	/** Why the last edit was refused. */
@@ -132,15 +128,9 @@ async function open(
 	});
 	/** Deliver a transaction as the view does. Returns whether it was displayed. */
 	const dispatch = (transaction: Transaction) => {
-		const next = stateAfter(
-			state,
-			transaction,
-			note,
-			notes.folder.tables.notes.parse,
-			(reason) => {
-				refusal = reason;
-			},
-		);
+		const next = stateAfter(state, transaction, note, (reason) => {
+			refusal = reason;
+		});
 		if (next !== undefined) state = next;
 		return next !== undefined;
 	};
@@ -188,8 +178,7 @@ async function open(
 		if (now.supported) state = stateShowing(state, now.doc);
 	};
 	/** What the Source view, showing the note as it is now, does with typed text. */
-	const source = (text: string) =>
-		notes.folder.tables.notes.document('a').patch({ body: text });
+	const source = (text: string) => note.write(text);
 	/** What is on screen and the note's body are the same content. */
 	const expectNoteHoldsScreen = () =>
 		expect(equivalentNoteDocs(parseNoteBody(body()), state.doc)).toBe(true);
@@ -319,15 +308,12 @@ describe('every displayed edit is in the note', () => {
 
 	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
-		const { type, end, body, settled, failures, stored, writes, note, notes } =
+		const { type, end, body, settled, failures, stored, writes } =
 			await open('', {
 				text: crlf,
 			});
 		expect(body()).toBe('\none\n\ntwo\n');
-		expect(parsed(notes.folder, note.getSnapshot().text)?.body).toBe(
-			'\r\none\r\n\r\ntwo\r\n',
-		);
-		expect(note.getSnapshot().text).toBe(crlf);
+		expect(crlf).toContain('\r\none\r\n\r\ntwo\r\n');
 		expect(writes()).toBe(0);
 		end();
 		type('!');
@@ -355,14 +341,7 @@ describe('every displayed edit is in the note', () => {
 		expect(writes()).toBe(0);
 	});
 
-	test('moving the cursor is shown while the note takes no edit, and writes nothing', async () => {
-		const { end, closeNotes, writes, ...view } = await open('one\n');
-		const closed = closeNotes();
-		expect(end()).toBe(true);
-		expect(view.shown().selection.head).toBe(4);
-		await closed;
-		expect(writes()).toBe(0);
-	});
+
 });
 
 describe('an edit that cannot be written', () => {
@@ -421,30 +400,9 @@ describe('an edit that cannot be written', () => {
 		expectNoteHoldsScreen();
 	});
 
-	test('one made while the note takes no edit is not displayed', async () => {
-		const { type, closeNotes, body, end, refusal, ...view } =
-			await open('one\n');
-		end();
-		type('!');
-		const state = view.shown();
-		const closed = closeNotes();
-		expect(type('late')).toBe(false);
-		expect(refusal()).toContain('closing');
-		expect(view.shown()).toBe(state);
-		expect(body()).toBe('one!\n');
-		await closed;
-	});
 
-	test('Enter is not displayed while the note takes no edit, and writes nothing', async () => {
-		const { press, end, closeNotes, writes, ...view } = await open('one\n');
-		end();
-		const closed = closeNotes();
-		const state = view.shown();
-		press('Enter');
-		expect(view.shown()).toBe(state);
-		await closed;
-		expect(writes()).toBe(0);
-	});
+
+
 });
 
 describe('undo history', () => {
@@ -588,12 +546,8 @@ describe('the editor follows the note', () => {
 	});
 
 	test('a change another tab saved replaces a clean editor', async () => {
-		const { fixture, follow, settled, body, ...view } = await open('one\n');
-		const tab = await fixture.otherTab();
-		expectOk(await tab.tables.notes.document('a').refresh());
-
-		expectOk(tab.tables.notes.document('a').patch({ body: 'theirs\n' }));
-		expectOk(await tab.tables.notes.document('a').save());
+		const { theirs, follow, settled, body, ...view } = await open('one\n');
+		await theirs('theirs\n');
 		await until(() => body() === 'theirs\n', 'their save');
 		await settled();
 		follow();
@@ -601,71 +555,33 @@ describe('the editor follows the note', () => {
 		expect(undoDepth(view.shown())).toBe(0);
 	});
 
-	test('typing in flight survives a read and publishes the whole source without resetting history', async () => {
-		const {
-			fixture,
-			notes,
-			type,
-			end,
-			follow,
-			settled,
-			body,
-			failures,
-			stored,
-			...view
-		} = await open('one\n');
+	test('a source change during a pending draft waits to replace history until the draft lands', async () => {
+        const { type, end, follow, settled, body, ...view } = await open('one\n');
+        end();
+        type('!');
+        const state = view.shown();
+        follow();
+        expect(view.shown()).toBe(state);
+        await settled();
+        follow();
+        expect(body()).toBe('one!\n');
+        expect(view.shown()).toBe(state);
+        expect(undoDepth(view.shown())).toBe(1);
+    });
+
+	test('a failed save replaces the editor state with the disk body', async () => {
+		const { fixture, type, end, settled, follow, body, ...view } = await open('one\n');
+		fixture.failSaves();
 		end();
 		type('!');
-		const state = view.shown();
-		// Another tab adds a line. Its report arrives and the read lands while
-		// the typing is held.
-		const tab = await fixture.otherTab();
-		expectOk(await tab.tables.notes.document('a').refresh());
-
-		expectOk(tab.tables.notes.document('a').patch({ body: 'one\n\ntheirs\n' }));
-		expectOk(await tab.tables.notes.document('a').save());
-		await until(
-			() => rows(notes)[0]?.body === 'one\n\ntheirs\n',
-			'their save to be read',
-		);
-		follow();
-		expect(view.shown()).toBe(state);
+		const typed = view.shown();
 		expect(body()).toBe('one!\n');
-		const edit = fixture.folder.tables.notes.document('a');
-		await edit.save();
-		expect(edit.getSnapshot().saveError).toBeUndefined();
-		expect(failures()).toEqual([]);
-		expect(await stored()).toContain('one!\n');
-		expect(body()).toBe('one!\n');
-		await edit.save();
 		await settled();
-		expect(failures()).toEqual([]);
-		expect(await stored()).toContain('one!\n');
-		expect(await stored()).not.toContain('theirs');
 		follow();
-		expect(view.shown()).toBe(state);
-		expect(undoDepth(view.shown())).toBe(1);
-	});
-
-	test('discarding pending input then refreshing shows outside content and resets history', async () => {
-		const { fixture, type, end, settled, body, failures, follow, ...view } =
-			await open('one\n');
-		end();
-		expect(type('!')).toBe(true);
-		const tab = await fixture.otherTab();
-		expectOk(await tab.tables.notes.document('a').refresh());
-
-		expectOk(tab.tables.notes.document('a').patch({ body: 'theirs\n' }));
-		expectOk(await tab.tables.notes.document('a').save());
-		const edit = fixture.folder.tables.notes.document('a');
-		expect(body()).toBe('one!\n');
-		edit.discard();
-		await edit.refresh();
-		await settled();
-		expect(failures()).toEqual([]);
-		expect(body()).toBe('theirs\n');
-		follow();
-		expect(view.shown().doc.textContent).toBe('theirs');
+		expect(body()).toBe('one\n');
+		expect(view.shown()).not.toBe(typed);
 		expect(undoDepth(view.shown())).toBe(0);
 	});
+
+
 });

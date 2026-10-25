@@ -2,33 +2,25 @@
  * The rich-text view's editing: its commands and plugins, and the two rules
  * that keep its ProseMirror state the note's body.
  *
- * The note's body comes from interpreting the document's current text, with line feeds for
- * presentation: the folder's edit includes what is typed (ADR-0548). The
- * view's `EditorState` adds only what the note has no place for: the
- * cursor, pending formatting, undo history, and an empty paragraph Markdown
- * cannot spell yet. Its document is never a second draft. Nothing records
- * which body the state last read or wrote; the body is compared by content:
+ * The note's body draft holds text ahead of disk, with line feeds for
+ * presentation. The view's `EditorState` adds cursor, pending formatting,
+ * undo history, and an empty paragraph Markdown cannot spell yet. The body
+ * is compared by content:
  *
  * - `stateAfter` decides every transaction before it is shown. One that
  *   changes the document is checked against the body shown now, then its
  *   Markdown goes into the note's draft in the same step, which saves it.
- *   If the Markdown would not open as the same document, or the note takes
- *   no edit, the screen does not change. There is never text on screen that
- *   the note does not hold.
+ *   If the Markdown would not open as the same document, the screen does not
+ *   change. An accepted edit enters the note's draft before it is shown.
  * - `stateShowing` follows the body. The same content keeps the state, so a
- *   body this view wrote, a save landing, or a respelling in Source changes
- *   nothing on screen. Different content (Source, a chosen version, the file
- *   read again while clean, or an explicitly accepted saved source) starts
- *   a new state and a new undo history, because the
- *   old history describes text that is gone. The draft holds the version
- *   its edit started from and a read never changes it, so typing in flight
- *   is never replaced.
+ *   body this view wrote or a save landing changes nothing on screen.
+ *   Different content from Source or another tab starts a new state and undo
+ *   history. A pending draft hides an outside body until its save answers;
+ *   a failed save then follows the disk body.
  *
  * Neither needs a DOM. The view calls both; tests drive them the same way.
  */
 
-import type { FolderTable } from '@epicenter/folder';
-import type { TextDocument } from '@epicenter/folder/document';
 import {
 	baseKeymap,
 	chainCommands,
@@ -58,7 +50,7 @@ import {
 	type Plugin,
 	type Transaction,
 } from 'prosemirror-state';
-import type { HoneycrispTables } from '../data.js';
+import type { NoteRow } from '../data.js';
 import { bodyCodec, equivalentNoteDocs } from './markdown.js';
 import { noteSchema } from './schema.js';
 
@@ -163,15 +155,15 @@ export function stateShowing(state: EditorState, doc: Node): EditorState {
 }
 
 /** The valid note's body shown by Honeycrisp, with line feeds and no source mutation. */
-export function noteBody(
-	markdown:
-		| ReturnType<FolderTable<HoneycrispTables['notes']>['parse']>
-		| undefined,
-): string | undefined {
-	return markdown?.issues === null
-		? markdown.body.replace(/\r\n?/g, '\n')
-		: undefined;
+export function noteBody(row: NoteRow | undefined): string | undefined {
+	return row?.issues === null ? row.body.replace(/\r\n?/g, '\n') : undefined;
 }
+
+/** The body draft an editor shows and writes. */
+export type NoteBody = {
+	read(): string | undefined;
+	write(body: string): void;
+};
 
 /**
  * The state to show after `transaction`, or undefined when the screen stays
@@ -191,16 +183,14 @@ export function noteBody(
 export function stateAfter(
 	state: EditorState,
 	transaction: Transaction,
-	fileEdit: TextDocument<HoneycrispTables['notes']>,
-	parse: FolderTable<HoneycrispTables['notes']>['parse'],
+	note: NoteBody,
 	refuse: (reason: string) => void,
 ): EditorState | undefined {
 	if (transaction.before !== state.doc) return undefined;
 	// A selection or pending formatting writes nothing: opening a note never
 	// changes its file.
 	if (!transaction.docChanged) return state.apply(transaction);
-	const text = fileEdit.getSnapshot().text;
-	const body = noteBody(text === undefined ? undefined : parse(text));
+	const body = note.read();
 	if (body === undefined) return undefined;
 	const current = bodyCodec.decode(body);
 	if (!current.supported) return undefined;
@@ -217,13 +207,9 @@ export function stateAfter(
 		return undefined;
 	}
 	// An edit Markdown has no spelling for (a new empty paragraph) gives the
-	// same body back: it is shown, and nothing saves. The command still
-	// checks whether the folder accepts document edits.
-	const changed = fileEdit.patch({ body: encoded });
-	if (changed.error !== null) {
-		refuse(changed.error.message);
-		return undefined;
-	}
+	// same body back: it is shown, and nothing saves.
+	if (encoded === body) return next;
+	note.write(encoded);
 	return next;
 }
 

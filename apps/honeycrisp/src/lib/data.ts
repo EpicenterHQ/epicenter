@@ -1,6 +1,5 @@
 /**
- * Honeycrisp's tables in this browser's local folder,
- * `openFolder({ tables: honeycrispTables })`.
+ * Honeycrisp's tables in its local folder, `openFolder({ tables: honeycrispTables })`.
  *
  * A note is `notes/<id>.md` and a folder is `folders/<id>.md`. The file stem
  * is the identity; everything a person can change is frontmatter or body.
@@ -15,7 +14,7 @@
  * through `editor/markdown.ts`.
  */
 import { field } from '@epicenter/definition';
-import type { FolderTable, Row } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder/next';
 import { type Static, Type } from 'typebox';
 
 export const honeycrispTables = {
@@ -44,11 +43,6 @@ export type FolderFields = Static<HoneycrispTables['folders']>;
 export type NoteRow = Row<HoneycrispTables['notes']>;
 /** A folder file as the table lists it. */
 export type FolderRow = Row<HoneycrispTables['folders']>;
-
-export type NoteMarkdown = Extract<
-	ReturnType<FolderTable<HoneycrispTables['notes']>['parse']>,
-	{ issues: null }
->;
 
 /** A note file that reads as a note. */
 export type NoteEntry = Extract<NoteRow, { issues: null }>;

@@ -4,7 +4,6 @@
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { Loading } from '@epicenter/ui/loading';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { toast } from '@epicenter/ui/sonner';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
@@ -16,25 +15,23 @@
 	import NotebookTextIcon from '@lucide/svelte/icons/notebook-text';
 	import { tick } from 'svelte';
 	import { dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
-	import { createQuery } from '@tanstack/svelte-query';
 	import { noteIdOf } from '$lib/data.js';
-	import type { Notes } from '$lib/notes.svelte.js';
+	import { actionMessage, type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
 	let { notes }: { notes: Notes } = $props();
 
-	const listing = createQuery(() => notes.queries.files());
 	/**
-	 * The tree over the listing. The folder lists file paths only: a directory
+	 * The tree over the mirror. The folder lists file paths only: a directory
 	 * is there while a file is in it, and no size is listed, so none is shown.
 	 */
 	const rows = $derived.by(() => {
-		if (listing.data === undefined) return [];
+		const paths = notes.folder.files.map(({ path }) => path);
 		const directories = new Set<string>();
-		for (const path of listing.data)
+		for (const path of paths)
 			for (let at = dirname(path); at !== ''; at = dirname(at)) directories.add(at);
 		return visibleRows(
-			{ files: listing.data.map((path) => ({ path, size: 0 })), directories: [...directories] },
+			{ files: paths.map((path) => ({ path, size: 0 })), directories: [...directories] },
 			notes.expanded,
 		);
 	});
@@ -151,8 +148,9 @@
 		committing = true;
 		try {
 			const problem = await notes.createFile(directory, name);
-			if (problem) {
-				toast.error('Could not create the file', { description: problem });
+			if (problem !== undefined) {
+				const message = actionMessage(problem);
+				if (message) toast.error('Could not create the file', { description: message });
 				return;
 			}
 			editing = undefined;
@@ -227,22 +225,6 @@
 	</div>
 
 	<p class="truncate border-b px-3 py-1 text-[11px] text-muted-foreground">This folder</p>
-	{#if listing.data === undefined}
-		{#if listing.isError}
-			<Empty.Root class="flex-1 p-6">
-				<Empty.Title>Could not read the folder</Empty.Title>
-				<Empty.Description>{listing.error.message}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void listing.refetch()}>Try again</Button>
-			</Empty.Root>
-		{:else}
-			<Loading class="flex-1" label="Reading files…" />
-		{/if}
-	{:else}
-		{#if listing.isError}
-			<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-				Could not read the folder: {listing.error.message}. Showing the last list that was read.
-			</p>
-		{/if}
 		<nav class="min-h-0 flex-1 overflow-y-auto p-1.5" aria-label="Folder files">
 			<Sidebar.Menu bind:ref={tree} class="gap-0.5" onkeydown={navigate}>
 				{@render createField('', 0)}
@@ -283,7 +265,7 @@
 									{#each group as action (action.label)}
 										<ContextMenu.Item
 											variant={action.destructive ? 'destructive' : 'default'}
-											disabled={action.disabled || notes.fenced}
+											disabled={action.disabled}
 											onSelect={action.run}
 										>
 											{action.label}
@@ -310,7 +292,7 @@
 									{#each group as action (action.label)}
 										<DropdownMenu.Item
 											variant={action.destructive ? 'destructive' : 'default'}
-											disabled={action.disabled || notes.fenced}
+											disabled={action.disabled}
 											onSelect={action.run}
 										>
 											{action.label}
@@ -334,5 +316,4 @@
 				{/each}
 			</Sidebar.Menu>
 		</nav>
-	{/if}
 </section>

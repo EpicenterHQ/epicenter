@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
-	import type { TextDocument } from '@epicenter/folder/document';
-	import type { FolderTable } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import * as Popover from '@epicenter/ui/popover';
@@ -31,11 +28,10 @@
 	import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
 	import 'prosemirror-view/style/prosemirror.css';
 	import { untrack } from 'svelte';
-	import type { HoneycrispTables } from '$lib/data.js';
 	import {
 		editingPlugins,
+		type NoteBody,
 		nodeActive,
-		noteBody,
 		stateAfter,
 		stateShowing,
 		toggleQuote,
@@ -44,20 +40,16 @@
 	import { noteSchema as schema } from '$lib/editor/schema.js';
 
 	let {
-		fileEdit,
-		parse,
+		note,
 		focusRequest,
-		closing,
 		onOpenSource,
 		onRefuse,
 	}: {
-		/** The note as shown: its draft while an edit is held, else the cache's. */
-		fileEdit: TextDocument<HoneycrispTables['notes']>;
-		parse: FolderTable<HoneycrispTables['notes']>['parse'];
+		/** The note as shown, what is typed included, and the write of its body. */
+		note: NoteBody;
 		focusRequest: number;
-		closing: boolean;
 		onOpenSource: () => void;
-		/** An edit Markdown cannot spell was not made; says why. */
+		/** An edit Markdown cannot spell, or the folder refused, was not made; says why. */
 		onRefuse: (reason: string) => void;
 	} = $props();
 
@@ -75,8 +67,7 @@
 	 * or a save landing, gives the same string, so nothing below runs
 	 * again.
 	 */
-	const snapshot = $derived(liveSnapshot(fileEdit));
-	const body = $derived(noteBody(snapshot.current.text === undefined ? undefined : parse(snapshot.current.text)));
+	const body = $derived(note.read());
 	/** The body as a document, or why it cannot be one. */
 	const rich = $derived(body === undefined ? undefined : bodyCodec.decode(body));
 	/**
@@ -176,8 +167,6 @@
 		if (!opened?.supported) return;
 		/** Cleared with this view: a transaction it is handed afterwards changes nothing. */
 		let alive = true;
-		// Untracked: the view asks `editable` while it is built, and `closing`
-		// changes with every delete and with closing, which must not recreate the view.
 		const mountOn = element;
 		const created = untrack(() => new EditorView(mountOn, {
 			state: EditorState.create({
@@ -185,14 +174,13 @@
 				plugins: [...editingPlugins(), placeholder, taskCheckbox],
 			}),
 			attributes: { class: 'focus:outline-none', 'aria-label': 'Note text' },
-			editable: () => !closing,
 			dispatchTransaction(this: EditorView, transaction) {
 				// Something that kept this view, a command or a timer, can still
 				// dispatch after it was destroyed. Its document is not the note's.
 				if (!alive || this.isDestroyed) return;
 				// A refused or stale transaction changes nothing on screen; a
 				// taken one is already in the note's draft, and its save started.
-				const next = stateAfter(this.state, transaction, fileEdit, parse, onRefuse);
+				const next = stateAfter(this.state, transaction, note, onRefuse);
 				if (next !== undefined) show(this, next);
 			},
 		}));
@@ -217,13 +205,6 @@
 		if (!mounted || !current?.supported) return;
 		const next = stateShowing(mounted.state, current.doc);
 		if (next !== mounted.state) show(mounted, next);
-	});
-
-	// The view asks `editable` only when it updates: ask it again when the note
-	// starts or stops taking edits, so the text is not editable while locked.
-	$effect(() => {
-		closing;
-		untrack(() => view)?.setProps({});
 	});
 
 	$effect(() => {
@@ -326,7 +307,7 @@
 					>
 						<Input class="h-8" placeholder="https://example.com" aria-label="Link address" bind:value={linkHref} />
 						<!-- The popover is outside the app's inert root. -->
-						<Button type="submit" size="sm" disabled={closing}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
+						<Button type="submit" size="sm" >{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
 					</form>
 				</Popover.Content>
 			</Popover.Root>

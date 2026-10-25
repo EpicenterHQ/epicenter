@@ -1,6 +1,8 @@
-import type { FolderContext } from '@epicenter/svelte/folder';
+import type { SvelteFolder } from '@epicenter/svelte/folder-next';
 import { createContext } from 'svelte';
-import type { honeycrispTables } from './data.js';
+import type { HoneycrispTables } from './data.js';
 
-export const [getFolder, setFolder] =
-	createContext<FolderContext<typeof honeycrispTables>>();
+/** The opened folder `<OpenFolder>` hands Honeycrisp, read reactively. */
+export type NotesFolder = SvelteFolder<HoneycrispTables>;
+
+export const [getFolder, setFolder] = createContext<NotesFolder>();

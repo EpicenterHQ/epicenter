@@ -1,62 +1,57 @@
 <!--
 	The note presentation of one open file. FileDetail keeps this mounted
-	while the whole-file source shows, and owns the shared recovery controls.
-	Folder autosaves accepted input after its pause. The rich-text view retains its undo history
+	while the whole-file source shows. The body draft retains typed input while
+	its save runs. The rich-text view retains its undo history
 	while its body is unchanged, including when only the header changes.
 -->
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { Loading } from '@epicenter/ui/loading';
-	import { toast, toastOnError } from '@epicenter/ui/sonner';
+	import { draft } from '@epicenter/svelte/folder-next';
+	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Tabs from '@epicenter/ui/tabs';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import type { TextDocument } from '@epicenter/folder/document';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { folderLabel, type HoneycrispTables, type NoteFields } from '$lib/data.js';
-	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
+	import { folderLabel, type NoteFields, noteIdOf } from '$lib/data.js';
 	import { noteBody } from '$lib/editor/rich-text.js';
+	import { actionMessage, foldersOf, type Notes } from '$lib/notes.svelte.js';
 	import RichEditor from './RichEditor.svelte';
 
 	let {
 		notes,
 		path: shownPath,
-		fileEdit,
 	}: {
 		notes: Notes;
 		/** Fixed for this component's lifetime, including presentation changes. */
 		path: string;
-		fileEdit: TextDocument<HoneycrispTables['notes']>;
 	} = $props();
 
 	// The parent keys this view by its path. While the parent replaces it,
 	// the prop already reads the next item, so this view keeps its own.
 	// svelte-ignore state_referenced_locally
 	const path = shownPath;
-	const folders = createQuery(() => ({
-		...notes.queries.rows('folders'),
-		select: foldersOf,
-	}));
-	const snapshot = $derived(liveSnapshot(fileEdit));
-	const parsed = $derived(snapshot.current.text === undefined ? undefined : notes.folder.tables.notes.parse(snapshot.current.text));
-	const shownNote = $derived(parsed?.issues === null ? parsed : undefined);
-	/**
-	 * Edits wait once the notes are closing. Retained text stays editable
-	 * after a delete or failed read; `FileDetail` shows why beside it.
-	 */
-	const locked = $derived(notes.fenced);
+	const id = noteIdOf(path) ?? '';
+	// The notes state is fixed for the page's life.
+	// svelte-ignore state_referenced_locally
+	const table = notes.folder.tables.notes;
+	// Reading the row holds the note's file while this view shows it.
+	const row = $derived(table.row(id));
+	const shownNote = $derived(row?.issues === null ? row : undefined);
+	const title = draft(() => shownNote?.fields.title ?? '', (value) => notes.rememberSave(path, table.update(id, { fields: { title: value } })));
+	const body = draft(() => noteBody(shownNote) ?? '', (value) => notes.rememberSave(path, table.update(id, { body: value })));
+	const unreadable = $derived(row?.issues?.find((issue) => issue.kind === 'unreadable'));
+	const folders = $derived(foldersOf(notes.folder.tables.folders.rows));
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
 	let tab = $state<'rich' | 'source'>('rich');
 
 	/** Say so when a change was refused. */
-	function refusal(problem: string | undefined) {
-		if (problem) toast.warning('That change was not made', { description: problem });
+	function refusal(problem: Awaited<ReturnType<Notes['patchNote']>>) {
+		const message = actionMessage(problem);
+		if (message) toast.warning('That change was not made', { description: message });
 	}
 
 	/** Set fields of the note and save at once. */
@@ -68,9 +63,6 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#if snapshot.current.text !== undefined && snapshot.current.loadError}
-		<p class="px-3 py-2 text-sm text-destructive" role="alert">{snapshot.current.loadError.message} Your previous text is kept.</p>
-	{/if}
 	{#if shownNote !== undefined}
 		{@const row = shownNote}
 		{@const folderId = row.fields.folderId}
@@ -78,8 +70,8 @@
 		<div class="flex items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => row.fields.title, (typed) => toastOnError(fileEdit.patch({ fields: { title: typed.toWellFormed() } }), 'That change was not made')}
-				disabled={locked}
+				bind:value={() => title.text, (typed) => title.set(typed.toWellFormed())}
+
 				placeholder="Title"
 				aria-label="Title"
 			/>
@@ -87,16 +79,16 @@
 				class="h-9 max-w-40 rounded-md border bg-background px-2 text-sm"
 				aria-label="Folder"
 				value={optionOf(folderId)}
-				disabled={locked}
+
 				onchange={(event) => {
 					set({ folderId: idOf(event.currentTarget.value) });
 				}}
 			>
 				<option value="">No folder</option>
-				{#each folders.data ?? [] as folder (folder.id)}
+				{#each folders as folder (folder.id)}
 					<option value={optionOf(folder.id)}>{folderLabel(folder)}</option>
 				{/each}
-				{#if folderId !== null && !(folders.data ?? []).some((folder) => folder.id === folderId)}
+				{#if folderId !== null && !folders.some((folder) => folder.id === folderId)}
 					<option value={optionOf(folderId)}>{folderId} (missing)</option>
 				{/if}
 			</select>
@@ -106,8 +98,8 @@
 				aria-label={pinned ? 'Unpin' : 'Pin'}
 				aria-pressed={pinned}
 				tooltip={pinned ? 'Unpin' : 'Pin'}
-				disabled={locked}
-				onclick={() => set({ pinned: !pinned })}
+
+				onclick={() => set({ pinned: !row.fields.pinned })}
 			>
 				<PinIcon class={pinned ? 'fill-current' : ''} />
 			</Button>
@@ -122,10 +114,8 @@
 			     survives a look at the source that changes nothing. -->
 			<Tabs.Content value="rich" forceMount class="min-h-0 flex-1">
 				<RichEditor
-					{fileEdit}
-					parse={notes.folder.tables.notes.parse}
+					note={{ read: () => (shownNote ? body.text : undefined), write: body.set }}
 					focusRequest={notes.focusRequest}
-					closing={notes.fenced}
 					onOpenSource={() => (tab = 'source')}
 					onRefuse={(reason) => toast.warning('That edit was not made', { description: reason })}
 				/>
@@ -134,8 +124,8 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => noteBody(row) ?? '', (typed) => toastOnError(fileEdit.patch({ body: typed.toWellFormed() }), 'That change was not made')}
-						disabled={locked}
+						bind:value={() => body.text, (typed) => body.set(typed.toWellFormed())}
+
 						aria-label="Markdown source"
 						spellcheck={false}
 					/>
@@ -143,8 +133,19 @@
 			</Tabs.Content>
 		</Tabs.Root>
 
-	{:else if parsed?.issues}
-		{@const issues = parsed.issues}
+	{:else if row === undefined}
+		<Empty.Root class="flex-1">
+			<Empty.Title>This note is no longer in the folder</Empty.Title>
+			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
+		</Empty.Root>
+	{:else if unreadable?.kind === 'unreadable'}
+		<Empty.Root class="flex-1">
+			<Empty.Title>Could not read the note</Empty.Title>
+			<Empty.Description>{unreadable.error.message}</Empty.Description>
+			<Button variant="outline" size="sm" onclick={() => notes.folder.checkpoint()}>Try again</Button>
+		</Empty.Root>
+	{:else if row.issues !== null}
+		{@const issues = row.issues}
 		<Empty.Root class="flex-1" data-testid="needs-repair">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 			{#if issues.some((issue) => issue.kind === 'not-text')}
@@ -157,21 +158,8 @@
 				<Empty.Description>
 					<code class="font-mono">{path}</code>: {issues.map((issue) => issue.message).join(' ')}
 				</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => notes.open(path, 'text')}>Repair as text</Button>
+				<Button variant="outline" size="sm" onclick={() => void notes.open(path, 'text')}>Repair as text</Button>
 			{/if}
 		</Empty.Root>
-	{:else if snapshot.current.loadError?.name === 'Missing'}
-		<Empty.Root class="flex-1">
-			<Empty.Title>This note is no longer in the folder</Empty.Title>
-			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
-		</Empty.Root>
-	{:else if snapshot.current.loadError}
-		<Empty.Root class="flex-1">
-			<Empty.Title>Could not read the note</Empty.Title>
-			<Empty.Description>{snapshot.current.loadError.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Try again</Button>
-		</Empty.Root>
-	{:else}
-		<Loading class="flex-1" label="Opening the note…" />
 	{/if}
 </section>
