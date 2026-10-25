@@ -45,7 +45,6 @@ test('create, update, an outside edit, and close over a directory', async () => 
 					pinned: Type.Optional(Type.Boolean()),
 				}),
 			},
-			throttleMs: 5,
 		}),
 	);
 	const notes = folder.tables.notes;
@@ -60,6 +59,7 @@ test('create, update, an outside edit, and close over a directory', async () => 
 	);
 
 	await writeFile(join(root, 'notes/a.md'), '---\ntitle: Outside\n---\nBody\n');
+	await folder.refresh();
 	const saved = notes.update('a', { fields: { pinned: true } });
 	expect((await saved).error).toBeNull();
 	expect(await readFile(join(root, 'notes/a.md'), 'utf8')).toBe(

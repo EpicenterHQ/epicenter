@@ -1,7 +1,7 @@
 /**
  * Why a write did not land. The folder's own refusals are here; storage's
  * keep their `SaveError` names. A write that did not land leaves the disk,
- * and so the mirror, as it was.
+ * and so the folder copy, as it was.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { SaveError } from '../shared/errors.js';
@@ -10,11 +10,6 @@ export const WriteRefusal = defineErrors({
 	/** A create found a file already there. */
 	Exists: ({ path }: { path: string }) => ({
 		message: `A file already exists at ${path}`,
-		path,
-	}),
-	/** Storage moved under every attempt to save. */
-	KeptChanging: ({ path }: { path: string }) => ({
-		message: `${path} kept changing while it was being saved`,
 		path,
 	}),
 	/** An update found no readable file to change. */

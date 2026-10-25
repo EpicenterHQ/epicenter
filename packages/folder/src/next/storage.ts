@@ -1,12 +1,6 @@
 /**
- * What a folder needs from its host: a listing with a cheap change token per
- * file, batched reads that carry each file's content version, a put that lands
- * only while the path holds what it expects, and path hints.
- *
- * `version` identifies content and guards conditional saves (a SHA-256 on
- * disk, a blob oid in the browser). `token` is the cheap stat a listing can
- * compare without reading (mtime and size where the host has them). Hints
- * carry no data: they only make the folder look again.
+ * The folder host lists cheap change stamps, reads file bytes and content
+ * versions, and lands unconditional puts. Hints prompt another look.
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from '../boundary.js';
@@ -14,25 +8,20 @@ import { hashBytes } from '../hash.js';
 import type { FolderWatch } from '../native/watch.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 
-export type Listed = { readonly token: string };
+export type Listed = { readonly stamp: string };
 
 /** A read: the file's bytes and identity, or `null` when no file is there. */
 export type Fetched = {
 	readonly bytes: Uint8Array;
 	readonly version: string;
-	readonly token: string;
+	readonly stamp: string;
 } | null;
-
-/** What a put expects at its path: no file, anything, or exact content. An `any` put never answers stale. */
-export type Expected = 'absent' | 'any' | { readonly version: string };
 
 /** What landed: the new file's identity, or `null` for a removal. */
 export type Landed = {
 	readonly version: string;
-	readonly token: string;
+	readonly stamp: string;
 } | null;
-
-export type PutLanding = { readonly landed: Landed };
 
 export type FolderHost = {
 	list(): Promise<Result<ReadonlyMap<string, Listed>, ReadError>>;
@@ -42,20 +31,16 @@ export type FolderHost = {
 	put(
 		path: string,
 		bytes: Uint8Array | null,
-		expected: Expected,
-	): Promise<Result<PutLanding | 'stale', SaveError>>;
+	): Promise<Result<Landed, SaveError>>;
 	/** Paths that may have changed, or `null` when the scope is unknown. */
 	hints?(listener: (paths: readonly string[] | null) => void): () => void;
 	close?(): void;
 };
 
 /**
- * A host over the directory storage contract, until the shell answers
- * listings with change tokens and reads in batches. Its listing has sizes
- * only, so the token is the size: a same-size rewrite is caught by a hint
- * naming the path (always reread) or by a conditional save, not by a
- * checkpoint. Reads run with bounded parallelism, and a landed put hashes its
- * bytes here.
+ * Adapt directory storage. Its listing stamp is only the file size, so a
+ * same-size outside edit needs a named hint to trigger a read. A put hashes
+ * its landed bytes here.
  */
 export function storageHost(
 	storage: FolderStorage,
@@ -67,7 +52,7 @@ export function storageHost(
 			if (error !== null) return ReadError.StorageFailed({ cause: error });
 			return Ok(
 				new Map(
-					data.files.map(({ path, size }) => [path, { token: `${size}` }]),
+					data.files.map(({ path, size }) => [path, { stamp: `${size}` }]),
 				),
 			);
 		},
@@ -85,7 +70,7 @@ export function storageHost(
 							Ok({
 								bytes: data.bytes,
 								version: data.sha256,
-								token: `${data.bytes.length}`,
+								stamp: `${data.bytes.length}`,
 							}),
 						);
 					else if (error.name === 'NotFound') results.set(path, Ok(null));
@@ -97,22 +82,19 @@ export function storageHost(
 			);
 			return results;
 		},
-		async put(path, bytes, expected) {
-			const { data, error } = await storage.put(
-				path,
-				bytes,
-				typeof expected === 'string' ? expected : { sha256: expected.version },
-			);
+		async put(path, bytes) {
+			const { data, error } = await storage.put(path, bytes, 'any');
 			if (error !== null) {
 				if (error.name === 'InvalidPath')
 					return SaveError.InvalidPath({ path });
 				return SaveError.StorageFailed({ cause: error });
 			}
-			if (data === 'stale') return Ok('stale');
-			if (bytes === null) return Ok({ landed: null });
-			return Ok({
-				landed: { version: await hashBytes(bytes), token: `${bytes.length}` },
-			});
+			if (data === 'stale')
+				return SaveError.StorageFailed({
+					cause: 'Unconditional put was stale',
+				});
+			if (bytes === null) return Ok(null);
+			return Ok({ version: await hashBytes(bytes), stamp: `${bytes.length}` });
 		},
 		hints: watch,
 	};

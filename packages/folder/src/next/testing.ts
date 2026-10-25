@@ -5,7 +5,7 @@
  */
 import { Err, Ok } from 'wellcrafted/result';
 import { ReadError, type SaveError } from '../shared/errors.js';
-import type { Expected, Fetched, FolderHost, Listed } from './storage.js';
+import type { Fetched, FolderHost, Listed } from './storage.js';
 
 export { ReadError, SaveError } from '../shared/errors.js';
 export { WriteRefusal } from './errors.js';
@@ -16,7 +16,7 @@ const encoder = new TextEncoder();
 type StorageLog = {
 	lists: number;
 	reads: string[][];
-	puts: { path: string; expected: Expected }[];
+	puts: { path: string }[];
 };
 
 type StorageControl = {
@@ -33,13 +33,13 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 	let clock = 0;
 	const files = new Map<
 		string,
-		{ bytes: Uint8Array; version: string; token: string }
+		{ bytes: Uint8Array; version: string; stamp: string }
 	>();
 	const listeners = new Set<(paths: readonly string[] | null) => void>();
 	const place = (path: string, data: string | Uint8Array) => {
 		const bytes = typeof data === 'string' ? encoder.encode(data) : data;
 		const stamp = `${++clock}`;
-		const file = { bytes, version: `v${stamp}`, token: `t${stamp}` };
+		const file = { bytes, version: `v${stamp}`, stamp: `t${stamp}` };
 		files.set(path, file);
 		return file;
 	};
@@ -63,7 +63,7 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 		async list() {
 			log.lists++;
 			const answer = new Map<string, Listed>(
-				[...files].map(([path, file]) => [path, { token: file.token }]),
+				[...files].map(([path, file]) => [path, { stamp: file.stamp }]),
 			);
 			await control.listGate;
 			if (control.listFails)
@@ -82,7 +82,7 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 							: {
 									bytes: file.bytes.slice(),
 									version: file.version,
-									token: file.token,
+									stamp: file.stamp,
 								};
 					return [path, Ok(fetched)] as const;
 				}),
@@ -90,23 +90,19 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 			await control.readGate;
 			return answer;
 		},
-		async put(path, bytes, expected) {
+		async put(path, bytes) {
 			if (control.closed) throw new Error('put after close');
-			log.puts.push({ path, expected });
+			log.puts.push({ path });
 			await control.putGate;
 			control.beforePut?.(path);
 			const failure = control.failPut.get(path);
 			if (failure !== undefined) return Err(failure);
-			const current = files.get(path);
-			if (expected === 'absent' && current !== undefined) return Ok('stale');
-			if (typeof expected === 'object' && current?.version !== expected.version)
-				return Ok('stale');
 			if (bytes === null) {
 				files.delete(path);
-				return Ok({ landed: null });
+				return Ok(null);
 			}
 			const placed = place(path, bytes);
-			return Ok({ landed: { version: placed.version, token: placed.token } });
+			return Ok({ version: placed.version, stamp: placed.stamp });
 		},
 		hints(listener) {
 			listeners.add(listener);

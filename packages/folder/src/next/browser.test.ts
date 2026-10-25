@@ -17,7 +17,7 @@ beforeEach(() => {
 });
 
 test('create, update, a second tab, and close over IndexedDB', async () => {
-	const folder = expectOk(await openFolder({ tables, throttleMs: 5 }));
+	const folder = expectOk(await openFolder({ tables }));
 	const notes = folder.tables.notes;
 	expect(
 		(await notes.create('a', { fields: { title: 'A' } })).error,
@@ -25,11 +25,14 @@ test('create, update, a second tab, and close over IndexedDB', async () => {
 	expect(folder.files().map((file) => file.path)).toEqual(['notes/a.md']);
 
 	// Another tab over the same origin's folder.
-	const other = expectOk(await openFolder({ tables, throttleMs: 5 }));
+	const other = expectOk(await openFolder({ tables }));
 	const theirs = other.tables.notes;
 	expect(theirs.row('a')?.fields).toEqual({ title: 'A' });
 
-	const saved = notes.update('a', { fields: { pinned: true } });
+	expect(
+		(await notes.update('a', { fields: { pinned: true } })).error,
+	).toBeNull();
+	await other.refresh();
 	expect(
 		(
 			await theirs.update('a', {
@@ -37,10 +40,6 @@ test('create, update, a second tab, and close over IndexedDB', async () => {
 			})
 		).error,
 	).toBeNull();
-	expect((await saved).error).toBeNull();
-
-	// The other tab hears of the save and reads it.
-	await new Promise((resolve) => setTimeout(resolve, 20));
 	expect(theirs.row('a')?.fields).toEqual({
 		title: 'Renamed in the other tab',
 		pinned: true,
@@ -50,12 +49,13 @@ test('create, update, a second tab, and close over IndexedDB', async () => {
 });
 
 test('create refuses a file another tab already made', async () => {
-	const folder = expectOk(await openFolder({ tables, throttleMs: 5 }));
-	const other = expectOk(await openFolder({ tables, throttleMs: 5 }));
+	const folder = expectOk(await openFolder({ tables }));
+	const other = expectOk(await openFolder({ tables }));
 	expect(
 		(await other.tables.notes.create('same', { fields: { title: 'Theirs' } }))
 			.error,
 	).toBeNull();
+	await folder.refresh();
 	const result = await folder.tables.notes.create('same', {
 		fields: { title: 'Mine' },
 	});

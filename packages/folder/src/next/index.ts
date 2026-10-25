@@ -1,18 +1,17 @@
-/** The folder mirror's public types, and its pure row reader. Open through a platform entry. */
+/** The folder copy's public types, and its pure row reader. Open through a platform entry. */
 export type { OpenFolderError } from '../errors.js';
 export type { ReadError } from '../shared/errors.js';
 export type { WriteError } from './errors.js';
 export type {
 	Data,
-	FileValue,
 	Folder,
+	FolderFile,
 	Opened,
 	OpenOptions,
 	Patch,
 	Row,
 	RowIssue,
 	Saved,
-	SaveFailure,
 	Table,
 	Tables,
 } from './folder.js';

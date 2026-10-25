@@ -1,14 +1,14 @@
 /**
  * `@epicenter/folder/next/browser`: this web origin's default local folder,
  * kept in IndexedDB as a Git working tree. A blob's oid is both its content
- * version and its change token, and other tabs' saves arrive as hints.
+ * version and its change stamp, and other tabs' saves arrive as hints.
  */
 import { isTauri } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import { openRepository } from '../browser/repository.js';
 import { snapshotContent } from '../browser/storage.js';
 import { OpenFolderError } from '../errors.js';
-import { ReadError } from '../shared/errors.js';
+import { ReadError, SaveError } from '../shared/errors.js';
 import {
 	createFolder,
 	type Opened,
@@ -49,9 +49,9 @@ function repositoryHost(
 			try {
 				// An empty scope walks every tree and loads no blob.
 				const snapshot = await storage.capture([]);
-				const listed = new Map<string, { token: string }>();
+				const listed = new Map<string, { stamp: string }>();
 				for (const [path, entry] of snapshot.files)
-					if (entry.mode !== '160000') listed.set(path, { token: entry.oid });
+					if (entry.mode !== '160000') listed.set(path, { stamp: entry.oid });
 				return Ok(listed);
 			} catch (cause) {
 				return ReadError.StorageFailed({ cause });
@@ -70,7 +70,7 @@ function repositoryHost(
 								: {
 										bytes: bytes.slice(),
 										version: entry.oid,
-										token: entry.oid,
+										stamp: entry.oid,
 									};
 						return [path, Ok(fetched)];
 					}),
@@ -80,17 +80,19 @@ function repositoryHost(
 				return new Map(paths.map((path) => [path, failed]));
 			}
 		},
-		async put(path, bytes, expected) {
-			const { data, error } = await repository.put(path, bytes, expected);
+		async put(path, bytes) {
+			const { data, error } = await repository.put(path, bytes, 'any');
 			if (error !== null) return { data: null, error };
-			if (data === 'stale') return Ok('stale');
+			if (data === 'stale')
+				return SaveError.StorageFailed({
+					cause: 'Unconditional put was stale',
+				});
 			const { landed } = data;
-			return Ok({
-				landed:
-					landed === null
-						? null
-						: { version: landed.version, token: landed.version },
-			});
+			return Ok(
+				landed === null
+					? null
+					: { version: landed.version, stamp: landed.version },
+			);
 		},
 		hints: (listener) =>
 			repository.onChange(({ paths, origin }) => {
