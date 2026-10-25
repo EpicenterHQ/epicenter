@@ -29,7 +29,7 @@ import { createNativeFolder, invalidTable } from './engine.js';
 import type { FolderObservation } from './watch.js';
 
 /** What a refused open tells the page. */
-function openRefusal(refusal: WindowError) {
+export function openRefusal(refusal: WindowError) {
 	switch (refusal.name) {
 		case 'NotBound':
 			return OpenFolderError.NotBound();

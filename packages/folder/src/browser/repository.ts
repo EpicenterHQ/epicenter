@@ -4,6 +4,7 @@ import { pathProblem, readablePath, writableExistingPath } from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, sameContent } from '../shared/merge.js';
 import { type Row, readRow } from '../shared/row.js';
+import { hashObject } from '../git/raw-objects.js';
 import { changeSnapshot } from './git/snapshot.js';
 import {
 	openStorage,
@@ -105,8 +106,27 @@ export async function openRepository<
 	 * never made.
 	 */
 	function saveFile(path: string, written: FileContent | null) {
+		return putFile(path, written, 'any').then(
+			(result): Result<void, SaveError> =>
+				result.error === null ? Ok(undefined) : result,
+		);
+	}
+
+	/**
+	 * Put `content` at `path`, or remove its file for `null`, only while the
+	 * path holds what `expected` says: no file, or a blob with that oid. A
+	 * mismatch is `'stale'` and changes nothing. Lands with the new blob oid.
+	 */
+	function putFile(
+		path: string,
+		written: FileContent | null,
+		expected: 'any' | 'absent' | { readonly version: string },
+	) {
 		const content = written instanceof Uint8Array ? written.slice() : written;
-		return save(async (): Promise<Result<void, SaveError>> => {
+		return save(
+			async (): Promise<
+				Result<{ landed: { version: string } | null } | 'stale', SaveError>
+			> => {
 			if (!writableExistingPath(path)) return SaveError.InvalidPath({ path });
 			if (typeof content === 'string' && !storableText(content))
 				return SaveError.NotText();
@@ -114,6 +134,10 @@ export async function openRepository<
 				// Trees identify structural collisions; only this path needs blob bytes.
 				const snapshot = await storage.capture([path]);
 				const current = snapshotContent(snapshot, path);
+				const entry = snapshot.files.get(path);
+				if (expected === 'absent' && entry !== undefined) return Ok('stale');
+				if (typeof expected === 'object' && entry?.oid !== expected.version)
+					return Ok('stale');
 				if (content !== null) {
 					if (!validPath(path) && !snapshot.files.has(path))
 						return SaveError.InvalidPath({ path });
@@ -140,7 +164,22 @@ export async function openRepository<
 							});
 					}
 				}
-				if (sameContent(content, current)) return Ok(undefined);
+				const landed = async () =>
+					Ok({
+						landed:
+							content === null
+								? null
+								: {
+										version: await hashObject({
+											type: 'blob',
+											bytes:
+												typeof content === 'string'
+													? new TextEncoder().encode(content)
+													: content,
+										}),
+									},
+					});
+				if (sameContent(content, current)) return landed();
 				const candidate = await changeSnapshot({
 					root: snapshot.state.workingTree,
 					edits: new Map([[path, content]]),
@@ -158,9 +197,10 @@ export async function openRepository<
 						paths: [path],
 					})
 				)
-					return Ok(undefined);
+					return landed();
 			}
-		});
+			},
+		);
 	}
 
 	function table<const TSchema extends Schema>(name: string, schema: TSchema) {
@@ -246,6 +286,9 @@ export async function openRepository<
 		) as {
 			[TName in keyof TTables]: ReturnType<typeof table<TTables[TName]>>;
 		},
+
+		/** A conditional put, for the folder's host. */
+		put: putFile,
 
 		/** Listen for committed file changes; storage owns the connection lifetime. */
 		onChange: storage.subscribe,
