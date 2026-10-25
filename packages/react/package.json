@@ -3,9 +3,10 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
-	"description": "React views over a folder's path-owned file edits.",
+	"description": "React views over an opened folder.",
 	"exports": {
-		"./document": "./src/document.ts"
+		"./document": "./src/document.ts",
+		"./folder": "./src/folder.ts"
 	},
 	"dependencies": {
 		"@epicenter/folder": "workspace:*",
