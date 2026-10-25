@@ -122,6 +122,7 @@ export type Folder<T extends Tables = Tables> = {
 	file(path: string): FileValue | undefined;
 	/** Whether a write is waiting or being saved. */
 	saving(): boolean;
+	/** Called once for each send that did not land, with the last typed text it carried; a create's `Exists` alone is the caller's. */
 	onFailed(listener: (failure: SaveFailure) => void): () => void;
 	/** A file's bytes from storage, `null` when no file is there; for files the mirror does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
