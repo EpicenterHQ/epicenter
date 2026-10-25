@@ -14,12 +14,12 @@
 	by `svelteFolder`. It looks at storage again, and sends waiting writes, on
 	focus, on becoming visible or hidden, on coming back online, and before
 	the page hides. Each write that does not land is a toast with the text to
-	copy. A desktop window's close waits for writes in flight, then closes;
+	copy. A desktop window's close waits for writes in flight when guarded;
 	a browser unload asks only while a write is out. When it unmounts, it
 	closes the folder.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
-	import type { Folder, Opened, SaveFailure } from '@epicenter/folder/next';
+	import type { Folder, Opened } from '@epicenter/folder/next';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
@@ -29,17 +29,23 @@
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { createLogger } from 'wellcrafted/logger';
 	import { Ok } from 'wellcrafted/result';
-	import { type SvelteFolder, svelteFolder } from './folder-next.js';
+	import { type SaveFailure, type SvelteFolder, svelteFolder } from './folder-next.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
-	import { holdWindowClose } from './window-close.js';
+	import { holdWindowClose as registerWindowClose } from './window-close.js';
 
 	let {
 		open,
 		children,
+		holdWindowClose = true,
+		class: className = 'h-dvh',
 	}: {
 		/** Open a fresh folder on mount and each retry. Remount to choose another. */
 		open: () => Opened<TTables>;
 		children: Snippet<[SvelteFolder<TTables>]>;
+		/** Settings windows hide instead of closing and cannot destroy themselves. */
+		holdWindowClose?: boolean;
+		/** Height for the loading and refusal screens; defaults to `h-dvh`. */
+		class?: string;
 	} = $props();
 
 	const log = createLogger('svelte/open-folder');
@@ -48,14 +54,7 @@
 	let stopWindow: (() => void) | undefined;
 	let destroyed = false;
 
-	let stopFailures: (() => void) | undefined;
-
-	const saving = () => opened?.saving.get() ?? false;
-
-	async function close(folder: Folder<TTables>) {
-		await folder.close();
-		stopFailures?.();
-	}
+	const saving = () => opened?.saving() ?? false;
 
 	/** Say a write did not land, with the text it tried to save to copy. */
 	function toastFailure(failure: SaveFailure) {
@@ -65,8 +64,7 @@
 				toastWriteFailure({
 					path: failure.path,
 					error: failure.error,
-					getText: () =>
-						typeof failure.attempted === 'string' ? failure.attempted : undefined,
+					getText: () => failure.text,
 				}),
 			)
 			.catch((cause: unknown) =>
@@ -79,27 +77,30 @@
 		if (result.error !== null) return result;
 		const folder = result.data;
 		if (destroyed) {
-			void close(folder);
-			return Ok(svelteFolder(folder));
+			void folder.close();
+			return Ok(svelteFolder(folder, { onFailed: toastFailure }));
 		}
 		opened = folder;
-		stopFailures = folder.onSaveFailed(toastFailure);
 		// One guard per window: a folder opened beneath another leaves the
 		// window's close to the outer one. It never asks: it waits for the
 		// writes in flight, which answer in milliseconds.
-		stopWindow = await holdWindowClose(
-			() => false,
-			() => {},
-			() => close(folder),
-		).catch(() => undefined);
-		return Ok(svelteFolder(folder));
+		if (holdWindowClose) {
+			const stop = await registerWindowClose(
+				() => false,
+				() => {},
+				() => folder.close(),
+			).catch(() => undefined);
+			if (destroyed) stop?.();
+			else stopWindow = stop;
+		}
+		return Ok(svelteFolder(folder, { onFailed: toastFailure }));
 	}
 	let opening = $state(openAndWrap());
 
 	onDestroy(() => {
 		destroyed = true;
 		stopWindow?.();
-		if (opened !== undefined) void close(opened);
+		void opened?.close();
 		void opening.catch(() => {});
 	});
 
@@ -121,7 +122,7 @@
 <svelte:document onvisibilitychange={checkpoint} />
 
 {#snippet refused(refusal: OpenRefusal)}
-	<Empty.Root class="h-dvh">
+	<Empty.Root class={className}>
 		<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 		<Empty.Header>
 			<Empty.Title>Could not open storage</Empty.Title>
@@ -136,13 +137,11 @@
 {/snippet}
 
 {#await opening}
-	<Loading class="h-dvh" label="Opening…" />
+	<Loading class={className} label="Opening…" />
 {:then result}
 	{#if result.error}
 		{@render refused(
-			result.error.name === 'ListFailed'
-				? { description: result.error.message, retry: true }
-				: describeOpenRefusal(result.error),
+			describeOpenRefusal(result.error),
 		)}
 	{:else}
 		{@render children(result.data)}

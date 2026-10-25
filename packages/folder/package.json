@@ -16,6 +16,7 @@
 		"./next/browser": "./src/next/browser.ts",
 		"./next/tauri": "./src/next/tauri.ts",
 		"./next/bun": "./src/next/bun.ts",
+		"./next/testing": "./src/next/testing.ts",
 		"./declaration": "./src/declaration/index.ts"
 	},
 	"scripts": {

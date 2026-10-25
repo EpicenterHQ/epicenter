@@ -23,7 +23,7 @@ export type Fetched = {
 	readonly token: string;
 } | null;
 
-/** What a put expects at its path: no file, anything, or exact content. */
+/** What a put expects at its path: no file, anything, or exact content. An `any` put never answers stale. */
 export type Expected = 'absent' | 'any' | { readonly version: string };
 
 /** What landed: the new file's identity, or `null` for a removal. */
@@ -31,6 +31,8 @@ export type Landed = {
 	readonly version: string;
 	readonly token: string;
 } | null;
+
+export type PutLanding = { readonly landed: Landed };
 
 export type FolderHost = {
 	list(): Promise<Result<ReadonlyMap<string, Listed>, ReadError>>;
@@ -41,7 +43,7 @@ export type FolderHost = {
 		path: string,
 		bytes: Uint8Array | null,
 		expected: Expected,
-	): Promise<Result<{ landed: Landed } | 'stale', SaveError>>;
+	): Promise<Result<PutLanding | 'stale', SaveError>>;
 	/** Paths that may have changed, or `null` when the scope is unknown. */
 	hints?(listener: (paths: readonly string[] | null) => void): () => void;
 	close?(): void;

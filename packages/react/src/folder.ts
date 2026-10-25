@@ -1,33 +1,16 @@
-/**
- * An opened folder in React: `useFolder()` answers the folder as a snapshot
- * that re-renders its component only when something that component read
- * changes.
- *
- * ```tsx
- * export const { FolderProvider, useFolder } = createFolderContext<typeof tables>();
- *
- * function TodoList() {
- * 	const folder = useFolder();
- * 	const open = folder.tables.todos.rows.filter((todo) => todo.issues === null && !todo.fields.done);
- * 	return open.map((todo) => <TodoItem key={todo.id} todo={todo} />);
- * }
- * ```
- *
- * A snapshot is immutable: each read answers what it answered first in that
- * snapshot, and a new snapshot (a new object) comes when a read value
- * changes, so React Compiler and `useMemo` see the change. `row(id)` and
- * `file(path)` are reads of their own, so a detail view re-renders only when
- * its row changes. A component that only writes, like a list item with a
- * checkbox, reads nothing and never re-renders from the folder. Writes are
- * the folder's own functions.
- */
+/** Tracked immutable React snapshots over one opened folder. */
 import type {
+	Data,
 	FileValue,
 	Folder,
+	Opened,
+	OpenFolderError,
+	Patch,
 	Row,
-	Store,
+	Saved,
 	Table,
 	Tables,
+	WriteError,
 } from '@epicenter/folder/next';
 import {
 	createContext,
@@ -35,76 +18,151 @@ import {
 	type ReactNode,
 	useCallback,
 	useContext,
+	useEffect,
 	useLayoutEffect,
 	useRef,
 	useState,
 	useSyncExternalStore,
 } from 'react';
-import type { TSchema as Schema } from 'typebox';
+import type { TSchema as Schema, Static } from 'typebox';
+import { extractErrorMessage } from 'wellcrafted/error';
 
-export type ReactTable<S extends Schema = Schema> = Pick<
-	Table<S>,
-	'row' | 'create' | 'update' | 'delete'
-> & {
-	/** Every row in the table, in listing order; an unchanged row keeps its object. */
+export type SaveFailure = {
+	path: string;
+	error: WriteError;
+	text: string | undefined;
+};
+export type ReactTable<S extends Schema = Schema> = {
 	readonly rows: readonly Row<S>[];
+	row(id: string): Row<S> | undefined;
+	create(id: string, init: { fields: Static<S>; body?: string }): Saved;
+	update(id: string, patch: Patch<S>): Saved;
+	delete(id: string): Saved;
 };
-
-export type ReactFolder<T extends Tables = Tables> = Pick<
-	Folder<T>,
-	'file' | 'read' | 'write' | 'delete'
-> & {
-	/** Every listed file, in listing order. */
+export type ReactFolder<T extends Tables = Tables> = {
 	readonly files: readonly FileValue[];
-	/** Whether a write is waiting or in flight. */
+	file(path: string): FileValue | undefined;
 	readonly saving: boolean;
+	read: Folder<T>['read'];
+	write(path: string, data: Data): Saved;
+	update: Folder<T>['update'];
+	delete(path: string): Saved;
 	readonly tables: { readonly [K in keyof T]: ReactTable<T[K]> };
+	checkpoint(): void;
 };
 
-/** A provider for an opened folder, and the hook its components read it with. */
+type Provided<T extends Tables> = {
+	folder: Folder<T>;
+	onFailed: ((failure: SaveFailure) => void) | undefined;
+};
+type OpenState<T extends Tables> =
+	| { kind: 'opening' }
+	| { kind: 'refused'; error: OpenFolderError }
+	| { kind: 'ready'; folder: Folder<T> };
+
+/** One mounted opener and the hook its descendants use. */
 export function createFolderContext<const T extends Tables>() {
-	const Context = createContext<Folder<T> | null>(null);
+	const Context = createContext<Provided<T> | null>(null);
 	return {
-		FolderProvider({
-			folder,
+		OpenFolder({
+			open,
 			children,
+			loading,
+			refused,
+			onFailed,
 		}: {
-			folder: Folder<T>;
-			children?: ReactNode;
+			open: () => Opened<T>;
+			children: ReactNode;
+			loading?: ReactNode;
+			refused?: (error: OpenFolderError) => ReactNode;
+			onFailed?: (failure: SaveFailure) => void;
 		}) {
-			return createElement(Context.Provider, { value: folder }, children);
+			const [state, setState] = useState<OpenState<T>>({ kind: 'opening' });
+			const openRef = useRef(open);
+			useEffect(() => {
+				let active = true;
+				let folder: Folder<T> | undefined;
+				const checkpoint = () => folder?.checkpoint();
+				const visibility = () => folder?.checkpoint();
+				const beforeUnload = (event: BeforeUnloadEvent) => {
+					folder?.checkpoint();
+					if (!folder?.saving()) return;
+					event.preventDefault();
+					event.returnValue = '';
+				};
+				void Promise.resolve()
+					.then(() => openRef.current())
+					.then((result) => {
+						if (result.error !== null) {
+							if (active) setState({ kind: 'refused', error: result.error });
+							return;
+						}
+						if (!active) {
+							void result.data.close();
+							return;
+						}
+						folder = result.data;
+						window.addEventListener('focus', checkpoint);
+						window.addEventListener('online', checkpoint);
+						window.addEventListener('pagehide', checkpoint);
+						window.addEventListener('beforeunload', beforeUnload);
+						document.addEventListener('visibilitychange', visibility);
+						setState({ kind: 'ready', folder });
+					})
+					.catch((cause: unknown) => {
+						if (!active) return;
+						const error: OpenFolderError = {
+							name: 'Unavailable',
+							message: `The folder could not be opened: ${extractErrorMessage(cause)}`,
+							cause,
+						};
+						setState({ kind: 'refused', error });
+					});
+				return () => {
+					active = false;
+					window.removeEventListener('focus', checkpoint);
+					window.removeEventListener('online', checkpoint);
+					window.removeEventListener('pagehide', checkpoint);
+					window.removeEventListener('beforeunload', beforeUnload);
+					document.removeEventListener('visibilitychange', visibility);
+					if (folder !== undefined) void folder.close();
+				};
+			}, []);
+			if (state.kind === 'opening') return loading;
+			if (state.kind === 'refused') return refused?.(state.error);
+			return createElement(
+				Context.Provider,
+				{ value: { folder: state.folder, onFailed } },
+				children,
+			);
 		},
 		useFolder(): ReactFolder<T> {
-			const folder = useContext(Context);
-			if (folder === null)
-				throw new Error('useFolder is used outside its FolderProvider');
-			return useSnapshot(folder);
+			const provided = useContext(Context);
+			if (provided === null)
+				throw new Error('useFolder is used outside OpenFolder');
+			return useSnapshot(provided.folder, provided.onFailed);
 		},
 	};
 }
 
-/**
- * What one snapshot read: for each read (a store, or one row or file by its
- * key), how to read it again and the value it answered.
- */
 type Reads = Map<
-	unknown,
+	string,
 	{ readonly get: () => unknown; readonly value: unknown }
 >;
+type Read = <V>(key: string, get: () => V) => V;
 
-function useSnapshot<T extends Tables>(folder: Folder<T>): ReactFolder<T> {
+function useSnapshot<T extends Tables>(
+	folder: Folder<T>,
+	onFailed: ((failure: SaveFailure) => void) | undefined,
+): ReactFolder<T> {
 	const current = useRef<{
 		folder: Folder<T>;
+		onFailed: typeof onFailed;
 		view: ReactFolder<T>;
 		reads: Reads;
 	} | null>(null);
 	const subscribe = useCallback(
-		(onChange: () => void) => {
-			const stops = storesOf(folder).map((store) => store.subscribe(onChange));
-			return () => {
-				for (const stop of stops) stop();
-			};
-		},
+		(onChange: () => void) => folder.subscribe(onChange),
 		[folder],
 	);
 	const getSnapshot = () => {
@@ -112,102 +170,116 @@ function useSnapshot<T extends Tables>(folder: Folder<T>): ReactFolder<T> {
 		if (
 			known !== null &&
 			known.folder === folder &&
+			known.onFailed === onFailed &&
 			[...known.reads.values()].every(({ get, value }) => get() === value)
 		)
 			return known.view;
 		const reads: Reads = new Map();
-		const view = snapshot(folder, reads);
-		current.current = { folder, view, reads };
+		const view = snapshot(folder, onFailed, reads);
+		current.current = { folder, onFailed, view, reads };
 		return view;
 	};
 	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-function storesOf(folder: Folder): Store<unknown>[] {
-	return [
-		folder.files,
-		folder.saving,
-		...Object.values(folder.tables).map((table) => table.rows),
-	];
-}
-
-/** A snapshot of `folder` whose reads record themselves in `reads`. */
 function snapshot<T extends Tables>(
 	folder: Folder<T>,
+	onFailed: ((failure: SaveFailure) => void) | undefined,
 	reads: Reads,
 ): ReactFolder<T> {
 	const read: Read = (key, get) => {
 		const known = reads.get(key);
 		if (known !== undefined) {
-			// SAFETY: `reads` maps each key to a value its `get` answered.
+			// SAFETY: each key stores the value returned by its matching read.
 			return known.value as ReturnType<typeof get>;
 		}
 		const value = get();
 		reads.set(key, { get, value });
 		return value;
 	};
-	// Each snapshot brings its own table objects: React Compiler memoizes a
-	// call like `view.tables.todos.row(id)` on `view.tables.todos`, so a new
-	// snapshot must be new all the way down.
+	const report = (
+		path: string,
+		text: string | undefined,
+		saved: Saved,
+	): Saved => {
+		void saved.then(({ error }) => {
+			if (error !== null) onFailed?.({ path, error, text });
+		});
+		return saved;
+	};
+	// Each snapshot has new table objects because React Compiler memoizes calls on their receiver.
 	const tables = Object.fromEntries(
 		Object.entries(folder.tables).map(([name, table]) => [
 			name,
-			tableSnapshot(name, table, read),
+			tableSnapshot(name, table, read, report),
 		]),
 	);
 	return {
 		get files() {
-			return read(folder.files, folder.files.get);
+			return read('files', folder.files);
 		},
 		file: (path) => read(`file:${path}`, () => folder.file(path)),
 		get saving() {
-			return read(folder.saving, folder.saving.get);
+			return read('saving', folder.saving);
 		},
-		// SAFETY: one table snapshot per key of the folder's tables.
+		// SAFETY: each table key has one snapshot of its original schema.
 		tables: tables as ReactFolder<T>['tables'],
 		read: folder.read,
-		write: folder.write,
-		delete: folder.delete,
+		write: (path, data) =>
+			report(
+				path,
+				typeof data === 'string' ? data : undefined,
+				folder.write(path, data),
+			),
+		update: (path, patch, options) =>
+			report(
+				path,
+				patch.body ?? fieldText(patch.fields),
+				folder.update(path, patch, options),
+			),
+		delete: (path) => report(path, undefined, folder.delete(path)),
+		checkpoint: folder.checkpoint,
 	};
 }
-
-type Read = <V>(key: unknown, get: () => V) => V;
 
 function tableSnapshot<S extends Schema>(
 	name: string,
 	table: Table<S>,
 	read: Read,
+	report: (path: string, text: string | undefined, saved: Saved) => Saved,
 ): ReactTable<S> {
+	const pathOf = (id: string) => `${name}/${id}.md`;
 	return {
 		get rows() {
-			return read(table.rows, table.rows.get);
+			return read(`rows:${name}`, table.rows);
 		},
-		// One row is its own read: a change to another row leaves this snapshot standing.
 		row: (id) => read(`row:${name}/${id}`, () => table.row(id)),
-		create: table.create,
-		update: table.update,
-		delete: table.delete,
+		create: (id, init) =>
+			report(
+				pathOf(id),
+				init.body ?? fieldText(init.fields),
+				table.create(id, init),
+			),
+		update: (id, patch) =>
+			report(
+				pathOf(id),
+				patch.body ?? fieldText(patch.fields),
+				table.update(id, patch),
+			),
+		delete: (id) => report(pathOf(id), undefined, table.delete(id)),
 	};
 }
 
-/**
- * Text a person is typing, ahead of the value it saves to: `text` shows what
- * was typed until that text's save answers, then `value` again, which is the
- * landed text, or the disk's when the save failed.
- *
- * ```tsx
- * const title = useDraft(todo?.issues === null ? todo.fields.title : '', (title) =>
- * 	folder.tables.todos.update(id, { fields: { title } }),
- * );
- * <input value={title.text} onChange={(event) => title.set(event.target.value)} />
- * ```
- */
-export type Draft = {
-	/** What was typed, until its save answers; the value after. */
-	readonly text: string;
-	set(text: string): void;
-};
+function fieldText(fields: object | undefined): string | undefined {
+	if (fields === undefined) return undefined;
+	const values = Object.values(fields).filter(
+		(value): value is string => typeof value === 'string',
+	);
+	return values.length === 0 ? undefined : values.join('\n');
+}
 
+/** Text ahead of its save, until that save answers. */
+export type Draft = { readonly text: string; set(text: string): void };
 export function useDraft(
 	value: string,
 	save: (text: string) => Promise<unknown>,

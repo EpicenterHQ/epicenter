@@ -8,11 +8,15 @@ import { isTableName, openRepository } from '../browser/repository.js';
 import { snapshotContent } from '../browser/storage.js';
 import { OpenFolderError } from '../errors.js';
 import { ReadError } from '../shared/errors.js';
-import { createFolder, type Tables } from './folder.js';
-import type { Opened, OpenOptions } from './open.js';
+import {
+	createFolder,
+	type Opened,
+	type OpenOptions,
+	type Tables,
+} from './folder.js';
 import type { Fetched, FolderHost } from './storage.js';
 
-export * from './index.js';
+export type * from './index.js';
 
 /** The same fixed key as the browser's default folder, so its files carry over. */
 const DEFAULT_KEY = 'default';
@@ -87,7 +91,10 @@ function repositoryHost(
 						: { version: landed.version, token: landed.version },
 			});
 		},
-		hints: (listener) => repository.onChange(({ paths }) => listener(paths)),
+		hints: (listener) =>
+			repository.onChange(({ paths, origin }) => {
+				if (origin === 'other-handle') listener(paths);
+			}),
 		close: repository.close,
 	};
 }

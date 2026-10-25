@@ -50,7 +50,7 @@ test('create, update, an outside edit, and close over a directory', async () => 
 	);
 	const notes = folder.tables.notes;
 
-	expect(notes.rows.get().map((row) => row.fields?.title)).toEqual(['A']);
+	expect(notes.rows().map((row) => row.fields?.title)).toEqual(['A']);
 
 	expect(
 		(await notes.create('b', { fields: { title: 'B' }, body: 'New\n' })).error,

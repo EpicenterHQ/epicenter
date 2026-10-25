@@ -11,11 +11,15 @@ import { commands, events } from '../native/bindings.gen.js';
 import { invalidTable } from '../native/engine.js';
 import { openRefusal } from '../native/tauri.js';
 import { tauriHostFiles } from '../tauri-files.js';
-import { createFolder, type Tables } from './folder.js';
-import type { Opened, OpenOptions } from './open.js';
+import {
+	createFolder,
+	type Opened,
+	type OpenOptions,
+	type Tables,
+} from './folder.js';
 import { storageHost } from './storage.js';
 
-export * from './index.js';
+export type * from './index.js';
 
 export async function openFolder<const T extends Tables>(
 	options: OpenOptions<T>,

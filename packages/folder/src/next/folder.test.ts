@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 import { SaveError } from '../shared/errors.js';
-import { createFolder, type SaveFailure } from './folder.js';
-import { memoryStorage, tick } from './memory-storage.test-support.js';
+import { createFolder } from './folder.js';
+import { memoryHost, tick } from './testing.js';
 
 const tables = {
 	notes: Type.Object({
@@ -16,7 +16,7 @@ const note = (fields: string, body = 'Body\n') =>
 const THROTTLE = 20;
 
 async function setup(initial: Record<string, string | Uint8Array> = {}) {
-	const memory = memoryStorage(initial);
+	const memory = memoryHost(initial);
 	const folder = expectOk(
 		await createFolder(memory.storage, { tables, throttleMs: THROTTLE }),
 	);
@@ -31,10 +31,7 @@ describe('opening', () => {
 			'audio/x.webm': new Uint8Array([1, 2, 3]),
 		});
 		expect(log.reads).toEqual([['notes/a.md', 'notes/b.md']]);
-		expect(notes.rows.get().map((row) => row.fields?.title)).toEqual([
-			'A',
-			'B',
-		]);
+		expect(notes.rows().map((row) => row.fields?.title)).toEqual(['A', 'B']);
 		expect(folder.file('audio/x.webm')).toMatchObject({
 			mime: 'audio/webm',
 			data: undefined,
@@ -46,10 +43,10 @@ describe('opening', () => {
 	});
 
 	test('a failed first listing refuses to open', async () => {
-		const memory = memoryStorage();
+		const memory = memoryHost();
 		memory.control.listFails = true;
 		const opened = await createFolder(memory.storage, { tables });
-		expect(opened.error?.name).toBe('ListFailed');
+		expect(opened.error?.name).toBe('Unavailable');
 	});
 
 	test('a row that does not read as one carries its issues', async () => {
@@ -64,7 +61,7 @@ describe('opening', () => {
 
 	test('row(id) and rows answer the same objects', async () => {
 		const { notes } = await setup({ 'notes/a.md': note('title: A') });
-		expect(notes.row('a')).toBe(notes.rows.get()[0]);
+		expect(notes.row('a')).toBe(notes.rows()[0]);
 	});
 });
 
@@ -83,27 +80,20 @@ describe('the mirror shows what landed', () => {
 			'notes/a.md': note('title: A'),
 			'notes/b.md': note('title: B'),
 		});
-		const [a, b] = notes.rows.get();
+		const [a, b] = notes.rows();
 		await notes.update('a', { fields: { title: 'A2' } });
-		const [a2, b2] = notes.rows.get();
+		const [a2, b2] = notes.rows();
 		expect(a2).not.toBe(a);
 		expect(b2).toBe(b);
 	});
 
-	test('a failed write tells its listener and leaves the mirror on the disk', async () => {
-		const { folder, notes, control } = await setup({
-			'notes/a.md': note('title: A'),
-		});
-		const failures: SaveFailure[] = [];
-		folder.onSaveFailed((failure) => failures.push(failure));
+	test('a failed write leaves the mirror on the disk', async () => {
+		const { notes, control } = await setup({ 'notes/a.md': note('title: A') });
 		const error = SaveError.StorageFailed({ cause: 'disk full' }).error;
 		control.failPut.set('notes/a.md', error);
 		const saved = await notes.update('a', { body: 'Typed\n' });
 		expect(saved.error).toBe(error);
 		expect(notes.row('a')?.body).toBe('Body\n');
-		expect(failures).toEqual([
-			{ path: 'notes/a.md', attempted: note('title: A', 'Typed\n'), error },
-		]);
 	});
 });
 
@@ -156,23 +146,23 @@ describe('patching', () => {
 });
 
 describe('saving', () => {
-	test('the first write goes at once; writes within the throttle merge into one', async () => {
+	test('writes queued before the first send fold into one', async () => {
 		const { notes, log, text } = await setup({
 			'notes/a.md': note('title: A'),
 		});
 		const first = notes.update('a', { body: 'One\n' });
 		const second = notes.update('a', { body: 'Two\n' });
 		const third = notes.update('a', { fields: { pinned: true } });
-		expect(log.puts.length).toBe(1);
+		expect(log.puts.length).toBe(0);
 		expect((await first).error).toBeNull();
 		expect((await second).error).toBeNull();
 		expect((await third).error).toBeNull();
-		expect(log.puts.length).toBe(2);
+		expect(log.puts.length).toBe(1);
 		expect(text('notes/a.md')).toBe(note('title: A\npinned: true', 'Two\n'));
 	});
 
 	test('an update applies to the file as it is when the save runs', async () => {
-		const memory = memoryStorage({ 'notes/a.md': note('title: A') });
+		const memory = memoryHost({ 'notes/a.md': note('title: A') });
 		const folder = expectOk(
 			await createFolder(memory.storage, { tables, throttleMs: THROTTLE }),
 		);
@@ -194,7 +184,7 @@ describe('saving', () => {
 	});
 
 	test('three stale saves in a row answer KeptChanging', async () => {
-		const memory = memoryStorage({ 'notes/a.md': note('title: A') });
+		const memory = memoryHost({ 'notes/a.md': note('title: A') });
 		const folder = expectOk(
 			await createFolder(memory.storage, { tables, throttleMs: THROTTLE }),
 		);
@@ -209,7 +199,7 @@ describe('saving', () => {
 	});
 
 	test('create refuses a listed file, and a file made elsewhere first', async () => {
-		const memory = memoryStorage({ 'notes/a.md': note('title: A') });
+		const memory = memoryHost({ 'notes/a.md': note('title: A') });
 		const folder = expectOk(
 			await createFolder(memory.storage, { tables, throttleMs: THROTTLE }),
 		);
@@ -246,13 +236,13 @@ describe('saving', () => {
 		const { notes, folder } = await setup({ 'notes/a.md': note('title: A') });
 		expect((await notes.delete('a')).error).toBeNull();
 		expect(notes.row('a')).toBeUndefined();
-		expect(folder.files.get()).toEqual([]);
+		expect(folder.files()).toEqual([]);
 	});
 
 	test('saving is true while a write waits or is in flight', async () => {
 		const { folder, notes } = await setup({ 'notes/a.md': note('title: A') });
 		const seen: boolean[] = [];
-		folder.saving.subscribe(() => seen.push(folder.saving.get()));
+		folder.subscribe(() => seen.push(folder.saving()));
 		await notes.update('a', { body: 'x' });
 		expect(seen).toEqual([true, false]);
 	});
@@ -274,17 +264,17 @@ describe('outside changes', () => {
 		outside('notes/b.md', note('title: New'), { hint: false });
 		folder.checkpoint();
 		await tick();
-		expect(notes.rows.get().map((row) => row.fields?.title)).toEqual([
+		expect(notes.rows().map((row) => row.fields?.title)).toEqual([
 			'Moved',
 			'New',
 		]);
 		outside('notes/a.md', null, { hint: false });
 		folder.checkpoint();
 		await tick();
-		expect(notes.rows.get().map((row) => row.id)).toEqual(['b']);
+		expect(notes.rows().map((row) => row.id)).toEqual(['b']);
 	});
 
-	test('a read that overlapped a write is dropped, and the path read again', async () => {
+	test('an older queued read finishes before a later write', async () => {
 		const { notes, control, outside } = await setup({
 			'notes/a.md': note('title: A'),
 		});
@@ -292,16 +282,12 @@ describe('outside changes', () => {
 		control.readGate = new Promise((resolve) => {
 			release = resolve;
 		});
-		// A hint starts a read that answers with the file before the write.
 		outside('notes/a.md', note('title: Before'));
 		await tick();
-		control.readGate = undefined;
 		const saved = notes.update('a', { body: 'Mine\n' });
-		expect((await saved).error).toBeNull();
+		control.readGate = undefined;
 		release();
-		await tick();
-		await tick();
-		expect(notes.row('a')?.fields).toEqual({ title: 'Before' });
+		expect((await saved).error).toBeNull();
 		expect(notes.row('a')?.body).toBe('Mine\n');
 	});
 });
@@ -321,4 +307,221 @@ describe('closing', () => {
 			'Closed',
 		);
 	});
+});
+
+describe('serial mirror changes', () => {
+	test('a listing started before a create cannot erase its landed row', async () => {
+		const { folder, notes, control, log } = await setup();
+		let release: () => void = () => {};
+		control.listGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		folder.checkpoint();
+		await tick();
+		expect(log.lists).toBe(2);
+		const made = notes.create('a', { fields: { title: 'A' } });
+		control.listGate = undefined;
+		release();
+		expect((await made).error).toBeNull();
+		expect(notes.row('a')?.fields).toEqual({ title: 'A' });
+	});
+
+	test('an older delayed read cannot overwrite a newer read', async () => {
+		const { notes, outside, control, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		let release: () => void = () => {};
+		control.readGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		outside('notes/a.md', note('title: Older'));
+		await tick();
+		expect(log.reads.length).toBe(2);
+		outside('notes/a.md', note('title: Newer'));
+		control.readGate = undefined;
+		release();
+		await tick();
+		expect(notes.row('a')?.fields).toEqual({ title: 'Newer' });
+	});
+
+	test('a refused create leaves a following update to apply over the existing file', async () => {
+		const { notes, text, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		const created = notes.create('a', { fields: { title: 'Mine' } });
+		const updated = notes.update('a', { fields: { pinned: true } });
+		expect((await created).error?.name).toBe('Exists');
+		expect((await updated).error).toBeNull();
+		expect(text('notes/a.md')).toBe(note('title: A\npinned: true'));
+		expect(log.puts).toHaveLength(1);
+	});
+
+	test('unknown binary extensions are listed but not read or retained', async () => {
+		const { folder, log } = await setup({
+			'photo.heic': new Uint8Array([1]),
+			'data.bin': new Uint8Array([2]),
+		});
+		expect(log.reads).toEqual([]);
+		expect(folder.files().map((file) => file.path)).toEqual([
+			'data.bin',
+			'photo.heic',
+		]);
+		expect(
+			(await folder.write('photo.png', new Uint8Array([3]))).error,
+		).toBeNull();
+		expect(folder.file('photo.png')?.data).toBeUndefined();
+		expect((await folder.delete('photo.heic')).error).toBeNull();
+		expect(folder.file('photo.heic')).toBeUndefined();
+	});
+
+	test('table delete rejects a nested id without deleting anything', async () => {
+		const { notes, log } = await setup({ 'notes/a.md': note('title: A') });
+		expect((await notes.delete('sub/deep')).error?.name).toBe('InvalidId');
+		expect(log.puts).toEqual([]);
+		expect(notes.row('a')).toBeDefined();
+	});
+
+	test('a folded batch sends one notice when it lands', async () => {
+		const { folder, notes } = await setup({ 'notes/a.md': note('title: A') });
+		const seen: string[][] = [];
+		folder.subscribe(() => seen.push(notes.rows().map((row) => row.id)));
+		const first = notes.update('a', { body: 'First\n' });
+		const second = notes.update('a', { body: 'Second\n' });
+		await Promise.all([first, second]);
+		expect(seen).toEqual([['a'], ['a']]);
+	});
+});
+
+test('checkpoint sends work waiting behind an in-flight send immediately', async () => {
+	const memory = memoryHost({ 'notes/a.md': note('title: A') });
+	const folder = expectOk(
+		await createFolder(memory.storage, { tables, throttleMs: 10_000 }),
+	);
+	let release: () => void = () => {};
+	memory.control.putGate = new Promise((resolve) => {
+		release = resolve;
+	});
+	const first = folder.tables.notes.update('a', { body: 'First\n' });
+	await tick();
+	const second = folder.tables.notes.update('a', { body: 'Second\n' });
+	folder.checkpoint();
+	memory.control.putGate = undefined;
+	release();
+	expect((await first).error).toBeNull();
+	expect((await second).error).toBeNull();
+	expect(memory.log.puts).toHaveLength(2);
+});
+
+test('valid UTF-8 bytes written to a text path remain editable as text', async () => {
+	const { folder, notes } = await setup();
+	const bytes = new TextEncoder().encode(note('title: A'));
+	expect((await folder.write('notes/a.md', bytes)).error).toBeNull();
+	expect(folder.file('notes/a.md')?.data).toBe(note('title: A'));
+	expect(notes.row('a')?.issues).toBeNull();
+	expect(
+		(await notes.update('a', { fields: { pinned: true } })).error,
+	).toBeNull();
+});
+
+test('a relist becomes visible after all its reads finish', async () => {
+	const { folder, notes, outside, control, log } = await setup({
+		'notes/a.md': note('title: A'),
+		'notes/b.md': note('title: B'),
+	});
+	let release: () => void = () => {};
+	control.readGate = new Promise((resolve) => {
+		release = resolve;
+	});
+	outside('notes/a.md', null, { hint: false });
+	outside('notes/b.md', note('title: Changed'), { hint: false });
+	folder.checkpoint();
+	await tick();
+	expect(log.reads).toHaveLength(2);
+	expect(folder.file('notes/a.md')).toBeDefined();
+	expect(folder.files().map((file) => file.path)).toEqual([
+		'notes/a.md',
+		'notes/b.md',
+	]);
+	expect(notes.row('b')?.fields).toEqual({ title: 'B' });
+	control.readGate = undefined;
+	release();
+	await tick();
+	expect(folder.file('notes/a.md')).toBeUndefined();
+	expect(notes.row('b')?.fields).toEqual({ title: 'Changed' });
+});
+
+describe('folder-level structured updates', () => {
+	test('updates root and nested Markdown files', async () => {
+		const { folder, text } = await setup({
+			'a.md': note('title: Root'),
+			'x/y/z.md': note('title: Nested'),
+		});
+		expect(
+			(await folder.update('a.md', { fields: { pinned: true } })).error,
+		).toBeNull();
+		expect(
+			(await folder.update('x/y/z.md', { body: 'Changed\n' })).error,
+		).toBeNull();
+		expect(text('a.md')).toBe(note('pinned: true\ntitle: Root'));
+		expect(text('x/y/z.md')).toBe(note('title: Nested', 'Changed\n'));
+	});
+
+	test('two updates inside the throttle both land', async () => {
+		const { folder, text } = await setup({ 'a.md': note('title: A') });
+		const first = folder.update('a.md', { fields: { alpha: 'A' } });
+		const second = folder.update('a.md', { fields: { beta: 'B' } });
+		expect((await first).error).toBeNull();
+		expect((await second).error).toBeNull();
+		expect(text('a.md')).toBe(note('alpha: A\nbeta: B\ntitle: A'));
+	});
+
+	test('missing path refuses NothingToUpdate', async () => {
+		const { folder, log } = await setup();
+		expect((await folder.update('missing.md', { body: 'X' })).error?.name).toBe(
+			'NothingToUpdate',
+		);
+		expect(log.puts).toEqual([]);
+	});
+
+	test('schema order wins when given, and unknown keys sort otherwise', async () => {
+		const { folder, text } = await setup({
+			'a.md': note('alpha: old\nzeta: old'),
+		});
+		const schema = Type.Object({ zeta: Type.String(), alpha: Type.String() });
+		expect(
+			(
+				await folder.update(
+					'a.md',
+					{ fields: { zeta: 'Z', alpha: 'A' } },
+					{ schema },
+				)
+			).error,
+		).toBeNull();
+		expect(text('a.md')).toBe(note('zeta: Z\nalpha: A'));
+		expect(
+			(await folder.update('a.md', { fields: { zeta: 'ZZ' } })).error,
+		).toBeNull();
+		expect(text('a.md')).toBe(note('alpha: A\nzeta: ZZ'));
+	});
+
+	test('a Saved answer follows the mirror change', async () => {
+		const { folder, notes } = await setup();
+		expect(
+			(await notes.create('new', { fields: { title: 'Now' } })).error,
+		).toBeNull();
+		expect(notes.row('new')?.fields).toEqual({ title: 'Now' });
+		expect(folder.file('notes/new.md')?.data).toBe(note('title: Now', ''));
+	});
+});
+
+test('dotfiles and extensionless files are kept at open', async () => {
+	const { folder, log } = await setup({
+		'.gitignore': 'node_modules\n',
+		Makefile: 'all:\n',
+		'photo.heic': new Uint8Array([1, 2, 3]),
+	});
+	expect(log.reads).toEqual([['.gitignore', 'Makefile']]);
+	expect(folder.file('.gitignore')?.data).toBe('node_modules\n');
+	expect(folder.file('Makefile')?.data).toBe('all:\n');
+	expect(folder.file('photo.heic')?.data).toBeUndefined();
 });

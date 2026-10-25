@@ -2,42 +2,48 @@
  * An opened folder: a mirror of what landed on disk, and the one way to
  * change it.
  *
- * Opening lists the folder and reads every text file, so every read after
- * that is synchronous and complete. Media (images, audio, video, PDFs, and
- * archives) is listed but not kept; `read` fetches its bytes when a view
- * needs them.
+ * Opening lists the folder and reads every text file (an allow-list of text
+ * extensions, plus names without one), so every read after that is
+ * synchronous and complete. Other files are listed but not kept; `read`
+ * fetches their bytes when a view needs them.
  *
  * The mirror never runs ahead of the disk. A write goes down to storage, and
- * the mirror changes when the write's answer comes back, or when a read sees
+ * the mirror changes when the write's answer comes back or a read sees
  * another writer's change. A failed write therefore needs no rollback: the
- * mirror still shows the disk, and `onSaveFailed` says what was not saved.
- * The one thing allowed to run ahead of the disk is what a person is typing,
- * which an editor keeps in a draft (`@epicenter/svelte`, `@epicenter/react`).
+ * mirror still shows the disk. The one thing allowed to run ahead of the
+ * disk is what a person is typing, which an editor keeps in a draft.
  *
- * Each path has one write in flight at a time. The first write after a quiet
- * second goes at once; writes made while one is in flight, or within that
- * second, wait and merge into one, so typing saves about once a second. A
- * table's `update` sets fields and the body on the file as it is on disk when
- * the save runs, as an SQL `UPDATE` does: what it names wins, everything else
- * is kept, and the row is written in the canonical form (`patch.ts`). If the
- * file changed under the save, the folder rereads it and applies the update
- * again, up to three times.
+ * Every operation that changes the mirror (listing, reads, and each path's
+ * save) runs in one serial queue, in the order it was asked for. So a read
+ * asked for after a save lands sees it, and a listing taken before a create
+ * cannot erase the created row.
  *
- * Reads and write answers are ordered per path: a read that overlapped a
- * write to its path is dropped and asked again, so an older read never puts
- * an older file back.
+ * Writes wait per path. The first write after a quiet `throttleMs` is sent
+ * at once; writes made while one is out, or within that window, wait and go
+ * together. A save applies its waiting writes in order over the file as it
+ * is then: a whole write replaces it, a delete removes it, a create refuses
+ * with `Exists` when a file is there, and an update sets the fields and body
+ * it names, as an SQL `UPDATE` does, written in the canonical form
+ * (`patch.ts`). When storage moved under the save, the folder rereads the
+ * path and applies the same writes again, up to three times.
  */
 import type { TSchema as Schema, Static } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { ReadError } from '../shared/errors.js';
+import { OpenFolderError } from '../errors.js';
+import { ReadError, SaveError } from '../shared/errors.js';
 import {
 	type Issue as MarkdownIssue,
 	readMarkdown,
 } from '../shared/markdown-codec.js';
-import { EditError, OpenError, SaveError } from './errors.js';
+import { type WriteError, WriteRefusal } from './errors.js';
 import { applyPatch, declaredKeysOf, type RowPatch } from './patch.js';
-import type { Expected, Fetched, FolderHost, Listed } from './storage.js';
-import { createStore, type Store } from './store.js';
+import type {
+	Expected,
+	Fetched,
+	FolderHost,
+	Listed,
+	PutLanding,
+} from './storage.js';
 
 /** A file's contents: text when the bytes are UTF-8, bytes otherwise. */
 export type Data = string | Uint8Array;
@@ -47,15 +53,14 @@ export type FileValue = {
 	readonly path: string;
 	readonly mime: string;
 	/**
-	 * What is on disk: text, or bytes when a file that should be text is not
-	 * UTF-8. `undefined` for media, which is not kept (see `read`), and for a
-	 * file whose read failed (see `readError`).
+	 * What is on disk: text, or bytes when a kept file is not UTF-8.
+	 * `undefined` for a file the mirror does not keep (see `read`), and for a
+	 * kept file whose read failed (see `readError`).
 	 */
 	readonly data: Data | undefined;
 	/** The latest read of this file failed; `data` keeps what was read before, if anything. */
 	readonly readError: ReadError | null;
 };
-
 export type RowIssue =
 	| MarkdownIssue
 	| {
@@ -64,7 +69,6 @@ export type RowIssue =
 			readonly path: readonly [];
 			readonly error: ReadError;
 	  };
-
 /** A row as it is on disk: valid, or with the issues that keep it from reading as one. */
 export type Row<S extends Schema = Schema> = {
 	readonly id: string;
@@ -82,29 +86,20 @@ export type Row<S extends Schema = Schema> = {
 			readonly issues: readonly [RowIssue, ...RowIssue[]];
 	  }
 );
-
-/** Fields and the body to set on a row's file as it is when the save runs. */
+/** Fields and the body to set on a row's file as it is when the save runs; a field set to `undefined` is removed. */
 export type Patch<S extends Schema = Schema> = {
 	readonly fields?: Partial<Static<S>>;
 	readonly body?: string;
 };
-
-export type Saved = Promise<Result<void, EditError>>;
-
-/** A write that did not land. The mirror already shows the disk. */
-export type SaveFailure = {
-	readonly path: string;
-	/** What the write tried to put there: text or bytes, `null` for a delete, `undefined` when it could not be composed. */
-	readonly attempted: Data | null | undefined;
-	readonly error: EditError;
-};
+/** Answers once the write landed and the mirror shows it, or why it did not land. */
+export type Saved = Promise<Result<void, WriteError>>;
 
 /** A folder's tables: each key is a top-level directory of `<id>.md` rows read through its schema. */
 export type Tables = Record<string, Schema>;
 
 export type Table<S extends Schema = Schema> = {
-	/** Every row in the table, in listing order; an unchanged row keeps its object. */
-	readonly rows: Store<readonly Row<S>[]>;
+	/** Every row, sorted by id; an unchanged row keeps its object, and `row(id)` answers the same objects. */
+	rows(): readonly Row<S>[];
 	row(id: string): Row<S> | undefined;
 	/** Make the row's file; refuses with `Exists` when a file is there. */
 	create(id: string, init: { fields: Static<S>; body?: string }): Saved;
@@ -112,103 +107,133 @@ export type Table<S extends Schema = Schema> = {
 	update(id: string, patch: Patch<S>): Saved;
 	delete(id: string): Saved;
 };
-
 export type Folder<T extends Tables = Tables> = {
-	/** Every listed file, in listing order; an unchanged file keeps its object. */
-	readonly files: Store<readonly FileValue[]>;
+	/** One notice after each change to what the folder shows. Answers unsubscribe. */
+	subscribe(onChange: () => void): () => void;
+	/** Every listed file, sorted by path; an unchanged file keeps its object. */
+	files(): readonly FileValue[];
 	file(path: string): FileValue | undefined;
-	/** A file's bytes from storage, `null` when no file is there; for media, which the mirror does not keep. */
+	/** Whether a write is waiting or being saved. */
+	saving(): boolean;
+	/** A file's bytes from storage, `null` when no file is there; for files the mirror does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
 	/** Replace the whole file. */
 	write(path: string, data: Data): Saved;
+	/** Set fields and the body on a Markdown file at any path; `schema` orders its declared keys first. */
+	update(
+		path: string,
+		patch: { fields?: Record<string, unknown>; body?: string },
+		options?: { schema?: Schema },
+	): Saved;
 	delete(path: string): Saved;
 	readonly tables: { readonly [K in keyof T]: Table<T[K]> };
-	/** Whether a write is waiting or in flight. */
-	readonly saving: Store<boolean>;
-	/** Called once for each write that did not land. */
-	onSaveFailed(listener: (failure: SaveFailure) => void): () => void;
 	/** Look at storage again, and send waiting writes now: on focus, visibility, wake, and before the page hides. */
 	checkpoint(): void;
-	/** Refuse new writes, send what waits, wait for every write and read, then release storage. */
+	/** Refuse new writes, send what waits, wait for the queue, then release storage. */
 	close(): Promise<void>;
 };
 
-type Entry = {
-	readonly value: FileValue;
-	/** Content identity, for conditional saves; `null` when nothing was read. */
-	readonly version: string | null;
-	/** The listing's change token when this was read or landed. */
-	readonly token: string | undefined;
+export type OpenOptions<T extends Tables> = {
+	/** Each key is a top-level directory of `<id>.md` rows read through its schema. */
+	readonly tables: T;
+	/** The least time between two saves of one path; typing saves about this often. */
+	readonly throttleMs?: number;
 };
+export type Opened<T extends Tables> = Promise<
+	Result<Folder<T>, OpenFolderError>
+>;
 
+type Entry = {
+	value: FileValue;
+	version: string | null;
+	token: string | undefined;
+};
 type Op =
-	| { readonly kind: 'write'; readonly data: Data | null }
-	| {
-			readonly kind: 'update' | 'create';
-			readonly patch: RowPatch;
-			readonly keys: readonly string[];
-	  };
-
+	| { kind: 'write'; data: Data | null }
+	| { kind: 'create' | 'update'; patch: RowPatch; keys: readonly string[] };
+type Waiting = { op: Op; resolve: (result: Result<void, WriteError>) => void };
 type Lane = {
-	waiting: {
-		op: Op;
-		resolves: ((result: Result<void, EditError>) => void)[];
-	} | null;
+	waiting: Waiting[];
 	sending: boolean;
-	/** Bumped when a write to this path lands, so reads that overlapped it are dropped. */
-	epoch: number;
 	lastSent: number;
 	timer: ReturnType<typeof setTimeout> | undefined;
-	/** A read was dropped or a hint arrived while a write was in flight: read once it lands. */
-	reread: boolean;
+};
+type Projector = {
+	set(path: string, value: FileValue | undefined): void;
+	finish(): void;
 };
 
 const ATTEMPTS = 3;
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
+const keptExtensions = new Set([
+	'md',
+	'markdown',
+	'txt',
+	'json',
+	'jsonl',
+	'yaml',
+	'yml',
+	'toml',
+	'csv',
+	'tsv',
+	'svg',
+	'html',
+	'htm',
+	'css',
+	'js',
+	'mjs',
+	'ts',
+	'xml',
+	'ini',
+	'log',
+]);
 
-/**
- * Open a folder over `host`: list it and read every text file, then answer
- * the folder. A first listing that fails is a refusal to open.
- */
 export async function createFolder<const T extends Tables>(
 	host: FolderHost,
-	{ tables, throttleMs = 1000 }: { tables: T; throttleMs?: number },
-): Promise<Result<Folder<T>, OpenError>> {
+	{ tables, throttleMs = 1000 }: OpenOptions<T>,
+): Opened<T> {
 	const mirror = new Map<string, Entry>();
 	const lanes = new Map<string, Lane>();
-	const failureListeners = new Set<(failure: SaveFailure) => void>();
+	const listeners = new Set<() => void>();
+	const dirtyProjectors = new Set<Projector>();
+	const projectorsByDirectory = new Map<string, Projector>();
+	let filesSnapshot: readonly FileValue[] = [];
+	let filesDirty = false;
+	let changed = false;
+	let savingSnapshot = false;
 	let accepting = true;
 	let released = false;
+	let tail = Promise.resolve();
 
-	// ---- what changed, and who hears about it --------------------------------
-
-	const changed = new Set<string>();
-	let filesSnapshot: readonly FileValue[] = [];
-	const files = createStore(() => filesSnapshot);
-	let savingNow = false;
-	const saving = createStore(() => savingNow);
-	const tableViews: TableView[] = [];
-
-	/** Publish everything changed since the last commit, once. */
-	function commit() {
-		const busy = [...lanes.values()].some(
-			(lane) => lane.sending || lane.waiting !== null,
+	/** Run `work` after everything queued before it; the queue goes on if it throws. */
+	function queue<TValue>(work: () => Promise<TValue>): Promise<TValue> {
+		const next = tail.then(work);
+		tail = next.then(
+			() => {},
+			() => {},
 		);
-		if (busy !== savingNow) {
-			savingNow = busy;
-			saving.notify();
+		return next;
+	}
+
+	/** Publish what changed since the last notice, once: snapshots first, then listeners. */
+	function notice() {
+		const saving = lanes.size > 0;
+		if (saving !== savingSnapshot) {
+			savingSnapshot = saving;
+			changed = true;
 		}
-		if (changed.size === 0) return;
-		const paths = [...changed];
-		changed.clear();
-		filesSnapshot = [...mirror.values()].map((entry) => entry.value);
-		const touched = tableViews.filter((view) =>
-			paths.some((path) => view.owns(path)),
-		);
-		for (const view of touched) view.refresh();
-		files.notify();
-		for (const view of touched) view.notify();
+		if (!changed) return;
+		changed = false;
+		if (filesDirty) {
+			filesDirty = false;
+			filesSnapshot = [...mirror.values()]
+				.map((entry) => entry.value)
+				.sort((a, b) => compare(a.path, b.path));
+		}
+		for (const projector of dirtyProjectors) projector.finish();
+		dirtyProjectors.clear();
+		for (const listener of [...listeners]) listener();
 	}
 
 	function set(path: string, entry: Entry | undefined) {
@@ -216,11 +241,25 @@ export async function createFolder<const T extends Tables>(
 		if (entry === undefined) {
 			if (before === undefined) return;
 			mirror.delete(path);
-		} else mirror.set(path, entry);
-		changed.add(path);
+		} else {
+			if (before?.value === entry.value) {
+				mirror.set(path, entry);
+				return;
+			}
+			mirror.set(path, entry);
+		}
+		changed = true;
+		filesDirty = true;
+		const slash = path.indexOf('/');
+		if (slash !== -1) {
+			const projector = projectorsByDirectory.get(path.slice(0, slash));
+			if (projector !== undefined) {
+				projector.set(path, entry?.value);
+				dirtyProjectors.add(projector);
+			}
+		}
 	}
 
-	/** Apply a read of `path`: what storage has there, or that the read failed. */
 	function applyRead(path: string, result: Result<Fetched, ReadError>) {
 		const before = mirror.get(path);
 		if (result.error !== null) {
@@ -238,8 +277,18 @@ export async function createFolder<const T extends Tables>(
 		}
 		const fetched = result.data;
 		if (fetched === null) return set(path, undefined);
-		if (before?.version === fetched.version && before.value.readError === null)
-			return set(path, { ...before, token: fetched.token });
+		if (!kept(path)) {
+			if (before?.token === fetched.token && before.value.readError === null)
+				return;
+			return set(path, mediaEntry(path, fetched));
+		}
+		if (
+			before?.version === fetched.version &&
+			before.value.readError === null
+		) {
+			mirror.set(path, { ...before, token: fetched.token });
+			return;
+		}
 		set(path, {
 			value: {
 				path,
@@ -252,349 +301,311 @@ export async function createFolder<const T extends Tables>(
 		});
 	}
 
-	// ---- reads -----------------------------------------------------------------
-
-	let active = 0;
-	let idleWaiters: (() => void)[] = [];
-	const quiet = () =>
-		active === 0 &&
-		[...lanes.values()].every((lane) => !lane.sending && lane.waiting === null);
-	function settle() {
-		if (!quiet()) return;
-		const waiting = idleWaiters;
-		idleWaiters = [];
-		for (const resolve of waiting) resolve();
-	}
-	const idle = () =>
-		quiet()
-			? Promise.resolve()
-			: new Promise<void>((resolve) => idleWaiters.push(resolve));
-
-	/** Read `paths` and apply what came back, skipping any a write overlapped. */
 	async function readPaths(paths: readonly string[]) {
 		if (paths.length === 0 || released) return;
-		active++;
-		const epochs = new Map(paths.map((path) => [path, lanes.get(path)?.epoch]));
-		try {
-			const results = await host.read(paths).catch((cause: unknown) => {
-				const failed = ReadError.StorageFailed({ cause });
-				return new Map(paths.map((path) => [path, failed]));
-			});
-			for (const path of paths) {
-				const lane = lanes.get(path);
-				const result = results.get(path);
-				if (
-					lane?.sending ||
-					lane?.epoch !== epochs.get(path) ||
-					result === undefined
-				) {
-					if (lane !== undefined) lane.reread = true;
-					continue;
-				}
-				applyRead(path, result);
-			}
-			commit();
-		} finally {
-			active--;
-			settle();
+		const results = await host
+			.read(paths)
+			.catch(
+				(cause: unknown) =>
+					new Map(
+						paths.map((path) => [path, ReadError.StorageFailed({ cause })]),
+					),
+			);
+		for (const path of paths) {
+			const result = results.get(path);
+			if (result !== undefined) applyRead(path, result);
 		}
+		notice();
 	}
 
-	/** List storage again, read what is new or moved, and drop what is gone. */
+	/** A listing and its reads become visible together, after the last await. */
 	async function relist(): Promise<ReadError | null> {
 		if (released) return null;
-		active++;
-		try {
-			const { data: listed, error } = await host.list();
-			if (error !== null) return error;
-			const toRead: string[] = [];
-			for (const [path, stat] of listed) {
-				if (lanes.get(path)?.sending) continue;
-				const entry = mirror.get(path);
-				if (!kept(path)) {
-					if (entry === undefined || entry.token !== stat.token)
-						set(path, mediaEntry(path, stat));
-					continue;
-				}
+		const { data: listed, error } = await host
+			.list()
+			.catch((cause: unknown) => ReadError.StorageFailed({ cause }));
+		if (error !== null) return error;
+		const toRead: string[] = [];
+		const media = new Map<string, Entry>();
+		for (const [path, stat] of listed) {
+			const entry = mirror.get(path);
+			if (!kept(path)) {
 				if (
 					entry === undefined ||
 					entry.token !== stat.token ||
 					entry.value.readError !== null
 				)
-					toRead.push(path);
+					media.set(path, mediaEntry(path, stat));
+				continue;
 			}
-			for (const path of [...mirror.keys()])
-				if (!listed.has(path) && !lanes.get(path)?.sending)
-					set(path, undefined);
-			commit();
-			await readPaths(toRead);
-			return null;
-		} finally {
-			active--;
-			settle();
+			if (
+				entry === undefined ||
+				entry.token !== stat.token ||
+				entry.value.readError !== null
+			)
+				toRead.push(path);
 		}
+		const results =
+			toRead.length === 0
+				? new Map<string, Result<Fetched, ReadError>>()
+				: await host
+						.read(toRead)
+						.catch(
+							(cause: unknown) =>
+								new Map(
+									toRead.map((path) => [
+										path,
+										ReadError.StorageFailed({ cause }),
+									]),
+								),
+						);
+		for (const path of mirror.keys())
+			if (!listed.has(path)) set(path, undefined);
+		for (const [path, entry] of media) set(path, entry);
+		for (const path of toRead) {
+			const result = results.get(path);
+			applyRead(
+				path,
+				result ??
+					ReadError.StorageFailed({ cause: `No read answered ${path}` }),
+			);
+		}
+		notice();
+		return null;
 	}
 
-	let relistScheduled = false;
-	function relistSoon() {
-		if (relistScheduled || released) return;
-		relistScheduled = true;
-		queueMicrotask(() => {
-			relistScheduled = false;
-			void relist();
+	let relistQueued = false;
+	function queueRelist() {
+		if (relistQueued || released) return;
+		relistQueued = true;
+		void queue(async () => {
+			relistQueued = false;
+			await relist();
 		});
 	}
 
-	// ---- writes ----------------------------------------------------------------
+	const queuedHints = new Set<string>();
+	function hint(path: string) {
+		if (!kept(path) || queuedHints.has(path)) return;
+		queuedHints.add(path);
+		void queue(async () => {
+			queuedHints.delete(path);
+			await readPaths([path]);
+		});
+	}
 
 	function lane(path: string): Lane {
-		let known = lanes.get(path);
-		if (known === undefined) {
-			known = {
-				waiting: null,
+		let current = lanes.get(path);
+		if (current === undefined) {
+			current = {
+				waiting: [],
 				sending: false,
-				epoch: 0,
 				lastSent: Number.NEGATIVE_INFINITY,
 				timer: undefined,
-				reread: false,
 			};
-			lanes.set(path, known);
+			lanes.set(path, current);
 		}
-		return known;
+		return current;
 	}
 
-	/** Queue `op` at `path`, merged into whatever waits there. */
 	function enqueue(path: string, op: Op): Saved {
-		if (!accepting) return Promise.resolve(EditError.Closed());
-		const l = lane(path);
-		const merged = l.waiting === null ? op : merge(l.waiting.op, op, path);
-		if ('error' in merged) return Promise.resolve(Err(merged.error));
-		return new Promise((resolve) => {
-			if (l.waiting === null) l.waiting = { op: merged, resolves: [resolve] };
-			else {
-				l.waiting.op = merged;
-				l.waiting.resolves.push(resolve);
-			}
-			schedule(path, l);
-			commit();
-		});
+		if (!accepting) return Promise.resolve(WriteRefusal.Closed());
+		const current = lane(path);
+		const saved: Saved = new Promise((resolve) =>
+			current.waiting.push({ op, resolve }),
+		);
+		schedule(path, current);
+		notice();
+		return saved;
 	}
 
-	function schedule(path: string, l: Lane, now = false) {
-		if (l.sending || l.waiting === null) return;
-		clearTimeout(l.timer);
-		l.timer = undefined;
-		const wait = now ? 0 : l.lastSent + throttleMs - Date.now();
-		if (wait <= 0) void send(path, l);
-		else l.timer = setTimeout(() => void send(path, l), wait);
+	function schedule(path: string, current: Lane, now = false) {
+		if (current.sending || current.waiting.length === 0) return;
+		if (now) clearTimeout(current.timer);
+		else if (current.timer !== undefined) return;
+		current.timer = undefined;
+		const delay = now ? 0 : current.lastSent + throttleMs - Date.now();
+		if (delay > 0)
+			current.timer = setTimeout(() => schedule(path, current, true), delay);
+		else {
+			current.sending = true;
+			void queue(() => send(path, current));
+		}
 	}
 
-	async function send(path: string, l: Lane) {
-		clearTimeout(l.timer);
-		l.timer = undefined;
-		const waiting = l.waiting;
-		if (waiting === null || l.sending) return;
-		l.waiting = null;
-		l.sending = true;
-		l.lastSent = Date.now();
-		const { op, resolves } = waiting;
-		let attempted: Data | null | undefined;
-		let outcome: Result<void, EditError>;
+	async function send(path: string, current: Lane) {
+		const batch = current.waiting.splice(0);
+		current.lastSent = Date.now();
+		const answers = new Map<Waiting, Result<void, WriteError>>();
 		try {
-			const result = await land(path, op);
-			attempted = result.attempted;
-			outcome = result.outcome;
+			await land(path, batch, answers);
 		} catch (cause) {
-			outcome = SaveError.StorageFailed({ cause });
+			for (const item of batch)
+				answers.set(item, SaveError.StorageFailed({ cause }));
 		}
-		l.sending = false;
-		if (outcome.error !== null) {
-			const failure = { path, attempted, error: outcome.error };
-			for (const listener of failureListeners) listener(failure);
-		}
-		for (const resolve of resolves) resolve(outcome);
-		commit();
-		if (l.reread) {
-			l.reread = false;
-			void readPaths([path]);
-		}
-		if (l.waiting !== null) schedule(path, l, !accepting);
-		settle();
+		current.sending = false;
+		if (current.waiting.length > 0) schedule(path, current, !accepting);
+		else lanes.delete(path);
+		notice();
+		for (const item of batch) item.resolve(answers.get(item) ?? Ok(undefined));
 	}
 
-	/** Put `op` at `path`, applying what landed to the mirror. */
+	/** Apply `batch` in order over the file as it is, put the result, and answer each write. */
 	async function land(
 		path: string,
-		op: Op,
-	): Promise<{
-		attempted: Data | null | undefined;
-		outcome: Result<void, EditError>;
-	}> {
-		const l = lane(path);
-		if (op.kind === 'write') {
-			const put = await host.put(path, encode(op.data), 'any');
-			if (put.error !== null)
-				return { attempted: op.data, outcome: Err(put.error) };
-			if (put.data === 'stale')
-				return {
-					attempted: op.data,
-					outcome: SaveError.StorageFailed({
-						cause: 'storage answered stale to an unconditional put',
-					}),
-				};
-			l.epoch++;
-			const { landed } = put.data;
+		batch: Waiting[],
+		answers: Map<Waiting, Result<void, WriteError>>,
+	) {
+		const refused = new Map<Waiting, Result<void, WriteError>>();
+		for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+			refused.clear();
+			const base = mirror.get(path);
+			const original = base?.value.data ?? null;
+			let text: Data | null = original;
+			let writesFirst = false;
+			let consultedBase = false;
+			for (const item of batch) {
+				const op = item.op;
+				if (op.kind === 'write') {
+					text = op.data;
+					writesFirst = true;
+					continue;
+				}
+				if (!writesFirst) consultedBase = true;
+				if (op.kind === 'create' && text !== null) {
+					refused.set(item, WriteRefusal.Exists({ path }));
+					continue;
+				}
+				if (op.kind === 'update' && text === null) {
+					refused.set(item, WriteRefusal.NothingToUpdate({ path }));
+					continue;
+				}
+				if (text instanceof Uint8Array) {
+					refused.set(item, SaveError.NotText());
+					continue;
+				}
+				const patched = applyPatch(text, op.patch, op.keys);
+				if (patched.error !== null) {
+					refused.set(
+						item,
+						SaveError.Unparseable({ reason: patched.error.reason }),
+					);
+					continue;
+				}
+				if (patched.data !== 'unchanged') text = patched.data;
+			}
+			if (
+				(base === undefined && text === null) ||
+				(base?.value.data !== undefined && sameData(text, original))
+			) {
+				for (const item of batch)
+					answers.set(item, refused.get(item) ?? Ok(undefined));
+				return;
+			}
+			const expected: Expected = consultedBase
+				? base === undefined || base.version === null
+					? 'absent'
+					: { version: base.version }
+				: 'any';
+			const put = await host.put(path, encode(text), expected);
+			if (put.error !== null) {
+				for (const item of batch)
+					answers.set(item, refused.get(item) ?? Err(put.error));
+				return;
+			}
+			if (expected !== 'any' && put.data === 'stale') {
+				const reread = await host
+					.read([path])
+					.catch(
+						(cause: unknown) =>
+							new Map([[path, ReadError.StorageFailed({ cause })]]),
+					);
+				const result = reread.get(path);
+				if (result === undefined || result.error !== null) {
+					const error = SaveError.StorageFailed({ cause: result?.error });
+					for (const item of batch)
+						answers.set(item, refused.get(item) ?? error);
+					return;
+				}
+				applyRead(path, result);
+				notice();
+				continue;
+			}
+			// SAFETY: an unconditional host put never answers stale.
+			const landed = (put.data as PutLanding).landed;
 			set(
 				path,
-				landed === null || op.data === null
+				landed === null
 					? undefined
 					: {
 							value: {
 								path,
 								mime: mimeOf(path),
-								data: op.data,
+								data:
+									kept(path) && text !== null
+										? typeof text === 'string'
+											? text
+											: decode(text)
+										: undefined,
 								readError: null,
 							},
 							version: landed.version,
 							token: landed.token,
 						},
 			);
-			return { attempted: op.data, outcome: Ok(undefined) };
+			for (const item of batch)
+				answers.set(item, refused.get(item) ?? Ok(undefined));
+			return;
 		}
-		let attempted: Data | null | undefined;
-		for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-			const base = op.kind === 'create' ? undefined : mirror.get(path);
-			if (op.kind === 'update' && base?.value.data === undefined)
-				return {
-					attempted,
-					outcome: EditError.NothingToUpdate({ path }),
-				};
-			if (base?.value.data instanceof Uint8Array)
-				return { attempted, outcome: SaveError.NotText() };
-			const composed = applyPatch(base?.value.data ?? null, op.patch, op.keys);
-			if (composed.error !== null)
-				return {
-					attempted,
-					outcome: SaveError.Unparseable({ reason: composed.error.reason }),
-				};
-			// An update that changes no value lands without a write.
-			if (composed.data === 'unchanged')
-				return { attempted, outcome: Ok(undefined) };
-			attempted = composed.data;
-			const expected: Expected =
-				base === undefined
-					? 'absent'
-					: base.version === null
-						? 'any'
-						: { version: base.version };
-			const put = await host.put(path, encode(attempted), expected);
-			if (put.error !== null) return { attempted, outcome: Err(put.error) };
-			if (put.data !== 'stale') {
-				l.epoch++;
-				const { landed } = put.data;
-				set(
-					path,
-					landed === null
-						? undefined
-						: {
-								value: {
-									path,
-									mime: mimeOf(path),
-									data: attempted,
-									readError: null,
-								},
-								version: landed.version,
-								token: landed.token,
-							},
-				);
-				return { attempted, outcome: Ok(undefined) };
-			}
-			// Storage moved: read what is there now, then try again over it.
-			const reread = await host.read([path]).catch((cause: unknown) => {
-				const failed = ReadError.StorageFailed({ cause });
-				return new Map([[path, failed]]);
-			});
-			const result = reread.get(path);
-			if (result !== undefined) applyRead(path, result);
-			commit();
-			if (op.kind === 'create')
-				return { attempted, outcome: EditError.Exists({ path }) };
-			if (result === undefined || result.error !== null)
-				return {
-					attempted,
-					outcome: SaveError.StorageFailed({ cause: result?.error }),
-				};
-		}
-		return { attempted, outcome: EditError.KeptChanging({ path }) };
+		for (const item of batch)
+			answers.set(
+				item,
+				refused.get(item) ?? WriteRefusal.KeptChanging({ path }),
+			);
 	}
-
-	// ---- tables ----------------------------------------------------------------
-
-	type TableView = {
-		owns(path: string): boolean;
-		refresh(): void;
-		notify(): void;
-	};
 
 	function table<S extends Schema>(directory: string, schema: S): Table<S> {
 		const prefix = `${directory}/`;
-		const extension = '.md';
 		const keys = declaredKeysOf(schema);
-		const pathOf = (id: string) => `${prefix}${id}${extension}`;
+		const pathOf = (id: string) => `${prefix}${id}.md`;
 		const idOf = (path: string) => {
-			if (!path.startsWith(prefix) || !path.endsWith(extension))
-				return undefined;
-			const id = path.slice(prefix.length, path.length - extension.length);
+			if (!path.startsWith(prefix) || !path.endsWith('.md')) return undefined;
+			const id = path.slice(prefix.length, -3);
 			return id === '' || id.includes('/') ? undefined : id;
 		};
-
-		const parsed = new Map<
-			string,
-			{ readonly from: FileValue; readonly row: Row<S> }
-		>();
-		let byId = new Map<string, Row<S>>();
+		const byId = new Map<string, { from: FileValue; row: Row<S> }>();
 		let rowsSnapshot: readonly Row<S>[] = [];
-		const rows = createStore(() => rowsSnapshot);
-
-		function refresh() {
-			const next = new Map<string, Row<S>>();
-			for (const entry of mirror.values()) {
-				const id = idOf(entry.value.path);
-				if (id === undefined) continue;
-				const known = parsed.get(id);
-				const row =
-					known?.from === entry.value
-						? known.row
-						: rowOf(id, entry.value, schema);
-				parsed.set(id, { from: entry.value, row });
-				next.set(id, row);
-			}
-			for (const id of parsed.keys()) if (!next.has(id)) parsed.delete(id);
-			byId = next;
-			rowsSnapshot = [...next.values()];
-		}
-
-		tableViews.push({
-			owns: (path) => idOf(path) !== undefined,
-			refresh,
-			notify: rows.notify,
-		});
-		refresh();
-
+		let dirty = false;
+		const projector: Projector = {
+			set(path, value) {
+				const id = idOf(path);
+				if (id === undefined) return;
+				if (value === undefined) {
+					if (byId.delete(id)) dirty = true;
+					return;
+				}
+				if (byId.get(id)?.from === value) return;
+				byId.set(id, { from: value, row: rowOf(id, value, schema) });
+				dirty = true;
+			},
+			finish() {
+				if (!dirty) return;
+				dirty = false;
+				rowsSnapshot = [...byId.entries()]
+					.sort(([a], [b]) => compare(a, b))
+					.map(([, value]) => value.row);
+			},
+		};
+		projectorsByDirectory.set(directory, projector);
 		return {
-			rows,
-			row: (id) => byId.get(id),
+			rows: () => rowsSnapshot,
+			row: (id) => byId.get(id)?.row,
 			create(id, init) {
-				if (id === '' || id.includes('/'))
-					return Promise.resolve(SaveError.InvalidId({ id }));
-				const path = pathOf(id);
-				const l = lanes.get(path);
-				if (mirror.has(path) || l?.waiting != null || l?.sending)
-					return Promise.resolve(EditError.Exists({ path }));
-				return enqueue(path, {
+				if (invalidId(id)) return Promise.resolve(SaveError.InvalidId({ id }));
+				return enqueue(pathOf(id), {
 					kind: 'create',
 					patch: {
-						// SAFETY: a table's schema describes frontmatter, which is always a mapping.
+						// SAFETY: table frontmatter is a mapping.
 						fields: init.fields as Record<string, unknown>,
 						body: init.body ?? '',
 					},
@@ -602,131 +613,103 @@ export async function createFolder<const T extends Tables>(
 				});
 			},
 			update(id, patch) {
-				const path = pathOf(id);
-				const l = lanes.get(path);
-				if (!mirror.has(path) && l?.waiting == null && !l?.sending)
-					return Promise.resolve(EditError.NothingToUpdate({ path }));
-				return enqueue(path, {
-					kind: 'update',
-					// SAFETY: a patch's fields are part of the table's frontmatter mapping.
-					patch: patch as RowPatch,
-					keys,
-				});
+				if (invalidId(id)) return Promise.resolve(SaveError.InvalidId({ id }));
+				// SAFETY: patch fields are a subset of the table's frontmatter mapping.
+				return folder.update(pathOf(id), patch as RowPatch, { schema });
 			},
-			delete: (id) => enqueue(pathOf(id), { kind: 'write', data: null }),
+			delete(id) {
+				if (invalidId(id)) return Promise.resolve(SaveError.InvalidId({ id }));
+				return enqueue(pathOf(id), { kind: 'write', data: null });
+			},
 		};
 	}
 
-	// ---- the folder ------------------------------------------------------------
-
+	const tableEntries = Object.entries(tables).map(([name, schema]) => [
+		name,
+		table(name, schema),
+	]);
 	const stopHints = host.hints?.((paths) => {
 		if (released) return;
-		if (paths === null) return relistSoon();
-		const toRead: string[] = [];
-		for (const path of paths) {
-			const l = lanes.get(path);
-			if (l?.sending) l.reread = true;
-			else if (kept(path)) toRead.push(path);
-		}
-		void readPaths(toRead);
-		relistSoon();
+		if (paths !== null) for (const path of paths) hint(path);
+		queueRelist();
 	});
-
-	function release() {
-		released = true;
-		stopHints?.();
-		for (const l of lanes.values()) clearTimeout(l.timer);
-		host.close?.();
-	}
-
-	let closing: Promise<void> | undefined;
-
 	const folder: Folder<T> = {
-		files,
+		subscribe(onChange) {
+			listeners.add(onChange);
+			return () => listeners.delete(onChange);
+		},
+		files: () => filesSnapshot,
 		file: (path) => mirror.get(path)?.value,
+		saving: () => savingSnapshot,
 		async read(path) {
-			const results = await host.read([path]).catch((cause: unknown) => {
-				const failed = ReadError.StorageFailed({ cause });
-				return new Map([[path, failed]]);
-			});
+			const results = await host
+				.read([path])
+				.catch(
+					(cause: unknown) =>
+						new Map([[path, ReadError.StorageFailed({ cause })]]),
+				);
 			const result = results.get(path);
 			if (result === undefined)
 				return ReadError.StorageFailed({ cause: `No read answered ${path}` });
-			if (result.error !== null) return Err(result.error);
-			return Ok(result.data?.bytes ?? null);
+			return result.error !== null
+				? Err(result.error)
+				: Ok(result.data?.bytes ?? null);
 		},
 		write: (path, data) => enqueue(path, { kind: 'write', data }),
+		update: (path, patch, options) =>
+			enqueue(path, {
+				kind: 'update',
+				patch,
+				keys: declaredKeysOf(options?.schema),
+			}),
 		delete: (path) => enqueue(path, { kind: 'write', data: null }),
-		// SAFETY: one table per key of `tables`, each over that key's schema.
-		tables: Object.fromEntries(
-			Object.entries(tables).map(([name, schema]) => [
-				name,
-				table(name, schema),
-			]),
-		) as Folder<T>['tables'],
-		saving,
-		onSaveFailed(listener) {
-			failureListeners.add(listener);
-			return () => failureListeners.delete(listener);
-		},
+		// SAFETY: one table was built for each key in T.
+		tables: Object.fromEntries(tableEntries) as Folder<T>['tables'],
 		checkpoint() {
-			for (const [path, l] of lanes) schedule(path, l, true);
-			relistSoon();
+			for (const [path, current] of lanes) {
+				if (current.sending && current.waiting.length > 0) {
+					void queue(async () => {
+						if (lanes.get(path) === current) schedule(path, current, true);
+					});
+				} else schedule(path, current, true);
+			}
+			queueRelist();
 		},
 		close() {
 			closing ??= (async () => {
 				accepting = false;
-				for (const [path, l] of lanes) schedule(path, l, true);
-				await idle();
-				release();
+				for (const [path, current] of lanes) schedule(path, current, true);
+				while (lanes.size > 0) await tail;
+				await tail;
+				released = true;
+				stopHints?.();
+				host.close?.();
 			})();
 			return closing;
 		},
 	};
-
-	const listed = await relist();
-	if (listed !== null) {
-		release();
-		return OpenError.ListFailed({ cause: listed });
+	let closing: Promise<void> | undefined;
+	const first = await queue(relist);
+	if (first !== null) {
+		released = true;
+		stopHints?.();
+		host.close?.();
+		return OpenFolderError.Unavailable({ cause: first });
 	}
 	return Ok(folder);
 }
 
-// ---- pure helpers ------------------------------------------------------------
-
-/**
- * Merge a new op into the one waiting at a path. A whole write replaces what
- * waits; an update merges into a waiting update or create, and applies to a
- * waiting whole write's text.
- */
-function merge(waiting: Op, next: Op, path: string): Op | { error: EditError } {
-	if (next.kind === 'create') return EditError.Exists({ path });
-	if (next.kind === 'write') return next;
-	if (waiting.kind === 'write') {
-		if (waiting.data === null) return EditError.NothingToUpdate({ path });
-		if (typeof waiting.data !== 'string') return SaveError.NotText();
-		const changed = applyPatch(waiting.data, next.patch, next.keys);
-		if (changed.error !== null)
-			return SaveError.Unparseable({ reason: changed.error.reason });
-		return changed.data === 'unchanged'
-			? waiting
-			: { kind: 'write', data: changed.data };
-	}
-	const fields =
-		waiting.patch.fields === undefined && next.patch.fields === undefined
-			? undefined
-			: { ...waiting.patch.fields, ...next.patch.fields };
-	const body = next.patch.body ?? waiting.patch.body;
-	return {
-		kind: waiting.kind,
-		keys: waiting.keys,
-		patch: {
-			...(fields === undefined ? {} : { fields }),
-			...(body === undefined ? {} : { body }),
-		},
-	};
+function invalidId(id: string) {
+	return id === '' || id.includes('/');
 }
-
+function compare(a: string, b: string) {
+	return a < b ? -1 : a > b ? 1 : 0;
+}
+function sameData(a: Data | null, b: Data | null) {
+	if (a === b) return true;
+	if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) return false;
+	return a.length === b.length && a.every((value, index) => value === b[index]);
+}
 function rowOf<S extends Schema>(
 	id: string,
 	file: FileValue,
@@ -734,8 +717,8 @@ function rowOf<S extends Schema>(
 ): Row<S> {
 	const { path } = file;
 	if (file.data === undefined) {
-		const error =
-			file.readError ?? ReadError.StorageFailed({ cause: 'never read' }).error;
+		// SAFETY: a kept row without data has a read error.
+		const error = file.readError as ReadError;
 		return {
 			id,
 			path,
@@ -759,7 +742,6 @@ function rowOf<S extends Schema>(
 				: [first, ...rest],
 	};
 }
-
 function mediaEntry(path: string, stat: Listed): Entry {
 	return {
 		value: { path, mime: mimeOf(path), data: undefined, readError: null },
@@ -767,8 +749,6 @@ function mediaEntry(path: string, stat: Listed): Entry {
 		token: stat.token,
 	};
 }
-
-/** Text when the bytes are UTF-8 (byte-exact, BOM kept), bytes otherwise. */
 function decode(bytes: Uint8Array): Data {
 	try {
 		return decoder.decode(bytes);
@@ -776,12 +756,13 @@ function decode(bytes: Uint8Array): Data {
 		return bytes;
 	}
 }
-
 function encode(data: Data | null): Uint8Array | null {
-	if (data === null) return null;
-	return typeof data === 'string' ? encoder.encode(data) : data;
+	return data === null
+		? null
+		: typeof data === 'string'
+			? encoder.encode(data)
+			: data;
 }
-
 const MIME = new Map([
 	['md', 'text/markdown'],
 	['txt', 'text/plain'],
@@ -802,21 +783,17 @@ const MIME = new Map([
 	['pdf', 'application/pdf'],
 	['zip', 'application/zip'],
 ]);
-
 function mimeOf(path: string): string {
-	const dot = path.lastIndexOf('.');
-	const extension = dot === -1 ? '' : path.slice(dot + 1).toLowerCase();
-	return MIME.get(extension) ?? 'application/octet-stream';
-}
-
-/** Whether the mirror keeps a file's contents: everything but media. */
-function kept(path: string): boolean {
-	const mime = mimeOf(path);
-	return !(
-		(mime.startsWith('image/') && mime !== 'image/svg+xml') ||
-		mime.startsWith('audio/') ||
-		mime.startsWith('video/') ||
-		mime === 'application/pdf' ||
-		mime === 'application/zip'
+	const segment = path.slice(path.lastIndexOf('/') + 1);
+	const dot = segment.lastIndexOf('.');
+	return (
+		MIME.get(dot === -1 ? '' : segment.slice(dot + 1).toLowerCase()) ??
+		'application/octet-stream'
 	);
+}
+/** Whether the mirror keeps a file's contents: text extensions, and names with no extension or only a leading dot. */
+function kept(path: string): boolean {
+	const segment = path.slice(path.lastIndexOf('/') + 1);
+	const dot = segment.lastIndexOf('.');
+	return dot <= 0 || keptExtensions.has(segment.slice(dot + 1).toLowerCase());
 }

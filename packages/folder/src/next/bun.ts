@@ -10,11 +10,15 @@ import { localRoot, scratchDirectory } from '../native/directory.js';
 import { invalidTable } from '../native/engine.js';
 import { nativeStorage, savingPrimitives } from '../native/storage.js';
 import { watchDirectory } from '../native/watch.js';
-import { createFolder, type Tables } from './folder.js';
-import type { Opened, OpenOptions } from './open.js';
+import {
+	createFolder,
+	type Opened,
+	type OpenOptions,
+	type Tables,
+} from './folder.js';
 import { storageHost } from './storage.js';
 
-export * from './index.js';
+export type * from './index.js';
 
 export async function openFolder<const T extends Tables>({
 	directory,

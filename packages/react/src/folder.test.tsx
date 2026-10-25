@@ -9,11 +9,8 @@
  * - A draft shows typing until its save answers, then the landed text
  */
 import { afterEach, expect, test } from 'bun:test';
-import {
-	createFolder,
-	type Folder,
-	type FolderHost,
-} from '@epicenter/folder/next';
+import type { Folder, Opened } from '@epicenter/folder/next';
+import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
 import { Window } from 'happy-dom';
 import { act, memo, type ReactNode } from 'react';
 import { Type } from 'typebox';
@@ -36,7 +33,7 @@ const { createRoot } = await import('react-dom/client');
 const tables = {
 	todos: Type.Object({ title: Type.String(), done: Type.Boolean() }),
 };
-const { FolderProvider, useFolder } = createFolderContext<typeof tables>();
+const { OpenFolder, useFolder } = createFolderContext<typeof tables>();
 const todo = (title: string, done = false) =>
 	`---\ntitle: ${title}\ndone: ${done}\n---\n`;
 
@@ -46,44 +43,33 @@ afterEach(async () => {
 });
 
 async function setup() {
-	const files = new Map([
-		['todos/milk.md', todo('Milk')],
-		['todos/eggs.md', todo('Eggs')],
-	]);
-	let version = 1;
-	const host: FolderHost = {
-		list: async () =>
-			Ok(new Map([...files.keys()].map((path) => [path, { token: 't' }]))),
-		read: async (paths) =>
-			new Map(
-				paths.map((path) => [
-					path,
-					Ok({
-						bytes: new TextEncoder().encode(files.get(path) ?? ''),
-						version: `v${version}`,
-						token: `t${version}`,
-					}),
-				]),
-			),
-		async put(path, bytes) {
-			if (bytes !== null) files.set(path, new TextDecoder().decode(bytes));
-			version++;
-			return Ok({ landed: { version: `v${version}`, token: `t${version}` } });
-		},
-	};
-	const folder = expectOk(await createFolder(host, { tables, throttleMs: 0 }));
-	cleanup.push(() => folder.close());
-	return folder;
+	const memory = memoryHost({
+		'todos/milk.md': todo('Milk'),
+		'todos/eggs.md': todo('Eggs'),
+	});
+	const folder = expectOk(
+		await createFolder(memory.storage, { tables, throttleMs: 0 }),
+	);
+	return { folder, memory };
 }
 
-function mount(folder: Folder<typeof tables>, children: ReactNode) {
+async function mount(
+	folder: Folder<typeof tables>,
+	children: ReactNode,
+	onFailed?: (failure: import('./folder.js').SaveFailure) => void,
+) {
 	const host = document.createElement('div');
 	document.body.append(host);
 	const root = createRoot(host);
 	act(() =>
-		root.render(<FolderProvider folder={folder}>{children}</FolderProvider>),
+		root.render(
+			<OpenFolder open={() => Promise.resolve(Ok(folder))} onFailed={onFailed}>
+				{children}
+			</OpenFolder>,
+		),
 	);
 	cleanup.push(() => act(() => root.unmount()));
+	await settle();
 	return host;
 }
 
@@ -91,7 +77,7 @@ const settle = () =>
 	act(() => new Promise((resolve) => setTimeout(resolve, 5)));
 
 test('a list re-renders when a row lands; an item that only writes does not', async () => {
-	const folder = await setup();
+	const { folder } = await setup();
 	const renders = { list: 0, items: 0 };
 	const Item = memo(function Item({
 		id,
@@ -129,8 +115,8 @@ test('a list re-renders when a row lands; an item that only writes does not', as
 			</ul>
 		);
 	}
-	const host = mount(folder, <List />);
-	expect(host.textContent).toBe('MilkEggs');
+	const host = await mount(folder, <List />);
+	expect(host.textContent).toBe('EggsMilk');
 	expect(renders).toEqual({ list: 1, items: 2 });
 
 	await act(() =>
@@ -144,7 +130,7 @@ test('a list re-renders when a row lands; an item that only writes does not', as
 });
 
 test('a detail view re-renders only when its own row changes', async () => {
-	const folder = await setup();
+	const { folder } = await setup();
 	let renders = 0;
 	function Detail({ id }: { id: string }) {
 		const view = useFolder();
@@ -152,7 +138,7 @@ test('a detail view re-renders only when its own row changes', async () => {
 		renders++;
 		return <p>{row?.issues === null ? row.fields.title : 'gone'}</p>;
 	}
-	const host = mount(folder, <Detail id="eggs" />);
+	const host = await mount(folder, <Detail id="eggs" />);
 	expect(host.textContent).toBe('Eggs');
 	expect(renders).toBe(1);
 	await act(() =>
@@ -169,7 +155,7 @@ test('a detail view re-renders only when its own row changes', async () => {
 });
 
 test('a draft shows typing until its save answers, then the landed text', async () => {
-	const folder = await setup();
+	const { folder } = await setup();
 	let setTitle: (text: string) => void = () => {};
 	function Editor() {
 		const view = useFolder();
@@ -186,7 +172,7 @@ test('a draft shows typing until its save answers, then the landed text', async 
 			/>
 		);
 	}
-	const host = mount(folder, <Editor />);
+	const host = await mount(folder, <Editor />);
 	const input = () => host.querySelector('input');
 	expect(input()?.value).toBe('Milk');
 	act(() => setTitle('Oat'));
@@ -194,4 +180,105 @@ test('a draft shows typing until its save answers, then the landed text', async 
 	await settle();
 	expect(folder.tables.todos.row('milk')?.fields?.title).toBe('Oat');
 	expect(input()?.value).toBe('Oat');
+});
+
+test('onFailed receives the body of a failed update', async () => {
+	const { folder, memory } = await setup();
+	const failures: import('./folder.js').SaveFailure[] = [];
+	let update: () => void = () => {};
+	function Writer() {
+		const view = useFolder();
+		update = () => {
+			void view.tables.todos.update('milk', { body: 'Typed body' });
+		};
+		return null;
+	}
+	await mount(folder, <Writer />, (failure) => failures.push(failure));
+	memory.control.failPut.set('todos/milk.md', {
+		name: 'StorageFailed',
+		message: 'disk full',
+		cause: null,
+	});
+	await act(async () => {
+		update();
+		await settle();
+	});
+	expect(failures).toMatchObject([
+		{ path: 'todos/milk.md', text: 'Typed body' },
+	]);
+});
+
+test('OpenFolder shows loading, then children, and closes on unmount', async () => {
+	const { folder, memory } = await setup();
+	const host = document.createElement('div');
+	document.body.append(host);
+	const root = createRoot(host);
+	let release: (result: Awaited<Opened<typeof tables>>) => void = () => {};
+	const opening = new Promise<Awaited<Opened<typeof tables>>>((resolve) => {
+		release = resolve;
+	});
+	act(() =>
+		root.render(
+			<OpenFolder open={() => opening} loading={<p>Opening</p>}>
+				<p>Ready</p>
+			</OpenFolder>,
+		),
+	);
+	expect(host.textContent).toBe('Opening');
+	await act(async () => {
+		release(Ok(folder));
+		await opening;
+	});
+	expect(host.textContent).toBe('Ready');
+	await act(() => root.unmount());
+	expect(memory.control.closed).toBe(true);
+});
+
+test('OpenFolder renders a refusal when opening rejects', async () => {
+	const host = document.createElement('div');
+	const root = createRoot(host);
+	act(() =>
+		root.render(
+			<OpenFolder
+				open={() => Promise.reject(new Error('offline'))}
+				refused={(error) => (
+					<p>
+						{error.name}: {error.message}
+					</p>
+				)}
+			>
+				<p>Ready</p>
+			</OpenFolder>,
+		),
+	);
+	await settle();
+	expect(host.textContent).toContain('Unavailable');
+	expect(host.textContent).toContain('offline');
+	await act(() => root.unmount());
+});
+
+test('folder update reports typed text on failure', async () => {
+	const { folder, memory } = await setup();
+	const failures: import('./folder.js').SaveFailure[] = [];
+	let update: () => void = () => {};
+	function Writer() {
+		const view = useFolder();
+		update = () => {
+			void view.update('todos/milk.md', { body: 'Folder body' });
+		};
+		return null;
+	}
+	await mount(folder, <Writer />, (failure) => failures.push(failure));
+	memory.control.failPut.set('todos/milk.md', {
+		name: 'StorageFailed',
+		message: 'disk full',
+		cause: null,
+	});
+	await act(async () => {
+		update();
+		await settle();
+	});
+	expect(failures).toMatchObject([
+		{ path: 'todos/milk.md', text: 'Folder body' },
+	]);
 });

@@ -22,7 +22,7 @@ test('create, update, a second tab, and close over IndexedDB', async () => {
 	expect(
 		(await notes.create('a', { fields: { title: 'A' } })).error,
 	).toBeNull();
-	expect(folder.files.get().map((file) => file.path)).toEqual(['notes/a.md']);
+	expect(folder.files().map((file) => file.path)).toEqual(['notes/a.md']);
 
 	// Another tab over the same origin's folder.
 	const other = expectOk(await openFolder({ tables, throttleMs: 5 }));

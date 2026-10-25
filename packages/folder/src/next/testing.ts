@@ -1,7 +1,13 @@
-/** An in-memory `FolderHost` that a test can write behind, delay, and break. */
+/**
+ * `@epicenter/folder/next/testing`: a folder over memory, for tests of the
+ * folder and of what is built on it. `memoryHost` is a `FolderHost` a test
+ * can write behind, delay, and break.
+ */
 import { Err, Ok } from 'wellcrafted/result';
 import { ReadError, type SaveError } from '../shared/errors.js';
 import type { Expected, Fetched, FolderHost, Listed } from './storage.js';
+
+export { createFolder } from './folder.js';
 
 const encoder = new TextEncoder();
 
@@ -14,14 +20,14 @@ type StorageLog = {
 type StorageControl = {
 	beforePut: ((path: string) => void) | undefined;
 	readGate: Promise<void> | undefined;
+	listGate: Promise<void> | undefined;
+	putGate: Promise<void> | undefined;
 	failPut: Map<string, SaveError>;
 	listFails: boolean;
 	closed: boolean;
 };
 
-export function memoryStorage(
-	initial: Record<string, string | Uint8Array> = {},
-) {
+export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 	let clock = 0;
 	const files = new Map<
 		string,
@@ -43,6 +49,8 @@ export function memoryStorage(
 		beforePut: undefined,
 		/** While set, reads wait for it after taking their snapshot. */
 		readGate: undefined,
+		listGate: undefined,
+		putGate: undefined,
 		/** A put to this path fails with this error. */
 		failPut: new Map<string, SaveError>(),
 		listFails: false,
@@ -52,14 +60,13 @@ export function memoryStorage(
 	const storage: FolderHost = {
 		async list() {
 			log.lists++;
-			await Promise.resolve();
+			const answer = new Map<string, Listed>(
+				[...files].map(([path, file]) => [path, { token: file.token }]),
+			);
+			await control.listGate;
 			if (control.listFails)
 				return ReadError.StorageFailed({ cause: 'list failed' });
-			return Ok(
-				new Map<string, Listed>(
-					[...files].map(([path, file]) => [path, { token: file.token }]),
-				),
-			);
+			return Ok(answer);
 		},
 		async read(paths) {
 			log.reads.push([...paths]);
@@ -84,7 +91,7 @@ export function memoryStorage(
 		async put(path, bytes, expected) {
 			if (control.closed) throw new Error('put after close');
 			log.puts.push({ path, expected });
-			await Promise.resolve();
+			await control.putGate;
 			control.beforePut?.(path);
 			const failure = control.failPut.get(path);
 			if (failure !== undefined) return Err(failure);

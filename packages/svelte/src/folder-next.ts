@@ -1,104 +1,149 @@
 /**
  * An opened folder, read reactively: `svelteFolder` wraps it once, and every
- * read is a tracked getter or lookup, so `$derived` and effects follow it.
- * Writes are the folder's own functions, unchanged.
+ * read is a tracked getter or lookup over one subscription, so `$derived` and
+ * effects follow it. `rows` and `row(id)` answer the same objects, and an
+ * unchanged row keeps its object, so a derived read reruns on any change but
+ * answers the same value unless its own row changed.
  *
- * ```svelte
- * const folder = getFolder();
- * const open = $derived(folder.tables.todos.rows.filter((todo) => todo.issues === null && !todo.fields.done));
- * const todo = $derived(folder.tables.todos.row(id));
- * folder.tables.todos.update(id, { fields: { done: true } });
- * ```
- *
- * `row(id)` reads the same objects `rows` holds, and both follow one
- * subscription per table, so a detail view's `$derived` reruns when any row
- * changes but answers the same object unless its own row did. A component
- * that only writes reads nothing, and nothing reruns in it.
- *
- * `<OpenFolder>` opens, wraps, and closes the folder; apps only see this.
+ * Writes are the folder's own, and each one that does not land is reported
+ * once to `onFailed` with the text a person can copy. `<OpenFolder>` opens,
+ * wraps, and closes the folder; apps only see this.
  */
 import type {
+	Data,
 	FileValue,
 	Folder,
+	Patch,
 	Row,
-	Store,
+	Saved,
 	Table,
 	Tables,
+	WriteError,
 } from '@epicenter/folder/next';
 import { createSubscriber } from 'svelte/reactivity';
-import type { TSchema as Schema } from 'typebox';
+import type { TSchema as Schema, Static } from 'typebox';
 
-export type SvelteTable<S extends Schema = Schema> = Pick<
-	Table<S>,
-	'row' | 'create' | 'update' | 'delete'
-> & {
-	/** Every row in the table, in listing order; an unchanged row keeps its object. */
+export { draft } from './draft.svelte.js';
+
+/** A write that did not land, and the typed text it carried, to offer for copying. */
+export type SaveFailure = {
+	path: string;
+	error: WriteError;
+	text: string | undefined;
+};
+export type SvelteTable<S extends Schema = Schema> = {
 	readonly rows: readonly Row<S>[];
+	row(id: string): Row<S> | undefined;
+	create(id: string, init: { fields: Static<S>; body?: string }): Saved;
+	update(id: string, patch: Patch<S>): Saved;
+	delete(id: string): Saved;
 };
-
-export type SvelteFolder<T extends Tables = Tables> = Pick<
-	Folder<T>,
-	'file' | 'read' | 'write' | 'delete'
-> & {
-	/** Every listed file, in listing order. */
+export type SvelteFolder<T extends Tables = Tables> = {
 	readonly files: readonly FileValue[];
-	/** Whether a write is waiting or in flight. */
+	file(path: string): FileValue | undefined;
 	readonly saving: boolean;
+	read: Folder<T>['read'];
+	write(path: string, data: Data): Saved;
+	update: Folder<T>['update'];
+	delete(path: string): Saved;
 	readonly tables: { readonly [K in keyof T]: SvelteTable<T[K]> };
+	checkpoint(): void;
 };
 
-/** Wrap an opened folder once; apps read through what this answers. */
 export function svelteFolder<const T extends Tables>(
 	folder: Folder<T>,
+	{ onFailed }: { onFailed?: (failure: SaveFailure) => void } = {},
 ): SvelteFolder<T> {
+	const track = createSubscriber((update) => folder.subscribe(update));
+	const report = (
+		path: string,
+		text: string | undefined,
+		saved: Saved,
+	): Saved => {
+		void saved.then(({ error }) => {
+			if (error !== null) onFailed?.({ path, error, text });
+		});
+		return saved;
+	};
 	const tables = Object.fromEntries(
 		Object.entries(folder.tables).map(([name, table]) => [
 			name,
-			svelteTable(table),
+			svelteTable(name, table, track, report),
 		]),
 	);
-	const files = tracked(folder.files);
-	const saving = tracked(folder.saving);
 	return {
 		get files() {
-			return files();
+			track();
+			return folder.files();
 		},
 		file(path) {
-			files();
+			track();
 			return folder.file(path);
 		},
 		get saving() {
-			return saving();
+			track();
+			return folder.saving();
 		},
-		// SAFETY: one wrapped table per key of the folder's tables.
+		// SAFETY: each table key has one wrapped table with its original schema.
 		tables: tables as SvelteFolder<T>['tables'],
 		read: folder.read,
-		write: folder.write,
-		delete: folder.delete,
+		write: (path, data) =>
+			report(
+				path,
+				typeof data === 'string' ? data : undefined,
+				folder.write(path, data),
+			),
+		update: (path, patch, options) =>
+			report(
+				path,
+				patch.body ?? fieldText(patch.fields),
+				folder.update(path, patch, options),
+			),
+		delete: (path) => report(path, undefined, folder.delete(path)),
+		checkpoint: folder.checkpoint,
 	};
 }
 
-function svelteTable<S extends Schema>(table: Table<S>): SvelteTable<S> {
-	const rows = tracked(table.rows);
+function svelteTable<S extends Schema>(
+	name: string,
+	table: Table<S>,
+	track: () => void,
+	report: (path: string, text: string | undefined, saved: Saved) => Saved,
+): SvelteTable<S> {
+	const pathOf = (id: string) => `${name}/${id}.md`;
 	return {
 		get rows() {
-			return rows();
+			track();
+			return table.rows();
 		},
 		row(id) {
-			rows();
+			track();
 			return table.row(id);
 		},
-		create: table.create,
-		update: table.update,
-		delete: table.delete,
+		create(id, init) {
+			return report(
+				pathOf(id),
+				init.body ?? fieldText(init.fields),
+				table.create(id, init),
+			);
+		},
+		update(id, patch) {
+			return report(
+				pathOf(id),
+				patch.body ?? fieldText(patch.fields),
+				table.update(id, patch),
+			);
+		},
+		delete(id) {
+			return report(pathOf(id), undefined, table.delete(id));
+		},
 	};
 }
 
-/** A read of `store` that tracks: one subscription while any effect reads it. */
-function tracked<V>(store: Store<V>): () => V {
-	const track = createSubscriber((update) => store.subscribe(update));
-	return () => {
-		track();
-		return store.get();
-	};
+function fieldText(fields: object | undefined): string | undefined {
+	if (fields === undefined) return undefined;
+	const values = Object.values(fields).filter(
+		(value): value is string => typeof value === 'string',
+	);
+	return values.length === 0 ? undefined : values.join('\n');
 }
