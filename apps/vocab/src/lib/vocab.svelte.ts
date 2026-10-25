@@ -1,35 +1,9 @@
-/**
- * Vocab over the local folder `<FolderApp>` opened: the words and the
- * chats, in the page's one TanStack Query cache.
- *
- * Every read is a query of the context (`queries.rows`), and the context
- * wires the folder's one channel of change, `onChange`, to mark the tables a
- * committed save names stale, whichever handle or tab made it. A word's note
- * and stage are typed through its row's edit handle, and a repair through
- * its file's text edit handle; the folder holds both, and the context counts
- * them. Adding a word, starting a chat, and saving a message check closing
- * before writing. Folder close releases synchronously without waiting for
- * those workflows or their writes. Nothing is synced or records a version.
- */
-import type { FolderContext } from '@epicenter/svelte/folder';
 import { createChats } from './chat/chats.js';
-import type { VocabTables } from './data.js';
+import type { VocabFolder } from './data.js';
 import { createEntries } from './entries.svelte.js';
 
-export type Vocab = ReturnType<typeof createVocab>;
-
-/** The opened Vocab folder, as `getFolder()` answers it. */
-export type VocabContext = FolderContext<VocabTables>;
-
-export function createVocab(local: VocabContext) {
-	const entries = createEntries(local);
-	const chats = createChats(local);
-
-	return {
-		folder: local.folder,
-		queries: local.queries,
-		queryClient: local.queryClient,
-		entries,
-		chats,
-	};
+export function createVocab(folder: VocabFolder) {
+	return { folder, entries: createEntries(folder), chats: createChats(folder) };
 }
+
+export type Vocab = ReturnType<typeof createVocab>;

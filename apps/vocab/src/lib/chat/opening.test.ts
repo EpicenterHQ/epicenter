@@ -9,7 +9,10 @@ import { type AgentEngineRequest, createConversation } from '@epicenter/agent';
 import { expectOk } from 'wellcrafted/testing';
 import type { VocabFolder } from '../data.js';
 import { createBrowser, settle, tableFiles } from '../folder.test-support.js';
-import { createChatMessageStore } from './messages.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
+
+const { createChatMessageStore } = await import('./messages.svelte.js');
+
 import { withTutorOpening } from './opening.js';
 
 /** A conversation over the chat's saved transcript, as a mounted view has it. */
@@ -18,7 +21,6 @@ async function open(
 	engine: Parameters<typeof withTutorOpening>[0],
 ) {
 	const store = createChatMessageStore(folder, 'chat-a');
-	expectOk(await store.load());
 	return createConversation({
 		store,
 		engine: withTutorOpening(engine),

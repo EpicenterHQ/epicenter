@@ -1,59 +1,26 @@
-/**
- * The repair of one word file that does not read as a word, as its exact
- * text.
- *
- * A file whose frontmatter does not read needs its whole text replaced, so
- * the repair types through the folder's edit of the file
- * (`folder.tables.entries.document(id)`), whose text is the file's
- * exact editable source. The folder holds what is typed, writes it a second after
- * the last keystroke and at once on `save()`, one write at a time, in call order. A reread never replaces pending local input. A failed write keeps the
- * text and its error; `save()` tries again, and so does further
- * typing. The repair itself holds only which file is open.
- */
+import type { Saved } from '@epicenter/folder/next';
+import { readRow } from '@epicenter/folder/next';
+import { type VocabFolder, vocabTables } from './data.js';
 
-import type { VocabFolder } from './data.js';
-
-export function createRepair(folder: Pick<VocabFolder, 'tables'>) {
-	/** The word file open for repair, by its row ID. */
+/** Which word file is open as text. The editor owns its draft and last save. */
+export function createRepair(folder: VocabFolder) {
 	let open = $state<string | undefined>();
-
-	/** The core handle is already stable for this path; the view owns observation. */
-	const view = () =>
-		open === undefined ? undefined : folder.tables.entries.document(open);
 	return {
-		/** The row ID of the word file open for repair, if any. */
 		get open() {
 			return open;
 		},
-		/**
-		 * Open the word file `id` for repair. The folder keeps input for other files.
-		 */
-		start(id: string): boolean {
-			if (open === id) return true;
+		start(id: string) {
 			open = id;
-			return true;
 		},
-		/**
-		 * The open file's text as views show and type it: what is typed over
-		 * the file as stored, which a reread never replaces.
-		 */
-		view,
-		/** Return to the structured view as soon as the current document is valid. */
-		close(): boolean {
-			const text = view()?.getSnapshot().text;
-			if (
-				text === undefined ||
-				folder.tables.entries.parse(text).issues !== null
-			)
-				return false;
+		async close(text: string, lastSave: Saved | undefined): Promise<boolean> {
+			if (readRow(text, vocabTables.entries).issues !== null) return false;
+			folder.checkpoint();
+			if (lastSave && (await lastSave).error !== null) return false;
+			if (open === undefined) return false;
+			const row = folder.tables.entries.row(open);
+			if (row?.issues !== null) return false;
 			open = undefined;
 			return true;
-		},
-		/** Discard this path's input, then close unless a running operation retains it. */
-		discard() {
-			const fileEdit = view();
-			fileEdit?.discard();
-			open = undefined;
 		},
 	};
 }

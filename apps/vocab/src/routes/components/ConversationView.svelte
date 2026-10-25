@@ -14,7 +14,6 @@
 	import { auth } from '$lib/auth.svelte.js';
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
 	import type { VocabFolder } from '$lib/data.js';
-	import type { MessageWrite } from '$lib/chat/messages.js';
 	import type { Entries } from '$lib/entries.svelte.js';
 	import type { InferenceCatalog } from '@epicenter/ai/picker';
 	import type { InferenceSelections } from '@epicenter/ai/selections';
@@ -27,7 +26,6 @@
 		chatId,
 		account,
 		folder,
-		write,
 		catalog,
 		selections,
 		entries,
@@ -39,9 +37,7 @@
 		chatId: string;
 		/** The account captured when the parent opened this tutor. */
 		account: Account | undefined;
-		folder: Pick<VocabFolder, 'tables' | 'files'>;
-		/** Saves each message in this chat's turn. */
-		write: MessageWrite;
+		folder: VocabFolder;
 		catalog: InferenceCatalog;
 		selections: InferenceSelections;
 		entries: Entries;
@@ -54,7 +50,7 @@
 	// The parent keys this component by chat ID. Its loop and draft end when
 	// another chat is selected; dictation ends sooner when Chat hides.
 	/* svelte-ignore state_referenced_locally */
-	const chat = createVocabChat({ folder, write, chatId, focus, catalog, selections });
+	const chat = createVocabChat({ folder, chatId, focus, catalog, selections });
 
 	// The element holding the messages; phrase capture listens inside it.
 	let list = $state<HTMLElement | null>(null);
@@ -94,7 +90,7 @@
 	<div class="min-h-0 flex-1 overflow-hidden" bind:this={list}>
 		{#if chat.messages.length === 0 && !chat.streaming && !chat.isThinking}
 			<div class="flex h-full items-center justify-center px-4 text-center text-muted-foreground">
-				<p>{chat.isReading ? 'Reading this chat…' : 'The tutor is ready to open this conversation.'}</p>
+				<p>The tutor is ready to open this conversation.</p>
 			</div>
 		{:else}
 			<!-- vocab-check: ignore-next-line (Tailwind max-w-prose class) -->
@@ -126,13 +122,6 @@
 		<div class="flex justify-center border-t p-2"><Button variant="outline" disabled={!chat.canAsk} onclick={() => chat.retry()}><RotateCcwIcon class="size-3" />Retry opening</Button></div>
 	{/if}
 
-	{#if chat.readError}
-		<!-- The transcript is unknown, so nothing is sent to the tutor until it reads. -->
-		<div role="alert" class="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-destructive">
-			<span>{chat.isReading ? 'Reading again...' : 'This chat could not be read from this browser, so the tutor has not been asked.'}</span>
-			<Button variant="ghost" size="sm" disabled={chat.isReading} onclick={() => chat.readAgain()}>Read again</Button>
-		</div>
-	{/if}
 	{#if chat.unreadable.length > 0}
 		<p role="alert" class="border-t px-3 py-2 text-xs text-destructive">
 			{chat.unreadable.length} saved {chat.unreadable.length === 1 ? 'message of this chat is' : 'messages of this chat are'} not shown because Vocab cannot read {chat.unreadable.length === 1 ? 'it' : 'them'}. The tutor does not see {chat.unreadable.length === 1 ? 'it' : 'them'} either. Nothing was removed.

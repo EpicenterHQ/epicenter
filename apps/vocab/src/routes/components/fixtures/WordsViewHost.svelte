@@ -1,11 +1,10 @@
 <script lang="ts">
-	import { QueryClientProvider, type QueryClient } from '@tanstack/svelte-query';
+	import type { VocabFolder } from '../../../lib/data.js';
 	import type { Entries } from '../../../lib/entries.svelte.js';
+	import { setFolder } from '../../../lib/folder.js';
 	import WordsView from '../WordsView.svelte';
-
-	let { client, entries }: { client: QueryClient; entries: Entries } = $props();
+	let { folder, entries }: { folder: VocabFolder; entries: Entries } = $props();
+	// svelte-ignore state_referenced_locally
+	setFolder(folder);
 </script>
-
-<QueryClientProvider {client}>
-	<WordsView {entries} starting={false} onStart={async () => false} />
-</QueryClientProvider>
+<WordsView {entries} starting={false} onStart={async () => false} />
