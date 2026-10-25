@@ -388,3 +388,18 @@ test('Add refuses a draft whose last text edit failed', async () => {
 	});
 	expect(h.text(PATH)).not.toContain('draft: true');
 });
+
+test('a draft with row issues stays in repair and refuses Finish', async () => {
+	const invalid = '---\ncapturedAt: nope\ndraft: true\n---\nWriting';
+	const h = await setup({ [PATH]: invalid }, 'text');
+	expect(h.target.textContent).toContain('Needs repair');
+	expect(
+		[...h.target.querySelectorAll('button')].some(
+			(item) => item.textContent?.trim() === 'Add capture',
+		),
+	).toBe(false);
+	const result = await h.captures.finishDraft('one');
+	expect(result.error?.name).toBe('Refused');
+	expect(h.captures.opened?.mode).toBe('text');
+	expect(h.text(PATH)).toBe(invalid);
+});
