@@ -1,46 +1,30 @@
 /**
- * `svelteFolder` and `draft` over an in-memory host, read in effects as
- * components do.
- *
- * Key behaviors:
- * - `rows`, `row(id)`, and `files` are tracked: an effect reruns when they change
- * - `row(id)` answers the same object until that row changes
- * - A draft shows typing until its save answers, then follows the disk
+ * Reactive folder reads, editor-owned drafts, and folder close.
+ * Draft tests mount real components so lifecycle flushes and listeners run.
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
 import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
 import { Type } from 'typebox';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import type { SvelteTable } from './folder-next.js';
 import { desktop, nativeWindow } from './tauri-window.test-support.js';
 
 const { svelteFolder } = await import('./folder-next.js');
-const { toast } = await import('@epicenter/ui/sonner');
-const { draft } = await import('./folder-next.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
+const { default: DraftHost } = await import('./fixtures/DraftHost.svelte');
 const { default: OpenFolderNextHost } = await import(
 	'./fixtures/OpenFolderNextHost.svelte'
 );
 
 const tables = { notes: Type.Object({ title: Type.String() }) };
-const text = (title: string, body = 'Body\n') =>
-	`---\ntitle: ${title}\n---\n${body}`;
-async function setup() {
-	const memory = memoryHost({
-		'notes/milk.md': text('Milk'),
-		'notes/eggs.md': text('Eggs'),
-	});
-	const folder = svelteFolder(
-		expectOk(await createFolder(memory.storage, { tables, throttleMs: 0 })),
-	);
-	return { folder, notes: folder.tables.notes, control: memory.control };
-}
-
-type Notes = SvelteTable<(typeof tables)['notes']>;
-const titleOf = (row: ReturnType<Notes['row']>) =>
-	row?.issues === null ? row.fields.title : '';
+const text = (title: string) => `---\ntitle: ${title}\n---\nBody\n`;
+const failure = { message: 'disk full' };
+type Failure = { message: string };
+type Editor = ReturnType<
+	typeof import('./draft.svelte.js').draft<string, Failure>
+>;
 
 async function until(check: () => boolean) {
 	for (let turn = 0; turn < 100 && !check(); turn++) {
@@ -50,165 +34,282 @@ async function until(check: () => boolean) {
 	expect(check()).toBe(true);
 }
 
-test('rows is tracked, and an effect reruns when a row lands', async () => {
-	const { notes } = await setup();
-	const titles = follow(() => notes.rows.map((note) => note.fields?.title));
+function mountedDraft(
+	source: () => string,
+	save: (value: string) => Promise<Result<unknown, Failure>>,
+	delay = 10,
+) {
+	const target = document.createElement('div');
+	document.body.append(target);
+	let editor: Editor | undefined;
+	const view = mount(DraftHost, {
+		target,
+		props: {
+			source,
+			save,
+			delay,
+			expose: (draft) => {
+				editor = draft;
+			},
+		},
+	});
 	flushSync();
-	expect(titles.values).toEqual([['Eggs', 'Milk']]);
-	await notes.update('milk', { fields: { title: 'Oat milk' } });
+	if (editor === undefined) throw new Error('Draft did not mount');
+	return {
+		editor,
+		target,
+		async unmount() {
+			await unmount(view);
+			target.remove();
+		},
+	};
+}
+
+test('folder files and rows are tracked and unchanged rows keep identity', async () => {
+	const memory = memoryHost({
+		'notes/milk.md': text('Milk'),
+		'notes/eggs.md': text('Eggs'),
+	});
+	const folder = svelteFolder(
+		expectOk(await createFolder(memory.storage, { tables })),
+	);
+	const titles = follow(() =>
+		folder.tables.notes.rows.map((row) => row.fields?.title),
+	);
+	const eggs = follow(() => folder.tables.notes.row('eggs'));
+	const files = follow(() => folder.files);
+	flushSync();
+	const firstEgg = eggs.values[0];
+	await folder.tables.notes.update('milk', { fields: { title: 'Oat milk' } });
 	await until(() => titles.values.at(-1)?.[1] === 'Oat milk');
-	expect(titles.values.at(-1)).toEqual(['Eggs', 'Oat milk']);
+	expect(eggs.values.at(-1)).toBe(firstEgg);
+	expect(folder.tables.notes.row('eggs')).toBe(firstEgg);
+	expect(files.values.length).toBeGreaterThan(1);
 	titles.stop();
-});
-
-test('row(id) answers the same object until its own row changes', async () => {
-	const { notes } = await setup();
-	const eggs = follow(() => notes.row('eggs'));
-	flushSync();
-	await notes.update('milk', { fields: { title: 'Oat milk' } });
-	await until(() => eggs.values.length >= 2);
-	expect(eggs.values[1]).toBe(eggs.values[0]);
-	expect(notes.row('eggs')).toBe(notes.rows[0]);
 	eggs.stop();
+	files.stop();
 });
 
-test('a draft shows typing until its save lands, then follows the row', async () => {
-	const { notes, control } = await setup();
-	let open: () => void = () => {};
-	control.putGate = new Promise((resolve) => {
-		open = resolve;
-	});
-	const title = draft(
-		() => titleOf(notes.row('milk')),
-		(title) => notes.update('milk', { fields: { title } }),
+test('file and saving reads track a queued write', async () => {
+	const memory = memoryHost({ 'note.txt': 'Disk' });
+	const folder = svelteFolder(
+		expectOk(await createFolder(memory.storage, { tables })),
 	);
-	title.value = 'Oat';
-	expect(title.value).toBe('Oat');
-	expect(notes.row('milk')?.fields?.title).toBe('Milk');
-	open();
-	control.putGate = undefined;
-	await until(() => notes.row('milk')?.fields?.title === 'Oat');
-	expect(title.value).toBe('Oat');
-});
-
-test('a failed draft keeps its typed value and retries on a later edit', async () => {
-	const { notes, control } = await setup();
-	control.failPut.set('notes/milk.md', {
-		name: 'StorageFailed',
-		message: 'disk full',
-		cause: null,
+	const file = follow(() => folder.file('note.txt')?.data);
+	const saving = follow(() => folder.saving);
+	flushSync();
+	let release: () => void = () => {};
+	memory.control.putGate = new Promise((resolve) => {
+		release = resolve;
 	});
-	const title = draft(
-		() => titleOf(notes.row('milk')),
-		(value) => notes.update('milk', { fields: { title: value } }),
-	);
-	title.value = 'Oat';
-	await until(() => title.error !== null);
-	expect(title.value).toBe('Oat');
-	expect(title.error?.message).toBe('disk full');
-	control.failPut.clear();
-	title.set('Soy');
-	expect(title.error).toBeNull();
-	await until(() => titleOf(notes.row('milk')) === 'Soy');
-	expect(title.value).toBe('Soy');
+	const saved = folder.write('note.txt', 'New');
+	flushSync();
+	expect(saving.values.at(-1)).toBe(true);
+	expect(file.values.at(-1)).toBe('Disk');
+	memory.control.putGate = undefined;
+	release();
+	expectOk(await saved);
+	flushSync();
+	expect(file.values.at(-1)).toBe('New');
+	expect(saving.values.at(-1)).toBe(false);
+	file.stop();
+	saving.stop();
 });
 
-test('retry saves typed input and discard follows the source', async () => {
-	const { notes, control } = await setup();
-	control.failPut.set('notes/milk.md', {
-		name: 'StorageFailed',
-		message: 'disk full',
-		cause: null,
-	});
-	const title = draft(
-		() => titleOf(notes.row('milk')),
-		(value) => notes.update('milk', { fields: { title: value } }),
+test('svelteFolder passes refresh through to the core', async () => {
+	const memory = memoryHost({ 'notes/milk.md': text('Milk') });
+	const folder = svelteFolder(
+		expectOk(await createFolder(memory.storage, { tables })),
 	);
-	title.set('Oat');
-	await until(() => title.error !== null);
-	control.failPut.clear();
-	title.retry();
-	await until(() => titleOf(notes.row('milk')) === 'Oat');
-	title.set('Discard me');
-	title.discard();
-	expect(title.value).toBe('Oat');
-	expect(title.error).toBeNull();
+	memory.outside('notes/milk.md', text('Oat'), { hint: false });
+	await folder.refresh();
+	expect(folder.tables.notes.row('milk')?.fields?.title).toBe('Oat');
 });
 
-test('an older save answer never clears newer typing', async () => {
-	const first = Promise.withResolvers<{ data: null; error: null }>();
-	const second = Promise.withResolvers<{ data: null; error: null }>();
-	let calls = 0;
-	const title = draft(
+test('a burst of typing debounces to one synchronous save call', async () => {
+	const calls: string[] = [];
+	const mounted = mountedDraft(
 		() => 'Disk',
-		() => (++calls === 1 ? first.promise : second.promise),
+		(value) => {
+			calls.push(value);
+			return Promise.resolve(Ok(undefined));
+		},
+		20,
 	);
-	title.set('First');
-	title.set('Second');
-	first.resolve({ data: null, error: null });
-	await Promise.resolve();
-	expect(title.value).toBe('Second');
-	second.resolve({ data: null, error: null });
-	await Promise.resolve();
-	expect(title.value).toBe('Disk');
+	mounted.editor.value = 'A';
+	mounted.editor.value = 'AB';
+	expect(mounted.editor.value).toBe('AB');
+	expect(calls).toEqual([]);
+	await until(() => calls.length === 1);
+	expect(calls).toEqual(['AB']);
+	await mounted.unmount();
 });
 
-test('settled passes through without relisting', async () => {
-	const { folder } = await setup();
-	await folder.settled('notes/milk.md');
-	expect(folder.tables.notes.row('milk')).toBeDefined();
+test('a timed send waits for an out save, then sends the newest value', async () => {
+	const first = Promise.withResolvers<Result<unknown, Failure>>();
+	const second = Promise.withResolvers<Result<unknown, Failure>>();
+	const calls: string[] = [];
+	const mounted = mountedDraft(
+		() => 'Disk',
+		(value) => {
+			calls.push(value);
+			return calls.length === 1 ? first.promise : second.promise;
+		},
+	);
+	mounted.editor.value = 'First';
+	await until(() => calls.length === 1);
+	mounted.editor.value = 'Second';
+	mounted.editor.value = 'Newest';
+	await Bun.sleep(20);
+	expect(calls).toEqual(['First']);
+	first.resolve(Ok(undefined));
+	await until(() => calls.length === 2);
+	expect(calls).toEqual(['First', 'Newest']);
+	expect(mounted.editor.value).toBe('Newest');
+	second.resolve(Ok(undefined));
+	await Promise.resolve();
+	expect(mounted.editor.value).toBe('Disk');
+	await mounted.unmount();
 });
 
-test('settled lands a body draft before a whole-file editor opens', async () => {
-	const memory = memoryHost({ 'notes/milk.md': text('Milk') });
-	const core = expectOk(
-		await createFolder(memory.storage, { tables, throttleMs: 10_000 }),
+test('folder close event flushes the newest value while an earlier save is out', async () => {
+	const first = Promise.withResolvers<Result<unknown, Failure>>();
+	const calls: string[] = [];
+	const mounted = mountedDraft(
+		() => 'Disk',
+		(value) => {
+			calls.push(value);
+			return calls.length === 1
+				? first.promise
+				: Promise.resolve(Ok(undefined));
+		},
 	);
-	const folder = svelteFolder(core);
-	const body = draft(
-		() => folder.tables.notes.row('milk')?.body ?? '',
-		(value) => folder.tables.notes.update('milk', { body: value }),
+	mounted.editor.value = 'First';
+	await until(() => calls.length === 1);
+	mounted.editor.value = 'Second';
+	window.dispatchEvent(new CustomEvent('epicenter:folder-close'));
+	expect(calls).toEqual(['First', 'Second']);
+	first.resolve(Ok(undefined));
+	await mounted.unmount();
+});
+
+test('pagehide flush calls save synchronously before the event returns', async () => {
+	const memory = memoryHost({ 'note.txt': 'Disk' });
+	const folder = expectOk(await createFolder(memory.storage, { tables }));
+	const mounted = mountedDraft(
+		() => {
+			const data = folder.file('note.txt')?.data;
+			return typeof data === 'string' ? data : '';
+		},
+		(value) => folder.write('note.txt', value),
+		1000,
 	);
+	mounted.editor.value = 'Typed';
+	window.dispatchEvent(new Event('pagehide'));
+	expect(folder.saving()).toBe(true);
+	await folder.close();
+	expect(memory.text('note.txt')).toBe('Typed');
+	await mounted.unmount();
+});
+
+test('teardown flushes pending input and never saves after teardown', async () => {
+	const calls: string[] = [];
+	const mounted = mountedDraft(
+		() => 'Disk',
+		(value) => {
+			calls.push(value);
+			return Promise.resolve(Ok(undefined));
+		},
+		1000,
+	);
+	mounted.editor.value = 'Last';
+	await mounted.unmount();
+	expect(calls).toEqual(['Last']);
+	await Bun.sleep(20);
+	expect(calls).toEqual(['Last']);
+});
+
+test('rejected and thrown saves leave typed input and an error', async () => {
+	const rejected = mountedDraft(
+		() => 'Disk',
+		() => Promise.reject(failure),
+	);
+	rejected.editor.value = 'Rejected';
+	await until(() => rejected.editor.error !== null);
+	expect(rejected.editor.error).toEqual(failure);
+	expect(rejected.editor.value).toBe('Rejected');
+	await rejected.unmount();
+	const thrown = mountedDraft(
+		() => 'Disk',
+		() => {
+			throw failure;
+		},
+	);
+	thrown.editor.value = 'Thrown';
+	await until(() => thrown.editor.error !== null);
+	expect(thrown.editor.error).toEqual(failure);
+	await thrown.unmount();
+});
+
+test('failed input retries and discard ignores an out answer', async () => {
+	let fails = true;
+	const pending = Promise.withResolvers<Result<unknown, Failure>>();
+	const calls: string[] = [];
+	const mounted = mountedDraft(
+		() => 'Disk',
+		(value) => {
+			calls.push(value);
+			return fails ? Promise.resolve(Err(failure)) : pending.promise;
+		},
+	);
+	mounted.editor.value = 'Typed';
+	await until(() => mounted.editor.error !== null);
+	expect(mounted.editor.value).toBe('Typed');
+	fails = false;
+	mounted.editor.retry();
+	expect(calls).toEqual(['Typed', 'Typed']);
+	mounted.editor.discard();
+	pending.resolve(Ok(undefined));
+	await Promise.resolve();
+	expect(mounted.editor.value).toBe('Disk');
+	expect(mounted.editor.error).toBeNull();
+	await mounted.unmount();
+});
+
+test('OpenFolder closes after a draft flushes behind an out save', async () => {
+	const memory = memoryHost({ 'note.txt': 'Disk' });
+	const folder = expectOk(await createFolder(memory.storage, { tables }));
+	const target = document.createElement('div');
+	document.body.append(target);
+	const view = mount(OpenFolderNextHost, {
+		target,
+		props: {
+			open: () => Promise.resolve(Ok(folder)),
+			holdWindowClose: false,
+			edit: true,
+		},
+	});
+	await until(() => target.querySelector('input') !== null);
+	const input = target.querySelector('input');
+	if (input === null) throw new Error('Missing editor');
 	let release: () => void = () => {};
 	memory.control.putGate = new Promise((resolve) => {
 		release = resolve;
 	});
-	body.set('Typed body');
-	const ready = folder.settled('notes/milk.md');
+	input.value = 'First';
+	input.dispatchEvent(new Event('input', { bubbles: true }));
 	await until(() => memory.log.puts.length === 1);
+	input.value = 'Second';
+	input.dispatchEvent(new Event('input', { bubbles: true }));
+	const closed = unmount(view);
+	await closed;
+	expect(memory.log.puts).toHaveLength(1);
 	memory.control.putGate = undefined;
 	release();
-	await ready;
-	const source = folder.file('notes/milk.md')?.data;
-	expect(source).toContain('Typed body');
-	expect(body.value).toBe('Typed body');
-});
-
-test('a remounted draft reads landed text after settled', async () => {
-	const memory = memoryHost({ 'notes/milk.md': text('Milk') });
-	const core = expectOk(
-		await createFolder(memory.storage, { tables, throttleMs: 10_000 }),
-	);
-	const folder = svelteFolder(core);
-	let release: () => void = () => {};
-	memory.control.putGate = new Promise((resolve) => {
-		release = resolve;
-	});
-	const first = draft(
-		() => titleOf(folder.tables.notes.row('milk')),
-		(value) => folder.tables.notes.update('milk', { fields: { title: value } }),
-	);
-	first.set('Remounted');
-	const ready = folder.settled('notes/milk.md');
-	await until(() => memory.log.puts.length === 1);
-	memory.control.putGate = undefined;
-	release();
-	await ready;
-	const remounted = draft(
-		() => titleOf(folder.tables.notes.row('milk')),
-		(value) => folder.tables.notes.update('milk', { fields: { title: value } }),
-	);
-	expect(remounted.value).toBe('Remounted');
+	await until(() => memory.control.closed);
+	expect(memory.log.puts).toEqual([{ path: 'note.txt' }, { path: 'note.txt' }]);
+	expect(memory.text('note.txt')).toBe('Second');
+	target.remove();
 });
 
 test('holdWindowClose false registers no desktop close listener', async () => {
@@ -221,7 +322,7 @@ test('holdWindowClose false registers no desktop close listener', async () => {
 		const view = mount(OpenFolderNextHost, {
 			target,
 			props: {
-				open: () => Promise.resolve({ data: folder, error: null }),
+				open: () => Promise.resolve(Ok(folder)),
 				holdWindowClose: false,
 			},
 		});
@@ -233,67 +334,4 @@ test('holdWindowClose false registers no desktop close listener', async () => {
 		nativeWindow.reset();
 		target.remove();
 	}
-});
-
-test('custom class applies to loading and refusal screens', async () => {
-	const target = document.createElement('div');
-	document.body.append(target);
-	let refuse: (
-		result: Awaited<import('@epicenter/folder/next').Opened<typeof tables>>,
-	) => void = () => {};
-	const opening = new Promise<
-		Awaited<import('@epicenter/folder/next').Opened<typeof tables>>
-	>((resolve) => {
-		refuse = resolve;
-	});
-	const view = mount(OpenFolderNextHost, {
-		target,
-		props: {
-			open: () => opening,
-			class: 'settings-height',
-			holdWindowClose: false,
-		},
-	});
-	flushSync();
-	expect(target.querySelector('.settings-height')).not.toBeNull();
-	refuse({
-		data: null,
-		error: { name: 'Unavailable', message: 'offline', cause: null },
-	});
-	await until(() => target.textContent?.includes('offline') ?? false);
-	expect(target.querySelector('.settings-height')).not.toBeNull();
-	await unmount(view);
-	target.remove();
-});
-
-test('OpenFolder keeps one toast per path across repeated failed sends', async () => {
-	toast.dismiss();
-	const memory = memoryHost({ 'notes/milk.md': text('Milk') });
-	const folder = expectOk(
-		await createFolder(memory.storage, { tables, throttleMs: 0 }),
-	);
-	memory.control.failPut.set('notes/milk.md', {
-		name: 'StorageFailed',
-		message: 'disk full',
-		cause: null,
-	});
-	const target = document.createElement('div');
-	document.body.append(target);
-	const view = mount(OpenFolderNextHost, {
-		target,
-		props: {
-			open: () => Promise.resolve({ data: folder, error: null }),
-			holdWindowClose: false,
-		},
-	});
-	await until(() => target.textContent?.includes('Ready') ?? false);
-	await folder.tables.notes.update('milk', { body: 'First' });
-	await until(() => toast.getActiveToasts().length === 1);
-	const first = toast.getActiveToasts()[0]?.id;
-	await folder.tables.notes.update('milk', { body: 'Second' });
-	await until(() => toast.getActiveToasts()[0]?.id !== first);
-	expect(toast.getActiveToasts()).toHaveLength(1);
-	await unmount(view);
-	target.remove();
-	toast.dismiss();
 });

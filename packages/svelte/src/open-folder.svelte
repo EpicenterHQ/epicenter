@@ -1,38 +1,19 @@
 <!--
-	The owner of one opened folder's lifetime, at any depth: an app's root, or
-	a settings pane over its own folder. Below it the folder is open, read, and
-	reactive; nothing there handles "not open yet".
-
-	```svelte
-	<OpenFolder open={() => openFolder({ tables })}>
-		{#snippet children(folder)}<NotesApp {folder} />{/snippet}
-	</OpenFolder>
-	```
-
-	It opens with `open` when it mounts (and on each retry), shows one loading
-	screen and one refusal screen, and hands its children the folder wrapped
-	by `svelteFolder`. It looks at storage again, and sends waiting writes, on
-	focus, on becoming visible or hidden, on coming back online, and before
-	the page hides. Each write that does not land is a toast with the text to
-	copy. A desktop window's close waits for writes in flight when guarded;
-	a browser unload asks only while a write is out. When it unmounts, it
-	closes the folder.
+	Open one folder, refresh it on return, and close after mounted drafts have
+	flushed their latest input. Desktop close waits for the queued writes.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
-	import type { Folder, Opened, SaveFailure } from '@epicenter/folder/next';
+	import type { Folder, Opened } from '@epicenter/folder/next';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
-	import { toast } from '@epicenter/ui/sonner';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { onDestroy, type Snippet } from 'svelte';
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { createLogger } from 'wellcrafted/logger';
 	import { Ok } from 'wellcrafted/result';
 	import { type SvelteFolder, svelteFolder } from './folder-next.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
-	import { describeWriteError } from './write-failure.js';
 	import { holdWindowClose as registerWindowClose } from './window-close.js';
 
 	let {
@@ -50,32 +31,15 @@
 		class?: string;
 	} = $props();
 
-	const log = createLogger('svelte/open-folder');
-
 	let opened: Folder<TTables> | undefined;
 	let stopWindow: (() => void) | undefined;
-	let stopFailed: (() => void) | undefined;
-	const failureToasts = new Map<string, string | number>();
 	let destroyed = false;
 
 	const saving = () => opened?.saving() ?? false;
 
-	/** Say a write did not land, with the text it tried to save to copy. */
-	function toastFailure(failure: SaveFailure) {
-		log.error(failure.error);
-		const previous = failureToasts.get(failure.path);
-		if (previous !== undefined) toast.dismiss(previous);
-		const shown = toast.error(`Could not save ${failure.path}`, {
-			description: describeWriteError(failure.error),
-			duration: failure.text === undefined ? undefined : Number.POSITIVE_INFINITY,
-			action: failure.text === undefined ? undefined : {
-				label: 'Copy your text',
-				onClick: () => {
-					if (failure.text !== undefined) void navigator.clipboard.writeText(failure.text);
-				},
-			},
-		});
-		failureToasts.set(failure.path, shown);
+	function closeFolder(folder: Folder<TTables>) {
+		window.dispatchEvent(new CustomEvent('epicenter:folder-close'));
+		return folder.close();
 	}
 
 	async function openAndWrap() {
@@ -83,11 +47,10 @@
 		if (result.error !== null) return result;
 		const folder = result.data;
 		if (destroyed) {
-			void folder.close();
+			void closeFolder(folder);
 			return Ok(svelteFolder(folder));
 		}
 		opened = folder;
-		stopFailed = folder.onFailed(toastFailure);
 		// One guard per window: a folder opened beneath another leaves the
 		// window's close to the outer one. It never asks: it waits for the
 		// writes in flight, which answer in milliseconds.
@@ -95,7 +58,7 @@
 			const stop = await registerWindowClose(
 				() => false,
 				() => {},
-				() => folder.close(),
+				() => closeFolder(folder),
 			).catch(() => undefined);
 			if (destroyed) stop?.();
 			else stopWindow = stop;
@@ -107,27 +70,28 @@
 	onDestroy(() => {
 		destroyed = true;
 		stopWindow?.();
-		stopFailed?.();
-		void opened?.close();
+		if (opened !== undefined) void closeFolder(opened);
 		void opening.catch(() => {});
 	});
 
 	function beforeUnload(event: BeforeUnloadEvent) {
-		opened?.checkpoint();
+		window.dispatchEvent(new CustomEvent('epicenter:folder-close'));
 		if (!saving()) return;
 		event.preventDefault();
 		event.returnValue = '';
 	}
-	const checkpoint = () => opened?.checkpoint();
+	const refresh = () => { void opened?.refresh(); };
+	const visible = () => {
+		if (document.visibilityState === 'visible') refresh();
+	};
 </script>
 
 <svelte:window
-	onfocus={checkpoint}
-	ononline={checkpoint}
-	onpagehide={checkpoint}
+	onfocus={refresh}
+	ononline={refresh}
 	onbeforeunload={beforeUnload}
 />
-<svelte:document onvisibilitychange={checkpoint} />
+<svelte:document onvisibilitychange={visible} />
 
 {#snippet refused(refusal: OpenRefusal)}
 	<Empty.Root class={className}>

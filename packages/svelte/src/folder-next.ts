@@ -1,8 +1,8 @@
 /** Reactive reads over one opened folder; writes keep their core promises. */
 import type {
 	Data,
-	FileValue,
 	Folder,
+	FolderFile,
 	Patch,
 	Row,
 	Saved,
@@ -22,16 +22,15 @@ export type SvelteTable<S extends Schema = Schema> = {
 	delete(id: string): Saved;
 };
 export type SvelteFolder<T extends Tables = Tables> = {
-	readonly files: readonly FileValue[];
-	file(path: string): FileValue | undefined;
+	readonly files: readonly FolderFile[];
+	file(path: string): FolderFile | undefined;
 	readonly saving: boolean;
 	read: Folder<T>['read'];
 	write(path: string, data: Data): Saved;
 	update: Folder<T>['update'];
 	delete(path: string): Saved;
 	readonly tables: { readonly [K in keyof T]: SvelteTable<T[K]> };
-	checkpoint(): void;
-	settled(path: string): Promise<void>;
+	refresh(): Promise<void>;
 };
 
 export function svelteFolder<const T extends Tables>(
@@ -63,8 +62,7 @@ export function svelteFolder<const T extends Tables>(
 		write: folder.write,
 		update: folder.update,
 		delete: folder.delete,
-		checkpoint: folder.checkpoint,
-		settled: folder.settled,
+		refresh: folder.refresh,
 	};
 }
 
