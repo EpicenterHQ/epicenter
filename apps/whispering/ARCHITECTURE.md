@@ -586,9 +586,10 @@ The mirror shows only what landed, so an input bound straight to it would
 lose keystrokes typed while a save is out. Every text input bound to folder
 data therefore uses a draft (`draft(source, save)` from
 `@epicenter/svelte/folder-next`): it shows what was typed until that text's
-save answers, then follows `source` again, which by then is the landed text,
-or the disk's when the save failed. Checkboxes, selects, and buttons write
-directly.
+save succeeds, then follows `source` again, which by then is the landed text.
+A failed save keeps the typed value and exposes its error. Typing again or
+**Save again** retries; **Discard** follows the disk. Folder-backed checkboxes
+and selects also use drafts; action buttons write directly.
 
 ```ts
 const row = $derived(folder.tables.recordings.row(id));
@@ -608,12 +609,12 @@ const source = draft(
   instructions, and source; TranscriptCard and FileView a transcript body;
   FileView a text file's source. A draft is never shared between components.
   Switching between the fields and Source of one file first calls
-  `folder.checkpoint()` and awaits the last save here, so the other editor
-  shows it.
+  `folder.checkpoint()` and awaits `folder.settled(path)`, so the other editor
+  shows what landed. A failed draft keeps the current editor open.
 - **Source** keeps the file's own newlines (`withFileNewlines`). Whether a
   row shows as text is `showsText(path)`: the person chose Source
   (`asText`, a `SvelteSet` of view state), or the row has issues. Repair
-  reads the typed Source text with `readRow(source.text, schema)`, so the
+  reads the typed Source text with `readRow(source.value, schema)`, so the
   issue list, the Details tab, and `useForm`'s refusal follow what is typed,
   before it saves.
 - **A value the schema does not accept** is saved as written, and the row is
@@ -670,7 +671,8 @@ Recorded audio and started requests have their own lifetimes:
   out. An answer that has not arrived when the app quits is lost, and the row
   stays unfinished, to run again.
 - File edits save as they are typed. A write that did not land is a toast
-  with its text to copy; nothing keeps it to save later.
+  with its text to copy; the editor keeps the typed value with Save again,
+  Discard, and Copy.
 
 A save is staged and then renamed over its path by the shell, so one cut off
 between them leaves the path as it was and a staged copy, which a later
@@ -691,8 +693,9 @@ Connect, and Sync were removed with the move to the local folder.
 `filesLine({ saving: folder.saving, unwrittenAnswers })`: answers whose file
 could not be written, then "Saving…" while a write waits or is being saved,
 and otherwise "All changes saved on this device". A write that does not land
-is OpenFolder's toast, with the text to copy; Whispering adds no second toast
-and no per-file save line.
+is OpenFolder's toast, with the text to copy; the failed editor draft also
+offers Save again, Discard, and Copy. Whispering adds no second toast and no
+per-file save line.
 
 ## Noticing outside changes
 

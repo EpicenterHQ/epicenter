@@ -542,10 +542,10 @@ A recording that is still recording cannot be transcribed; stop it first.
 
 ### When a save does not finish
 
-A write that does not land is a notice naming the file and why, with **Copy**
-for the text it carried. The folder still shows the file as it is on disk, so
-nothing has to be undone; what you typed stays in the editor until the notice
-is shown, and you can type again to save it.
+A write that does not land shows a notice naming the file and why. The editor
+keeps what you typed and shows **Save again**, **Discard**, and **Copy** beside
+it. Typing again also sends the new value. **Discard** returns to the file as
+it is on disk.
 
 When an answer arrives but its file cannot be written, the window keeps the
 answer. The result says "Answer not written" with why, the text, **Save
@@ -590,19 +590,21 @@ the tab loses a browser recording in progress.
 
 Every change is written to its file as you type: a recording's title and
 notes, a transcript, a transformation's fields, and any text file opened from
-Files. There is no save button. Each text field is a draft: it shows what you
-typed until that text's save answers, then shows the file again, which by
-then holds what landed. The lists show a row once it is saved.
+Files. There is no save button during ordinary editing. Each text field is a
+draft: it shows what you typed until that text's save succeeds, then shows the
+file again, which by then holds what landed. A failed save keeps the draft
+visible until you retry or discard it. The lists show a row once it is saved.
 
 - Each file is written one save at a time. Changes typed while one save runs
   go together in the next, so fast typing writes what you typed last.
 - A field, a body, or a title sets only what it names over the file as it is
   when the save runs, so another program's change to the rest of the file is
   kept. Source writes the whole text as typed.
-- A save that does not land is a notice with **Copy**; the editor then shows
-  the file as it is on disk. Nothing is retried on its own.
-- Changing between the fields and Source first sends what waits and lets the
-  last save here answer, so the other editor shows it.
+- A save that does not land keeps the typed value in its editor with **Save
+  again**, **Discard**, and **Copy**. Nothing is retried on its own.
+- Changing between the fields and Source first sends all waiting writes for
+  that file and waits for their answers. A failed draft stays in its editor;
+  after a successful save, the other editor shows what landed.
 - A value that does not fit a row, such as a field with the wrong kind of
   value, is saved as written, and the row is listed under "Needs repair" until
   it is fixed. Nothing you typed is refused.
@@ -661,8 +663,8 @@ says there is no real input and opens none.
 
 This build opens its folder as the folder mirror (`@epicenter/folder/next`)
 with Whispering's tables, read through `@epicenter/svelte/folder-next`, and
-keeps what you type in each editor's draft until its save answers. These
-promises of the earlier build changed:
+keeps what you type in each editor's draft until its save succeeds or you
+discard it. These promises of the earlier build changed:
 
 - No versions, Connect, or Sync. **Save version** and the status lines about
   changes since the last version are gone, and Whispering no longer writes
@@ -670,17 +672,16 @@ promises of the earlier build changed:
   ordinary file write, separately from committing or syncing.
 - In a browser tab, recordings an earlier build kept in OPFS are not read or
   changed. An origin with only those recordings opens an empty current folder.
-- What you typed is not held after its save answers. A file deleted while you
-  edit it is gone from the view, and a save that failed shows the file as it
-  is, with the typed text in its notice to copy. Nothing keeps text to save
-  later.
+- A failed save keeps the typed value in its editor so you can save again,
+  discard it, or copy it. A file deleted while you edit it is gone from the
+  view; a whole-file Source save can recreate it.
 - A value that does not fit a row is saved, and the row is listed for repair.
   The earlier build refused it.
 - Saving a row from its fields writes its frontmatter in one standard form and
   drops comments.
-- A save that does not land is a notice with **Copy**, not **Try again** and
-  **Discard** beside the field; an answer that could not be written is saved
-  again only when you press **Save again**, not on its own.
+- A failed editor draft offers **Save again**, **Discard**, and **Copy** beside
+  the field. An answer that could not be written keeps its separate **Save
+  again** action; neither retries on its own.
 - There is no loading screen per file, no "larger than 1 MB" refusal, and no
   banner for a listing that failed: opening reads the whole folder once.
 - On the desktop, audio replaced by other bytes of exactly the same length is
