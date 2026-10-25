@@ -1,8 +1,9 @@
 /** App-owned file messages, and reading a file's bytes. */
-import type { FolderFiles, ReadError, SaveError } from '@epicenter/folder';
+import type { ReadError, WriteError } from '@epicenter/folder/next';
 import { joinPath, pathProblem } from '@epicenter/folder/file-browser';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { WhisperingFolder } from './folder.js';
 
 export function nameProblem(
 	directory: string,
@@ -22,11 +23,12 @@ export function nameProblem(
  */
 export function describeError(
 	error:
-		| SaveError
+		| WriteError
 		| ReadError
 		| { readonly name: string; readonly message: string },
 ): string {
-	const known = error as SaveError | ReadError;
+	// SAFETY: an unnamed error falls through to its message.
+	const known = error as WriteError | ReadError;
 	switch (known.name) {
 		case 'StorageFailed':
 			return `The folder could not confirm this change: ${extractErrorMessage(known.cause)}`;
@@ -81,11 +83,11 @@ export function listingOf(files: readonly string[]): Listing {
 
 /** The file at `path` as bytes, or why it could not be read. */
 export async function readBytes(
-	folder: { readonly files: Pick<FolderFiles, 'read'> },
+	folder: Pick<WhisperingFolder, 'read'>,
 	path: string,
 ): Promise<Result<Uint8Array, string>> {
-	const { data: file, error } = await folder.files.read(path);
+	const { data: bytes, error } = await folder.read(path);
 	if (error !== null) return Err(error.message);
-	if (file === undefined) return Err(`No file exists at '${path}'.`);
-	return Ok(new Uint8Array(await file.content.arrayBuffer()));
+	if (bytes === null) return Err(`No file exists at '${path}'.`);
+	return Ok(bytes);
 }

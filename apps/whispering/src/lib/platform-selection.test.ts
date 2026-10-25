@@ -1,7 +1,7 @@
 /**
  * Platform Selection Tests
  *
- * Bundles the `#platform/services` seam, the bare `@epicenter/folder`
+ * Bundles the `#platform/services` seam, the `@epicenter/folder/next`
  * specifier, and the recording contract (`@epicenter/recorder`, the same file
  * in every build) the way each build resolves them, with the conditions and
  * aliases `vite.config.ts` declares, and reads every module the bundle pulls
@@ -9,14 +9,16 @@
  * so the selection is proved here.
  *
  * Key behaviors:
- * - The host build reaches the desktop services, the desktop adapter, the
- *   shell's recorder, and the generated bindings, and no browser services,
- *   OPFS Git, isomorphic-git, or code that opens a microphone in the WebView
- *   (`getUserMedia`, `enumerateDevices`, `MediaRecorder`, `AudioContext`)
- * - The browser build reaches the browser services, isomorphic-git, and the
- *   WebView microphone, and no desktop services, desktop adapter, shell
- *   recorder, or generated bindings
- * - Neither build reaches the folder's automatic entry, which loads either
+ * - The host build reaches the desktop services, the folder mirror's Tauri
+ *   entry, the shell's recorder, and the generated bindings, and no browser
+ *   services, OPFS Git, isomorphic-git, or code that opens a microphone in the
+ *   WebView (`getUserMedia`, `enumerateDevices`, `MediaRecorder`,
+ *   `AudioContext`)
+ * - The browser build reaches the browser services, the folder mirror's
+ *   browser entry over the IndexedDB repository, and the WebView microphone,
+ *   and no desktop services, desktop adapter, shell recorder, or generated
+ *   bindings
+ * - Neither build reaches the folder's automatic entries, which load either
  *   adapter, or a Bun or Node module
  */
 import { describe, expect, test } from 'bun:test';
@@ -40,13 +42,13 @@ const folderModule = (name: string) => (path: string) =>
 const reaches = (modules: string[], suffix: string) =>
 	modules.some((path) => path.endsWith(suffix));
 
-/** The folder's automatic entry, which can load either adapter, and Bun or Node. */
+/** The folder's automatic entries, which can load either adapter, and Bun or Node. */
 const SHARED_FORBIDDEN =
-	/packages\/folder\/src\/index\.ts$|packages\/folder\/src\/(bun|directory-node)\.ts$|^node:|^bun:/;
+	/packages\/folder\/src\/index\.ts$|packages\/folder\/src\/next\/auto\.ts$|packages\/folder\/src\/(next\/)?(bun|directory-node)\.ts$|^node:|^bun:/;
 
 describe('#platform/services', () => {
 	test(
-		'the host build resolves the desktop services over the native folder',
+		'the host build resolves the desktop services over the folder mirror’s Tauri entry',
 		async () => {
 			const modules = await bundledModules(
 				appDir,
@@ -57,8 +59,8 @@ describe('#platform/services', () => {
 			expect(reaches(modules, 'lib/platform/desktop/services.ts')).toBe(true);
 			expect(reaches(modules, 'lib/platform/desktop/auth.ts')).toBe(true);
 			expect(reaches(modules, 'lib/tauri/bindings.gen.ts')).toBe(true);
-			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
-			expect(modules.some(folderModule('native/tauri.ts'))).toBe(true);
+			expect(modules.some(folderModule('next/tauri.ts'))).toBe(true);
+			expect(modules.some(folderModule('next/folder.ts'))).toBe(true);
 			expect(modules.some(recorderModule('tauri.ts'))).toBe(true);
 			expect(reaches(modules, 'lib/platform/desktop/microphone.ts')).toBe(true);
 			expect(
@@ -75,14 +77,13 @@ describe('#platform/services', () => {
 	);
 
 	test(
-		'the browser build resolves the browser services over the IndexedDB repository',
+		'the browser build resolves the browser services over the folder mirror’s IndexedDB entry',
 		async () => {
 			const modules = await bundledModules(appDir, SEAM_ENTRY, 'browser');
 
 			expect(reaches(modules, 'lib/platform/browser.ts')).toBe(true);
 			expect(reaches(modules, 'lib/platform/auth.ts')).toBe(true);
-			expect(modules.some(folderModule('browser.ts'))).toBe(true);
-			expect(modules.some(folderModule('local-folder.ts'))).toBe(true);
+			expect(modules.some(folderModule('next/browser.ts'))).toBe(true);
 			expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
 			expect(modules.some(recorderModule('browser.ts'))).toBe(true);
 			expect(reaches(modules, 'lib/webview-microphone.ts')).toBe(true);

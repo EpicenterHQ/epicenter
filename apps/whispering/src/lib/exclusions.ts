@@ -1,6 +1,7 @@
-import type { FolderFiles, ReadError, SaveError } from '@epicenter/folder';
+import type { ReadError, WriteError } from '@epicenter/folder/next';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
+import type { WhisperingFolder } from './folder.js';
 
 const MARKDOWN_RULES = ['*', '!*/', '!*.md', '!.gitignore'];
 
@@ -27,13 +28,10 @@ const ExclusionError = defineErrors({
 type ExclusionError = InferErrors<typeof ExclusionError>;
 
 /** Read without losing a BOM or silently replacing invalid UTF-8. */
-async function readRules(files: Pick<FolderFiles, 'read'>) {
-	const loaded = await files.read('.gitignore');
+async function readRules(folder: Pick<WhisperingFolder, 'read'>) {
+	const loaded = await folder.read('.gitignore');
 	if (loaded.error !== null) return loaded;
-	const before =
-		loaded.data === undefined
-			? null
-			: new Uint8Array(await loaded.data.content.arrayBuffer());
+	const before = loaded.data;
 	if (before?.includes(0)) return ExclusionError.InvalidIgnoreText();
 	const decoded = trySync({
 		try: () =>
@@ -53,22 +51,22 @@ async function readRules(files: Pick<FolderFiles, 'read'>) {
  * No Git commit, startup marker, or separate policy is created.
  */
 export async function maintainExclusions(
-	files: Pick<FolderFiles, 'read' | 'write'>,
-): Promise<Result<void, ReadError | SaveError | ExclusionError>> {
-	const read = await readRules(files);
+	folder: Pick<WhisperingFolder, 'read' | 'write'>,
+): Promise<Result<void, ReadError | WriteError | ExclusionError>> {
+	const read = await readRules(folder);
 	if (read.error !== null) return Err(read.error);
 	const { text } = read.data;
 	if (hasMarkdownRules(text)) return Ok(undefined);
 	const newline = text.includes('\r\n') ? '\r\n' : '\n';
 	const bom = text.startsWith('\ufeff') ? '\ufeff' : '';
-	const saved = await files.write(
+	const saved = await folder.write(
 		'.gitignore',
 		`${bom}${MARKDOWN_RULES.join(newline)}${newline}${text.slice(bom.length)}`,
 	);
 	if (saved.error !== null) return saved;
 
 	// Confirm the published block is still present after the write.
-	const verified = await readRules(files);
+	const verified = await readRules(folder);
 	if (verified.error !== null) return Err(verified.error);
 	if (!hasMarkdownRules(verified.data.text))
 		return ExclusionError.MissingRules();

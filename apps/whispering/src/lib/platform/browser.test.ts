@@ -4,11 +4,11 @@
  * connection. Malformed device settings remain visible rather than overwritten.
  */
 import { afterEach, expect, mock, test } from 'bun:test';
-import { OpenFolderError } from '@epicenter/folder';
-import { Ok, type Result } from 'wellcrafted/result';
+import type { Folder, OpenFolderError } from '@epicenter/folder/next';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { toneWav } from '../capture.js';
-import { whisperingTables } from '../definition.js';
+import { type WhisperingTables, whisperingTables } from '../definition.js';
 import { readBytes } from '../files.js';
 import type { WhisperingFolder } from '../folder.js';
 import { openTestServices } from '../services.test-support.js';
@@ -27,18 +27,29 @@ Bun.plugin({
 	},
 });
 
+/** The folder the next opening answers, as the app receives it. */
 let folder: WhisperingFolder;
+let opened: Folder<WhisperingTables>;
 /** What the next opening answers instead of the folder, when set. */
 let refusal: Result<never, OpenFolderError> | undefined;
-mock.module('@epicenter/folder/browser', () => ({
+mock.module('@epicenter/folder/next/browser', () => ({
 	openFolder: async (options: Record<string, unknown>) => {
 		// The tables alone: no app, ID, definition, author, or credentials.
 		expect(options).toEqual({ tables: whisperingTables });
-		return refusal ?? Ok(folder);
+		return refusal ?? Ok(opened);
 	},
 }));
 const { createServices } = await import('./browser.js');
-const { openFolder } = await import('@epicenter/folder/browser');
+const { openFolder } = await import('@epicenter/folder/next/browser');
+
+/** Open the test's folder through the browser opener, and the services over it. */
+async function servicesOver(services: Awaited<ReturnType<typeof openTestServices>>) {
+	folder = services.folder;
+	opened = services.opened;
+	expect(expectOk(await openFolder({ tables: whisperingTables }))).toBe(opened);
+	cleanups.push(services.remove);
+	return createServices(folder);
+}
 const originalStorage = Object.getOwnPropertyDescriptor(
 	globalThis,
 	'localStorage',
@@ -62,7 +73,6 @@ afterEach(async () => {
 
 async function preferences(getItem: (key: string) => string | null) {
 	const services = await openTestServices();
-	folder = services.folder;
 	Object.defineProperty(globalThis, 'localStorage', {
 		configurable: true,
 		value: { getItem },
@@ -71,18 +81,16 @@ async function preferences(getItem: (key: string) => string | null) {
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
-	const browser = createServices(
-		expectOk(await openFolder({ tables: whisperingTables })),
-	);
-	cleanups.push(async () => {
-		await folder.close();
-		await services.remove();
-	});
+	const browser = await servicesOver(services);
 	return browser.preferences;
 }
 
 test('browser storage failure is reported without opening another folder', async () => {
-	refusal = OpenFolderError.Unavailable({ cause: new Error('storage denied') });
+	refusal = Err({
+		name: 'Unavailable',
+		message: 'The folder could not be opened: storage denied',
+		cause: new Error('storage denied'),
+	});
 
 	const refused = expectErr(await openFolder({ tables: whisperingTables }));
 
@@ -92,20 +100,14 @@ test('browser storage failure is reported without opening another folder', async
 
 test('a recording’s audio is read back from the folder as its exact bytes for transcription', async () => {
 	const services = await openTestServices();
-	folder = services.folder;
 	Object.defineProperty(globalThis, 'location', {
 		configurable: true,
 		value: new URL('http://localhost:5199'),
 	});
-	expectOk(await folder.files.write('recordings/take.webm', toneWav()));
-	const browser = createServices(
-		expectOk(await openFolder({ tables: whisperingTables })),
-	);
-	cleanups.push(async () => {
-		await folder.close();
-		await services.remove();
-	});
-
+	await servicesOver(services);
+	expectOk(await folder.write('recordings/take.webm', toneWav()));
+	// The mirror lists audio without keeping it; transcription reads its bytes.
+	expect(folder.file('recordings/take.webm')?.data).toBeUndefined();
 	expect(expectOk(await readBytes(folder, 'recordings/take.webm'))).toEqual(
 		toneWav(),
 	);
@@ -155,7 +157,6 @@ const prepared = (expectedBaseUrl: string) => ({
 /** A browser services over storage held in `stored`, with every request it sends recorded. */
 async function browserWithStorage(stored: Map<string, string>) {
 	const services = await openTestServices();
-	folder = services.folder;
 	Object.defineProperty(globalThis, 'localStorage', {
 		configurable: true,
 		value: {
@@ -183,14 +184,10 @@ async function browserWithStorage(stored: Map<string, string>) {
 		});
 		return Response.json({ choices: [{ message: { content: 'ok' } }] });
 	}) as unknown as typeof fetch;
-	const browser = createServices(
-		expectOk(await openFolder({ tables: whisperingTables })),
-	);
 	cleanups.push(async () => {
 		globalThis.fetch = originalFetch;
-		await folder.close();
-		await services.remove();
 	});
+	const browser = await servicesOver(services);
 	return { browser, sent };
 }
 

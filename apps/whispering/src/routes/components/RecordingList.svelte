@@ -280,12 +280,6 @@
 		{/if}
 	</div>
 
-	{#if whispering.listError}
-		<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-			Could not read the recordings folder: {whispering.listError}. Showing the last list that was read.
-		</p>
-	{/if}
-
 	<div class="min-h-0 flex-1 overflow-y-auto">
 		{#if rows.length > 0}
 			<Table.Root class="table-fixed" aria-label="Saved recordings" data-testid="recording-list">
@@ -417,6 +411,9 @@
 				{#each whispering.repairs as item (item.path)}
 					<li>
 						<button type="button" class="font-mono underline" onclick={() => void openRow(item.path)}>{item.path}</button>: {item.reason}
+						{#if item.unreadable}
+							<Button size="xs" variant="outline" class="ml-1" onclick={() => whispering.checkpoint()}>Try again</Button>
+						{/if}
 					</li>
 				{/each}
 			</ul>

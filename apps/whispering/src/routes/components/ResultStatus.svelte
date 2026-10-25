@@ -7,7 +7,9 @@
 
 	/**
 	 * A result file with no answer in it: its request running, its answer
-	 * being written, why its request failed, or unfinished. Running it again
+	 * being written or why it was not, why its request failed, or unfinished.
+	 * An answer that was not written is saved again only when asked, without
+	 * another request. Running it again
 	 * sends the same request and writes the answer into the same file; deleting
 	 * the file discards it.
 	 */
@@ -25,6 +27,10 @@
 	} = $props();
 	const whispering = getWhispering();
 
+	async function saveAgain() {
+		await whispering.saveAgain(path);
+	}
+
 	async function runAgain() {
 		const problem = await whispering.runAgain(path);
 		if (problem) toast.error('It was not run again', { description: problem });
@@ -39,12 +45,10 @@
 		</p>
 	{:else if result.kind === 'writing'}
 		{@const text = result.text}
-		<p class="text-destructive" role="alert">
-			The answer arrived, but its file could not be written: {result.message} Whispering keeps trying while this window is
-			open.
-		</p>
+		<p class="text-destructive" role="alert" data-testid="result-error">Answer not written: {result.message}</p>
 		<p class="max-h-24 overflow-y-auto rounded border bg-background p-2 whitespace-pre-wrap">{text}</p>
-		<div>
+		<div class="flex items-center gap-1">
+			<Button size="xs" onclick={() => void saveAgain()} data-testid="save-again">Save again</Button>
 			<Button size="xs" variant="outline" onclick={() => void copyText(text, 'the answer')}>Copy</Button>
 		</div>
 	{:else}

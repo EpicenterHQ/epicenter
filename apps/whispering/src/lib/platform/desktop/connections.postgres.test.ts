@@ -39,7 +39,7 @@ import {
 	readConnectionRow,
 	setConnectionRow,
 } from '../../../../../../packages/cli/src/connection-rows.js';
-import { openBunFolder } from '../../../../../../packages/folder/src/native/bun.js';
+import { openFolder as openBunFolder } from '@epicenter/folder/next/bun';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,
@@ -252,7 +252,7 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 	});
 	if (opened.error !== null) throw new Error(opened.error.message);
 	const folder = opened.data;
-	const { error: created } = await folder.tables.connections.write(
+	const { error: created } = await folder.tables.connections.create(
 		CONNECTION_IDS.transcription,
 		{
 			fields: { kind: 'epicenter', title: 'Epicenter', model: 'whisper-1' },

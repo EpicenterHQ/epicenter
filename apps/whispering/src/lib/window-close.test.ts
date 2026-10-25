@@ -1,17 +1,18 @@
 /**
  * Whispering Window Close Tests
  *
- * Product state over a real folder, run as a desktop window: the stand-in in
+ * Product state over a folder, run as a desktop window: the stand-in in
  * `tauri-window.test-support`, which runs the close listener as Tauri's
- * API does. Only accepted Folder work changes the close decision.
+ * API does. The window's close is held as `<OpenFolder>` holds it: it never
+ * asks, and waits for the folder's writes in flight before the window goes.
  *
  * Key behaviors:
- * - Text held by the Folder prompts; Cancel retains it
- * - An explicit save can finish, then the window closes without prompting
+ * - A write in flight lands before the window closes, and nothing asks
  * - A recording under way holds nothing in the page: the window goes, and
  *   destroying it finishes the recording silently. Epicenter warns about
  *   active capture only for application Quit (ADR-0663)
- * - A closed whispering no longer holds the window's close
+ * - Connection settings, saved or not, do not hold the window
+ * - Released, the folder no longer holds the window's close
  */
 import {
 	closeTestWhispering,
@@ -20,8 +21,6 @@ import {
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
 	desktop,
 	nativeDialog,
@@ -29,120 +28,56 @@ import {
 	requestClose,
 	untilListening,
 } from '../../../../packages/svelte/src/tauri-window.test-support.js';
-import { openText, settle } from './edits.test-support.js';
+import { holdWindowClose } from '../../../../packages/svelte/src/window-close.js';
 import {
-	openGatedTestFolder,
+	deferred,
+	openMemoryTestFolder,
 	openTestServices,
-	whisperingDirectory,
 } from './services.test-support.js';
 
-const cleanups: (() => Promise<void>)[] = [];
+const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 	nativeWindow.reset();
 });
 
-/**
- * Product state in a desktop window over a fresh directory whose disk can refuse
- * a write or throw, below the folder, so the folder's own saves meet it.
- */
+/** Product state in a desktop window over a folder in memory, its close held as `<OpenFolder>` holds it. */
 async function openWindow() {
-	const root = await whisperingDirectory('whispering-window-');
-	const control = { refuse: false, throwWrite: false };
-	const folder = openGatedTestFolder(root, async () => {
-		if (control.throwWrite) throw new Error('transport disconnected');
-		return control.refuse ? new Error('the disk refused it') : undefined;
-	});
-	const fixture = await openTestServices({ folder });
+	const memory = await openMemoryTestFolder();
+	const fixture = await openTestServices({ folder: memory });
 	desktop(true);
-	const { whispering, context } = await createTestWhispering(fixture);
+	const { whispering } = await createTestWhispering(fixture);
+	const release = await holdWindowClose(
+		() => false,
+		() => {},
+		() => memory.opened.close(),
+	);
 	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, context });
+		release();
+		closeTestWhispering({ whispering, folder: fixture.folder });
 		await fixture.remove();
-		await rm(join(root, '..'), { recursive: true, force: true });
 	});
-	await context.guardWindowClose();
 	await whispering.start();
 	await untilListening();
-	return { whispering, context, root, control };
+	return { whispering, folder: fixture.folder, host: memory.host, release };
 }
 
-/** Record one recording and open its file as text. */
-async function recordAsText({
-	whispering,
-	context,
-}: Awaited<ReturnType<typeof openWindow>>) {
-	await whispering.startRecording();
-	await whispering.stopRecording();
-	await settle(whispering, context);
-	const path = whispering.selectedPath;
-	if (path === undefined) throw new Error('Expected a recording');
-	expect(await whispering.editSource(path)).toBeUndefined();
-	const text = await openText(whispering, context, path);
-	return { path, text };
-}
-
-test('text held by the Folder prompts; Cancel retains it', async () => {
+test('a write in flight lands before the window closes, and nothing asks', async () => {
 	const window = await openWindow();
-	const { path, text } = await recordAsText(window);
-	const typed = `${text.draft}Typed just before closing.\n`;
-	text.view.replace(typed);
+	const gate = deferred<void>();
+	window.host.control.putGate = gate.promise;
+	const saving = window.folder.write('note.md', 'Typed just before closing.\n');
 
-	await requestClose();
-
-	expect(nativeDialog.count).toBe(1);
+	const closing = requestClose();
+	await Bun.sleep(20);
 	expect(nativeWindow.destroyed).toBe(0);
-	expect(text.view.getSnapshot().text).toBe(typed);
-	expect(text.view.getSnapshot().isDirty).toBe(true);
-	await window.whispering.document(path).save();
-	await requestClose();
+	gate.resolve();
+	await closing;
+
+	expect(nativeDialog.count).toBe(0);
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);
-});
-
-test('a failed save keeps the window until another save attempt saves the text', async () => {
-	const window = await openWindow();
-	const { path, text } = await recordAsText(window);
-	const before = text.draft;
-	const typed = `${before}Typed but not saved.\n`;
-	window.control.refuse = true;
-	text.view.replace(typed);
-	await window.whispering.document(path).save();
-
-	await requestClose();
-
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(nativeDialog.count).toBe(1);
-	expect(text.view.getSnapshot().text).toBe(typed);
-	expect(text.view.getSnapshot().isDirty).toBe(true);
-	expect(window.whispering.unsaved).toBe(true);
-	expect(await readFile(join(window.root, path), 'utf8')).toBe(before);
-
-	window.control.refuse = false;
-	await window.context.folder.files.document(path).save();
-	await requestClose();
-
-	expect(nativeWindow.destroyed).toBe(1);
-	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);
-});
-
-test('a thrown file write leaves a failed draft that can save again', async () => {
-	const window = await openWindow();
-	const { path, text } = await recordAsText(window);
-	const typed = `${text.draft}Retained after throw.\n`;
-	window.control.throwWrite = true;
-	text.view.replace(typed);
-	await window.whispering.document(path).save();
-	await requestClose();
-	expect(nativeWindow.destroyed).toBe(0);
-	expect(text.view.getSnapshot().text).toBe(typed);
-	expect(text.view.getSnapshot().isDirty).toBe(true);
-	expect(window.whispering.unsaved).toBe(true);
-	window.control.throwWrite = false;
-	await window.context.folder.files.document(path).save();
-	await requestClose();
-	expect(nativeWindow.destroyed).toBe(1);
-	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);
+	expect((await saving).error).toBeNull();
+	expect(window.host.text('note.md')).toBe('Typed just before closing.\n');
 });
 
 test('a recording under way holds nothing: the window goes', async () => {
@@ -152,6 +87,7 @@ test('a recording under way holds nothing: the window goes', async () => {
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
+	expect(nativeDialog.count).toBe(0);
 });
 
 test('unsubmitted connection settings do not prompt', async () => {
@@ -162,7 +98,7 @@ test('unsubmitted connection settings do not prompt', async () => {
 	expect(nativeDialog.count).toBe(0);
 });
 
-test('a connection save before a Folder write does not prompt', async () => {
+test('a connection save before a folder write does not prompt', async () => {
 	const window = await openWindow();
 	window.whispering.settings.transcription.model = 'saved before close';
 	const saving = window.whispering.settings.transcription.save();
@@ -172,9 +108,9 @@ test('a connection save before a Folder write does not prompt', async () => {
 	expect(await saving).toBeUndefined();
 });
 
-test('a closed whispering no longer holds the window’s close', async () => {
+test('released, the folder no longer holds the window’s close', async () => {
 	const window = await openWindow();
-	await closeTestWhispering(window);
+	window.release();
 	for (let tries = 0; tries < 100 && nativeWindow.listeners > 0; tries++)
 		await Bun.sleep(5);
 	expect(nativeWindow.listeners).toBe(0);

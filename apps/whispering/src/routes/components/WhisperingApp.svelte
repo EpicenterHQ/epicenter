@@ -5,40 +5,34 @@
 	import * as Resizable from '@epicenter/ui/resizable';
 	import * as Sheet from '@epicenter/ui/sheet';
 	import * as Sidebar from '@epicenter/ui/sidebar';
-	import { setQueryClientContext } from '@tanstack/svelte-query';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { setFolder, type WhisperingContext } from '$lib/folder.js';
+	import { setFolder, type WhisperingFolder } from '$lib/folder.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import BottomNav from './BottomNav.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import VerticalNav from './VerticalNav.svelte';
-	import { toastWriteFailure } from '@epicenter/svelte/write-failure-toast';
 
-	/** Product state over FolderApp's context; stops taking work before the folder closes. */
+	/** Product state over the opened folder; stops taking work before the folder closes. */
 	let {
-		context,
+		folder,
 		children,
-	}: { context: WhisperingContext; children: Snippet } = $props();
+	}: { folder: WhisperingFolder; children: Snippet } = $props();
 
-	// Each mounted product root keeps the context it received.
+	// Each mounted product root keeps the folder it received.
 	// svelte-ignore state_referenced_locally
-	const { queryClient } = setFolder(context);
-	setQueryClientContext(queryClient);
+	setFolder(folder);
 	// svelte-ignore state_referenced_locally
-	const whispering = createWhispering(context);
+	const whispering = createWhispering(folder);
 	setWhispering(whispering);
 	const { view } = whispering;
 	const starting = whispering.start();
 	// Leaving waits for nothing; a recording under way ends with the page.
 	onDestroy(whispering.dispose);
-
-	// A save of a file's text that failed is told, with the text to copy.
-	$effect(() => whispering.onWriteFailure(toastWriteFailure));
 
 	/** Below this width the sidebar becomes a bottom bar and panes take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');

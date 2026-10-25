@@ -1,25 +1,23 @@
 /**
- * The mounted Whispering app state over one opened folder, kept in the local
- * folder context's TanStack Query cache (`@epicenter/svelte/folder`).
+ * The mounted Whispering app state over one opened folder
+ * (`@epicenter/svelte/folder-next`).
  *
- * The context owns row and file-list queries, generates each file key, and
- * refreshes changed paths. The app defines text and audio representations.
- * Whispering observes the rows and the listing for as long as it is open, so every page shows them. A change the folder reports makes the
- * rows and files it names stale, and the ones shown are read again. Rows that
- * read are listed to edit; the rest are named, with why, for repair as text.
+ * The folder is a mirror of what landed on disk, read reactively and in full:
+ * every list here is derived from its rows and files, once per change. Rows
+ * that read are listed to edit; the rest are named, with why, for repair as
+ * text. A row whose read failed is one of them, and Try again looks at the
+ * folder again.
  *
- * Typing is never lost to a reread. Fields, body and whole text use one
- * TextDocument interface, selected through a typed table or file path. Each
- * failed save is reported. Folder saves a second after the last
- * change. The source draft remains owned by Folder after the view leaves.
- * Saves publish complete sources in call order. A failed publication keeps
- * the accepted input and is reported. Reads never initiate publication.
+ * Nothing here holds text ahead of the disk: what a person types is a draft
+ * in the view that shows it, and each write answers once it landed and the
+ * mirror shows it. A write that does not land is reported by `<OpenFolder>`,
+ * with the text to copy.
  *
  * Closing waits for nothing here: `dispose` refuses new work and late answers
- * and returns. Folder close releases storage synchronously without submitting
- * input or waiting for saves. Provider requests and recording workflows
- * follow the context's closing fence and never delay disposal. A recording under way
- * ends with the page (ADR-0663).
+ * and returns. `<OpenFolder>` closes the folder after this, sending the
+ * writes that wait. Provider requests and recording workflows follow the
+ * closing fence and never delay disposal. A recording under way ends with
+ * the page (ADR-0663).
  *
  * A recording is in the folder from the moment it starts (ADR-0543): its row
  * is written then beside its same-stem audio. On the desktop the audio is
@@ -30,26 +28,19 @@
  */
 
 import { InstantString } from '@epicenter/definition';
-import { type Row, SaveError } from '@epicenter/folder';
-import type {
-	DocumentSnapshot,
-	SaveFailure,
-	TextDocument,
-} from '@epicenter/folder/document';
-import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
-import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import {
-	hashKey,
-	type QueryFunctionContext,
-	QueryObserver,
-} from '@tanstack/query-core';
+	type FileValue,
+	type Row,
+	type RowIssue,
+	readRow,
+} from '@epicenter/folder/next';
+import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import { customAlphabet } from 'nanoid';
 import { createContext } from 'svelte';
-import { createSubscriber, SvelteSet } from 'svelte/reactivity';
-import { defineErrors } from 'wellcrafted/error';
-import { createLogger } from 'wellcrafted/logger';
+import { SvelteSet } from 'svelte/reactivity';
 import { Err, type Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
+import { audioMimeTypeOf } from './audio-format.js';
 import { type ActiveCapture, CaptureError } from './capture.js';
 import type {
 	ConnectionChange,
@@ -66,6 +57,7 @@ import {
 	TRANSCRIPTIONS,
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
+	whisperingTables,
 	type WhisperingTables,
 } from './definition.js';
 import {
@@ -76,9 +68,8 @@ import {
 	runDeletion,
 } from './deletion.js';
 import { maintainExclusions } from './exclusions.js';
-import { textRead } from './file-reads.js';
 import { describeError, listingOf, nameProblem } from './files.js';
-import type { WhisperingContext } from './folder.js';
+import type { WhisperingFolder } from './folder.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { PostProcessingChoice } from './post-processing.js';
 import {
@@ -92,12 +83,6 @@ import { createRuns } from './runs.svelte.js';
 import { createSettingsDraft } from './settings-draft.svelte.js';
 
 export const STOPPED = 'Whispering stopped before it finished starting.';
-
-/** A listing's query options, as the first read runs them. */
-type QueryOptions = {
-	queryKey: readonly unknown[];
-	queryFn: (context: QueryFunctionContext) => Promise<unknown>;
-};
 
 export type TableName = keyof WhisperingTables;
 /** The tables whose rows this window edits. */
@@ -129,6 +114,8 @@ export type Repair = {
 	readonly path: string;
 	readonly stem: string;
 	readonly reason: string;
+	/** Its read failed, so looking at the folder again may read it. */
+	readonly unreadable: boolean;
 };
 
 export type { Deletion } from './deletion.js';
@@ -165,20 +152,6 @@ const STILL_TEXT =
 const TAKEN = 'Another file already has this name, so nothing was changed.';
 
 const suffix = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 4);
-const log = createLogger('whispering');
-const WhisperingError = defineErrors({
-	CreatedTransformationRefreshFailed: ({
-		path,
-		cause,
-	}: {
-		path: string;
-		cause: unknown;
-	}) => ({
-		message: 'The transformation was saved, but its view could not refresh',
-		path,
-		cause,
-	}),
-});
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -217,9 +190,15 @@ export function repairReason(row: Pick<Row, 'issues'>): string {
 			const [field] = issue.path;
 			const what =
 				field === undefined ? issue.message : `${field} ${issue.message}`;
-			return issue.line === undefined ? what : `Line ${issue.line}: ${what}`;
+			const line = issueLine(issue);
+			return line === undefined ? what : `Line ${line}: ${what}`;
 		})
 		.join(' ');
+}
+
+/** The line a row issue names, when it names one; a failed read names none. */
+export function issueLine(issue: RowIssue): number | undefined {
+	return 'line' in issue ? issue.line : undefined;
 }
 
 /** A listing's rows that read, and the rest with why. */
@@ -229,8 +208,15 @@ function split<T extends TableName>(table: T, rows: readonly ListedRow<T>[]) {
 	for (const row of rows) {
 		const path = rowPath(table, row.id);
 		if (row.issues === null)
+			// SAFETY: a row with no issues read through its table's schema.
 			entries.push({ stem: row.id, path, row: row as ReadRow<T> });
-		else repairs.push({ path, stem: row.id, reason: repairReason(row) });
+		else
+			repairs.push({
+				path,
+				stem: row.id,
+				reason: repairReason(row),
+				unreadable: row.issues.some((issue) => issue.kind === 'unreadable'),
+			});
 	}
 	return {
 		entries,
@@ -253,7 +239,7 @@ function byNewest<
 	);
 }
 
-/** One derived value per listing the cache holds, computed once per listing. */
+/** One derived value per rows or files array the mirror answers, computed once per array. */
 function perListing<TListing extends object, TValue>(
 	compute: (listing: TListing) => TValue,
 ) {
@@ -268,8 +254,7 @@ function perListing<TListing extends object, TValue>(
 	};
 }
 
-export function createWhispering(context: WhisperingContext) {
-	const { folder, queryClient } = context;
+export function createWhispering(folder: WhisperingFolder) {
 	const services = createServices(folder);
 	/** What the shell shows. Held here so no route owns it. */
 	const view = $state({
@@ -326,70 +311,28 @@ export function createWhispering(context: WhisperingContext) {
 	let exclusionNotice = $state<string | undefined>();
 	let starting: Promise<void> | undefined;
 
-	const noticeListeners = new Set<(notice: WriteFailure) => void>();
-	function notify(notice: WriteFailure) {
-		for (const listener of noticeListeners) listener(notice);
-	}
-
-	/** Only product cleanup idempotence; the context owns admission and late-answer fencing. */
+	/** Product cleanup also fences new work and late replies. */
 	let disposed = false;
 	let captureNotice = $state<string | undefined>();
 	/** Why nothing new starts now, if it does not. */
-	const refused = () => (context.closing ? CLOSING : undefined);
-
-	const trackQueries = createSubscriber((update) =>
-		queryClient.getQueryCache().subscribe((event) => {
-			if (
-				event.type === 'added' ||
-				event.type === 'removed' ||
-				event.type === 'updated'
-			)
-				update();
-		}),
-	);
+	const refused = () => (disposed ? CLOSING : undefined);
 
 	// --- reads -----------------------------------------------------------------
 
-	const rowsKey = (table: TableName) => context.queries.rows(table).queryKey;
-	const filesQuery = context.queries.files();
-	const filesKey = filesQuery.queryKey;
-	const tables = [
-		RECORDINGS,
-		TRANSCRIPTIONS,
-		TRANSFORMATIONS,
-		TRANSFORMATION_RUNS,
-		TEXT_RUNS,
-	] as const;
-	/** What Whispering observes while it is open: every table's rows and the files. */
-	const shownQueries = (): QueryOptions[] => [
-		...tables.map(
-			(table) => context.queries.rows(table) as unknown as QueryOptions,
-		),
-		filesQuery,
-	];
-	const listingKeys = shownQueries().map((options) => options.queryKey);
-	/** Stops observing what `start` began observing. */
-	let stopObserving: (() => void)[] = [];
-
-	/** A table's rows as the cache holds them, read reactively. */
+	/** A table's complete mirrored rows, read reactively. */
 	function listed<T extends TableName>(table: T) {
-		trackQueries();
-		return queryClient.getQueryData<ListedRow<T>[]>(rowsKey(table));
+		// SAFETY: the table key selects the same schema as ListedRow<T>.
+		return folder.tables[table].rows as readonly ListedRow<T>[];
 	}
-	/** Why the last read of a query failed, read reactively. */
-	function readError(queryKey: readonly unknown[]): string | undefined {
-		trackQueries();
-		return queryClient.getQueryState(queryKey)?.error?.message;
-	}
-	const listedFiles = perListing(listingOf);
-	/** The folder's files as last listed, read reactively. */
+	const listedFiles = perListing((files: readonly FileValue[]) =>
+		listingOf(files.map((file) => file.path)),
+	);
+	/** The folder's complete file listing, read reactively. */
 	function listing() {
-		trackQueries();
-		const paths = queryClient.getQueryData<string[]>(filesKey);
-		return paths === undefined ? undefined : listedFiles(paths);
+		return listedFiles(folder.files);
 	}
 
-	const recordingsOf = perListing((rows: ListedRow<'recordings'>[]) => {
+	const recordingsOf = perListing((rows: readonly ListedRow<'recordings'>[]) => {
 		const read = split(RECORDINGS, rows);
 		return {
 			...read,
@@ -402,7 +345,7 @@ export function createWhispering(context: WhisperingContext) {
 		};
 	});
 	const transformationsOf = perListing(
-		(rows: ListedRow<'transformations'>[]) => {
+		(rows: readonly ListedRow<'transformations'>[]) => {
 			const read = split(TRANSFORMATIONS, rows);
 			const key = (entry: TransformationEntry) =>
 				entry.row.fields.title || entry.path;
@@ -418,75 +361,22 @@ export function createWhispering(context: WhisperingContext) {
 		},
 	);
 	const transcriptionsOf = perListing(
-		(rows: ListedRow<'transcriptions'>[]) =>
+		(rows: readonly ListedRow<'transcriptions'>[]) =>
 			split(TRANSCRIPTIONS, rows).entries,
 	);
 	const resultsOf = perListing(
-		(rows: ListedRow<'transformation_runs'>[]) =>
+		(rows: readonly ListedRow<'transformation_runs'>[]) =>
 			split(TRANSFORMATION_RUNS, rows).entries,
 	);
-	const textResultsOf = perListing((rows: ListedRow<'text_runs'>[]) =>
+	const textResultsOf = perListing((rows: readonly ListedRow<'text_runs'>[]) =>
 		split(TEXT_RUNS, rows),
 	);
 
-	const recordingsRead = () => {
-		const rows = listed(RECORDINGS);
-		return rows && recordingsOf(rows);
-	};
-	const entries = () => recordingsRead()?.entries ?? [];
-
-	/** The row the cache holds for `stem`, whether or not it reads. */
-	function listedRow<T extends TableName>(
-		table: T,
-		stem: string,
-	): ListedRow<T> | undefined {
-		return queryClient
-			.getQueryData<ListedRow<T>[]>(rowsKey(table))
-			?.find((row) => row.id === stem);
-	}
+	const recordingsRead = () => recordingsOf(listed(RECORDINGS));
+	const transformationsRead = () => transformationsOf(listed(TRANSFORMATIONS));
+	const entries = () => recordingsRead().entries;
 
 	// --- editing ---------------------------------------------------------------
-
-	/** Select a shared document; table access narrows patch field names. */
-	function documentAt(path: string): TextDocument;
-	function documentAt<T extends RowTable>(
-		table: T,
-		path: string,
-	): TextDocument<WhisperingTables[T]>;
-	function documentAt(tableOrPath: string, path?: string) {
-		const target = path ?? tableOrPath;
-		const table =
-			path === undefined ? rowTableOf(target) : (tableOrPath as RowTable);
-		if (table === undefined) return folder.files.document(target);
-		const id = rowIdOf(table, target);
-		if (id === undefined)
-			throw new Error(`${target} is not a file in the ${table} table.`);
-		return folder.tables[table].document(id);
-	}
-	// Each failed publication is told once. Its editor remains the only owner
-	// of copyable text, including typing accepted after this status snapshot.
-	const told = new WeakSet<SaveFailure>();
-	const stopTelling = folder.onStatusChange(({ failures }) => {
-		for (const failure of failures) {
-			if (told.has(failure)) continue;
-			told.add(failure);
-			const edit = folder.files.document(failure.path);
-			notify({
-				path: failure.path,
-				error: failure.error,
-				getText: () => {
-					const snapshot = edit.getSnapshot();
-					return snapshot.isDirty ? snapshot.text : undefined;
-				},
-				save: () => {
-					if (context.closing || !edit.getSnapshot().isDirty) return false;
-					void edit.save();
-					return true;
-				},
-				discard: () => edit.discard(),
-			});
-		}
-	});
 
 	/** Row files the person chose to edit as their exact text. */
 	const asText = new SvelteSet<string>();
@@ -495,38 +385,24 @@ export function createWhispering(context: WhisperingContext) {
 	 * Whether `path` shows as its exact text: a row file the person opened in
 	 * Source, or one whose text does not read as a row.
 	 */
-	function showsText(
-		path: string,
-		snapshot: DocumentSnapshot = documentAt(path).getSnapshot(),
-	): boolean {
+	function showsText(path: string): boolean {
 		const table = rowTableOf(path);
 		if (table === undefined) return true;
 		if (asText.has(path)) return true;
-		const stem = rowIdOf(table, path) as string;
-		const saved = listed(table)?.find((item) => item.id === stem);
-		const parsed =
-			snapshot.text === undefined
-				? undefined
-				: folder.tables[table].parse(snapshot.text);
-		const row = snapshot.isDirty ? parsed : (saved ?? parsed);
+		const stem = rowIdOf(table, path);
+		const row = stem === undefined ? undefined : folder.tables[table].row(stem);
 		return row !== undefined && row.issues !== null;
 	}
 
-	/** After a rename: the caches and the selection follow the file. */
+	/** After a rename, the view state and selection follow the file. */
 	function moved(from: string, to: string) {
 		if (asText.delete(from)) asText.add(to);
 		if (selectedPath === from) selectedPath = to;
 	}
 
-	/** After a delete: the caches and the selection let the file go. */
+	/** After a delete, the view state and selection let the file go. */
 	function deleted(path: string) {
-		for (const table of tables) {
-			const stem = rowIdOf(table, path);
-			if (stem !== undefined)
-				queryClient.setQueryData<Row[]>(rowsKey(table), (rows) =>
-					rows?.filter((row) => row.id !== stem),
-				);
-		}
+		runs.forget(path);
 		asText.delete(path);
 		if (selectedPath === path) selectedPath = undefined;
 		if (selectedTransformationPath === path)
@@ -548,11 +424,11 @@ export function createWhispering(context: WhisperingContext) {
 		const current = ++connectionReadId;
 		try {
 			const read = await services.connections.read();
-			if (context.closing || current !== connectionReadId) return;
+			if (disposed || current !== connectionReadId) return;
 			connections = read;
 			connectionsError = undefined;
 		} catch (cause) {
-			if (context.closing || current !== connectionReadId) return;
+			if (disposed || current !== connectionReadId) return;
 			connections = undefined;
 			connectionsError = describe(cause);
 		}
@@ -569,7 +445,7 @@ export function createWhispering(context: WhisperingContext) {
 				id: string;
 				capture: ActiveCapture;
 				/** Its initial row save, awaited before Stop writes the row's length. */
-				rowSave: ReturnType<typeof folder.tables.recordings.write>;
+			rowSave: ReturnType<typeof folder.tables.recordings.create>;
 		  }
 		| { phase: 'stopping'; id: string; capture: ActiveCapture };
 	let captureState = $state.raw<CaptureState>({ phase: 'idle' });
@@ -588,25 +464,24 @@ export function createWhispering(context: WhisperingContext) {
 		);
 	}
 	/**
-	 * A recording this window just finished, by stem, with the file listing
-	 * read when its capture ended. Until the folder is listed again, that
-	 * listing may predate its audio, so the audio is not reported absent.
+	 * Recordings this window just finished, by stem, with the audio path
+	 * their capture wrote. Until the mirror lists that audio, it plays from
+	 * this path and is not reported absent.
 	 */
-	const finishedOver = new Map<string, { count: number; path: string }>();
+	const justFinished = new Map<string, string>();
 	/** Folders open in the file browser; kept while the browser is hidden. */
 	const expanded = new SvelteSet<string>([RECORDINGS]);
 	/** Recordings whose deletion is under way. No request starts for one. */
 	const deleting = new Set<string>();
-	const recordingsHash = hashKey(rowsKey(RECORDINGS));
-	const stopListening = queryClient.getQueryCache().subscribe((event) => {
-		if (event.type !== 'updated' || event.action.type !== 'success') return;
-		if (event.query.queryHash !== recordingsHash) return;
-		const read = recordingsRead();
-		if (read === undefined) return;
-		if (view.recordingSelected.some((path) => !read.paths.has(path)))
-			view.recordingSelected = view.recordingSelected.filter((path) =>
-				read.paths.has(path),
-			);
+	// Recordings that left the folder are no longer selected in the table.
+	const stopPruning = $effect.root(() => {
+		$effect(() => {
+			const { paths } = recordingsRead();
+			if (view.recordingSelected.some((path) => !paths.has(path)))
+				view.recordingSelected = view.recordingSelected.filter((path) =>
+					paths.has(path),
+				);
+		});
 	});
 
 	const runs = createRuns({
@@ -619,6 +494,7 @@ export function createWhispering(context: WhisperingContext) {
 		resolve,
 		deleting,
 		isCapturing,
+		audioOf: (id) => audioFor(id),
 	});
 
 	const input = createMicrophoneInput({
@@ -629,7 +505,7 @@ export function createWhispering(context: WhisperingContext) {
 
 	/** Show `path`: a transformation on its page, anything else beside the recordings. Opening never waits or asks. */
 	function open(path: string): boolean {
-		if (context.closing) return false;
+		if (disposed) return false;
 		for (const ancestor of ancestors(path)) expanded.add(ancestor);
 		if (rowTableOf(path) === TRANSFORMATIONS) selectedTransformationPath = path;
 		else selectedPath = path;
@@ -647,7 +523,7 @@ export function createWhispering(context: WhisperingContext) {
 	 */
 	function finishRecording(): Promise<void> {
 		const current = captureState;
-		if (current.phase !== 'recording' || context.closing)
+		if (current.phase !== 'recording' || disposed)
 			return finishing ?? Promise.resolve();
 		captureState = {
 			phase: 'stopping',
@@ -677,14 +553,12 @@ export function createWhispering(context: WhisperingContext) {
 			.stop()
 			.catch((cause) => CaptureError.Failed({ cause }));
 		const { data: stopped, error: stopError } = await stopping;
-		if (stopError === null)
-			finishedOver.set(id, {
-				count: queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0,
-				path: capture.audioPath,
-			});
+		if (stopError === null) justFinished.set(id, capture.audioPath);
+		// Look at the folder now, so the finished audio is listed soon.
+		folder.checkpoint();
 		captureState = { phase: 'idle' };
 		// Closed meanwhile: the folder is closing, so the length is not written.
-		if (context.closing) return;
+		if (disposed) return;
 		if (stopError !== null) {
 			recorderError = stopError.message;
 			return;
@@ -693,27 +567,18 @@ export function createWhispering(context: WhisperingContext) {
 			const { error: rowError } = await rowSave;
 			if (rowError !== null)
 				return `The audio is saved, but its recording file could not be written: ${describeError(rowError)}. Its audio is ${capture.audioPath}.`;
-			// A Stop that finishes after context close writes no length.
-			if (context.closing) return undefined;
-			const document = folder.tables.recordings.document(id);
-			const loaded = await document.refresh();
-			// Acquiring never discards pending input; a deleted row stays deleted.
-			if (loaded.error?.name === 'Missing' || context.closing) return undefined;
-			if (loaded.error !== null)
-				return `The recording is saved, but its length could not be written: ${describeError(loaded.error)}`;
-			const { error: changeError } = document.patch({
+			// A Stop that finishes after close writes no length.
+			if (disposed) return undefined;
+			const { error } = await folder.tables.recordings.update(id, {
 				fields: { durationMs: stopped.durationMs },
 			});
-			if (changeError !== null)
-				return `The recording is saved, but its length could not be written: ${describeError(changeError)}`;
-			const { error: saveError } = await document.save();
-			return saveError === null
+			return error === null || error.name === 'NothingToUpdate'
 				? undefined
-				: `The recording is saved, but its length could not be written: ${describeError(saveError)}`;
+				: `The recording is saved, but its length could not be written: ${describeError(error)}`;
 		};
 		const saveWarning = await saveDuration().catch((cause: unknown) =>
 			// Whatever fails as the page goes is not shown.
-			context.closing
+			disposed
 				? undefined
 				: `The recording is saved, but its length could not be written: ${describe(cause)}`,
 		);
@@ -721,24 +586,30 @@ export function createWhispering(context: WhisperingContext) {
 		if (selectedPath === selectionBefore) open(path);
 	}
 
-	function audioOf(entry: RecordingEntry): RecordingAudio {
+	/** Where the recording `id`'s audio is, by the listing the mirror shows. */
+	function audioFor(id: string): RecordingAudio {
 		const files = listing();
-		// A listing read since the recording finished says where its audio is.
-		const unlisted =
-			finishedOver.has(entry.stem) &&
-			finishedOver.get(entry.stem)?.count ===
-				(queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0);
-		if (!unlisted) finishedOver.delete(entry.stem);
-		return recordingAudio(entry.stem, {
+		if (
+			justFinished.has(id) &&
+			files.byStem
+				.get(recordingAudioStem(id))
+				?.some((path) => audioMimeTypeOf(path) !== undefined)
+		)
+			justFinished.delete(id);
+		return recordingAudio(id, {
 			capturePath:
 				(captureState.phase === 'recording' ||
 					captureState.phase === 'stopping') &&
-				captureState.id === entry.stem
+				captureState.id === id
 					? captureState.capture.audioPath
-					: finishedOver.get(entry.stem)?.path,
+					: justFinished.get(id),
 			listing: files,
-			settling: unlisted || isCapturing(entry.stem),
+			settling: justFinished.has(id) || isCapturing(id),
 		});
+	}
+
+	function audioOf(entry: RecordingEntry): RecordingAudio {
+		return audioFor(entry.stem);
 	}
 
 	function recordingNaming(path: string): RecordingEntry | undefined {
@@ -752,7 +623,8 @@ export function createWhispering(context: WhisperingContext) {
 		folder,
 		busy: (id) =>
 			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
-		audioOf: (path) => {
+		audioOf: audioFor,
+		namingAudio: (path) => {
 			const entry = recordingNaming(path);
 			return entry && recordingTitle(entry);
 		},
@@ -779,7 +651,7 @@ export function createWhispering(context: WhisperingContext) {
 				change,
 			);
 			if (error !== null) return error;
-			if (!context.closing) {
+			if (!disposed) {
 				connections = saved;
 				connectionsError = undefined;
 			}
@@ -792,17 +664,12 @@ export function createWhispering(context: WhisperingContext) {
 	function dispose(): void {
 		if (disposed) return;
 		disposed = true;
-		context.close();
-		runs.stop();
 		input.close();
 		if (captureState.phase === 'starting') {
 			captureState.attempt.abort();
 			captureState = { phase: 'idle' };
 		}
-		for (const stop of stopObserving) stop();
-		stopListening();
-		stopTelling();
-		noticeListeners.clear();
+		stopPruning();
 	}
 
 	const settings = createSettingsDraft(
@@ -822,10 +689,9 @@ export function createWhispering(context: WhisperingContext) {
 		get postProcessing(): PostProcessingChoice {
 			const path = view.postProcessing;
 			if (path === undefined) return { kind: 'none' };
-			const rows = listed(TRANSFORMATIONS);
-			const entry =
-				rows &&
-				transformationsOf(rows).entries.find((item) => item.path === path);
+			const entry = transformationsRead().entries.find(
+				(item) => item.path === path,
+			);
 			if (entry === undefined) return { kind: 'missing', path };
 			const resolved = resolve(entry.row);
 			return resolved.kind === 'ready'
@@ -834,34 +700,20 @@ export function createWhispering(context: WhisperingContext) {
 		},
 		/** The microphone the next recording uses, and the test of it. */
 		input,
-		/** Whether a listing is being read now; the lists show the last read until it ends. */
-		get refreshing() {
-			trackQueries();
-			return listingKeys.some(
-				(queryKey) => queryClient.isFetching({ queryKey, exact: true }) > 0,
-			);
-		},
 		/** Recordings that read, newest first. */
 		get entries() {
 			return entries();
 		},
 		/** Recording files that do not read as recordings, with why. */
 		get repairs() {
-			return recordingsRead()?.repairs ?? [];
+			return recordingsRead().repairs;
 		},
 		get transcriptions() {
-			const rows = listed(TRANSCRIPTIONS);
-			return rows ? transcriptionsOf(rows) : [];
+			return transcriptionsOf(listed(TRANSCRIPTIONS));
 		},
-		get listError() {
-			return readError(rowsKey(RECORDINGS));
-		},
-		/** Every file in the folder, as last listed. */
+		/** Every file in the folder, as the mirror lists it. */
 		get listing() {
 			return listing();
-		},
-		get listingError() {
-			return readError(filesKey);
 		},
 		expanded,
 		/** What this device has set up for requests, never a key. */
@@ -885,27 +737,17 @@ export function createWhispering(context: WhisperingContext) {
 		get selectedPath() {
 			return selectedPath;
 		},
-		/**
-		 * What the recordings page shows. A missing recording stays selected
-		 * while its owner retains usable source.
-		 */
+		/** What the recordings page shows while its file remains in the folder. */
 		get selection(): Selection | undefined {
 			const path = selectedPath;
-			if (path === undefined) return undefined;
+			if (path === undefined || folder.file(path) === undefined)
+				return undefined;
 			if (rowTableOf(path) !== RECORDINGS)
 				return { kind: 'file', path, entry: undefined };
-			const read = recordingsRead();
-			if (
-				read !== undefined &&
-				!read.paths.has(path) &&
-				!context.getStatus().unsaved.includes(path) &&
-				folder.files.document(path).getSnapshot().text === undefined
-			)
-				return undefined;
 			return {
 				kind: 'recording',
 				path,
-				entry: read?.entries.find((entry) => entry.path === path),
+				entry: entries().find((entry) => entry.path === path),
 			};
 		},
 		get selectedTransformationPath() {
@@ -914,88 +756,46 @@ export function createWhispering(context: WhisperingContext) {
 		/** The transformation being edited, with its listed row when it reads. */
 		get selectedTransformation() {
 			const path = selectedTransformationPath;
-			if (path === undefined) return undefined;
-			const rows = listed(TRANSFORMATIONS);
-			const read = rows && transformationsOf(rows);
-			if (
-				read !== undefined &&
-				!read.paths.has(path) &&
-				!context.getStatus().unsaved.includes(path) &&
-				folder.files.document(path).getSnapshot().text === undefined
-			)
+			if (path === undefined || folder.file(path) === undefined)
 				return undefined;
 			return {
 				path,
-				entry: read?.entries.find((entry) => entry.path === path),
+				entry: transformationsRead().entries.find(
+					(entry) => entry.path === path,
+				),
 			};
 		},
-		/** Select `path` immediately; false after context close. Selection reads no file. */
+		/** Select `path` immediately; false after close. Selection reads no file. */
 		open,
 
 		// ------------------------------------------------------------------
 		// Edits
 		// ------------------------------------------------------------------
 
-		/** The current file edit; a table argument binds typed fields and diagnostics. */
-		document: documentAt,
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText,
-		/** Hear each save of a file's text that failed, which the person is told. */
-		onWriteFailure(listener: (notice: WriteFailure) => void): () => void {
-			noticeListeners.add(listener);
-			return () => noticeListeners.delete(listener);
-		},
-		/** Whether a write or delete for this path is admitted and unsettled; reads no content. */
-		isSaving(path: string) {
-			return context.getStatus().savingPaths.includes(path);
-		},
-		/** Whether accepted local input remains to publish. */
-		isUnsaved(path: string) {
-			return context.getStatus().unsaved.includes(path);
-		},
-
-		/**
-		 * Let go of what is typed into `path` and did not save, leaving the file
-		 * as it is. Answers what was let go, for the person to copy, or
-		 * undefined when no unsubmitted input was held.
-		 */
-		discard(path: string): string | undefined {
-			return folder.files.document(path).discard();
-		},
-		/** Whether a save runs, or typing waits to be sent; read reactively. */
+		/** Whether a save is waiting or running; read reactively. */
 		get saving() {
-			const { saving, unsaved, failures } = context.getStatus();
-			// Held paths that have not failed wait to be sent or are saving.
-			return saving || unsaved.length > failures.length;
+			return folder.saving;
 		},
-		/** Whether typing did not save, here or in a file's text; read reactively. */
-		get unsaved() {
-			return context.getStatus().failures.length > 0;
+		/** Look at the folder again, as Try again after a read failed. */
+		checkpoint(): void {
+			folder.checkpoint();
 		},
-		/** Why the last save failed in storage, until a save lands; read reactively. */
-		get storageFailure(): string | undefined {
-			const failure = context.getStatus().storageFailure;
-			return failure === null ? undefined : describeError(failure);
-		},
-		/** Show the same path-owned edit as whole text; no save or reread is required. */
+		/** Show a row file as its exact text; nothing is saved or read. */
 		editSource(path: string): string | undefined {
 			const why = refused();
 			if (why !== undefined) return why;
 			asText.add(path);
 			return undefined;
 		},
-		/** Show structured fields when the current edit fits the row's schema. */
-		useForm(path: string): string | undefined {
+		/** Show a row's fields again when `source`, the text shown, reads as the row. */
+		useForm(path: string, source: string): string | undefined {
 			const why = refused();
 			if (why !== undefined) return why;
 			const table = rowTableOf(path);
 			if (table === undefined) return STILL_TEXT;
-			const fileEdit = documentAt(path);
-			const text = fileEdit.getSnapshot().text;
-			if (
-				text === undefined ||
-				folder.tables[table].parse(text).issues !== null
-			)
+			if (readRow(source, whisperingTables[table]).issues !== null)
 				return STILL_TEXT;
 			asText.delete(path);
 			return undefined;
@@ -1006,71 +806,36 @@ export function createWhispering(context: WhisperingContext) {
 		// ------------------------------------------------------------------
 
 		get closing() {
-			return context.closing;
+			return disposed;
 		},
 
 		// ------------------------------------------------------------------
-		// Reads on request
+		// Starting
 		// ------------------------------------------------------------------
 
-		/**
-		 * Read the folder again at `paths`, or all of it, as after a read that
-		 * failed, or before a step that goes by what is listed now.
-		 */
-		async readAgain(paths?: readonly string[]) {
-			if (context.closing) return;
-			await context.refresh(paths);
-		},
 		/** Why recordings cut off by a quit or crash could not be checked. */
 		get captureNotice() {
 			return captureNotice;
 		},
-		/** Maintain exclusions, recover audio, then read and observe the app's data. */
+		/** Maintain exclusions, recover audio, then read connections and input. */
 		start(): Promise<void> {
 			starting ??= (async () => {
 				try {
-					if (context.closing) throw new Error(STOPPED);
-					const { error } = await maintainExclusions(folder.files);
-					if (context.closing) throw new Error(STOPPED);
+					if (disposed) throw new Error(STOPPED);
+					const { error } = await maintainExclusions(folder);
+					if (disposed) throw new Error(STOPPED);
 					exclusionNotice = error === null ? undefined : describeError(error);
 					const notice = await services.recoverRecordings();
-					if (context.closing) throw new Error(STOPPED);
+					if (disposed) throw new Error(STOPPED);
 					captureNotice = notice;
-					// A read that answers with an error is shown as that listing's
-					// problem; one that throws means the folder cannot be read at all,
-					// and the opening fails with it.
-					const thrown: unknown[] = [];
-					await Promise.all(
-						shownQueries().map((options) =>
-							queryClient
-								.fetchQuery({
-									...options,
-									queryFn: async (context) => {
-										try {
-											return await options.queryFn(context);
-										} catch (cause) {
-											if (cause instanceof Error) thrown.push(cause);
-											throw cause;
-										}
-									},
-								})
-								.catch(() => undefined),
-						),
-					);
-					if (thrown.length > 0) throw thrown[0];
-					if (context.closing) throw new Error(STOPPED);
-					// Observed from now on, so what the folder reports changed is read again.
-					stopObserving = shownQueries().map((options) =>
-						new QueryObserver(queryClient, options).subscribe(() => {}),
-					);
-					if (context.closing) throw new Error(STOPPED);
+					if (disposed) throw new Error(STOPPED);
 					await readConnections();
 					// The saved choice only: no microphone is opened or listed at launch.
-					if (context.closing) throw new Error(STOPPED);
+					if (disposed) throw new Error(STOPPED);
 					await input.load();
-					if (context.closing) throw new Error(STOPPED);
+					if (disposed) throw new Error(STOPPED);
 				} catch (cause) {
-					const stopped = context.closing;
+					const stopped = disposed;
 					dispose();
 					throw stopped ? new Error(STOPPED) : cause;
 				}
@@ -1084,72 +849,57 @@ export function createWhispering(context: WhisperingContext) {
 
 		/** Whether `path` is a recording file, whether or not it reads as one. */
 		isRecording(path: string) {
-			return recordingsRead()?.paths.has(path) ?? false;
+			return recordingsRead().paths.has(path);
 		},
 		/** Saved transcripts of one recording, newest first. */
 		resultsFor(id: string): TranscriptionEntry[] {
-			const rows = listed(TRANSCRIPTIONS);
 			return byNewest(
-				(rows ? transcriptionsOf(rows) : []).filter(
+				transcriptionsOf(listed(TRANSCRIPTIONS)).filter(
 					(entry) => entry.row.fields.recordingId === id,
 				),
 			);
 		},
 		/** Transformations that read, by title. */
 		get transformations() {
-			const rows = listed(TRANSFORMATIONS);
-			return rows ? transformationsOf(rows).entries : [];
-		},
-		get transformationsError() {
-			return readError(rowsKey(TRANSFORMATIONS));
+			return transformationsRead().entries;
 		},
 		/** Transformation files that do not read as transformations, with why. */
 		get transformationRepairs() {
-			const rows = listed(TRANSFORMATIONS);
-			return rows ? transformationsOf(rows).repairs : [];
+			return transformationsRead().repairs;
 		},
 		isTransformation(path: string) {
-			const rows = listed(TRANSFORMATIONS);
-			return rows ? transformationsOf(rows).paths.has(path) : false;
+			return transformationsRead().paths.has(path);
 		},
 		get transformationResults() {
-			const rows = listed(TRANSFORMATION_RUNS);
-			return byNewest(rows ? resultsOf(rows) : []);
+			return byNewest(resultsOf(listed(TRANSFORMATION_RUNS)));
 		},
 		/** Saved results made from one transcription, newest first. */
 		outputsFor(transcriptionId: string): TransformationRunEntry[] {
-			const rows = listed(TRANSFORMATION_RUNS);
 			return byNewest(
-				(rows ? resultsOf(rows) : []).filter(
+				resultsOf(listed(TRANSFORMATION_RUNS)).filter(
 					(entry) => entry.row.fields.transcriptionId === transcriptionId,
 				),
 			);
 		},
 		/** Saved results one transformation produced, newest first. They outlive it. */
 		outputsOf(transformationId: string): TransformationRunEntry[] {
-			const rows = listed(TRANSFORMATION_RUNS);
 			return byNewest(
-				(rows ? resultsOf(rows) : []).filter(
+				resultsOf(listed(TRANSFORMATION_RUNS)).filter(
 					(entry) => entry.row.fields.transformationId === transformationId,
 				),
 			);
 		},
 		/** Saved results on pasted text one recipe produced, newest first. */
 		textOutputsOf(transformationId: string): TextRunEntry[] {
-			const rows = listed(TEXT_RUNS);
 			return byNewest(
-				(rows ? textResultsOf(rows).entries : []).filter(
+				textResultsOf(listed(TEXT_RUNS)).entries.filter(
 					(entry) => entry.row.fields.transformationId === transformationId,
 				),
 			);
 		},
-		get textResultsError() {
-			return readError(rowsKey(TEXT_RUNS));
-		},
 		/** Files in `text_runs/` that do not read as results. */
 		get textRepairs() {
-			const rows = listed(TEXT_RUNS);
-			return rows ? textResultsOf(rows).repairs : [];
+			return textResultsOf(listed(TEXT_RUNS)).repairs;
 		},
 		/** The recording whose row names `path` as its audio, if one does. */
 		recordingNaming,
@@ -1195,7 +945,7 @@ export function createWhispering(context: WhisperingContext) {
 			const id = recordingId(at);
 			const { data: capture, error: startError } = await services.capture.start(
 				{
-					folder: folder.files,
+					folder,
 					path: recordingAudioStem(id),
 					input: input.choice,
 					signal: attempt.signal,
@@ -1204,7 +954,7 @@ export function createWhispering(context: WhisperingContext) {
 			// Closed while the microphone was opening. An aborted opener releases
 			// its microphone; after native destruction, page departure owns one
 			// that already answered. Neither writes a row.
-			if (attempt.signal.aborted || context.closing) {
+			if (attempt.signal.aborted || disposed) {
 				captureState = { phase: 'idle' };
 				return;
 			}
@@ -1222,13 +972,7 @@ export function createWhispering(context: WhisperingContext) {
 				capture: services.capture.source,
 			};
 			// Keep the capture installed even if admitting its row throws.
-			const creating = (async () => {
-				try {
-					return await folder.tables.recordings.write(id, { fields, body: '' });
-				} catch (cause) {
-					return SaveError.StorageFailed({ cause });
-				}
-			})();
+			const creating = folder.tables.recordings.create(id, { fields, body: '' });
 			// Stop awaits this capture's own initial row save.
 			captureState = { phase: 'recording', id, capture, rowSave: creating };
 			capture.onEnded((reason) => {
@@ -1270,7 +1014,7 @@ export function createWhispering(context: WhisperingContext) {
 		get recipeRuns() {
 			return runs.recipeRuns;
 		},
-		/** Answers that arrived and whose file could not be written yet; they are written again. */
+		/** Answers that arrived and whose file could not be written; each is saved again when asked. */
 		get unwrittenAnswers() {
 			return runs.unwritten;
 		},
@@ -1278,6 +1022,7 @@ export function createWhispering(context: WhisperingContext) {
 		transform: runs.transform,
 		transformText: runs.transformText,
 		runAgain: runs.runAgain,
+		saveAgain: runs.saveAgain,
 
 		// ------------------------------------------------------------------
 		// Actions
@@ -1299,7 +1044,7 @@ export function createWhispering(context: WhisperingContext) {
 			const id = recordingId(new Date());
 			const path = rowPath(TRANSFORMATIONS, id);
 			try {
-				const { error } = await folder.tables.transformations.write(id, {
+				const { error } = await folder.tables.transformations.create(id, {
 					fields: { title, model: null },
 					body: prompt,
 				});
@@ -1307,15 +1052,7 @@ export function createWhispering(context: WhisperingContext) {
 			} catch (cause) {
 				return describe(cause);
 			}
-			if (context.closing) return undefined;
-			// List before opening; a read failure cannot undo the saved file.
-			try {
-				await context.refresh([path]);
-			} catch (cause) {
-				log.warn(
-					WhisperingError.CreatedTransformationRefreshFailed({ path, cause }),
-				);
-			}
+			if (disposed) return undefined;
 			open(path);
 			return undefined;
 		},
@@ -1329,9 +1066,10 @@ export function createWhispering(context: WhisperingContext) {
 		readConnections,
 
 		/**
-		 * Copy pending local source, or current stored bytes, to a new name and then
-		 * remove the old path. Held text that differs from the copied source
-		 * keeps its source path; identical text is already preserved at the destination.
+		 * Copy the file as the mirror shows it, or its bytes for a file the
+		 * mirror does not keep, to a new name, then delete the old path. It
+		 * waits for no save: while one runs it refuses, and when the file
+		 * changes during the copy both are kept.
 		 */
 		async rename(path: string, name: string): Promise<string | undefined> {
 			const why = refused();
@@ -1352,47 +1090,29 @@ export function createWhispering(context: WhisperingContext) {
 			)
 				return TRANSCRIPT_NAME;
 			if (taken(to)) return TAKEN;
-			const sourceEdit = folder.files.document(path);
-			const before = sourceEdit.getSnapshot();
-			const captured = before.isDirty ? before.text : undefined;
-
-			let bytes: Uint8Array;
-			if (captured !== undefined) bytes = new TextEncoder().encode(captured);
+			if (folder.saving)
+				return 'A save is still running. Rename again in a moment.';
+			const before = folder.file(path);
+			if (before === undefined) return `No file exists at '${path}'.`;
+			let data: string | Uint8Array;
+			if (typeof before.data === 'string') data = before.data;
 			else {
-				const { data: found, error } = await folder.files.read(path);
+				const { data: bytes, error } = await folder.read(path);
 				if (error !== null) return describeError(error);
-				if (found === undefined) return `No file exists at '${path}'.`;
-				bytes = new Uint8Array(await found.content.arrayBuffer());
+				if (bytes === null) return `No file exists at '${path}'.`;
+				data = bytes;
 			}
-			// Compare information, including text copied from an unopened source.
-			// A binary copy has no editable text to compare.
-			let copiedText = captured;
-			if (copiedText === undefined) {
-				try {
-					copiedText = new TextDecoder('utf-8', {
-						fatal: true,
-						ignoreBOM: true,
-					}).decode(bytes);
-				} catch {
-					/* Binary bytes are still copied exactly. */
-				}
-			}
-			const { error: copyError } = await folder.files.write(to, bytes);
+			const { error: copyError } = await folder.write(to, data);
 			if (copyError !== null) return describeError(copyError);
-			if (context.closing)
+			if (disposed)
 				return `${to} was saved. ${path} was kept because the folder is closing.`;
-			const current = sourceEdit.getSnapshot();
-			const currentText = current.text;
-			if (
-				currentText !== undefined &&
-				currentText !== copiedText &&
-				(current.isDirty || currentText !== before.text)
-			)
+			const current = folder.file(path);
+			if (folder.saving || current !== before)
 				return `${to} was saved. Different text arrived during the copy, so ${path} was kept with that text.`;
-			const { error: removeError } = await folder.files.delete(path);
+			const { error: removeError } = await folder.delete(path);
 			if (removeError !== null)
 				return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
-			if (!context.closing) moved(path, to);
+			if (!disposed) moved(path, to);
 			return undefined;
 		},
 		/** A new empty text file, shown; it is never made where a file is listed. */
@@ -1404,7 +1124,7 @@ export function createWhispering(context: WhisperingContext) {
 				if (problem !== undefined) return problem;
 				const path = joinPath(directory, name);
 				if (taken(path)) return `"${name}" already exists here.`;
-				const { error } = await folder.files.write(path, '');
+				const { error } = await folder.write(path, '');
 				if (error !== null) return describeError(error);
 				open(path);
 				return undefined;
@@ -1413,23 +1133,17 @@ export function createWhispering(context: WhisperingContext) {
 			}
 		},
 		/**
-		 * Capture what deleting `path` would remove, for the person to confirm.
-		 * Capturing confirmation starts no publication.
+		 * Capture what deleting `path` would remove, for the person to confirm,
+		 * from what the mirror shows. Capturing changes nothing.
 		 */
 		async deletionFor(path: string): Promise<Result<Deletion, string>> {
 			const why = refused();
 			if (why !== undefined) return Err(why);
-			try {
-				const captured = await captureDeletion(deletionContext(), path);
-				const why = refused();
-				return why === undefined ? captured : Err(why);
-			} catch (cause) {
-				return Err(refused() ?? describe(cause));
-			}
+			return captureDeletion(deletionContext(), path);
 		},
 		/**
-		 * Delete the confirmed paths as they are stored now. A recording is
-		 * kept if new results appeared after confirmation.
+		 * Delete the confirmed paths as they are now. A recording is kept if
+		 * new results appeared after confirmation.
 		 */
 		async delete(deletion: Deletion): Promise<string | undefined> {
 			const why = refused();
@@ -1451,7 +1165,7 @@ export function createWhispering(context: WhisperingContext) {
 						folder,
 						dropFailed: runs.dropFailed,
 						deleted: (path) => {
-							if (!context.closing) deleted(path);
+							if (!disposed) deleted(path);
 						},
 					},
 					deletion,
@@ -1462,7 +1176,7 @@ export function createWhispering(context: WhisperingContext) {
 		},
 		/**
 		 * Stop new work and late answers, release the microphone this page
-		 * opened for a test, and stop observing; waits for nothing. A
+		 * opened for a test, and stop pruning the selection; waits for nothing. A
 		 * recording opening now is released when it answers. A recording
 		 * under way is left to the page's departure: the shell finalizes and
 		 * keeps a desktop recording, and a browser loses one in memory

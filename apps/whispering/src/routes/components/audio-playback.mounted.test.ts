@@ -2,11 +2,13 @@
  * Playback waits for the capture owner to finalize its file in every view.
  * Native-like captures expose unfinished bytes immediately; a held Stop
  * verifies that clicking Stop alone cannot make them playable. Other saved
- * recordings remain playable, and the first playback read sees final bytes.
+ * recordings remain playable, the first playback read sees final bytes, and
+ * a player reads again when the folder shows its file changed.
  */
 import '../svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
+import type { WhisperingFolder } from '../../lib/folder.js';
 import type { WhisperingServices } from '../../lib/platform/types.js';
 
 const { mount, unmount, flushSync } = await import('svelte');
@@ -14,10 +16,9 @@ const { createFixtureDevice, toneWav } = await import('../../lib/capture.js');
 const { createTestWhispering, closeTestWhispering } = await import(
 	'../../lib/whispering.test-support.js'
 );
-const { openTestServices, deferred, eventually } = await import(
+const { openTestServices, deferred, eventually, settled } = await import(
 	'../../lib/services.test-support.js'
 );
-const { quiet } = await import('../../lib/query.test-support.js');
 const Host = (await import('./test-fixtures/AudioPlaybackHost.svelte')).default;
 
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -29,14 +30,12 @@ afterEach(async () => {
 for (const view of ['home', 'detail', 'file'] as const) {
 	test(`${view} shows capture progress until Stop finishes, then reads only finalized audio`, async () => {
 		const app = await open(view === 'home');
-		const { whispering, context } = app;
+		const { whispering, folder } = app;
 		await whispering.startRecording();
-		await whispering.readAgain();
+		await settled(folder);
 		const entry = whispering.entries[0]!;
 		const path = entry.path.replace(/\.md$/, '.wav');
 		if (view !== 'home') whispering.open(view === 'detail' ? entry.path : path);
-		flushSync();
-		await quiet(context);
 		flushSync();
 
 		await eventually(() => {
@@ -46,10 +45,6 @@ for (const view of ['home', 'detail', 'file'] as const) {
 		expect(app.target.querySelector('audio') === null).toBe(true);
 		expect(app.target.textContent).toContain('Recording…');
 		expect(app.reads).toEqual([]);
-		if (view === 'file')
-			expect(
-				context.folder.files.document(path).getSnapshot().text,
-			).toBeUndefined();
 		if (view !== 'file')
 			expect(
 				app.target.querySelector<HTMLButtonElement>(
@@ -61,10 +56,6 @@ for (const view of ['home', 'detail', 'file'] as const) {
 		expect(app.target.textContent).toContain('Stopping…');
 		expect(app.target.querySelector('audio') === null).toBe(true);
 		expect(app.reads).toEqual([]);
-		if (view === 'file')
-			expect(
-				context.folder.files.document(path).getSnapshot().text,
-			).toBeUndefined();
 		if (view !== 'file')
 			expect(
 				app.target.querySelector<HTMLButtonElement>(
@@ -92,11 +83,11 @@ for (const view of ['home', 'detail', 'file'] as const) {
 
 test('a completed recording stays playable while a different recording is active', async () => {
 	const app = await open(false);
-	const { whispering } = app;
+	const { whispering, folder } = app;
 	await whispering.startRecording();
 	app.finish.resolve();
 	await whispering.stopRecording();
-	await whispering.readAgain();
+	await settled(folder);
 	const first = whispering.entries[0]!;
 	whispering.open(first.path);
 	await eventually(() => {
@@ -108,6 +99,67 @@ test('a completed recording stays playable while a different recording is active
 	flushSync();
 	expect(whispering.recorder.phase).toBe('recording');
 	expect(app.target.querySelector('audio') === player).toBe(true);
+});
+
+test('a player reads its audio again when the folder shows the file changed', async () => {
+	const app = await open(false);
+	const { whispering, folder } = app;
+	await whispering.startRecording();
+	app.finish.resolve();
+	await whispering.stopRecording();
+	await settled(folder);
+	const entry = whispering.entries[0]!;
+	const path = entry.path.replace(/\.md$/, '.wav');
+	whispering.open(entry.path);
+	await eventually(() => {
+		flushSync();
+		return app.target.querySelector('audio') !== null;
+	});
+	const before = app.target.querySelector('audio')!.getAttribute('src');
+	const reads = app.reads.length;
+
+	// Another take replaces the file: a new listed value, so a new read.
+	const longer = toneWav({ seconds: 2 });
+	expectOk(await folder.write(path, longer));
+	await eventually(() => {
+		flushSync();
+		return app.reads.length > reads;
+	});
+	expect(app.reads.at(-1)).toBe(longer.byteLength);
+	await eventually(() => {
+		flushSync();
+		return app.target.querySelector('audio')?.getAttribute('src') !== before;
+	});
+});
+
+test('a player hides a revoked URL while replacement audio is loading', async () => {
+	const app = await open(false);
+	const { whispering, folder } = app;
+	await whispering.startRecording();
+	app.finish.resolve();
+	await whispering.stopRecording();
+	await settled(folder);
+	const entry = whispering.entries[0]!;
+	const path = entry.path.replace(/\.md$/, '.wav');
+	whispering.open(entry.path);
+	await eventually(() => {
+		flushSync();
+		return app.target.querySelector('audio') !== null;
+	});
+
+	const read = folder.read;
+	const next = deferred<Awaited<ReturnType<typeof folder.read>>>();
+	folder.read = (requested) => requested === path ? next.promise : read(requested);
+	expectOk(await folder.write(path, toneWav({ seconds: 2 })));
+	flushSync();
+	expect(app.target.querySelector('audio')).toBeNull();
+	await eventually(() => app.target.textContent?.includes('Loading audio…') === true);
+
+	next.resolve(await read(path));
+	await eventually(() => {
+		flushSync();
+		return app.target.querySelector('audio') !== null;
+	});
 });
 
 async function open(home: boolean) {
@@ -135,31 +187,29 @@ async function open(home: boolean) {
 			},
 		},
 	};
+	// Every audio read a view asks the folder for, by the size it answered.
 	const reads: number[] = [];
-	const read = stubs.folder.files.read;
-	stubs.folder.files.read = async (path) => {
-		const result = await read(path);
-		if (
-			path.endsWith('.wav') &&
-			result.error === null &&
-			result.data !== undefined
-		)
-			reads.push(result.data.content.size);
+	// SAFETY: the prototype answers every member the replaced read leaves out.
+	const folder = Object.create(stubs.folder) as WhisperingFolder;
+	folder.read = async (path) => {
+		const result = await stubs.folder.read(path);
+		if (path.endsWith('.wav') && result.error === null && result.data !== null)
+			reads.push(result.data.byteLength);
 		return result;
 	};
-	const { whispering, context } = await createTestWhispering({
-		...stubs,
+	const { whispering } = await createTestWhispering({
+		folder,
 		services,
 	});
 	await whispering.start();
 	const target = document.createElement('main');
 	document.body.append(target);
-	const host = mount(Host, { target, props: { whispering, context, home } });
+	const host = mount(Host, { target, props: { whispering, folder, home } });
 	cleanups.push(async () => {
 		finish.resolve();
 		await unmount(host);
-		await closeTestWhispering({ whispering, context });
+		closeTestWhispering({ whispering, folder });
 		await stubs.remove();
 	});
-	return { whispering, context, target, finish, reads };
+	return { whispering, folder, target, finish, reads };
 }

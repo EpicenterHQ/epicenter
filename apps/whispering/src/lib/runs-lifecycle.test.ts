@@ -1,66 +1,83 @@
 /**
- * Run preparation and deletion races over the real Folder and whispering.
- * Requests capture valid held recording facts without publishing the source.
- * Deletion blocks related work throughout its asynchronous reads.
- * Closing during preparation sends no request, and an answer that arrives
- * once closing began writes nothing. Running an unfinished result
- * again inspects held input, so an answer typed there is not resent.
+ * Run preparation, answers, and deletion races over the real folder and
+ * whispering. A run reads the recording and its audio from the folder as it
+ * shows them now. Deletion blocks related work while it runs. Closing before
+ * a request goes out sends none, and an answer that arrives once closing
+ * began writes nothing. An answer whose file cannot be written stays in the
+ * window until the person saves it again, and a row deleted meanwhile is
+ * left absent.
  */
 import {
 	closeTestWhispering,
+	headerLine,
 	openTestWhispering,
 } from './whispering.test-support.js';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { chmodSync } from 'node:fs';
-import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Ok } from 'wellcrafted/result';
-import { expectErr, expectOk } from 'wellcrafted/testing';
-import { RECORDINGS } from './definition.js';
+import { expectOk } from 'wellcrafted/testing';
+import { SaveError } from '../../../../packages/folder/src/shared/errors.js';
 import type { WhisperingServices } from './platform/types.js';
-import { quiet } from './query.test-support.js';
 import {
 	deferred,
 	eventually,
+	openMemoryTestFolder,
 	openTestServices,
-	replaceTables,
+	settled,
 	type TestServicesOptions,
 } from './services.test-support.js';
 import { TranscriptionError } from './transcription.js';
 
-const cleanups: (() => Promise<unknown>)[] = [];
+const cleanups: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function open(options: TestServicesOptions = {}) {
-	const services = await openTestServices(options);
-	const { whispering, context } = await openTestWhispering(services);
+type Answer = Awaited<ReturnType<WhisperingServices['transcribe']>>;
+
+/** Whispering with one finished recording, over a directory or, with `memory`, over memory. */
+async function open({
+	memory = false,
+	...options
+}: TestServicesOptions & { memory?: boolean } = {}) {
+	const inMemory = memory ? await openMemoryTestFolder() : undefined;
+	const services = await openTestServices({ ...options, folder: inMemory });
+	const { whispering } = await openTestWhispering(services);
 	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, context });
+		closeTestWhispering({ whispering, folder: services.folder });
 		await services.remove();
 	});
 	await whispering.startRecording();
 	await whispering.stopRecording();
-	await quiet(context);
-	return { ...services, whispering, context, entry: whispering.entries[0]! };
+	await settled(services.folder);
+	return {
+		...services,
+		host: inMemory?.host,
+		whispering,
+		entry: whispering.entries[0]!,
+	};
 }
 
-test('transcribing discovers the current sibling format without waiting for a listing refresh', async () => {
-	const { whispering, root, entry, transcribed } = await open();
+test('transcribing sends the sibling audio the folder lists now', async () => {
+	const { whispering, folder, entry, transcribed } = await open();
 	const wav = entry.path.replace(/\.md$/, '.wav');
 	const webm = entry.path.replace(/\.md$/, '.webm');
-	await rename(join(root, wav), join(root, webm));
+	const bytes = expectOk(await folder.read(wav))!;
+	expectOk(await folder.write(webm, bytes));
+	expectOk(await folder.delete(wav));
 	await whispering.transcribe(entry);
 	expect(transcribed.map((request) => request.audioPath)).toEqual([webm]);
 });
 
 test('ambiguous sibling audio refuses transcription without sending a provider request', async () => {
-	const { whispering, root, entry, transcribed } = await open();
-	await writeFile(
-		join(root, entry.path.replace(/\.md$/, '.webm')),
-		new Uint8Array([1, 2]),
+	const { whispering, folder, entry, transcribed } = await open();
+	expectOk(
+		await folder.write(
+			entry.path.replace(/\.md$/, '.webm'),
+			new Uint8Array([1, 2]),
+		),
 	);
 	await whispering.transcribe(entry);
 	expect(transcribed).toEqual([]);
@@ -70,274 +87,183 @@ test('ambiguous sibling audio refuses transcription without sending a provider r
 	});
 });
 
-test('transcribing captures accepted recording notes without publishing them', async () => {
-	const { whispering, folder, entry, transcribed } = await open();
-	const edit = folder.tables.recordings.document(entry.stem);
-	await edit.refresh();
-	expectOk(edit.patch({ body: 'Notes accepted before transcription.\n' }));
-	await whispering.transcribe(entry);
-	expect(expectOk(await folder.tables.recordings.get(entry.stem))?.body).toBe(
-		'',
-	);
-	expect(folder.tables.recordings.parse(edit.getSnapshot().text!).body).toBe(
-		'Notes accepted before transcription.\n',
-	);
-	expect(edit.getSnapshot().isDirty).toBe(true);
-	expect(transcribed.map((request) => request.audioPath)).toEqual([
-		entry.path.replace(/\.md$/, '.wav'),
-	]);
-});
-
 for (const replacement of ['missing', 'malformed'] as const)
-	test(`a recording made ${replacement} since its listing sends nothing and can run after repair`, async () => {
-		const { whispering, folder, root, entry, transcribed } = await open();
-		const path = join(root, entry.path);
-		const source = await readFile(path, 'utf8');
-		if (replacement === 'missing') await rm(path);
-		else await writeFile(path, '---\ntitle: broken\n---\n');
-		await folder.tables.recordings.document(entry.stem).refresh();
+	test(`a recording made ${replacement} since it was listed sends nothing and can run after repair`, async () => {
+		const { whispering, folder, entry, transcribed } = await open();
+		const source = folder.file(entry.path)?.data;
+		if (typeof source !== 'string') throw new Error('Expected row text');
+		if (replacement === 'missing') expectOk(await folder.delete(entry.path));
+		else expectOk(await folder.write(entry.path, '---\ntitle: broken\n---\n'));
 		await whispering.transcribe(entry);
 		expect(transcribed).toEqual([]);
 		expect(whispering.transcriptionRun(entry.stem)).toMatchObject({
 			kind: 'failed',
 		});
-		await writeFile(path, source);
-		await folder.tables.recordings.document(entry.stem).refresh();
+		expectOk(await folder.write(entry.path, source));
 		await whispering.transcribe(entry);
 		expect(transcribed).toHaveLength(1);
 	});
 
-test('failed recording-note publication does not block a request whose own result record can save', async () => {
+test('a recording-note save that failed does not block a request whose own result row can save', async () => {
 	const { whispering, folder, root, entry, transcribed } = await open();
-	const edit = folder.tables.recordings.document(entry.stem);
-	await edit.refresh();
 	chmodSync(join(root, 'recordings'), 0o555);
 	try {
-		expectOk(edit.patch({ body: 'Failed notes retained in memory.\n' }));
-		await edit.save();
+		const { error } = await folder.tables.recordings.update(entry.stem, {
+			body: 'Notes that did not save.\n',
+		});
+		expect(error).not.toBeNull();
 	} finally {
 		chmodSync(join(root, 'recordings'), 0o755);
 	}
-	expect(edit.getSnapshot().saveError).toBeDefined();
 	await whispering.transcribe(entry);
 	expect(transcribed).toHaveLength(1);
-	expect(edit.getSnapshot().saveError).toBeDefined();
-	expect(expectOk(await folder.tables.recordings.get(entry.stem))?.body).toBe(
-		'',
-	);
+	expect(folder.tables.recordings.row(entry.stem)?.body).toBe('');
 });
 
-test('a deletion blocks new transcriptions while it reads the recording’s confirmed results', async () => {
-	const entered = deferred<void>();
-	const release = deferred<void>();
-	let armed = false;
-	const { whispering, folder, entry, transcribed } = await open({
-		async beforeStorageList() {
-			if (!armed) return;
-			armed = false;
-			entered.resolve();
-			await release.promise;
-		},
+test('a deletion under way blocks new transcriptions and Run again', async () => {
+	const { whispering, folder, host, entry, transcribed } = await open({
+		memory: true,
+		transcribe: async () =>
+			TranscriptionError.HostUnavailable({ reason: 'reply lost' }),
 	});
+	await whispering.transcribe(entry);
+	const [failed] = whispering.resultsFor(entry.stem);
+	expect(transcribed).toHaveLength(1);
 	const deletion = expectOk(await whispering.deletionFor(entry.path));
-	armed = true;
+	const gate = deferred<void>();
+	host!.control.putGate = gate.promise;
 	const removing = whispering.delete(deletion);
-	await entered.promise;
 	try {
 		await whispering.transcribe(entry);
-		expect(transcribed).toEqual([]);
+		expect(await whispering.runAgain(failed!.path)).toBe(
+			'This recording is being deleted.',
+		);
+		expect(transcribed).toHaveLength(1);
 	} finally {
-		release.resolve();
+		host!.control.putGate = undefined;
+		gate.resolve();
 	}
 	expect(await removing).toBeUndefined();
-	expect(expectOk(await folder.tables.transcriptions.list())).toEqual([]);
+	expect(folder.tables.transcriptions.rows).toEqual([]);
+	expect(folder.tables.recordings.row(entry.stem)).toBeUndefined();
 });
 
-test('context close while the recording is being read prevents its transcription request', async () => {
-	const { context, whispering, folder, root, entry, transcribed } =
-		await open();
-	const entered = deferred<void>();
-	const release = deferred<void>();
-	const get = folder.tables.recordings.get;
-	let armed = true;
-	replaceTables(folder, {
-		recordings: {
-			...folder.tables.recordings,
-			async get(id) {
-				const row = await get(id);
-				if (armed) {
-					armed = false;
-					entered.resolve();
-					await release.promise;
-				}
-				return row;
-			},
-		},
-	});
-	const transcribing = whispering.transcribe(entry);
-	await entered.promise;
-	context.close();
-	release.resolve();
-	await transcribing;
-	expect(transcribed).toEqual([]);
-	expect(await Bun.file(join(root, 'transcriptions')).exists()).toBe(false);
-});
-
-test('two transcription presses while the recording is being read send one request', async () => {
-	const { whispering, folder, entry, transcribed } = await open();
-	const entered = deferred<void>();
-	const release = deferred<void>();
-	const get = folder.tables.recordings.get;
-	let armed = true;
-	replaceTables(folder, {
-		recordings: {
-			...folder.tables.recordings,
-			async get(id) {
-				const row = await get(id);
-				if (armed) {
-					armed = false;
-					entered.resolve();
-					await release.promise;
-				}
-				return row;
-			},
-		},
-	});
+test('two transcription presses while the result row is created send one request', async () => {
+	const { whispering, host, entry, transcribed } = await open({ memory: true });
+	const gate = deferred<void>();
+	host!.control.putGate = gate.promise;
 	const first = whispering.transcribe(entry);
-	await entered.promise;
+	await eventually(() => host!.log.puts.length > 0);
 	await whispering.transcribe(entry);
-	release.resolve();
+	host!.control.putGate = undefined;
+	gate.resolve();
 	await first;
 	expect(transcribed).toHaveLength(1);
 });
 
-test('context close while the initial result is saving prevents a later provider request', async () => {
-	const { context, whispering, folder, root, entry, transcribed } =
-		await open();
-	const entered = deferred<void>();
-	const release = deferred<void>();
-	const write = folder.tables.transcriptions.write;
-	replaceTables(folder, {
-		transcriptions: {
-			...folder.tables.transcriptions,
-			async write(id, change) {
-				const result = await write(id, change);
-				if (change.body === '') {
-					entered.resolve();
-					await release.promise;
-				}
-				return result;
-			},
-		},
+test('closing while the result row is created prevents its provider request', async () => {
+	const { whispering, folder, host, entry, transcribed } = await open({
+		memory: true,
 	});
+	const gate = deferred<void>();
+	host!.control.putGate = gate.promise;
 	const transcribing = whispering.transcribe(entry);
-	await entered.promise;
-	context.close();
-	release.resolve();
+	await eventually(() => folder.saving);
+	closeTestWhispering({ whispering, folder });
+	host!.control.putGate = undefined;
+	gate.resolve();
 	await transcribing;
 	expect(transcribed).toEqual([]);
-	const rows = await Array.fromAsync(
-		new Bun.Glob('transcriptions/*.md').scan(root),
-	);
-	expect(rows).toHaveLength(1);
-	expect(await Bun.file(join(root, rows[0]!)).text()).toMatch(/\n---\n$/);
+	const [row] = folder.tables.transcriptions.rows;
+	expect(row?.body).toBe('');
 });
 
-test('an answer arriving after the folder closes is not written', async () => {
-	const answer =
-		deferred<Awaited<ReturnType<WhisperingServices['transcribe']>>>();
-	const { context, whispering, folder, root, entry, transcribed } = await open({
+test('an answer arriving after closing began is not written', async () => {
+	const answer = deferred<Answer>();
+	const { whispering, folder, root, entry, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
 	const transcribing = whispering.transcribe(entry);
 	await eventually(() => transcribed.length === 1);
-	const [row] = expectOk(await folder.tables.transcriptions.list());
-	const path = `transcriptions/${row!.id}.md`;
-	context.close();
+	const [row] = folder.tables.transcriptions.rows;
+	closeTestWhispering({ whispering, folder });
 	answer.resolve(Ok({ text: 'arrived after closing' }));
 	await transcribing;
 	expect(transcribed).toHaveLength(1);
-	expect(await readFile(join(root, path), 'utf8')).toMatch(/\n---\n$/);
+	expect(
+		await Bun.file(join(root, `transcriptions/${row!.id}.md`)).text(),
+	).toMatch(/\n---\n$/);
 });
 
-test('running a failed result again refuses held answer input without publishing it', async () => {
-	const { context, whispering, folder, entry, transcribed } = await open({
-		transcribe: async () =>
-			TranscriptionError.HostUnavailable({ reason: 'reply lost' }),
+test('an answer whose result row was deleted meanwhile writes nothing and is not kept', async () => {
+	const answer = deferred<Answer>();
+	const { whispering, folder, entry, transcribed } = await open({
+		transcribe: () => answer.promise,
 	});
-	await whispering.transcribe(entry);
-	await quiet(context);
-	const transcript = whispering.resultsFor(entry.stem)[0]!;
-	const edit = folder.tables.transcriptions.document(transcript.stem);
-	await edit.refresh();
-	expectOk(edit.patch({ body: 'An answer supplied by the person.\n' }));
-	expect(await whispering.runAgain(transcript.path)).toContain(
-		'already has its answer',
+	const transcribing = whispering.transcribe(entry);
+	await eventually(() => transcribed.length === 1);
+	const [row] = folder.tables.transcriptions.rows;
+	expectOk(await folder.tables.transcriptions.delete(row!.id));
+	answer.resolve(Ok({ text: 'arrived after the row went' }));
+	await transcribing;
+	await settled(folder);
+	expect(folder.file(row!.path)).toBeUndefined();
+	expect(whispering.unwrittenAnswers).toBe(0);
+	expect(whispering.resultState(row!.path, '')).toEqual({ kind: 'unfinished' });
+});
+
+test('an answer that could not be written is kept, and Save again writes it without another request', async () => {
+	const answer = deferred<Answer>();
+	const { whispering, folder, host, entry, transcribed } = await open({
+		memory: true,
+		transcribe: () => answer.promise,
+	});
+	const transcribing = whispering.transcribe(entry);
+	await eventually(() => transcribed.length === 1);
+	const [row] = folder.tables.transcriptions.rows;
+	host!.control.failPut.set(
+		row!.path,
+		SaveError.StorageFailed({ cause: new Error('the disk is full') }).error,
 	);
+	answer.resolve(Ok({ text: 'The words.' }));
+	await transcribing;
+
+	expect(whispering.resultState(row!.path, '')).toMatchObject({
+		kind: 'writing',
+		text: 'The words.',
+		message: expect.stringContaining('the disk is full'),
+	});
+	expect(whispering.unwrittenAnswers).toBe(1);
+	expect(headerLine(whispering).label).toBe('1 answer not written yet');
+	expect(folder.tables.transcriptions.row(row!.id)?.body).toBe('');
+
+	host!.control.failPut.delete(row!.path);
+	await whispering.saveAgain(row!.path);
+	expect(folder.tables.transcriptions.row(row!.id)?.body).toBe('The words.\n');
+	expect(whispering.unwrittenAnswers).toBe(0);
 	expect(transcribed).toHaveLength(1);
-	expect(
-		folder.tables.transcriptions.parse(edit.getSnapshot().text!).body,
-	).toBe('An answer supplied by the person.\n');
-	expect(edit.getSnapshot().isDirty).toBe(true);
-	expect(
-		expectOk(await folder.tables.transcriptions.get(transcript.stem))?.body,
-	).toBe('');
 });
 
-test('a deletion reserved during the final preparation read prevents its provider request', async () => {
-	const { context, whispering, folder, entry, transcribed } = await open({
-		transcribe: async () =>
-			TranscriptionError.HostUnavailable({ reason: 'reply lost' }),
+test('deleting a result drops its unwritten answer from the header', async () => {
+	const answer = deferred<Answer>();
+	const { whispering, folder, host, entry, transcribed } = await open({
+		memory: true,
+		transcribe: () => answer.promise,
 	});
-	await whispering.transcribe(entry);
-	await quiet(context);
-	const transcript = whispering.resultsFor(entry.stem)[0]!;
-	const deletion = expectOk(await whispering.deletionFor(entry.path));
-	const files = folder.files;
-	let removing: Promise<string | undefined> | undefined;
-	replaceTables(
-		folder,
-		{},
-		{
-			...files,
-			async list(prefix) {
-				const listed = await files.list(prefix);
-				if (prefix === RECORDINGS && removing === undefined)
-					removing = whispering.delete(deletion);
-				return listed;
-			},
-		},
+	const transcribing = whispering.transcribe(entry);
+	await eventually(() => transcribed.length === 1);
+	const [row] = folder.tables.transcriptions.rows;
+	host!.control.failPut.set(
+		row!.path,
+		SaveError.StorageFailed({ cause: new Error('the disk is full') }).error,
 	);
-	await whispering.runAgain(transcript.path);
-	expect(removing).toBeDefined();
-	expect(transcribed).toHaveLength(1);
-	expect(await removing).toBeUndefined();
-	expect(
-		expectOk(await folder.tables.recordings.get(entry.stem)),
-	).toBeUndefined();
-});
+	answer.resolve(Ok({ text: 'The words.' }));
+	await transcribing;
+	expect(whispering.unwrittenAnswers).toBe(1);
 
-test('closing completes while deletion preflight is reading and its late answer is refused', async () => {
-	const entered = deferred<void>();
-	const release = deferred<void>();
-	let armed = false;
-	const { context, whispering, entry } = await open({
-		async beforeStorageList() {
-			if (!armed) return;
-			armed = false;
-			entered.resolve();
-			await release.promise;
-		},
-	});
-	armed = true;
-	const preflight = whispering.deletionFor(entry.path);
-	await entered.promise;
-	const closing = context.close();
-	try {
-		expect(closing).toBeUndefined();
-	} finally {
-		release.resolve();
-	}
-	expect(expectErr(await preflight)).toContain('closing');
-	await closing;
+	host!.control.failPut.delete(row!.path);
+	const deletion = expectOk(await whispering.deletionFor(row!.path));
+	expect(await whispering.delete(deletion)).toBeUndefined();
+	expect(folder.file(row!.path)).toBeUndefined();
+	expect(whispering.unwrittenAnswers).toBe(0);
 });

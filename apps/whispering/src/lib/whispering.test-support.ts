@@ -1,4 +1,4 @@
-/** Construct the real app over a test FolderContext and platform capabilities. */
+/** Construct the real app over a test folder and platform capabilities. */
 
 import type { WhisperingFolder } from './folder.js';
 import type { WhisperingServices } from './platform/types.js';
@@ -10,12 +10,10 @@ import type { Whispering } from './whispering.svelte.js';
 export const headerLine = (whispering: Whispering) =>
 	filesLine({
 		saving: whispering.saving,
-		unsaved: whispering.unsaved,
-		storageFailure: whispering.storageFailure,
 		unwrittenAnswers: whispering.unwrittenAnswers,
 	});
 
-/** Same construction as FolderApp's child, retaining context beside the app for tests. */
+/** Same construction as WhisperingApp's, over the folder `<OpenFolder>` would hand it. */
 export async function createTestWhispering({
 	services,
 	folder,
@@ -24,12 +22,8 @@ export async function createTestWhispering({
 	folder: WhisperingFolder;
 }) {
 	provideServices(folder, services);
-	const [{ createFolderContext }, { createWhispering }] = await Promise.all([
-		import('@epicenter/svelte/folder'),
-		import('./whispering.svelte.js'),
-	]);
-	const context = createFolderContext(folder);
-	return { whispering: createWhispering(context), context };
+	const { createWhispering } = await import('./whispering.svelte.js');
+	return { whispering: createWhispering(folder), folder };
 }
 export async function openTestWhispering(test: {
 	services: WhisperingServices;
@@ -39,10 +33,9 @@ export async function openTestWhispering(test: {
 	await opened.whispering.start();
 	return opened;
 }
+/** Stop the app; the test's `remove` closes its folder. */
 export function closeTestWhispering({
 	whispering,
-	context,
 }: Awaited<ReturnType<typeof createTestWhispering>>) {
 	whispering.dispose();
-	context.close();
 }

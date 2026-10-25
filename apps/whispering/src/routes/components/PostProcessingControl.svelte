@@ -4,7 +4,6 @@
 	import { Label } from '@epicenter/ui/label';
 	import * as Popover from '@epicenter/ui/popover';
 	import * as RadioGroup from '@epicenter/ui/radio-group';
-	import { Spinner } from '@epicenter/ui/spinner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
@@ -87,10 +86,7 @@
 		class="max-h-(--bits-popover-content-available-height) w-72 max-w-[calc(100vw-1rem)] gap-3 overflow-y-auto"
 		data-testid="post-processing-popover"
 	>
-		<div class="flex items-center gap-2">
-			<p class="flex-1 font-medium" id="post-processing-heading">Post-processing</p>
-			{#if whispering.refreshing}<Spinner class="size-3.5" aria-label="Reading the folder" />{/if}
-		</div>
+		<p class="font-medium" id="post-processing-heading">Post-processing</p>
 		<p class="text-xs text-muted-foreground">
 			Choosing sends nothing. It runs only when you press Run on a transcript.
 		</p>
@@ -133,11 +129,7 @@
 			{/if}
 		</RadioGroup.Root>
 
-		{#if whispering.transformationsError}
-			<p class="text-xs text-destructive" role="alert" data-testid="post-processing-error">
-				The transformations could not be read, so this is the last list that was: {whispering.transformationsError}
-			</p>
-		{:else if whispering.transformations.length === 0}
+		{#if whispering.transformations.length === 0}
 			<p class="text-xs text-muted-foreground" data-testid="post-processing-empty">
 				This folder has no transformations yet. Create one to choose it here.
 			</p>

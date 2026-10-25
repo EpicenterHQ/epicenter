@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { getWhispering, type Whispering } from '../../../lib/whispering.svelte.js';
-	import { getFolder, type WhisperingContext } from '../../../lib/folder.js';
+	import { getFolder, type WhisperingFolder } from '../../../lib/folder.js';
 
 	let { report, route }: {
-		report: (whispering: Whispering, context: WhisperingContext) => void;
+		report: (whispering: Whispering, folder: WhisperingFolder) => void;
 		route: string;
 	} = $props();
 	// svelte-ignore state_referenced_locally

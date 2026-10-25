@@ -1,33 +1,26 @@
 /**
- * Save, repair, and delete sequences over the desktop opener.
+ * Delete sequences over the desktop opener.
  *
- * The real whispering and its local folder context run over the native
- * `Folder` the desktop page opens (`openTauriFolder`, reached by its module
- * until a public entry exports it), in a directory the shell grants
+ * The real whispering runs over the folder mirror the desktop page opens
+ * (`@epicenter/folder/next/tauri`), in a directory the shell grants
  * (`granted-shell.test-support.ts` in the folder package). That is where a
- * change can be held while the person types, fail before it lands, or lose
- * its reply after it landed, and where a read can fail.
+ * save can be held while another is asked for, and where a reply can be lost
+ * after the change landed.
  *
  * Key behaviors:
- * - each explicit save captures the current text and publishes in order,
- *   including saves requested while an earlier publication is running
- * - failed publications retain input; new input can publish over an
- *   unconfirmed or outside publication
- * - deletion runs after earlier admitted saves and a lost reply is recovered
- *   by reading back the removal without recreating it
+ * - a deletion asked for while a save of the row is out runs after it, and
+ *   removes the file that save wrote
+ * - a deletion whose reply was lost is reported, and the folder shows the
+ *   file gone once it looks again
  *
  * See also:
  * - `services.test.ts` for the services over the shell and the host
- * - `../../editing.test.ts` for editing over a directory this process opens
+ * - `../../workflows.test.ts` for editing over a directory this process opens
  */
-import {
-	closeTestWhispering,
-	createTestWhispering,
-} from '../../whispering.test-support.js';
-
 import '../../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
+import { svelteFolder } from '@epicenter/svelte/folder-next';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	createGrantedShell,
@@ -36,10 +29,15 @@ import {
 	grantedDirectory,
 } from '../../../../../../packages/folder/src/granted-shell.test-support.js';
 import { whisperingTables } from '../../definition.js';
-import { settle, transformationEditor } from '../../edits.test-support.js';
-
-import { deferred, openTestServices } from '../../services.test-support.js';
-import type { WhisperingServices } from '../types.js';
+import {
+	deferred,
+	eventually,
+	openTestServices,
+} from '../../services.test-support.js';
+import {
+	closeTestWhispering,
+	createTestWhispering,
+} from '../../whispering.test-support.js';
 
 let shell: GrantedShell;
 mock.module('@tauri-apps/api/core', () => ({
@@ -57,63 +55,43 @@ mock.module('@tauri-apps/api/webview', () => ({
 	getCurrentWebview: () => ({ listen: async () => () => {} }),
 }));
 
-const { openTauriFolder } = await import(
-	'../../../../../../packages/folder/src/native/tauri.js'
-);
+const { openFolder } = await import('@epicenter/folder/next/tauri');
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-const PATH = 'transformations/clean.md';
+const ID = 'clean';
+const PATH = `transformations/${ID}.md`;
 const SEED = '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n';
 
 /** Whispering over the desktop opener, in a granted directory holding `files`. */
-async function open(files: Record<string, string>, path = PATH) {
+async function open(files: Record<string, string>) {
 	const root = await grantedDirectory();
 	shell = createGrantedShell(root);
 	for (const [path, text] of Object.entries(files))
 		await shell.write(path, text);
 	const stubs = await openTestServices();
-	const folder = expectOk(await openTauriFolder({ tables: whisperingTables }));
-	const services: WhisperingServices = {
-		...stubs.services,
-	};
-	const { whispering, context } = await createTestWhispering({
-		services,
+	const opened = expectOk(
+		await openFolder({ tables: whisperingTables, throttleMs: 0 }),
+	);
+	const folder = svelteFolder(opened);
+	const { whispering } = await createTestWhispering({
+		services: stubs.services,
 		folder,
 	});
 	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, context });
-		await stubs.folder.close();
+		closeTestWhispering({ whispering, folder });
+		await opened.close();
 		await stubs.remove();
 		await rm(root, { recursive: true, force: true });
 	});
 	await whispering.start();
 	// The sequence below starts after app initialization has saved its exclusions.
 	shell.changes.length = 0;
-	whispering.open(path);
-	return {
-		whispering,
-		context,
-		session: await transformationEditor(whispering, context),
-	};
-}
-
-/** Type a new body into the open transformation. */
-const type = (
-	session: Awaited<ReturnType<typeof transformationEditor>>,
-	body: string,
-) =>
-	session.edit((row) => {
-		row.body = body;
-	});
-
-/** The text of the `index`th data file the page wrote. */
-function written(index: number): string | undefined {
-	const change = shell.changes[index];
-	return change?.kind === 'write' ? change.text : undefined;
+	whispering.open(PATH);
+	return { whispering, folder };
 }
 
 /** Hold the next data change of `kind` until `release`; `reached` when it arrives. */
@@ -129,102 +107,37 @@ function holdNext(kind: DataChange['kind']) {
 	return { reached: reached.promise, release: () => held.resolve() };
 }
 
-test('new typing after an unconfirmed save publishes the newer source', async () => {
-	const { context, whispering, session } = await open({ [PATH]: SEED });
-	shell.control.loseReplies = 1;
-	// The engine reads the file to check it before it writes. Once the write
-	// is under way, the file cannot be read back either.
-	shell.control.beforeChange = async () => {
-		shell.control.beforeChange = undefined;
-		shell.control.failReads.add(PATH);
-	};
-
-	type(session, 'Tidy it.\n');
-	await settle(whispering, context);
-	expect(whispering.isUnsaved(PATH)).toBe(true);
-	expect(whispering.unsaved).toBe(true);
-	expect(await shell.text(PATH)).toContain('Tidy it.');
-
-	shell.control.failReads.delete(PATH);
-	await settle(whispering, context);
-	type(session, 'Tidy it all.\n');
-	await settle(whispering, context);
-	expect(whispering.unsaved).toBe(false);
-	expect(await shell.text(PATH)).toContain('Tidy it all.\n');
-});
-
-test('typing during a save is shown at once and each explicit save publishes its captured source', async () => {
-	const { context, whispering, session } = await open({ [PATH]: SEED });
-	const first = holdNext('write');
-
-	type(session, 'First.\n');
-	await first.reached;
-	expect(whispering.isSaving(PATH)).toBe(true);
-	type(session, 'Second.\n');
-	type(session, 'Third.\n');
-	expect(session.draft.body).toBe('Third.\n');
-	first.release();
-	await settle(whispering, context);
-
-	expect(whispering.unsaved).toBe(false);
-	expect(shell.kinds).toEqual(['write', 'write', 'write']);
-	expect(written(0)).toContain('First.\n');
-	expect(written(1)).toContain('Second.\n');
-	expect(written(2)).toContain('Third.\n');
-	expect(await shell.text(PATH)).toContain('Third.\n');
-});
-
-test('a refused save keeps the typing as not saved; the next edit saves it', async () => {
-	const { context, whispering, session } = await open({ [PATH]: SEED });
-	shell.control.refuseNext = 1;
-
-	type(session, 'Mine.\n');
-	await settle(whispering, context);
-	expect(whispering.isUnsaved(PATH)).toBe(true);
-	expect(session.draft.body).toBe('Mine.\n');
-	expect(await shell.text(PATH)).toBe(SEED);
-
-	type(session, 'Mine, again.\n');
-	await settle(whispering, context);
-	expect(whispering.unsaved).toBe(false);
-	expect(await shell.text(PATH)).toContain('Mine, again.\n');
-});
-
-test('new local input publishes over another writer’s source', async () => {
-	const { context, whispering, session } = await open({ [PATH]: SEED });
-	await shell.write(PATH, SEED.replace('Tidy.', 'Theirs.'));
-
-	type(session, 'Mine.\n');
-	await settle(whispering, context);
-	expect(whispering.unsaved).toBe(false);
-	expect(await shell.text(PATH)).toContain('Mine.\n');
-	expect(await shell.text(PATH)).not.toContain('Theirs.');
-});
-
-test('a deletion waits for the save of the row, then removes what it saved', async () => {
-	const { context, whispering, session } = await open({ [PATH]: SEED });
+test('a deletion asked for while the row saves runs after it, and removes what it saved', async () => {
+	const { whispering, folder } = await open({ [PATH]: SEED });
 	const save = holdNext('write');
-	type(session, 'Saved first.\n');
+	const saving = folder.tables.transformations.update(ID, {
+		body: 'Saved first.\n',
+	});
 	await save.reached;
 
-	const capturing = whispering.deletionFor(PATH);
+	const deletion = expectOk(await whispering.deletionFor(PATH));
+	const deleting = whispering.delete(deletion);
 	save.release();
-	const deletion = expectOk(await capturing);
+	expectOk(await saving);
 
-	expect(await whispering.delete(deletion)).toBeUndefined();
+	expect(await deleting).toBeUndefined();
 	expect(shell.kinds).toEqual(['write', 'remove']);
 	expect(await shell.text(PATH)).toBeUndefined();
-	await settle(whispering, context);
 	expect(whispering.selectedTransformation).toBeUndefined();
 });
 
-test('a deletion whose reply was lost is confirmed by reading back, and recreates nothing', async () => {
-	const { whispering } = await open({ [PATH]: SEED });
+test('a deletion whose reply was lost is reported, and the folder shows the file gone once it looks again', async () => {
+	const { whispering, folder } = await open({ [PATH]: SEED });
 	const deletion = expectOk(await whispering.deletionFor(PATH));
 	shell.control.loseReplies = 1;
 
-	// The file is gone, so the removal landed after all.
-	expect(await whispering.delete(deletion)).toBeUndefined();
-	expect(await shell.text(PATH)).toBeUndefined();
+	// Nothing said the removal landed, so it is not reported done.
+	expect(await whispering.delete(deletion)).toContain(
+		'could not confirm this change',
+	);
 	expect(shell.kinds).toEqual(['remove']);
+	expect(await shell.text(PATH)).toBeUndefined();
+	folder.checkpoint();
+	await eventually(() => folder.file(PATH) === undefined);
+	expect(whispering.selectedTransformation).toBeUndefined();
 });

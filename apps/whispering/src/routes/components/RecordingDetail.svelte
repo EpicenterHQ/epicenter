@@ -1,30 +1,30 @@
 <!--
-	One recording: its audio, transcripts, notes, and source. The folder's
-	file edit holds the source and saves accepted input after a pause.
-	Acquired text and autosave outlive this view.
+	One recording: its audio, transcripts, notes, and source. Each input is a
+	draft over the row the folder shows: what was typed shows until its save
+	answers, then the row again. Source edits the file's exact text and checks
+	it as it is typed, so a row that needs repair shows what is still wrong.
 -->
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
+	import { readRow } from '@epicenter/folder/next';
+	import { draft } from '@epicenter/svelte/folder-next';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import * as Tabs from '@epicenter/ui/tabs';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Collapsible from '@epicenter/ui/collapsible';
-	import { Loading } from '@epicenter/ui/loading';
-	import { toast, toastOnError } from '@epicenter/ui/sonner';
+	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { getFolder } from '$lib/folder.js';
-	import { RECORDINGS, rowIdOf } from '$lib/definition.js';
-	import { getWhispering, type RecordingEntry } from '$lib/whispering.svelte.js';
+	import { RECORDINGS, rowIdOf, whisperingTables } from '$lib/definition.js';
+	import { getWhispering, issueLine, type RecordingEntry } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './AudioAbsent.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete, lf } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
-	import SaveStatus from './SaveStatus.svelte';
 	import TranscriptCard from './TranscriptCard.svelte';
 
 	let {
@@ -43,6 +43,7 @@
 		onClose?: () => void;
 	} = $props();
 	const whispering = getWhispering();
+	const folder = getFolder();
 
 	/**
 	 * What is worked on comes first: the audio, then the transcript beside it,
@@ -52,29 +53,40 @@
 	// The parent keys this view by the file; keep its original path.
 	// svelte-ignore state_referenced_locally
 	const own = path;
-	/**
-	 * One file edit supplies text; the table interprets fields and body.
-	 */
-	// svelte-ignore state_referenced_locally
-	const fileEdit = whispering.document(RECORDINGS, own);
-	const snapshot = liveSnapshot(fileEdit);
-	const { folder } = getFolder();
-	const content = $derived(snapshot.current.text === undefined
-		? undefined
-		: folder.tables.recordings.parse(snapshot.current.text));
-	const asText = $derived(whispering.showsText(path, snapshot.current));
-	/** The recording as shown, while its fields are what is edited and it reads as one. */
-	const row = $derived.by(() => {
-		if (asText) return undefined;
-		const shown = content;
-		return shown?.issues === null ? shown : undefined;
-	});
-	/** Held source remains editable after deletion or a failed storage read. */
-	const text = $derived(snapshot.current.text);
-	/** Why the current source does not read as a recording, including unsaved input. */
-	const issues = $derived(asText && text !== undefined ? (content?.issues ?? undefined) : undefined);
-	const id = $derived(rowIdOf(RECORDINGS, path) ?? path);
-	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
+	const id = rowIdOf(RECORDINGS, own) ?? own;
+	const stored = $derived(folder.tables.recordings.row(id));
+	const file = $derived(folder.file(own));
+
+	/** The last save a draft here asked for; changing editors waits for it. */
+	let lastSave: Promise<unknown> = Promise.resolve();
+	function saving<T>(save: (text: string) => Promise<T>) {
+		return (text: string) => (lastSave = save(text));
+	}
+	const title = draft(
+		() => (stored?.issues === null ? stored.fields.title : ''),
+		saving((title) => folder.tables.recordings.update(id, { fields: { title } })),
+	);
+	const notes = draft(
+		() => (stored?.issues === null ? stored.body : ''),
+		saving((body) => folder.tables.recordings.update(id, { body })),
+	);
+	const source = draft(
+		() => (typeof file?.data === 'string' ? file.data : ''),
+		saving((text) => folder.write(own, text)),
+	);
+
+	const asText = $derived(whispering.showsText(own));
+	/** The file's text, when the folder holds it as text. */
+	const text = $derived(typeof file?.data === 'string' ? file.data : undefined);
+	/** Why the text in Source does not read as a recording, as it is typed. */
+	const issues = $derived(
+		asText && text !== undefined
+			? (readRow(source.text, whisperingTables.recordings).issues ?? undefined)
+			: undefined,
+	);
+	/** The recording as the folder shows it, while its fields are what is edited. */
+	const row = $derived(!asText && stored?.issues === null ? stored : undefined);
+	const shownTitle = $derived(row ? title.text : (entry?.row.fields.title ?? ''));
 
 	const results = $derived(whispering.resultsFor(id));
 	const run = $derived(whispering.transcriptionRun(id));
@@ -89,9 +101,12 @@
 		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 	}
 
-	function show(source: boolean) {
-		const problem = source ? whispering.editSource(path) : whispering.useForm(path);
-		if (problem) toast.error(source ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
+	/** Change editors once the last save here answered, so the other one shows it. */
+	async function show(toSource: boolean) {
+		folder.checkpoint();
+		await lastSave;
+		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.text);
+		if (problem) toast.error(toSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 	}
 </script>
 
@@ -103,15 +118,14 @@
 			</Button>
 		{/if}
 		{#if row}
-			{@const shown = row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => shown.fields.title, (value) => toastOnError(fileEdit.patch({ fields: { title: value } }), 'That change was not made')}
+				bind:value={title.text}
 				placeholder="Title"
 				aria-label="Recording title"
 			/>
 		{:else}
-			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="recording-title-text">{title || id}</h2>
+			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="recording-title-text">{shownTitle || id}</h2>
 		{/if}
 		{#if onClose}
 			<Button variant="ghost" size="icon-sm" tooltip="Close details" aria-label="Close details" onclick={onClose} data-testid="close-detail">
@@ -120,33 +134,34 @@
 		{/if}
 	</div>
 
-	<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
-
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
-				This file does not read as a recording yet. Fix it here; it saves when you pause.
+				This file does not read as a recording yet. Fix it here; it saves as you type.
 			</p>
 			<ul class="space-y-0.5 text-muted-foreground">
 				{#each issues as issue, index (index)}
-					<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
+					{@const line = issueLine(issue)}
+					<li>{line === undefined ? '' : `Line ${line}: `}{issue.message}</li>
 				{/each}
 			</ul>
 		</div>
 	{/if}
 
-	{#if snapshot.current.loadError}
-		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{snapshot.current.loadError.message}</p>
+	{#if file?.readError}
+		<div class="flex flex-col items-start gap-2 border-b px-4 py-2 text-sm" role="alert" data-testid="row-unopened">
+			<p class="text-destructive">This file could not be read: {file.readError.message}</p>
+			<Button size="sm" variant="outline" onclick={() => folder.checkpoint()}>Try again</Button>
+		</div>
 	{/if}
 
-	{#if text === undefined && snapshot.current.loadError}
-		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">
-			<p>{snapshot.current.loadError.message}</p>
-			<Button size="sm" variant="outline" onclick={() => void fileEdit.refresh()}>Try again</Button>
-		</div>
+	{#if file === undefined}
+		<p class="flex-1 px-4 py-4 text-sm text-muted-foreground" role="status">This file is no longer in the folder.</p>
 	{:else if text === undefined}
-		<Loading class="flex-1" label="Opening the file…" />
+		{#if file.data !== undefined}
+			<p class="flex-1 px-4 py-4 text-sm text-muted-foreground" role="status" data-testid="row-unopened">This file is not UTF-8 text, so it is not opened here.</p>
+		{/if}
 	{:else}
 	<Tabs.Root bind:value={() => (asText ? 'source' : 'details'), (value) => void show(value === 'source')} class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
 		<Tabs.List>
@@ -155,7 +170,6 @@
 		</Tabs.List>
 		<Tabs.Content value="details" class="min-h-0 flex-1 overflow-y-auto">
 			{#if row}
-				{@const shown = row}
 			<div class="flex flex-col gap-4 py-1">
 				{#if absent}
 					<AudioAbsent />
@@ -164,7 +178,7 @@
 				{:else if audioPath}
 					<AudioPlayer
 						path={audioPath}
-						label="Audio of {title || id}"
+						label="Audio of {shownTitle || id}"
 					/>
 				{:else}
 					<p class="text-sm text-muted-foreground" data-testid="no-audio">
@@ -205,11 +219,7 @@
 					<h3 class="text-sm font-medium">Notes</h3>
 					<Textarea
 						class="min-h-28 resize-y font-sans"
-						bind:value={
-							() => shown.body,
-						(value) => toastOnError(fileEdit.patch({ body: value }), 'That change was not made')
-						}
-
+						bind:value={notes.text}
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
 					/>
@@ -263,20 +273,16 @@
 			{/if}
 		</Tabs.Content>
 		<Tabs.Content value="source" class="flex min-h-0 flex-1 flex-col gap-2">
-			{#if text !== undefined}
-				{@const shown = text}
-				<p class="text-xs text-muted-foreground">
-					The file’s exact text. It saves when you pause, readable or not.
-				</p>
-				<Textarea
-					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replace(withFileNewlines(value, shown)), 'That change was not made')}
-					{@attach () => { whispering.editSource(path); }}
-
-					aria-label="Markdown source"
-					spellcheck={false}
-				/>
-			{/if}
+			<p class="text-xs text-muted-foreground">
+				The file’s exact text. It saves as you type, readable or not.
+			</p>
+			<Textarea
+				class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
+				bind:value={() => lf(source.text), (value) => source.set(withFileNewlines(value, source.text))}
+				{@attach () => { whispering.editSource(own); }}
+				aria-label="Markdown source"
+				spellcheck={false}
+			/>
 		</Tabs.Content>
 	</Tabs.Root>
 	{/if}
