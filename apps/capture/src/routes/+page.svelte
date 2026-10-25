@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { captureTables } from '@epicenter/capture';
-	import { openFolder } from '@epicenter/folder';
-	import FolderApp from '@epicenter/svelte/folder-app';
+	import { openFolder } from '@epicenter/folder/next';
+	import OpenFolder from '@epicenter/svelte/open-folder';
 	import CaptureApp from '$lib/components/CaptureApp.svelte';
 </script>
 
-<FolderApp open={() => openFolder({ tables: captureTables })}>
-	{#snippet children(context)}
-		<CaptureApp {context} />
+<OpenFolder open={() => openFolder({ tables: captureTables })}>
+	{#snippet children(folder)}
+		<CaptureApp {folder} />
 	{/snippet}
-</FolderApp>
+</OpenFolder>

@@ -1,7 +1,7 @@
 # Capture file model
 
 A capture is one Markdown file, `captures/<stem>.md`, in a folder opened with
-`@epicenter/folder`. The file's bytes are the saved data. There is no Yjs
+`@epicenter/folder/next`. The file's bytes are the saved data. There is no Yjs
 document, no thought rows, and no IDs for thoughts.
 
 `captureTables` is the tables an application passes to
@@ -39,12 +39,14 @@ decoding one.
 
 ## Reading a capture
 
-The captures table reads a file as a row (`CaptureRow`): its exact source
-`text`, its `fields`, its Markdown `body`, and `issues`, which is `null` when
+The captures table reads a file as a row (`CaptureRow`): its `path`, `fields`,
+Markdown `body`, and `issues`, which is `null` when
 the frontmatter fits the schema. `captureBody.decode(row.body)` reads the
 body as the capture text and its ordered thoughts. markdown-it decides what
 the blocks are and which lines each owns; this package maps those ranges to
-offsets in the source.
+offsets in the body. The exact source text is `folder.file(row.path)?.data`
+when that value is a string. A failed read produces an `unreadable` issue; the
+folder can retry it at a checkpoint.
 
 | Part | Rule |
 | --- | --- |
@@ -58,8 +60,8 @@ quote, or a list item is not the heading.
 A body is refused, with the refusal saying why, when its layout is
 ambiguous. Its text and thoughts are then not offered, and the file stays
 editable as text. A file whose frontmatter does not parse, or whose
-`capturedAt` is not valid, is still listed as a row, with its source and
-its `issues`; it is not a capture until those are repaired.
+`capturedAt` is not valid, is still listed as a row with `issues`; it is not
+a capture until those are repaired.
 
 | `refusal.code` | Cause |
 | --- | --- |
@@ -69,15 +71,18 @@ its `issues`; it is not a capture until those are repaired.
 
 ## Changing a capture
 
-An app holds the open row and saves it; this package owns only the body.
-Decode the row's body, compose the complete desired value, encode it over the
-current body, and save the row with that body. The folder replaces only the
-body and keeps the frontmatter as written.
+An app holds one draft of the body shown in its capture editor; this package
+owns only the body codec. Decode that draft, compose the complete desired
+value, encode it over the draft, and submit the resulting body with
+`tables.captures.update`. This keeps a thought command from losing text typed
+within the save throttle. The update keeps unknown frontmatter keys, but writes
+canonical YAML: declared keys first, then other keys sorted. Comments and
+original key spelling or order do not survive a structured update.
 
 ```text
-row.body -> decode -> { text, thoughts }
+body draft -> decode -> { text, thoughts }
                         | compose the desired value
-row.body <- encode(desired, row.body)
+body draft <- encode(desired, body draft)
 ```
 
 Both codec operations return Wellcrafted Results. Decoding reports ambiguous
@@ -118,8 +123,9 @@ needs no thought IDs.
 
 `captureBody.locate(body)` answers where each thought sits in the body, as
 `Span`s of offsets from its bullet marker to the end of its last line with
-content. An app uses it to select a thought's lines when editing the file as
-text, where unfinished Markdown is kept as typed.
+content. After the app settles a save, it combines those spans with the saved
+file text to select a thought's lines in Edit as text. That view keeps
+unfinished Markdown as typed.
 
 `excerpt(text)` shortens capture text for a list.
 

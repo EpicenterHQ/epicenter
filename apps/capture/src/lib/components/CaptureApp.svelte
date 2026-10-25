@@ -1,43 +1,30 @@
 <!--
-	Capture inside `<FolderApp>`: builds the store over the local
-	folder's context, and shows the timeline or the one open capture under a
+	Capture inside `<OpenFolder>`: builds the store over the opened
+	folder, and shows the timeline or the one open capture under a
 	header that says whether everything is saved on this device.
 
 	The folder keeps no history and syncs nowhere yet: the header offers no
 	Save version, Sync, or Connect.
 -->
 <script lang="ts">
-	import { setQueryClientContext } from '@tanstack/svelte-query';
-	import { type getFolder, setFolder } from '$lib/folder.js';
+	import { setFolder } from '$lib/folder.js';
 	import { Button } from '@epicenter/ui/button';
-	import { beforeNavigate } from '$app/navigation';
-	import { createCaptures } from '$lib/captures.svelte.js';
+	import { type CaptureFolder, createCaptures } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
-	let { context }: { context: ReturnType<typeof getFolder> } = $props();
+	let { folder }: { folder: CaptureFolder } = $props();
 
-	// The opened context stays fixed until this app root unmounts.
+	// The opened folder stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	const { queryClient, getStatus } = setFolder(context);
-	setQueryClientContext(queryClient);
+	setFolder(folder);
 	// svelte-ignore state_referenced_locally
-	const captures = createCaptures(context);
+	const captures = createCaptures(folder);
 
 	// One page: the timeline or the one open capture.
 	const item = $derived(captures.opened);
-
-	// Read save status when leaving is requested, not while the view renders.
-	beforeNavigate(({ willUnload, cancel }) => {
-		if (!willUnload) return;
-		const { saving, unsaved } = getStatus();
-		if (saving || unsaved.length > 0) cancel();
-	});
-	// `<FolderApp>` sends what is typed, as fields or as text, when the page
-	// hides or goes away.
 </script>
-
 
 <header class="border-b">
 	<div class="mx-auto flex h-12 max-w-3xl items-center justify-between gap-4 px-4 sm:px-6">

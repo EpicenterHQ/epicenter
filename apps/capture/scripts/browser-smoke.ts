@@ -115,6 +115,17 @@ async function saved(page: Page) {
 	}
 }
 
+/** A failed write is explained by OpenFolder, with its attempted text to copy. */
+async function failedSave(page: Page, before: number) {
+	await page.waitForFunction(
+		(count) => document.querySelectorAll('[data-sonner-toast]').length > count,
+		before,
+	);
+	const notice = page.locator('[data-sonner-toast]').last();
+	await notice.getByText(/^Could not save captures\//).waitFor();
+	await notice.getByRole('button', { name: 'Copy your text' }).waitFor();
+}
+
 /** The open capture's file, read through Edit as text, then back to the capture. */
 async function source(page: Page) {
 	await page
@@ -147,7 +158,7 @@ const thoughts = (page: Page) =>
 		.getByLabel('Thoughts', { exact: true })
 		.locator('li p')
 		.evaluateAll((items) =>
-			items.map((item) => (item as HTMLElement).innerText),
+			items.map((item) => (item instanceof HTMLElement ? item.innerText : '')),
 		);
 
 async function act(page: Page, index: number, action: string) {
@@ -222,7 +233,9 @@ try {
 	await act(first, 0, 'Edit as text');
 	assert.equal(
 		await fileText(first).evaluate((field) => {
-			const box = field as HTMLTextAreaElement;
+			if (!(field instanceof HTMLTextAreaElement))
+				throw new Error('Expected textarea');
+			const box = field;
 			return box.value.slice(box.selectionStart, box.selectionEnd);
 		}),
 		'- Owning the outcome',
@@ -379,6 +392,7 @@ try {
 	// 13. A full-disk Add writes nothing and keeps the text; Add again adds it once.
 	const fillDisk = async () =>
 		earlier.evaluate(() => {
+			// SAFETY: this test installs a temporary method on this page's window.
 			const target = window as typeof window & {
 				restoreCaptureWrites?: () => void;
 			};
@@ -392,6 +406,7 @@ try {
 		});
 	const restoreDisk = async () =>
 		earlier.evaluate(() => {
+			// SAFETY: fillDisk installed this optional method on this page's window.
 			(
 				window as typeof window & { restoreCaptureWrites?: () => void }
 			).restoreCaptureWrites?.();
@@ -400,10 +415,9 @@ try {
 		.getByLabel('New capture')
 		.fill('Writing retained through failures');
 	await fillDisk();
+	let notices = await earlier.locator('[data-sonner-toast]').count();
 	await earlier.getByRole('button', { name: 'Add capture' }).click();
-	await earlier
-		.getByText('The capture was not added', { exact: true })
-		.waitFor();
+	await failedSave(earlier, notices);
 	assert.equal(
 		await earlier.getByLabel('New capture').inputValue(),
 		'Writing retained through failures',
@@ -453,25 +467,33 @@ try {
 	await fileText(earlier).fill(legacyDraft);
 	await saved(earlier);
 
-	// Failed autosave and failed Finish keep the same whole-file input.
+	// A refused write leaves the editor showing the disk. The toast offers
+	// the attempted text to copy; typing it again after recovery saves it.
 	await fillDisk();
 	const revisedDraft = legacyDraft.replace(
 		'second line',
 		'second line, edited',
 	);
+	notices = await earlier.locator('[data-sonner-toast]').count();
 	await fileText(earlier).fill(revisedDraft);
-	await earlier.getByText('Your edit is not saved', { exact: true }).waitFor();
-	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
+	await failedSave(earlier, notices);
+	await earlier.waitForFunction(
+		(expected) =>
+			document.querySelector<HTMLTextAreaElement>(
+				'textarea[aria-label^="Contents of"]',
+			)?.value === expected,
+		legacyDraft,
+	);
+	assert.equal(await fileText(earlier).inputValue(), legacyDraft);
 	await restoreDisk();
-	await earlier.getByRole('button', { name: 'Save again' }).click();
+	await fileText(earlier).fill(revisedDraft);
 	await saved(earlier);
 	await fillDisk();
+	notices = await earlier.locator('[data-sonner-toast]').count();
 	await earlier
 		.getByRole('button', { name: 'Add capture', exact: true })
 		.click();
-	await earlier
-		.getByText('The capture was not added', { exact: true })
-		.waitFor();
+	await failedSave(earlier, notices);
 	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
 	await restoreDisk();
 	await earlier
@@ -505,7 +527,7 @@ try {
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, no Save version, full-disk Add recovery, saved drafts reopened as full files, repaired without replacing the editor, retried after failed autosave and Finish, finished once, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, no Save version, full-disk Add recovery with a Copy toast, saved drafts reopened as full files, repaired without replacing the editor, failed writes showing the disk with a Copy toast, Finish retried once, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
 	);
 } catch (cause) {
 	console.error(cause);

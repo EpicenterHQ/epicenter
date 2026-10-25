@@ -1,32 +1,20 @@
-<!--
-	One completed capture: the folder's edit of its
-	row, the capture as stored with what is typed over it, which the
-	timeline's reads keep current too, so the two never disagree. A thought
-	command saves at once; the capture text saves a second after the last
-	keystroke, even after this view goes away. "Edit
-	as text" opens the file's exact Markdown instead, for the whole capture or
-	one thought. A thought not added yet is this view's input: leaving the
-	capture clears it. The parent keys this view by the capture.
-
-	When the body stops reading as text and thoughts (a version read again
-	with two Thoughts headings, say), the controls go away rather than show
-	values the file does not have, and Edit as text is the way to repair it.
--->
+<!-- A completed capture. One body draft holds text and thought commands until saves answer. -->
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
+	import { captureBody } from '@epicenter/capture';
+	import { draft } from '@epicenter/svelte/folder-next';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Field from '@epicenter/ui/field';
-	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 
 	import { tick, untrack } from 'svelte';
-	import { createCaptureActions } from '$lib/capture-actions.svelte.js';
-	import { type Captures, capturePath, describeFailure, instantOf, readCaptureBody } from '$lib/captures.svelte.js';
+	import { createCaptureActions, locateThought } from '$lib/capture-actions.svelte.js';
+	import { type Captures, capturePath, instantOf } from '$lib/captures.svelte.js';
+	import { getFolder } from '$lib/folder.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
@@ -41,21 +29,20 @@
 
 	// The view is keyed by the capture, so neither changes for this view.
 	const path = untrack(() => capturePath(stem));
-	/** The capture's commands, typing into the folder's edit of it, which every view shows. */
-	const fileEdit = untrack(() => captures.folder.tables.captures.document(stem));
-	const snapshot = liveSnapshot(fileEdit);
-	const actions = untrack(() => createCaptureActions(fileEdit, captures.folder.tables.captures.parse));
+	const folder = getFolder();
+	const row = $derived(folder.tables.captures.row(stem));
+	const stored = $derived(row?.issues === null && row.fields.draft !== true ? row : undefined);
+	const body = draft(
+		() => stored?.body ?? '',
+		(next) => captures.track(folder.tables.captures.update(stem, { body: next })),
+	);
+	const actions = createCaptureActions(body);
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
-	const parsed = $derived(snapshot.current.text === undefined ? undefined : captures.folder.tables.captures.parse(snapshot.current.text));
-	const stored = $derived(parsed?.issues === null ? parsed : undefined);
-	/** The body as text and thoughts, or why it cannot be edited here. */
-	const reading = $derived(stored === undefined ? undefined : readCaptureBody(stored));
+	const reading = $derived(stored && captureBody.decode(body.text));
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
 	const capturedAt = $derived(instantOf(stored?.fields.capturedAt));
-	/** Edits wait while closing and while this capture is deleted. */
-	const locked = $derived(captures.fenced);
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 	/** A thought typed and not added yet. */
@@ -86,6 +73,7 @@
 
 	/** What runs as the open menu closes, instead of its focus return: focus its action moved, or the view it opens. */
 	let afterMenu: (() => void) | undefined;
+	let menuThoughts: readonly string[] = [];
 	function onMenuClosed(event: Event) {
 		if (!afterMenu) return;
 		event.preventDefault();
@@ -98,26 +86,29 @@
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 
-	/** Export current acquired text without publishing or recreating the file. */
-	function download() {
-		const text = snapshot.current.text;
-		if (text === undefined) {
-			toast.error('Could not download this capture', { description: 'Its text is not available yet.' });
+	/** Export the saved file after pending edits settle. */
+	async function download() {
+		await captures.settle();
+		const data = folder.file(path)?.data;
+		if (typeof data !== 'string') {
+			toast.error('Could not download this capture', { description: 'Its text is not available.' });
 			return;
 		}
-		downloadText(`${stem}.md`, text);
+		downloadText(`${stem}.md`, data);
 	}
 
-	function confirmDiscard() {
-		confirmationDialog.open({
-			title: 'Discard your edit?',
-			description: `Copy anything you need first. ${path} keeps what was last saved.`,
-			confirm: { text: 'Discard edit', variant: 'destructive' },
-			onConfirm: () => void fileEdit.discard(),
-		});
+	async function editThought(index: number, list: readonly string[]) {
+		await captures.settle();
+		const saved = folder.tables.captures.row(stem);
+		const data = folder.file(path)?.data;
+		const range = saved?.issues === null && typeof data === 'string'
+			? locateThought(data, saved.body, index, list) : undefined;
+		if (range === undefined) {
+			actions.refuseChanged();
+			return;
+		}
+		await captures.open(stem, 'text', range);
 	}
-
-	const unsavedText = $derived(snapshot.current.text ?? '');
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
 		confirmationDialog.open({
@@ -131,64 +122,47 @@
 	}
 </script>
 
-{#snippet saveFailed()}
-	{#if snapshot.current.saveError}
-		<Alert.Root variant="destructive" aria-label="Not saved">
-			<Alert.Title>Your edit is not saved</Alert.Title>
-			<Alert.Description>{describeFailure(snapshot.current.saveError)} Your edit is still here.</Alert.Description>
-			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-				<Button size="sm" variant="outline" onclick={() => void fileEdit.save()}>Save again</Button>
-				<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
-				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
-			</div>
-		</Alert.Root>
-	{/if}
-{/snippet}
-
-{#if reading?.data?.draft}
+{#if reading === undefined}
 	<div class="flex flex-col gap-4">
 		<Button variant="outline" size="sm" class="self-start" onclick={() => captures.leave()}>Back to timeline</Button>
-		<Alert.Root>
-			<Alert.Title>This file is a draft</Alert.Title>
-			<Alert.Description>Edit its Markdown as text to continue writing or finish it.</Alert.Description>
-			<div class="mt-2"><Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button></div>
-		</Alert.Root>
-		{@render saveFailed()}
-	</div>
-{:else if reading === undefined}
-	<div class="flex flex-col gap-4">
-		<div>
-			<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
-		</div>
-		{#if parsed?.issues}
+		{#if row?.fields && row.issues === null && row.fields.draft === true}
+			<Alert.Root>
+				<Alert.Title>This file is a draft</Alert.Title>
+				<Alert.Description>Edit its Markdown as text to continue writing or finish it.</Alert.Description>
+				<div class="mt-2"><Button size="sm" onclick={() => void captures.open(stem, 'text')}>Edit as text</Button></div>
+			</Alert.Root>
+		{:else if row?.issues && !row.issues.some((issue) => issue.kind === 'unreadable' || issue.kind === 'not-text')}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This file does not read as a capture</Empty.Title>
-					<Empty.Description>{parsed.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
+					<Empty.Description>{row.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
-					<Empty.Content>
-						<Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
-					</Empty.Content>
+				<Empty.Content><Button size="sm" onclick={() => void captures.open(stem, 'text')}>Edit as text</Button></Empty.Content>
 			</Empty.Root>
-		{:else if snapshot.current.loadError?.name === 'Missing'}
+		{:else if row === undefined}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This capture is no longer here</Empty.Title>
 					<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 				</Empty.Header>
 			</Empty.Root>
-		{:else if snapshot.current.loadError}
+		{:else if row.issues?.some((issue) => issue.kind === 'not-text')}
+			<Empty.Root role="alert">
+				<Empty.Header>
+					<Empty.Title>This file is not text</Empty.Title>
+					<Empty.Description>It cannot be edited as a capture. Nothing in it was changed.</Empty.Description>
+				</Empty.Header>
+			</Empty.Root>
+		{:else}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This capture could not be read</Empty.Title>
-					<Empty.Description>{snapshot.current.loadError.message}</Empty.Description>
+					<Empty.Description>{row.issues?.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content>
-					<Button variant="outline" size="sm" onclick={() => void fileEdit.refresh()}>Try again</Button>
+					<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Try again</Button>
 				</Empty.Content>
 			</Empty.Root>
-		{:else}
-			<Loading label="Opening…" />
 		{/if}
 	</div>
 {:else}
@@ -202,7 +176,7 @@
 				Capture with no date
 			{/if}
 		</h1>
-		<Button variant="outline" size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
+		<Button variant="outline" size="sm" onclick={() => void captures.open(stem, 'text')}>Edit as text</Button>
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger>
 				{#snippet child({ props })}
@@ -213,29 +187,15 @@
 				<DropdownMenu.Item onclick={() => copy(text, 'Capture text')}>Copy capture text</DropdownMenu.Item>
 				<DropdownMenu.Item onclick={() => void download()}>Download file</DropdownMenu.Item>
 				<DropdownMenu.Separator />
-				<DropdownMenu.Item variant="destructive" disabled={locked} onclick={() => void confirmDelete(captures, stem)}>Delete capture…</DropdownMenu.Item>
+				<DropdownMenu.Item variant="destructive" onclick={() => void confirmDelete(captures, stem)}>Delete capture…</DropdownMenu.Item>
 			</DropdownMenu.Content>
 		</DropdownMenu.Root>
 	</div>
 
-	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-		{#if snapshot.current.saveError}
-			Not saved
-		{:else if snapshot.current.isDirty || snapshot.current.isSaving}
-			Saving…
-		{:else if snapshot.current.loadError}
-			Text kept here
-		{:else}
-			Saved to {path}
-		{/if}
-	</p>
-
-	{@render saveFailed()}
-
-	{#if actions.refusal || snapshot.current.loadError}
+	{#if actions.refusal}
 		<Alert.Root aria-label="Not applied">
 			<Alert.Title>Not applied</Alert.Title>
-			<Alert.Description>{actions.refusal ?? snapshot.current.loadError?.message}</Alert.Description>
+			<Alert.Description>{actions.refusal}</Alert.Description>
 		</Alert.Root>
 	{/if}
 
@@ -247,7 +207,7 @@
 				<p>Nothing was changed. Edit its Markdown as text to repair it.</p>
 			</Alert.Description>
 			<div class="mt-2 text-foreground">
-				<Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
+				<Button size="sm" onclick={() => void captures.open(stem, 'text')}>Edit as text</Button>
 			</div>
 		</Alert.Root>
 
@@ -257,7 +217,6 @@
 				<Field.Label for="capture-text">Capture text</Field.Label>
 				<Textarea
 					id="capture-text"
-					readonly={locked}
 					bind:value={() => text, (typed) => actions.inputText(typed)}
 					rows={rowsFor(text)}
 					class="max-h-96 resize-y leading-relaxed"
@@ -279,7 +238,7 @@
 							<li class="py-1 pl-1">
 								<div class="flex items-start gap-2">
 									<p class="min-w-0 flex-1 whitespace-pre-wrap break-words py-1.5 leading-relaxed {thought ? '' : 'text-muted-foreground'}">{thought || 'Empty thought'}</p>
-									<DropdownMenu.Root>
+									<DropdownMenu.Root onOpenChange={(open) => { if (open) menuThoughts = [...thoughts]; }}>
 										<DropdownMenu.Trigger>
 											{#snippet child({ props })}
 												<Button {...props} variant="ghost" size="sm" class="text-muted-foreground" aria-label="Thought actions" data-thought-actions>Actions</Button>
@@ -287,20 +246,20 @@
 										</DropdownMenu.Trigger>
 										<DropdownMenu.Content align="end" class="w-48" onCloseAutoFocus={onMenuClosed}>
 											<DropdownMenu.Item onclick={() => {
-												const range = actions.locateThought(index, shown);
-												// The text view opens once the menu has closed, and takes focus.
-												if (range !== undefined) afterMenu = () => captures.open(stem, 'text', range);
+											// Settle the body before locating its lines in the saved file.
+												const list = menuThoughts;
+												afterMenu = () => { void editThought(index, list); };
 											}}>Edit as text</DropdownMenu.Item>
-											<DropdownMenu.Item disabled={locked || index === 0} onclick={() => {
-												if (actions.swapThoughts(index, index - 1, shown)) afterMenu = () => void focusThought(index - 1);
+										<DropdownMenu.Item disabled={index === 0} onclick={() => {
+												if (actions.swapThoughts(index, index - 1, menuThoughts)) afterMenu = () => void focusThought(index - 1);
 											}}>Move up</DropdownMenu.Item>
-											<DropdownMenu.Item disabled={locked || index === shown.length - 1} onclick={() => {
-												if (actions.swapThoughts(index, index + 1, shown)) afterMenu = () => void focusThought(index + 1);
+										<DropdownMenu.Item disabled={index === shown.length - 1} onclick={() => {
+												if (actions.swapThoughts(index, index + 1, menuThoughts)) afterMenu = () => void focusThought(index + 1);
 											}}>Move down</DropdownMenu.Item>
 											<DropdownMenu.Separator />
 											<DropdownMenu.Item onclick={() => copy(thought, 'Thought')}>Copy text</DropdownMenu.Item>
 											<DropdownMenu.Separator />
-											<DropdownMenu.Item variant="destructive" disabled={locked} onclick={() => confirmDeleteThought(thought, index, shown)}>Delete thought…</DropdownMenu.Item>
+										<DropdownMenu.Item variant="destructive" onclick={() => confirmDeleteThought(thought, index, menuThoughts)}>Delete thought…</DropdownMenu.Item>
 										</DropdownMenu.Content>
 									</DropdownMenu.Root>
 								</div>
@@ -312,7 +271,14 @@
 				<form
 					onsubmit={(event) => {
 						event.preventDefault();
-						if (actions.addThought(newThought)) newThought = '';
+						const submitted = newThought;
+						if (actions.addThought(submitted)) {
+							newThought = '';
+							const saved = captures.settle();
+							void saved.then((result) => {
+								if (result.error !== null && newThought === '') newThought = submitted;
+							});
+						}
 						newThoughtField?.focus();
 					}}
 					class="flex flex-col gap-2"
@@ -322,7 +288,6 @@
 						<Textarea
 							id="new-thought"
 							bind:ref={newThoughtField}
-							readonly={locked}
 							bind:value={newThought}
 							onkeydown={submitOnModEnter}
 							rows={2}
@@ -340,12 +305,12 @@
 								Thoughts you add are saved in this capture, under its Thoughts heading.
 							{/if}
 						</p>
-						<Button type="submit" size="sm" disabled={locked}>Add thought</Button>
+						<Button type="submit" size="sm">Add thought</Button>
 					</div>
 				</form>
 
 				{#if reading.data?.hasOtherContent}
-					<p class="text-muted-foreground">This file has more Markdown after its thoughts. It is kept as it is; Edit as text shows it.</p>
+					<p class="text-muted-foreground">This file has more Markdown after its thoughts. Structured edits preserve that body content; Edit as text shows it.</p>
 				{/if}
 			</section>
 		</div>
@@ -353,7 +318,7 @@
 </div>
 {/if}
 
-{#if newThought !== '' && (!reading?.data || reading.data.draft)}
+{#if newThought !== '' && !reading?.data}
 	<!-- Typed here and not in the file: kept visible to copy, since Add a thought cannot show it now. -->
 	<Field.Field>
 		<Field.Label>Thought not added</Field.Label>
