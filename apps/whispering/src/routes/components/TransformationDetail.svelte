@@ -7,6 +7,7 @@
 <script lang="ts">
 	import { readRow } from '@epicenter/folder/next';
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
@@ -56,31 +57,25 @@
 	const stored = $derived(folder.tables.transformations.row(id));
 	const file = $derived(folder.file(own));
 
-	/** The last save a draft here asked for; changing editors waits for it. */
-	let lastSave: Promise<unknown> = Promise.resolve();
-	function saving<T>(save: (text: string) => Promise<T>) {
-		return (text: string) => (lastSave = save(text));
-	}
 	const title = draft(
 		() => (stored?.issues === null ? stored.fields.title : ''),
-		saving((title) => folder.tables.transformations.update(id, { fields: { title } })),
+		(title) => folder.tables.transformations.update(id, { fields: { title } }),
 	);
 	const modelText = draft(
 		() => (stored?.issues === null ? (stored.fields.model ?? '') : ''),
 		// An empty model uses the text connection's model.
-		saving((model) =>
+		(model) =>
 			folder.tables.transformations.update(id, {
 				fields: { model: model.trim() === '' ? null : model },
 			}),
-		),
 	);
 	const prompt = draft(
 		() => (stored?.issues === null ? stored.body : ''),
-		saving((body) => folder.tables.transformations.update(id, { body })),
+		(body) => folder.tables.transformations.update(id, { body }),
 	);
 	const source = draft(
 		() => (typeof file?.data === 'string' ? file.data : ''),
-		saving((text) => folder.write(own, text)),
+		(text) => folder.write(own, text),
 	);
 
 	const asText = $derived(whispering.showsText(own));
@@ -89,7 +84,7 @@
 	/** Why the text in Source does not read as a transformation, as it is typed. */
 	const issues = $derived(
 		asText && text !== undefined
-			? (readRow(source.text, whisperingTables.transformations).issues ?? undefined)
+			? (readRow(source.value, whisperingTables.transformations).issues ?? undefined)
 			: undefined,
 	);
 	/** The transformation as the folder shows it, while its fields are what is edited. */
@@ -98,8 +93,8 @@
 	const shown = $derived<RecipeRow | undefined>(
 		row
 			? {
-					fields: { title: title.text, model: modelText.text.trim() || null },
-					body: prompt.text,
+					fields: { title: title.value, model: modelText.value.trim() || null },
+					body: prompt.value,
 				}
 			: undefined,
 	);
@@ -226,13 +221,14 @@
 	}
 
 	/**
-	 * Show the fields or the whole text, once the last save here answered so
+	 * Show the fields or the whole text, once this file's saves answer so
 	 * the other editor shows it. Answers whether it switched.
 	 */
 	async function show(asSource: boolean) {
 		folder.checkpoint();
-		await lastSave;
-		const problem = asSource ? whispering.editSource(own) : whispering.useForm(own, source.text);
+		await folder.settled(own);
+		if (asSource ? title.error || modelText.error || prompt.error : source.error) return false;
+		const problem = asSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(asSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 		return problem === undefined;
 	}
@@ -248,7 +244,7 @@
 		{#if row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={title.text}
+				bind:value={title.value}
 				placeholder="Title"
 				aria-label="Transformation title"
 				data-testid="transformation-title"
@@ -257,6 +253,9 @@
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="transformation-title-text">{field('title') || id}</h2>
 		{/if}
 	</div>
+	{#if row && title.error}
+		<div class="px-4 pt-2"><UnsavedEdit draft={title} /></div>
+	{/if}
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
@@ -317,10 +316,11 @@
 						<Textarea
 							id="transformation-prompt"
 							class="min-h-36 resize-y font-sans"
-							bind:value={prompt.text}
+							bind:value={prompt.value}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
 						/>
+						<UnsavedEdit draft={prompt} />
 					{/if}
 					<Field.Description>Sent first. The transcript or pasted text follows, unchanged.</Field.Description>
 				</Field.Field>
@@ -344,12 +344,13 @@
 							{#if row}
 								<Input
 									id="transformation-model"
-									bind:value={modelText.text}
+									bind:value={modelText.value}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
 									spellcheck={false}
 									data-testid="transformation-model"
 								/>
+								<UnsavedEdit draft={modelText} />
 							{:else}
 								<p class="text-sm" data-testid="transformation-model-text">{field('model') || 'The text connection’s model'}</p>
 							{/if}
@@ -505,12 +506,13 @@
 			</p>
 			<Textarea
 				class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(source.text), (value) => source.set(withFileNewlines(value, source.text))}
+				bind:value={() => lf(source.value), (value) => source.set(withFileNewlines(value, source.value))}
 				{@attach () => { whispering.editSource(own); }}
 				aria-label="Markdown source"
 				spellcheck={false}
 				data-testid="transformation-source"
 			/>
+			<UnsavedEdit draft={source} />
 		</Tabs.Content>
 	</Tabs.Root>
 	{/if}

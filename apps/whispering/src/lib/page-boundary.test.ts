@@ -138,6 +138,7 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',
+						'@epicenter/svelte/unsaved-edit',
 					].includes(specifier)) ||
 				// The store package, by any entry. Folders and their declarations
 				// come from `@epicenter/folder` and `@epicenter/definition`.

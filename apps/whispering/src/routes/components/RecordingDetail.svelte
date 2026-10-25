@@ -7,6 +7,7 @@
 <script lang="ts">
 	import { readRow } from '@epicenter/folder/next';
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
@@ -57,22 +58,17 @@
 	const stored = $derived(folder.tables.recordings.row(id));
 	const file = $derived(folder.file(own));
 
-	/** The last save a draft here asked for; changing editors waits for it. */
-	let lastSave: Promise<unknown> = Promise.resolve();
-	function saving<T>(save: (text: string) => Promise<T>) {
-		return (text: string) => (lastSave = save(text));
-	}
 	const title = draft(
 		() => (stored?.issues === null ? stored.fields.title : ''),
-		saving((title) => folder.tables.recordings.update(id, { fields: { title } })),
+		(title) => folder.tables.recordings.update(id, { fields: { title } }),
 	);
 	const notes = draft(
 		() => (stored?.issues === null ? stored.body : ''),
-		saving((body) => folder.tables.recordings.update(id, { body })),
+		(body) => folder.tables.recordings.update(id, { body }),
 	);
 	const source = draft(
 		() => (typeof file?.data === 'string' ? file.data : ''),
-		saving((text) => folder.write(own, text)),
+		(text) => folder.write(own, text),
 	);
 
 	const asText = $derived(whispering.showsText(own));
@@ -81,12 +77,12 @@
 	/** Why the text in Source does not read as a recording, as it is typed. */
 	const issues = $derived(
 		asText && text !== undefined
-			? (readRow(source.text, whisperingTables.recordings).issues ?? undefined)
+			? (readRow(source.value, whisperingTables.recordings).issues ?? undefined)
 			: undefined,
 	);
 	/** The recording as the folder shows it, while its fields are what is edited. */
 	const row = $derived(!asText && stored?.issues === null ? stored : undefined);
-	const shownTitle = $derived(row ? title.text : (entry?.row.fields.title ?? ''));
+	const shownTitle = $derived(row ? title.value : (entry?.row.fields.title ?? ''));
 
 	const results = $derived(whispering.resultsFor(id));
 	const run = $derived(whispering.transcriptionRun(id));
@@ -101,11 +97,12 @@
 		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 	}
 
-	/** Change editors once the last save here answered, so the other one shows it. */
+	/** Change editors once this file's saves answer, so the other editor sees them. */
 	async function show(toSource: boolean) {
 		folder.checkpoint();
-		await lastSave;
-		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.text);
+		await folder.settled(own);
+		if (toSource ? title.error || notes.error : source.error) return;
+		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(toSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 	}
 </script>
@@ -120,7 +117,7 @@
 		{#if row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={title.text}
+				bind:value={title.value}
 				placeholder="Title"
 				aria-label="Recording title"
 			/>
@@ -133,6 +130,9 @@
 			</Button>
 		{/if}
 	</div>
+	{#if row && title.error}
+		<div class="px-4 pt-2"><UnsavedEdit draft={title} /></div>
+	{/if}
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
@@ -219,10 +219,11 @@
 					<h3 class="text-sm font-medium">Notes</h3>
 					<Textarea
 						class="min-h-28 resize-y font-sans"
-						bind:value={notes.text}
+						bind:value={notes.value}
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
 					/>
+						<UnsavedEdit draft={notes} />
 				</div>
 
 				<Collapsible.Root>
@@ -278,11 +279,12 @@
 			</p>
 			<Textarea
 				class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(source.text), (value) => source.set(withFileNewlines(value, source.text))}
+				bind:value={() => lf(source.value), (value) => source.set(withFileNewlines(value, source.value))}
 				{@attach () => { whispering.editSource(own); }}
 				aria-label="Markdown source"
 				spellcheck={false}
 			/>
+			<UnsavedEdit draft={source} />
 		</Tabs.Content>
 	</Tabs.Root>
 	{/if}

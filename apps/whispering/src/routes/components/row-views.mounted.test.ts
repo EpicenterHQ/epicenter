@@ -28,6 +28,7 @@ import { leave, type } from '../svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { SaveError } from '@epicenter/folder/next/testing';
 import { Err } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { WhisperingFolder } from '../../lib/folder.js';
@@ -197,6 +198,81 @@ test('a transcript saves to its own path after switching files', async () => {
 		field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]')
 			?.value,
 	).toBe('Alpha, typed.\n');
+});
+
+test('a failed text edit stays visible until Save again succeeds or Discard follows disk', async () => {
+	const { folder, whispering, target, host } = await open(
+		{ 'note.txt': 'On disk' },
+		'recordings',
+		{ memory: true },
+	);
+	await show(whispering, folder, 'note.txt');
+	const editor = () => field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]');
+	const button = (label: string) =>
+		[...target.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.trim() === label);
+	host!.control.failPut.set('note.txt', SaveError.StorageFailed({ cause: 'disk full' }).error);
+	type(editor(), 'First edit');
+	await settle(folder);
+	expect(editor()?.value).toBe('First edit');
+	expect(host!.text('note.txt')).toBe('On disk');
+	expect(target.textContent).toContain('Not saved:');
+	expect(button('Save again')).toBeDefined();
+
+	host!.control.failPut.delete('note.txt');
+	button('Save again')?.click();
+	await settle(folder);
+	expect(host!.text('note.txt')).toBe('First edit');
+	expect(target.textContent).not.toContain('Not saved:');
+
+	host!.control.failPut.set('note.txt', SaveError.StorageFailed({ cause: 'disk full' }).error);
+	type(editor(), 'Second edit');
+	await settle(folder);
+	expect(editor()?.value).toBe('Second edit');
+	button('Discard')?.click();
+	flushSync();
+	expect(editor()?.value).toBe('First edit');
+	expect(target.textContent).not.toContain('Not saved:');
+});
+
+test('a whole-file text draft recreates a file deleted outside the mirror', async () => {
+	const { folder, whispering, target, host } = await open(
+		{ 'note.txt': 'Before' },
+		'recordings',
+		{ memory: true },
+	);
+	await show(whispering, folder, 'note.txt');
+	host!.outside('note.txt', null, { hint: false });
+	type(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]'), 'Recreated');
+	await settle(folder);
+	expect(host!.text('note.txt')).toBe('Recreated');
+	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]')?.value).toBe('Recreated');
+});
+
+test('switching a recording to Source waits for its title to land', async () => {
+	const { folder, whispering, target, host } = await open(
+		{ [RECORDING]: recording('Before', '') },
+		'recordings',
+		{ memory: true },
+	);
+	await show(whispering, folder, RECORDING);
+	const release = deferred<void>();
+	host!.control.putGate = release.promise;
+	type(field<HTMLInputElement>(target, 'input[aria-label="Recording title"]'), 'After');
+	type(field<HTMLInputElement>(target, 'input[aria-label="Recording title"]'), 'Latest');
+	const sourceTab = [...target.querySelectorAll<HTMLButtonElement>('button')].find(
+		(item) => item.textContent?.trim() === 'Source',
+	);
+	sourceTab?.click();
+	flushSync();
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBeNull();
+	host!.control.putGate = undefined;
+	release.resolve();
+	await eventually(() => {
+		flushSync();
+		return target.querySelector('textarea[aria-label="Markdown source"]') !== null;
+	});
+	expect(host!.text(RECORDING)).toContain('title: Latest');
+	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]')?.value).toContain('title: Latest');
 });
 
 test('a change made elsewhere shows once the folder looks again', async () => {

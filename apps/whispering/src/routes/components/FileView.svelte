@@ -9,6 +9,7 @@
 <script lang="ts">
 	import { readRow } from '@epicenter/folder/next';
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { getFolder } from '$lib/folder.js';
 
@@ -55,31 +56,27 @@
 	/** A transcript that reads, shown as its body: its fields are kept. */
 	const transcript = $derived(stored?.issues === null && !whispering.showsText(own) ? stored : undefined);
 
-	/** The last save a draft here asked for; changing editors waits for it. */
-	let lastSave: Promise<unknown> = Promise.resolve();
-	function saving<T>(save: (text: string) => Promise<T>) {
-		return (text: string) => (lastSave = save(text));
-	}
 	const body = draft(
 		() => (stored?.issues === null ? stored.body : ''),
-		saving((body) => folder.tables.transcriptions.update(transcriptId ?? '', { body })),
+		(body) => folder.tables.transcriptions.update(transcriptId ?? '', { body }),
 	);
 	const source = draft(
 		() => text ?? '',
-		saving((text) => folder.write(own, text)),
+		(text) => folder.write(own, text),
 	);
 	/** Why the text shown does not read as a row, as it is typed. */
 	const issues = $derived(
 		table === undefined || text === undefined
 			? undefined
-			: (readRow(source.text, whisperingTables[table]).issues ?? undefined),
+			: (readRow(source.value, whisperingTables[table]).issues ?? undefined),
 	);
 
-	/** Change editors once the last save here answered, so the other one shows it. */
+	/** Change editors once this file's saves answer, so the other editor sees them. */
 	async function show(toSource: boolean) {
 		folder.checkpoint();
-		await lastSave;
-		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.text);
+		await folder.settled(own);
+		if (toSource ? body.error : source.error) return;
+		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem)
 			toast.error(toSource ? 'The text was not opened for editing' : 'The text was not opened alone', {
 				description: problem,
@@ -139,9 +136,10 @@
 			</p>
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-sans"
-				bind:value={body.text}
+				bind:value={body.value}
 				aria-label="Contents of {name}"
 			/>
+			<UnsavedEdit draft={body} />
 		</div>
 	{:else if text !== undefined}
 		{#if issues}
@@ -166,11 +164,12 @@
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(source.text), (value) => source.set(withFileNewlines(value, source.text))}
+				bind:value={() => lf(source.value), (value) => source.set(withFileNewlines(value, source.value))}
 				{@attach () => { if (table !== undefined) whispering.editSource(own); }}
 				aria-label="Contents of {name}"
 				spellcheck={false}
 			/>
+			<UnsavedEdit draft={source} />
 		</div>
 	{:else if file.data !== undefined}
 		<Empty.Root class="flex-1" data-testid="file-not-text">
