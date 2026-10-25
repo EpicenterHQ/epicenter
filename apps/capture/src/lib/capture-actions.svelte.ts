@@ -10,7 +10,7 @@ const CHANGED =
 const sameList = (a: readonly string[], b: readonly string[]) =>
 	a.length === b.length && a.every((item, index) => item === b[index]);
 
-/** Locate a thought in saved file text after the body draft has settled. */
+/** Locate a thought in saved file text after the shown body has been written. */
 export function locateThought(
 	fileText: string,
 	body: string,

@@ -96,6 +96,8 @@ const errors: string[] = [];
 
 async function saved(page: Page) {
 	try {
+		// A draft can still be waiting for its debounce while the folder says Saved.
+		await page.waitForTimeout(1100);
 		await page
 			.locator('header [role="status"]')
 			.filter({ hasText: /^Saved$/ })
@@ -115,15 +117,14 @@ async function saved(page: Page) {
 	}
 }
 
-/** A failed write is explained by OpenFolder, with its attempted text to copy. */
-async function failedSave(page: Page, before: number) {
+/** A failed command presents its own refusal. */
+async function failedCommand(page: Page, before: number, title: string) {
 	await page.waitForFunction(
 		(count) => document.querySelectorAll('[data-sonner-toast]').length > count,
 		before,
 	);
 	const notice = page.locator('[data-sonner-toast]').last();
-	await notice.getByText(/^Could not save captures\//).waitFor();
-	await notice.getByRole('button', { name: 'Copy your text' }).waitFor();
+	await notice.getByText(title).waitFor();
 }
 
 /** The open capture's file, read through Edit as text, then back to the capture. */
@@ -305,8 +306,16 @@ try {
 	await first.getByLabel('Capture text').fill('Mine');
 	await saved(first);
 
-	// 7. The next edit writes on top of the file as it is now.
+	// 7. Download writes the visible text before exporting the saved file.
 	await first.getByLabel('Capture text').fill('Saved over it');
+	const downloading = first.waitForEvent('download');
+	await first.getByRole('button', { name: 'More capture actions' }).click();
+	await first.getByRole('menuitem', { name: 'Download file' }).click();
+	const exported = await downloading;
+	let exportedText = '';
+	for await (const chunk of await exported.createReadStream())
+		exportedText += chunk.toString();
+	assert(exportedText.includes('\n\nSaved over it\n\n'));
 	await saved(first);
 	await first
 		.getByRole('button', { name: 'Edit as text', exact: true })
@@ -415,9 +424,9 @@ try {
 		.getByLabel('New capture')
 		.fill('Writing retained through failures');
 	await fillDisk();
-	let notices = await earlier.locator('[data-sonner-toast]').count();
+	const notices = await earlier.locator('[data-sonner-toast]').count();
 	await earlier.getByRole('button', { name: 'Add capture' }).click();
-	await failedSave(earlier, notices);
+	await failedCommand(earlier, notices, 'Could not add capture');
 	assert.equal(
 		await earlier.getByLabel('New capture').inputValue(),
 		'Writing retained through failures',
@@ -467,15 +476,13 @@ try {
 	await fileText(earlier).fill(legacyDraft);
 	await saved(earlier);
 
-	// A refused write keeps the typed text and offers inline recovery.
+	// A refused draft save keeps the typed text with inline recovery.
 	await fillDisk();
 	const revisedDraft = legacyDraft.replace(
 		'second line',
 		'second line, edited',
 	);
-	notices = await earlier.locator('[data-sonner-toast]').count();
 	await fileText(earlier).fill(revisedDraft);
-	await failedSave(earlier, notices);
 	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
 	await earlier.getByText(/^Not saved:/).waitFor();
 	await restoreDisk();
@@ -483,11 +490,13 @@ try {
 	await earlier.getByText(/^Not saved:/).waitFor({ state: 'hidden' });
 	await saved(earlier);
 	await fillDisk();
-	notices = await earlier.locator('[data-sonner-toast]').count();
 	await earlier
 		.getByRole('button', { name: 'Add capture', exact: true })
 		.click();
-	await failedSave(earlier, notices);
+	await earlier
+		.getByLabel('Not applied')
+		.getByText(/Disk is full/i)
+		.waitFor();
 	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
 	await restoreDisk();
 	await earlier
@@ -521,7 +530,7 @@ try {
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, no Save version, full-disk Add recovery with a Copy toast, saved drafts reopened as full files, repaired without replacing the editor, failed writes retaining typed text with Save again and a Copy toast, Finish retried once, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, download saving pending text, no Save version, full-disk Add recovery with a command toast, saved drafts reopened as full files, repaired without replacing the editor, failed draft writes retaining typed text with Save again, Finish retried once after an inline refusal, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
 	);
 } catch (cause) {
 	console.error(cause);

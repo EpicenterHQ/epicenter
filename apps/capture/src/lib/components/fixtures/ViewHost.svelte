@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
 	import * as Tooltip from '@epicenter/ui/tooltip';
+	import { Toaster } from '@epicenter/ui/sonner';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import type { Captures } from '$lib/captures.svelte.js';
 	import type { CaptureFolder } from '$lib/captures.svelte.js';
@@ -29,3 +30,4 @@
 		{/if}
 	</Tooltip.Provider>
 	<ConfirmationDialog />
+	<Toaster />

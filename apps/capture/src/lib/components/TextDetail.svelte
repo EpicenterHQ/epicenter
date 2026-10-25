@@ -10,7 +10,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { untrack } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { type Captures, capturePath, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
 	import { getFolder } from '$lib/folder.js';
@@ -18,6 +18,10 @@
 
 	let { captures, stem }: { captures: Captures; stem: string } = $props();
 	const folder = getFolder();
+	let active = true;
+	onDestroy(() => {
+		active = false;
+	});
 	const path = untrack(() => capturePath(stem));
 	const row = $derived(folder.tables.captures.row(stem));
 	const source = $derived.by(() => {
@@ -26,11 +30,14 @@
 	});
 	const text = draft(
 		() => (source ?? '').replace(/\r\n?/g, '\n'),
-		(typing) => folder.write(
-			path,
-			source?.includes('\r\n') ? typing.toWellFormed().replace(/\r?\n/g, '\r\n') : typing.toWellFormed(),
-		),
+		(typing) => folder.write(path, fileText(typing)),
 	);
+	function fileText(typing: string) {
+		const current = folder.file(path)?.data;
+		return typeof current === 'string' && current.includes('\r\n')
+			? typing.toWellFormed().replace(/\r?\n/g, '\r\n')
+			: typing.toWellFormed();
+	}
 	const parsed = $derived(readRow(text.value, captureTables.captures));
 	const isDraft = $derived(parsed.issues === null && parsed.fields.draft === true);
 	const body = $derived(parsed.issues === null ? parsed.body : undefined);
@@ -59,12 +66,38 @@
 		refusal = undefined;
 		text.set(typing);
 	}
+	async function saveText() {
+		while (active) {
+			const shown = text.value;
+			const saved = await folder.write(path, fileText(shown));
+			if (!active) return false;
+			if (saved.error !== null) {
+				refusal = saved.error.message;
+				return false;
+			}
+			if (text.value === shown) {
+				text.discard();
+				refusal = undefined;
+				return true;
+			}
+		}
+		return false;
+	}
+	async function openCapture() {
+		if (!(await saveText())) return;
+		captures.open(stem, 'capture');
+	}
 	async function finish() {
 		if (finishing || !isDraft || !body?.trim()) return;
 		finishing = true;
-		const result = await captures.finishDraft(stem, text);
+		if (!(await saveText())) {
+			if (active) finishing = false;
+			return;
+		}
+		const result = await captures.finishDraft(stem);
+		if (!active) return;
 		finishing = false;
-		if (result.error?.name === 'Refused') refusal = result.error.message;
+		if (result.error !== null) refusal = result.error.message;
 	}
 	async function copy(value: string, what: string) {
 		if (await copyText(value)) toast.success(`${what} copied`);
@@ -82,10 +115,10 @@
 					{finishing ? 'Adding…' : 'Add capture'}
 				</Button>
 			{:else}
-				<Button size="sm" variant="outline" disabled={issues.length > 0} onclick={() => void captures.open(stem, 'capture')}>Open as capture</Button>
+				<Button size="sm" variant="outline" disabled={issues.length > 0} onclick={() => void openCapture()}>Open as capture</Button>
 			{/if}
 			<Button size="sm" variant="ghost" onclick={() => void copy(text.value, 'File text')}>Copy file text</Button>
-			<Button size="sm" variant="ghost" onclick={() => void confirmDelete(captures, stem)}>{isDraft ? 'Discard draft…' : 'Delete…'}</Button>
+			<Button size="sm" variant="ghost" onclick={() => void confirmDelete(captures, stem, () => text.discard())}>{isDraft ? 'Discard draft…' : 'Delete…'}</Button>
 		{/if}
 	</div>
 
@@ -142,7 +175,7 @@
 				<Empty.Title>This capture could not be read</Empty.Title>
 				<Empty.Description>{row.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
 			</Empty.Header>
-			<Empty.Content><Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Try again</Button></Empty.Content>
+			<Empty.Content><Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button></Empty.Content>
 		</Empty.Root>
 	{:else}
 		<Empty.Root role="alert">

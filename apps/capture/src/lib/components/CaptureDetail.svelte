@@ -12,7 +12,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 
-	import { tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import { createCaptureActions, locateThought } from '$lib/capture-actions.svelte.js';
 	import { type Captures, capturePath, instantOf } from '$lib/captures.svelte.js';
 	import { getFolder } from '$lib/folder.js';
@@ -31,6 +31,10 @@
 	// The view is keyed by the capture, so neither changes for this view.
 	const path = untrack(() => capturePath(stem));
 	const folder = getFolder();
+	let active = true;
+	onDestroy(() => {
+		active = false;
+	});
 	const row = $derived(folder.tables.captures.row(stem));
 	const stored = $derived(row?.issues === null && row.fields.draft !== true ? row : undefined);
 	const body = draft(
@@ -87,9 +91,31 @@
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 
-	/** Export the saved file after pending edits settle. */
+	async function saveBody() {
+		while (active) {
+			const shown = body.value;
+			const saved = await folder.tables.captures.update(stem, { body: shown });
+			if (!active) return false;
+			if (saved.error !== null) {
+				toast.error('Could not save this capture', { description: saved.error.message });
+				return false;
+			}
+			if (body.value === shown) {
+				body.discard();
+				return true;
+			}
+		}
+		return false;
+	}
+
+	async function openText() {
+		if (stored && !(await saveBody())) return;
+		captures.open(stem, 'text');
+	}
+
+	/** Export the file after explicitly saving the text shown in this editor. */
 	async function download() {
-		await folder.settled(path);
+		if (!(await saveBody())) return;
 		const data = folder.file(path)?.data;
 		if (typeof data !== 'string') {
 			toast.error('Could not download this capture', { description: 'Its text is not available.' });
@@ -99,8 +125,7 @@
 	}
 
 	async function editThought(index: number, list: readonly string[]) {
-		await folder.settled(path);
-		if (body.error !== null) return;
+		if (!(await saveBody())) return;
 		const saved = folder.tables.captures.row(stem);
 		const data = folder.file(path)?.data;
 		const range = saved?.issues === null && typeof data === 'string'
@@ -109,7 +134,7 @@
 			actions.refuseChanged();
 			return;
 		}
-		await captures.open(stem, 'text', range);
+		captures.open(stem, 'text', range);
 	}
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
@@ -133,7 +158,7 @@
 			<Alert.Root>
 				<Alert.Title>This file is a draft</Alert.Title>
 				<Alert.Description>Edit its Markdown as text to continue writing or finish it.</Alert.Description>
-				<div class="mt-2"><Button size="sm" onclick={() => void captures.open(stem, 'text')}>Edit as text</Button></div>
+				<div class="mt-2"><Button size="sm" onclick={() => void openText()}>Edit as text</Button></div>
 			</Alert.Root>
 		{:else if row?.issues && !row.issues.some((issue) => issue.kind === 'unreadable' || issue.kind === 'not-text')}
 			<Empty.Root role="alert">
@@ -141,7 +166,7 @@
 					<Empty.Title>This file does not read as a capture</Empty.Title>
 					<Empty.Description>{row.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
-				<Empty.Content><Button size="sm" onclick={() => void captures.open(stem, 'text')}>Edit as text</Button></Empty.Content>
+				<Empty.Content><Button size="sm" onclick={() => void openText()}>Edit as text</Button></Empty.Content>
 			</Empty.Root>
 		{:else if row === undefined}
 			<Empty.Root role="alert">
@@ -164,7 +189,7 @@
 					<Empty.Description>{row.issues?.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content>
-					<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Try again</Button>
+					<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button>
 				</Empty.Content>
 			</Empty.Root>
 		{/if}
@@ -180,7 +205,7 @@
 				Capture with no date
 			{/if}
 		</h1>
-		<Button variant="outline" size="sm" onclick={() => void captures.open(stem, 'text')}>Edit as text</Button>
+		<Button variant="outline" size="sm" onclick={() => void openText()}>Edit as text</Button>
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger>
 				{#snippet child({ props })}
@@ -211,7 +236,7 @@
 				<p>Nothing was changed. Edit its Markdown as text to repair it.</p>
 			</Alert.Description>
 			<div class="mt-2 text-foreground">
-				<Button size="sm" onclick={() => void captures.open(stem, 'text')}>Edit as text</Button>
+				<Button size="sm" onclick={() => void openText()}>Edit as text</Button>
 			</div>
 		</Alert.Root>
 
@@ -250,7 +275,7 @@
 										</DropdownMenu.Trigger>
 										<DropdownMenu.Content align="end" class="w-48" onCloseAutoFocus={onMenuClosed}>
 											<DropdownMenu.Item onclick={() => {
-											// Settle the body before locating its lines in the saved file.
+											// Save the body before locating its lines in the file.
 												const list = menuThoughts;
 												afterMenu = () => { void editThought(index, list); };
 											}}>Edit as text</DropdownMenu.Item>

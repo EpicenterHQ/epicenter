@@ -6,6 +6,7 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
+	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import type { Captures } from '$lib/captures.svelte.js';
 
@@ -22,6 +23,7 @@
 		const { error } = await captures.create(text);
 		adding = false;
 		if (error === null) text = '';
+		else toast.error('Could not add capture', { description: error.message });
 	}
 </script>
 
