@@ -64,18 +64,19 @@ saves exactly what you type.
 
 ## Editing
 
-A note's title and body save through the folder mirror. Text inputs keep what
-was typed in a local draft while each save is in flight; the mirror shows only
-what landed. Folder changes, pinning, and list actions await their saved result.
-A failed write returns the editor to the disk value and shows a toast with
-**Copy your text**. The header says **Saving…** while writes are pending and
+A note's title, body, and folder selection save through the folder mirror.
+Their drafts keep what was entered while each save is in flight; the mirror
+shows only what landed. Pinning and list actions await their saved result.
+A failed write keeps the typed value and shows **Not saved** beside the editor
+with **Save again**, **Discard**, and **Copy**. A toast also reports the failed
+path. The header says **Saving…** while writes are pending and
 **Saved** when they finish.
 
 A note has **Rich text** and **Source** views of its body. They share one body
 draft in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
 only the title also keeps Undo. **Edit as file** shows the whole text, including
 frontmatter, through its own draft. Switching between the two editors of the
-same file checkpoints and waits for the previous save. A different body shown
+same file checkpoints and awaits `folder.settled(path)`. A different body shown
 in either source view starts a new rich-text history.
 
 `<OpenFolder>` opens the mirror, checkpoints it on focus, visibility, online,
@@ -132,8 +133,8 @@ answers. Direct file and table writes share the mirror's per-path save lane.
 ## When something changes underneath you
 
 Another tab's saved change appears in the mirror. An editor with pending typed
-text keeps showing that draft until its save answers. A failed save follows
-the disk again; the toast offers Copy for the attempted text. A clean editor
+text keeps showing that draft until its save answers. A failed save keeps
+the typed text and offers Save again, Discard, and Copy. A clean editor
 follows the changed file. Deleted files leave the list, and a selected deleted
 file shows that it is no longer in the folder. Read failures offer **Try
 again**, which checkpoints the folder.
@@ -184,7 +185,7 @@ It drops these promises of the version before it:
 - Files cannot be renamed, and the file browser cannot create or delete an
   empty folder: the local folder has no rename, move, or directory of its
   own. A directory exists while a file is in it.
-- A failed write offers the attempted text to copy in its toast.
+- A failed editor write keeps the attempted text beside its recovery controls.
 - While a note is open as its file, its repair reasons include unsaved text.
 - A note file named `notes/.md` is not listed: the local folder needs a
   non-empty name.

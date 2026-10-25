@@ -15,10 +15,11 @@ for the current page flow and verify it against the code.
 - Opening or listing a note writes nothing. `folder.files` and table rows show
   landed values. Await `Saved` before opening a newly created file or relying
   on a write in an action.
-- Text inputs use one `draft(source, save)` per editor component, including
-  titles. The draft holds typed text while its save is pending, then follows
-  the mirror. A failed save returns the input to disk and `<OpenFolder>` offers
-  the typed text in a toast with Copy. Do not add local retry or discard UI.
+- Text inputs and selects use one `draft(source, save)` per editor component,
+  including titles and folder selection. The draft holds typed input while its
+  save is pending, then follows the mirror. A failed save keeps the typed value
+  and shows `<UnsavedEdit>` beside its editor with Save again, Discard, and
+  Copy. `<OpenFolder>` also reports the failed path once.
 - Row patches use `tables.x.update(id, { fields?, body? })`; whole-file edits
   use `folder.write(path, text)`. A patch saves over the file as it is when
   sent. Canonical frontmatter keeps declared keys in schema order, then other
@@ -31,7 +32,7 @@ for the current page flow and verify it against the code.
 - The mirror refreshes from another tab through its change hints. Opening
   reads text files. Read errors offer `checkpoint()` as Try again.
 - There are no versions or sync. A note that does not parse is listed for
-  repair and opens as text. `readRow(raw.text, schema)` checks typed repair
+  repair and opens as text. `readRow(raw.value, schema)` checks typed repair
   text before it saves. Folder deletion refuses when any note's relation
   cannot be read.
 
@@ -42,15 +43,15 @@ for the current page flow and verify it against the code.
   and an empty paragraph Markdown cannot spell. `stateAfter` validates a
   changed document, calls `body.set`, then shows it. `stateShowing` preserves
   state for equivalent content and replaces it when the shown body changes.
-- A failed rich-text save makes the draft follow the disk body, replacing
-  editor state and history. The failed text remains available in the toast.
+- A failed rich-text save keeps the draft body and its editor history until
+  the person retries, discards, or edits again.
 - Do not weaken `checkNoteDoc`. Fix the Markdown serializer and add tests if
   an edit ought to be spellable. New nodes or marks need both Markdown
   directions and tests.
 - The rich editor mount effect depends only on its element and `editable`
   boolean. Reading save or row changes there recreates it and loses history.
 - When switching between independent editors of the same file, checkpoint
-  and await the last save before showing the other editor.
+  and await `folder.settled(path)` before showing the other editor.
 
 ## Lifecycle and boundary
 

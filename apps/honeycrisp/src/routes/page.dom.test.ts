@@ -91,7 +91,7 @@ test('invalid note repairs as file and opens as note when typed text validates',
     await until(() => page.target.querySelector(TITLE) !== null, 'repaired note');
 });
 
-test('failed title save shows Copy and restores the disk title', async () => {
+test('failed title save keeps input for retry and discard', async () => {
     globalThis.indexedDB = new IDBFactory();
     const seed = await tab();
     expectOk(await seed.write('notes/a.md', noteText({ title: 'Disk' })));
@@ -104,6 +104,19 @@ test('failed title save shows Copy and restores the disk title', async () => {
     cleanups.push(() => { IDBObjectStore.prototype.put = put; });
     type(page.get<HTMLInputElement>(TITLE), 'Typed');
     await until(() => page.target.textContent?.includes('Could not save notes/a.md') ?? false, 'save failure toast');
-    await until(() => page.get<HTMLInputElement>(TITLE).value === 'Disk', 'disk title restored');
-    expect(page.target.textContent).toContain('Copy your text');
+    await until(() => page.target.textContent?.includes('Not saved:') ?? false, 'unsaved title');
+    expect(page.get<HTMLInputElement>(TITLE).value).toBe('Typed');
+    expect(page.target.textContent).toContain('Copy');
+    IDBObjectStore.prototype.put = put;
+    button(page.target, 'Save again').click();
+    await until(() => seed.tables.notes.row('a')?.fields?.title === 'Typed', 'retried title');
+    await until(() => !page.target.textContent?.includes('Not saved:'), 'cleared unsaved title');
+
+    IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
+    type(page.get<HTMLInputElement>(TITLE), 'Discard me');
+    await until(() => page.target.textContent?.includes('Not saved:') ?? false, 'second unsaved title');
+    expect(page.get<HTMLInputElement>(TITLE).value).toBe('Discard me');
+    button(page.target, 'Discard').click();
+    await until(() => page.get<HTMLInputElement>(TITLE).value === 'Typed', 'discarded title');
+    expect(page.target.textContent).not.toContain('Not saved:');
 });
