@@ -17,6 +17,7 @@ import {
 const { createCaptureActions, locateThought } = await import(
 	'./capture-actions.svelte.ts'
 );
+const { draft } = await import('@epicenter/svelte/folder-next');
 const { timelineOf } = await import('./captures.svelte.ts');
 const harnesses: CapturesHarness[] = [];
 afterEach(async () => {
@@ -35,20 +36,13 @@ const AT = '2026-10-01T10:30:00+08:00';
 const PATH = 'captures/one.md';
 const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n`;
 function bodyDraft(harness: CapturesHarness, stem = 'one') {
-	const row = () => harness.folder.tables.captures.row(stem);
-	let typed: string | undefined;
-	return {
-		get text() {
-			const saved = row();
-			return typed ?? (saved?.issues === null ? saved.body : '');
+	return draft(
+		() => {
+			const saved = harness.folder.tables.captures.row(stem);
+			return saved?.issues === null ? saved.body : '';
 		},
-		set(body: string) {
-			typed = body;
-			void harness.captures.track(
-				harness.folder.tables.captures.update(stem, { body }),
-			);
-		},
-	};
+		(body) => harness.folder.tables.captures.update(stem, { body }),
+	);
 }
 
 test('Add writes one finished capture and opens Add a thought', async () => {
@@ -124,7 +118,7 @@ test('body updates canonicalize frontmatter while keeping unknown fields', async
 	);
 });
 
-test('mode switch waits for the last save and starts from the saved file', async () => {
+test('mode switch settles the file and starts from saved text', async () => {
 	const h = await open({ [PATH]: HAND });
 	let release = () => {};
 	h.host.control.putGate = new Promise<void>((resolve) => {
@@ -214,7 +208,9 @@ test('finishDraft refuses an invalid saved row', async () => {
 	const h = await open({
 		[PATH]: '---\ncapturedAt: nope\ndraft: true\n---\nWriting',
 	});
-	const refusal = expectErr(await h.captures.finishDraft('one'));
+	const refusal = expectErr(
+		await h.captures.finishDraft('one', { error: null }),
+	);
 	expect(refusal.name).toBe('Refused');
 	expect(refusal.message).toContain('Repair this file');
 	expect(h.text(PATH)).toContain('draft: true');

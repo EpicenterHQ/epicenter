@@ -109,16 +109,39 @@ test('a thought added under the throttle keeps text typed just before it', async
 	expect(h.text(PATH)).toContain('- second');
 });
 
-test('a failed thought save restores an empty Add a thought field', async () => {
+test('a failed thought save keeps the thought visible and retries the body', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
-	h.failSaves(PATH);
+	const restore = h.failSaves(PATH);
 	type(field('new-thought'), 'keep this');
 	submit(field('new-thought')?.form);
 	await until(() => h.failures.length > 0);
 	await until(() => {
 		flushSync();
-		return field('new-thought')?.value === 'keep this';
+		return h.target.textContent?.includes('Not saved:') === true;
 	});
+	expect(field('new-thought')?.value).toBe('');
+	expect(h.target.textContent).toContain('keep this');
+	expect(h.text(PATH)).toBe(FILE);
+	restore();
+	button(h.target, 'Save again').click();
+	await until(() => h.text(PATH)?.includes('- keep this') === true);
+	flushSync();
+	expect(h.target.textContent).not.toContain('Not saved:');
+});
+
+test('Discard follows the saved body after a failed thought save', async () => {
+	const h = await setup({ [PATH]: FILE }, 'capture');
+	h.failSaves(PATH);
+	type(field('new-thought'), 'discard me');
+	submit(field('new-thought')?.form);
+	await until(() => {
+		flushSync();
+		return h.target.textContent?.includes('Not saved:') === true;
+	});
+	button(h.target, 'Discard').click();
+	flushSync();
+	expect(h.target.textContent).not.toContain('discard me');
+	expect(h.target.textContent).not.toContain('Not saved:');
 	expect(h.text(PATH)).toBe(FILE);
 });
 
@@ -238,6 +261,55 @@ test('Edit as text shows LF and saves CRLF files with CRLF', async () => {
 	type(textFile(), FILE.replace('Text', 'Revised'));
 	await settle(h);
 	expect(h.text(PATH)).toBe(crlf.replace('Text', 'Revised'));
+});
+
+test('failed text editing keeps the typed file until Save again', async () => {
+	const h = await setup({ [PATH]: FILE }, 'text');
+	const restore = h.failSaves(PATH);
+	const typed = FILE.replace('Text', 'Keep this');
+	type(textFile(), typed);
+	await until(() => {
+		flushSync();
+		return h.target.textContent?.includes('Not saved:') === true;
+	});
+	expect(textFile()?.value).toBe(typed);
+	expect(h.text(PATH)).toBe(FILE);
+	restore();
+	button(h.target, 'Save again').click();
+	await until(() => h.text(PATH) === typed);
+	flushSync();
+	expect(h.target.textContent).not.toContain('Not saved:');
+});
+
+test('Discard returns failed text editing to the saved file', async () => {
+	const h = await setup({ [PATH]: FILE }, 'text');
+	h.failSaves(PATH);
+	type(textFile(), FILE.replace('Text', 'Discard this'));
+	await until(() => {
+		flushSync();
+		return h.target.textContent?.includes('Not saved:') === true;
+	});
+	button(h.target, 'Discard').click();
+	flushSync();
+	expect(textFile()?.value).toBe(FILE);
+	expect(h.target.textContent).not.toContain('Not saved:');
+});
+
+test('pending whole-file text recreates a file deleted elsewhere', async () => {
+	const h = await setup({ [PATH]: FILE }, 'text');
+	let release = () => {};
+	h.host.control.putGate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const typed = FILE.replace('Text', 'Recreated');
+	type(textFile(), typed);
+	await until(() => h.host.log.puts.length > 0);
+	h.deleteElsewhere('one');
+	flushSync();
+	expect(textFile()?.value).toBe(typed);
+	release();
+	await settle(h);
+	expect(h.text(PATH)).toBe(typed);
 });
 
 test('a thought opens its own lines selected in a CRLF file', async () => {
@@ -381,6 +453,8 @@ test('Add refuses a draft whose last text edit failed', async () => {
 	expect(h.text(PATH)).toBe(original);
 	expect(h.captures.opened?.mode).toBe('text');
 	restore();
+	button(h.target, 'Save again').click();
+	await until(() => h.text(PATH)?.includes('Typed') === true);
 	button(h.target, 'Add capture').click();
 	await until(() => {
 		flushSync();
@@ -398,7 +472,7 @@ test('a draft with row issues stays in repair and refuses Finish', async () => {
 			(item) => item.textContent?.trim() === 'Add capture',
 		),
 	).toBe(false);
-	const result = await h.captures.finishDraft('one');
+	const result = await h.captures.finishDraft('one', { error: null });
 	expect(result.error?.name).toBe('Refused');
 	expect(h.captures.opened?.mode).toBe('text');
 	expect(h.text(PATH)).toBe(invalid);

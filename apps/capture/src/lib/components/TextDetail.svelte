@@ -3,6 +3,7 @@
 	import { captureTables } from '@epicenter/capture';
 	import { readRow } from '@epicenter/folder/next';
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -25,12 +26,12 @@
 	});
 	const text = draft(
 		() => (source ?? '').replace(/\r\n?/g, '\n'),
-		(typing) => captures.track(folder.write(
+		(typing) => folder.write(
 			path,
 			source?.includes('\r\n') ? typing.toWellFormed().replace(/\r?\n/g, '\r\n') : typing.toWellFormed(),
-		)),
+		),
 	);
-	const parsed = $derived(readRow(text.text, captureTables.captures));
+	const parsed = $derived(readRow(text.value, captureTables.captures));
 	const isDraft = $derived(parsed.issues === null && parsed.fields.draft === true);
 	const body = $derived(parsed.issues === null ? parsed.body : undefined);
 	const issues = $derived.by(() => {
@@ -51,7 +52,7 @@
 		const typing = field.value;
 		if (typing.includes('\0')) {
 			refusal = 'A file cannot contain U+0000.';
-			const accepted = text.text;
+			const accepted = text.value;
 			queueMicrotask(() => { field.value = accepted; });
 			return;
 		}
@@ -61,7 +62,7 @@
 	async function finish() {
 		if (finishing || !isDraft || !body?.trim()) return;
 		finishing = true;
-		const result = await captures.finishDraft(stem);
+		const result = await captures.finishDraft(stem, text);
 		finishing = false;
 		if (result.error?.name === 'Refused') refusal = result.error.message;
 	}
@@ -83,7 +84,7 @@
 			{:else}
 				<Button size="sm" variant="outline" disabled={issues.length > 0} onclick={() => void captures.open(stem, 'capture')}>Open as capture</Button>
 			{/if}
-			<Button size="sm" variant="ghost" onclick={() => void copy(text.text, 'File text')}>Copy file text</Button>
+			<Button size="sm" variant="ghost" onclick={() => void copy(text.value, 'File text')}>Copy file text</Button>
 			<Button size="sm" variant="ghost" onclick={() => void confirmDelete(captures, stem)}>{isDraft ? 'Discard draft…' : 'Delete…'}</Button>
 		{/if}
 	</div>
@@ -97,8 +98,9 @@
 			<Alert.Description>{refusal}</Alert.Description>
 		</Alert.Root>
 	{/if}
+	<UnsavedEdit draft={text} />
 
-	{#if source !== undefined}
+	{#if source !== undefined || text.value !== '' || text.error !== null}
 		{#if issues.length > 0}
 			<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
@@ -118,7 +120,7 @@
 			spellcheck={false}
 			readonly={finishing}
 			aria-invalid={refusal !== undefined}
-			value={text.text}
+			value={text.value}
 			oninput={(event) => input(event.currentTarget)}
 			onkeydown={(event) => {
 				if (!isDraft || !(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;

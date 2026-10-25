@@ -32,9 +32,8 @@ export async function openCaptures(
 	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
 	const { createCaptures } = await import('./captures.svelte.ts');
 	const failures: { path: string; text: string | undefined }[] = [];
-	const folder = svelteFolder(raw, {
-		onFailed: ({ path, text }) => failures.push({ path, text }),
-	});
+	raw.onFailed(({ path, text }) => failures.push({ path, text }));
+	const folder = svelteFolder(raw);
 	const captures: Captures = createCaptures(folder);
 	return {
 		raw,
