@@ -81,17 +81,25 @@ function matches(
 /** A second tab may have written an attempt before its hint reached this mirror. */
 async function storageAgrees(folder: MessagesFolder, path: string) {
 	const fresh = await folder.read(path);
+	if (fresh.error !== null) {
+		folder.checkpoint();
+		return DraftError.Refused({
+			message: 'Could not check storage; try again.',
+		});
+	}
 	let text: string | undefined;
 	try {
 		text =
 			fresh.data === null
 				? undefined
-				: new TextDecoder('utf-8', { fatal: true }).decode(fresh.data);
+				: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+						fresh.data,
+					);
 	} catch {
 		folder.checkpoint();
 		return changedAttempt();
 	}
-	if (fresh.error !== null || text !== folder.file(path)?.data) {
+	if (text !== folder.file(path)?.data) {
 		folder.checkpoint();
 		return changedAttempt();
 	}
@@ -156,7 +164,10 @@ export async function sendDraft(
 		const recorded = await (attempt
 			? folder.tables.attempts.update(id, { fields, body: text })
 			: folder.tables.attempts.create(id, { fields, body: text }));
-		if (recorded.error !== null) return recorded;
+		if (recorded.error !== null)
+			return DraftError.Refused({
+				message: 'Nothing was sent: the attempt could not be saved.',
+			});
 		if (unchanged()) {
 			const cleared = await folder.tables.drafts.update(id, { body: '' });
 			if (cleared.error !== null) {

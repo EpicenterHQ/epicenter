@@ -6,9 +6,14 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import { createFolder, memoryHost, tick } from '@epicenter/folder/next/testing';
+import {
+	createFolder,
+	memoryHost,
+	ReadError,
+	SaveError,
+	tick,
+} from '@epicenter/folder/next/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { SaveError } from '../../../../packages/folder/src/shared/errors.js';
 import { type Backend, createDemoBackend } from './backend.js';
 import { messagesTables } from './definition.js';
 import { saveDraft, seedDraft } from './drafts.test-support.js';
@@ -117,7 +122,9 @@ test('a failed attempt write never contacts Beeper', async () => {
 			`attempts/${id}.md`,
 			expectErr(SaveError.StorageFailed({ cause: 'no disk' })),
 		);
-		expectErr(await send(folder, id, counting, 'Must not send'));
+		expect(
+			expectErr(await send(folder, id, counting, 'Must not send')).message,
+		).toBe('Nothing was sent: the attempt could not be saved.');
 		expect(sends).toBe(0);
 	} finally {
 		await opened.close();
@@ -173,6 +180,29 @@ test('typing after Send survives the receipt', async () => {
 		expect(folder.tables.attempts.row(id)?.fields?.state).toBe('accepted');
 	} finally {
 		release.resolve();
+		await opened.close();
+	}
+});
+
+test('typing after Send is not cleared before Beeper is contacted', async () => {
+	const { folder, opened, backend, id } = await setup();
+	let sends = 0;
+	const counting: Backend = {
+		...backend,
+		request(request) {
+			if (request.action === 'send') sends++;
+			return backend.request(request);
+		},
+	};
+	try {
+		expectOk(await saveDraft(folder, id, { body: 'Next reply' }));
+		expectOk(
+			await send(folder, id, counting, 'First reply', undefined, () => false),
+		);
+		expect(folder.tables.drafts.row(id)?.body).toBe('Next reply');
+		expect(folder.tables.attempts.row(id)?.fields?.state).toBe('accepted');
+		expect(sends).toBe(1);
+	} finally {
 		await opened.close();
 	}
 });
@@ -295,6 +325,43 @@ test('an attempt on storage that the mirror has not seen refuses a send', async 
 	}
 });
 
+test('a BOM in a mirrored attempt does not block the next send', async () => {
+	const { host, folder, opened, backend, id } = await setup();
+	try {
+		expectOk(await saveDraft(folder, id, { body: 'First reply' }));
+		expectOk(await send(folder, id, backend, 'First reply'));
+		const path = `attempts/${id}.md`;
+		host.outside(path, `\uFEFF${host.text(path) ?? ''}`);
+		folder.checkpoint();
+		await tick();
+		expect(folder.tables.attempts.row(id)?.issues).toBeNull();
+		expectOk(await saveDraft(folder, id, { body: 'Second reply' }));
+		expectOk(await send(folder, id, backend, 'Second reply'));
+	} finally {
+		await opened.close();
+	}
+});
+
+test('a failed storage read asks to try again', async () => {
+	const { host, folder, opened, backend, id } = await setup();
+	const read = host.storage.read;
+	host.storage.read = async (paths) =>
+		new Map(
+			paths.map(
+				(path) =>
+					[path, ReadError.StorageFailed({ cause: 'read failed' })] as const,
+			),
+		);
+	try {
+		expect(
+			expectErr(await send(folder, id, backend, 'Must not send')).message,
+		).toBe('Could not check storage; try again.');
+	} finally {
+		host.storage.read = read;
+		await opened.close();
+	}
+});
+
 test('a changed draft chatId cannot redirect a send', async () => {
 	const { folder, opened, backend, id } = await setup();
 	let sends = 0;
@@ -331,8 +398,8 @@ test('a write after close returns Closed and sends nothing', async () => {
 	};
 	expectOk(await saveDraft(folder, id, { body: 'Not sent' }));
 	await opened.close();
-	expect(expectErr(await send(folder, id, counting, 'Not sent')).name).toBe(
-		'Closed',
+	expect(expectErr(await send(folder, id, counting, 'Not sent')).message).toBe(
+		'Nothing was sent: the attempt could not be saved.',
 	);
 	expect(sends).toBe(0);
 });
