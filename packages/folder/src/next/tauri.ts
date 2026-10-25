@@ -8,8 +8,8 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { hostStorage } from '../boundary.js';
 import { OpenFolderError } from '../errors.js';
 import { commands, events } from '../native/bindings.gen.js';
-import { invalidTable } from '../native/engine.js';
-import { openRefusal } from '../native/tauri.js';
+import { openRefusal } from '../native/open-refusal.js';
+import { invalidTable } from '../paths.js';
 import { tauriHostFiles } from '../tauri-files.js';
 import {
 	createFolder,
