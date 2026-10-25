@@ -1,18 +1,17 @@
 <script lang="ts">
 	import type { ConnectionKind } from '@epicenter/ai/send';
-	import { type getFolder, setFolder } from './folder.js';
+	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
-	import { createQuery, setQueryClientContext } from '@tanstack/svelte-query';
 	import { commands } from '../bindings.gen';
 	import ConnectionEditor from './ConnectionEditor.svelte';
 	import {
 		connectionId,
 		connectionsOf,
 		failureText,
+		connectionTables,
 		KIND_LABELS,
 		OFFERED_KINDS,
-		saveFailureText,
 		unreadableOf,
 	} from './connections';
 
@@ -21,15 +20,10 @@
 	 * does not read as one shown as it is, and a form that adds one: its row,
 	 * then, for an endpoint, its endpoint and key in this computer's keychain.
 	 */
-	let { context }: { context: ReturnType<typeof getFolder> } = $props();
-	// Settings keeps this opened folder until the list unmounts.
-	// svelte-ignore state_referenced_locally
-	const { folder, queries, queryClient, refresh, getStatus } = setFolder(context);
-	setQueryClientContext(queryClient);
-
-	const list = createQuery(() => queries.rows('connections'));
-	const rows = $derived(connectionsOf(list.data ?? []));
-	const unreadable = $derived(unreadableOf(list.data ?? []));
+	let { folder }: { folder: SvelteFolder<typeof connectionTables> } = $props();
+	const list = $derived(folder.tables.connections.rows);
+	const rows = $derived(connectionsOf(list));
+	const unreadable = $derived(unreadableOf(list));
 
 	let kind = $state<ConnectionKind>('openai-compatible');
 	let title = $state('');
@@ -43,16 +37,12 @@
 		adding = true;
 		problem = undefined;
 		try {
-			const id = connectionId(title, new Set((list.data ?? []).map((row) => row.id)));
-			const { error } = await folder.tables.connections.write(id, {
+			const id = connectionId(title, new Set(list.map((row) => row.id)));
+			const { error } = await folder.tables.connections.create(id, {
 				fields: { kind, title: title.trim(), model: model.trim() },
 				body: '',
 			});
-			if (error !== null) {
-				problem = saveFailureText(error);
-				return;
-			}
-			await refresh([`connections/${id}.md`]);
+			if (error !== null) return;
 			if (kind === 'openai-compatible') {
 				const { error } = await commands.aiKeySet(id, endpoint, key);
 				if (error !== null) {
@@ -72,28 +62,24 @@
 	}
 </script>
 
-{#if list.error}
-	<p role="alert" class="text-destructive">Could not list the connections: {list.error.message}</p>
-{:else if list.isPending}
-	<p class="text-muted-foreground">Reading…</p>
-{:else}
+
 	{#if rows.length === 0}
 		<p class="text-muted-foreground">No AI connections yet. Each one is a file in so.epicenter/connections, so it follows you to every computer where that folder syncs.</p>
 	{/if}
 	<ul class="grid gap-2">
 		{#each rows as row (row.id)}
-			<ConnectionEditor {row} />
+			<ConnectionEditor {folder} {row} />
 		{/each}
 	</ul>
 	{#each unreadable as row (row.id)}
+		{@const source = folder.file(row.path)?.data}
 		<div role="alert" class="grid gap-1 text-destructive">
 			<p>connections/{row.id}.md does not read as a connection: {row.issues.map((issue) => issue.message).join(' ')}</p>
-			{#if row.text !== ''}
-				<pre class="max-h-32 overflow-auto rounded-md border p-2 font-mono text-xs whitespace-pre-wrap text-foreground">{row.text}</pre>
+			{#if typeof source === 'string' && source !== ''}
+				<pre class="max-h-32 overflow-auto rounded-md border p-2 font-mono text-xs whitespace-pre-wrap text-foreground">{source}</pre>
 			{/if}
 		</div>
 	{/each}
-{/if}
 
 <form
 	class="grid gap-2 rounded-md border border-dashed p-3"
@@ -124,6 +110,6 @@
 	{:else if kind === 'epicenter'}
 		<p class="text-muted-foreground">Sends to your Epicenter account with this app's sign-in, under Account above.</p>
 	{/if}
-	<div><Button type="submit" disabled={adding || getStatus().closing}>Add</Button></div>
+	<div><Button type="submit" disabled={adding}>Add</Button></div>
 	{#if problem}<p role="alert" class="text-destructive">{problem}</p>{/if}
 </form>

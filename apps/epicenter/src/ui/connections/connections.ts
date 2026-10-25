@@ -9,8 +9,7 @@ import type { connectionsTables as connectionTables } from '@epicenter/ai/connec
 export { connectionsTables as connectionTables } from '@epicenter/ai/connection-table';
 
 import type { ConnectionKind } from '@epicenter/ai/send';
-import type { ReadError, Row, SaveError } from '@epicenter/folder';
-import type { ActionError } from '@epicenter/folder/document';
+import type { Row } from '@epicenter/folder/next';
 import type { Static } from 'typebox';
 import type { CliError } from '../bindings.gen';
 
@@ -69,18 +68,6 @@ export function connectionId(title: string, taken: ReadonlySet<string>) {
 /** What a person is told when a key command did not run or was refused. */
 export function failureText(error: CliError) {
 	return error.message;
-}
-
-/** What a person is told when a connection's file did not read or save. */
-export function saveFailureText(error: SaveError | ReadError | ActionError) {
-	switch (error.name) {
-		case 'Unparseable':
-			return `Its file cannot be edited as a connection: ${error.reason}.`;
-		case 'NotText':
-			return 'Its file is not text, so Settings cannot change it.';
-		default:
-			return error.message;
-	}
 }
 
 /** Connections by title, then by file. */
