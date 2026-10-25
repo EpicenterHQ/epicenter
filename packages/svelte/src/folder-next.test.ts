@@ -196,3 +196,12 @@ test('custom class applies to loading and refusal screens', async () => {
 	await unmount(view);
 	target.remove();
 });
+
+test('a create that finds the file there answers the caller and is not reported', async () => {
+	const failures: import('./folder-next.js').SaveFailure[] = [];
+	const { notes } = await setup((failure) => failures.push(failure));
+	const made = await notes.create('milk', { fields: { title: 'Milk again' } });
+	expect(made.error?.name).toBe('Exists');
+	await Bun.sleep(5);
+	expect(failures).toEqual([]);
+});
