@@ -170,13 +170,13 @@ export type NoteBody = {
  * as it is.
  *
  * A transaction built on a document `state` no longer has is dropped: its
- * steps describe text that was replaced. One that changes the document is
- * refused while the note takes no edit. It then meets the body shown now: a
+ * steps describe text that was replaced. A changed document meets the body
+ * shown now: if the body is undefined, there is nothing to edit. A
  * body that changed since `state` showed it is shown instead and the
  * transaction is dropped, and a body that is no longer rich text takes
  * nothing. Markdown that cannot spell the new document is refused with its
  * reason through `refuse`. Otherwise the new body goes into the note's
- * draft, which saves it; an edit the note refuses is not shown. A lone surrogate
+ * draft, which saves it. A lone surrogate
  * becomes U+FFFD within the same transaction, as the file will store it, so
  * the screen and the undo history never show what the file does not hold.
  */

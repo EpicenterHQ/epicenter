@@ -155,7 +155,7 @@ again**, which checkpoints the folder.
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's draft before it is shown, and semantic state replacement when the note's body changes. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: note and folder actions over mirror rows, creates and deletes, and what the detail shows. |
-| `src/lib/status.ts` | The header's save line and the words for a failure. |
+| `src/lib/status.ts` | The header's save line. |
 | `src/routes/+page.svelte` | `<OpenFolder>` over `honeycrispTables`, with `HoneycrispApp` inside it. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
 

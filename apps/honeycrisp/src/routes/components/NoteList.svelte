@@ -13,8 +13,8 @@
 
 	let { notes }: { notes: Notes } = $props();
 
-	// Filtering by fields and searching bodies reads every note, so the list
-	// holds them all; each shows what is typed the moment it is typed.
+	// Filtering by fields and searching bodies reads every landed note row.
+	// An edit appears here once its save lands.
 	const noteRows = $derived(notes.folder.tables.notes.rows);
 	const folderRows = $derived(notes.folder.tables.folders.rows);
 	const all = $derived(notesOf(noteRows));
@@ -25,7 +25,7 @@
 
 	const pathOf = (note: NoteEntry) => note.path;
 
-	/** What a row shows: the note as it is now, what is typed included. */
+	/** What a row shows: the note as last saved. */
 	function shown(note: NoteEntry) {
 		return {
 			title: displayTitle(note.fields.title, note.body),

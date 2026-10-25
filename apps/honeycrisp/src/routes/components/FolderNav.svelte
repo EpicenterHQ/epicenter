@@ -156,7 +156,6 @@
 							</Button>
 						{/snippet}
 					</DropdownMenu.Trigger>
-					<!-- An open menu is outside the app's inert root. -->
 					<DropdownMenu.Content align="start" class="w-40">
 						<DropdownMenu.Item
 							onSelect={() => (naming = { id: folder.id, value: nameOf(folder) })}
