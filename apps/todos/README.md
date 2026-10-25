@@ -6,13 +6,14 @@ The current UI can add, edit, complete, and delete todos. A todo's title and `do
 Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
 
 Add creates a complete row with `folder.tables.todos.create`; a failed Add leaves
-the title in the form. Existing todo controls read the folder mirror. Each text
-editor keeps its own draft while its write is pending. Title, notes, and done
-write only the fields they change over the file as it is when the save runs.
-After a successful write, the mirror already shows the saved row. A failed
-write leaves the mirror at the disk value and keeps the attempted value visible
-in that editor. The editor offers Save again, Discard, and Copy for text; a
-toast also reports the failure.
+the title in the form and reports the error. Existing todo controls read the
+folder mirror. Each text editor keeps its own draft while its write is pending.
+Title and notes save after a short pause and send their latest text when the
+editor closes. Done writes directly. Each update changes only the fields it
+names over the file as it is when the save runs. After a successful write, the
+mirror already shows the saved row. A failed text write leaves the mirror at
+the disk value and keeps the attempted value visible in that editor. The editor
+offers Save again, Discard, and Copy. Failed commands report their errors.
 
 ## Run the browser app
 
@@ -24,13 +25,13 @@ bun dev:todos:ui
 
 Open the URL Vite prints. Use a fresh browser profile or origin for a fresh workspace. The header says **Saving…** while a write is pending and **Saved on this device** otherwise. Open a second tab at the same URL to see saved changes propagate. Once the page has loaded, editing needs no network connection. A cold offline launch requires an offline app shell and is separate work.
 
-A clean todo follows saved changes from another tab. Pending input remains in
-its editor until its write answers. Field updates merge with other changes to
-the same file. If a save fails, the attempted value remains visible until the
+A clean todo follows saved changes from another tab. Pending text remains in
+its editor until its write answers. Writes take turns, and the last write to a
+field wins. If a text save fails, the attempted value remains visible until the
 person retries, discards it, or edits again. A deleted row shows "This todo is
-no longer here." Files that do not read as todos stay visible for repair. Saving a row
-keeps unnamed fields and body but writes canonical frontmatter, dropping YAML
-comments and ordering declared keys first.
+no longer here." Files that do not read as todos stay visible for repair. Saving
+a row keeps unnamed fields and body but writes canonical frontmatter, dropping
+YAML comments and ordering declared keys first.
 
 For an isolated automated walkthrough, from the repository root run:
 
@@ -101,7 +102,7 @@ Earlier Todos builds kept named folders in OPFS. This build opens its IndexedDB 
 
 ## Boundaries and checks
 
-`src/routes/+page.svelte` mounts one `OpenFolder` with `open={() => openFolder({ tables: todosTables })}`. It owns opening, checkpointing, failure toasts, and close. `src/routes/local/` reads the reactive folder through Svelte context and owns each input's draft. `apps/todos/scripts/native.ts` uses the same public folder operations over a directory. Todos has no account, inference, or sync action.
+`src/routes/+page.svelte` mounts one `OpenFolder` with `open={() => openFolder({ tables: todosTables })}`. It owns opening, refreshing on return, and close. `src/routes/local/` reads the reactive folder through Svelte context, owns each text input's draft, and reports command failures. `apps/todos/scripts/native.ts` uses the same public folder operations over a directory. Todos has no account, inference, or sync action.
 
 From the repository root:
 
