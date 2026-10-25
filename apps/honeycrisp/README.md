@@ -64,52 +64,30 @@ saves exactly what you type.
 
 ## Editing
 
-A note's title and text autosave a second after you stop typing. Folder
-changes, pinning, and list actions save at once (move to a folder, move to Recently
-Deleted, restore, rename a folder). The Folder owns accepted input, so
-background reads preserve it. Every save publishes complete current text;
-the last whole-file publication wins, without merging outside changes.
+A note's title and body save through the folder mirror. Text inputs keep what
+was typed in a local draft while each save is in flight; the mirror shows only
+what landed. Folder changes, pinning, and list actions await their saved result.
+A failed write returns the editor to the disk value and shows a toast with
+**Copy your text**. The header says **Saving…** while writes are pending and
+**Saved** when they finish.
 
-A note has two views of its body, **Rich text** and **Source**. **Edit as file**
-shows its whole text, including frontmatter. These presentations share one
-detail view for the selected file. Inspecting source, or changing only the
-header in the whole-file editor, keeps rich-text Undo. Changing the body in
-either source editor restarts the rich-text history on that body.
+A note has **Rich text** and **Source** views of its body. They share one body
+draft in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
+only the title also keeps Undo. **Edit as file** shows the whole text, including
+frontmatter, through its own draft. Switching between the two editors of the
+same file checkpoints and waits for the previous save. A different body shown
+in either source view starts a new rich-text history.
 
-Blurring a title or source input, changing presentation, and selecting another
-file leave autosave with the Folder owner. These transitions neither discard input nor
-request an early save, and they never wait for a save or a refresh. The shared
-page lifecycle calls best-effort `flush()` when hidden. Close releases synchronously
-without submitting input. Confirmed departure accepts losing unfinished work.
+`<OpenFolder>` opens the mirror, checkpoints it on focus, visibility, online,
+and pagehide, and closes it on unmount. A browser unload asks only while a
+save is in flight. The desktop window waits for those writes on close.
 
-The detail view has one save status and one set of retry and discard controls
-across all presentations. A failed save keeps the current content and its
-error. Acquired text remains editable after a failed refresh, deletion, or
-binary replacement, even after closing and reopening the view. **Restore text**
-can recreate a deleted file. Read failures offer **Try again**, which only
-refreshes the file. Discard abandons pending local input; it does not
-cancel a publication already admitted or restore an earlier saved version.
-
-Structured and whole-file editing use one folder-owned source per path.
-`folder.tables.notes.document(id)` interprets it as a note;
-`folder.files.document(path)` returns that same path's document. `getSnapshot()` is a pure cached
-read of `text`, `loadError`, `isDirty`, `isSaving`, and `saveError`.
-`folder.tables.notes.parse(text)` interprets fields, body, and issues when needed;
-`issues === null` means the structured interpretation is valid.
-`patch({ fields?, body? })` patches acquired source; `replace(text)`
-replaces it completely, even before acquisition. Svelte uses
-`liveSnapshot(handle)` from `@epicenter/svelte/snapshot`; its tracked
-`.current` getter observes the shared snapshot. Commands stay on the handle.
-Observation starts the first read, and the last tracking effect leaving
-releases that view's subscription. Views keep no mirrored content or editor
-query. Folder-wide
-save indicators read aggregate status without opening files.
-
-The rich-text view sends transactions through the neutral editor. Its own
-state owns selection, undo, formatting, and unspellable empty paragraphs.
-Reconciliation keeps this state when the body is unchanged, so changing a
-title or inspecting source retains Undo. Switching views requires no save or
-refresh.
+The mirror keeps text files and interprets Markdown rows. `row(id)` is absent
+when a file is gone; an invalid row has issues. `FileDetail` checks repair
+text with `readRow` as it is typed. A row patch sets only named fields or body
+over the file at save time. It writes frontmatter in schema key order, then
+other keys sorted, so comments and original key order are not preserved by a
+structured edit. **Edit as file** writes the exact text instead.
 
 The body is edited with line feeds (ADR-0572): a note whose file has CRLF line
 endings shows normally, and its first edit saves it with line feeds.
@@ -136,48 +114,29 @@ dividers, and line breaks. There is no underline and there are no images.
 A file in `notes/` whose text does not read as a note, including plain
 Markdown with no `---` lines or a note with a bad field such as
 `pinned: maybe`, is listed under **Needs repair** with the reasons. It opens as
-its text, which saves as you type; the reasons are checked again after each
-save. Once it reads as a note, **Open as note** shows its fields again. A file
+its text, which saves as you type; the reasons update before each save.
+Once it reads as a note, **Open as note** shows its fields again. A file
 in `notes/` that is not text, and a file in `folders/` that does not read as a
 folder, are listed apart and open nothing here; Files can still delete them.
 
-Deleting a logical folder first lists its notes and includes held pending
-notes, including a note moved into it by unsaved input. It refuses when a
-note cannot identify its folder. Each current member is published with
-`folderId: null`, preserving its other current content; the folder file is
-removed only after another read finds no remaining members. This is not
-atomic: a note already moved stays moved if a later write fails, and another
-writer can move a note in after the final read.
+Deleting a logical folder checks every note's relation, moves current
+members out with `folderId: null`, then removes the folder file if no member
+remains. It refuses when a note cannot identify its folder. This is not
+atomic: an earlier move remains if a later write fails, and another tab can
+move a note between the check and deletion.
 
-New notes use `folder.tables.notes.write`; folders use
-`folder.tables.folders.write`. The submitted fields and body form a complete
-document, and a failed creation leaves no deferred edit. Existing
-notes and folders use the shared working document. A list action refreshes clean source before editing, preserving pending local
-input; `document.patch({ fields })` accepts the change synchronously, then
-`await document.save()` publishes that exact captured text. Typing during that publication builds on the accepted patch. A
-failed publication returns its error and keeps the change available for retry.
-Lists and raw reads remain independent of editable text acquisition.
-
-Direct file and table publications join the same per-path lane as editor saves. Apps refuse new actions once closing starts. Folder releases synchronously without waiting for submitted writes. Callers
-needing durable bytes await their write or save before closing.
-Internal view changes retain the opened Folder.
+New notes use `folder.tables.notes.create`; folders use
+`folder.tables.folders.create`. A created file opens only after its write
+answers. Direct file and table writes share the mirror's per-path save lane.
 
 ## When something changes underneath you
 
-Honeycrisp reads the notes when it opens. After that, a save from another tab
-reaches it through the folder's change channel, and only what it names is read
-again. Returning to the tab reads nothing.
-
-| What happened | What Honeycrisp does |
-| --- | --- |
-| Another tab changed a note | The lists and the open note show it. If you were not typing, the rich-text view starts over on the new text, so its undo history restarts. |
-| Another tab changed a note while you were typing | Current input stays on screen. Its next save publishes that complete source over the outside file. |
-| Another tab deleted a note you are typing in | The note leaves the list, while acquired text stays editable and copyable. New input or **Restore text** can recreate it. |
-| A save failed, for example because storage is full | What you typed stays on screen, the note shows **Not saved** with the reason, and the header says so. It saves again with your next change, or with **Save again**. |
-| You delete a note or file | Deletion enters the same ordered publication lane without saving pending input first. Newer input may recreate the file. |
-
-Closing the tab or reloading while something is not saved yet is held back,
-and the browser asks first. Closing the page sends what is typed.
+Another tab's saved change appears in the mirror. An editor with pending typed
+text keeps showing that draft until its save answers. A failed save follows
+the disk again; the toast offers Copy for the attempted text. A clean editor
+follows the changed file. Deleted files leave the list, and a selected deleted
+file shows that it is no longer in the folder. Read failures offer **Try
+again**, which checkpoints the folder.
 
 ## Header controls
 
@@ -195,9 +154,9 @@ and the browser asks first. Closing the page sends what is typed.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's draft before it is shown, and semantic state replacement when the note's body changes. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
-| `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: the file queries, note and folder edits over the edit layer, whole-file edits through the shared edit layer, creates and deletes, and what the detail shows. |
+| `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: note and folder actions over mirror rows, creates and deletes, and what the detail shows. |
 | `src/lib/status.ts` | The header's save line and the words for a failure. |
-| `src/routes/+page.svelte` | `<FolderApp>` over `honeycrispTables`, with `HoneycrispApp` inside it. |
+| `src/routes/+page.svelte` | `<OpenFolder>` over `honeycrispTables`, with `HoneycrispApp` inside it. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
 
 ## Tech stack
@@ -208,7 +167,7 @@ features exist in this version.
 
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
-- `@epicenter/folder` for the local folder, its rows and files, retained editable content, and change reports; `@epicenter/svelte` for `<FolderApp>`, its query cache, and its edit layer; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and [TypeBox](https://github.com/sinclairzx81/typebox) for the row schemas
+- `@epicenter/folder/next` for the folder mirror and rows; `@epicenter/svelte` for `<OpenFolder>` and text drafts; [TypeBox](https://github.com/sinclairzx81/typebox) for row schemas
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises
@@ -221,12 +180,11 @@ It drops these promises of the version before it:
 - There is no **Save version**, no Git history, no Changes or Versions status,
   and no warning that a deleted file's changes are in no version. A delete
   cannot be undone.
-- The desktop build uses the new native Folder over its granted directory.
+- The desktop build uses the mirror over its granted directory.
 - Files cannot be renamed, and the file browser cannot create or delete an
   empty folder: the local folder has no rename, move, or directory of its
   own. A directory exists while a file is in it.
-- Typing in a note another tab deleted remains available to copy or discard.
-  New input or **Restore text** can restore the file.
+- A failed write offers the attempted text to copy in its toast.
 - While a note is open as its file, its repair reasons include unsaved text.
 - A note file named `notes/.md` is not listed: the local folder needs a
   non-empty name.
