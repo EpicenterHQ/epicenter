@@ -25,8 +25,10 @@ const recordKey = (key: string) => key.slice('saved:'.length);
 export function createViews({
 	saved,
 	declaration,
+	onRemoveFailed,
 }: {
 	saved: () => Record<string, SavedView>;
+	onRemoveFailed: (message: string) => void;
 	declaration: {
 		text(): string | undefined | null;
 		write(text: string): Saved;
@@ -75,6 +77,8 @@ export function createViews({
 		}
 		void declaration.write(text).then(({ error }) => {
 			if (sending === text) sending = undefined;
+			if (error !== null && change.value === undefined)
+				onRemoveFailed(`View was not deleted: ${error.message}`);
 			if (submittedText.get(key) !== text) return;
 			submittedText.delete(key);
 			submitted.delete(key);

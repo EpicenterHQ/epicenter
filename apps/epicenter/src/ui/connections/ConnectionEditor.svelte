@@ -81,7 +81,8 @@
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;
 			return;
 		}
-		await folder.tables.connections.delete(id);
+		const deleted = await folder.tables.connections.delete(id);
+		if (deleted.error !== null) keyProblem = `The connection was not deleted: ${deleted.error.message}`;
 	}
 </script>
 

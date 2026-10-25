@@ -55,6 +55,7 @@
 	let newKind = $state('string');
 	let newValue = $state('');
 	let newNumber = $state<number | null>(null);
+	let moveProblem = $state<string>();
 
 	function tableSchema() {
 		return Object.hasOwn(reading.tables, directory) ? reading.tables[directory] : undefined;
@@ -68,7 +69,7 @@
 	function update(path: string, column: string, value: unknown) {
 		return folder.update(path, { fields: { [column]: value } }, { schema: tableFor(path) });
 	}
-	function createLane() {
+	async function createLane() {
 		if (view.type !== 'board') return;
 		const row = byPath.get(newCard);
 		if (!row?.canEdit) return;
@@ -76,7 +77,9 @@
 			: newKind === 'boolean' ? newValue === 'true'
 			: newKind === 'number' ? newNumber : newValue;
 		if (newKind === 'number' && (newNumber === null || !Number.isFinite(newNumber))) return;
-		void update(row.doc.path, view.groupBy, value);
+		moveProblem = undefined;
+		const { error } = await update(row.doc.path, view.groupBy, value);
+		if (error !== null) moveProblem = error.message;
 	}
 	const fieldValue = (fields: Record<string, unknown> | undefined, column: string) =>
 		fields !== undefined && Object.hasOwn(fields, column) ? fields[column] : undefined;
@@ -134,7 +137,7 @@
 			<Button variant="link" onclick={() => openSource('epicenter.json')}>Open epicenter.json</Button>
 		</Alert.Description></Alert.Root>
 	{/if}
-	{#each reading.unreadable as issue}<p class="text-sm text-destructive">{issue.path}: {issue.message} <Button size="xs" variant="outline" onclick={() => folder.checkpoint()}>Try again</Button></p>{/each}
+	{#each reading.unreadable as issue}<p class="text-sm text-destructive">{issue.path}: {issue.message} <Button size="xs" variant="outline" onclick={() => void folder.refresh()}>Try again</Button></p>{/each}
 	{#if documents.length === 0}
 		<p class="text-muted-foreground">{projection.problems.length ? 'Fix the filter above to see matching files.' : members.length ? 'No files match these filters.' : 'No Markdown files in this directory.'}</p>
 	{:else if view.type === 'board'}
@@ -170,8 +173,9 @@
 				{#if newKind === 'boolean'}<Select.Root type="single" bind:value={newValue}><Select.Trigger aria-label="New group value">{newValue || 'false'}</Select.Trigger><Select.Content><Select.Item value="true">true</Select.Item><Select.Item value="false">false</Select.Item></Select.Content></Select.Root>
 				{:else if newKind === 'number'}<Input aria-label="New group value" bind:value={newNumber} type="number" class="w-48" />
 				{:else if newKind !== 'null'}<Input aria-label="New group value" bind:value={newValue} type="text" class="w-48" />{/if}
-				<Button disabled={!newCard || (newKind === 'number' && (newNumber === null || !Number.isFinite(newNumber)))} onclick={createLane}>Move card</Button>
+				<Button disabled={!newCard || (newKind === 'number' && (newNumber === null || !Number.isFinite(newNumber)))} onclick={() => void createLane()}>Move card</Button>
 			</div>
+			{#if moveProblem}<p role="alert" class="text-sm text-destructive">Move failed: {moveProblem}</p>{/if}
 		</details>
 	{:else}
 		<Table.Root><Table.Header><Table.Row><Table.Head>File</Table.Head>{#each columns as column}<Table.Head>{column}</Table.Head>{/each}<Table.Head>Issues</Table.Head></Table.Row></Table.Header>
