@@ -1,8 +1,8 @@
 # Epicenter desktop app
 
 Epicenter hosts Settings, a Folders window, and the apps it bundles in one
-Tauri runtime. The Folders window opens native
-directories through the public `@epicenter/folder` API. Apps supply their own
+Tauri runtime. The Folders editor opens native
+directories through `@epicenter/folder/next`. Apps supply their own
 table schemas; local opening and saving require no account or Git repository.
 Git commands still exist outside a Folder handle, but the current folder and
 product pages offer no Save version, Connect, or Sync action.
@@ -45,15 +45,17 @@ new-window link opens in the system browser only when it is the hosted
 account website.
 
 App pages reach native file folders through the shared Folder plugin. Each
-page runs `@epicenter/folder`'s own engine over a directory the shell grants
-(ADR-0531). A bundled app's window is granted the native commands its page
+page opens a directory the shell grants (ADR-0531). The editor and Settings
+use `@epicenter/folder/next`; other bundled pages still use the previous
+folder API. A bundled app's window is granted the native commands its page
 calls by its window label ([Bundled apps](#bundled-apps)).
 
 The shell serves product bundles and holds no credential: the `epicenter`
-CLI holds the account and every key (ADR-0556). Folder owns product pages' accepted file edits. Settings creates connections
-with a one-shot `folder.tables.connections.write`; its mounted connection editor then acquires the
-shared working document for subsequent edits. A failed creation leaves no
-pending autosave, while a failed edit retains its accepted input.
+CLI holds the account and every key (ADR-0556). Settings opens its records
+folder through `<OpenFolder>`, creates connection rows with
+`folder.tables.connections.create`, and updates title and model through row
+patches. Each text field keeps its own draft until its write answers. Failed
+writes are reported by the folder owner's toast, with text available to copy.
 
 ## The epicenter binary
 
@@ -366,10 +368,11 @@ canonical root>` and opens `/folders/editor/`. Choosing it again reveals
 the existing window. This works for listed folders outside the root
 without copying or creating a directory.
 
-The editor mounts `<FolderApp>` with no table schemas, so Files, grid, board,
-and SQL share one open Folder and its window lifetime. Files opens exact source
-text, retaining byte-order marks and CRLF endings. Binary content and mixed
-line endings remain available without text editing.
+The editor mounts `<OpenFolder>` with no table schemas, so Files, grid, board,
+and SQL share one opened folder and its window lifetime. Files opens exact
+source text, retaining byte-order marks and CRLF endings. Files also reads
+unkept extensions such as `.py` on demand and edits them when they decode as
+UTF-8. Binary content and mixed line endings remain available without text editing.
 
 Tables reads root-level and nested Markdown through the same generic document
 reader as SQL. Columns combine observed fields with declared properties from
@@ -381,8 +384,9 @@ Unparseable source locks structured edits until it is repaired in Files;
 schema diagnostics alone do not lock editing.
 
 Grid and board settings retain columns, typed filters, and ordered sort rules.
-Filters and sorting use saved values, so unfinished cell typing does not reorder
-rows. Held edits outside a filter remain visible with a marker. A saved grid or board names one top-level directory; it needs no declared
+Filters and sorting use landed values. A row edited out of a filter stays
+visible while it has focus, labelled "No longer matches this view's filters".
+A saved grid or board names one top-level directory; it needs no declared
 table schema. The unsaved Tables view can also browse all Markdown, the folder
 root, or nested directories.
 
@@ -390,42 +394,25 @@ Boards group one field into distinct string, number, boolean, and null lanes.
 Enum and boolean schema hints retain empty destinations. **No value** represents
 an absent field. Object and array values appear in **Other**, which cannot be
 chosen as a move destination. Moving a card changes its grouping field through
-the same `TextDocument` (`folder.files.document(path)`) as
-grid and Files edits. Failed moves retain their input for retry or discard.
+`folder.update(path, { fields }, { schema })`. A failed move leaves the card
+in its current lane and shows the folder owner's failure toast.
 Cards have no separate rank or drag-order record.
 
-The opened Folder owns acquired text and unfinished input for each path until
-close. Files, grid, and board use
-`liveSnapshot(folder.files.document(path))` from
-`@epicenter/svelte/snapshot`. Each view's tracked `.current` getter observes the
-Folder-owned snapshot while effects read it; the last reader leaving releases
-that view's subscription. Construct views separately from calculations that
-read their changing values. Views keep no separate save queue or document cache.
-The snapshot contains exact `text`, `loadError`, `isDirty`, `isSaving`, and
-`saveError`. Tables interprets that text with its current declared schema;
-the document owns no parsed fields or interpretation issues. Commands and
-passive `getSnapshot()` reads stay on the original `TextDocument`.
-Subscription emits immediately and activates the first read.
+The mirror reads every kept text file when it opens and gives Files its exact
+source through `folder.file(path)`. Tables interprets the same file values with
+`documentsOf`, while the SQL CLI builds the same values from disk. Each text
+input has a local `draft` that shows typing until its write answers; folder
+writes then update the mirror's landed values. Structured edits use
+`folder.update(path, patch, { schema })`, including root and nested Markdown.
+The mirror composes waiting patches on the same path, so adjacent cell edits
+do not overwrite one another. A file read failure can be retried with
+`folder.checkpoint()`; failed writes are toasted with their input available to copy.
 
-`replace(text)` and `patch({ fields?, body? })` accept input immediately.
-Full text can be accepted before acquisition; structured patches need acquired
-text.
-Only accepted input starts autosaving; observations never publish. Input and its
-autosave timer survive view switches, and acquired clean text remains editable
-after deletion, binary replacement, or a failed refresh. A load failure appears
-beside retained content. Grid and board allow structured changes when the content
-is parseable; schema diagnostics alone do not prevent editing.
-
-`save()` publishes exact text captured at call time, even when clean. Publications
-run in call order for each path, and the last publication wins. An outside edit
-does not cause a conflict or lock input. A failed publication keeps input available
-for retry or discard. `discard()` drops unsubmitted input; it does not cancel a
-publication already admitted. Files are deleted through `folder.files.delete(path)`.
-
-Hiding sends pending work. Closing checks the Folder's save status and asks whether
-to close anyway if accepted work is pending. Unsaved files stay reachable when
-their disk entry disappears or the listing fails. Saved-view submissions compose
-into the declaration's same file editor and use its publication lane.
+The folder owner checkpoints on focus, visibility, connectivity, and page hide.
+Closing an editor window waits for writes in flight before destroying it.
+Saved-view submissions compose from the latest submitted declaration text while
+a write is waiting. Whole-file edits in Files and saved-view saves use last
+write wins when they race.
 
 The SQL console uses `documents(path, directory, stem, fields, body, issues)`.
 `fields` and `issues` contain JSON. Each run reads saved files into disposable
@@ -518,7 +505,7 @@ The Folders window opens one in three ways, each deciding the folder in Rust:
   chose; cancelling opens nothing. The chosen directory must exist and be a
   real directory, never a link, though its parent may be one; it is never
   created. Epicenter's own folder is refused however it is reached. No page
-  passes a path. Folder pages can show close confirmation, but no page has
+  passes a path. Bundled app pages can show close confirmation, but no page has
   the dialog plugin's file picker.
 
 The shell passes the app key, admitted directory, page URL, and builder
@@ -556,8 +543,9 @@ guard. Detaching or merging changes presentation without reopening the
 folder or transferring drafts. Tab membership lives in AppKit, never in
 application data.
 
-Each folder page awaits a native close confirmation only for unfinished Folder
-saves (ADR-0663). A saved window closes silently, including while recording:
+Bundled app pages still use native close confirmation for unfinished Folder
+saves (ADR-0663). The Folders editor waits for its mirror writes and closes
+without a prompt. A saved window closes silently, including while recording:
 native destruction ends capture and keeps the audio captured so far. Cancel
 keeps unfinished input; confirmation destroys the window without waiting for a
 save. Repeated requests for one window share its answer. Other windows answer
@@ -617,7 +605,7 @@ name it is now Whispering's default and opens with its files.
 Each kind of window has one capability file, and every file is `"local": true`
 because its page is served on the scheme: `folders.json`, `home.json`,
 `bundled-app.json`, `whispering.json`, and `folder-editor.json`, which selects
-`files:*` and grants the folder plugin, its change event, close confirmation,
+`files:*` and grants the folder plugin, its change event,
 and destroying its own window. A development build selects the same five. This is wiring, not a sandbox (ADR-0179, ADR-0334).
 
 Whispering's page has no recording overlay and
@@ -648,8 +636,8 @@ without waiting for pending saves. Repeated requests share the current alert.
 
 Quit queries no page and waits for no status reply or timeout. Its standalone
 native alert has no window parent, so closing a window leaves the Quit question
-in place. Window close remains independent and warns only for unsaved Folder
-work. Quit owns only ready, prompting, and approved state; it needs no attempt
+in place. Window close remains independent; bundled pages can warn for unsaved
+Folder work, while the Folders editor waits for writes. Quit owns only ready, prompting, and approved state; it needs no attempt
 ID or window-destruction hook. On macOS, the unparented dialog uses the system's
 standalone alert presentation rather than an attached window sheet.
 
