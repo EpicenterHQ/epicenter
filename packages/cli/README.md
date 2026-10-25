@@ -50,7 +50,7 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter auth git-credential get \| store \| erase` | built | `src/auth.ts` |
 | `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
-| `epicenter whispering-connection read \| set <transcription\|text>` | built, hidden | `src/connection-rows.ts` over `openFolder` in `@epicenter/folder/bun` |
+| `epicenter whispering-connection read \| set <transcription\|text>` | built, hidden | `src/connection-rows.ts` over `openFolder` in `@epicenter/folder/next/bun` |
 | `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
 
@@ -252,7 +252,9 @@ source, and `fields` is the schema's `kind`, `title`, and `model`, or `null`
 when the row does not read. `set` reads
 `{"fields": {"kind"?, "title"?, "model"?}}` on stdin. The only assignable kind
 is `openai-compatible`. It patches the current row without a source precondition
-and answers the row as sent. The last publication wins. Anything else
+and answers the row once its write lands. A new row needs all three fields.
+Updates keep unnamed keys and the body but write canonical frontmatter, dropping
+comments and ordering declared keys first. Anything else
 on stdin is refused. A refusal is `{"error", "name"}` and exit 2, and the file
 is as it was. Reading a missing `so.epicenter` answers no row and creates
 nothing; a save creates the Epicenter root and its `so.epicenter` child when

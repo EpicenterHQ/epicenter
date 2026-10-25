@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { openFolder } from '@epicenter/folder';
-	import FolderApp from '@epicenter/svelte/folder-app';
+	import { openFolder } from '@epicenter/folder/next';
+	import OpenFolder from '@epicenter/svelte/open-folder';
 	import { todosTables } from '$lib/definition.js';
 	import TodosApp from './local/TodosApp.svelte';
 </script>
 
-<FolderApp open={() => openFolder({ tables: todosTables })}>
-	{#snippet children(context)}
-		<TodosApp {context} />
+<OpenFolder open={() => openFolder({ tables: todosTables })}>
+	{#snippet children(folder)}
+		<TodosApp {folder} />
 	{/snippet}
-</FolderApp>
+</OpenFolder>

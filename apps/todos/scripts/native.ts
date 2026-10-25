@@ -1,5 +1,5 @@
 /** Local Todos over an existing directory. No account, remote, or Git required. */
-import { openFolder } from '@epicenter/folder/bun';
+import { openFolder } from '@epicenter/folder/next/bun';
 import { todosTables } from '../src/lib/definition.js';
 
 const [directory, command, ...args] = process.argv.slice(2);
@@ -21,11 +21,10 @@ if (opened.error !== null) {
 }
 const folder = opened.data;
 
-async function summary() {
-	const listed = await folder.tables.todos.list();
-	if (listed.error !== null) return { error: listed.error.message };
+function summary() {
+	const rows = folder.tables.todos.rows();
 	return {
-		todos: listed.data
+		todos: rows
 			.filter((row) => row.issues === null)
 			.map((row) => ({
 				path: `todos/${row.id}.md`,
@@ -33,7 +32,7 @@ async function summary() {
 				title: row.fields.title,
 				done: row.fields.done,
 			})),
-		invalid: listed.data
+		invalid: rows
 			.filter((row) => row.issues !== null)
 			.map((row) => ({
 				id: row.id,
@@ -46,18 +45,17 @@ let exitCode = 0;
 try {
 	switch (command) {
 		case 'status':
-			print({ directory, status: folder.getStatus(), ...(await summary()) });
+			print({ directory, ...summary() });
 			break;
 		case 'list':
-			print(await summary());
+			print(summary());
 			break;
 		case 'create': {
 			const title = args.join(' ').trim();
 			if (title === '') throw new Error('create needs a title');
 			const id = crypto.randomUUID();
-			const result = await folder.tables.todos.write(id, {
+			const result = await folder.tables.todos.create(id, {
 				fields: { title, done: false },
-				body: '',
 			});
 			if (result.error !== null) exitCode = 1;
 			print(
@@ -70,15 +68,14 @@ try {
 		case 'complete': {
 			const id = args[0];
 			if (id === undefined) throw new Error('complete needs an id');
-			const read = await folder.tables.todos.document(id).refresh();
-			if (read.error !== null) {
+			if (folder.tables.todos.row(id) === undefined) {
 				exitCode = 1;
-				print({ error: read.error.message });
+				print({ error: `There is no todo at todos/${id}.md` });
 				break;
 			}
-			const document = folder.tables.todos.document(id);
-			const changed = document.patch({ fields: { done: true } });
-			const saved = changed.error === null ? await document.save() : changed;
+			const saved = await folder.tables.todos.update(id, {
+				fields: { done: true },
+			});
 			if (saved.error !== null) exitCode = 1;
 			print(
 				saved.error === null

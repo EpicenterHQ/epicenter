@@ -22,7 +22,7 @@ async function pausedCommand() {
 	const root = join(scratch, 'library');
 	const script = join(scratch, 'command.mjs');
 	const folderModule = Bun.resolveSync(
-		'@epicenter/folder/bun',
+		'@epicenter/folder/next/bun',
 		import.meta.dir,
 	);
 	await writeFile(
@@ -40,10 +40,10 @@ mock.module(${JSON.stringify(folderModule)}, () => ({
 			...folder,
 			tables: { ...folder.tables, connections: {
 				...folder.tables.connections,
-				async write(...args) {
+				async create(...args) {
 					process.stderr.write('SAVE_READY\\n');
 					while (!existsSync(${JSON.stringify(gate)})) await Bun.sleep(1);
-					return folder.tables.connections.write(...args);
+					return folder.tables.connections.create(...args);
 				},
 			} },
 		} };

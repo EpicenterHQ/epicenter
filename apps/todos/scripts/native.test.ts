@@ -1,10 +1,11 @@
 /** The Bun opener reads and saves ordinary files without Git. */
 import { expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { openFolder } from '@epicenter/folder/next/bun';
 import { $ } from 'bun';
-import { openFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
 import { todosTables } from '../src/lib/definition.js';
 
@@ -30,9 +31,7 @@ test('native Todos keeps existing source fields and survives process reopen with
 			await openFolder({ directory, tables: todosTables }),
 		);
 		try {
-			expect(expectOk(await opened.tables.todos.get('milk'))?.fields?.done).toBe(
-				true,
-			);
+			expect(opened.tables.todos.row('milk')?.fields?.done).toBe(true);
 		} finally {
 			await opened.close();
 		}
@@ -41,6 +40,20 @@ test('native Todos keeps existing source fields and survives process reopen with
 		const listed = await native(directory, 'list').json();
 		expect(listed.todos).toHaveLength(2);
 		expect(listed.invalid).toEqual([]);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test('complete missing exits with an error and creates no row', async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'epicenter-todos-native-'));
+	try {
+		const result = await native(directory, 'complete', 'missing').nothrow();
+		expect(result.exitCode).toBe(1);
+		expect(JSON.parse(result.stdout.toString())).toEqual({
+			error: 'There is no todo at todos/missing.md',
+		});
+		expect(existsSync(join(directory, 'todos/missing.md'))).toBe(false);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

@@ -1,7 +1,7 @@
 <!--
 	The todo list over this browser's local folder: adding a todo, the todos
 	that read as todos, and the rows that do not, each with its file and why.
-	Every view reads the one rows query, so the list and the open todo never
+	Every view reads the same mirror, so the list and the open todo never
 	disagree.
 -->
 <script lang="ts">
@@ -9,12 +9,8 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { Loading } from '@epicenter/ui/loading';
-	import { toast } from '@epicenter/ui/sonner';
 	import { getFolder } from '$lib/folder.js';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import {
-		describeFailure,
 		reasonOf,
 		repairsOf,
 		todoPath,
@@ -23,7 +19,7 @@
 	} from '$lib/local-todos.js';
 	import TodoRow from './TodoRow.svelte';
 
-	const { folder, queries, refresh, getStatus } = getFolder();
+	const folder = getFolder();
 
 	let {
 		open,
@@ -38,27 +34,28 @@
 		title?: string;
 	} = $props();
 
-	const rows = createQuery(() => queries.rows('todos'));
-	const todos = $derived(rows.data === undefined ? undefined : todosOf(rows.data));
-	const repairs = $derived(repairsOf(rows.data ?? []));
-	const unreadable = $derived(unreadableOf(rows.data ?? []));
-	// The failure is reported by the mutation, not this call, so it shows even
-	// when the list unmounted while the todo was being added.
-	const create = createMutation(() => ({
-		mutationFn: async (typed: string) => {
+	const rows = $derived(folder.tables.todos.rows);
+	const todos = $derived(todosOf(rows));
+	const repairs = $derived(repairsOf(rows));
+	const unreadable = $derived(unreadableOf(rows));
+	let adding = $state(false);
+
+	async function add() {
+		const typed = title.trim();
+		if (typed === '' || adding) return;
+		adding = true;
+		try {
 			const id = crypto.randomUUID();
-			const { error } = await folder.tables.todos.write(id, {
+			const { error } = await folder.tables.todos.create(id, {
 				fields: { title: typed, done: false },
-				body: '',
 			});
-			if (error !== null) throw error;
-			// Listed before it opens, so the detail never says it is gone.
-			await refresh([`todos/${id}.md`]);
-			return id;
-		},
-		onError: (error: Parameters<typeof describeFailure>[0], typed: string) =>
-			toast.error('Could not add the todo', { description: `"${typed}": ${describeFailure(error)}` }),
-	}));
+			if (error !== null) return;
+			title = '';
+			onOpen?.(id);
+		} finally {
+			adding = false;
+		}
+	}
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Todo list">
@@ -66,41 +63,21 @@
 		class="flex shrink-0 items-center gap-2 border-b p-3"
 		onsubmit={(event) => {
 			event.preventDefault();
-			const typed = title.trim();
-			if (typed === '' || create.isPending) return;
-			create.mutate(typed, {
-				onSuccess: (id) => {
-					title = '';
-					onOpen?.(id);
-				},
-			});
+			void add();
 		}}
 	>
 		<Input
 			bind:value={title}
 			placeholder="Add a todo"
 			aria-label="New todo title"
-			disabled={create.isPending || getStatus().closing}
+			disabled={adding}
 		/>
-		<Button type="submit" disabled={create.isPending || getStatus().closing || title.trim() === ''}>
-			{create.isPending ? 'Adding…' : 'Add'}
+		<Button type="submit" disabled={adding || title.trim() === ''}>
+			{adding ? 'Adding…' : 'Add'}
 		</Button>
 	</form>
 
-	{#if rows.isError}
-		<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-			Could not read your todos: {rows.error.message}.
-			{rows.data === undefined ? '' : 'Showing the last list that was read.'}
-		</p>
-	{/if}
-
-	{#if todos === undefined}
-		{#if rows.isPending}
-			<Loading class="flex-1" label="Reading your todos…" />
-		{:else}
-			<div class="flex-1"></div>
-		{/if}
-	{:else}
+	<div class="flex min-h-0 flex-1 flex-col">
 		<ul class="min-h-0 flex-1 overflow-y-auto" aria-label="Todos">
 			{#each todos as todo (todo.id)}
 				<TodoRow {todo} selected={open === todo.id} {onOpen} />
@@ -143,21 +120,24 @@
 		{/if}
 
 		{#if unreadable.length > 0}
-			<!-- Files that are not text: kept as they are, with nothing here to edit. -->
+			<!-- Files whose source cannot be shown here. -->
 			<section class="max-h-[40%] shrink-0 overflow-y-auto border-t bg-destructive/5 px-3 py-2 text-xs" aria-label="Could not read">
 				<p class="flex items-center gap-2 font-medium">
 					<Badge variant="destructive">Could not read</Badge>
-					{unreadable.length === 1 ? 'This file is' : 'These files are'} not text, so Todos cannot show {unreadable.length === 1 ? 'it' : 'them'}.
+					{unreadable.length === 1 ? 'This file cannot' : 'These files cannot'} be shown as text.
 				</p>
 				<ul class="mt-1 space-y-1.5">
 					{#each unreadable as file (file.id)}
-						<li class="min-w-0">
-							<code class="font-mono break-anywhere">{todoPath(file.id)}</code>
-							<p class="text-muted-foreground">{reasonOf(file)}</p>
+						<li class="flex items-start gap-2">
+							<div class="min-w-0 flex-1">
+								<code class="font-mono break-anywhere">{todoPath(file.id)}</code>
+								<p class="text-muted-foreground">{reasonOf(file)}</p>
+							</div>
+							<Button size="xs" variant="outline" onclick={() => onOpen?.(file.id)}>Show</Button>
 						</li>
 					{/each}
 				</ul>
 			</section>
 		{/if}
-	{/if}
+	</div>
 </section>

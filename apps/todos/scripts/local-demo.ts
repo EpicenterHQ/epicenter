@@ -11,13 +11,16 @@ const url = process.argv[2] ?? 'http://127.0.0.1:5186/';
 const folderModule =
 	'/@fs' +
 	fileURLToPath(
-		new URL('../../../packages/folder/src/browser.ts', import.meta.url),
+		new URL('../../../packages/folder/src/next/browser.ts', import.meta.url),
 	);
 const source =
 	'---\ntitle: Seed\ndone: false\nextra: keep\n# source note\n---\nNotes from a file\n';
 const malformed = '---\ntitle: [broken\n---\nrepair this\n';
 
-function assert(condition: unknown, message: string): asserts condition {
+function assert(
+	condition: boolean | undefined,
+	message: string,
+): asserts condition {
 	if (!condition) throw new Error(message);
 }
 
@@ -46,8 +49,9 @@ try {
 	await page.getByRole('checkbox', { name: 'Done' }).click();
 	await page.waitForFunction(() =>
 		document
-			.querySelector('[data-testid="write-status"]')
-			?.textContent?.includes('Saved on this device'),
+			.querySelector('[data-testid="status-summary"]')
+			?.getAttribute('aria-label')
+			?.includes('Saved on this device'),
 	);
 
 	const other = await context.newPage();
@@ -57,11 +61,9 @@ try {
 	await other.getByLabel('Notes').fill('Two litres\nfrom tab two');
 	await other.getByLabel('Notes').blur();
 	await page.waitForFunction(() =>
-		(
-			document.querySelector(
-				'textarea[aria-label="Notes"]',
-			) as HTMLTextAreaElement
-		)?.value.includes('from tab two'),
+		document
+			.querySelector<HTMLTextAreaElement>('textarea[aria-label="Notes"]')
+			?.value.includes('from tab two'),
 	);
 	await context.setOffline(true);
 	await page
@@ -70,8 +72,9 @@ try {
 	await page.getByRole('textbox', { name: 'Title', exact: true }).blur();
 	await page.waitForFunction(() =>
 		document
-			.querySelector('[data-testid="write-status"]')
-			?.textContent?.includes('Saved on this device'),
+			.querySelector('[data-testid="status-summary"]')
+			?.getAttribute('aria-label')
+			?.includes('Saved on this device'),
 	);
 	await context.setOffline(false);
 	await page.reload();
@@ -94,15 +97,15 @@ try {
 		const opened = await openFolder({ tables: { todos: { type: 'object' } } });
 		if (opened.error) throw opened.error;
 		try {
-			const listed = await opened.data.tables.todos.list();
-			if (listed.error) throw listed.error;
-			const id = listed.data.find(
-				(row: { fields: { title?: string } }) =>
-					row.fields.title === 'Oat milk offline',
-			)?.id;
+			const id = opened.data.tables.todos
+				.rows()
+				.find(
+					(row: { fields: { title?: string } }) =>
+						row.fields.title === 'Oat milk offline',
+				)?.id;
 			if (!id) throw new Error('Missing todo for adjacent file check');
 			const path = `todos/${id}/attachment.txt`;
-			const saved = await opened.data.files.write(path, 'Keep this file');
+			const saved = await opened.data.write(path, 'Keep this file');
 			if (saved.error) throw saved.error;
 			return path;
 		} finally {
@@ -136,9 +139,7 @@ try {
 				const opened = await openFolder({ tables: {} });
 				if (opened.error) throw opened.error;
 				try {
-					const found = await opened.data.files.read(path);
-					if (found.error) throw found.error;
-					return await found.data?.content.text();
+					return opened.data.file(path)?.data;
 				} finally {
 					await opened.data.close();
 				}
@@ -167,7 +168,7 @@ try {
 			});
 			if (opened.error) throw opened.error;
 			try {
-				const saved = await opened.data.files.write('todos/seed.md', text);
+				const saved = await opened.data.write('todos/seed.md', text);
 				if (saved.error) throw saved.error;
 			} finally {
 				await opened.data.close();
@@ -182,8 +183,9 @@ try {
 	await page.getByRole('textbox', { name: 'Title', exact: true }).blur();
 	await page.waitForFunction(() =>
 		document
-			.querySelector('[data-testid="write-status"]')
-			?.textContent?.includes('Saved on this device'),
+			.querySelector('[data-testid="status-summary"]')
+			?.getAttribute('aria-label')
+			?.includes('Saved on this device'),
 	);
 	const readSeed = () =>
 		page.evaluate(async (module) => {
@@ -191,9 +193,7 @@ try {
 			const opened = await openFolder({ tables: {} });
 			if (opened.error) throw opened.error;
 			try {
-				const read = await opened.data.files.read('todos/seed.md');
-				if (read.error) throw read.error;
-				return read.data?.content.text();
+				return opened.data.file('todos/seed.md')?.data;
 			} finally {
 				await opened.data.close();
 			}
@@ -202,8 +202,8 @@ try {
 	assert(
 		preserved?.includes('title: Edited seed') &&
 			preserved.includes('extra: keep') &&
-			preserved.includes('# source note'),
-		'Editing discarded source content',
+			!preserved.includes('# source note'),
+		'Editing did not write canonical frontmatter',
 	);
 
 	await page.evaluate(
@@ -212,7 +212,7 @@ try {
 			const opened = await openFolder({ tables: {} });
 			if (opened.error) throw opened.error;
 			try {
-				const saved = await opened.data.files.write('todos/broken.md', text);
+				const saved = await opened.data.write('todos/broken.md', text);
 				if (saved.error) throw saved.error;
 			} finally {
 				await opened.data.close();
@@ -229,9 +229,7 @@ try {
 	await page.getByText('Edited seed', { exact: true }).first().click();
 
 	await page.evaluate(() => {
-		(
-			window as unknown as { originalPut: typeof IDBObjectStore.prototype.put }
-		).originalPut = IDBObjectStore.prototype.put;
+		Reflect.set(window, 'originalPut', IDBObjectStore.prototype.put);
 		IDBObjectStore.prototype.put = () => {
 			throw new DOMException('Disk is full', 'QuotaExceededError');
 		};
@@ -240,35 +238,41 @@ try {
 		.getByRole('textbox', { name: 'Title', exact: true })
 		.fill('Draft survives failure');
 	await page.getByRole('textbox', { name: 'Title', exact: true }).blur();
-	await page.getByText('Not saved:').waitFor();
+	await page.getByText('Could not save todos/seed.md').waitFor();
 	assert(
 		(await page
 			.getByRole('textbox', { name: 'Title', exact: true })
-			.inputValue()) === 'Draft survives failure',
-		'Failed save lost the draft',
+			.inputValue()) === 'Edited seed',
+		'Failed save did not return to the disk title',
 	);
+	await page.getByRole('button', { name: 'Copy your text' }).waitFor();
 	assert(
 		!(await readSeed())?.includes('Draft survives failure'),
 		'Failed save reached storage',
 	);
 	await page.evaluate(() => {
-		IDBObjectStore.prototype.put = (
-			window as unknown as { originalPut: typeof IDBObjectStore.prototype.put }
-		).originalPut;
+		Reflect.set(
+			IDBObjectStore.prototype,
+			'put',
+			Reflect.get(window, 'originalPut'),
+		);
 	});
-	await page.getByRole('button', { name: 'Try again', exact: true }).click();
+	await page
+		.getByRole('textbox', { name: 'Title', exact: true })
+		.fill('Draft saved on retry');
 	await page.waitForFunction(() =>
 		document
-			.querySelector('[data-testid="write-status"]')
-			?.textContent?.includes('Saved on this device'),
+			.querySelector('[data-testid="status-summary"]')
+			?.getAttribute('aria-label')
+			?.includes('Saved on this device'),
 	);
 	assert(
-		(await readSeed())?.includes('title: Draft survives failure'),
-		'Retry did not store the draft',
+		(await readSeed())?.includes('title: Draft saved on retry'),
+		'Next edit did not store the title',
 	);
 	const databases = await page.evaluate(() => indexedDB.databases());
 	assert(
-		databases.some((database) => database.name === 'epicenter.data.default'),
+		databases.some((database) => database.name === 'epicenter.folder.default'),
 		'New repository engine did not store the work',
 	);
 	assert(errors.length === 0, `Browser errors: ${errors.join('; ')}`);
@@ -287,11 +291,11 @@ try {
 					'reopen',
 					'two tabs',
 					'offline edit',
-					'unknown fields and comment',
+					'unknown fields and canonical frontmatter',
 					'malformed source visible',
-					'failed save and retry',
+					'failed save and next edit',
 				],
-				database: 'epicenter.data.default',
+				database: 'epicenter.folder.default',
 				screenshot: '/tmp/epicenter-todos-local-demo.png',
 				browserErrors: errors,
 			},

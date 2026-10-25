@@ -5,14 +5,13 @@ Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md
 The current UI can add, edit, complete, and delete todos. A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name remain in the source when a row is edited. A file that does not read as a todo remains visible with its source for repair.
 Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
 
-Add publishes a complete document with `folder.tables.todos.write`; a failed Add leaves its
-form text available without a deferred autosave. Existing todo controls edit
-one shared working document per path. The mounted document subscription acquires
-text; listing todos does not. Immediate controls call
-`document.patch({ fields?, body? })` after acquisition, accepting edits
-synchronously. Programmatic actions then call `document.save()` when they need
-to await publication of the current text. A failed publication leaves that
-accepted edit pending for retry.
+Add creates a complete row with `folder.tables.todos.create`; a failed Add leaves
+the title in the form. Existing todo controls read the folder mirror. Each text
+editor keeps its own draft while its write is pending. Title, notes, and done
+write only the fields they change over the file as it is when the save runs.
+After a successful write, the mirror already shows the saved row. A failed
+write leaves the mirror at the disk value and shows a toast with the attempted
+text to copy.
 
 ## Run the browser app
 
@@ -22,14 +21,15 @@ From the repository root:
 bun dev:todos:ui
 ```
 
-Open the URL Vite prints. Use a fresh browser profile or origin for a fresh workspace. The header says **Saved on this device** after IndexedDB confirms each save and no draft or failure remains. Open a second tab at the same URL to see saved changes propagate. Once the page has loaded, editing needs no network connection. A cold offline launch requires an offline app shell and is separate work.
+Open the URL Vite prints. Use a fresh browser profile or origin for a fresh workspace. The header says **Saving…** while a write is pending and **Saved on this device** otherwise. Open a second tab at the same URL to see saved changes propagate. Once the page has loaded, editing needs no network connection. A cold offline launch requires an offline app shell and is separate work.
 
-A clean todo follows observed text changes from another tab. Pending local
-input retains its whole source. Saving publishes that source unconditionally;
-the last publication wins, including over outside changes or deletion. A failed
-save keeps the input for retry. Acquired text stays usable after outside deletion
-or binary replacement; only a local edit or explicit save writes it again.
-Discard drops unsubmitted input without cancelling publications already admitted.
+A clean todo follows saved changes from another tab. Pending input remains in
+its editor until its write answers. Field updates merge with other changes to
+the same file. If a save fails, the editor returns to the disk value; its toast
+offers the attempted text to copy. A deleted row shows "This todo is no longer
+here." Files that do not read as todos stay visible for repair. Saving a row
+keeps unnamed fields and body but writes canonical frontmatter, dropping YAML
+comments and ordering declared keys first.
 
 For an isolated automated walkthrough, from the repository root run:
 
@@ -37,7 +37,7 @@ For an isolated automated walkthrough, from the repository root run:
 bun run --cwd apps/todos demo:local
 ```
 
-The demo uses a fresh browser profile. It exercises editing, reopening, two tabs, offline edits after load, source preservation, and a controlled failed save that retains the draft. It also checks the browser's IndexedDB storage, so an unchanged looking screen cannot conceal the former OPFS engine.
+The demo uses a fresh browser profile. It exercises editing, reopening, two tabs, offline edits after load, canonical frontmatter, and a controlled failed save whose toast offers the attempted text to copy. It also checks the browser's IndexedDB storage.
 
 ## Run the desktop app
 
@@ -72,17 +72,10 @@ Open Folder action, but it would also require multiple-window presentation
 and Quit behavior; that capability is not part of this standalone product.
 
 On macOS, the app menu's Quit and Cmd-Q request that window's ordinary close.
-The page awaits a native confirmation only while a Folder save is pending or
-has failed. Cancel preserves the window and unfinished input; Close Anyway
-closes without waiting for the save. Saved windows leave silently. Epicenter's
-multiwindow application Quit remains a separate decision.
-
-An isolated packaged macOS run verified saved Quit, pending and failed saves,
-repeated Cmd-Q, app-menu Quit, Cancel retaining the complete title, confirmed
-close leaving the failed title unwritten, and the warning from a minimized
-window. The pending-save check held the Folder's SQLite save lock; releasing
-it let the save finish while the prompt was open. These checks used disposable
-folders, separate from user data.
+The page waits for writes in flight before closing. A saved window closes
+silently. A browser unload asks only while a write is still saving. A failed
+write has already answered and leaves the disk value visible; its toast offers
+the attempted text to copy while the page remains open.
 
 The shell binds the window's directory to it in trusted Rust before the window exists ([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)). The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` selects `todos:*` and gives that window the folder plugin's commands and its change event, plus reading the app identifier and its own handoff command. The page receives no opener permission.
 
@@ -107,7 +100,7 @@ Earlier Todos builds kept named folders in OPFS. This build opens its IndexedDB 
 
 ## Boundaries and checks
 
-`src/routes/+page.svelte` mounts one `FolderApp` with `open={() => openFolder({ tables: todosTables })}`. The app supplies the opener; the root owns calling it, the Folder handle, query cache, drafts, status, and close. `src/routes/local/` contains the UI; it reads the handle through the Svelte context. `apps/todos/scripts/native.ts` uses the same public Folder operations over a directory. Todos has no account, inference, or sync action.
+`src/routes/+page.svelte` mounts one `OpenFolder` with `open={() => openFolder({ tables: todosTables })}`. It owns opening, checkpointing, failure toasts, and close. `src/routes/local/` reads the reactive folder through Svelte context and owns each input's draft. `apps/todos/scripts/native.ts` uses the same public folder operations over a directory. Todos has no account, inference, or sync action.
 
 From the repository root:
 

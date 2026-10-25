@@ -1,5 +1,5 @@
 /** The rows of Epicenter's local AI connections folder. */
-import type { Issue } from '@epicenter/folder';
+import type { RowIssue } from '@epicenter/folder/next';
 import { type Static, Type } from 'typebox';
 import { Value } from 'typebox/value';
 
@@ -62,6 +62,8 @@ export const isConnectionRowSetInput = (
  */
 export type ConnectionRow = {
 	readonly text: string;
-	readonly issues: readonly Issue[] | null;
+	readonly issues: readonly ConnectionRowIssue[] | null;
 	readonly fields: Static<typeof connectionsTables.connections> | null;
 };
+
+export type ConnectionRowIssue = Exclude<RowIssue, { kind: 'unreadable' }>;
