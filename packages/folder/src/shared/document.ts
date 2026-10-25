@@ -14,13 +14,12 @@ export type Document = Row<typeof anyFields> & {
 	readonly path: string;
 	readonly directory: string;
 	readonly stem: string;
-	readonly content: Uint8Array;
 };
 
 /** Read one document without discarding its source when validation fails. */
 export function readDocument(
 	path: string,
-	content: Uint8Array,
+	content: string | Uint8Array,
 	schema: TSchema = anyFields,
 ): Document {
 	const row = interpretedRow(path, content, schema);
@@ -30,7 +29,6 @@ export function readDocument(
 		path,
 		directory: slash < 0 ? '' : path.slice(0, slash),
 		stem: path.slice(slash + 1, -3),
-		content: new Uint8Array(content),
 	};
 }
 
@@ -40,6 +38,7 @@ function interpretedRow(
 	content: string | Uint8Array,
 	schema: TSchema,
 ): Row<typeof anyFields> {
+	// SAFETY: readMarkdown returns raw object fields on schema errors; anyFields accepts that shape.
 	return { id: path, ...readMarkdown(content, schema) } as Row<
 		typeof anyFields
 	>;
