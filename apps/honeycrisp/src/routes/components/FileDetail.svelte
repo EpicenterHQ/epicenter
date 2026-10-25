@@ -112,7 +112,6 @@
 			</div>
 
 			{#if text !== undefined}
-				{@const shown = text}
 				{#if issues.length > 0}
 					<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
 						<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
