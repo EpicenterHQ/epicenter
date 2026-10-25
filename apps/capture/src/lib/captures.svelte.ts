@@ -161,13 +161,7 @@ export function createCaptures(folder: CaptureFolder) {
 	let opened = $state.raw<Opened | undefined>();
 	let navigation = 0;
 	const timeline = $derived(timelineOf(folder.tables.captures.rows));
-	async function go(
-		requested: number,
-		stem: string,
-		mode: Mode,
-		focus?: Focus,
-	) {
-		await folder.settled(capturePath(stem));
+	function go(requested: number, stem: string, mode: Mode, focus?: Focus) {
 		if (requested !== navigation) return;
 		if (mode === 'capture') {
 			const row = folder.tables.captures.row(stem);
@@ -214,19 +208,11 @@ export function createCaptures(folder: CaptureFolder) {
 				body: composeBody(text.toWellFormed()).body,
 			});
 			if (saved.error !== null) return saved;
-			await go(requested, stem, 'capture', 'new-thought');
+			go(requested, stem, 'capture', 'new-thought');
 			return Ok({ stem });
 		},
-		async finishDraft(
-			stem: string,
-			edit: { readonly error: unknown },
-		): Promise<Result<void, Failure>> {
+		async finishDraft(stem: string): Promise<Result<void, Failure>> {
 			const requested = ++navigation;
-			await folder.settled(capturePath(stem));
-			if (edit.error !== null)
-				return CaptureError.Refused({
-					message: 'Your last edit did not save; nothing was added.',
-				});
 			const row = folder.tables.captures.row(stem);
 			if (row === undefined)
 				return CaptureError.Refused({
@@ -237,7 +223,7 @@ export function createCaptures(folder: CaptureFolder) {
 					message: 'Repair this file as text before adding it.',
 				});
 			if (row.fields.draft !== true) {
-				await go(requested, stem, 'capture', 'new-thought');
+				go(requested, stem, 'capture', 'new-thought');
 				return Ok(undefined);
 			}
 			if (row.body.trim() === '')
@@ -247,7 +233,7 @@ export function createCaptures(folder: CaptureFolder) {
 				body: composeBody(row.body).body,
 			});
 			if (saved.error !== null) return saved;
-			await go(requested, stem, 'capture', 'new-thought');
+			go(requested, stem, 'capture', 'new-thought');
 			return Ok(undefined);
 		},
 		deletionFor(stem: string): Deletion {
@@ -261,8 +247,12 @@ export function createCaptures(folder: CaptureFolder) {
 				draft: reading?.draft ?? false,
 			};
 		},
-		async delete(deletion: Deletion): Promise<Result<void, WriteError>> {
+		async delete(
+			deletion: Deletion,
+			onDeleted?: () => void,
+		): Promise<Result<void, WriteError>> {
 			const deleted = await folder.tables.captures.delete(deletion.stem);
+			if (deleted.error === null) onDeleted?.();
 			if (deleted.error === null && opened?.stem === deletion.stem) {
 				++navigation;
 				opened = undefined;

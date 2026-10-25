@@ -2,7 +2,7 @@
  * Capture Store Tests
  *
  * Exercises capture creation, mirror-backed timeline, thought composition,
- * mode settling, repair, and deletion on a real folder mirror.
+ * navigation, repair, and deletion on a real folder mirror.
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -14,20 +14,14 @@ import {
 	until,
 } from './local-folder.test-support.js';
 
-const { createCaptureActions, locateThought } = await import(
-	'./capture-actions.svelte.ts'
-);
-const { draft } = await import('@epicenter/svelte/folder-next');
+const { locateThought } = await import('./capture-actions.svelte.ts');
 const { timelineOf } = await import('./captures.svelte.ts');
 const harnesses: CapturesHarness[] = [];
 afterEach(async () => {
 	for (const harness of harnesses.splice(0)) await harness.close();
 });
-async function open(
-	files: Record<string, string | Uint8Array> = {},
-	throttleMs = 20,
-) {
-	const harness = await openCaptures(files, { throttleMs });
+async function open(files: Record<string, string | Uint8Array> = {}) {
+	const harness = await openCaptures(files);
 	harnesses.push(harness);
 	return harness;
 }
@@ -35,15 +29,6 @@ async function open(
 const AT = '2026-10-01T10:30:00+08:00';
 const PATH = 'captures/one.md';
 const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n`;
-function bodyDraft(harness: CapturesHarness, stem = 'one') {
-	return draft(
-		() => {
-			const saved = harness.folder.tables.captures.row(stem);
-			return saved?.issues === null ? saved.body : '';
-		},
-		(body) => harness.folder.tables.captures.update(stem, { body }),
-	);
-}
 
 test('Add writes one finished capture and opens Add a thought', async () => {
 	const h = await open();
@@ -118,49 +103,6 @@ test('body updates canonicalize frontmatter while keeping unknown fields', async
 	);
 });
 
-test('mode switch settles the file and starts from saved text', async () => {
-	const h = await open({ [PATH]: HAND });
-	let release = () => {};
-	h.host.control.putGate = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	const body = bodyDraft(h);
-	createCaptureActions(body).inputText('Pending');
-	const switching = h.captures.open('one', 'text');
-	await Bun.sleep(10);
-	expect(h.captures.opened).toBeUndefined();
-	release();
-	await switching;
-	expect(h.captures.opened?.mode).toBe('text');
-	expect(h.text(PATH)).toContain('Pending');
-});
-
-test('a failed body write leaves the saved row unchanged and still switches modes', async () => {
-	const h = await open({ [PATH]: HAND });
-	h.failSaves(PATH);
-	const body = bodyDraft(h);
-	createCaptureActions(body).inputText('Not landed');
-	await h.captures.open('one', 'text');
-	expect(h.captures.opened?.mode).toBe('text');
-	expect(h.text(PATH)).toBe(HAND);
-	expect(h.failures[0]?.text).toContain('Not landed');
-	expect(h.captures.saveLabel).toBe('Saved');
-});
-
-test('leaving while an open waits for a save does not reopen the capture', async () => {
-	const h = await open({ [PATH]: HAND });
-	let release = () => {};
-	h.host.control.putGate = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	createCaptureActions(bodyDraft(h)).inputText('Pending');
-	const opening = h.captures.open('one', 'text');
-	h.captures.leave();
-	release();
-	await opening;
-	expect(h.captures.opened).toBeUndefined();
-});
-
 test('opening another row while Add saves keeps that row open', async () => {
 	const h = await open({ [PATH]: HAND });
 	let release = () => {};
@@ -168,9 +110,9 @@ test('opening another row while Add saves keeps that row open', async () => {
 		release = resolve;
 	});
 	const adding = h.captures.create('New capture');
-	const opening = h.captures.open('one', 'capture');
+	h.captures.open('one', 'capture');
 	release();
-	await Promise.all([adding, opening]);
+	await adding;
 	expect(h.captures.opened?.stem).toBe('one');
 });
 
@@ -208,9 +150,7 @@ test('finishDraft refuses an invalid saved row', async () => {
 	const h = await open({
 		[PATH]: '---\ncapturedAt: nope\ndraft: true\n---\nWriting',
 	});
-	const refusal = expectErr(
-		await h.captures.finishDraft('one', { error: null }),
-	);
+	const refusal = expectErr(await h.captures.finishDraft('one'));
 	expect(refusal.name).toBe('Refused');
 	expect(refusal.message).toContain('Repair this file');
 	expect(h.text(PATH)).toContain('draft: true');

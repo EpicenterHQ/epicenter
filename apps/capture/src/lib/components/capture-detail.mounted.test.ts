@@ -2,7 +2,7 @@
  * Mounted Capture Detail Tests
  *
  * Verifies the real capture and text editors against the folder mirror:
- * visible typed text, thought composition, mode settling, and live repair.
+ * visible typed text, thought composition, explicit action saves, and live repair.
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -33,12 +33,8 @@ function submit(form: Element | null | undefined) {
 	if (!(form instanceof HTMLFormElement)) throw new Error('Expected a form');
 	form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 }
-async function setup(
-	files: Record<string, string>,
-	mode: 'capture' | 'text',
-	throttleMs = 20,
-) {
-	const harness = await openCaptures(files, { throttleMs });
+async function setup(files: Record<string, string>, mode: 'capture' | 'text') {
+	const harness = await openCaptures(files);
 	await harness.captures.open('one', mode);
 	const target = document.createElement('main');
 	document.body.replaceChildren(target);
@@ -74,7 +70,7 @@ async function menu(index: number, action: string) {
 	item.click();
 	flushSync();
 }
-async function settle(h: Awaited<ReturnType<typeof setup>>) {
+async function land(h: Awaited<ReturnType<typeof setup>>) {
 	await h.quiet();
 	flushSync();
 }
@@ -85,14 +81,14 @@ test('typing capture text then adding a thought keeps both edits', async () => {
 	type(field('capture-text'), 'Edited');
 	type(field('new-thought'), 'second');
 	submit(field('new-thought')?.form);
-	await settle(h);
+	await land(h);
 	expect(h.text(PATH)).toContain('Edited');
 	expect(h.text(PATH)).toContain('- second');
 	expect(field('new-thought')?.value).toBe('');
 });
 
-test('a thought added under the throttle keeps text typed just before it', async () => {
-	const h = await setup({ [PATH]: FILE }, 'capture', 1000);
+test('a thought added during the debounce keeps text typed just before it', async () => {
+	const h = await setup({ [PATH]: FILE }, 'capture');
 	let release = () => {};
 	h.host.control.putGate = new Promise<void>((resolve) => {
 		release = resolve;
@@ -104,7 +100,7 @@ test('a thought added under the throttle keeps text typed just before it', async
 	expect(field('capture-text')?.value).toBe('Typed just now');
 	await until(() => h.host.log.puts.length > 0);
 	release();
-	await settle(h);
+	await land(h);
 	expect(h.text(PATH)).toContain('Typed just now');
 	expect(h.text(PATH)).toContain('- second');
 });
@@ -114,7 +110,6 @@ test('a failed thought save keeps the thought visible and retries the body', asy
 	const restore = h.failSaves(PATH);
 	type(field('new-thought'), 'keep this');
 	submit(field('new-thought')?.form);
-	await until(() => h.failures.length > 0);
 	await until(() => {
 		flushSync();
 		return h.target.textContent?.includes('Not saved:') === true;
@@ -194,7 +189,7 @@ test('a capture that becomes a draft offers Edit as text', async () => {
 	expect(textFile()?.value).toContain('draft: true');
 });
 
-test('mode switch waits for the save and opens the saved source', async () => {
+test('Edit as text saves the typed body before opening the source', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	type(field('capture-text'), 'Pending');
 	const edit = [...document.querySelectorAll('button')].find(
@@ -214,6 +209,54 @@ test('mode switch waits for the save and opens the saved source', async () => {
 	expect(h.text(PATH)).toContain('Pending');
 });
 
+test('Edit as text stays in the capture and reports a refused save', async () => {
+	const h = await setup({ [PATH]: FILE }, 'capture');
+	h.failSaves(PATH);
+	type(field('capture-text'), 'Keep this');
+	button(h.target, 'Edit as text').click();
+	await until(() => {
+		flushSync();
+		return (
+			document.body.textContent?.includes('Could not save this capture') ===
+			true
+		);
+	});
+	expect(h.captures.opened?.mode).toBe('capture');
+	expect(field('capture-text')?.value).toBe('Keep this');
+	expect(h.text(PATH)).toBe(FILE);
+});
+
+test('leaving during an Edit as text save keeps the timeline open', async () => {
+	const h = await setup({ [PATH]: FILE }, 'capture');
+	let release = () => {};
+	h.host.control.putGate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	type(field('capture-text'), 'Pending');
+	button(h.target, 'Edit as text').click();
+	await until(() => h.host.log.puts.length > 0);
+	button(h.target, 'Back to timeline').click();
+	release();
+	await h.quiet();
+	flushSync();
+	expect(h.captures.opened).toBeUndefined();
+	expect(h.text(PATH)).toContain('Pending');
+});
+
+test('Open as capture saves the repaired text before switching views', async () => {
+	const invalid = '---\ncapturedAt: nope\n---\nBody\n';
+	const h = await setup({ [PATH]: invalid }, 'text');
+	const repaired = `---\ncapturedAt: ${AT}\n---\nBody\n`;
+	type(textFile(), repaired);
+	flushSync();
+	button(h.target, 'Open as capture').click();
+	await until(() => {
+		flushSync();
+		return h.captures.opened?.mode === 'capture';
+	});
+	expect(h.text(PATH)).toBe(repaired);
+});
+
 test('an outside change appears when idle and typing stays visible until its save answers', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	h.writeElsewhere(PATH, FILE.replace('Text', 'Elsewhere'));
@@ -231,7 +274,7 @@ test('an outside change appears when idle and typing stays visible until its sav
 	await until(() => h.host.log.puts.length > 0);
 	expect(field('capture-text')?.value).toBe('Mine');
 	release();
-	await settle(h);
+	await land(h);
 	expect(field('capture-text')?.value).toBe('Mine');
 	expect(h.text(PATH)).toContain('Mine');
 });
@@ -259,7 +302,7 @@ test('Edit as text shows LF and saves CRLF files with CRLF', async () => {
 	const h = await setup({ [PATH]: crlf }, 'text');
 	expect(textFile()?.value).toBe(FILE);
 	type(textFile(), FILE.replace('Text', 'Revised'));
-	await settle(h);
+	await land(h);
 	expect(h.text(PATH)).toBe(crlf.replace('Text', 'Revised'));
 });
 
@@ -308,8 +351,45 @@ test('pending whole-file text recreates a file deleted elsewhere', async () => {
 	flushSync();
 	expect(textFile()?.value).toBe(typed);
 	release();
-	await settle(h);
+	await land(h);
 	expect(h.text(PATH)).toBe(typed);
+});
+
+test('deleting a text editor with pending typing does not recreate the file', async () => {
+	const h = await setup({ [PATH]: FILE }, 'text');
+	type(textFile(), FILE.replace('Text', 'Pending'));
+	button(h.target, 'Delete…').click();
+	await until(() => {
+		flushSync();
+		return document.body.textContent?.includes('Delete this capture?') === true;
+	});
+	button(document, 'Delete').click();
+	await until(() => {
+		flushSync();
+		return h.captures.opened === undefined;
+	});
+	await h.quiet();
+	expect(h.text(PATH)).toBeUndefined();
+});
+
+test('a failed delete keeps the file open and reports the failure', async () => {
+	const h = await setup({ [PATH]: FILE }, 'text');
+	h.failSaves(PATH);
+	button(h.target, 'Delete…').click();
+	await until(() => {
+		flushSync();
+		return document.body.textContent?.includes('Delete this capture?') === true;
+	});
+	button(document, 'Delete').click();
+	await until(() => {
+		flushSync();
+		return (
+			document.body.textContent?.includes('Could not delete this capture') ===
+			true
+		);
+	});
+	expect(h.captures.opened?.mode).toBe('text');
+	expect(h.text(PATH)).toBe(FILE);
 });
 
 test('a thought opens its own lines selected in a CRLF file', async () => {
@@ -333,6 +413,24 @@ test('a thought opens its own lines selected in a CRLF file', async () => {
 	).toBe('- second\n  more');
 });
 
+test('a thought Edit as text writes pending capture text before selecting its lines', async () => {
+	const h = await setup({ [PATH]: FILE }, 'capture');
+	type(field('capture-text'), 'Pending thought context');
+	await menu(0, 'Edit as text');
+	await until(() => {
+		flushSync();
+		return textFile() !== null;
+	});
+	expect(h.text(PATH)).toContain('Pending thought context');
+	expect(textFile()?.value).toContain('Pending thought context');
+	expect(
+		textFile()?.value.slice(
+			textFile()?.selectionStart,
+			textFile()?.selectionEnd,
+		),
+	).toBe('- first');
+});
+
 test('U+0000 paste is refused and the text box reverts', async () => {
 	const h = await setup({ [PATH]: FILE }, 'text');
 	type(textFile(), `${FILE}\0bad`);
@@ -349,7 +447,7 @@ test('thought move changes the list and a stale menu refuses', async () => {
 	const two = FILE.replace('- first\n', '- first\n- second\n');
 	const h = await setup({ [PATH]: two }, 'capture');
 	await menu(1, 'Move up');
-	await settle(h);
+	await land(h);
 	expect(h.text(PATH)).toContain('- second\n- first');
 	const trigger = document.querySelectorAll<HTMLButtonElement>(
 		'[data-thought-actions]',
@@ -407,7 +505,7 @@ test('Delete thought removes the selected thought after confirmation', async () 
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	await menu(0, 'Delete thought…');
 	button(document, 'Delete thought').click();
-	await settle(h);
+	await land(h);
 	expect(h.text(PATH)).not.toContain('- first');
 });
 
@@ -436,25 +534,19 @@ test('a text editor is read-only while Add finishes a saved draft', async () => 
 	});
 });
 
-test('Add refuses a draft whose last text edit failed', async () => {
+test('Add retries the typed draft and stays on the write failure', async () => {
 	const original = `---\ncapturedAt: ${AT}\ndraft: true\n---\nWriting`;
 	const h = await setup({ [PATH]: original }, 'text');
 	const restore = h.failSaves(PATH);
 	type(textFile(), original.replace('Writing', 'Typed'));
-	await until(() => h.failures.length > 0);
-	flushSync();
 	button(h.target, 'Add capture').click();
 	await until(() => {
 		flushSync();
-		return (
-			h.target.textContent?.includes('Your last edit did not save') === true
-		);
+		return h.target.textContent?.includes('the disk is full') === true;
 	});
 	expect(h.text(PATH)).toBe(original);
 	expect(h.captures.opened?.mode).toBe('text');
 	restore();
-	button(h.target, 'Save again').click();
-	await until(() => h.text(PATH)?.includes('Typed') === true);
 	button(h.target, 'Add capture').click();
 	await until(() => {
 		flushSync();
@@ -472,7 +564,7 @@ test('a draft with row issues stays in repair and refuses Finish', async () => {
 			(item) => item.textContent?.trim() === 'Add capture',
 		),
 	).toBe(false);
-	const result = await h.captures.finishDraft('one', { error: null });
+	const result = await h.captures.finishDraft('one');
 	expect(result.error?.name).toBe('Refused');
 	expect(h.captures.opened?.mode).toBe('text');
 	expect(h.text(PATH)).toBe(invalid);

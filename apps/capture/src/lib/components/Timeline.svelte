@@ -88,7 +88,7 @@
 		<Alert.Description>These files are kept as they are, untouched.</Alert.Description>
 		<ul class="mt-1 flex flex-col gap-2 text-foreground">
 			{#each unreadable as file (file.path)}
-				<li class="flex flex-wrap items-start gap-2 break-words"><span><code>{file.path}</code>: {file.message}</span>{#if file.retry}<Button size="sm" variant="outline" onclick={() => folder.checkpoint()}>Try again</Button>{/if}</li>
+				<li class="flex flex-wrap items-start gap-2 break-words"><span><code>{file.path}</code>: {file.message}</span>{#if file.retry}<Button size="sm" variant="outline" onclick={() => void folder.refresh()}>Try again</Button>{/if}</li>
 			{/each}
 		</ul>
 	</Alert.Root>

@@ -75,7 +75,7 @@ test('failed Add keeps its form text and leaves the timeline empty', async () =>
 	flushSync();
 	expect(field('new-capture')?.value).toBe('Keep this');
 	expect(h.captures.timeline.rows).toEqual([]);
-	expect(h.failures.length).toBe(1);
+	expect(document.body.textContent).toContain('Could not add capture');
 });
 
 test('saved draft opens as text and repair opens its file', async () => {

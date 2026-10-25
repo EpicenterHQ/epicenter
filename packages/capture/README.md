@@ -123,9 +123,9 @@ needs no thought IDs.
 
 `captureBody.locate(body)` answers where each thought sits in the body, as
 `Span`s of offsets from its bullet marker to the end of its last line with
-content. After the app settles a save, it combines those spans with the saved
-file text to select a thought's lines in Edit as text. That view keeps
-unfinished Markdown as typed.
+content. After the app explicitly saves the shown body, it combines those spans
+with the saved file text to select a thought's lines in Edit as text. That view
+keeps unfinished Markdown as typed.
 
 `excerpt(text)` shortens capture text for a list.
 

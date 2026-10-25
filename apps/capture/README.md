@@ -12,29 +12,29 @@ Earlier browser builds kept captures in OPFS, first at the root of `so.epicenter
 
 ## What you can do
 
-- **New capture** holds its text in the form until **Add capture** (or Ctrl or ⌘ + Enter). Add creates one finished file and opens it at Add a thought. Blank text is refused. A failed write leaves the text in the form; the folder shows a toast with the reason and Copy.
+- **New capture** holds its text in the form until **Add capture** (or Ctrl or ⌘ + Enter). Add creates one finished file and opens it at Add a thought. Blank text is refused. A failed write leaves the text in the form and shows a toast with the reason.
 - Open a capture to edit its text and add, reorder, copy, or delete thoughts. Add a thought is an explicit submission. Its input is cleared when you leave the capture. A thought's Actions menu can open its lines in Edit as text.
 - **Drafts** lists `draft: true` files saved by an earlier version. A draft opens in the full-file Markdown editor. **Add capture** finishes that same file from its saved body, removes `draft`, sets the time of Add, and composes its Thoughts section. **Discard draft…** asks before deleting it. Capture writes no new drafts.
-- **Edit as text** opens the file with frontmatter. It accepts unfinished Markdown. Needs repair responds to what is typed, and **Open as capture** becomes available when that text reads as a capture. Switching views settles that file's pending writes, then opens the saved file.
-- **More** holds Copy capture text, Download file, and Delete capture. Download waits for pending saves and exports the saved file text. Deletion asks first; deleted captures have no history to restore from.
+- **Edit as text** opens the file with frontmatter. It accepts unfinished Markdown. Needs repair responds to what is typed, and **Open as capture** becomes available when that text reads as a capture. Opening that structured view explicitly saves the text first.
+- **More** holds Copy capture text, Download file, and Delete capture. Download explicitly saves the shown body before exporting the saved file text. Deletion asks first; deleted captures have no history to restore from.
 
 One capture is open at a time. The timeline lists finished captures, saved drafts, and files needing repair. A completed file with invalid frontmatter or an ambiguous Thoughts layout opens as text. Binary or temporarily unreadable files are listed separately; a read error offers Try again.
 
 ## Editing
 
-The folder mirror shows only files that landed. Each mounted editor keeps one draft of what is typed while its save is pending or failed. The capture editor drafts the whole body: changing capture text and issuing a thought command within the save throttle compose over the same visible body. The text editor drafts the whole file. The two editors do not share a draft; a mode switch settles that file before the next editor mounts.
+The folder mirror shows only files that landed. Each mounted editor keeps one draft of what is typed while its save is pending or failed. A draft debounces writes for one second and sends its newest text when the editor closes, the page hides, or the folder closes. The capture editor drafts the whole body: capture text and thought commands compose over the same visible body. The text editor drafts the whole file. The two editors do not share a draft; an ordinary mode switch changes views immediately. Actions that need saved text, such as opening Edit as text or Open as capture, explicitly write and await it first.
 
-A save failure keeps the typed value visible in its editor. An inline **Not saved** message offers **Save again**, **Discard**, and **Copy**; the folder also shows one failure toast for the file. Discard returns the editor to the saved file. Switching views starts the new editor from that saved file. New capture keeps its unsubmitted form text after a failed Add. A failed Add a thought leaves the thought in the body draft, with an empty Add a thought field, so retrying the body cannot append it twice.
+A draft save failure keeps the typed value visible in its editor. An inline **Not saved** message offers **Save again**, **Discard**, and **Copy**. Discard returns the editor to the saved file. Switching views starts the new editor from the saved file, so briefly stale text is possible while a draft save is pending. Command failures appear at their callers. New capture keeps its unsubmitted form text after a failed Add. A failed Add a thought leaves the thought in the body draft, with an empty Add a thought field, so retrying the body cannot append it twice.
 
 Structured capture edits replace the body through `tables.captures.update`. The update applies over the file when it saves, keeps unknown frontmatter keys, and writes canonical YAML. Comments and original key spelling or order may change. Text editing replaces the whole file, preserving its CRLF line endings when present. Opening and listing write nothing.
 
-Thoughts are identified by their position in the shown list. A move or delete refuses a list that changed beneath it. A thought's Edit as text waits for the saved body, then finds that thought's lines in the saved source so its selection matches the new editor. Another tab's saved changes reach the mirror; when this editor has no pending typing, it follows those saved values.
+Thoughts are identified by their position in the shown list. A move or delete refuses a list that changed beneath it. A thought's Edit as text explicitly saves the shown body, then finds that thought's lines in the saved source so its selection matches the new editor. Another tab's saved changes reach the mirror; when this editor has no pending typing, it follows those saved values.
 
 ## Quick Add and saved drafts
 
 New capture and Add a thought are explicit submissions. Their text boxes belong to their components and write nothing before Add. Leaving the view or reloading clears unsubmitted text. [ADR-0658](../../docs/adr/0658-capture-compositions-are-durable-markdown-records.md) records why Capture writes no new draft files.
 
-A saved draft is an ordinary file with `draft: true`. Its body is raw writing, including spaces, line endings, and any headings the writer included. Add first settles that file's text-editor writes. If the editor has a failed write, Add refuses until **Save again** succeeds or **Discard** returns to the saved text. It then reads the saved row and refuses a missing, invalid, or blank draft. It composes the body once and updates the same file. If that update fails, the file remains a draft; retrying Add starts from its saved body and does not append another Thoughts section. The text box is read-only while finishing.
+A saved draft is an ordinary file with `draft: true`. Its body is raw writing, including spaces, line endings, and any headings the writer included. Add explicitly writes the text shown in the editor and refuses a failed write. It then reads the saved row and refuses a missing, invalid, or blank draft. It composes the body once and updates the same file. If that update fails, the file remains a draft; retrying Add starts from its saved body and does not append another Thoughts section. The text box is read-only while finishing.
 
 ## How it is wired
 
@@ -47,7 +47,7 @@ A saved draft is an ordinary file with `draft: true`. Its body is raw writing, i
       Timeline or one keyed detail editor
 ```
 
-`<OpenFolder>` opens, wraps, and closes the folder. It shows opening and refusal screens, checkpoints on focus, visibility, online, and page hide, and toasts failed writes with Copy. A browser unload asks only while a write is pending; a desktop window close waits for writes. Capture's store owns navigation and timeline classification. The folder owns saved rows, files, and path-scoped settling. Each editor component owns its unfinished text and inline save recovery.
+`<OpenFolder>` opens, wraps, and closes the folder. It shows opening and refusal screens and refreshes on focus, visibility, and online events. A browser unload asks only while a write is pending; a desktop window close waits for writes. Capture's store owns navigation and timeline classification. The folder owns saved rows, files, and the write queue. Each editor component owns its unfinished text and inline save recovery. Commands present their own failures.
 
 The Vite configuration resolves the `@epicenter/folder/next` opener to the browser or host adapter for its build.
 
@@ -84,10 +84,10 @@ The browser build writes `build/`; the host build writes `dist/`. They share Sve
 This folder-mirror version drops these behaviors from the earlier document engine:
 
 - Shared editable documents between the capture and text views.
-- The old document engine's per-file save status, timeline failure list, and Saved to path line. Failed drafts now show inline recovery controls alongside the folder toast.
+- The old document engine's per-file save status, timeline failure list, and Saved to path line. Failed drafts show inline recovery controls.
 - Folder close fences, loading or Missing states inside an opened detail, and TanStack folder queries.
 - Preserving frontmatter comments, key order, or spelling after a structured update. Unknown keys remain.
-- Downloading unsaved input. Download now exports the saved file after pending writes settle.
+- Downloading unsaved input. Download now writes the shown body and exports the saved file only after that write lands.
 - Edit as text writes the whole file, so a save can recreate a capture deleted elsewhere while that editor is open.
 
 The earlier move to the local folder also removed Save version, Git history, sync, and automatic access to captures stored in OPFS.

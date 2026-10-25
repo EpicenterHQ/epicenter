@@ -1,8 +1,7 @@
 /**
  * Capture mirror test harness.
  *
- * Opens the real folder mirror on a memory host, with the same Svelte wrapper
- * and failure reporting used by OpenFolder.
+ * Opens the real folder mirror on a memory host with its Svelte wrapper.
  */
 import { type CaptureRow, captureTables } from '@epicenter/capture';
 import {
@@ -23,16 +22,13 @@ export async function until(check: () => boolean, what = 'the check') {
 
 export async function openCaptures(
 	files: Record<string, string | Uint8Array> = {},
-	{ throttleMs = 20 }: { throttleMs?: number } = {},
 ) {
 	const host = memoryHost(files);
 	const raw = expectOk(
-		await createFolder(host.storage, { tables: captureTables, throttleMs }),
+		await createFolder(host.storage, { tables: captureTables }),
 	);
 	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
 	const { createCaptures } = await import('./captures.svelte.ts');
-	const failures: { path: string; text: string | undefined }[] = [];
-	raw.onFailed(({ path, text }) => failures.push({ path, text }));
 	const folder = svelteFolder(raw);
 	const captures: Captures = createCaptures(folder);
 	return {
@@ -40,7 +36,6 @@ export async function openCaptures(
 		folder,
 		host,
 		captures,
-		failures,
 		rows: (): readonly CaptureRow[] => folder.tables.captures.rows,
 		cached: (stem: string) => folder.tables.captures.row(stem),
 		text: (path: string) => host.text(path),
@@ -58,6 +53,7 @@ export async function openCaptures(
 			return () => host.control.failPut.delete(path);
 		},
 		async quiet() {
+			await Bun.sleep(1050);
 			await until(() => !raw.saving(), 'saves to land');
 		},
 		close: () => raw.close(),
