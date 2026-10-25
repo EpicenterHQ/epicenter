@@ -12,6 +12,7 @@ import type {
 	Tables,
 	WriteError,
 } from '@epicenter/folder/next';
+import { typedText } from '@epicenter/folder/next';
 import {
 	createContext,
 	createElement,
@@ -197,13 +198,16 @@ function snapshot<T extends Tables>(
 		reads.set(key, { get, value });
 		return value;
 	};
+	/** Tell `onFailed` once about a write that did not land, except a refusal the caller handles. */
 	const report = (
 		path: string,
 		text: string | undefined,
 		saved: Saved,
+		handled?: WriteError['name'],
 	): Saved => {
 		void saved.then(({ error }) => {
-			if (error !== null) onFailed?.({ path, error, text });
+			if (error !== null && error.name !== handled)
+				onFailed?.({ path, error, text });
 		});
 		return saved;
 	};
@@ -232,11 +236,7 @@ function snapshot<T extends Tables>(
 				folder.write(path, data),
 			),
 		update: (path, patch, options) =>
-			report(
-				path,
-				patch.body ?? fieldText(patch.fields),
-				folder.update(path, patch, options),
-			),
+			report(path, typedText(patch), folder.update(path, patch, options)),
 		delete: (path) => report(path, undefined, folder.delete(path)),
 		checkpoint: folder.checkpoint,
 	};
@@ -246,7 +246,12 @@ function tableSnapshot<S extends Schema>(
 	name: string,
 	table: Table<S>,
 	read: Read,
-	report: (path: string, text: string | undefined, saved: Saved) => Saved,
+	report: (
+		path: string,
+		text: string | undefined,
+		saved: Saved,
+		handled?: WriteError['name'],
+	) => Saved,
 ): ReactTable<S> {
 	const pathOf = (id: string) => `${name}/${id}.md`;
 	return {
@@ -257,25 +262,15 @@ function tableSnapshot<S extends Schema>(
 		create: (id, init) =>
 			report(
 				pathOf(id),
-				init.body ?? fieldText(init.fields),
+				typedText(init),
 				table.create(id, init),
+				// A create that finds the file there answers the caller, who decides what it means.
+				'Exists',
 			),
 		update: (id, patch) =>
-			report(
-				pathOf(id),
-				patch.body ?? fieldText(patch.fields),
-				table.update(id, patch),
-			),
+			report(pathOf(id), typedText(patch), table.update(id, patch)),
 		delete: (id) => report(pathOf(id), undefined, table.delete(id)),
 	};
-}
-
-function fieldText(fields: object | undefined): string | undefined {
-	if (fields === undefined) return undefined;
-	const values = Object.values(fields).filter(
-		(value): value is string => typeof value === 'string',
-	);
-	return values.length === 0 ? undefined : values.join('\n');
 }
 
 /** Text ahead of its save, until that save answers. */
