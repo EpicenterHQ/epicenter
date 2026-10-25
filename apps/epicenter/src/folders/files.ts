@@ -83,14 +83,24 @@ export type FileText =
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /** Whether `bytes` can be edited, or what to show when they cannot. */
-export function fileText(bytes: Uint8Array): FileText {
+export function fileText(bytes: string | Uint8Array): FileText {
 	let text: string;
-	try {
-		text = decoder.decode(bytes);
-	} catch {
-		return { kind: 'binary', size: bytes.length };
+	if (typeof bytes === 'string') text = bytes;
+	else {
+		try {
+			text = decoder.decode(bytes);
+		} catch {
+			return { kind: 'binary', size: bytes.length };
+		}
 	}
-	if (text.includes('\0')) return { kind: 'binary', size: bytes.length };
+	if (text.includes('\0'))
+		return {
+			kind: 'binary',
+			size:
+				typeof bytes === 'string'
+					? new TextEncoder().encode(bytes).length
+					: bytes.length,
+		};
 	const crlf = (text.match(/\r\n/g) ?? []).length;
 	const cr = (text.match(/\r/g) ?? []).length;
 	const lf = (text.match(/\n/g) ?? []).length;

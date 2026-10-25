@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
+	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+	import type { Saved } from '@epicenter/folder/next';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -13,40 +14,43 @@
 	} from './views.svelte';
 	import TablesView from './TablesView.svelte';
 	import SqlView from './SqlView.svelte';
-	import { getFolder } from './context.js';
-	import { createQuery } from '@tanstack/svelte-query';
 	import FileEditor from './FileEditor.svelte';
 	import { fileTree } from './files';
 
 
 	/** Files, recipes and held input share one window and one open folder. */
 
-	const { folder, queries, getStatus } = getFolder();
-	const status = $derived(getStatus());
-
-	const listing = createQuery(() => queries.files());
-	const tree = $derived(
-		listing.data === undefined ? undefined : fileTree(listing.data),
-	);
-	/** The paths whose input the folder holds, saving or failed. */
-	const unsaved = $derived(status.unsaved);
-	const held = $derived(new Set(unsaved));
-	const unlisted = $derived(
-		unsaved.filter((path) => listing.error || !listing.data?.includes(path)),
-	);
+	let { folder }: { folder: SvelteFolder<Record<never, never>> } = $props();
+	const tree = $derived(fileTree(folder.files.map((file) => file.path)));
 	let selected = $state<string | undefined>(undefined);
 	let view = $state('files');
-	function openSource(path: string) {
-		selected = path;
-		view = 'files';
+	let navigation = 0;
+	let lastSave: Saved | undefined;
+	function trackSave(saved: Saved): Saved {
+		lastSave = saved;
+		return saved;
 	}
-	const declaration = folder.files.document('epicenter.json');
-	const snapshot = liveSnapshot(declaration);
-	const saved = $derived(readSavedViews(snapshot.current.text ?? '{}'));
-	const loadProblem = $derived(snapshot.current.loadError?.name === 'Missing' ? undefined : snapshot.current.loadError?.message);
+	async function show(next: string, path?: string) {
+		const ticket = ++navigation;
+		folder.checkpoint();
+		if (lastSave) await lastSave;
+		if (ticket !== navigation) return;
+		if (path !== undefined) selected = path;
+		view = next;
+	}
+	function openSource(path: string) {
+		void show('files', path);
+	}
+	const declaration = $derived(folder.file('epicenter.json'));
+	const source = $derived(declaration?.data);
+	const loadProblem = $derived(declaration?.readError?.message ?? (source instanceof Uint8Array ? 'epicenter.json is not UTF-8 text' : undefined));
+	const saved = $derived(readSavedViews(typeof source === 'string' ? source : '{}'));
 	const views = createViews({
 		saved: () => saved.data?.views ?? {},
-		declaration,
+		declaration: {
+			text: () => loadProblem ? null : typeof source === 'string' ? source : undefined,
+			write: (text) => trackSave(folder.write('epicenter.json', text)),
+		},
 	});
 	const recipe = $derived(views.value(view));
 	const needsDirectory = $derived(
@@ -74,24 +78,24 @@
 			<Button
 				variant={view === 'files' ? 'secondary' : 'ghost'}
 				aria-pressed={view === 'files'}
-				onclick={() => (view = 'files')}>Files</Button
+				onclick={() => void show('files')}>Files</Button
 			>
 			<Button
 				variant={view === TABLES ? 'secondary' : 'ghost'}
 				aria-pressed={view === TABLES}
-				onclick={() => (view = TABLES)}>Tables</Button
+				onclick={() => void show(TABLES)}>Tables</Button
 			>
 			<Button
 				variant={view === SQL ? 'secondary' : 'ghost'}
 				aria-pressed={view === SQL}
-				onclick={() => (view = SQL)}>SQL</Button
+				onclick={() => void show(SQL)}>SQL</Button
 			>
 		</nav>
 		{#if savedEntries.length > 0}<Select.Root
 				type="single"
 				value={savedEntries.some(([key]) => key === view) ? view : ''}
 				onValueChange={(key) => {
-					if (key) view = key;
+					if (key) void show(key);
 				}}
 				><Select.Trigger aria-label="Saved views"
 					>{savedEntries.find(([key]) => key === view)?.[1].title ??
@@ -105,16 +109,9 @@
 				></Select.Root
 			>{/if}
 		<span class="ml-auto text-sm text-muted-foreground" role="status">
-			{#if status.saving}
+		{#if folder.saving}
 				Saving…
-			{:else if status.failures.length > 0}
-				<span class="text-destructive">
-					Not saved: {status.failures.map((failure) => failure.path).join(', ')}
-				</span>
-			{:else if status.storageFailure !== null}
-				<span class="text-destructive"
-					>A save failed: {status.storageFailure.message}</span
-				>
+			{:else}Saved
 			{/if}
 		</span>
 	</header>
@@ -135,15 +132,6 @@
 			>
 		</div>
 	{/if}
-	{#if snapshot.current.saveError}
-		<Alert.Root variant="destructive" class="rounded-none border-x-0">
-			<Alert.Description>
-				<p>epicenter.json did not save: {snapshot.current.saveError.message}</p>
-				<Button variant="link" onclick={() => void declaration.save()}>Retry declaration save</Button>
-				<Button variant="link" onclick={() => openSource('epicenter.json')}>Open epicenter.json</Button>
-			</Alert.Description>
-		</Alert.Root>
-	{/if}
 	{#if view !== 'files' && recipe}
 		<div class="flex flex-wrap items-center gap-2 border-b px-4 py-2">
 			<Input
@@ -159,16 +147,14 @@
 				>{/if}
 			<Button
 				size="sm"
-				disabled={(snapshot.current.text === undefined && snapshot.current.loadError?.name !== 'Missing') ||
-					needsDirectory}
+				disabled={!!loadProblem || needsDirectory}
 				onclick={() => view = views.save(view)}
 				>{viewError ? 'Retry save' : 'Save view'}</Button
 			>
 			<Button
 				size="sm"
 				variant="outline"
-				disabled={(snapshot.current.text === undefined && snapshot.current.loadError?.name !== 'Missing') ||
-					needsDirectory}
+				disabled={!!loadProblem || needsDirectory}
 				onclick={() => view = views.save(view, true)}>Save as new</Button
 			>
 			{#if view !== TABLES && view !== SQL}
@@ -177,7 +163,7 @@
 					variant="ghost"
 					onclick={() => {
 						views.reload(view);
-						void declaration.refresh();
+						folder.checkpoint();
 					}}>Reload settings</Button
 				>
 				<Button
@@ -211,17 +197,19 @@
 						)}</pre></Alert.Description
 				></Alert.Root
 			>{/if}
-		{#if view !== TABLES && view !== SQL && !storedEntries.some(([key]) => key === view)}<p
+		{#if view !== TABLES && view !== SQL && !storedEntries.some(([key]) => key === view) && !views.submitting(view)}<p
 				class="px-4 py-2 text-sm"
 			>
-				This view was deleted or cannot be read. Your settings are still here;
+					This view was deleted or cannot be read. Your settings are still here;
 				use Save as new.
 			</p>{/if}
 		{#if recipe.type === 'sql'}<SqlView
 				{views}
 				viewKey={view}
 			/>{:else}<TablesView
+				{folder}
 				{openSource}
+				{trackSave}
 				view={recipe}
 				change={(value) => views.edit(view, value)}
 			/>{/if}
@@ -238,40 +226,7 @@
 	{:else if view === 'files'}
 		<div class="flex min-h-0 flex-1">
 			<nav class="w-72 shrink-0 overflow-auto border-r p-2" aria-label="Files">
-				{#if unlisted.length > 0}
-					<section class="mb-3" aria-label="Unsaved files">
-						<h2 class="px-2 py-1 text-sm font-semibold">Unsaved files</h2>
-						<ul class="font-mono text-sm">
-							{#each unlisted as path (path)}
-								<li>
-									<button
-										type="button"
-										title={path}
-										aria-current={path === selected ? 'page' : undefined}
-										class={[
-											'block w-full truncate rounded px-2 py-0.5 text-left hover:bg-muted',
-											path === selected && 'bg-muted font-medium',
-										]}
-					onclick={() => (selected = path)}
-									>
-										{path}<span class="sr-only"> (not saved yet)</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
-					</section>
-				{/if}
-				{#if listing.error}
-					<Alert.Root variant="destructive">
-						<Alert.Description
-							>Could not list the files: {listing.error
-								.message}</Alert.Description
-						>
-					</Alert.Root>
-				{/if}
-				{#if tree === undefined}
-					<p class="p-2 text-sm text-muted-foreground">Reading…</p>
-				{:else if tree.length === 0}
+				{#if tree.length === 0}
 					<p class="p-2 text-sm text-muted-foreground">This folder is empty.</p>
 				{:else}
 					<ul class="font-mono text-sm">
@@ -292,11 +247,7 @@
 										title={entry.path}
 					onclick={() => (selected = entry.path)}
 									>
-										{entry.name}{#if held.has(entry.path)}<span class="sr-only">
-												(not saved yet)</span
-											><span class="text-muted-foreground" aria-hidden="true">
-												•</span
-											>{/if}
+										{entry.name}
 									</button>
 								{/if}
 							</li>
@@ -308,7 +259,7 @@
 			<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 				{#if selected !== undefined}
 					{#key selected}
-						<FileEditor path={selected} />
+						<FileEditor {folder} path={selected} {trackSave} />
 					{/key}
 				{:else}
 					<div

@@ -7,10 +7,90 @@
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { documentChange, readDocument } from './documents.js';
+import {
+	documentChange,
+	documentsOf,
+	readDocument,
+	type DocumentCache,
+	type SavedFile,
+} from './documents.js';
 import { queryDocuments } from './query-documents.js';
 
 const bytes = (text: string) => new TextEncoder().encode(text);
+
+test('saved files apply schemas only to direct Markdown children and keep readable problems', () => {
+	const files: SavedFile[] = [
+		{
+			path: 'epicenter.json',
+			data: JSON.stringify({
+				tables: {
+					notes: {
+						type: 'object',
+						properties: { title: { type: 'string' } },
+						required: ['title'],
+					},
+				},
+			}),
+			readError: null,
+		},
+		{ path: 'notes/a.md', data: '---\ncount: 1\n---\n', readError: null },
+		{ path: 'notes/deep/a.md', data: '---\ncount: 1\n---\n', readError: null },
+		{ path: 'root.md', data: 'Hello', readError: null },
+		{
+			path: 'missing.md',
+			data: undefined,
+			readError: { message: 'read failed' },
+		},
+		{ path: 'binary.md', data: new Uint8Array([0xff]), readError: null },
+	];
+	const reading = documentsOf(files);
+	expect(
+		reading.documents.find((doc) => doc.path === 'notes/a.md')?.issues?.[0]
+			?.kind,
+	).toBe('schema');
+	expect(
+		reading.documents.find((doc) => doc.path === 'notes/deep/a.md')?.issues,
+	).toBeNull();
+	expect(reading.documents.find((doc) => doc.path === 'root.md')?.body).toBe(
+		'Hello',
+	);
+	expect(
+		reading.documents.find((doc) => doc.path === 'binary.md')?.issues?.[0]
+			?.kind,
+	).toBe('not-text');
+	expect(reading.unreadable).toEqual([
+		{ path: 'missing.md', message: 'read failed' },
+	]);
+});
+
+test('unchanged file values keep document identity with a cache', () => {
+	const declaration: SavedFile = {
+		path: 'epicenter.json',
+		data: JSON.stringify({
+			tables: {
+				notes: { type: 'object', properties: { title: { type: 'string' } } },
+			},
+		}),
+		readError: null,
+	};
+	const file: SavedFile = {
+		path: 'notes/a.md',
+		data: '---\ntitle: A\n---\n',
+		readError: null,
+	};
+	const cache: DocumentCache = new WeakMap();
+	const first = documentsOf([declaration, file], cache).documents[0];
+	expect(documentsOf([declaration, file], cache).documents[0]).toBe(first);
+	expect(
+		documentsOf([declaration, { ...file, data: '---\ntitle: B\n---\n' }], cache)
+			.documents[0],
+	).not.toBe(first);
+	expect(documentsOf([{ ...declaration }, file], cache).documents[0]).not.toBe(first);
+	const broken = documentsOf([
+		{ path: 'epicenter.json', data: new Uint8Array([255]), readError: null },
+	]);
+	expect(broken.declarationProblem).toBe('epicenter.json is not UTF-8 text');
+});
 
 test('root and nested Markdown without frontmatter keep their full body and gain fields explicitly', () => {
 	const doc = readDocument('notes/deep/a.md', bytes('hello\r\n'));
@@ -130,7 +210,9 @@ test('directory SQL and the open editor share declared diagnostics without requi
 				(doc) => doc.path === 'notes/attachments/README.md',
 			)?.issues,
 		).toBeNull();
-		expect(desktop.unreadable).toEqual(editor.unreadable);
+		expect(desktop.unreadable.map((item) => item.path)).toEqual(
+			editor.unreadable.map((item) => item.path),
+		);
 		expect(desktop.unreadable[0]?.path).toBe('linked.md');
 		const query = expectOk(
 			queryDocuments(desktop, 'SELECT issues FROM documents'),

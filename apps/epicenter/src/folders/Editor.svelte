@@ -2,16 +2,18 @@
 	/**
 	 * A folder editor window's page, at `/folders/editor/` in the Folders
 	 * build. The shell bound one listed folder to this window before it
-	 * existed; `<FolderApp>` opens it with no tables, owns its handle, and
+	 * existed; `<OpenFolder>` opens it with no tables, owns its handle, and
 	 * closes it when the window goes. The page names no folder.
 	 */
-	import { openFolder } from '@epicenter/folder';
-	import FolderApp from '@epicenter/svelte/folder-app';
-	import FolderEditor from './FolderEditor.svelte';
+	import { openFolder } from '@epicenter/folder/next/tauri';
+	import OpenFolder from '@epicenter/svelte/open-folder';
+	import { Toaster } from '@epicenter/ui/sonner';
+	import FolderView from './FolderView.svelte';
 </script>
 
-<FolderApp open={() => openFolder({ tables: {} })}>
-	{#snippet children(context)}
-		<FolderEditor {context} />
+<OpenFolder open={() => openFolder({ tables: {} })}>
+	{#snippet children(folder)}
+		<FolderView {folder} />
 	{/snippet}
-</FolderApp>
+</OpenFolder>
+<Toaster closeButton />

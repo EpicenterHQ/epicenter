@@ -1,9 +1,3 @@
-/**
- * Settings connection context tests.
- * Mounts two connection lists over separate real Markdown folders. Descendant
- * editors must read and autosave to their own provider, and closing one folder
- * must disable its form without disabling the other. No keychain call is needed.
- */
 import { describe, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -11,107 +5,141 @@ const browser = Bun.resolveSync('svelte', import.meta.dir).endsWith(
 	'index-client.js',
 );
 
-describe.skipIf(!browser)('Settings folder context', async () => {
+describe.skipIf(!browser)('Settings connections mirror', async () => {
 	if (!browser) return;
-	const { type } = await import(
+	const { type, click } = await import(
 		'../../../../../packages/svelte/src/svelte-dom.test-support.js'
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
-	const { createFolderContext } = await import('@epicenter/svelte/folder');
-	const { createNativeFolder } = await import(
-		'../../../../../packages/folder/src/native/engine.js'
+	const { createFolder, memoryHost } = await import(
+		'@epicenter/folder/next/testing'
 	);
-	const { nativeStorage } = await import(
-		'../../../../../packages/folder/src/native/storage.js'
-	);
-	const { mkdir, mkdtemp, rm } = await import('node:fs/promises');
-	const { tmpdir } = await import('node:os');
-	const { join } = await import('node:path');
+	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
 	const { connectionTables } = await import('./connections.js');
-	const { default: ConnectionList } = await import('./ConnectionList.svelte');
+	const { default: Host } = await import('./ConnectionListHost.svelte');
 
 	async function until(check: () => boolean) {
-		for (let attempt = 0; attempt < 400; attempt++) {
+		for (let turn = 0; turn < 400; turn++) {
 			flushSync();
 			if (check()) return;
 			await Bun.sleep(5);
 		}
-		throw new Error('The connection view did not update');
+		throw new Error('Connections did not update');
 	}
 
-	test('nested editors autosave to their own folder and closing stays reactive', async () => {
-		const directory = await mkdtemp(join(tmpdir(), 'connection-context-'));
-		async function open(title: string) {
-			const root = join(directory, crypto.randomUUID());
-			await mkdir(root);
-			const folder = createNativeFolder({
-				directory: `bun:${root}`,
+	async function setup(files: Record<string, string> = {}) {
+		const memory = memoryHost(files);
+		const owner = expectOk(
+			await createFolder(memory.storage, {
 				tables: connectionTables,
-				storage: nativeStorage(root),
-				saveAfterMs: 20,
-			});
-			expectOk(
-				await folder.tables.connections.write('account', {
-					fields: { kind: 'epicenter', title, model: '' },
-					body: '',
-				}),
-			);
-			const context = createFolderContext(folder);
-			const target = document.createElement('main');
-			document.body.append(target);
-			const app = mount(ConnectionList, { target, props: { context } });
-			return { folder, context, target, app };
-		}
-		const owners: Awaited<ReturnType<typeof open>>[] = [];
+				throttleMs: 0,
+			}),
+		);
+		const folder = svelteFolder(owner);
+		const target = document.createElement('main');
+		document.body.append(target);
+		const app = mount(Host, { target, props: { folder } });
+		return {
+			...memory,
+			owner,
+			folder,
+			target,
+			async close() {
+				await unmount(app);
+				await owner.close();
+				target.remove();
+			},
+		};
+	}
+
+	test('title input follows its landed row and add creates a row before returning', async () => {
+		const fixture = await setup({
+			'connections/account.md':
+				'---\nkind: epicenter\ntitle: First\nmodel: ""\n---\n',
+		});
 		try {
-			for (const title of ['First account', 'Second account']) {
-				owners.push(await open(title));
-			}
-			const [first, second] = owners;
-			if (!first || !second) throw new Error('Missing connection lists');
-			await until(() =>
-				owners.every(({ target }) => target.querySelector('li input') !== null),
-			);
-			const title = first.target.querySelector<HTMLInputElement>('li input');
-			type(title, 'Edited first account');
+			await until(() => fixture.target.querySelector('li input') !== null);
+			type(fixture.target.querySelector('li input'), 'Changed');
 			await until(
 				() =>
-					!first.folder.tables.connections.document('account').getSnapshot()
-						.isDirty,
+					fixture.text('connections/account.md')?.includes('title: Changed') ??
+					false,
 			);
-			const savedFirst = expectOk(
-				await first.folder.tables.connections.get('account'),
-			);
-			const savedSecond = expectOk(
-				await second.folder.tables.connections.get('account'),
-			);
-			if (
-				!savedFirst ||
-				savedFirst.issues !== null ||
-				!savedSecond ||
-				savedSecond.issues !== null
-			)
-				throw new Error('Connection files did not read');
-			expect(savedFirst.fields.title).toBe('Edited first account');
-			expect(savedSecond.fields.title).toBe('Second account');
 			expect(
-				second.target.querySelector<HTMLInputElement>('li input')?.value,
-			).toBe('Second account');
-			const add = (target: HTMLElement) =>
-				[...target.querySelectorAll('button')].find(
-					(button) => button.textContent?.trim() === 'Add',
+				fixture.folder.tables.connections.row('account')?.fields?.title,
+			).toBe('Changed');
+			const addTitle = fixture.target.querySelector<HTMLInputElement>(
+				'[aria-label="Title"]',
+			);
+			type(addTitle, 'Another');
+			const kind = fixture.target.querySelector<HTMLSelectElement>(
+				'[aria-label="Kind"]',
+			);
+			if (!kind) throw new Error('Missing kind');
+			kind.value = 'epicenter';
+			kind.dispatchEvent(new Event('change', { bubbles: true }));
+			flushSync();
+			fixture.target
+				.querySelector('form')
+				?.dispatchEvent(
+					new Event('submit', { bubbles: true, cancelable: true }),
 				);
-			expect(add(first.target)?.disabled).toBe(false);
-			await first.context.close();
-			await until(() => add(first.target)?.disabled === true);
-			expect(add(second.target)?.disabled).toBe(false);
+			await until(
+				() => fixture.folder.tables.connections.row('another') !== undefined,
+			);
+			expect(fixture.text('connections/another.md')).toContain(
+				'title: Another',
+			);
 		} finally {
-			for (const { app, context, target } of owners.reverse()) {
-				await unmount(app);
-				await context.close();
-				target.remove();
-			}
-			await rm(directory, { recursive: true, force: true });
+			await fixture.close();
+		}
+	});
+
+	test('invalid connection displays its exact text and issues', async () => {
+		const fixture = await setup({
+			'connections/broken.md': '---\nkind: no-such-kind\n---\nSource\n',
+		});
+		try {
+			await until(
+				() =>
+					fixture.target.textContent?.includes(
+						'does not read as a connection',
+					) ?? false,
+			);
+			expect(fixture.target.querySelector('pre')?.textContent).toContain(
+				'kind: no-such-kind',
+			);
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('delete removes the key before the connection row', async () => {
+		const fixture = await setup({
+			'connections/account.md':
+				'---\nkind: epicenter\ntitle: Account\nmodel: ""\n---\n',
+		});
+		const { commands } = await import('../bindings.gen.js');
+		const previous = Reflect.get(commands, 'aiKeyRemove');
+		const order: string[] = [];
+		Reflect.set(commands, 'aiKeyRemove', async () => {
+			order.push('ai_key_remove');
+			return { data: true, error: null };
+		});
+		fixture.control.beforePut = (path) => order.push(path);
+		try {
+			await until(() => fixture.target.querySelector('li input') !== null);
+			click(fixture.target, 'Delete connection');
+			await until(
+				() => fixture.folder.tables.connections.row('account') === undefined,
+			);
+			expect(order).toEqual(['ai_key_remove', 'connections/account.md']);
+			expect(fixture.text('connections/account.md')).toBeUndefined();
+		} finally {
+			if (previous === undefined)
+				Reflect.deleteProperty(commands, 'aiKeyRemove');
+			else Reflect.set(commands, 'aiKeyRemove', previous);
+			await fixture.close();
 		}
 	});
 });

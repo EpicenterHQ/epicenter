@@ -1,78 +1,89 @@
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
+	import type { FileValue, ReadError, Saved } from '@epicenter/folder/next';
+	import { openedFile, withFileNewlines, type OpenedFile } from '@epicenter/folder/file-browser';
+	import { draft, type SvelteFolder } from '@epicenter/svelte/folder-next';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { fileText } from './files.js';
 
-	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { getFolder } from './context.js';
-
-	/** Exact source stays with the folder, including after this view unmounts. */
-	let { path: shownPath }: { path: string } = $props();
-	const { folder } = getFolder();
-	// The parent keys this view by path.
-	// svelte-ignore state_referenced_locally
-	const path = shownPath;
-	const fileEdit = folder.files.document(path);
-	const snapshot = liveSnapshot(fileEdit);
-	const text = $derived(snapshot.current.text);
-	let inputProblem = $state<string>();
-	/** A textarea would rewrite mixed line endings or lone carriage returns. */
-	function hasMixedNewlines(text: string) {
-		const other = text.replaceAll('\r\n', '');
-		return other.includes('\r') || (text.includes('\r\n') && other.includes('\n'));
-	}
+	let { folder, path, trackSave }: { folder: SvelteFolder<Record<never, never>>; path: string; trackSave: (saved: Saved) => Saved } = $props();
+	const file = $derived(folder.file(path));
+	let fetched = $state.raw<{ from: FileValue; opened?: OpenedFile; error?: ReadError }>();
+	let writing = false;
+	let lastWrite: Saved | undefined;
+	$effect(() => {
+		const from = folder.file(path);
+		if (!from || from.data !== undefined || from.readError || fetched?.from === from || writing) return;
+		void folder.read(path).then(({ data, error }) => {
+			if (folder.file(path) === from && !writing)
+				fetched = error ? { from, error } : { from, opened: data ? openedFile(data) : undefined };
+		});
+	});
+	const opened = $derived.by(() => {
+		if (typeof file?.data === 'string') return { kind: 'text', text: file.data } as const;
+		if (file?.data instanceof Uint8Array) return openedFile(file.data);
+		return fetched?.opened;
+	});
+	const base = $derived(opened?.kind === 'text' ? opened.text : undefined);
+	const classification = $derived(base === undefined ? undefined : fileText(base));
+	const input = draft(
+		() => base?.replaceAll('\r\n', '\n') ?? '',
+		async (value) => {
+			const out = withFileNewlines(value, base ?? '');
+			if (file?.data === undefined && file) {
+				writing = true;
+				fetched = { from: file, opened: { kind: 'text', text: out } };
+			}
+			const saved = lastWrite = trackSave(folder.write(path, out));
+			const result = await saved;
+			if (lastWrite === saved) {
+				writing = false;
+				const current = folder.file(path);
+				if (result.error === null && current)
+					fetched = { from: current, opened: { kind: 'text', text: out } };
+				else if (current && current.data === undefined) {
+					const read = await folder.read(path);
+					if (folder.file(path) === current && lastWrite === saved)
+						fetched = read.error ? { from: current, error: read.error } : { from: current, opened: read.data ? openedFile(read.data) : undefined };
+				}
+			}
+			return result;
+		},
+	);
 </script>
 
 <section class="flex min-h-0 flex-1 flex-col" aria-label={path}>
 	<header class="flex items-center gap-3 border-b px-4 py-2">
 		<h3 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h3>
-		<span class="text-xs text-muted-foreground" role="status">
-			{#if snapshot.current.saveError}Not saved
-			{:else if snapshot.current.isDirty || snapshot.current.isSaving}Saving…
-			{:else if snapshot.current.text !== undefined}Saved when you pause or leave the box.{/if}
-		</span>
 	</header>
-	{#if inputProblem}<p role="alert" class="px-4 py-2 text-sm text-destructive">{inputProblem}</p>{/if}
-	{#if snapshot.current.saveError}
-		<Alert.Root variant="destructive" class="rounded-none border-x-0 border-t-0">
-			<Alert.Description>
-				<p>Your edit was not saved: {snapshot.current.saveError.message}</p>
-				<div class="mt-1 flex gap-2">
-					<Button size="xs" variant="outline" onclick={() => void fileEdit.save()}>Try again</Button>
-					<Button size="xs" variant="ghost" onclick={() => fileEdit.discard()}>Discard edit</Button>
-				</div>
-			</Alert.Description>
-		</Alert.Root>
-	{/if}
-	{#if snapshot.current.loadError}
-		<div class="p-4">
-			<Alert.Root variant="destructive">
-				<Alert.Description>
-					{snapshot.current.loadError.message}
-					<Button size="xs" variant="outline" onclick={() => void fileEdit.refresh()}>Try reading again</Button>
-				</Alert.Description>
-			</Alert.Root>
-		</div>
-	{/if}
-	{#if text !== undefined}
-		{#if hasMixedNewlines(text)}
+	{#if !file}
+		<p class="p-4 text-sm text-muted-foreground">This file is no longer in the folder.</p>
+	{:else}
+		{#if file.readError || (fetched?.from === file && fetched.error)}
+			<div class="p-4"><Alert.Root variant="destructive"><Alert.Description>
+				{file.readError?.message ?? fetched?.error?.message}
+				<Button size="xs" variant="outline" onclick={() => { fetched = undefined; folder.checkpoint(); }}>Try again</Button>
+			</Alert.Description></Alert.Root></div>
+		{/if}
+		{#if opened?.kind === 'binary' || opened?.kind === 'tooLarge'}
+			<p class="p-4 text-sm text-muted-foreground">This file cannot be edited as text ({opened.size} bytes).</p>
+		{:else if classification?.kind === 'mixed'}
 			<div class="flex min-h-0 flex-1 flex-col gap-2 p-4">
 				<p class="text-sm text-muted-foreground">This file mixes line endings, which editing here would change, so it is shown as it is and not edited.</p>
-				<pre class="min-h-0 flex-1 overflow-auto rounded-md border p-2 font-mono text-xs whitespace-pre-wrap">{text}</pre>
+				<pre class="min-h-0 flex-1 overflow-auto rounded-md border p-2 font-mono text-xs whitespace-pre-wrap">{classification.text}</pre>
 			</div>
-		{:else}
+		{:else if base !== undefined}
 			<Textarea
 				class="min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm outline-none"
 				aria-label="Text of {path}"
 				spellcheck="false"
-				bind:value={() => text.replaceAll('\r\n', '\n'), (value) => {
-					const { error } = fileEdit.replace(withFileNewlines(value, text));
-					inputProblem = error?.message;
-				}}
+				bind:value={input.text}
 			/>
+		{:else if fetched?.from === file && fetched.opened === undefined && !fetched.error}
+			<p class="p-4 text-sm text-muted-foreground">This file is no longer in the folder.</p>
+		{:else if !file.readError && !(fetched?.from === file && fetched.error)}
+			<p class="p-4 text-sm text-muted-foreground">Reading…</p>
 		{/if}
-	{:else if !snapshot.current.loadError}
-		<p class="p-4 text-sm text-muted-foreground">Reading…</p>
 	{/if}
 </section>

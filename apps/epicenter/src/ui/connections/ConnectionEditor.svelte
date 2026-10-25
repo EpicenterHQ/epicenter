@@ -1,49 +1,36 @@
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
-
-	import { getFolder } from './folder.js';
+	import { draft, type SvelteFolder } from '@epicenter/svelte/folder-next';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { commands } from '../bindings.gen';
 	import {
 		type Connection,
+		connectionTables,
 		failureText,
 		keyStateKey,
 		KIND_LABELS,
-		saveFailureText,
 	} from './connections';
 
 	/**
 	 * One AI connection: its row in `so.epicenter`, whose title and model are
-	 * edited in place through the folder's edit of the row
-	 * (`folder.tables.connections.document(id)`): what is typed shows at
-	 * once and saves a second after the last keystroke, even after the editor
-	 * goes away. For an `openai-compatible` connection, the
+	 * edited in place through the folder's row update. For an `openai-compatible` connection, the
 	 * endpoint and key this computer keeps for it are in the keychain
 	 * (ADR-0557). The page hands a key to the keychain and never reads one
 	 * back. The list keys each editor by its id.
 	 */
-	let {
-		row,
-	}: {
+	let { folder, row }: {
+		folder: SvelteFolder<typeof connectionTables>;
 		/** The row as the folder holds it now. */
 		row: Connection;
 	} = $props();
-	const { folder, queryClient, getStatus } = getFolder();
+	const queryClient = useQueryClient();
 
 	// svelte-ignore state_referenced_locally
 	const id = row.id;
-	// The list keys each editor by its id, in one opened folder. The list's
-	// read answered the edit's document.
-	const fileEdit = folder.tables.connections.document(id);
-	const snapshot = liveSnapshot(fileEdit);
-	/** The connection with what is typed over it, or as the list read it while that is not known. */
-	const parsed = $derived(snapshot.current.text === undefined
-		? undefined
-		: folder.tables.connections.parse(snapshot.current.text));
-	const fields = $derived(parsed?.issues === null ? parsed.fields : row.fields);
-	const failure = $derived(snapshot.current.saveError);
+	const fields = $derived(row.fields);
+	const title = draft(() => row.fields.title, (value) => folder.tables.connections.update(id, { fields: { title: value } }));
+	const model = draft(() => row.fields.model, (value) => folder.tables.connections.update(id, { fields: { model: value } }));
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -61,14 +48,7 @@
 	let endpoint = $state('');
 	let key = $state('');
 	let keyProblem = $state<string>();
-	let deleteProblem = $state<string>();
-	let inputProblem = $state<string>();
 	let savingKey = $state(false);
-
-	function type(field: 'title' | 'model', text: string) {
-		const { error } = fileEdit.patch({ fields: { [field]: text } });
-		inputProblem = error?.message;
-	}
 
 	async function saveKey() {
 		savingKey = true;
@@ -95,53 +75,35 @@
 
 	async function removeConnection() {
 		keyProblem = undefined;
-		deleteProblem = undefined;
-		// Closing Settings refuses the row's delete; the key stays with its row.
-		if (getStatus().closing) return;
 		const { error } = await commands.aiKeyRemove(id);
 		if (error !== null) {
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;
 			return;
 		}
-		const removed = await folder.files.delete(fileEdit.path);
-		if (removed.error !== null) deleteProblem = saveFailureText(removed.error);
+		await folder.tables.connections.delete(id);
 	}
 </script>
 
 <li class="grid gap-2 rounded-md border p-3">
 	<div class="flex items-center justify-between gap-2">
-		<p class="font-medium">{fields.title || id}</p>
+		<p class="font-medium">{title.text || id}</p>
 		<span class="text-muted-foreground">{KIND_LABELS[fields.kind]} · {id}</span>
 	</div>
 	<div class="grid gap-2 sm:grid-cols-2">
 		<label class="grid gap-1">
 			<span class="text-muted-foreground">Title</span>
 			<Input
-				bind:value={() => fields.title, (value) => type('title', value)}
-
-				aria-invalid={snapshot.current.saveError !== undefined || snapshot.current.loadError !== undefined}
+				bind:value={title.text}
 			/>
 		</label>
 		<label class="grid gap-1">
 			<span class="text-muted-foreground">Model</span>
 			<Input
-				bind:value={() => fields.model, (value) => type('model', value)}
+				bind:value={model.text}
 				placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
-
-				aria-invalid={snapshot.current.saveError !== undefined || snapshot.current.loadError !== undefined}
 			/>
 		</label>
 	</div>
-	{#if inputProblem}<p role="alert" class="text-sm text-destructive">{inputProblem}</p>{/if}
-	{#if snapshot.current.loadError}
-		<p role="alert" class="text-sm text-destructive">{snapshot.current.loadError.message}</p>
-	{/if}
-	{#if failure !== undefined}
-		<p role="alert" class="text-destructive">
-			Not saved: {saveFailureText(failure)}
-			<button type="button" class="underline" onclick={() => void fileEdit.save()}>Try again</button>
-		</p>
-	{/if}
 
 	{#if fields.kind === 'openai-compatible'}
 		{#if keyState.isPending}
@@ -178,7 +140,6 @@
 		<p class="text-muted-foreground">Runs on this computer with the local transcription model chosen below. Nothing is sent.</p>
 	{/if}
 	{#if keyProblem}<p role="alert" class="text-destructive">{keyProblem}</p>{/if}
-	{#if deleteProblem}<p role="alert" class="text-destructive">{deleteProblem}</p>{/if}
 	<div>
 		<Button variant="ghost" size="sm"  onclick={() => void removeConnection()}>Delete connection</Button>
 	</div>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Settings from './Settings.svelte';
+	import { Toaster } from '@epicenter/ui/sonner';
 
 	/**
 	 * Settings: the window labelled `home`, beside the applications rather than
@@ -15,3 +16,4 @@
 <main class="h-full overflow-y-auto text-sm">
 	<Settings />
 </main>
+<Toaster closeButton />
