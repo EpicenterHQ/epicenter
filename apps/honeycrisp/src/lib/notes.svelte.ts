@@ -125,8 +125,15 @@ export function createNotes(folder: NotesFolder) {
 	let selected = $state.raw<Selection | undefined>();
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
-	let lastSave: { path: string; saved: Saved } | undefined;
+	const lastSaves = new Map<string, Saved>();
 	let openRequest = 0;
+	function rememberSave(path: string, saved: Saved): Saved {
+		lastSaves.set(path, saved);
+		void saved.then(() => {
+			if (lastSaves.get(path) === saved) lastSaves.delete(path);
+		});
+		return saved;
+	}
 
 	const failed = (error: WriteError | null | undefined) =>
 		error === null || error === undefined ? undefined : WRITE_FAILED;
@@ -141,8 +148,7 @@ export function createNotes(folder: NotesFolder) {
 			...fields,
 			...(fields.title === undefined ? {} : { title: fields.title.toWellFormed() }),
 		};
-		const saved = noteTable.update(id, { fields: wellFormed });
-		lastSave = { path, saved };
+		const saved = rememberSave(path, noteTable.update(id, { fields: wellFormed }));
 		return failed((await saved).error);
 	}
 
@@ -163,7 +169,8 @@ export function createNotes(folder: NotesFolder) {
 		const request = ++openRequest;
 		if (selected?.path === path && selected.as !== as) {
 			folder.checkpoint();
-			if (lastSave?.path === path) await lastSave.saved;
+			const pending = lastSaves.get(path);
+			if (pending !== undefined) await pending;
 			if (request !== openRequest) return;
 		}
 		if (as === 'note') focusRequest += 1;
@@ -255,10 +262,7 @@ export function createNotes(folder: NotesFolder) {
 			return focusRequest;
 		},
 		open,
-		rememberSave(path: string, saved: Saved): Saved {
-			lastSave = { path, saved };
-			return saved;
-		},
+		rememberSave,
 
 		// ------------------------------------------------------------------
 		// State read reactively

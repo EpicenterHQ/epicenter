@@ -7,14 +7,13 @@
 import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
-import { svelteFolder } from '@epicenter/svelte/folder-next';
+import { createFolder, memoryHost, ReadError } from '@epicenter/folder/next/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { ReadError } from '../../../../packages/folder/src/shared/errors.js';
 import { honeycrispTables } from './data.js';
 import type { NotesFixture } from './local.test-support.ts';
 
 const { openNotes, until, shown, noteText, folderText } = await import('./local.test-support.ts');
+const { draft, svelteFolder } = await import('@epicenter/svelte/folder-next');
 const { createNotes, foldersOf, repairsOf } = await import('./notes.svelte.ts');
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => { for (const step of cleanup.splice(0).reverse()) await step(); });
@@ -49,6 +48,38 @@ test('outside field change merges beside a body update', async () => {
     const saved = await text(fixture);
     expect(saved).toContain('title: Other tab');
     expect(saved).toContain('Mine.');
+});
+
+test('opening a note as text waits for its body save after another note is patched', async () => {
+    const B = 'notes/b.md';
+    const host = memoryHost({ [A]: noteText(), [B]: noteText({ title: 'B' }) });
+    const raw = expectOk(await createFolder(host.storage, { tables: honeycrispTables, throttleMs: 250 }));
+    cleanup.push(() => raw.close());
+    const folder = svelteFolder(raw);
+    const notes = createNotes(folder);
+    const table = folder.tables.notes;
+    await notes.open(A, 'note');
+
+    let release: (() => void) | undefined;
+    host.control.putGate = new Promise((resolve) => { release = resolve; });
+    const first = notes.patchNote(A, { pinned: true });
+    await until(() => host.log.puts.length === 1, 'first A save to start');
+    const body = draft(
+        () => shown(notes, 'a').body,
+        (typed) => notes.rememberSave(A, table.update('a', { body: typed })),
+    );
+    body.set('Typed in A.\n');
+    const second = notes.patchNote(B, { pinned: true });
+    release?.();
+    host.control.putGate = undefined;
+    expect(await first).toBeUndefined();
+    expect(await second).toBeUndefined();
+    expect(host.text(A)).toContain('Body.\n');
+
+    await notes.open(A, 'text');
+    expect(notes.selected?.as).toBe('text');
+    expect(host.text(A)).toContain('Typed in A.\n');
+    expect(folder.file(A)?.data).toContain('Typed in A.\n');
 });
 
 test('another tab save appears in the mirror', async () => {
