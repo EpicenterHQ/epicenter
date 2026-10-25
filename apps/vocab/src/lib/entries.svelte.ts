@@ -40,6 +40,7 @@ async function wordId(text: string): Promise<string> {
 		.join('');
 }
 
+/** Read valid words newest first, leaving invalid files to the repair list. */
 export function wordsOf(rows: EntryRows): Entry[] {
 	return readRows('entries', rows, readEntry).rows.sort(
 		(a, b) =>
@@ -62,6 +63,11 @@ export function createEntries(folder: VocabFolder) {
 		get repairs() {
 			return repairsOf(table.rows);
 		},
+		/**
+		 * Trim and normalize an expression, then save it under its SHA-256 ID.
+		 * Exact text already listed answers `present`; a different file at that
+		 * ID answers `Taken`. Lone surrogates become U+FFFD.
+		 */
 		async add(text: string): Promise<Result<'added' | 'present', EntryError>> {
 			const exact = text.trim().toWellFormed();
 			if (exact === '') return EntryError.Empty();
@@ -92,9 +98,11 @@ export function createEntries(folder: VocabFolder) {
 			}
 			return error ? EntryError.NotSaved({ cause: error }) : Ok('added');
 		},
+		/** Set only the note field over the file's current contents. */
 		setNote(id: string, note: string) {
 			return table.update(id, { fields: { note: note.toWellFormed() } });
 		},
+		/** Set only the learner's stage over the file's current contents. */
 		setStage(id: string, stage: Stage) {
 			return table.update(id, { fields: { stage } });
 		},

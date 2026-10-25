@@ -5,8 +5,8 @@
  * and reads every module the bundle pulls in, lazy chunks included.
  *
  * Key behaviors:
- * - Vocab has one browser build. Its bare Folder import resolves to the
- *   browser entry, so no native engine enters the bundle.
+ * - Vocab's browser build opens the browser folder mirror and carries no
+ *   native engine.
  */
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
