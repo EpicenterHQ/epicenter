@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { Saved } from '@epicenter/folder/next';
+	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 
 	let { value, label, disabled, save }: {
@@ -8,13 +10,8 @@
 		disabled: boolean;
 		save: (next: boolean) => Saved;
 	} = $props();
-	let pending = $state<boolean | undefined>();
-	let lastSave: Saved | undefined;
-	function set(next: boolean) {
-		pending = next;
-		const saved = lastSave = save(next);
-		void saved.then(() => { if (lastSave === saved) pending = undefined; });
-	}
+	const input = draft(() => value === true, (next) => save(next));
 </script>
 
-<Checkbox aria-label={label} {disabled} bind:checked={() => pending ?? value === true, set} />
+<Checkbox aria-label={label} {disabled} bind:checked={input.value} />
+<UnsavedEdit draft={input} />

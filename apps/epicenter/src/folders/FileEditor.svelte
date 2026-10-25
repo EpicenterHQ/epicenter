@@ -1,22 +1,21 @@
 <script lang="ts">
-	import type { FileValue, ReadError, Saved } from '@epicenter/folder/next';
+	import type { FileValue, ReadError } from '@epicenter/folder/next';
 	import { openedFile, withFileNewlines, type OpenedFile } from '@epicenter/folder/file-browser';
 	import { draft, type SvelteFolder } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { fileText } from './files.js';
 
-	let { folder, path, trackSave }: { folder: SvelteFolder<Record<never, never>>; path: string; trackSave: (saved: Saved) => Saved } = $props();
+	let { folder, path }: { folder: SvelteFolder<Record<never, never>>; path: string } = $props();
 	const file = $derived(folder.file(path));
 	let fetched = $state.raw<{ from: FileValue; opened?: OpenedFile; error?: ReadError }>();
-	let writing = false;
-	let lastWrite: Saved | undefined;
 	$effect(() => {
 		const from = folder.file(path);
-		if (!from || from.data !== undefined || from.readError || fetched?.from === from || writing) return;
+		if (!from || from.data !== undefined || from.readError || fetched?.from === from) return;
 		void folder.read(path).then(({ data, error }) => {
-			if (folder.file(path) === from && !writing)
+			if (folder.file(path) === from)
 				fetched = error ? { from, error } : { from, opened: data ? openedFile(data) : undefined };
 		});
 	});
@@ -31,23 +30,10 @@
 		() => base?.replaceAll('\r\n', '\n') ?? '',
 		async (value) => {
 			const out = withFileNewlines(value, base ?? '');
-			if (file?.data === undefined && file) {
-				writing = true;
-				fetched = { from: file, opened: { kind: 'text', text: out } };
-			}
-			const saved = lastWrite = trackSave(folder.write(path, out));
-			const result = await saved;
-			if (lastWrite === saved) {
-				writing = false;
-				const current = folder.file(path);
-				if (result.error === null && current)
-					fetched = { from: current, opened: { kind: 'text', text: out } };
-				else if (current && current.data === undefined) {
-					const read = await folder.read(path);
-					if (folder.file(path) === current && lastWrite === saved)
-						fetched = read.error ? { from: current, error: read.error } : { from: current, opened: read.data ? openedFile(read.data) : undefined };
-				}
-			}
+			const result = await folder.write(path, out);
+			const current = folder.file(path);
+			if (result.error === null && current && current.data === undefined)
+				fetched = { from: current, opened: { kind: 'text', text: out } };
 			return result;
 		},
 	);
@@ -78,8 +64,9 @@
 				class="min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm outline-none"
 				aria-label="Text of {path}"
 				spellcheck="false"
-				bind:value={input.text}
+				bind:value={input.value}
 			/>
+			<UnsavedEdit draft={input} />
 		{:else if fetched?.from === file && fetched.opened === undefined && !fetched.error}
 			<p class="p-4 text-sm text-muted-foreground">This file is no longer in the folder.</p>
 		{:else if !file.readError && !(fetched?.from === file && fetched.error)}

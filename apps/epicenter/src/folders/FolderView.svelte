@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
-	import type { Saved } from '@epicenter/folder/next';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -25,16 +24,12 @@
 	let selected = $state<string | undefined>(undefined);
 	let view = $state('files');
 	let navigation = 0;
-	let lastSave: Saved | undefined;
-	function trackSave(saved: Saved): Saved {
-		lastSave = saved;
-		return saved;
-	}
 	async function show(next: string, path?: string) {
 		const ticket = ++navigation;
-		folder.checkpoint();
-		if (lastSave) await lastSave;
+		if (view === 'files' && selected !== undefined) await folder.settled(selected);
+		if (path !== undefined && (view !== 'files' || path !== selected)) await folder.settled(path);
 		if (ticket !== navigation) return;
+		folder.checkpoint();
 		if (path !== undefined) selected = path;
 		view = next;
 	}
@@ -49,7 +44,7 @@
 		saved: () => saved.data?.views ?? {},
 		declaration: {
 			text: () => loadProblem ? null : typeof source === 'string' ? source : undefined,
-			write: (text) => trackSave(folder.write('epicenter.json', text)),
+			write: (text) => folder.write('epicenter.json', text),
 		},
 	});
 	const recipe = $derived(views.value(view));
@@ -209,7 +204,6 @@
 			/>{:else}<TablesView
 				{folder}
 				{openSource}
-				{trackSave}
 				view={recipe}
 				change={(value) => views.edit(view, value)}
 			/>{/if}
@@ -245,7 +239,7 @@
 											entry.path === selected && 'bg-muted font-medium',
 										]}
 										title={entry.path}
-					onclick={() => (selected = entry.path)}
+										onclick={() => void show('files', entry.path)}
 									>
 										{entry.name}
 									</button>
@@ -259,7 +253,7 @@
 			<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 				{#if selected !== undefined}
 					{#key selected}
-						<FileEditor {folder} path={selected} {trackSave} />
+						<FileEditor {folder} path={selected} />
 					{/key}
 				{:else}
 					<div

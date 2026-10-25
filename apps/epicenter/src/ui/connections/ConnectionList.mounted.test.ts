@@ -11,7 +11,7 @@ describe.skipIf(!browser)('Settings connections mirror', async () => {
 		'../../../../../packages/svelte/src/svelte-dom.test-support.js'
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
-	const { createFolder, memoryHost } = await import(
+	const { createFolder, memoryHost, SaveError } = await import(
 		'@epicenter/folder/next/testing'
 	);
 	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
@@ -90,6 +90,31 @@ describe.skipIf(!browser)('Settings connections mirror', async () => {
 			expect(fixture.text('connections/another.md')).toContain(
 				'title: Another',
 			);
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('a failed connection title remains editable until Save again succeeds', async () => {
+		const fixture = await setup({
+			'connections/account.md':
+				'---\nkind: epicenter\ntitle: First\nmodel: ""\n---\n',
+		});
+		try {
+			await until(() => fixture.target.querySelector('li input') !== null);
+			fixture.control.failPut.set(
+				'connections/account.md',
+				SaveError.StorageFailed({ cause: 'full' }).error!,
+			);
+			const title = fixture.target.querySelector<HTMLInputElement>('li input');
+			type(title, 'Changed');
+			await until(() => fixture.target.textContent?.includes('Not saved:') ?? false);
+			expect(title?.value).toBe('Changed');
+			expect(fixture.text('connections/account.md')).toContain('title: First');
+			fixture.control.failPut.delete('connections/account.md');
+			click(fixture.target, 'Save again');
+			await until(() => fixture.text('connections/account.md')?.includes('title: Changed') ?? false);
+			expect(fixture.target.textContent).not.toContain('Not saved:');
 		} finally {
 			await fixture.close();
 		}

@@ -18,6 +18,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 	const { default: FolderViewHost } = await import(
 		'./fixtures/FolderViewHost.svelte'
 	);
+	const { default: FieldCell } = await import('./FieldCell.svelte');
 	const { default: OpenFolderToastHost } = await import(
 		'./fixtures/OpenFolderToastHost.svelte'
 	);
@@ -56,9 +57,8 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			await createFolder(memory.storage, { tables: {}, throttleMs }),
 		);
 		const failures: string[] = [];
-		const folder = svelteFolder(owner, {
-			onFailed: (failure) => failures.push(failure.path),
-		});
+		const stopFailed = owner.onFailed((failure) => failures.push(failure.path));
+		const folder = svelteFolder(owner);
 		const target = document.createElement('div');
 		document.body.append(target);
 		const app = mount(FolderViewHost, { target, props: { folder } });
@@ -80,6 +80,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			async close() {
 				await unmount(app);
 				await owner.close();
+				stopFailed();
 				target.remove();
 			},
 		};
@@ -114,6 +115,97 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			await until(() => fixture.text('a.md') === 'first\r\nchanged\r\n');
 			expect(fixture.box()?.value).toBe('\ufefffirst\nchanged\n');
 		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('a failed file edit stays visible and Save again writes it', async () => {
+		const fixture = await setup({ 'a.md': 'Original\n' });
+		try {
+			await until(() => fixture.file('a.md') !== null);
+			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.box()?.value === 'Original\n');
+			fixture.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
+			type(fixture.box(), 'Changed\n');
+			await until(() => fixture.target.textContent?.includes('Not saved:') ?? false);
+			expect(fixture.box()?.value).toBe('Changed\n');
+			expect(fixture.text('a.md')).toBe('Original\n');
+			fixture.control.failPut.delete('a.md');
+			click(fixture.target, 'Save again');
+			await until(() => fixture.text('a.md') === 'Changed\n');
+			expect(fixture.box()?.value).toBe('Changed\n');
+			expect(fixture.target.textContent).not.toContain('Not saved:');
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('switching files waits for the edited path to settle', async () => {
+		const fixture = await setup({ 'a.md': 'First\n', 'b.md': 'Second\n' }, 30);
+		let release: (() => void) | undefined;
+		try {
+			await until(() => fixture.file('a.md') !== null);
+			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.box()?.value === 'First\n');
+			fixture.control.putGate = new Promise<void>((resolve) => { release = resolve; });
+			type(fixture.box(), 'Changed\n');
+			fixture.file('b.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			flushSync();
+			expect(fixture.box()?.value).toBe('Changed\n');
+			release?.();
+			fixture.control.putGate = undefined;
+			await until(() => fixture.box()?.value === 'Second\n');
+			expect(fixture.text('a.md')).toBe('Changed\n');
+			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.box()?.value === 'Changed\n');
+		} finally {
+			release?.();
+			fixture.control.putGate = undefined;
+			await fixture.close();
+		}
+	});
+
+	test('typing again during a file save keeps the latest text', async () => {
+		const fixture = await setup({ 'a.md': 'First\n' }, 0);
+		let release: (() => void) | undefined;
+		try {
+			await until(() => fixture.file('a.md') !== null);
+			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.box()?.value === 'First\n');
+			fixture.control.putGate = new Promise<void>((resolve) => { release = resolve; });
+			type(fixture.box(), 'Second\n');
+			await until(() => fixture.folder.saving);
+			type(fixture.box(), 'Third\n');
+			expect(fixture.box()?.value).toBe('Third\n');
+			release?.();
+			fixture.control.putGate = undefined;
+			await fixture.folder.settled('a.md');
+			await until(() => fixture.box()?.value === 'Third\n');
+			expect(fixture.text('a.md')).toBe('Third\n');
+		} finally {
+			release?.();
+			fixture.control.putGate = undefined;
+			await fixture.close();
+		}
+	});
+
+	test('a whole-file draft recreates a file deleted while its save waits', async () => {
+		const fixture = await setup({ 'a.md': 'First\n' });
+		let release: (() => void) | undefined;
+		try {
+			await until(() => fixture.file('a.md') !== null);
+			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.box()?.value === 'First\n');
+			fixture.control.putGate = new Promise<void>((resolve) => { release = resolve; });
+			type(fixture.box(), 'Recreated\n');
+			fixture.outside('a.md', null);
+			release?.();
+			fixture.control.putGate = undefined;
+			await until(() => fixture.text('a.md') === 'Recreated\n');
+			await until(() => fixture.box()?.value === 'Recreated\n');
+		} finally {
+			release?.();
+			fixture.control.putGate = undefined;
 			await fixture.close();
 		}
 	});
@@ -514,7 +606,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('a failed board move keeps the card in its lane and reports once', async () => {
+	test('a failed board move keeps its choice for retry while the card stays in its lane', async () => {
 		const fixture = await setup({
 			'a.md': '---\nstatus: todo\n---\n',
 			'b.md': '---\nstatus: done\n---\n',
@@ -536,10 +628,15 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			);
 			await until(() => fixture.failures.length === 1);
 			expect(fixture.text('a.md')).toContain('status: todo');
+			expect(fixture.target.querySelector('[aria-label="Move a.md"]')?.textContent).toContain('done');
+			expect(fixture.target.textContent).toContain('Not saved:');
 			expect(
 				fixture.target.querySelector('[aria-label="todo"]')?.textContent,
 			).toContain('a.md');
 			expect(fixture.failures).toEqual(['a.md']);
+			fixture.control.failPut.delete('a.md');
+			click(fixture.target, 'Save again');
+			await until(() => fixture.text('a.md')?.includes('status: done') ?? false);
 		} finally {
 			await fixture.close();
 		}
@@ -565,7 +662,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('a failed checkbox edit returns to the saved value', async () => {
+	test('a failed checkbox edit stays checked until discarded', async () => {
 		const fixture = await setup({ 'a.md': '---\ndone: false\n---\n' });
 		try {
 			click(fixture.target, 'Tables');
@@ -574,10 +671,42 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			const checkbox = fixture.target.querySelector('[aria-label="a.md: done"]');
 			checkbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await until(() => fixture.failures.length === 1);
-			expect(checkbox?.getAttribute('aria-checked')).toBe('false');
+			expect(checkbox?.getAttribute('aria-checked')).toBe('true');
 			expect(fixture.text('a.md')).toContain('done: false');
+			click(fixture.target, 'Discard');
+			await until(() => checkbox?.getAttribute('aria-checked') === 'false');
+			expect(fixture.target.textContent).not.toContain('Not saved:');
 		} finally {
 			await fixture.close();
+		}
+	});
+
+	test('a field draft keeps its value when update finds no file', async () => {
+		const memory = memoryHost({});
+		const owner = expectOk(await createFolder(memory.storage, { tables: {} }));
+		const folder = svelteFolder(owner);
+		const target = document.createElement('div');
+		document.body.append(target);
+		const app = mount(FieldCell, {
+			target,
+			props: {
+				value: 'First',
+				kind: 'string',
+				label: 'missing.md: title',
+				disabled: false,
+				save: (value: unknown) => folder.update('missing.md', { fields: { title: value } }),
+			},
+		});
+		try {
+			const input = target.querySelector<HTMLInputElement>('[aria-label="missing.md: title"]');
+			type(input, 'Changed');
+			await until(() => target.textContent?.includes('Not saved:') ?? false);
+			expect(input?.value).toBe('Changed');
+			expect(memory.text('missing.md')).toBeUndefined();
+		} finally {
+			await unmount(app);
+			await owner.close();
+			target.remove();
 		}
 	});
 
