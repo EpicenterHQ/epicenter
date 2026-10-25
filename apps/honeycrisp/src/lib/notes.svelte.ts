@@ -14,7 +14,7 @@
  */
 import { InstantString } from '@epicenter/definition';
 import { ancestors, joinPath } from '@epicenter/folder/file-browser';
-import type { Saved, WriteError } from '@epicenter/folder/next';
+import type { WriteError } from '@epicenter/folder/next';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -125,15 +125,7 @@ export function createNotes(folder: NotesFolder) {
 	let selected = $state.raw<Selection | undefined>();
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
-	const lastSaves = new Map<string, Saved>();
 	let openRequest = 0;
-	function rememberSave(path: string, saved: Saved): Saved {
-		lastSaves.set(path, saved);
-		void saved.then(() => {
-			if (lastSaves.get(path) === saved) lastSaves.delete(path);
-		});
-		return saved;
-	}
 
 	const failed = (error: WriteError | null | undefined) =>
 		error === null || error === undefined ? undefined : WRITE_FAILED;
@@ -148,8 +140,7 @@ export function createNotes(folder: NotesFolder) {
 			...fields,
 			...(fields.title === undefined ? {} : { title: fields.title.toWellFormed() }),
 		};
-		const saved = rememberSave(path, noteTable.update(id, { fields: wellFormed }));
-		return failed((await saved).error);
+		return failed((await noteTable.update(id, { fields: wellFormed })).error);
 	}
 
 	// ------------------------------------------------------------------
@@ -169,8 +160,7 @@ export function createNotes(folder: NotesFolder) {
 		const request = ++openRequest;
 		if (selected?.path === path && selected.as !== as) {
 			folder.checkpoint();
-			const pending = lastSaves.get(path);
-			if (pending !== undefined) await pending;
+			await folder.settled(path);
 			if (request !== openRequest) return;
 		}
 		if (as === 'note') focusRequest += 1;
@@ -262,7 +252,6 @@ export function createNotes(folder: NotesFolder) {
 			return focusRequest;
 		},
 		open,
-		rememberSave,
 
 		// ------------------------------------------------------------------
 		// State read reactively

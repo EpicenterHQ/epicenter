@@ -24,7 +24,7 @@
  * - A change another tab saved replaces a clean editor; a save landing
  *   does not
  * - A pending body draft keeps typing and history through a save; a failed
- *   save makes the state follow disk again
+ *   save keeps the typed body for retry
  */
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
@@ -44,6 +44,7 @@ import {
 	type Transaction,
 } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
+import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
 import { noteSchema } from './schema.js';
@@ -79,13 +80,14 @@ async function noteOver(text: string) {
     const failures: string[] = [];
     const body = draft(() => noteBody(table.row('a')) ?? '', (value) => {
         writes++;
-        pending = table.update('a', { body: value }).then(({ error }) => {
+        const saved = table.update('a', { body: value });
+        pending = saved.then(({ error }) => {
             if (error !== null) failures.push(error.message);
         });
-        return pending;
+        return saved;
     });
     const note = {
-        read: () => noteBody(table.row('a')) === undefined ? undefined : body.text,
+        read: () => noteBody(table.row('a')) === undefined ? undefined : body.value,
         write: body.set,
     };
     return {
@@ -556,11 +558,11 @@ describe('the editor follows the note', () => {
 	test('a source change during a pending draft does not replace history when the draft lands', async () => {
 		let source = 'one\n';
 		let release: (() => void) | undefined;
-		const body = draft(() => source, (text) => new Promise<void>((resolve) => {
-			release = () => { source = text; resolve(); };
+		const body = draft(() => source, (text) => new Promise<ReturnType<typeof Ok<void>>>((resolve) => {
+			release = () => { source = text; resolve(Ok(undefined)); };
 		}));
 		const note = {
-			read: () => body.text,
+			read: () => body.value,
 			write: body.set,
 		};
 		const initial = bodyCodec.decode(source);
@@ -583,7 +585,7 @@ describe('the editor follows the note', () => {
 		expect(undoDepth(shown)).toBe(1);
 	});
 
-	test('a failed save replaces the editor state with the disk body', async () => {
+	test('a failed save keeps the typed body and rich editor state', async () => {
 		const { fixture, type, end, settled, follow, body, failures, ...view } = await open('one\n');
 		fixture.failSaves();
 		end();
@@ -593,9 +595,9 @@ describe('the editor follows the note', () => {
 		await settled();
 		expect(failures()).toHaveLength(1);
 		follow();
-		expect(body()).toBe('one\n');
-		expect(view.shown()).not.toBe(typed);
-		expect(undoDepth(view.shown())).toBe(0);
+		expect(body()).toBe('one!\n');
+		expect(view.shown()).toBe(typed);
+		expect(undoDepth(view.shown())).toBe(1);
 	});
 
 

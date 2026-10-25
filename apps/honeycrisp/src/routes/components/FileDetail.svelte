@@ -9,6 +9,7 @@
 	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
 	import { readRow } from '@epicenter/folder/next';
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
@@ -54,13 +55,13 @@
 	const text = $derived(typeof file?.data === 'string' && file.data.length <= LARGE ? file.data : undefined);
 	const raw = draft(
 		() => text?.replace(/\r\n?/g, '\n') ?? '',
-		(typed) => notes.rememberSave(path, folder.write(path, withFileNewlines(typed, text ?? ''))),
+		(typed) => folder.write(path, withFileNewlines(typed, text ?? '')),
 	);
 	/** Why the text does not read as its row, apart from the file's own state. */
 	const issues = $derived(
 		text === undefined || (noteId === undefined && folderId === undefined)
 			? []
-			: readRow(raw.text, noteId !== undefined ? honeycrispTables.notes : honeycrispTables.folders).issues ?? [],
+			: readRow(raw.value, noteId !== undefined ? honeycrispTables.notes : honeycrispTables.folders).issues ?? [],
 	);
 	const unreadable = $derived(file?.readError);
 
@@ -130,9 +131,10 @@
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
 						aria-label="Contents of {name}"
 						spellcheck={false}
-						bind:value={() => raw.text, (typed) => raw.set(typed.toWellFormed())}
+						bind:value={() => raw.value, (typed) => raw.set(typed.toWellFormed())}
 					/>
 				</div>
+				<UnsavedEdit draft={raw} />
 			{:else if file === undefined}
 				<Empty.Root class="flex-1">
 					<Empty.Title>This file is no longer in the folder</Empty.Title>

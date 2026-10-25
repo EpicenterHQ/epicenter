@@ -55,6 +55,23 @@ test('title and Source text save and keep the rich editor mounted', async () => 
     expect(get<HTMLElement>('[aria-label="Note text"]')).toBe(rich);
 });
 
+test('folder selection stays visible after a failed save and can retry', async () => {
+    const { target, get, render, folder, failSaves } = await view();
+    await folder.tables.folders.create('f', { fields: { name: 'Work', icon: null }, body: '' });
+    await until(() => target.querySelector('select[aria-label="Folder"] option[value="folder:f"]') !== null, 'folder option');
+    const selection = get<HTMLSelectElement>('select[aria-label="Folder"]');
+    failSaves();
+    selection.value = 'folder:f';
+    selection.dispatchEvent(new Event('change', { bubbles: true }));
+    await until(() => { render(); return target.textContent?.includes('Not saved:') ?? false; }, 'unsaved folder');
+    expect(selection.value).toBe('folder:f');
+    expect(folder.tables.notes.row('a')?.fields?.folderId).toBeNull();
+    failSaves(false);
+    click(target, 'Save again');
+    await until(() => folder.tables.notes.row('a')?.fields?.folderId === 'f', 'retried folder');
+    await until(() => { render(); return !target.textContent?.includes('Not saved:'); }, 'cleared folder error');
+});
+
 test('rich-text typing stays undoable after its save lands', async () => {
     const { get, render, folder } = await view();
     const rich = get<HTMLElement>('[aria-label="Note text"]');

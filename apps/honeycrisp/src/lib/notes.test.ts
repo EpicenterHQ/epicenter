@@ -66,7 +66,7 @@ test('opening a note as text waits for its body save after another note is patch
     await until(() => host.log.puts.length === 1, 'first A save to start');
     const body = draft(
         () => shown(notes, 'a').body,
-        (typed) => notes.rememberSave(A, table.update('a', { body: typed })),
+        (typed) => table.update('a', { body: typed }),
     );
     body.set('Typed in A.\n');
     const second = notes.patchNote(B, { pinned: true });
@@ -80,6 +80,41 @@ test('opening a note as text waits for its body save after another note is patch
     expect(notes.selected?.as).toBe('text');
     expect(host.text(A)).toContain('Typed in A.\n');
     expect(folder.file(A)?.data).toContain('Typed in A.\n');
+});
+
+test('a whole-file draft recreates a file deleted elsewhere', async () => {
+    const host = memoryHost({ 'draft.txt': 'Original' });
+    const raw = expectOk(await createFolder(host.storage, { tables: honeycrispTables }));
+    cleanup.push(() => raw.close());
+    const folder = svelteFolder(raw);
+    const file = draft(() => folder.file('draft.txt')?.data ?? '', (value) => folder.write('draft.txt', value));
+    host.outside('draft.txt', null);
+    raw.checkpoint();
+    await until(() => folder.file('draft.txt') === undefined, 'outside deletion');
+    file.set('Recreated');
+    expect(file.value).toBe('Recreated');
+    await folder.settled('draft.txt');
+    expect(file.error).toBeNull();
+    expect(host.text('draft.txt')).toBe('Recreated');
+});
+
+test('a field draft keeps its value when its file was deleted elsewhere', async () => {
+    const host = memoryHost({ [A]: noteText() });
+    const raw = expectOk(await createFolder(host.storage, { tables: honeycrispTables }));
+    cleanup.push(() => raw.close());
+    const folder = svelteFolder(raw);
+    const title = draft(() => {
+        const row = folder.tables.notes.row('a');
+        return row?.issues === null ? row.fields.title : '';
+    }, (value) => folder.tables.notes.update('a', { fields: { title: value } }));
+    host.outside(A, null);
+    raw.checkpoint();
+    await until(() => folder.tables.notes.row('a') === undefined, 'outside deletion');
+    title.set('Keep typing');
+    await folder.settled(A);
+    expect(title.value).toBe('Keep typing');
+    expect(title.error?.name).toBe('NothingToUpdate');
+    expect(host.text(A)).toBeUndefined();
 });
 
 test('another tab save appears in the mirror', async () => {

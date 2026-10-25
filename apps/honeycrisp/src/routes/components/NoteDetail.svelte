@@ -10,6 +10,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Tabs from '@epicenter/ui/tabs';
@@ -40,8 +41,9 @@
 	// Reading the row holds the note's file while this view shows it.
 	const row = $derived(table.row(id));
 	const shownNote = $derived(row?.issues === null ? row : undefined);
-	const title = draft(() => shownNote?.fields.title ?? '', (value) => notes.rememberSave(path, table.update(id, { fields: { title: value } })));
-	const body = draft(() => noteBody(shownNote) ?? '', (value) => notes.rememberSave(path, table.update(id, { body: value })));
+	const title = draft(() => shownNote?.fields.title ?? '', (value) => table.update(id, { fields: { title: value } }));
+	const body = draft(() => noteBody(shownNote) ?? '', (value) => table.update(id, { body: value }));
+	const folderSelection = draft(() => shownNote?.fields.folderId ?? null, (value) => table.update(id, { fields: { folderId: value } }));
 	const unreadable = $derived(row?.issues?.find((issue) => issue.kind === 'unreadable'));
 	const folders = $derived(foldersOf(notes.folder.tables.folders.rows));
 
@@ -65,12 +67,12 @@
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
 	{#if shownNote !== undefined}
 		{@const row = shownNote}
-		{@const folderId = row.fields.folderId}
+		{@const folderId = folderSelection.value}
 		{@const pinned = row.fields.pinned}
 		<div class="flex items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={() => title.text, (typed) => title.set(typed.toWellFormed())}
+				bind:value={() => title.value, (typed) => title.set(typed.toWellFormed())}
 
 				placeholder="Title"
 				aria-label="Title"
@@ -80,9 +82,7 @@
 				aria-label="Folder"
 				value={optionOf(folderId)}
 
-				onchange={(event) => {
-					set({ folderId: idOf(event.currentTarget.value) });
-				}}
+				onchange={(event) => folderSelection.set(idOf(event.currentTarget.value))}
 			>
 				<option value="">No folder</option>
 				{#each folders as folder (folder.id)}
@@ -104,6 +104,8 @@
 				<PinIcon class={pinned ? 'fill-current' : ''} />
 			</Button>
 		</div>
+		<UnsavedEdit draft={title} />
+		<UnsavedEdit draft={folderSelection} />
 
 		<Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">
 			<Tabs.List class="mx-3">
@@ -114,7 +116,7 @@
 			     survives a look at the source that changes nothing. -->
 			<Tabs.Content value="rich" forceMount class="min-h-0 flex-1">
 				<RichEditor
-					note={{ read: () => (shownNote ? body.text : undefined), write: body.set }}
+					note={{ read: () => (shownNote ? body.value : undefined), write: body.set }}
 					focusRequest={notes.focusRequest}
 					onOpenSource={() => (tab = 'source')}
 					onRefuse={(reason) => toast.warning('That edit was not made', { description: reason })}
@@ -124,7 +126,7 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => body.text, (typed) => body.set(typed.toWellFormed())}
+						bind:value={() => body.value, (typed) => body.set(typed.toWellFormed())}
 
 						aria-label="Markdown source"
 						spellcheck={false}
@@ -132,6 +134,7 @@
 				</div>
 			</Tabs.Content>
 		</Tabs.Root>
+		<UnsavedEdit draft={body} />
 
 	{:else if row === undefined}
 		<Empty.Root class="flex-1">
