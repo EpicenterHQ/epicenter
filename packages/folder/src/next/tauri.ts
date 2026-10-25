@@ -19,7 +19,7 @@ import {
 } from './folder.js';
 import { storageHost } from './storage.js';
 
-export type * from './index.js';
+export * from './index.js';
 
 export async function openFolder<const T extends Tables>(
 	options: OpenOptions<T>,

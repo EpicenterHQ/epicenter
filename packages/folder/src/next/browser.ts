@@ -16,7 +16,7 @@ import {
 } from './folder.js';
 import type { Fetched, FolderHost } from './storage.js';
 
-export type * from './index.js';
+export * from './index.js';
 
 /** The same fixed key as the browser's default folder, so its files carry over. */
 const DEFAULT_KEY = 'default';

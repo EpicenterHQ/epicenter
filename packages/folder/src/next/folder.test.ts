@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 import { SaveError } from '../shared/errors.js';
-import { createFolder } from './folder.js';
+import { createFolder, readRow } from './folder.js';
 import { memoryHost, tick } from './testing.js';
 
 const tables = {
@@ -524,4 +524,17 @@ test('dotfiles and extensionless files are kept at open', async () => {
 	expect(folder.file('.gitignore')?.data).toBe('node_modules\n');
 	expect(folder.file('Makefile')?.data).toBe('all:\n');
 	expect(folder.file('photo.heic')?.data).toBeUndefined();
+});
+
+describe('readRow', () => {
+	test('reads text as the mirror reads a saved row', () => {
+		const valid = readRow(note('title: A'), tables.notes);
+		expect(valid).toEqual({
+			fields: { title: 'A' },
+			body: 'Body\n',
+			issues: null,
+		});
+		const broken = readRow(note('pinned: true'), tables.notes);
+		expect(broken.issues?.[0]?.kind).toBe('schema');
+	});
 });

@@ -6,7 +6,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import type { Opened, OpenOptions, Tables } from './folder.js';
 
-export type * from './index.js';
+export * from './index.js';
 
 export async function openFolder<const T extends Tables>(
 	options: OpenOptions<T>,

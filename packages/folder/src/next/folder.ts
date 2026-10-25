@@ -710,6 +710,37 @@ function sameData(a: Data | null, b: Data | null) {
 	if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) return false;
 	return a.length === b.length && a.every((value, index) => value === b[index]);
 }
+/** What a row's text reads as through its schema: the fields, body, and any issues. */
+export type RowReading<S extends Schema = Schema> =
+	| { readonly fields: Static<S>; readonly body: string; readonly issues: null }
+	| {
+			readonly fields: Record<string, unknown> | undefined;
+			readonly body: string | undefined;
+			readonly issues: readonly [RowIssue, ...RowIssue[]];
+	  };
+
+/**
+ * Read row text through `schema`, as the mirror reads a saved row. For a
+ * repair view that checks what is typed before it saves.
+ */
+export function readRow<S extends Schema>(
+	text: Data,
+	schema: S,
+): RowReading<S> {
+	const value = readMarkdown(text, schema);
+	if (value.issues === null)
+		return { fields: value.fields, body: value.body, issues: null };
+	const [first, ...rest] = value.issues;
+	return {
+		fields: value.fields,
+		body: value.body,
+		issues:
+			first === undefined
+				? [{ kind: 'frontmatter', message: 'The row did not read', path: [] }]
+				: [first, ...rest],
+	};
+}
+
 function rowOf<S extends Schema>(
 	id: string,
 	file: FileValue,
@@ -727,20 +758,7 @@ function rowOf<S extends Schema>(
 			issues: [{ kind: 'unreadable', message: error.message, path: [], error }],
 		};
 	}
-	const value = readMarkdown(file.data, schema);
-	if (value.issues === null)
-		return { id, path, fields: value.fields, body: value.body, issues: null };
-	const [first, ...rest] = value.issues;
-	return {
-		id,
-		path,
-		fields: value.fields,
-		body: value.body,
-		issues:
-			first === undefined
-				? [{ kind: 'frontmatter', message: 'The row did not read', path: [] }]
-				: [first, ...rest],
-	};
+	return { id, path, ...readRow(file.data, schema) };
 }
 function mediaEntry(path: string, stat: Listed): Entry {
 	return {
