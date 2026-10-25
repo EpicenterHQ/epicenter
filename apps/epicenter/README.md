@@ -56,7 +56,7 @@ folder through `<OpenFolder>`, creates connection rows with
 `folder.tables.connections.create`, and updates title and model through row
 patches. Each text field keeps its own draft until its write answers. Failed
 writes keep the typed value and show Save again, Discard, and Copy beside the
-field. The folder owner also reports the failure in a toast.
+field. Connection creation and deletion report their own failures beside the action.
 
 ## The epicenter binary
 
@@ -396,24 +396,25 @@ Enum and boolean schema hints retain empty destinations. **No value** represents
 an absent field. Object and array values appear in **Other**, which cannot be
 chosen as a move destination. Moving a card changes its grouping field through
 `folder.update(path, { fields }, { schema })`. A failed move leaves the card
-in its current lane, keeps the chosen destination in the control, and offers
-Save again or Discard beside it.
+in its current lane and reports the error beside the control.
 Cards have no separate rank or drag-order record.
 
 The mirror reads every kept text file when it opens and gives Files its exact
 source through `folder.file(path)`. Tables interprets the same file values with
 `documentsOf`, while the SQL CLI builds the same values from disk. Each text
-input has a local `draft` that shows typing until its write answers; folder
+input has a local `draft` that debounces writes and shows typing until its write answers; folder
 writes then update the mirror's landed values. Structured edits use
 `folder.update(path, patch, { schema })`, including root and nested Markdown.
-The mirror composes waiting patches on the same path, so adjacent cell edits
-do not overwrite one another. A file read failure can be retried with
-`folder.checkpoint()`. Failed drafts keep their value and offer Save again,
-Discard, and Copy beside the editor. The folder owner also toasts failures.
-Switching file editors waits for that path with `folder.settled(path)` before
-mounting the next editor.
+Each write takes a turn in the folder queue. A patch reads the file as it is
+when its turn comes, so adjacent cell edits do not overwrite one another.
+A file read failure can be retried with `folder.refresh()`. Failed drafts keep
+their value and offer Save again, Discard, and Copy beside the editor.
+Checkboxes and board moves write directly and report failures beside the action.
+Switching file editors mounts the next editor immediately; teardown sends the
+previous editor's latest unsent text.
 
-The folder owner checkpoints on focus, visibility, connectivity, and page hide.
+The folder owner refreshes on focus, visibility, and connectivity. Drafts send
+their latest text on page hide and folder close.
 Closing an editor window waits for writes in flight before destroying it.
 Saved-view submissions compose from the latest submitted declaration text while
 a write is waiting. Whole-file edits in Files and saved-view saves use last
@@ -439,7 +440,7 @@ separate entry. These views travel with the folder and have no personal override
 
 A saved view reads the current `epicenter.json` mirror value. Editing its
 controls creates an unsubmitted form value retained across selections. **Reload
-settings** drops that form and checkpoints the folder. Saving transforms the
+settings** drops that form and refreshes the folder. Saving transforms the
 latest submitted declaration text, preserving unrelated JSON sections and other
 views, then sends that text through `folder.write`. There is no source
 precondition or separate native writer.
@@ -447,15 +448,15 @@ precondition or separate native writer.
 A submitted copy gets its new key immediately. The local `sending` text composes
 later view submissions while earlier writes are waiting; `submitted` keeps each
 view visible until its save answers. A failed save restores the form for retry
-and offers source access, while the folder owner toasts the failed write and its
-text to copy. The form keeps settings that have not yet been submitted.
+and offers source access and the error beside the form. The form keeps settings
+that have not yet been submitted.
 Invalid and future view entries stay in the source with diagnostics while valid
 siblings remain available. The pure `changeSavedView(text, { key, value })`
 transform is portable across storage backends.
 
 The mirror notifies the editor when a write lands or outside changes are read.
-It checkpoints on focus, visibility, connectivity, and page hide; **Reload
-settings** also checkpoints. Files, Tables, and saved views then read the same
+It refreshes on focus, visibility, and connectivity; **Reload
+settings** also refreshes. Files, Tables, and saved views then read the same
 current file values without query invalidation or manual refresh.
 
 ### Opening apps
