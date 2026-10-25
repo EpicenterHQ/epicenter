@@ -26,6 +26,7 @@ export async function readDirectoryDocuments(directory: string) {
 		...listed.data.files.map(({ path }) => path),
 	])) {
 		if (!readablePath(path)) continue;
+		if (path !== 'epicenter.json' && !path.endsWith('.md')) continue;
 		const result = await storage.read(path);
 		if (result.error?.name === 'NotFound') continue;
 		if (result.error !== null) {

@@ -85,6 +85,7 @@ test('unchanged file values keep document identity with a cache', () => {
 		documentsOf([declaration, { ...file, data: '---\ntitle: B\n---\n' }], cache)
 			.documents[0],
 	).not.toBe(first);
+	expect(documentsOf([{ ...declaration }, file], cache).documents[0]).not.toBe(first);
 	const broken = documentsOf([
 		{ path: 'epicenter.json', data: new Uint8Array([255]), readError: null },
 	]);

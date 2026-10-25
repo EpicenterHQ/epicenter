@@ -21,6 +21,10 @@ export type DocumentCache = WeakMap<
 	SavedFile,
 	{ schema: TSchema | undefined; document: Document }
 >;
+const declarationCache: WeakMap<
+	SavedFile,
+	ReturnType<typeof readDeclaredTables>
+> = new WeakMap();
 export type DocumentReading = {
 	readonly documents: Document[];
 	readonly unreadable: { path: string; message: string }[];
@@ -41,7 +45,11 @@ export function documentsOf(
 	else if (declaration?.data instanceof Uint8Array)
 		declarationProblem = 'epicenter.json is not UTF-8 text';
 	else if (typeof declaration?.data === 'string') {
-		const parsed = readDeclaredTables(declaration.data);
+		let parsed = declarationCache.get(declaration);
+		if (parsed === undefined) {
+			parsed = readDeclaredTables(declaration.data);
+			declarationCache.set(declaration, parsed);
+		}
 		if (parsed.error !== null) declarationProblem = parsed.error.reason;
 		else tables = parsed.data ?? {};
 	}
@@ -54,24 +62,14 @@ export function documentsOf(
 			unreadable.push({ path, message: readError.message });
 			continue;
 		}
-		if (data === undefined) {
-			unreadable.push({
-				path,
-				message: 'The listed file is missing or is not a regular file',
-			});
-			continue;
-		}
+		if (data === undefined) continue;
 		const first = path.indexOf('/');
 		const schema =
 			first < 0 || path.indexOf('/', first + 1) !== -1
 				? undefined
 				: tables[path.slice(0, first)];
 		const previous = cache?.get(file);
-		if (
-			previous !== undefined &&
-			(previous.schema === schema ||
-				JSON.stringify(previous.schema) === JSON.stringify(schema))
-		) {
+		if (previous !== undefined && previous.schema === schema) {
 			documents.push(previous.document);
 			continue;
 		}
