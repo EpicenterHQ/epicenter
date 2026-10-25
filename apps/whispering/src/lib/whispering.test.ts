@@ -2,22 +2,13 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
-import { SaveError } from '@epicenter/folder';
-import { Ok } from 'wellcrafted/result';
+import { SaveError } from '../../../../packages/folder/src/shared/errors.js';
 import { expectOk } from 'wellcrafted/testing';
-import { recordingEditor, settle } from './edits.test-support.js';
 import type { WhisperingFolder } from './folder.js';
-import type { WhisperingServices } from './platform/types.js';
-import {
-	deferred,
-	eventually,
-	openTestServices,
-	replaceTables,
-} from './services.test-support.js';
+import { deferred, openTestServices } from './services.test-support.js';
 import {
 	closeTestWhispering,
 	createTestWhispering,
-	openTestWhispering,
 } from './whispering.test-support.js';
 
 const { STOPPED } = await import('./whispering.svelte.js');
@@ -26,38 +17,28 @@ const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
-async function fixture(
-	change: (folder: WhisperingFolder) => WhisperingFolder = (f) => f,
-) {
-	const test = await openTestServices();
-	cleanups.push(test.remove);
-	const { whispering, context } = await createTestWhispering({
-		...test,
-		folder: change(test.folder),
-	});
-	cleanups.push(() => closeTestWhispering({ whispering, context }));
-	return { test, whispering, context };
+
+type FileCalls = Partial<Pick<WhisperingFolder, 'read' | 'write'>>;
+
+/** The test's folder with some file calls replaced; everything else reads through. */
+function replacing(folder: WhisperingFolder, calls: FileCalls) {
+	// SAFETY: the prototype answers every member the replacements leave out.
+	const replaced = Object.create(folder) as WhisperingFolder;
+	return Object.assign(replaced, calls);
 }
 
-test('startup reads connections and maintains exclusions before any listing', async () => {
-	let checked = false;
-	const { test, whispering } = await fixture((folder) => {
-		const files = folder.files;
-		return replaceTables(
-			folder,
-			{},
-			{
-				...files,
-				async list() {
-					expect(expectOk(await files.read('.gitignore'))).toBeDefined();
-					checked = true;
-					return files.list();
-				},
-			},
-		);
-	});
+async function fixture(change: (folder: WhisperingFolder) => FileCalls = () => ({})) {
+	const test = await openTestServices();
+	cleanups.push(test.remove);
+	const folder = replacing(test.folder, change(test.folder));
+	const { whispering } = await createTestWhispering({ ...test, folder });
+	cleanups.push(() => closeTestWhispering({ whispering, folder }));
+	return { test, whispering, folder };
+}
+
+test('startup maintains exclusions and reads connections', async () => {
+	const { test, whispering } = await fixture();
 	await whispering.start();
-	expect(checked).toBe(true);
 	expect(whispering.connections?.transcription?.model).toBe(
 		'verification-model',
 	);
@@ -68,102 +49,33 @@ test('startup reads connections and maintains exclusions before any listing', as
 });
 
 test('a refused exclusion write stays visible and files remain writable', async () => {
-	const { context, test, whispering } = await fixture((folder) => {
-		const files = folder.files;
-		return replaceTables(
-			folder,
-			{},
-			{
-				...files,
-				write: (path, change) =>
-					path === '.gitignore'
-						? Promise.resolve(
-								SaveError.StorageFailed({
-									cause: new Error('ignore file is read-only'),
-								}),
-							)
-						: files.write(path, change),
-			},
-		);
-	});
+	const { test, whispering } = await fixture((folder) => ({
+		write: (path, data) =>
+			path === '.gitignore'
+				? Promise.resolve(
+						SaveError.StorageFailed({
+							cause: new Error('ignore file is read-only'),
+						}),
+					)
+				: folder.write(path, data),
+	}));
 	await whispering.start();
 	expect(whispering.exclusionNotice).toContain('ignore file is read-only');
-	expectOk(await context.folder.files.write('note.md', 'Still editable\n'));
+	expectOk(await test.folder.write('note.md', 'Still editable\n'));
 	expect(await readdir(test.root)).toEqual(['note.md']);
 });
 
-test('a first-read failure rejects with its own error and leaves Whispering stopped', async () => {
-	const lost = new Error('the folder host went away');
-	const { whispering } = await fixture((folder) => {
-		const files = folder.files;
-		return replaceTables(
-			folder,
-			{},
-			{
-				...files,
-				list: () => Promise.reject(lost),
-			},
-		);
-	});
-	await expect(whispering.start()).rejects.toBe(lost);
-	expect(whispering.closing).toBe(true);
-});
-
-test('stop during exclusion maintenance waits for no workflow, rejects start as stopped, and starts no listings', async () => {
+test('stop during exclusion maintenance waits for no workflow and rejects start as stopped', async () => {
 	const begun = deferred<void>();
 	const gate = deferred<void>();
-	let listings = 0;
-	const { context, test, whispering } = await fixture((folder) => {
-		const files = folder.files;
-		return replaceTables(
-			folder,
-			{},
-			{
-				...files,
-				list: () => {
-					listings++;
-					return files.list();
-				},
-				async write(...args) {
-					begun.resolve();
-					await gate.promise;
-					return files.write(...args);
-				},
-			},
-		);
-	});
-	const starting = whispering.start();
-	const rejected = starting.catch((cause: unknown) => cause);
-	await begun.promise;
-	// The write is held above the Folder, so the Folder never admitted it.
-	await closeTestWhispering({ whispering, context });
-	expect(test.closes).toBe(1);
-	gate.resolve();
-	expect(await rejected).toMatchObject({ message: STOPPED });
-	expect(listings).toBe(0);
-});
-
-test('stop and folder close finish while the first listing is held and start rejects as stopped', async () => {
-	const begun = deferred<void>();
-	const gate = deferred<void>();
-	let listings = 0;
 	let connections = 0;
-	const { context, test, whispering } = await fixture((folder) => {
-		const files = folder.files;
-		return replaceTables(
-			folder,
-			{},
-			{
-				...files,
-				async list() {
-					listings++;
-					begun.resolve();
-					await gate.promise;
-					return files.list();
-				},
-			},
-		);
-	});
+	const { test, whispering, folder } = await fixture((inner) => ({
+		async write(path, data) {
+			begun.resolve();
+			await gate.promise;
+			return inner.write(path, data);
+		},
+	}));
 	const read = test.services.connections.read;
 	test.services.connections.read = () => {
 		connections++;
@@ -171,64 +83,44 @@ test('stop and folder close finish while the first listing is held and start rej
 	};
 	const rejected = whispering.start().catch((cause: unknown) => cause);
 	await begun.promise;
-	await closeTestWhispering({ whispering, context });
-	expect(test.closes).toBe(1);
+	closeTestWhispering({ whispering, folder });
+	expect(whispering.closing).toBe(true);
 	gate.resolve();
 	expect(await rejected).toMatchObject({ message: STOPPED });
-	await new Promise((resolve) => setTimeout(resolve, 100));
-	expect(whispering.closing).toBe(true);
 	expect(connections).toBe(0);
-	expect(listings).toBe(1);
-	expect(await readdir(test.root)).toEqual(['.gitignore']);
 });
 
-test('folder close does not wait for recording recovery, and no listing starts after stop', async () => {
+test('stop does not wait for recording recovery, and reads no connections after it', async () => {
 	const begun = deferred<void>();
 	const gate = deferred<void>();
-	let listings = 0;
-	const { context, test, whispering } = await fixture((folder) => {
-		const files = folder.files;
-		return replaceTables(
-			folder,
-			{},
-			{
-				...files,
-				list() {
-					listings++;
-					return files.list();
-				},
-			},
-		);
-	});
+	let connections = 0;
+	const { test, whispering, folder } = await fixture();
 	const recover = test.services.recoverRecordings;
 	test.services.recoverRecordings = async () => {
 		begun.resolve();
 		await gate.promise;
 		return recover();
 	};
+	const read = test.services.connections.read;
+	test.services.connections.read = () => {
+		connections++;
+		return read();
+	};
 	const rejected = whispering.start().catch((cause: unknown) => cause);
 	await begun.promise;
-	await closeTestWhispering({ whispering, context });
-	expect(test.closes).toBe(1);
+	closeTestWhispering({ whispering, folder });
 	gate.resolve();
 	expect(await rejected).toMatchObject({ message: STOPPED });
-	expect(listings).toBe(0);
+	expect(connections).toBe(0);
 });
 
 test('an unexpected exclusion read rejection preserves its error', async () => {
 	const lost = new Error('folder connection lost');
-	const { test, whispering } = await fixture((folder) => {
-		const files = folder.files;
-		return replaceTables(
-			folder,
-			{},
-			{
-				...files,
-				read: () => Promise.reject(lost),
-			},
-		);
-	});
+	const { test, whispering } = await fixture(() => ({
+		read: () => Promise.reject(lost),
+	}));
 	await expect(whispering.start()).rejects.toBe(lost);
+	expect(whispering.closing).toBe(true);
 	expect(await readdir(test.root)).toEqual([]);
 });
 
@@ -237,24 +129,16 @@ test('concurrent and repeated starts share one initialization attempt', async ()
 	const gate = deferred<void>();
 	let writes = 0;
 	let recoveries = 0;
-	const { test, whispering } = await fixture((folder) => {
-		const files = folder.files;
-		return replaceTables(
-			folder,
-			{},
-			{
-				...files,
-				async write(...args) {
-					if (args[0] === '.gitignore') {
-						writes++;
-						begun.resolve();
-						await gate.promise;
-					}
-					return files.write(...args);
-				},
-			},
-		);
-	});
+	const { test, whispering } = await fixture((folder) => ({
+		async write(path, data) {
+			if (path === '.gitignore') {
+				writes++;
+				begun.resolve();
+				await gate.promise;
+			}
+			return folder.write(path, data);
+		},
+	}));
 	const recover = test.services.recoverRecordings;
 	test.services.recoverRecordings = () => {
 		recoveries++;

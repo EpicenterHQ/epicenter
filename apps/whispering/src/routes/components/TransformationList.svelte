@@ -73,12 +73,6 @@
 		</DropdownMenu.Root>
 	</div>
 
-	{#if whispering.transformationsError}
-		<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-			Could not read the transformations folder: {whispering.transformationsError}. Showing the last list that was read.
-		</p>
-	{/if}
-
 	<ul class="min-h-0 flex-1 overflow-y-auto" aria-label="Saved transformations" data-testid="transformation-list">
 		{#each whispering.transformations as entry (entry.path)}
 			{@const selected = whispering.selectedTransformationPath === entry.path}
@@ -133,6 +127,9 @@
 						<button type="button" class="font-mono underline" onclick={() => {
 							if (whispering.open(item.path)) onOpen?.();
 						}}>{item.path}</button>: {item.reason}
+						{#if item.unreadable}
+							<Button size="xs" variant="outline" class="ml-1" onclick={() => whispering.checkpoint()}>Try again</Button>
+						{/if}
 					</li>
 				{/each}
 			</ul>

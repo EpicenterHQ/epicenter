@@ -21,7 +21,7 @@
  *   typed, refuses to keep a key for another endpoint, and asks no endpoint
  *   anything
  */
-import type { WhisperingContext } from './folder.js';
+import type { WhisperingFolder } from './folder.js';
 import {
 	closeTestWhispering,
 	openTestWhispering,
@@ -29,18 +29,17 @@ import {
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { readdir, readFile, rm } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Err, Ok } from 'wellcrafted/result';
+import { Err } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { ConnectionChange } from './connections.js';
 import { STARTER_TRANSFORMATIONS } from './definition.js';
-import { settle, transformationEditor } from './edits.test-support.js';
 import type { WhisperingServices } from './platform/types.js';
-import { quiet } from './query.test-support.js';
 import {
 	deferred,
 	openTestServices,
+	settled,
 	TEST_BASE_URL,
 	type TestServicesOptions,
 } from './services.test-support.js';
@@ -58,18 +57,16 @@ async function open(
 ) {
 	const test = await openTestServices(options);
 	const services = change(test.services);
-	const { whispering, context } = await openTestWhispering({
+	const { whispering } = await openTestWhispering({
 		...test,
 		services,
 	});
 	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, context });
+		closeTestWhispering({ whispering, folder: test.folder });
 		await test.remove();
 	});
 	return {
 		whispering,
-		context,
-
 		view: whispering.view,
 		...test,
 	};
@@ -81,19 +78,19 @@ const names = (root: string, directory: string) =>
 /** Create the cleanup starter, optionally with the model a run needs. */
 async function cleanup(
 	whispering: Whispering,
-	context: WhisperingContext,
+	folder: WhisperingFolder,
 	model?: string,
 ) {
 	expect(
 		await whispering.createTransformation(STARTER_TRANSFORMATIONS[0]!),
 	).toBeUndefined();
-	const draft = await transformationEditor(whispering, context);
-	if (model !== undefined) {
-		draft.edit((row) => {
-			row.fields.model = model;
-		});
-		await settle(whispering, context);
-	}
+	const created = whispering.transformations[0]!;
+	if (model !== undefined)
+		expectOk(
+			await folder.tables.transformations.update(created.stem, {
+				fields: { model },
+			}),
+		);
 	return whispering.transformations[0]!;
 }
 
@@ -108,9 +105,9 @@ test('the app starts with post-processing set to None and seeds no transformatio
 });
 
 test('choosing, recording, stopping, and transcribing send nothing to the transformation; an explicit run sends it once', async () => {
-	const { context, whispering, view, root, transformed, transcribed } =
+	const { folder, whispering, view, root, transformed, transcribed } =
 		await open();
-	const profile = await cleanup(whispering, context, 'chat-model');
+	const profile = await cleanup(whispering, folder, 'chat-model');
 
 	view.postProcessing = profile.path;
 	expect(whispering.postProcessing.kind).toBe('ready');
@@ -119,7 +116,7 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 	// Nothing is transcribed by recording either.
 	expect(transcribed).toEqual([]);
 	await whispering.transcribe(whispering.entries[0]!);
-	await settle(whispering, context);
+	await settled(folder);
 
 	expect(transformed).toEqual([]);
 	expect(await names(root, 'transformation_runs')).toEqual([]);
@@ -146,13 +143,10 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 });
 
 test('a chosen transformation with no text connection to run over cannot run, and one that was deleted is missing; neither is run', async () => {
-	const { context, whispering, view, root, transformed } = await open(
-		undefined,
-		{
-			connections: {},
-		},
-	);
-	const profile = await cleanup(whispering, context);
+	const { folder, whispering, view, transformed } = await open(undefined, {
+		connections: {},
+	});
+	const profile = await cleanup(whispering, folder);
 	view.postProcessing = profile.path;
 
 	// A new transformation uses the text connection, and none is set up.
@@ -164,8 +158,7 @@ test('a chosen transformation with no text connection to run over cannot run, an
 		await whispering.transform('transcriptions/none.md', profile.path),
 	).toBe('Set up the text connection in Settings to run this.');
 
-	await rm(join(root, profile.path));
-	await settle(whispering, context);
+	expectOk(await folder.delete(profile.path));
 
 	expect(whispering.postProcessing).toEqual({
 		kind: 'missing',
@@ -174,22 +167,6 @@ test('a chosen transformation with no text connection to run over cannot run, an
 	// The choice is shown as it is, not replaced.
 	expect(view.postProcessing).toBe(profile.path);
 	expect(transformed).toEqual([]);
-});
-
-test('the folder being read is reported while it is read, and not after', async () => {
-	const { context, whispering } = await open();
-	await quiet(context);
-	expect(whispering.refreshing).toBe(false);
-
-	// A change the folder reports makes the recordings stale, and they are read again.
-	const reading = context.queryClient.invalidateQueries({
-		queryKey: context.queries.rows('recordings').queryKey,
-	});
-	expect(whispering.refreshing).toBe(true);
-	await reading;
-	await quiet(context);
-
-	expect(whispering.refreshing).toBe(false);
 });
 
 test('the settings draft saves a connection on the device only, keeps the saved key when none is typed, and asks no endpoint anything', async () => {

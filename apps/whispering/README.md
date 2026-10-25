@@ -20,9 +20,11 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 
 ## App composition
 
-The layout passes an inline `openFolder({ tables: whisperingTables })` opener
-to FolderApp. Its child is `<WhisperingApp {context}>`: the product root
-installs that exact context and calls `createWhispering(context)`. Whispering
+The layout renders `<OpenFolder open={() => openFolder({ tables: whisperingTables })}>`
+(`@epicenter/svelte/open-folder`, with `openFolder` from
+`@epicenter/folder/next`, which the build resolves to the browser or Tauri
+entry). Its child is `<WhisperingApp {folder}>`: the product root puts that
+folder in its own context and calls `createWhispering(folder)`. Whispering
 constructs its own platform services internally; callers do not assemble a
 workspace or provide a second folder lifetime. The build selects browser or
 native capture and inference through `#platform/services`. Each `#platform/auth`
@@ -30,29 +32,34 @@ leaf keeps a plain client private and exports one Svelte facade for the UI and
 services. Settings reads its reactive `state` and subscribes to
 `onStateChange` only to refresh connection details. Services read `state`
 outside Svelte tracking to capture an Account for a request. The OAuth callback
-completes outside FolderApp, so it opens no data folder.
+completes outside OpenFolder, so it opens no data folder.
 
-One Whispering owner holds capture, requests, selections and settings drafts.
-Folder owns each file's working document. Typing, recording length updates,
-and received result bodies all edit that document; subsequent typing includes
-accepted programmatic changes. Structured controls call `document.patch(patch)`;
-Source calls `document.replace(text)`. Saving publishes a captured whole-file snapshot
-and reports success or failure. Failure retains accepted changes and their
-save error for retry. A read never initiates publication.
+The folder is a mirror of what landed on disk. Opening lists the folder and
+reads every text file, so every read after that is synchronous and complete:
+`folder.tables.recordings.rows`, `folder.file(path)`, `folder.files`. Audio
+and other files the mirror does not keep are listed with no data, and a view
+fetches their bytes with `folder.read(path)`. Every write
+(`write`, `update`, `delete`, `tables.<table>.create`, `.update`, `.delete`)
+answers once it landed and the mirror shows it. The mirror never runs ahead
+of the disk; the one thing that does is what a person is typing, which each
+editor keeps in a draft (`draft` from `@epicenter/svelte/folder-next`).
 
-Recording rows, transformation recipes, and result placeholders are created
-through their named table, for example `folder.tables.recordings.write`, as
-one-shot complete document publications. A failed creation
-leaves no accepted input for autosave. Existing rows use an acquired document and
-`document.patch(patch)` followed by `document.save()`; lists and raw reads do not acquire text. Background completion
-refreshes the document before applying its patch, preserving local input while
-leaving a file already deleted on disk absent.
-Its startup maintains exclusions before recovery and reads. Its synchronous
-`dispose()` cleans up once without finishing recordings or waiting for workflows,
-even if native window destruction already closed the folder context. New work
-and late replies follow `context.closing`. FolderApp closes immediately on
-unmount, closes a folder whose open finishes late, and closes the context after
-a successful native destruction dispatch. Native departure finalizes captured
+One Whispering owner holds capture, requests, selections and settings drafts,
+and derives every list from the mirror's rows and files. A recording row is
+created with `folder.tables.recordings.create(id, { fields, body: '' })` when
+it starts, and Stop awaits that create, then sets its length with
+`folder.tables.recordings.update(id, { fields: { durationMs } })`. A run
+creates its result row the same way before its request goes out, and sets
+the answer with `update(id, { body })`. An update sets only what it names
+over the file as it is when the save runs, so the length and a title typed
+meanwhile both land.
+
+Startup maintains exclusions, then recovers recordings, then reads
+connections and the saved microphone choice. Its synchronous `dispose()`
+cleans up once without finishing recordings or waiting for workflows. New
+work and late replies are refused after it. OpenFolder closes the folder when
+it unmounts, which sends the writes that wait and then releases storage, and
+closes a folder whose open finishes late. Native departure finalizes captured
 audio. Route changes retain the same app state.
 
 Product-specific components read that mounted instance with `getWhispering()`
@@ -123,8 +130,8 @@ Whispering supplies these root defaults, which also apply in nested directories:
 Whispering reads `.gitignore` before starting its first product reads. If that
 ordered block is already present, startup writes nothing; comments and blank
 lines do not interrupt it. Otherwise it inserts the block before existing text,
-after any UTF-8 BOM, through `folder.files.write` as a complete publication.
-Existing text and line endings are preserved in that publication. No version flag or rule
+after any UTF-8 BOM, through `folder.write` as one whole-file write.
+Existing text and line endings are preserved in that write. No version flag or rule
 registry is stored.
 
 Rules after the block and nested `.gitignore` files can override these defaults.
@@ -279,8 +286,8 @@ and selection stay when you change pages or hide details.
 
 Edit transcript text beside playback. Each change is written to the
 transcript's file as you type; opening the file from Files shows the same
-text. Copy uses the text shown; Transform first waits for what is being
-written and reads the saved transcript.
+text once it is saved. Copy and Transform use the text shown, including what
+you typed a moment ago.
 Dates, file paths, capture information, and endpoint are under
 **File details**.
 
@@ -364,9 +371,11 @@ sent is the text connection in Settings, never the file.
   the optional model and where requests go. **Try it** runs it (below).
   **Source** edits the file's exact text. A file that does not read as a
   transformation opens in Source with its issues, and Instructions opens once
-  the text reads. Typing in either saves as you type. A save from Instructions
-  changes only what you changed, keeping fields the app does not know and
-  your comments; Source saves the text exactly as typed.
+  the text reads, which the issues show as you type. Typing in either saves
+  as you type. A save from Instructions sets only what you changed and keeps
+  fields the app does not know, writing the frontmatter in one standard form
+  (declared fields first, comments dropped); Source saves the text exactly
+  as typed.
 - A model typed in a transformation is used instead of the text connection's;
   leave it empty to use the connection's. Whispering keeps no list of
   providers or models.
@@ -395,10 +404,10 @@ text and press **Run on pasted text**; no recording is needed. The pasted text
 stays while you move between pages and transformations, and is written only
 into the result of a run on it.
 
-- Running waits for edits being written to land first, then fixes the run
-  before anything is sent: its file name and the exact instructions, text,
-  model, and endpoint. Editing the text, the transformation, or Settings
-  afterward changes nothing about that run.
+- Running sends the instructions as the page shows them, typing included,
+  and fixes the run before anything is sent: its file name and the exact
+  instructions, text, model, and endpoint. Editing the text, the
+  transformation, or Settings afterward changes nothing about that run.
 - The run is saved as it starts, in `text_runs/`, and its answer is written
   into that file when it arrives. There is no separate Save; **Delete** on a
   result discards it.
@@ -414,10 +423,13 @@ from Files when you no longer want it. A recording cannot be deleted while a
 transcription or transformation of it is running: wait for it to finish
 first.
 
-What is sent is always what the folder holds when you press the button. If the
-transcript's file was edited in Files, the terminal, or another program, the
-edited text is sent; if it or its recording is gone, or the file cannot be
-read, nothing is sent and the app says why.
+What is sent is what you see when you press the button: the instructions and
+transcript text a page shows, typing included, and otherwise what the folder
+shows. If the transcript's file was edited in Files, the terminal, or another
+program, the edited text is sent once the folder shows it; if it or its
+recording is gone, or the file does not read, nothing is sent and the app says
+why. In Source, Run sends the transformation's file as saved, so it waits
+until that text reads.
 
 A transcript or result with no answer in its file says why where it is
 shown: its request is running, its request failed, or it is unfinished
@@ -484,16 +496,19 @@ paid endpoint possibly one more charge. This applies to transcription too.
 
 ### Saving
 
-Every change is saved as you make it, on this device. The status says whether
-everything you did is saved, and nothing about versions: Whispering keeps no
-history and does not sync its folder. Save version, Connect, and Sync are not
-in this build.
+Every change is saved as you make it, on this device. The header says
+**Saving…** while a write is waiting or being saved and **Saved** once none
+is, and nothing about versions: Whispering keeps no history and does not sync
+its folder. Save version, Connect, and Sync are not in this build.
 
 - Terminal commands and other programs edit the files directly.
-- Folder reports saves made through its handles, including another browser
-  tab's saves. Visible queries poll for edits from other programs or a
-  terminal. Saves publish complete files in call order; the last publication
-  wins (see [Editing](#editing)).
+- The folder looks at storage again when the window gains focus, becomes
+  visible or hidden, comes back online, and before the page hides; the desktop
+  watcher and another browser tab's saves make it look at once. What it finds
+  shows everywhere it is listed.
+- Each write waits per file: the first after a quiet moment is sent at once,
+  and writes made while one is out go together after it, applied in order
+  over the file as it is then (see [Editing](#editing)).
 - If the folder is a Git repository you manage, `git` works on it as on any
   directory. Whispering commits nothing, and recording audio stays out of
   that repository only according to its tracked-file and `.gitignore` rules.
@@ -527,11 +542,17 @@ A recording that is still recording cannot be transcribed; stop it first.
 
 ### When a save does not finish
 
+A write that does not land is a notice naming the file and why, with **Copy**
+for the text it carried. The folder still shows the file as it is on disk, so
+nothing has to be undone; what you typed stays in the editor until the notice
+is shown, and you can type again to save it.
+
 When an answer arrives but its file cannot be written, the window keeps the
-answer and writes it again while it is open, waiting longer each time. The
-status says how many answers are not written yet, and the result shows the
-text with **Copy**. If the window closes first, the file stays without its
-answer and shows as unfinished, to run again.
+answer. The result says "Answer not written" with why, the text, **Save
+again**, and **Copy**, and the header says how many answers are not written
+yet. **Save again** writes it once more; nothing sends the request again. If
+the window closes first, the file stays without its answer and shows as
+unfinished, to run again.
 
 If a recording's row cannot be written when it starts, the recording still
 runs and says so; its audio is saved without a row naming it, as an ordinary
@@ -540,13 +561,13 @@ row and audio and says so.
 
 ### Closing and quitting
 
-Closing a desktop window asks only if its Folder has an unfinished save.
-A recording alone closes without a warning; native cleanup finishes and keeps
-its audio. Epicenter always confirms application Quit and mentions any active
-recording. Cancel keeps the windows, input, and recording going. Close Anyway
-or Quit Anyway leaves without waiting for page workflows; unsaved input may
-be lost, and departure does not promise recording length metadata. An
-unfinished settings form or pasted text does not cause a window-close prompt.
+Closing a desktop window never asks: it waits for the writes already out,
+which answer in milliseconds, then closes. A recording alone closes without a
+warning; native cleanup finishes and keeps its audio. Epicenter always
+confirms application Quit and mentions any active recording. Cancel keeps the
+windows, input, and recording going. Quit Anyway leaves without waiting for
+page workflows, and departure does not promise recording length metadata. An
+unfinished settings form or pasted text does not hold a window.
 
 Force Quit, a crash, and power loss cannot ask. A recording is in the desktop
 folder from its start; a transcription or transformation writes its result
@@ -562,68 +583,66 @@ file before sending a request.
 
 Moving between Home, Recordings, and Transformations keeps the mounted app
 and never prompts. In a browser tab (`bun dev:whispering:ui`), the browser's
-leave warning appears while the Folder has an accepted change still saving.
-Reloading or closing the tab loses a browser recording in progress.
+leave warning appears only while a write is still out. Reloading or closing
+the tab loses a browser recording in progress.
 
 ### Editing
 
 Every change is written to its file as you type: a recording's title and
 notes, a transcript, a transformation's fields, and any text file opened from
-Files. There is no save button. An edit starts from the version of the file it
-was typed over, and the window holds what you typed until it is in the file;
-the table shows the row once it is saved.
+Files. There is no save button. Each text field is a draft: it shows what you
+typed until that text's save answers, then shows the file again, which by
+then holds what landed. The lists show a row once it is saved.
 
-- Each file is written one change at a time. Changes typed while one write
-  runs are written next, so fast typing writes what you typed last.
-- Reading the folder again never publishes a write. Accepted local input stays
-  held while it waits to save. Text already acquired remains available after
-  deletion, binary replacement, a failed read, or closing the editor view.
-- Saves publish the complete current source. There is no merge or conflict
-  choice: the last publication wins, including changes from other writers.
-  Typing into a retained source can recreate a deleted file.
-- A failed save contributes `{ path, error }` metadata to aggregate status and
-  keeps the exact input in its editor. A notice's Copy action reads the current
-  dirty editor text, so newer typing is copied and success or discard leaves
-  nothing stale to copy. It shows **Try again** and **Discard**.
-  A later successful publication clears the error. Runs capture current held
-  input without publishing it; deletion discards the pending input captured by
-  the delete command once deletion succeeds. Newer input may recreate the path.
-- Discard drops unsubmitted input and offers it to copy. It does not cancel a
-  publication already admitted or restore an earlier file version.
+- Each file is written one save at a time. Changes typed while one save runs
+  go together in the next, so fast typing writes what you typed last.
+- A field, a body, or a title sets only what it names over the file as it is
+  when the save runs, so another program's change to the rest of the file is
+  kept. Source writes the whole text as typed.
+- A save that does not land is a notice with **Copy**; the editor then shows
+  the file as it is on disk. Nothing is retried on its own.
+- Changing between the fields and Source first sends what waits and lets the
+  last save here answer, so the other editor shows it.
 - A value that does not fit a row, such as a field with the wrong kind of
   value, is saved as written, and the row is listed under "Needs repair" until
   it is fixed. Nothing you typed is refused.
-- A field you change leaves the rest of the file's bytes as they were. Notes,
-  transcripts, and instructions you type are saved with LF line endings.
-- Folder change notifications refresh affected lists after saves, and visible
-  queries poll for outside changes. Save completion does not wait for reads.
+- A saved row's frontmatter is written in one standard form: the fields the
+  app declares in their order, then the others sorted, with comments dropped.
+  A save that changes no value writes nothing. Notes, transcripts, and
+  instructions you type are saved with LF line endings.
 
 A recording, transcript, or transformation file whose text does not read as a
-row is listed under "Needs repair" with why, and opens as its text with the
-issues of its saved text; they update once what you type is saved, a moment
-after you pause. Source stays open after a repair until you explicitly return to fields. A row starts
+row is listed under "Needs repair" with why, and opens as its text with its
+issues. The issues follow the text as you type it, before it saves, and the
+fields open once it reads. Source stays open after a repair until you
+explicitly return to fields. A row whose file could not be read is listed
+with why and **Try again**, which looks at the folder again. A row starts
 with a `---` line, its fields, and a closing `---` line; Markdown without
 those lines, bad YAML, a repeated key, a missing field, or a field with the
 wrong kind of value does not read. A transformation runs once its file reads
-and it has instructions. Fields the app does not know are kept. Saving a row
-from its fields changes only what you changed: comments, the spelling of
-other fields, and the body are kept.
+and it has instructions. Fields the app does not know are kept.
 
 Any file name works for a row, including a trailing space or `recordings/.md`.
 Only `.md` in lowercase makes a file a row.
 
-Deletion removes each confirmed path through the ordinary files API. It does
-not first save unsubmitted input. A successful delete consumes only the pending
-input captured by that command; newer typing remains and may recreate the path.
-Deleting a recording also deletes its confirmed results and keeps its audio.
-It refuses while work for that recording runs or an unreadable result cannot
-say which recording it belongs to. Repair or remove those files first.
+Files opens a file by what the folder holds of it. Text files (Markdown,
+`.txt`, `.json`, `.yaml`, `.csv`, `.html`, `.ts`, names like `.gitignore`
+with no extension, and a few more) open as text to edit. Audio plays. A text
+file whose bytes are not UTF-8, and any other file, such as a `.py` script,
+is listed but not opened; Rename and Delete still work on it. A file whose
+read failed says why, with **Try again**.
+
+Deletion removes each confirmed path as it is when the delete runs. Deleting
+a recording also deletes its confirmed results and keeps its audio. It
+refuses while work for that recording runs or an unreadable result cannot say
+which recording it belongs to. Repair or remove those files first.
 
 Files lists files. Directories appear while files are in them, so Files creates
-files rather than empty folders. Rename copies pending local source, or current
-stored bytes, to the new name and then removes the old path. New input or observations that differ from the copied source keeps the source path and
-produces a notice naming both files. Identical text is already preserved at
-the destination and the rename can finish.
+files rather than empty folders. Rename copies the file as the folder shows it,
+or its bytes for a file the folder does not keep, to the new name and then
+deletes the old path. It is refused while a save is running: rename again in a
+moment. If the original changes while the copy is out, both files are kept
+and the notice names them.
 
 ## Fixture audio
 
@@ -640,26 +659,34 @@ says there is no real input and opens none.
 
 ## Changed promises
 
-This build opens its folder as the local `Folder` (`@epicenter/folder`) with
-Whispering's tables, and keeps what you type in the folder's drafts until it
-is saved (ADR-0632). These promises of the earlier build changed:
+This build opens its folder as the folder mirror (`@epicenter/folder/next`)
+with Whispering's tables, read through `@epicenter/svelte/folder-next`, and
+keeps what you type in each editor's draft until its save answers. These
+promises of the earlier build changed:
 
 - No versions, Connect, or Sync. **Save version** and the status lines about
   changes since the last version are gone, and Whispering no longer writes
   `epicenter.json` into its folder. Startup maintains `.gitignore` through the
-  ordinary files API, separately from committing or syncing.
+  ordinary file write, separately from committing or syncing.
 - In a browser tab, recordings an earlier build kept in OPFS are not read or
   changed. An origin with only those recordings opens an empty current folder.
-- Acquired source stays editable after deletion. Accepted new input or an
-  explicit Save can recreate that file; observations and requests do not.
+- What you typed is not held after its save answers. A file deleted while you
+  edit it is gone from the view, and a save that failed shows the file as it
+  is, with the typed text in its notice to copy. Nothing keeps text to save
+  later.
 - A value that does not fit a row is saved, and the row is listed for repair.
   The earlier build refused it.
-- Saving a row from its fields keeps comments and the file's own spelling.
-  The earlier build rewrote the frontmatter.
-- A failed save of a row offers **Try again** and **Discard** where you typed,
-  instead of a notice.
-- A deletion deletes the file as it is when it runs. A file another program
-  changes in that very moment is kept, and you are told.
+- Saving a row from its fields writes its frontmatter in one standard form and
+  drops comments.
+- A save that does not land is a notice with **Copy**, not **Try again** and
+  **Discard** beside the field; an answer that could not be written is saved
+  again only when you press **Save again**, not on its own.
+- There is no loading screen per file, no "larger than 1 MB" refusal, and no
+  banner for a listing that failed: opening reads the whole folder once.
+- On the desktop, audio replaced by other bytes of exactly the same length is
+  not noticed until the folder opens again: the folder tells files it does not
+  keep apart by size there. A browser tab tells them apart by content.
+- A deletion deletes the file as it is when it runs.
 - Files no longer creates empty folders, and renaming a file is a save under
   the new name followed by deleting the old one.
 - Epicenter bundles Whispering, and "Open with…" can open any listed folder.

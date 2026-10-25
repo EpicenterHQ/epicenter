@@ -28,8 +28,6 @@
 	const files = $derived(
 		filesLine({
 			saving: whispering.saving,
-			unsaved: whispering.unsaved,
-			storageFailure: whispering.storageFailure,
 			unwrittenAnswers: whispering.unwrittenAnswers,
 		}),
 	);

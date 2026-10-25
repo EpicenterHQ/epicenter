@@ -2,73 +2,71 @@
  * Whispering workflow tests
  *
  * Drives the real product state against a real directory, opened as the
- * native `Folder` with Whispering's tables, with a fixture capture device and
- * a stubbed transcription answer. No window, shell, or microphone is
- * involved, so these establish the workflow's logic and what it leaves on
- * disk, not that the desktop app runs. Editing drafts is covered in
- * `editing.test.ts`.
+ * folder mirror with Whispering's tables, with a fixture capture device and
+ * a stubbed transcription answer. A test that holds or refuses a save opens
+ * the folder over memory instead, whose storage does that below the folder.
+ * No window, shell, or microphone is involved, so these establish the
+ * workflow's logic and what it leaves on disk, not that the desktop app runs.
  *
  * Key behaviors:
  * - A first launch creates no files, and saving a connection writes nothing
  *   to the folder
  * - Record and stop leave same-stem Markdown and audio with its exact
- *   bytes; reopening reads both, and a recording being captured never reads
- *   as absent
+ *   bytes; reopening reads both, and a recording being captured or just
+ *   stopped never reads as absent
  * - Files supplied in an ordinary directory read as they are: rows,
- *   transcripts, results, and audio, with every field kept
+ *   transcripts, results, and audio, with every field kept through edits
  * - Captured audio survives a row write that fails at start
  * - Only same-stem siblings resolve as audio; unrelated metadata never redirects
- *   playback or transcription, and malformed rows remain repairable
+ *   playback or transcription, and malformed rows are repaired as text
  * - Deleting a recording deletes its row and its results and keeps its audio.
  *   It is refused while work for it runs or a result cannot say whose it is
  * - A transcription result is its own row naming the recording, written with
  *   an empty body before the request goes out and filled when the answer
  *   arrives (ADR-0542)
  * - A row with no body and no request in this window is unfinished; running
- *   it again fills the same row, and deleting it discards it
- * - An answer whose write fails is written again while the page lives; after
- *   a reload its row is unfinished
- * - Renaming copies held input and retains input accepted during the copy;
+ *   it again fills the same row, and deleting it discards it; after a reload
+ *   a row whose answer was not written is unfinished
+ * - Renaming copies the file as the folder shows it, refuses while a save
+ *   runs, and keeps both files when the original changes during the copy;
  *   recording and transformation files keep their names
  * - Stop waits for its own initial row save across overlapping captures
  * - Closing refuses new work and selection without draining workflows; the
- *   admitted writes may still finish after synchronous Folder release
+ *   writes already asked for still land
  */
-import type { WhisperingContext } from './folder.js';
 import {
 	closeTestWhispering,
+	headerLine,
 	openTestWhispering,
 } from './whispering.test-support.js';
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmodSync } from 'node:fs';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { ReadError } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder/next';
 import { pathProblem } from '@epicenter/folder/file-browser';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { audioMimeTypeOf } from './audio-format.js';
 import { createFixtureDevice, toneWav } from './capture.js';
-import { recordingAudioStem } from './definition.js';
+import { recordingAudioStem, type WhisperingTables } from './definition.js';
 import { describeDeletion } from './deletion.js';
-import { openText, settle } from './edits.test-support.js';
-import { audioRead } from './file-reads.js';
 import { readBytes } from './files.js';
+import type { WhisperingFolder } from './folder.js';
+import { createMicrophoneDevice } from './microphone.js';
 import type { WhisperingServices } from './platform/types.js';
-import { QueryObserver, quiet } from './query.test-support.js';
 import {
+	deferred,
 	eventually,
-	openGatedTestFolder,
+	openMemoryTestFolder,
 	openTestFolder,
-	type ResultFailures,
-	replaceTables,
+	settled,
 	TEST_BASE_URL,
 	testConnections,
 	whisperingDirectory,
-	withObstructedCreates,
-	withResultFailures,
 } from './services.test-support.js';
-import { filesLine } from './status.js';
 import type { Whispering } from './whispering.svelte.js';
 
 /** The recording rows and their sibling audio, sorted. */
@@ -77,162 +75,141 @@ const recordingFiles = async (root: string) =>
 
 const { recordingId } = await import('./whispering.svelte.js');
 
-/** Read through the player's query policy, fetching current bytes each time. */
-const readAudio = (context: WhisperingContext, path: string) =>
-	context.queryClient.fetchQuery({
-		...context.queries.file(path, audioRead),
-		staleTime: 0,
-	});
-
-const opened: { whispering: Whispering; context: WhisperingContext }[] = [];
+type Fixture = {
+	whispering: Whispering;
+	folder: WhisperingFolder;
+	opened: Folder<WhisperingTables>;
+};
+const fixtures: Fixture[] = [];
 const roots: string[] = [];
 
+type Answer = Awaited<ReturnType<WhisperingServices['transcribe']>>;
+
 type Options = {
-	/** Fail this many recording row writes, made when a recording starts. */
-	failRowWrites?: number;
-	/** Fail this many transcript rows written when a transcription starts. */
-	failResultStarts?: number;
-	/** Fail this many answers written into transcript rows. */
-	failAnswerWrites?: number;
 	/** Replace the stubbed transcription answer. */
 	transcribe?: WhisperingServices['transcribe'];
+	/** Open this directory again. */
 	root?: string;
-	/** Runs before each save of a file through `files`, with its path and whether it is new. */
-	beforeFileWrite?: (path: string, created: boolean) => Promise<void>;
-	/** Runs before each new recording row is saved. */
-	beforeRowCreate?: () => Promise<void>;
-	/** Before bytes reach disk, answer why the disk refuses, or nothing. */
-	beforeDiskWrite?: (path: string) => Promise<unknown>;
+	/** Over memory, whose storage a test can hold or make refuse. */
+	memory?: boolean;
+	/** Record as the desktop does: the audio is written by the shell, not through the folder. */
+	nativeCapture?: boolean;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Parameters<typeof testConnections>[0];
 };
 
 async function open({
-	failRowWrites = 0,
-	failResultStarts = 0,
-	failAnswerWrites = 0,
 	transcribe,
-	beforeFileWrite,
-	beforeRowCreate,
 	root,
+	memory = false,
+	nativeCapture = false,
 	connections,
-	beforeDiskWrite,
 }: Options = {}) {
 	const directory =
 		root ?? (await whisperingDirectory('whispering-whispering-'));
 	if (root === undefined) roots.push(directory);
-	const folder =
-		beforeDiskWrite === undefined
-			? await openTestFolder(directory)
-			: openGatedTestFolder(directory, beforeDiskWrite);
-	/** Result row writes still to fail. A test may arm more after opening. */
-	const failures: ResultFailures = {
-		starts: failResultStarts,
-		answers: failAnswerWrites,
-	};
-	const stored = folder.files;
-	const files: typeof folder.files = {
-		...stored,
-		async write(path, content) {
-			await beforeFileWrite?.(path, content instanceof Uint8Array);
-			return stored.write(path, content);
-		},
-	};
+	const inMemory = memory ? await openMemoryTestFolder() : undefined;
+	const { folder, opened } = inMemory ?? (await openTestFolder(directory));
 	const transcribed: Parameters<WhisperingServices['transcribe']>[0][] = [];
 	const device = testConnections(connections);
-	const recordings = withObstructedCreates(
-		folder.tables.recordings,
-		join(directory, 'recordings'),
-		{ creates: failRowWrites },
-	);
-	const test = {
-		services: {
-			kind: 'native',
-
-			location: directory,
-			capture: createFixtureDevice({
-				name: 'tone.wav',
-				load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
-			}),
-			recoverRecordings: async () => undefined,
-			async transcribe(request) {
-				transcribed.push(request);
-				if (transcribe !== undefined) return transcribe(request);
-				return Ok({ text: 'a steady tone' });
-			},
-			transform: async ({ input }) => Ok({ text: input }),
-			transformNote: 'test',
-			localTranscription: undefined,
-			connections: device.member,
-			preferences: {
-				microphone: async () => undefined,
-				setMicrophone: async () => undefined,
-			},
-		} satisfies WhisperingServices,
-		folder: replaceTables(
-			folder,
-			{
-				transcriptions: withResultFailures(
-					folder.tables.transcriptions,
-					failures,
-				),
-				recordings: {
-					...recordings,
-					async write(id, change) {
-						if (change.body === '') await beforeRowCreate?.();
-						return recordings.write(id, change);
+	const services: WhisperingServices = {
+		kind: 'native',
+		location: directory,
+		capture: nativeCapture
+			? createMicrophoneDevice({
+					inputs: {
+						list: async () => Ok({ devices: [] }),
+						meter: async () => {
+							throw new Error('No microphone test is requested');
+						},
+						onChange: () => () => {},
 					},
-				},
-			},
-			files,
-		),
+					record: async ({ path }) =>
+						Ok({
+							path: `${path}.wav`,
+							device: 'Test microphone',
+							startedAt: Date.now(),
+							onLevel: () => () => {},
+							onEnded: () => () => {},
+							stop: async () => Ok({ path: `${path}.wav`, durationMs: 1000 }),
+						}),
+				})
+			: createFixtureDevice({
+					name: 'tone.wav',
+					load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
+				}),
+		recoverRecordings: async () => undefined,
+		async transcribe(request) {
+			transcribed.push(request);
+			if (transcribe !== undefined) return transcribe(request);
+			return Ok({ text: 'a steady tone' });
+		},
+		transform: async ({ input }) => Ok({ text: input }),
+		transformNote: 'test',
+		localTranscription: undefined,
+		connections: device.member,
+		preferences: {
+			microphone: async () => undefined,
+			setMicrophone: async () => undefined,
+		},
 	};
-	const { whispering, context } = await openTestWhispering(test);
-	opened.push({ whispering, context });
+	const { whispering } = await openTestWhispering({ services, folder });
+	fixtures.push({ whispering, folder, opened });
 	return {
 		whispering,
-		context,
+		folder,
+		opened,
 		root: directory,
+		host: inMemory?.host,
 		transcribed,
-		failures,
 		device,
 	};
 }
 
+/** Stop the app, then close its folder as `<OpenFolder>` does once it unmounts. */
+async function close(whispering: Whispering) {
+	const index = fixtures.findIndex(
+		(fixture) => fixture.whispering === whispering,
+	);
+	const [fixture] = fixtures.splice(index, 1);
+	if (fixture === undefined) return;
+	closeTestWhispering(fixture);
+	await fixture.opened.close();
+}
+
 afterEach(async () => {
-	for (const fixture of opened.splice(0)) await closeTestWhispering(fixture);
+	for (const fixture of [...fixtures]) await close(fixture.whispering);
 	for (const root of roots.splice(0))
 		await rm(dirname(root), { recursive: true, force: true });
 });
 
-async function record(whispering: Whispering, context: WhisperingContext) {
+async function record(whispering: Whispering, folder: WhisperingFolder) {
 	await whispering.startRecording();
 	expect(whispering.recorder.phase).toBe('recording');
 	await whispering.stopRecording();
-	await quiet(context);
+	await settled(folder);
 }
 
-/** The header's line, from the same function AppHeader calls. */
-const status = (whispering: Whispering) =>
-	filesLine({
-		saving: whispering.saving,
-		unsaved: whispering.unsaved,
-		storageFailure: whispering.storageFailure,
-		unwrittenAnswers: whispering.unwrittenAnswers,
-	});
-
 /** Close `whispering` in the test, so the next opening reads what it left. */
-async function reopen(
-	whispering: Whispering,
-	context: WhisperingContext,
-	root: string,
-) {
-	opened.splice(
-		opened.findIndex((fixture) => fixture.whispering === whispering),
-		1,
-	);
-	await closeTestWhispering({ whispering, context });
+async function reopen(whispering: Whispering, root: string) {
+	await close(whispering);
 	return open({ root });
+}
+
+/** A recording row as another program might write it. */
+const recordingText = (title: string) =>
+	`---\ntitle: ${title}\nrecordedAt: 2026-01-02T03:04:05.000Z\ncapture: microphone\n---\n`;
+
+/** Make storage refuse every save under `prefix` from now on. */
+function refuseUnder(
+	host: NonNullable<Awaited<ReturnType<typeof open>>['host']>,
+	prefix: string,
+	only: (path: string) => boolean = () => true,
+) {
+	host.control.beforePut = (path) => {
+		if (path.startsWith(prefix) && only(path))
+			throw new Error('the disk refused it');
+	};
 }
 
 // ============================================================================
@@ -283,10 +260,10 @@ test('startup maintains only .gitignore, and saving a connection adds no folder 
 });
 
 test('with no transcription connection, transcribing sends nothing and says to set one up', async () => {
-	const { context, whispering, transcribed } = await open({
+	const { folder, whispering, transcribed } = await open({
 		connections: { connections: {} },
 	});
-	await record(whispering, context);
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 
 	await whispering.transcribe(entry);
@@ -304,9 +281,9 @@ test('with no transcription connection, transcribing sends nothing and says to s
 // ============================================================================
 
 test('record and stop leave adjacent Markdown and exact audio without a stored path, and reopening reads both', async () => {
-	const { context, whispering, root } = await open();
+	const { folder, whispering, root } = await open();
 
-	await record(whispering, context);
+	await record(whispering, folder);
 
 	expect(whispering.entries).toHaveLength(1);
 	const entry = whispering.entries[0]!;
@@ -324,67 +301,66 @@ test('record and stop leave adjacent Markdown and exact audio without a stored p
 	expect(row).not.toContain('audioPath:');
 	expect(row).toContain('durationMs: 1000');
 
-	const second = await reopen(whispering, context, root);
+	const second = await reopen(whispering, root);
 
 	expect(second.whispering.entries.map((item) => item.row.fields)).toEqual([
 		fields,
 	]);
-	expect(expectOk(await readBytes(second.context.folder, audioPath))).toEqual(
+	// The audio is listed, not kept; the player reads its bytes, typed as the
+	// container they are.
+	expect(second.folder.file(audioPath)).toMatchObject({
+		data: undefined,
+		readError: null,
+	});
+	expect(expectOk(await readBytes(second.folder, audioPath))).toEqual(
 		toneWav(),
 	);
-	// The player reads the same bytes, typed as the container they are.
-	const audio = await readAudio(second.context, audioPath);
-	expect(audio.blob.type).toBe('audio/wav');
-	expect<Uint8Array>(new Uint8Array(await audio.blob.arrayBuffer())).toEqual(
-		toneWav(),
-	);
+	expect(audioMimeTypeOf(audioPath)).toBe('audio/wav');
 });
 
 test('a recording being captured, and once it stops, has its audio here, never absent', async () => {
-	const { context, whispering } = await open();
+	const { folder, whispering } = await open();
 
 	await whispering.startRecording();
-	// The row's save is read back; the fixture's audio is written when it
-	// stops, so until then the listing lacks it.
-	await quiet(context);
+	// The fixture's audio is written when it stops, so until then the
+	// listing lacks it.
+	await settled(folder);
 	const [entry] = whispering.entries;
 	expect(whispering.audioOf(entry!).kind).toBe('here');
 
 	await whispering.stopRecording();
 	expect(whispering.audioOf(whispering.entries[0]!).kind).toBe('here');
-	await quiet(context);
+	await settled(folder);
 	expect(whispering.audioOf(whispering.entries[0]!).kind).toBe('here');
 });
 
-test('a completed recording leaves settling after an unchanged listing reread', async () => {
-	const { context, whispering } = await open();
-	const write = context.folder.files.write;
-	// A capture reports completion but leaves no audio file. The paths do not change.
-	context.folder.files.write = (path, content) =>
-		path.startsWith('recordings/') && !path.endsWith('.md')
-			? Promise.resolve(Ok(undefined))
-			: write(path, content);
-	try {
-		await whispering.startRecording();
-		await settle(whispering, context);
-		const key = context.queries.files().queryKey;
-		const before = context.queryClient.getQueryData<string[]>(key);
-		await whispering.stopRecording();
-		await whispering.readAgain();
-		expect(context.queryClient.getQueryData<string[]>(key)).toBe(before);
-		expect(whispering.audioOf(whispering.entries[0]!).kind).toBe('absent');
-	} finally {
-		context.folder.files.write = write;
-	}
+test('just-stopped audio the shell writes is here before the folder lists it, and the listing decides once it does', async () => {
+	const { folder, whispering, root } = await open({ nativeCapture: true });
+	await record(whispering, folder);
+	const entry = whispering.entries[0]!;
+	const audioPath = entry.path.replace(/\.md$/, '.wav');
+	// Nothing listed it yet: it plays from where the capture wrote it.
+	expect(folder.file(audioPath)).toBeUndefined();
+	expect(whispering.audioOf(entry)).toEqual({ kind: 'here', path: audioPath });
+
+	// The shell's file arrives, and the folder lists it.
+	await writeFile(join(root, audioPath), toneWav());
+	folder.checkpoint();
+	await eventually(() => folder.file(audioPath) !== undefined);
+	expect(whispering.audioOf(entry)).toEqual({ kind: 'here', path: audioPath });
+
+	// From then on the listing decides: once it is gone, it is absent.
+	expectOk(await folder.delete(audioPath));
+	expect(whispering.audioOf(entry).kind).toBe('absent');
 });
 
 test('a recording’s row is written when it starts, naming its audio, and gets its length when it stops', async () => {
-	const { context, whispering, root } = await open();
+	const { folder, whispering, root } = await open();
 
 	await whispering.startRecording();
 
 	expect(whispering.recorder.phase).toBe('recording');
-	await quiet(context);
+	await settled(folder);
 	const [entry] = whispering.entries;
 	expect(entry?.row.fields).toMatchObject({
 		capture: 'fixture',
@@ -392,7 +368,7 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 	expect(entry?.row.fields.durationMs).toBeUndefined();
 
 	await whispering.stopRecording();
-	await quiet(context);
+	await settled(folder);
 
 	expect(
 		whispering.entries.map((stored) => stored.row.fields.durationMs),
@@ -401,118 +377,63 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 		`${entry?.stem}.md`,
 		`${entry?.stem}.wav`,
 	]);
-	expect(await readdir(join(root, 'recordings'))).toEqual(
-		expect.arrayContaining([`${entry?.stem}.wav`, `${entry?.stem}.md`]),
-	);
-});
-
-test('Stop combines held title input with duration before a later explicit save', async () => {
-	const { context, whispering, root } = await open();
-	await whispering.startRecording();
-	await quiet(context);
-	const entry = whispering.entries[0]!;
-	const edit = whispering.document('recordings', entry.path);
-	await edit.refresh();
-	expectOk(edit.patch({ fields: { title: 'Standup notes' } }));
-	await whispering.stopRecording();
-	const captured = edit.getSnapshot().text!;
-	expect(context.folder.tables.recordings.parse(captured).fields).toMatchObject(
-		{
-			title: 'Standup notes',
-			durationMs: 1000,
-		},
-	);
-	await edit.save();
-	await settle(whispering, context);
-	expect(await readFile(join(root, entry.path), 'utf8')).toBe(captured);
-	expect(edit.getSnapshot().isDirty).toBe(false);
-	expect(edit.getSnapshot().saveError).toBeUndefined();
 });
 
 test('Stop pressed while the row’s first save runs writes the length once the row is there', async () => {
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	const { context, whispering, root } = await open({
-		beforeRowCreate: async () => {
-			reached.resolve();
-			await release.promise;
-		},
-	});
+	const { folder, host, whispering } = await open({ memory: true });
+	const release = deferred<void>();
+	host!.control.putGate = release.promise;
 
 	const starting = whispering.startRecording();
-	await reached.promise;
-	expect(whispering.recorder.phase).toBe('recording');
+	await eventually(() => whispering.recorder.phase === 'recording');
 	const stopping = whispering.stopRecording();
 	await Bun.sleep(10);
+	host!.control.putGate = undefined;
 	release.resolve();
 	await Promise.all([starting, stopping]);
-	await settle(whispering, context);
+	await settled(folder);
 
 	expect(whispering.recorderError).toBeUndefined();
 	const [entry] = whispering.entries;
 	expect(entry?.row.fields.durationMs).toBe(1000);
-	expect(await readFile(join(root, entry!.path), 'utf8')).toContain(
-		'durationMs: 1000',
-	);
+	expect(host!.text(entry!.path)).toContain('durationMs: 1000');
 });
 
-test('a first capture’s Stop waits for its own row while a second capture starts', async () => {
-	const first = Promise.withResolvers<void>();
-	const second = Promise.withResolvers<void>();
-	const firstReached = Promise.withResolvers<void>();
-	const secondReached = Promise.withResolvers<void>();
-	let creates = 0;
-	const { context, whispering, root } = await open({
-		beforeRowCreate: async () => {
-			if (++creates === 1) {
-				firstReached.resolve();
-				await first.promise;
-			} else {
-				secondReached.resolve();
-				await second.promise;
-			}
-		},
+test('each capture’s Stop waits for its own row while a second capture starts', async () => {
+	// The shell writes the audio, so Stop frees the microphone while the row waits.
+	const { folder, host, whispering } = await open({
+		memory: true,
+		nativeCapture: true,
 	});
+	const release = deferred<void>();
+	host!.control.putGate = release.promise;
 	const firstStart = whispering.startRecording();
-	await firstReached.promise;
+	await eventually(() => whispering.recorder.phase === 'recording');
 	const finishing = whispering.stopRecording();
-	let finished = false;
-	void finishing.then(() => {
-		finished = true;
-	});
 	let secondStart: Promise<void> | undefined;
 	try {
 		await eventually(() => whispering.recorder.phase === 'idle');
 		secondStart = whispering.startRecording();
-		await secondReached.promise;
-		first.resolve();
-		await eventually(() => finished);
-		expect(whispering.recorder.phase).toBe('recording');
-		const saved = await readdir(join(root, 'recordings'));
-		expect(saved.filter((path) => path.endsWith('.md'))).toHaveLength(1);
-		expect(
-			await readFile(
-				join(root, 'recordings', saved.find((path) => path.endsWith('.md'))!),
-				'utf8',
-			),
-		).toContain('durationMs: 1000');
+		await eventually(() => whispering.recorder.phase === 'recording');
 	} finally {
-		first.resolve();
-		second.resolve();
+		host!.control.putGate = undefined;
+		release.resolve();
 		await Promise.all([firstStart, secondStart, finishing]);
 	}
+	expect(whispering.recorder.phase).toBe('recording');
 	await whispering.stopRecording();
-	await settle(whispering, context);
+	await settled(folder);
 	expect(whispering.entries).toHaveLength(2);
 	for (const entry of whispering.entries)
 		expect(entry.row.fields.durationMs).toBe(1000);
+	expect(whispering.recorderError).toBeUndefined();
 });
 
 test('a recording still recording is not transcribed', async () => {
-	const { context, whispering, transcribed } = await open();
+	const { folder, whispering, transcribed } = await open();
 
 	await whispering.startRecording();
-	await quiet(context);
+	await settled(folder);
 	const [entry] = whispering.entries;
 	await whispering.transcribe(entry!);
 
@@ -525,7 +446,8 @@ test('a recording still recording is not transcribed', async () => {
 });
 
 test('a row write that fails at start leaves the recording running, says so, and its audio is still saved', async () => {
-	const { whispering, root } = await open({ failRowWrites: 1 });
+	const { folder, host, whispering } = await open({ memory: true });
+	refuseUnder(host!, 'recordings/', (path) => path.endsWith('.md'));
 
 	await whispering.startRecording();
 
@@ -535,31 +457,29 @@ test('a row write that fails at start leaves the recording running, says so, and
 
 	await whispering.stopRecording();
 
-	const files = await recordingFiles(root);
+	const files = folder.files.filter((file) =>
+		file.path.startsWith('recordings/'),
+	);
 	expect(files).toHaveLength(1);
-	expect(files[0]).toEndWith('.wav');
-	expect<Uint8Array>(
-		new Uint8Array(await readFile(join(root, 'recordings', files[0]!))),
-	).toEqual(toneWav());
+	expect(files[0]!.path).toEndWith('.wav');
+	expect(expectOk(await folder.read(files[0]!.path))).toEqual(toneWav());
 });
 
-test('files in an ordinary directory read as they are, extra fields included', async () => {
+test('files in an ordinary directory read as they are, and a field the app does not know survives an edit', async () => {
 	const root = await whisperingDirectory('whispering-files-');
 	roots.push(root);
-	await mkdir(join(root, 'recordings'), { recursive: true });
-	await mkdir(join(root, 'transcriptions'), { recursive: true });
 	const recording =
 		'---\ntitle: Kept take\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: microphone\nmood: calm\n---\nMy notes\n';
-	await writeFile(join(root, 'recordings', 'kept.md'), recording);
-	await writeFile(join(root, 'recordings', 'kept.wav'), toneWav());
-	await writeFile(
+	await Bun.write(join(root, 'recordings', 'kept.md'), recording);
+	await Bun.write(join(root, 'recordings', 'kept.wav'), toneWav());
+	await Bun.write(
 		join(root, 'transcriptions', 'kept-t.md'),
 		'---\nrecordingId: kept\ncreatedAt: 2026-01-02T03:05:00.000Z\nmodel: whisper-1\nendpoint: https://api.openai.com/v1\n---\nhello there\n',
 	);
 	// An unrelated file beside the documents stays as it is.
 	await writeFile(join(root, 'epicenter.json'), '{"title":"Whispering"}\n');
 
-	const { context, whispering } = await open({ root });
+	const { folder, whispering } = await open({ root });
 
 	const entry = whispering.entries[0]!;
 	expect(entry.stem).toBe('kept');
@@ -571,19 +491,16 @@ test('files in an ordinary directory read as they are, extra fields included', a
 	expect(whispering.resultsFor('kept').map((item) => item.row.body)).toEqual([
 		'hello there\n',
 	]);
-	expect(
-		expectOk(await readBytes(context.folder, 'recordings/kept.wav')),
-	).toEqual(toneWav());
+	expect(expectOk(await readBytes(folder, 'recordings/kept.wav'))).toEqual(
+		toneWav(),
+	);
 
 	// Editing the notes keeps the field this version does not know.
-	const view = whispering.document('recordings', entry.path);
-	expectOk(await view.refresh());
-	expect(
-		context.folder.tables.recordings.parse(view.getSnapshot().text!).body,
-	).toBeDefined();
-	view.patch({ body: 'My notes, edited\n' });
-	await view.save();
-	await settle(whispering, context);
+	expectOk(
+		await folder.tables.recordings.update('kept', {
+			body: 'My notes, edited\n',
+		}),
+	);
 	const saved = await readFile(join(root, 'recordings', 'kept.md'), 'utf8');
 	expect(saved).toContain('mood: calm');
 	expect(saved).toContain('My notes, edited');
@@ -592,15 +509,63 @@ test('files in an ordinary directory read as they are, extra fields included', a
 	);
 });
 
+test('a field another program added survives every edit of the row', async () => {
+	const { folder, whispering, root } = await open();
+	await record(whispering, folder);
+	const entry = whispering.entries[0]!;
+	await writeFile(
+		join(root, entry.path),
+		recordingText('Theirs').replace('---\n', '---\nspeaker: Ada\n'),
+	);
+	folder.checkpoint();
+	await eventually(() => whispering.entries[0]?.row.fields.title === 'Theirs');
+
+	expectOk(
+		await folder.tables.recordings.update(entry.stem, {
+			fields: { title: 'Mine' },
+		}),
+	);
+	expectOk(
+		await folder.tables.recordings.update(entry.stem, { body: 'Notes.\n' }),
+	);
+
+	const written = await readFile(join(root, entry.path), 'utf8');
+	expect(written).toContain('speaker: Ada');
+	expect(written).toContain('title: Mine');
+	expect(written).toEndWith('Notes.\n');
+});
+
+test('a row that is not valid is named for repair, is written as typed text, and reads as fields once repaired', async () => {
+	const { folder, whispering, root } = await open();
+	await record(whispering, folder);
+	const { path, stem } = whispering.entries[0]!;
+	const broken = '---\ntitle: Broken\n---\n';
+	expectOk(await folder.write(path, broken));
+
+	expect(whispering.repairs.map((item) => item.path)).toEqual([path]);
+	expect(whispering.showsText(path)).toBe(true);
+	expect(folder.file(path)?.data).toBe(broken);
+	expect(whispering.useForm(path, broken)).toContain('does not read');
+
+	// Source saves the whole text as typed.
+	expectOk(await folder.write(path, recordingText('Repaired')));
+	expect(await readFile(join(root, path), 'utf8')).toBe(
+		recordingText('Repaired'),
+	);
+	expect(whispering.repairs).toEqual([]);
+	expect(whispering.useForm(path, recordingText('Repaired'))).toBeUndefined();
+	expect(whispering.showsText(path)).toBe(false);
+	expect(folder.tables.recordings.row(stem)?.fields).toMatchObject({
+		title: 'Repaired',
+	});
+});
+
 test('frontmatter paths never redirect audio and opening never relocates files', async () => {
-	const { context, whispering, root, transcribed } = await open();
-	await mkdir(join(root, 'recordings'), { recursive: true });
-	await mkdir(join(root, 'audio'), { recursive: true });
+	const { folder, whispering, root, transcribed } = await open();
 	const source =
 		'---\ntitle: Take\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: audio/take.wav\n---\nNotes\n';
-	await writeFile(join(root, 'recordings', 'take.md'), source);
-	await writeFile(join(root, 'audio', 'take.wav'), toneWav());
-	await settle(whispering, context);
+	expectOk(await folder.write('recordings/take.md', source));
+	expectOk(await folder.write('audio/take.wav', toneWav()));
 	const entry = whispering.entries[0]!;
 	expect(whispering.audioOf(entry).kind).toBe('absent');
 	expect(whispering.recordingNaming('audio/take.wav')).toBeUndefined();
@@ -612,8 +577,7 @@ test('frontmatter paths never redirect audio and opening never relocates files',
 		new Uint8Array(await readFile(join(root, 'audio', 'take.wav'))),
 	).toEqual(toneWav());
 
-	await writeFile(join(root, 'recordings', 'take.wav'), toneWav());
-	await settle(whispering, context);
+	expectOk(await folder.write('recordings/take.wav', toneWav()));
 	await whispering.transcribe(entry);
 	expect(whispering.audioOf(entry)).toEqual({
 		kind: 'here',
@@ -624,48 +588,18 @@ test('frontmatter paths never redirect audio and opening never relocates files',
 	]);
 });
 
-test('audio replaced by bytes of the same length is noticed by its content', async () => {
-	const { context, whispering, root } = await open();
-	await record(whispering, context);
-	const path = whispering.entries[0]!.path.replace(/\.md$/, '.wav');
-	const observer = new QueryObserver(
-		context.queryClient,
-		context.queries.file(path, audioRead),
-	);
-	const stop = observer.subscribe(() => {});
-	try {
-		const first = await readAudio(context, path);
-
-		await settle(whispering, context);
-		expect(await readAudio(context, path)).toBe(first);
-
-		const replaced = new Uint8Array(toneWav({ frequency: 880 }));
-		expect(replaced.length).toBe(toneWav().length);
-		await writeFile(join(root, path), replaced);
-		await settle(whispering, context);
-
-		const next = await readAudio(context, path);
-		expect(next).not.toBe(first);
-		expect<Uint8Array>(new Uint8Array(await next.blob.arrayBuffer())).toEqual(
-			replaced,
-		);
-	} finally {
-		stop();
-	}
-});
-
 // ============================================================================
 // Transcription
 // ============================================================================
 
 test('a transcription is saved as its own row naming the recording, and reopening keeps the recording, result, and exact audio', async () => {
-	const { context, whispering, root, transcribed } = await open();
-	await record(whispering, context);
+	const { folder, whispering, root, transcribed } = await open();
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	const audioPath = entry.path.replace(/\.md$/, '.wav');
 
 	await whispering.transcribe(entry);
-	await quiet(context);
+	await settled(folder);
 
 	expect(transcribed).toEqual([
 		{
@@ -680,7 +614,7 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	expect(row).toContain(entry.stem);
 	expect(row).toContain('model: verification-model');
 
-	const second = await reopen(whispering, context, root);
+	const second = await reopen(whispering, root);
 
 	expect(second.whispering.entries.map((item) => item.path)).toEqual([
 		entry.path,
@@ -688,7 +622,7 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	expect(second.whispering.resultsFor(entry.stem)[0]!.row.body).toBe(
 		'a steady tone\n',
 	);
-	expect(expectOk(await readBytes(second.context.folder, audioPath))).toEqual(
+	expect(expectOk(await readBytes(second.folder, audioPath))).toEqual(
 		toneWav(),
 	);
 });
@@ -706,19 +640,15 @@ function newest(whispering: Whispering, recording: string) {
 }
 
 test('a transcript row is written with an empty body before the request goes out, and filled when the answer arrives', async () => {
-	const answer =
-		Promise.withResolvers<
-			Awaited<ReturnType<WhisperingServices['transcribe']>>
-		>();
-	const { context, whispering, root, transcribed } = await open({
+	const answer = deferred<Answer>();
+	const { folder, whispering, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
-	await record(whispering, context);
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 
 	const transcribing = whispering.transcribe(entry);
 	await eventually(() => transcribed.length === 1);
-	await settle(whispering, context);
 
 	const { transcript, state } = newest(whispering, entry.stem);
 	expect(state.kind).toBe('running');
@@ -737,7 +667,6 @@ test('a transcript row is written with an empty body before the request goes out
 
 	answer.resolve(Ok({ text: 'arrived' }));
 	await transcribing;
-	await settle(whispering, context);
 
 	expect(newest(whispering, entry.stem).state.kind).toBe('answered');
 	expect(
@@ -746,19 +675,15 @@ test('a transcript row is written with an empty body before the request goes out
 	expect(await transcripts(root)).toEqual([`${transcript.stem}.md`]);
 });
 
-test('answer publication patches the current row body and retains its other fields', async () => {
-	const answer =
-		Promise.withResolvers<
-			Awaited<ReturnType<WhisperingServices['transcribe']>>
-		>();
-	const { context, whispering, root, transcribed } = await open({
+test('an answer sets the row body over the file as it is then, keeping its other fields', async () => {
+	const answer = deferred<Answer>();
+	const { folder, whispering, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
-	await record(whispering, context);
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	const transcribing = whispering.transcribe(entry);
 	await eventually(() => transcribed.length === 1);
-	await settle(whispering, context);
 	const { transcript } = newest(whispering, entry.stem);
 
 	// Another program adds a field while the request is out.
@@ -767,12 +692,9 @@ test('answer publication patches the current row body and retains its other fiel
 		file,
 		(await readFile(file, 'utf8')).replace(/^---\n/, '---\nlanguage: en\n'),
 	);
-	const edited = await readFile(file, 'utf8');
-	expect(edited).toContain('language: en');
 
 	answer.resolve(Ok({ text: 'arrived' }));
 	await transcribing;
-	await settle(whispering, context);
 
 	const saved = await readFile(file, 'utf8');
 	expect(saved).toContain('language: en');
@@ -781,18 +703,17 @@ test('answer publication patches the current row body and retains its other fiel
 
 test('a transport that throws leaves the row unfinished; running it again sends the same request into the same row', async () => {
 	let attempts = 0;
-	const { context, whispering, root, transcribed } = await open({
+	const { folder, whispering, root, transcribed } = await open({
 		transcribe: async () => {
 			attempts += 1;
 			if (attempts === 1) throw new Error('the folder host went away');
 			return Ok({ text: 'second try' });
 		},
 	});
-	await record(whispering, context);
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 
 	await whispering.transcribe(entry);
-	await settle(whispering, context);
 
 	const { transcript, state } = newest(whispering, entry.stem);
 	expect(state).toMatchObject({
@@ -803,7 +724,6 @@ test('a transport that throws leaves the row unfinished; running it again sends 
 	expect(transcript.row.body).toBe('');
 
 	expect(await whispering.runAgain(transcript.path)).toBeUndefined();
-	await settle(whispering, context);
 
 	expect(attempts).toBe(2);
 	expect(transcribed[1]).toEqual(transcribed[0]);
@@ -816,11 +736,12 @@ test('a transport that throws leaves the row unfinished; running it again sends 
 });
 
 test('a row that cannot be written when the run starts sends nothing, and says why', async () => {
-	const { context, whispering, root, transcribed } = await open({
-		failResultStarts: 1,
+	const { folder, host, whispering, transcribed } = await open({
+		memory: true,
 	});
-	await record(whispering, context);
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
+	refuseUnder(host!, 'transcriptions/');
 
 	await whispering.transcribe(entry);
 
@@ -829,93 +750,31 @@ test('a row that cannot be written when the run starts sends nothing, and says w
 		kind: 'failed',
 		message: expect.stringContaining('Nothing was sent'),
 	});
-	expect(await transcripts(root)).toEqual([]);
+	expect(folder.tables.transcriptions.rows).toEqual([]);
 });
-
-test('an answer not yet accepted is delivered again while the page lives', async () => {
-	const { context, whispering, root } = await open({ failAnswerWrites: 2 });
-	await record(whispering, context);
-	await settle(whispering, context);
-	const entry = whispering.entries[0]!;
-
-	await whispering.transcribe(entry);
-	await settle(whispering, context);
-
-	expect(newest(whispering, entry.stem).state).toMatchObject({
-		kind: 'writing',
-		text: 'a steady tone',
-		message: expect.stringContaining('the disk refused the result'),
-	});
-	expect(whispering.unwrittenAnswers).toBe(1);
-	expect(status(whispering).label).toBe('1 answer not written yet');
-
-	await eventually(() => whispering.unwrittenAnswers === 0);
-	await settle(whispering, context);
-
-	expect(whispering.resultsFor(entry.stem)[0]!.row.body).toBe(
-		'a steady tone\n',
-	);
-	expect(await transcripts(root)).toHaveLength(1);
-	expect(status(whispering).tone).toBe('good');
-});
-
-test.each(['typing', 'discard'] as const)(
-	'retrying a failed answer publication respects later %s',
-	async (action) => {
-		const answer =
-			Promise.withResolvers<
-				Awaited<ReturnType<WhisperingServices['transcribe']>>
-			>();
-		let refuse = false;
-		const { context, whispering, root, transcribed } = await open({
-			transcribe: () => answer.promise,
-			beforeDiskWrite: async (path) =>
-				refuse && path.startsWith('transcriptions/')
-					? new Error('the disk refused the answer')
-					: undefined,
-		});
-		await record(whispering, context);
-		const entry = whispering.entries[0]!;
-		const transcribing = whispering.transcribe(entry);
-		await eventually(() => transcribed.length === 1);
-		await settle(whispering, context);
-		const { transcript } = newest(whispering, entry.stem);
-		refuse = true;
-		answer.resolve(Ok({ text: 'a steady tone' }));
-		await transcribing;
-		expect(newest(whispering, entry.stem).state).toMatchObject({
-			kind: 'writing',
-			message: expect.stringContaining('the disk refused the answer'),
-		});
-		const document = context.folder.tables.transcriptions.document(
-			transcript.stem,
-		);
-		expect(document.getSnapshot().isDirty).toBe(true);
-		if (action === 'typing')
-			expectOk(document.patch({ body: 'a steady tone\nmine\n' }));
-		else document.discard();
-		refuse = false;
-		await eventually(() => whispering.unwrittenAnswers === 0);
-		await settle(whispering, context);
-		expect(transcribed).toHaveLength(1);
-		expect(newest(whispering, entry.stem).transcript.row.body).toBe(
-			action === 'typing' ? 'a steady tone\nmine\n' : '',
-		);
-		expect(await readFile(join(root, transcript.path), 'utf8')).toEndWith(
-			action === 'typing' ? 'a steady tone\nmine\n' : '---\n',
-		);
-	},
-);
 
 test('after a reload, a row whose answer was never written is unfinished, and running it again fills it', async () => {
-	const first = await open({ failAnswerWrites: 100 });
-	await record(first.whispering, first.context);
+	const answer = deferred<Answer>();
+	const first = await open({ transcribe: () => answer.promise });
+	await record(first.whispering, first.folder);
 	const entry = first.whispering.entries[0]!;
-	await first.whispering.transcribe(entry);
-	await settle(first.whispering, first.context);
-	expect(newest(first.whispering, entry.stem).state.kind).toBe('writing');
+	const transcribing = first.whispering.transcribe(entry);
+	await eventually(() => first.transcribed.length === 1);
+	chmodSync(join(first.root, 'transcriptions'), 0o555);
+	try {
+		answer.resolve(Ok({ text: 'a steady tone' }));
+		await transcribing;
+	} finally {
+		chmodSync(join(first.root, 'transcriptions'), 0o755);
+	}
+	expect(newest(first.whispering, entry.stem).state).toMatchObject({
+		kind: 'writing',
+		text: 'a steady tone',
+		message: expect.any(String),
+	});
+	expect(headerLine(first.whispering).label).toBe('1 answer not written yet');
 
-	const second = await reopen(first.whispering, first.context, first.root);
+	const second = await reopen(first.whispering, first.root);
 
 	const { transcript, state } = newest(second.whispering, entry.stem);
 	expect(state.kind).toBe('unfinished');
@@ -923,7 +782,6 @@ test('after a reload, a row whose answer was never written is unfinished, and ru
 	expect(second.whispering.unwrittenAnswers).toBe(0);
 
 	expect(await second.whispering.runAgain(transcript.path)).toBeUndefined();
-	await settle(second.whispering, second.context);
 
 	expect(second.transcribed).toHaveLength(1);
 	expect(
@@ -933,18 +791,14 @@ test('after a reload, a row whose answer was never written is unfinished, and ru
 });
 
 test('a running transcription cannot be asked for again; deleting its row discards it, and its answer writes nothing', async () => {
-	const answer =
-		Promise.withResolvers<
-			Awaited<ReturnType<WhisperingServices['transcribe']>>
-		>();
-	const { context, whispering, root, transcribed } = await open({
+	const answer = deferred<Answer>();
+	const { folder, whispering, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
-	await record(whispering, context);
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	const transcribing = whispering.transcribe(entry);
 	await eventually(() => transcribed.length === 1);
-	await settle(whispering, context);
 	const { transcript } = newest(whispering, entry.stem);
 
 	await whispering.transcribe(entry);
@@ -957,7 +811,7 @@ test('a running transcription cannot be asked for again; deleting its row discar
 	expect(await whispering.delete(deletion)).toBeUndefined();
 	answer.resolve(Ok({ text: 'too late' }));
 	await transcribing;
-	await settle(whispering, context);
+	await settled(folder);
 
 	expect(await transcripts(root)).toEqual([]);
 	expect(whispering.resultsFor(entry.stem)).toEqual([]);
@@ -969,12 +823,11 @@ test('a running transcription cannot be asked for again; deleting its row discar
 // ============================================================================
 
 test('deleting a recording removes its row and results, keeps its audio, and says so first', async () => {
-	const { context, whispering, root } = await open();
-	await record(whispering, context);
+	const { folder, whispering, root } = await open();
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	const audioPath = entry.path.replace(/\.md$/, '.wav');
 	await whispering.transcribe(entry);
-	await settle(whispering, context);
 
 	const deletion = expectOk(await whispering.deletionFor(entry.path));
 	// What the person is asked matches what the deletion does.
@@ -985,7 +838,6 @@ test('deleting a recording removes its row and results, keeps its audio, and say
 	expect(asked).toContain(`Its audio ${audioPath} is not deleted`);
 	expect(asked).not.toMatch(/version|history/i);
 	expect(await whispering.delete(deletion)).toBeUndefined();
-	await settle(whispering, context);
 
 	expect(whispering.entries).toHaveLength(0);
 	expect(await transcripts(root)).toEqual([]);
@@ -1004,8 +856,8 @@ test('deleting a recording removes its row and results, keeps its audio, and say
 });
 
 test('deleting the audio a recording names keeps the recording, and the missing file is reported', async () => {
-	const { context, whispering, root } = await open();
-	await record(whispering, context);
+	const { folder, whispering, root } = await open();
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	const audioPath = entry.path.replace(/\.md$/, '.wav');
 	expect(await whispering.rename(audioPath, 'other.wav')).toContain(
@@ -1017,12 +869,13 @@ test('deleting the audio a recording names keeps the recording, and the missing 
 		'names it as its audio and is kept',
 	);
 	expect(await whispering.delete(deletion)).toBeUndefined();
-	await settle(whispering, context);
 
 	expect(await recordingFiles(root)).toEqual([`${entry.stem}.md`]);
 	expect(whispering.entries[0]!.path.replace(/\.md$/, '.wav')).toBe(audioPath);
 	expect(whispering.audioOf(whispering.entries[0]!).kind).toBe('absent');
-	await expect(readAudio(context, audioPath)).rejects.toThrow('No file exists');
+	expect(expectErr(await readBytes(folder, audioPath))).toContain(
+		'No file exists',
+	);
 });
 
 test.each([
@@ -1032,9 +885,8 @@ test.each([
 ])(
 	'%s is deleted as it holds when deletion runs, whatever changed since confirmation',
 	async (path) => {
-		const { context, whispering, root } = await open();
-		expectOk(await context.folder.files.write(path, 'first\n'));
-		await settle(whispering, context);
+		const { folder, whispering, root } = await open();
+		expectOk(await folder.write(path, 'first\n'));
 		const deletion = expectOk(await whispering.deletionFor(path));
 		expect(deletion).toMatchObject({ kind: 'file', path });
 		const description = describeDeletion(deletion).description;
@@ -1050,82 +902,40 @@ test.each([
 	},
 );
 
-test.each([
-	{ failure: 'result', closing: false },
-	{ failure: 'throw', closing: false },
-	{ failure: 'result', closing: true },
-	{ failure: 'throw', closing: true },
-] as const)(
-	'deletion preflight reports $failure read failure with closing=$closing',
-	async ({ failure, closing }) => {
-		const { context, whispering, root } = await open();
-		const path = 'text_runs/result.md';
-		expectOk(await context.folder.files.write(path, 'Kept result.\n'));
-		const reached = Promise.withResolvers<void>();
-		const release = Promise.withResolvers<void>();
-		const read = context.folder.files.read;
-		context.folder.files.read = async (reading) => {
-			if (reading !== path) return read(reading);
-			reached.resolve();
-			await release.promise;
-			const cause = new Error('Result read unavailable');
-			if (failure === 'throw') throw cause;
-			return ReadError.StorageFailed({ cause });
-		};
-		try {
-			const capturing = whispering.deletionFor(path);
-			await reached.promise;
-			if (closing) whispering.dispose();
-			release.resolve();
-			const problem = expectErr(await capturing);
-			expect(problem).toContain(
-				closing ? 'closing' : 'Result read unavailable',
-			);
-			expect(await readFile(join(root, path), 'utf8')).toBe('Kept result.\n');
-		} finally {
-			release.resolve();
-			context.folder.files.read = read;
-		}
-	},
-);
-
 test('a recording is not deleted while a result cannot say which recording it belongs to', async () => {
-	const { context, whispering, root } = await open();
-	await record(whispering, context);
+	const { folder, whispering, root } = await open();
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	await whispering.transcribe(entry);
-	await settle(whispering, context);
 
-	await writeFile(
-		join(root, 'transcriptions/unparsed.md'),
-		`---\nrecordingId: ${entry.stem}\nmodel: [open\n---\ntext\n`,
+	expectOk(
+		await folder.write(
+			'transcriptions/unparsed.md',
+			`---\nrecordingId: ${entry.stem}\nmodel: [open\n---\ntext\n`,
+		),
 	);
 	const { error: refusal } = await whispering.deletionFor(entry.path);
 	expect(refusal).toContain('cannot be told apart');
 	expect(refusal).toContain('transcriptions/unparsed.md');
 
 	// A deletion confirmed before such a file appeared is refused when it runs.
-	await rm(join(root, 'transcriptions/unparsed.md'));
+	expectOk(await folder.delete('transcriptions/unparsed.md'));
 	const confirmed = expectOk(await whispering.deletionFor(entry.path));
-	await mkdir(join(root, 'transformation_runs'), { recursive: true });
-	await writeFile(join(root, 'transformation_runs/odd.md'), 'no fence\n');
+	expectOk(await folder.write('transformation_runs/odd.md', 'no fence\n'));
 	expect(await whispering.delete(confirmed)).toContain('cannot be told apart');
 	expect(await recordingFiles(root)).toHaveLength(2);
 
-	await rm(join(root, 'transformation_runs/odd.md'));
+	expectOk(await folder.delete('transformation_runs/odd.md'));
 	expect(await whispering.delete(confirmed)).toBeUndefined();
-	await settle(whispering, context);
 	expect(whispering.entries).toEqual([]);
 });
 
 test('a recording cannot be deleted while its transcription runs, including one started after confirming', async () => {
-	let answer!: (
-		value: Awaited<ReturnType<WhisperingServices['transcribe']>>,
-	) => void;
-	const { context, whispering, root } = await open({
-		transcribe: () => new Promise((resolve) => (answer = resolve)),
+	const answer = deferred<Answer>();
+	const { folder, whispering, root, transcribed } = await open({
+		transcribe: () => answer.promise,
 	});
-	await record(whispering, context);
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	const confirmed = expectOk(await whispering.deletionFor(entry.path));
 
@@ -1135,8 +945,8 @@ test('a recording cannot be deleted while its transcription runs, including one 
 	);
 	expect(await whispering.delete(confirmed)).toContain('still running');
 
-	await eventually(() => answer !== undefined);
-	answer(Ok({ text: 'arrived late' }));
+	await eventually(() => transcribed.length === 1);
+	answer.resolve(Ok({ text: 'arrived late' }));
 	await transcribing;
 
 	// The transcript saved since was never named to the person, so they are asked again.
@@ -1149,12 +959,11 @@ test('a recording cannot be deleted while its transcription runs, including one 
 });
 
 test('a recording file that does not read is deleted alone, as the bytes it holds, and its results are kept', async () => {
-	const { context, whispering, root } = await open();
-	await record(whispering, context);
+	const { folder, whispering, root } = await open();
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	await whispering.transcribe(entry);
-	await writeFile(join(root, entry.path), new Uint8Array([0xff, 0xfe, 0x00]));
-	await settle(whispering, context);
+	expectOk(await folder.write(entry.path, new Uint8Array([0xff, 0xfe, 0x00])));
 	expect(whispering.repairs.map((item) => item.path)).toEqual([entry.path]);
 
 	const deletion = expectOk(await whispering.deletionFor(entry.path));
@@ -1171,20 +980,16 @@ test('a recording file that does not read is deleted alone, as the bytes it hold
 // Files
 // ============================================================================
 
-test('renaming an open text file copies its held source and moves the selection', async () => {
-	const { context, whispering, root } = await open();
-	await writeFile(join(root, 'notes.md'), 'original\n');
-	await settle(whispering, context);
+test('renaming a text file copies it as the folder shows it and moves the selection', async () => {
+	const { folder, whispering, root } = await open();
+	expectOk(await folder.write('notes.md', 'typed\n'));
 	expect(whispering.open('notes.md')).toBe(true);
-	(await openText(whispering, context, 'notes.md')).input('typed\n');
 
 	expect(await whispering.rename('notes.md', 'renamed.md')).toBeUndefined();
-	await settle(whispering, context);
 
 	expect(whispering.selectedPath).toBe('renamed.md');
 	expect(await readFile(join(root, 'renamed.md'), 'utf8')).toBe('typed\n');
-	(await openText(whispering, context, 'renamed.md')).input('typed again\n');
-	await settle(whispering, context);
+	expectOk(await folder.write('renamed.md', 'typed again\n'));
 	expect(await readFile(join(root, 'renamed.md'), 'utf8')).toBe(
 		'typed again\n',
 	);
@@ -1192,10 +997,9 @@ test('renaming an open text file copies its held source and moves the selection'
 });
 
 test('a rename never replaces a file already at the new name', async () => {
-	const { context, whispering, root } = await open();
-	await writeFile(join(root, 'a.txt'), 'a\n');
-	await writeFile(join(root, 'b.txt'), 'b\n');
-	await settle(whispering, context);
+	const { folder, whispering, root } = await open();
+	expectOk(await folder.write('a.txt', 'a\n'));
+	expectOk(await folder.write('b.txt', 'b\n'));
 
 	expect(await whispering.rename('a.txt', 'b.txt')).toContain(
 		'Another file already has this name',
@@ -1205,10 +1009,8 @@ test('a rename never replaces a file already at the new name', async () => {
 });
 
 test('renaming audio no recording names moves its exact bytes', async () => {
-	const { context, whispering, root } = await open();
-	await mkdir(join(root, 'recordings'), { recursive: true });
-	await writeFile(join(root, 'recordings', 'loose.wav'), toneWav());
-	await settle(whispering, context);
+	const { folder, whispering, root } = await open();
+	expectOk(await folder.write('recordings/loose.wav', toneWav()));
 
 	expect(
 		await whispering.rename('recordings/loose.wav', 'kept.wav'),
@@ -1222,31 +1024,73 @@ test('renaming audio no recording names moves its exact bytes', async () => {
 	);
 });
 
+test('renaming text copies its exact bytes, a byte order mark and line endings included', async () => {
+	const { folder, whispering, root } = await open();
+	const original = '﻿Unopened café\r\n';
+	await writeFile(join(root, 'unopened.txt'), original);
+	folder.checkpoint();
+	await eventually(() => folder.file('unopened.txt') !== undefined);
+
+	expect(await whispering.rename('unopened.txt', 'renamed.txt')).toBeUndefined();
+	expect(await readFile(join(root, 'renamed.txt'))).toEqual(
+		Buffer.from(original, 'utf8'),
+	);
+	expect(await Bun.file(join(root, 'unopened.txt')).exists()).toBe(false);
+});
+
+test('a rename is refused while a save runs, and nothing is copied', async () => {
+	const { folder, host, whispering } = await open({ memory: true });
+	expectOk(await folder.write('from.txt', 'Saved text'));
+	const release = deferred<void>();
+	host!.control.putGate = release.promise;
+	const saving = folder.write('other.txt', 'Still saving');
+	try {
+		expect(folder.saving).toBe(true);
+		expect(await whispering.rename('from.txt', 'to.txt')).toBe(
+			'A save is still running. Rename again in a moment.',
+		);
+	} finally {
+		host!.control.putGate = undefined;
+		release.resolve();
+	}
+	expectOk(await saving);
+	expect(folder.file('to.txt')).toBeUndefined();
+	expect(folder.file('from.txt')?.data).toBe('Saved text');
+});
+
+test('a rename keeps both files when a write to the original arrives during the copy', async () => {
+	const { folder, host, whispering } = await open({ memory: true });
+	expectOk(await folder.write('from.txt', 'Copied text'));
+	let typed: ReturnType<typeof folder.write> | undefined;
+	host!.control.beforePut = (path) => {
+		// The person types into the original while the copy is out.
+		if (path === 'to.txt') typed = folder.write('from.txt', 'Newer text');
+	};
+
+	expect(await whispering.rename('from.txt', 'to.txt')).toContain(
+		'Different text arrived',
+	);
+	expectOk(await typed!);
+	expect(host!.text('to.txt')).toBe('Copied text');
+	expect(host!.text('from.txt')).toBe('Newer text');
+	expect(folder.file('from.txt')?.data).toBe('Newer text');
+	expect(whispering.selectedPath).not.toBe('to.txt');
+});
+
 test('recording and transformation files keep their names, and a transcript keeps its extension', async () => {
-	const { context, whispering } = await open();
-	await record(whispering, context);
+	const { folder, whispering } = await open();
+	await record(whispering, folder);
 	const entry = whispering.entries[0]!;
 	expect(await whispering.rename(entry.path, 'other.md')).toContain(
 		'Change the title instead',
 	);
 	await whispering.transcribe(entry);
-	await settle(whispering, context);
 	const result = whispering.resultsFor(entry.stem)[0]!;
 	expect(await whispering.rename(result.path, 'plain.txt')).toContain(
 		'keeps its .md extension',
 	);
 	expect(await whispering.rename(result.path, 'renamed.md')).toBeUndefined();
-	await settle(whispering, context);
-	expectOk(
-		await whispering
-			.document('transcriptions', 'transcriptions/renamed.md')
-			.refresh(),
-	);
-	expect(
-		whispering
-			.document('transcriptions', 'transcriptions/renamed.md')
-			.getSnapshot().text,
-	).toBeDefined();
+	expect(typeof folder.file('transcriptions/renamed.md')?.data).toBe('string');
 	expect(whispering.resultsFor(entry.stem).map((item) => item.path)).toEqual([
 		'transcriptions/renamed.md',
 	]);
@@ -1256,64 +1100,13 @@ test('recording and transformation files keep their names, and a transcript keep
 // Closing
 // ============================================================================
 
-test('file commands return thrown failures for their existing UI callers', async () => {
-	const { context, whispering } = await open();
-	const fail = () => {
-		throw new Error('The folder command failed');
-	};
-	context.folder.files.write = fail;
-	context.folder.files.delete = fail;
-	replaceTables(context.folder, {
-		transformations: { ...context.folder.tables.transformations, write: fail },
-	});
-
-	expect(await whispering.createFile('', 'new.txt')).toBe(
-		'The folder command failed',
-	);
-	expect(
-		await whispering.createTransformation({ title: 'New', prompt: '' }),
-	).toBe('The folder command failed');
-	expect(
-		await whispering.delete({
-			kind: 'file',
-			path: 'transformation_runs/run.md',
-		}),
-	).toBe('The folder command failed');
-	expect(
-		await whispering.delete({
-			kind: 'file',
-			path: 'text_runs/run.md',
-		}),
-	).toBe('The folder command failed');
-});
-
-test('a created transformation remains successful when its view refresh throws', async () => {
-	const { context, whispering } = await open();
-	context.refresh = async () => {
-		throw new Error('The view refresh failed');
-	};
-	expect(
-		await whispering.createTransformation({
-			title: 'Created',
-			prompt: 'Instructions',
-		}),
-	).toBeUndefined();
-	const [created] = expectOk(
-		await context.folder.tables.transformations.list(),
-	);
-	expect(created?.fields).toMatchObject({ title: 'Created' });
-	expect(whispering.selectedTransformationPath).toBe(
-		`transformations/${created!.id}.md`,
-	);
-});
-
 test.each(['saved', 'unknown'] as const)(
 	'closing preserves a %s connection save outcome without installing its late reply',
 	async (outcome) => {
-		const { context, whispering, root } = await open();
+		const { whispering, folder, root } = await open();
 		const connectionsBefore = whispering.connections;
-		const reached = Promise.withResolvers<void>();
-		const release = Promise.withResolvers<void>();
+		const reached = deferred<void>();
+		const release = deferred<void>();
 		const set = whispering.services.connections.set;
 		whispering.services.connections.set = async (...args) => {
 			reached.resolve();
@@ -1329,12 +1122,8 @@ test.each(['saved', 'unknown'] as const)(
 		});
 		await reached.promise;
 
-		// Held before it reaches the Folder: the folder closes without it.
-		opened.splice(
-			opened.findIndex((fixture) => fixture.whispering === whispering),
-			1,
-		);
-		await closeTestWhispering({ whispering, context });
+		// Held before it reaches the folder: the folder closes without it.
+		await close(whispering);
 		const selected = whispering.selectedPath;
 		expect(whispering.open('late.txt')).toBe(false);
 		expect(whispering.selectedPath).toBe(selected);
@@ -1362,232 +1151,59 @@ test.each(['saved', 'unknown'] as const)(
 				: 'The save may or may not have completed.',
 		);
 		expect(whispering.connections).toBe(connectionsBefore);
+		expect(folder.file('late.txt')).toBeUndefined();
 		expect(await Bun.file(join(root, 'late.txt')).exists()).toBe(false);
 	},
 );
 
-test('close releases immediately while an admitted save finishes', async () => {
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	const { context, whispering, root } = await open({
-		beforeDiskWrite: async (path) => {
-			if (!path.endsWith('kept.txt')) return;
-			reached.resolve();
-			await release.promise;
-		},
-	});
+test('stopping the app returns at once while a save it asked for lands', async () => {
+	const { host, whispering } = await open({ memory: true });
+	const release = deferred<void>();
+	host!.control.putGate = release.promise;
 	const creating = whispering.createFile('', 'kept.txt');
-	await reached.promise;
-	opened.splice(
-		opened.findIndex((fixture) => fixture.whispering === whispering),
-		1,
-	);
+	await eventually(() => host!.log.puts.some((put) => put.path === 'kept.txt'));
 	try {
-		expect(closeTestWhispering({ whispering, context })).toBeUndefined();
+		const fixture = fixtures.find((item) => item.whispering === whispering)!;
+		expect(closeTestWhispering(fixture)).toBeUndefined();
 	} finally {
+		host!.control.putGate = undefined;
 		release.resolve();
 	}
 	expect(await creating).toBeUndefined();
-	expect(await readFile(join(root, 'kept.txt'), 'utf8')).toBe('');
+	expect(host!.text('kept.txt')).toBe('');
 });
 
-test('stopping Whispering fences direct row and source input while keeping accepted input', async () => {
-	const { whispering, context } = await open();
-	await record(whispering, context);
-	const entry = whispering.entries[0]!;
-	const rowEdit = whispering.document('recordings', entry.path);
-	const textEdit = context.folder.files.document(entry.path);
-	await textEdit.refresh();
-	rowEdit.patch({ body: 'Accepted before stop' });
-	const accepted = rowEdit.getSnapshot().text;
-	whispering.dispose();
-	expect(rowEdit.patch({ fields: { title: 'Too late' } }).error).not.toBeNull();
-	expect(textEdit.replace('Too late').error).not.toBeNull();
-	expect(rowEdit.getSnapshot().text).toBe(accepted);
-	expect(expectErr(await rowEdit.save()).name).toBe('Closing');
-	context.close();
-	expect(rowEdit.getSnapshot().isDirty).toBe(true);
-});
-
-test.each(['Captured source', 'Newer accepted input'])(
-	'rename preserves %j accepted during a delayed copy',
-	async (input) => {
-		const reached = Promise.withResolvers<void>();
-		const release = Promise.withResolvers<void>();
-		let hold = false;
-		const { whispering, context, root } = await open({
-			beforeDiskWrite: async (path) => {
-				if (!hold || path !== 'to.txt') return;
-				reached.resolve();
-				await release.promise;
-			},
-		});
-		await whispering.createFile('', 'from.txt');
-		const source = (await openText(whispering, context, 'from.txt')).view;
-		expectOk(source.replace('Captured source'));
-		hold = true;
-		const renaming = whispering.rename('from.txt', 'to.txt');
-		await reached.promise;
-		expectOk(source.replace(input));
-		release.resolve();
-		const outcome = await renaming;
-		if (input === 'Captured source') {
-			expect(outcome).toBeUndefined();
-			expect(await readFile(join(root, 'to.txt'), 'utf8')).toBe(input);
-			expect(await Bun.file(join(root, 'from.txt')).exists()).toBe(false);
-			expect(source.getSnapshot().isDirty).toBe(false);
-			return;
-		}
-		expect(outcome).toContain('Different text arrived');
-		expect(await readFile(join(root, 'to.txt'), 'utf8')).toBe(
-			'Captured source',
-		);
-		expect(source.getSnapshot().text).toBe('Newer accepted input');
-		await source.save();
-		expect(await readFile(join(root, 'from.txt'), 'utf8')).toBe(
-			'Newer accepted input',
-		);
-	},
-);
-
-test('cascade deletion drops unsent input without saving it and keeps audio', async () => {
-	const { whispering, context, root } = await open();
-	await record(whispering, context);
-	const entry = whispering.entries[0]!;
-	await whispering.transcribe(entry);
-	await settle(whispering, context);
-	const deletion = expectOk(await whispering.deletionFor(entry.path));
-	if (deletion.kind !== 'recording')
-		throw new Error('Expected recording deletion');
-	const result = deletion.results[0]!;
-	const resultEdit = whispering.document(result);
-	await resultEdit.refresh();
-	expectOk(resultEdit.patch({ body: 'Unsubmitted input' }));
-	expect(await whispering.delete(deletion)).toBeUndefined();
-	expect(await Bun.file(join(root, entry.path)).exists()).toBe(false);
-	expect(await Bun.file(join(root, result)).exists()).toBe(false);
-	expect(
-		await Bun.file(join(root, entry.path.replace(/\.md$/, '.wav'))).exists(),
-	).toBe(true);
-	expect(resultEdit.getSnapshot().isDirty).toBe(false);
-});
-
-test('closing during a rename finishes its submitted copy and keeps the original', async () => {
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	const { whispering, context, root } = await open({
-		beforeDiskWrite: async (path) => {
-			if (path !== 'renamed.txt') return;
-			reached.resolve();
-			await release.promise;
-		},
-	});
-	await whispering.createFile('', 'original.txt');
+test('closing during a rename lands its copy and keeps the original', async () => {
+	const { folder, host, whispering } = await open({ memory: true });
+	expectOk(await folder.write('original.txt', ''));
+	const release = deferred<void>();
+	host!.control.putGate = release.promise;
 	const renaming = whispering.rename('original.txt', 'renamed.txt');
-	await reached.promise;
-	opened.splice(
-		opened.findIndex((fixture) => fixture.whispering === whispering),
-		1,
+	await eventually(() =>
+		host!.log.puts.some((put) => put.path === 'renamed.txt'),
 	);
-	const closing = closeTestWhispering({ whispering, context });
+	const closing = close(whispering);
+	host!.control.putGate = undefined;
 	release.resolve();
 	expect(await renaming).toContain('was kept because the folder is closing');
 	await closing;
-	expect(await Bun.file(join(root, 'original.txt')).exists()).toBe(true);
-	expect(await readFile(join(root, 'renamed.txt'), 'utf8')).toBe('');
+	expect(host!.text('original.txt')).toBe('');
+	expect(host!.text('renamed.txt')).toBe('');
 });
 
-test('an admitted result deletion removes the current path after close', async () => {
+test('a result deletion asked for before the app stopped removes the path', async () => {
 	const path = 'text_runs/result.md';
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	let armed = false;
-	const { whispering, context, root } = await open({
-		async beforeDiskWrite(writing) {
-			if (!armed || writing !== path) return;
-			reached.resolve();
-			await release.promise;
-		},
-	});
-	expectOk(await context.folder.files.write(path, 'Original result.\n'));
-	armed = true;
+	const { folder, host, whispering } = await open({ memory: true });
+	expectOk(await folder.write(path, 'Original result.\n'));
+	const release = deferred<void>();
+	host!.control.putGate = release.promise;
 	const removing = whispering.delete(
 		expectOk(await whispering.deletionFor(path)),
 	);
-	await reached.promise;
+	await eventually(() => folder.saving);
 	whispering.dispose();
+	host!.control.putGate = undefined;
 	release.resolve();
 	expect(await removing).toBeUndefined();
-	context.close();
-	expect(await Bun.file(join(root, path)).exists()).toBe(false);
-});
-
-test('same-text input accepted during result deletion survives and can recreate its path', async () => {
-	const path = 'text_runs/retained.md';
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	let armed = false;
-	const { whispering, context, root } = await open({
-		async beforeDiskWrite(writing) {
-			if (!armed || writing !== path) return;
-			reached.resolve();
-			await release.promise;
-		},
-	});
-	expectOk(await context.folder.files.write(path, 'Exact held text.\n'));
-	const edit = context.folder.files.document(path);
-	expectOk(await edit.refresh());
-	armed = true;
-	const deleting = whispering.delete(
-		expectOk(await whispering.deletionFor(path)),
-	);
-	await reached.promise;
-	expectOk(edit.replace('Newer input.\n'));
-	expectOk(edit.replace('Exact held text.\n'));
-	release.resolve();
-	expect(await deleting).toBeUndefined();
-	expect(edit.getSnapshot().isDirty).toBe(true);
-	expect(edit.getSnapshot().text).toBe('Exact held text.\n');
-	expect(await Bun.file(join(root, path)).exists()).toBe(false);
-	expectOk(await edit.save());
-	expect(await readFile(join(root, path), 'utf8')).toBe('Exact held text.\n');
-});
-
-test.each([false, true])(
-	'rename copies unopened text exactly when acquisition during copying is %j',
-	async (acquireDuringCopy) => {
-		const reached = Promise.withResolvers<void>();
-		const release = Promise.withResolvers<void>();
-		const { whispering, context, root } = await open({
-			async beforeDiskWrite(path) {
-				if (path !== 'renamed.txt') return;
-				reached.resolve();
-				await release.promise;
-			},
-		});
-		const original = '\ufeffUnopened café\r\n';
-		await writeFile(join(root, 'unopened.txt'), original);
-		const edit = context.folder.files.document('unopened.txt');
-		expect(edit.getSnapshot().text).toBeUndefined();
-		const renaming = whispering.rename('unopened.txt', 'renamed.txt');
-		await reached.promise;
-		if (acquireDuringCopy) {
-			expectOk(await edit.refresh());
-			expect(edit.getSnapshot().text).toBe(original);
-		}
-		release.resolve();
-		expect(await renaming).toBeUndefined();
-		expect(await readFile(join(root, 'renamed.txt'), 'utf8')).toBe(original);
-		expect(await Bun.file(join(root, 'unopened.txt')).exists()).toBe(false);
-	},
-);
-
-test('rename reads current bytes rather than clean inactive source', async () => {
-	const { context, whispering, root } = await open();
-	expectOk(await context.folder.files.write('from.txt', 'Earlier text'));
-	expectOk(await context.folder.files.document('from.txt').refresh());
-	await writeFile(join(root, 'from.txt'), 'Outside text');
-	expect(await whispering.rename('from.txt', 'to.txt')).toBeUndefined();
-	expect(await readFile(join(root, 'to.txt'), 'utf8')).toBe('Outside text');
-	expect(await Bun.file(join(root, 'from.txt')).exists()).toBe(false);
+	expect(host!.text(path)).toBeUndefined();
 });

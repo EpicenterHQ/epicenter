@@ -1,5 +1,5 @@
 /**
- * What this build offers beside the folder FolderApp opened: capture,
+ * What this build offers beside the folder OpenFolder opened: capture,
  * inference, connections, preferences, and recording recovery. These services
  * own no folder lifetime. Unsupported capabilities are undefined.
  */

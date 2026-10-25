@@ -2,13 +2,12 @@
  * Opening a folder, and the desktop services: Whispering in Epicenter.
  *
  * The shell's replies are scripted here, so these pin what the page itself
- * decides: that the browser folder refuses inside a desktop app, that the
- * desktop one names no folder, path, or scope, that a refusal is returned and
- * nothing else is opened in its place, and that the folder's changes go to
- * the shell. The shell has a real directory bound to the window, and the
- * page's own folder engine opens it through `@epicenter/folder/tauri`
- * (`granted-shell.test-support.ts` in the folder package); nothing here runs
- * the Rust shell or a WebView.
+ * decides: that the desktop folder names no folder, path, or scope, that a
+ * refusal is returned and nothing else is opened in its place, and that the
+ * folder's changes go to the shell. The shell has a real directory bound to
+ * the window, and the page's own folder mirror opens it through
+ * `@epicenter/folder/next/tauri` (`granted-shell.test-support.ts` in the
+ * folder package); nothing here runs the Rust shell or a WebView.
  *
  * The connections are rows of a real `so.epicenter` folder on disk, which the
  * page never opens: its row commands are answered by the code
@@ -46,10 +45,12 @@ import {
 	grantedDirectory,
 	shellArguments,
 } from '../../../../../../packages/folder/src/granted-shell.test-support.js';
-import { openBunFolder } from '../../../../../../packages/folder/src/native/bun.js';
+import { openFolder as openBunFolder } from '@epicenter/folder/next/bun';
+import { svelteFolder } from '@epicenter/svelte/folder-next';
 import { toneWav } from '../../capture.js';
 import { whisperingTables } from '../../definition.js';
 import { readBytes } from '../../files.js';
+import { eventually } from '../../services.test-support.js';
 import type { ConnectionCommands } from './connections.js';
 import type { LocalTranscriptionCommands } from './transcription.js';
 
@@ -83,10 +84,7 @@ mock.module('@tauri-apps/api/webview', () => ({
 	getCurrentWebview: () => ({ listen: async () => () => {} }),
 }));
 
-const { openFolder: openBrowserFolder } = await import(
-	'@epicenter/folder/browser'
-);
-const { openFolder } = await import('@epicenter/folder/tauri');
+const { openFolder } = await import('@epicenter/folder/next/tauri');
 const { createServices } = await import('./services.js');
 const { createDesktopAccount } = await import('./account.js');
 
@@ -225,11 +223,14 @@ const noCommands: LocalTranscriptionCommands = {
 
 /** The desktop services over the scripted shell. */
 async function openDesktop(options: Parameters<typeof createServices>[1] = {}) {
-	const folder = expectOk(await openFolder({ tables: whisperingTables }));
+	const folder = expectOk(
+		await openFolder({ tables: whisperingTables, throttleMs: 0 }),
+	);
 	cleanups.push(() => folder.close());
 	return {
+		/** The opened folder; the services get it as `<OpenFolder>` hands it on. */
 		folder,
-		services: createServices(folder, {
+		services: createServices(svelteFolder(folder), {
 			commands: noCommands,
 			...options,
 		}),
@@ -392,7 +393,11 @@ async function epicenter() {
 		ai,
 		/** `so.epicenter` as Settings opens it, as its own folder. */
 		settings: () =>
-			openBunFolder({ directory: root, tables: connectionsTables }),
+			openBunFolder({
+				directory: root,
+				tables: connectionsTables,
+				throttleMs: 0,
+			}),
 		lose(next: boolean) {
 			losing = next;
 		},
@@ -412,19 +417,6 @@ const openWith = (host: Epicenter) =>
 	openDesktop({ connectionCommands: host.ai });
 
 // ============================================================================
-// The browser services inside a desktop app
-// ============================================================================
-
-test('the browser folder refuses inside a desktop app, and opens nothing in its place', async () => {
-	setup();
-	const inside = expectErr(
-		await openBrowserFolder({ tables: whisperingTables }),
-	);
-	expect(inside.name).toBe('InsideTauri');
-	expect(calls).toEqual([]);
-});
-
-// ============================================================================
 // Opening
 // ============================================================================
 
@@ -432,7 +424,7 @@ test('the page opens its window folder naming no folder, and opening writes noth
 	setup();
 	const { root } = await granted();
 
-	const { services, folder: openedFolder } = await openDesktop();
+	const { services, folder: opened } = await openDesktop();
 
 	// The window opens the folder bound to it; no root, scope, author, or branch.
 	expect(calls[0]).toEqual({ cmd: 'open_folder', args: {} });
@@ -442,7 +434,7 @@ test('the page opens its window folder naming no folder, and opening writes noth
 	expect(services.capture.source).toBe('microphone');
 	// No declaration, ignore file, or repository is made.
 	expect(await readdir(root)).toEqual([]);
-	await openedFolder.close();
+	await opened.close();
 });
 
 test('a refusal from the shell is returned, and nothing is opened in its place', async () => {
@@ -507,17 +499,17 @@ test('recovery repairs recordings a quit cut off and reports a repair failure', 
 test('saves go through the shell: audio lands as its exact bytes, and a row as text', async () => {
 	setup();
 	const { root } = await granted();
-	const { services, folder: openedFolder } = await openDesktop();
+	const { folder: openedFolder } = await openDesktop();
 	const audio = new Uint8Array([1, 2, 3, 0, 255]);
 
-	expectOk(await openedFolder.files.write('recordings/a.wav', audio));
+	expectOk(await openedFolder.write('recordings/a.wav', audio));
 	expectOk(
-		await openedFolder.tables.transformations.write('clean', {
+		await openedFolder.tables.transformations.create('clean', {
 			fields: { title: 'Clean up', model: null },
 			body: 'Tidy.\n',
 		}),
 	);
-	expect(expectOk(await openedFolder.files.read('missing.md'))).toBe(undefined);
+	expect(expectOk(await openedFolder.read('missing.md'))).toBeNull();
 
 	// The recording's bytes reach the shell as a raw body, in the one call
 	// that puts them at their path, and land exactly.
@@ -537,46 +529,28 @@ test('saves go through the shell: audio lands as its exact bytes, and a row as t
 	await openedFolder.close();
 });
 
-test('a row save whose reply the shell never sent is confirmed by what landed, and is not reported saved when that cannot be read', async () => {
+test('a row save whose reply the shell never sent is not reported saved, and the folder shows what landed once it looks again', async () => {
 	setup();
 	const granting = await granted();
 	const PATH = 'transformations/clean.md';
 	await granting.write(PATH, '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
-	const { services, folder: openedFolder } = await openDesktop();
-	expectOk(
-		await openedFolder.tables.transformations.document('clean').refresh(),
-	);
+	const { folder: openedFolder } = await openDesktop();
+	const table = openedFolder.tables.transformations;
+	expect(table.row('clean')?.body).toBe('Tidy.\n');
 
-	// The shell writes, and its reply never reaches the page. The page reads
-	// the file back, finds exactly what it wrote, and the save is confirmed.
-	granting.control.loseReplies = 1;
-	const document = openedFolder.tables.transformations.document('clean');
-	expectOk(document.patch({ body: 'Tidy it.\n' }));
-	const confirmed = expectOk(await document.save());
-	expect(confirmed).toBeUndefined();
-	expect(
-		openedFolder.tables.transformations.parse(document.getSnapshot().text!)
-			.body,
-	).toBe('Tidy it.\n');
-	expect(granting.kinds).toEqual(['write']);
-
-	// Again, and now the file cannot be read back either: nothing says
+	// The shell writes, and its reply never reaches the page: nothing says
 	// whether the save landed, so it is a failure the person is told of.
 	granting.control.loseReplies = 1;
-	granting.control.beforeChange = async () => {
-		granting.control.beforeChange = undefined;
-		granting.control.failReads.add(PATH);
-	};
-	expectOk(document.patch({ body: 'Tidy it again.\n' }));
-	const lost = await document.save();
+	const lost = await table.update('clean', { body: 'Tidy it.\n' });
 	expect(lost.error?.name).toBe('StorageFailed');
-	expect(granting.kinds).toEqual(['write', 'write']);
+	expect(granting.kinds).toEqual(['write']);
+	// The mirror shows only what it knows landed.
+	expect(table.row('clean')?.body).toBe('Tidy.\n');
 
-	granting.control.failReads.delete(PATH);
-	const landed = expectOk(
-		await openedFolder.tables.transformations.get('clean'),
-	);
-	expect(landed?.body).toBe('Tidy it again.\n');
+	// Looking again reads what the shell did write.
+	openedFolder.checkpoint();
+	await eventually(() => table.row('clean')?.body === 'Tidy it.\n');
+	expect(await granting.text(PATH)).toContain('Tidy it.');
 	await openedFolder.close();
 });
 
@@ -714,9 +688,11 @@ test('an edit Settings saved while Whispering saved a connection is kept beside 
 		host.beforeRowSave(undefined);
 		const folder = expectOk(await host.settings());
 		expectOk(
-			await folder.tables.connections.write('whispering-text', {
-				fields: { title: 'Renamed in Settings', note: 'kept' },
-			}),
+			await folder.update(
+				'connections/whispering-text.md',
+				{ fields: { title: 'Renamed in Settings', note: 'kept' } },
+				{ schema: connectionsTables.connections },
+			),
 		);
 		await folder.close();
 	});

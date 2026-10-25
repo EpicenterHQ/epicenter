@@ -16,7 +16,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { expectOk } from 'wellcrafted/testing';
 import { recordingAudioStem, whisperingTables } from './definition.js';
 import {
 	openTestFolder,
@@ -35,9 +34,9 @@ async function folderWith(files: Record<string, string>) {
 		await mkdir(join(root, dirname(path)), { recursive: true });
 		await writeFile(join(root, path), text);
 	}
-	const folder = await openTestFolder(root);
+	const { folder, opened } = await openTestFolder(root);
 	cleanups.push(async () => {
-		await folder.close();
+		await opened.close();
 		await rm(dirname(root), { recursive: true, force: true });
 	});
 	return folder;
@@ -86,20 +85,16 @@ test('a recipe names its model, or says “use the connection” with null; a fi
 		'transformations/silent.md': '---\ntitle: Clean up\n---\nFix it.\n',
 	});
 
-	expect(
-		expectOk(await folder.tables.transformations.get('named')),
-	).toMatchObject({
+	expect(folder.tables.transformations.row('named')).toMatchObject({
 		fields: { title: 'Clean up', model: 'gpt-4o-mini' },
 		issues: null,
 	});
-	expect(
-		expectOk(await folder.tables.transformations.get('connection')),
-	).toMatchObject({
+	expect(folder.tables.transformations.row('connection')).toMatchObject({
 		fields: { title: 'Clean up', model: null },
 		issues: null,
 	});
 	// The file says nothing about the model: it is listed for repair, as it is.
-	const silent = expectOk(await folder.tables.transformations.get('silent'));
+	const silent = folder.tables.transformations.row('silent');
 	expect(silent?.issues).toHaveLength(1);
 	expect(silent?.body).toBe('Fix it.\n');
 });
@@ -117,16 +112,12 @@ test('audio lives beside its row and unknown fields survive', async () => {
 		'recordings/bad-time.md':
 			'---\ntitle: Take\nrecordedAt: yesterday\ncapture: microphone\n---\n',
 	});
-	const take = expectOk(await folder.tables.recordings.get('take'));
+	const take = folder.tables.recordings.row('take');
 	expect(take?.issues).toBeNull();
 	expect(take?.fields).toMatchObject({
 		mood: 'calm',
 	});
-	expect(
-		expectOk(await folder.tables.recordings.get('nameless'))?.issues,
-	).toBeNull();
+	expect(folder.tables.recordings.row('nameless')?.issues).toBeNull();
 	// An instant is a fixed-width UTC time, so its text sorts as time does.
-	expect(
-		expectOk(await folder.tables.recordings.get('bad-time'))?.issues,
-	).not.toBeNull();
+	expect(folder.tables.recordings.row('bad-time')?.issues).not.toBeNull();
 });

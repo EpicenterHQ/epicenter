@@ -2,9 +2,9 @@
  * Recipe and pasted-text playground tests
  *
  * Drives the real product state against a real directory, opened as the
- * native `Folder`, with stubbed endpoints that decide the connection as the host does and
- * count every request that would go out. No window, provider, key, or network
- * is involved.
+ * folder mirror, with stubbed endpoints that decide the connection as the
+ * host does and count every request that would go out. No window, provider,
+ * key, or network is involved.
  *
  * Key behaviors:
  * - One resolver decides whether a recipe runs and with what; the Run check,
@@ -15,7 +15,8 @@
  *   written to `text_runs/` when it starts, with the exact instructions,
  *   input, model, and endpoint, and filled when the answer arrives, with no
  *   separate Save (ADR-0542)
- * - Edits made while a run is out do not change what is written
+ * - A run sends the recipe as it is shown, typing included, and its row
+ *   records exactly that; edits made while it is out change nothing written
  * - One running ask per recipe on pasted text; a later ask is a new row
  * - Discarding is deleting the row, and an answer that arrives after writes
  *   nothing
@@ -23,9 +24,8 @@
  *   still the base URL the row names
  * - A run on pasted text never holds the app open; results on pasted text and
  *   on transcripts are listed apart; a malformed `text_runs/` file never holds
- *   up a recording's deletion; a failed listing is reported, not shown empty
+ *   up a recording's deletion
  */
-import type { WhisperingContext } from './folder.js';
 import {
 	closeTestWhispering,
 	openTestWhispering,
@@ -33,23 +33,22 @@ import {
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Err, Ok } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { ConnectionInfo } from './connections.js';
 import {
 	STARTER_TRANSFORMATIONS,
 	type TransformationFields,
 } from './definition.js';
-import { settle, transformationEditor } from './edits.test-support.js';
-import { quiet } from './query.test-support.js';
-import { resolveRecipe } from './recipe.js';
+import type { WhisperingFolder } from './folder.js';
+import { type RecipeRow, resolveRecipe } from './recipe.js';
 import {
 	deferred,
 	eventually,
 	openTestServices,
-	replaceTables,
+	settled,
 	TEST_BASE_URL,
 	type TestServicesOptions,
 } from './services.test-support.js';
@@ -65,36 +64,17 @@ const TEXT_RUNS = 'text_runs';
 const CLEANUP = STARTER_TRANSFORMATIONS[0]!;
 const PASTED = 'so um this is pasted text\n';
 
-type Hooks = {
-	list?: () => Promise<
-		| Awaited<
-				ReturnType<WhisperingContext['folder']['tables']['text_runs']['list']>
-		  >
-		| undefined
-	>;
-};
+type Answer = Awaited<ReturnType<Whispering['services']['transform']>>;
 
-/** Product state over a test services whose `text_runs/` listings run `hooks` first. */
+/** Product state over a test services. */
 async function open(options: TestServicesOptions = {}) {
 	const test = await openTestServices(options);
-	const hooks: Hooks = {};
-	const list = test.folder.tables.text_runs.list;
-	const { whispering, context } = await openTestWhispering({
-		services: test.services,
-		folder: replaceTables(test.folder, {
-			text_runs: {
-				...test.folder.tables.text_runs,
-				async list() {
-					return (await hooks.list?.()) ?? list();
-				},
-			},
-		}),
-	});
+	const { whispering } = await openTestWhispering(test);
 	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, context });
+		closeTestWhispering({ whispering, folder: test.folder });
 		await test.remove();
 	});
-	return { whispering, context, hooks, ...test };
+	return { whispering, ...test };
 }
 
 const names = (root: string, directory: string) =>
@@ -112,26 +92,43 @@ const selectedStem = (whispering: Whispering) =>
 
 /** Write a recipe file with this model and these instructions. */
 async function recipeFile(
-	root: string,
+	folder: WhisperingFolder,
 	stem: string,
 	{ model, body = 'Fix it.\n' }: { model: string; body?: string },
 ) {
-	await mkdir(join(root, 'transformations'), { recursive: true });
-	await writeFile(
-		join(root, 'transformations', `${stem}.md`),
-		`---\ntitle: Earlier\nmodel: ${model}\n---\n${body}`,
+	const path = `transformations/${stem}.md`;
+	expectOk(
+		await folder.write(path, `---\ntitle: Earlier\nmodel: ${model}\n---\n${body}`),
 	);
-	return `transformations/${stem}.md`;
+	return path;
+}
+
+/** The recipe as its page shows it: the row's title, model, and instructions in their fields. */
+function shownRecipe(
+	folder: WhisperingFolder,
+	path: string,
+	change: Partial<{ title: string; model: string; body: string }> = {},
+): RecipeRow {
+	const row = folder.tables.transformations.row(path.slice(16, -3));
+	if (row?.issues !== null) throw new Error(`${path} does not read`);
+	const model = change.model ?? row.fields.model ?? '';
+	return {
+		fields: {
+			title: change.title ?? row.fields.title,
+			model: model.trim() || null,
+		},
+		body: change.body ?? row.body,
+	};
 }
 
 /** A recording with one saved transcript. */
-async function transcribed(whispering: Whispering, context: WhisperingContext) {
+async function transcribed(whispering: Whispering, folder: WhisperingFolder) {
 	await whispering.startRecording();
 	await whispering.stopRecording();
-	await quiet(context);
+	await settled(folder);
 	const recording = whispering.entries[0]!;
 	await whispering.transcribe(recording);
-	await quiet(context);
+	await settled(folder);
 	return { recording, transcript: whispering.resultsFor(recording.stem)[0]! };
 }
 
@@ -146,6 +143,7 @@ const TEXT: ConnectionInfo = {
 	readOnlyReason: undefined,
 };
 const reading = (fields: Record<string, unknown>, body = 'Fix it.\n') => ({
+	// SAFETY: each case supplies the recipe fields it resolves.
 	fields: fields as TransformationFields,
 	body,
 });
@@ -195,26 +193,22 @@ test('the resolver uses the text connection and lets a recipe name its model', (
 });
 
 test('the Run check, the post-processing choice, the menu, and the run agree about every recipe', async () => {
-	const { context, whispering, root, transformed } = await open();
-	const { transcript } = await transcribed(whispering, context);
+	const { whispering, folder, transformed } = await open();
+	const { transcript } = await transcribed(whispering, folder);
 	const fresh = await recipe(whispering);
-	const own = await recipeFile(root, 'own', { model: 'old-model' });
-	const blank = await recipeFile(root, 'blank', {
+	const own = await recipeFile(folder, 'own', { model: 'old-model' });
+	const blank = await recipeFile(folder, 'blank', {
 		model: 'old-model',
 		body: ' \n',
 	});
-	await settle(whispering, context);
 
 	for (const path of [fresh, own, blank]) {
 		const entry = whispering.transformations.find(
 			(item) => item.path === path,
 		)!;
 		const listed = whispering.resolve(entry.row);
-		// The draft on the recipe's page is read by the same resolver.
-		whispering.open(path);
-		const shown = whispering.resolve(
-			(await transformationEditor(whispering, context)).draft,
-		);
+		// The recipe's page resolves what its fields show with the same resolver.
+		const shown = whispering.resolve(shownRecipe(folder, path));
 		whispering.view.postProcessing = path;
 		const chosen = whispering.postProcessing;
 		const before = transformed.length;
@@ -244,13 +238,11 @@ test('the Run check, the post-processing choice, the menu, and the run agree abo
 });
 
 test('a result file and a recipe written by an earlier build still read and list', async () => {
-	const { context, whispering, root } = await open();
-	const path = await recipeFile(root, 'old', { model: 'old-model' });
-	await mkdir(join(root, 'transformation_runs'));
+	const { whispering, folder } = await open();
+	const path = await recipeFile(folder, 'old', { model: 'old-model' });
 	const old =
 		'---\nrecordingId: 20250101-000000-abcd\ntranscriptionId: 20250101-000001-abcd\ntransformationId: old\ntransformationTitle: Earlier\ncreatedAt: 2025-01-01T00:00:02.000Z\nmodel: old-model\nendpoint: https://api.openai.com/v1\nprompt: Fix it.\ninput: some text\n---\nFixed text.\n';
-	await writeFile(join(root, 'transformation_runs', 'earlier.md'), old);
-	await settle(whispering, context);
+	expectOk(await folder.write('transformation_runs/earlier.md', old));
 
 	expect(whispering.transformations.map((item) => item.path)).toEqual([path]);
 	expect(whispering.outputsOf('old').map((output) => output.row.body)).toEqual([
@@ -265,14 +257,14 @@ test('a result file and a recipe written by an earlier build still read and list
 
 /**
  * The newest result on pasted text of the recipe `stem`, and what it shows,
- * once the reads its row's saves started have landed.
+ * once the saves under way have landed.
  */
 async function newestText(
 	whispering: Whispering,
-	context: WhisperingContext,
+	folder: WhisperingFolder,
 	stem: string,
 ) {
-	await quiet(context);
+	await settled(folder);
 	const output = whispering.textOutputsOf(stem)[0]!;
 	return {
 		output,
@@ -281,9 +273,8 @@ async function newestText(
 }
 
 test('a recipe runs on pasted text with no recordings; its row is written to text_runs/ when it starts and filled when the answer arrives, with no Save', async () => {
-	const answer =
-		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>();
-	const { context, whispering, root, transformed } = await open({
+	const answer = deferred<Answer>();
+	const { whispering, folder, root, transformed } = await open({
 		transform: () => answer.promise,
 	});
 	expect(whispering.entries).toEqual([]);
@@ -301,7 +292,7 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 			input: PASTED,
 		},
 	]);
-	const { output, state } = await newestText(whispering, context, stem);
+	const { output, state } = await newestText(whispering, folder, stem);
 	expect(state.kind).toBe('running');
 	expect({ fields: output.row.fields, body: output.row.body }).toEqual({
 		fields: {
@@ -319,7 +310,6 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 
 	answer.resolve(Ok({ text: 'Transformed: so um this is pasted text' }));
 	expect(await running).toBeUndefined();
-	await quiet(context);
 
 	const saved = whispering.textOutputsOf(stem);
 	expect(saved.map((item) => item.stem)).toEqual([output.stem]);
@@ -341,28 +331,29 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 	expect(whispering.textOutputsOf(stem)).toEqual([]);
 });
 
-test('what is written is what was sent: edits to the recipe or the connection while it runs change nothing', async () => {
-	const answer =
-		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>();
-	const { context, whispering, transformed } = await open({
+test('a run sends the recipe as shown and records exactly that; edits to the recipe or the connection while it runs change nothing', async () => {
+	const answer = deferred<Answer>();
+	const { whispering, folder, transformed } = await open({
 		transform: () => answer.promise,
 	});
 	const path = await recipe(whispering);
-	const editor = await transformationEditor(whispering, context);
 	const stem = selectedStem(whispering);
-	editor.edit((row) => {
-		row.body = 'Draft instructions.\n';
+	// Typed into the page, and not saved yet.
+	const shown = shownRecipe(folder, path, {
+		title: 'Typed title',
+		body: 'Draft instructions.\n',
 	});
 
-	const running = whispering.transformText(path, PASTED);
+	const running = whispering.transformText(path, PASTED, { recipe: shown });
 	await eventually(() => transformed.length === 1);
-	// Its save settled first, and the saved file is what went out.
 	expect(transformed[0]!.prompt).toBe('Draft instructions.\n');
-	editor.edit((row) => {
-		row.body = 'Edited while running.\n';
-		row.fields.model = 'other';
-	});
-	await settle(whispering, context);
+	expect(folder.tables.transformations.row(stem)?.body).toBe(CLEANUP.prompt);
+	expectOk(
+		await folder.tables.transformations.update(stem, {
+			fields: { model: 'other' },
+			body: 'Edited while running.\n',
+		}),
+	);
 	expect(
 		await whispering.saveConnection('text', {
 			baseUrl: TEST_BASE_URL,
@@ -372,10 +363,10 @@ test('what is written is what was sent: edits to the recipe or the connection wh
 	).toBeUndefined();
 	answer.resolve(Ok({ text: 'answer' }));
 	expect(await running).toBeUndefined();
-	await quiet(context);
 
 	const saved = whispering.textOutputsOf(stem)[0]!;
 	expect(saved.row.fields).toMatchObject({
+		transformationTitle: 'Typed title',
 		prompt: 'Draft instructions.\n',
 		model: 'connection-model',
 		endpoint: TEST_BASE_URL,
@@ -386,8 +377,7 @@ test('what is written is what was sent: edits to the recipe or the connection wh
 });
 
 test('a second ask on pasted text while one runs sends nothing; another recipe, and a later ask, are each their own row', async () => {
-	const answer =
-		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>();
+	const answer = deferred<Answer>();
 	const { whispering, root, transformed } = await open({
 		transform: () => answer.promise,
 	});
@@ -411,9 +401,8 @@ test('a second ask on pasted text while one runs sends nothing; another recipe, 
 });
 
 test('discarding a result on pasted text deletes its row, even while its request runs; the late answer writes nothing', async () => {
-	const answer =
-		deferred<Awaited<ReturnType<Whispering['services']['transform']>>>();
-	const { context, whispering, root, transformed } = await open({
+	const answer = deferred<Answer>();
+	const { whispering, folder, root, transformed } = await open({
 		transform: () => answer.promise,
 	});
 	const path = await recipe(whispering);
@@ -421,7 +410,7 @@ test('discarding a result on pasted text deletes its row, even while its request
 	const running = whispering.transformText(path, PASTED);
 	await eventually(() => transformed.length === 1);
 
-	const { output } = await newestText(whispering, context, stem);
+	const { output } = await newestText(whispering, folder, stem);
 	expect(
 		await whispering.delete(
 			expectOk(await whispering.deletionFor(output.path)),
@@ -437,7 +426,7 @@ test('discarding a result on pasted text deletes its row, even while its request
 
 test('a failed run runs again from its row only while the text connection is still the one the row names', async () => {
 	let refuse = true;
-	const { context, whispering, root, transformed } = await open({
+	const { whispering, folder, root, transformed } = await open({
 		transform: async ({ input }) =>
 			refuse
 				? TransformationError.Unreachable({ url: 'http://x', reason: 'down' })
@@ -446,7 +435,7 @@ test('a failed run runs again from its row only while the text connection is sti
 	const path = await recipe(whispering);
 	const stem = selectedStem(whispering);
 	await whispering.transformText(path, PASTED);
-	const { output, state } = await newestText(whispering, context, stem);
+	const { output, state } = await newestText(whispering, folder, stem);
 	expect(state.kind).toBe('failed');
 	refuse = false;
 
@@ -472,7 +461,6 @@ test('a failed run runs again from its row only while the text connection is sti
 	expect(transformed).toHaveLength(2);
 	expect(transformed[1]).toEqual(transformed[0]!);
 	expect(await names(root, TEXT_RUNS)).toEqual([`${output.stem}.md`]);
-	await quiet(context);
 	expect(whispering.textOutputsOf(stem)[0]!.row.body).toBe(
 		'Again: so um this is pasted text\n',
 	);
@@ -480,16 +468,15 @@ test('a failed run runs again from its row only while the text connection is sti
 
 test('a transcript’s failed run is not sent again over a connection that moved', async () => {
 	let refuse = true;
-	const { context, whispering, transformed } = await open({
+	const { whispering, folder, transformed } = await open({
 		transform: async () =>
 			refuse
 				? TransformationError.Unreachable({ url: 'http://x', reason: 'down' })
 				: Ok({ text: 'ok' }),
 	});
-	const { transcript } = await transcribed(whispering, context);
+	const { transcript } = await transcribed(whispering, folder);
 	const path = await recipe(whispering);
 	await whispering.transform(transcript.path, path);
-	await quiet(context);
 	const failed = whispering.outputsFor(transcript.stem)[0]!;
 	refuse = false;
 	await whispering.saveConnection('text', {
@@ -506,13 +493,7 @@ test('a transcript’s failed run is not sent again over a connection that moved
 });
 
 test('pasted text stays across pages without holding departure', async () => {
-	const test = await openTestServices();
-	const { remove } = test;
-	const { whispering, context } = await openTestWhispering(test);
-	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, context });
-		await remove();
-	});
+	const { whispering } = await open();
 	const { view } = whispering;
 	const path = await recipe(whispering);
 	const stem = selectedStem(whispering);
@@ -523,27 +504,29 @@ test('pasted text stays across pages without holding departure', async () => {
 	// Choosing another recipe, or another page, builds nothing new: both stay.
 	whispering.open(await recipe(whispering, STARTER_TRANSFORMATIONS[1]!));
 	expect(view.pastedText).toBe(PASTED);
-	await quiet(context);
 	expect(whispering.textOutputsOf(stem)).toHaveLength(1);
 	view.pastedText = '';
 });
 
-test('a text_runs/ file that does not read never holds up a recording’s deletion, and a failed listing is reported, not shown empty', async () => {
-	const { context, whispering, root, hooks } = await open();
-	const { recording } = await transcribed(whispering, context);
+test('a text_runs/ file that does not read never holds up a recording’s deletion', async () => {
+	const { whispering, folder, root } = await open();
+	const { recording } = await transcribed(whispering, folder);
 	const path = await recipe(whispering);
 	const stem = selectedStem(whispering);
 	await whispering.transformText(path, PASTED);
 	expect(whispering.textOutputsOf(stem)).toHaveLength(1);
-	await writeFile(
-		join(root, TEXT_RUNS, 'broken.md'),
-		'---\ntransformationId: *x\n---\n',
+	expectOk(
+		await folder.write(
+			`${TEXT_RUNS}/broken.md`,
+			'---\ntransformationId: *x\n---\n',
+		),
 	);
-	await writeFile(
-		join(root, TEXT_RUNS, 'binary.md'),
-		new Uint8Array([0xff, 0xfe, 0x00]),
+	expectOk(
+		await folder.write(
+			`${TEXT_RUNS}/binary.md`,
+			new Uint8Array([0xff, 0xfe, 0x00]),
+		),
 	);
-	await settle(whispering, context);
 	expect(whispering.textRepairs.map((item) => item.path)).toEqual([
 		'text_runs/binary.md',
 		'text_runs/broken.md',
@@ -553,22 +536,9 @@ test('a text_runs/ file that does not read never holds up a recording’s deleti
 	expect(await whispering.delete(deletion)).toBeUndefined();
 	expect(whispering.entries).toEqual([]);
 	expect(await names(root, TEXT_RUNS)).toHaveLength(3);
-
-	hooks.list = async () =>
-		Err({
-			name: 'StorageFailed' as const,
-			message: 'Repository read failed: the listing could not be read',
-			cause: new Error('the listing could not be read'),
-		});
-	await settle(whispering, context);
-	expect(whispering.textResultsError).toContain(
-		'the listing could not be read',
-	);
 	expect(whispering.textOutputsOf(stem)).toHaveLength(1);
 
 	// Deleting the recipe keeps its results, and the confirmation counts them.
-	hooks.list = undefined;
-	await settle(whispering, context);
 	expect(expectOk(await whispering.deletionFor(path))).toMatchObject({
 		kind: 'transformation',
 		results: 1,

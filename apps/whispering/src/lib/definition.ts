@@ -111,7 +111,7 @@ export type TextRunFields = CreateRowOf<typeof textRuns>;
 
 /**
  * The tables Whispering reads, each with the schema its rows read through.
- * The layout passes them to FolderApp's opener for browser storage or the
+ * The layout passes them to OpenFolder's opener for browser storage or the
  * directory bound to the desktop window.
  */
 export const whisperingTables = {

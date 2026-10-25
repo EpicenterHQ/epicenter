@@ -2,7 +2,7 @@
  * The one draft of the connection settings: for transcription and for text,
  * a base URL, a default model, and what to do with the key. All of it stays
  * on this device; none of it is written to the folder, so it is not a file
- * edited through the query cache. It is a form being composed: `$state`
+ * edited through a folder draft. It is a form being composed: `$state`
  * until its explicit Save. Departure does not wait for the connection request.
  *
  * The product owns it, so the form is the same draft wherever it is shown:

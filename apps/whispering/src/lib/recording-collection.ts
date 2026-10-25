@@ -14,7 +14,6 @@
  * each row that needs one and never asked again here; a deletion is captured
  * for each row first, as a single deletion is, and removed only as captured.
  */
-import { TRANSCRIPTIONS } from './definition.js';
 import { recordingTitle } from './deletion.js';
 import type { RecordingAudio } from './recording-audio.js';
 import type {
@@ -317,7 +316,7 @@ export type BulkTranscription = {
  * the one already sent ends as it would have and is reported as it ended.
  */
 export async function transcribeRows(
-	whispering: Source & Pick<Whispering, 'transcribe' | 'closing' | 'readAgain'>,
+	whispering: Source & Pick<Whispering, 'transcribe' | 'closing'>,
 	paths: readonly string[],
 	onProgress?: (done: number) => void,
 ): Promise<BulkTranscription> {
@@ -360,8 +359,7 @@ export async function transcribeRows(
 			await whispering.transcribe(entry);
 			// Counted by what the folder lists now, not by the call having returned:
 			// Whispering declines without a word when the recording is on its way
-			// out. The transcriptions are read for this count, after the save.
-			await whispering.readAgain([TRANSCRIPTIONS]);
+			// out. A written answer is in the mirror once its save answered.
 			const run = whispering.transcriptionRun(entry.stem);
 			const state = newestState(whispering, entry.stem);
 			if (state?.kind === 'answered') outcome.transcribed.push(title);
@@ -392,8 +390,8 @@ export type CapturedDeletions = {
 
 /**
  * Capture a deletion for each recording, in the order given, before anyone
- * is asked. Each is Whispering's own capture, so pending typing is saved
- * first and a recording with work under way, or with results that cannot be
+ * is asked. Each is Whispering's own capture, so a recording with work
+ * under way, or with results that cannot be
  * told apart from its own, is refused with that reason and left out.
  */
 export async function captureDeletions(

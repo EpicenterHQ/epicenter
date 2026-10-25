@@ -4,7 +4,6 @@
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { Loading } from '@epicenter/ui/loading';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { toast } from '@epicenter/ui/sonner';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
@@ -33,15 +32,13 @@
 	 * A folder is where files are, so a listing names files and no sizes.
 	 */
 	const rows = $derived(
-		whispering.listing
-			? visibleRows(
-					{
-						files: whispering.listing.files.map((path) => ({ path, size: 0 })),
-						directories: whispering.listing.directories,
-					},
-					whispering.expanded,
-				)
-			: [],
+		visibleRows(
+			{
+				files: whispering.listing.files.map((path) => ({ path, size: 0 })),
+				directories: whispering.listing.directories,
+			},
+			whispering.expanded,
+		),
 	);
 
 	/** The inline name field: renaming a file, or creating one in a folder. */
@@ -243,22 +240,6 @@
 		</div>
 	</div>
 
-	{#if whispering.listing === undefined}
-		{#if whispering.listingError}
-			<Empty.Root class="flex-1 p-6">
-				<Empty.Title>Could not read the folder</Empty.Title>
-				<Empty.Description>{whispering.listingError}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void whispering.readAgain()}>Try again</Button>
-			</Empty.Root>
-		{:else}
-			<Loading class="flex-1" label="Reading files…" />
-		{/if}
-	{:else}
-		{#if whispering.listingError}
-			<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-				Could not read the folder: {whispering.listingError}. Showing the last list that was read.
-			</p>
-		{/if}
 		<nav class="min-h-0 flex-1 overflow-y-auto p-1.5" aria-label="Folder files">
 			<Sidebar.Menu bind:ref={tree} class="gap-0.5" onkeydown={navigate}>
 				{@render createField('', 0)}
@@ -358,5 +339,4 @@
 				{/each}
 			</Sidebar.Menu>
 		</nav>
-	{/if}
 </section>

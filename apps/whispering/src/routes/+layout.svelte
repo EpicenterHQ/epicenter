@@ -3,8 +3,8 @@
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { ModeWatcher } from 'mode-watcher';
-	import FolderApp from '@epicenter/svelte/folder-app';
-	import { openFolder } from '@epicenter/folder';
+	import OpenFolder from '@epicenter/svelte/open-folder';
+	import { openFolder } from '@epicenter/folder/next';
 	import { whisperingTables } from '$lib/definition.js';
 	import { page } from '$app/state';
 	import WhisperingApp from './components/WhisperingApp.svelte';
@@ -14,7 +14,7 @@
 
 	let props = $props();
 
-	// FolderApp opens once for this layout and closes after WhisperingApp stops;
+	// OpenFolder opens once for this layout and closes after WhisperingApp stops;
 	// route changes render inside.
 </script>
 
@@ -24,13 +24,13 @@
 	{#if page.route.id === '/auth/callback'}
 		{@render props.children?.()}
 	{:else}
-	<FolderApp open={() => openFolder({ tables: whisperingTables })}>
-		{#snippet children(context)}
-			<WhisperingApp {context}>
+	<OpenFolder open={() => openFolder({ tables: whisperingTables })}>
+		{#snippet children(folder)}
+			<WhisperingApp {folder}>
 				{@render props.children?.()}
 			</WhisperingApp>
 		{/snippet}
-	</FolderApp>
+	</OpenFolder>
 	{/if}
 </Tooltip.Provider>
 

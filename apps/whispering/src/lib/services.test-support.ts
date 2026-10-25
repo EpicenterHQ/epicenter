@@ -1,30 +1,27 @@
 /**
- * A services for tests: a real directory, a fixture capture device, and
- * stubbed endpoints. Nothing here reaches a network, a microphone, or a
- * provider.
+ * A services for tests: a folder, a fixture capture device, and stubbed
+ * endpoints. Nothing here reaches a network, a microphone, or a provider.
  *
- * The folder is the native `Folder` over a directory, opened by this test
- * process (`openBunFolder`): the same folder engine the desktop page runs
- * over a granted directory, over the same kind of directory, and what a test
- * can open without a shell. Nothing here establishes how the Rust shell
- * behaves.
+ * The folder is the folder mirror over a real directory, opened by this test
+ * process (`@epicenter/folder/next/bun`): the same mirror the desktop page
+ * runs over a granted directory, and what a test can open without a shell.
+ * A test that makes storage slow or refuse a save opens it over memory
+ * instead (`@epicenter/folder/next/testing`), whose control does that below
+ * the folder. Nothing here establishes how the Rust shell behaves.
  *
  * The endpoint stubs are plain functions, so a test decides each answer and
  * counts each request.
  */
 import { mock } from 'bun:test';
-import { mkdirSync, rmdirSync } from 'node:fs';
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { FolderTable } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder/next';
+import { openFolder } from '@epicenter/folder/next/bun';
+import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
+import { type SaveFailure, svelteFolder } from '@epicenter/svelte/folder-next';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { FileError } from '../../../../packages/folder/src/errors.js';
-// The Bun directory opener is not a public entry yet; tests reach it here.
-import { openBunFolder } from '../../../../packages/folder/src/native/bun.js';
-import { createNativeFolder } from '../../../../packages/folder/src/native/engine.js';
-import { nativeStorage } from '../../../../packages/folder/src/native/storage.js';
 import { createFixtureDevice, toneWav } from './capture.js';
 import {
 	applyConnectionChange,
@@ -34,7 +31,7 @@ import {
 	type Operation,
 	type StoredConnection,
 } from './connections.js';
-import { whisperingTables } from './definition.js';
+import { type WhisperingTables, whisperingTables } from './definition.js';
 import type { WhisperingFolder } from './folder.js';
 import type { WhisperingServices } from './platform/types.js';
 import { TranscriptionError } from './transcription.js';
@@ -134,67 +131,61 @@ export async function whisperingDirectory(prefix: string) {
 	return root;
 }
 
+/** An opened test folder: what the app is given, and the folder under it. */
+export type TestFolder = {
+	/** The folder read reactively, as `<OpenFolder>` hands it to the app. */
+	readonly folder: WhisperingFolder;
+	/** The folder under it: what `<OpenFolder>` opens and closes. */
+	readonly opened: Folder<WhisperingTables>;
+	/** Every write that did not land, as `<OpenFolder>` would toast it, in order. */
+	readonly failed: SaveFailure[];
+};
+
+/**
+ * Tests save each path as soon as it is written, so no test waits out the
+ * folder's throttle; a test of the throttle passes its own.
+ */
+const TEST_THROTTLE_MS = 0;
+
+function wrap(opened: Folder<WhisperingTables>): TestFolder {
+	const failed: SaveFailure[] = [];
+	return {
+		folder: svelteFolder(opened, { onFailed: (failure) => failed.push(failure) }),
+		opened,
+		failed,
+	};
+}
+
 /** A real directory opened with Whispering's tables, by this test process. */
-export async function openTestFolder(root: string): Promise<WhisperingFolder> {
-	return expectOk(
-		await openBunFolder({ directory: root, tables: whisperingTables }),
+export async function openTestFolder(
+	root: string,
+	{ throttleMs = TEST_THROTTLE_MS }: { throttleMs?: number } = {},
+): Promise<TestFolder> {
+	return wrap(
+		expectOk(
+			await openFolder({
+				directory: root,
+				tables: whisperingTables,
+				throttleMs,
+			}),
+		),
 	);
 }
 
 /**
- * The directory at `root`, a resolved path such as `whisperingDirectory`
- * answers, opened as the native folder over its real storage, with every
- * write of a file's bytes, or removal, first passing `gate`, as a slow or
- * refusing disk would. `gate` answers why the disk refuses, or nothing.
- * Below the handle, so a save the folder's edit owner sends meets it too.
+ * A folder over memory, with what it starts with. `host.control` makes
+ * storage slow or refuse a save below the folder (`putGate`, `failPut`,
+ * `beforePut`), and `host.text(path)` reads what landed.
  */
-export function openGatedTestFolder(
-	root: string,
-	gate: (path: string) => Promise<unknown>,
-): WhisperingFolder {
-	const storage = nativeStorage(root);
-	return createNativeFolder({
-		storage: {
-			...storage,
-			async put(path, bytes, ifMatch) {
-				const refused = await gate(path);
-				if (refused !== undefined)
-					return FileError.Io({ path, operation: 'write', cause: refused });
-				return storage.put(path, bytes, ifMatch);
-			},
-		},
-		tables: whisperingTables,
-		directory: `bun:${root}`,
-	});
-}
-
-/**
- * A table whose next new rows find an empty directory where the row's file
- * goes, as many times as `failures.creates` says. Nothing is answered on the
- * folder's behalf: the folder refuses the obstructed save itself, as it
- * would on a real disk, and the directory is removed after. `directory` is
- * the table's directory on disk. A test may arm more after opening.
- */
-export function withObstructedCreates<TTable extends FolderTable>(
-	table: TTable,
-	directory: string,
-	failures: { creates: number },
-): TTable {
-	return {
-		...table,
-		async write(id, change) {
-			if (change.body !== '' || failures.creates === 0)
-				return table.write(id, change);
-			failures.creates -= 1;
-			const obstacle = join(directory, `${id}.md`);
-			mkdirSync(obstacle, { recursive: true });
-			try {
-				return await table.write(id, change);
-			} finally {
-				rmdirSync(obstacle);
-			}
-		},
-	};
+export async function openMemoryTestFolder(
+	initial: Record<string, string | Uint8Array> = {},
+	{ throttleMs = TEST_THROTTLE_MS }: { throttleMs?: number } = {},
+) {
+	const host = memoryHost(initial);
+	const opened = expectOk(
+		await createFolder(host.storage, { tables: whisperingTables, throttleMs }),
+	);
+	return { ...wrap(opened), host };
 }
 
 export type TestServicesOptions = {
@@ -202,108 +193,20 @@ export type TestServicesOptions = {
 	transcribe?: WhisperingServices['transcribe'];
 	/** Replace the stubbed transformation answer. */
 	transform?: WhisperingServices['transform'];
-	/** Fail this many result rows written when a run starts, in any result table. */
-	failResultStarts?: number;
-	/** Fail this many answer deliveries before the Folder accepts input. */
-	failAnswerWrites?: number;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Partial<Record<Operation, StoredConnection>>;
-	/** Pause real storage listings beneath the Folder handle. */
-	beforeStorageList?: () => Promise<void>;
-	/** Open this folder instead of a directory with the Bun opener. */
-	folder?: WhisperingFolder;
+	/** Use this folder instead of opening the test's directory. */
+	folder?: TestFolder;
 };
-
-/** Result row writes still to fail: rows written when a run starts, and answers written into them. */
-export type ResultFailures = { starts: number; answers: number };
-
-/**
- * A result table whose next new rows fail before writing, as many times as
- * `failures.starts` says. The next `failures.answers` calls to save an answer
- * throw before reaching the Folder and accepting input. To fail a publication
- * after acceptance, use `openGatedTestFolder` below the handle. A test may arm
- * more failures after opening.
- */
-export function withResultFailures<TTable extends FolderTable>(
-	table: TTable,
-	failures: ResultFailures,
-): TTable {
-	const refused = () =>
-		Err({
-			name: 'StorageFailed' as const,
-			message: 'Repository save failed: the disk refused the result',
-			cause: new Error('the disk refused the result'),
-		});
-	return {
-		...table,
-		async write(id, change) {
-			if (failures.starts === 0) return table.write(id, change);
-			failures.starts -= 1;
-			return refused();
-		},
-		document(id) {
-			const document = table.document(id);
-			return {
-				...document,
-				async save() {
-					if (failures.answers === 0) return document.save();
-					failures.answers -= 1;
-					// The preceding patch is already accepted by Folder.
-					throw new Error(
-						'Repository save failed: the disk refused the result',
-					);
-				},
-			};
-		},
-	};
-}
-
-/**
- * Replace some of `folder`'s tables, and its files, in place, and answer the
- * same handle. The app's own calls meet the replacements. The folder's edit
- * owner keeps saving through the handle's storage, so a refusal it should
- * meet belongs below the handle (`openGatedTestFolder`).
- */
-export function replaceTables(
-	folder: WhisperingFolder,
-	tables: Partial<WhisperingFolder['tables']>,
-	files: WhisperingFolder['files'] = folder.files,
-): WhisperingFolder {
-	Object.assign(folder.tables, tables);
-	Object.assign(folder, { files });
-	return folder;
-}
 
 export async function openTestServices({
 	transcribe,
 	transform,
-	failResultStarts = 0,
-	failAnswerWrites = 0,
 	connections,
 	folder: given,
-	beforeStorageList,
 }: TestServicesOptions = {}) {
 	const root = await whisperingDirectory('whispering-services-');
-	const storage = nativeStorage(root);
-	let folder =
-		given ??
-		(beforeStorageList === undefined
-			? await openTestFolder(root)
-			: createNativeFolder({
-					storage: {
-						...storage,
-						async list() {
-							await beforeStorageList();
-							return storage.list();
-						},
-					},
-					tables: whisperingTables,
-					directory: `bun:${root}`,
-				}));
-	const failures: ResultFailures = {
-		starts: failResultStarts,
-		answers: failAnswerWrites,
-	};
+	const { folder, opened, failed } = given ?? (await openTestFolder(root));
 	const device = testConnections({ connections });
 
 	const transformed: TransformRequest[] = [];
@@ -311,18 +214,10 @@ export async function openTestServices({
 	let opens = 0;
 	let closes = 0;
 
-	folder = replaceTables(folder, {
-		transcriptions: withResultFailures(folder.tables.transcriptions, failures),
-		transformation_runs: withResultFailures(
-			folder.tables.transformation_runs,
-			failures,
-		),
-		text_runs: withResultFailures(folder.tables.text_runs, failures),
-	});
-	const closeFolder = folder.close.bind(folder);
-	folder.close = async () => {
+	const close = opened.close.bind(opened);
+	opened.close = async () => {
 		closes++;
-		return await closeFolder();
+		return await close();
 	};
 	const services: WhisperingServices = {
 		kind: 'native',
@@ -382,14 +277,17 @@ export async function openTestServices({
 
 	return {
 		root,
+		/** The folder the app is given. */
 		folder,
+		/** The folder under it, which `<OpenFolder>` opens and closes. */
+		opened,
+		/** Every write that did not land, in order. */
+		failed,
 		services,
-		/** Result row writes still to fail; a test may arm more. */
-		failures,
-		/** What `FolderApp` is given: it counts how many times a folder was opened. */
+		/** What `<OpenFolder>` is given: it counts how many times a folder was opened. */
 		open: async () => {
 			opens += 1;
-			return Ok(folder);
+			return Ok(opened);
 		},
 		/** Every transformation request the endpoint stub received, in order. */
 		transformed,
@@ -403,8 +301,19 @@ export async function openTestServices({
 		get closes() {
 			return closes;
 		},
-		remove: () => rm(dirname(root), { recursive: true, force: true }),
+		/** Close the folder, sending what waits, and remove the directory. */
+		async remove() {
+			await close();
+			await rm(dirname(root), { recursive: true, force: true });
+		},
 	};
+}
+
+/** Wait until the folder sends nothing more: every write landed or answered. */
+export async function settled(folder: WhisperingFolder) {
+	await eventually(() => !folder.saving);
+	// The answers resolve right after the last save leaves the queue.
+	await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** A promise a test settles by hand, to hold a request open. */
@@ -427,17 +336,21 @@ export async function eventually(check: () => boolean, timeoutMs = 4000) {
 
 /** Per-folder device doubles used by the actual product constructor. */
 const providedServices = new WeakMap<WhisperingFolder, WhisperingServices>();
+/** The doubles for a folder the test never sees, as `<OpenFolder>` wraps its own. */
+let anyFolderServices: WhisperingServices | undefined;
 let installedServices = false;
+/** Give the product these doubles for `folder`, or for whatever folder it opens (`'any'`). */
 export function provideServices(
-	folder: WhisperingFolder,
+	folder: WhisperingFolder | 'any',
 	services: WhisperingServices,
 ) {
-	providedServices.set(folder, services);
+	if (folder === 'any') anyFolderServices = services;
+	else providedServices.set(folder, services);
 	if (installedServices) return;
 	installedServices = true;
 	mock.module('#platform/services', () => ({
 		createServices(folder: WhisperingFolder): WhisperingServices {
-			const services = providedServices.get(folder);
+			const services = providedServices.get(folder) ?? anyFolderServices;
 			if (services === undefined)
 				throw new Error('No test services were provided for this folder');
 			return services;

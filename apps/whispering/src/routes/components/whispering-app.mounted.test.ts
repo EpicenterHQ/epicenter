@@ -1,19 +1,27 @@
-/** The real FolderApp and WhisperingApp root: route continuity, an unmount that waits for no workflow, and a recording left to the page's departure. */
+/**
+ * The real OpenFolder and WhisperingApp root: route continuity, an unmount
+ * that waits for no workflow, a recording left to the page's departure, and
+ * a selection that follows what the folder shows.
+ */
 import '../svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
-import { SaveError } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder/next';
+import { expectOk } from 'wellcrafted/testing';
+import { SaveError } from '../../../../../packages/folder/src/shared/errors.js';
 import {
 	desktop,
 	nativeWindow,
 } from '../../../../../packages/svelte/src/tauri-window.test-support.js';
-import type { WhisperingContext, WhisperingFolder } from '../../lib/folder.js';
+import type { WhisperingTables } from '../../lib/definition.js';
+import type { WhisperingFolder } from '../../lib/folder.js';
 import type { WhisperingServices } from '../../lib/platform/types.js';
 import type { Whispering } from '../../lib/whispering.svelte.js';
 
 const { mount, unmount, flushSync } = await import('svelte');
 const { openTestServices, provideServices, deferred, eventually } =
 	await import('../../lib/services.test-support.js');
+const { toggleSelected } = await import('../../lib/recording-collection.js');
 const { pageState } = await import('../page-state.test-support.svelte.js');
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -24,7 +32,11 @@ afterEach(async () => {
 
 async function render(
 	options: {
-		change?: (folder: WhisperingFolder, services: WhisperingServices) => void;
+		/** Change the opened folder, below what `<OpenFolder>` wraps, or the services. */
+		change?: (
+			opened: Folder<WhisperingTables>,
+			services: WhisperingServices,
+		) => void;
 		opener?: (
 			open: Awaited<ReturnType<typeof openTestServices>>['open'],
 		) => Awaited<ReturnType<typeof openTestServices>>['open'];
@@ -32,11 +44,12 @@ async function render(
 ) {
 	const test = await openTestServices();
 	cleanups.push(test.remove);
-	options.change?.(test.folder, test.services);
-	provideServices(test.folder, test.services);
+	options.change?.(test.opened, test.services);
+	// `<OpenFolder>` wraps the folder it opens itself.
+	provideServices('any', test.services);
 	const Root = (await import('./test-fixtures/WhisperingRoot.svelte')).default;
 	const page = pageState({ route: 'home' });
-	const seen: { whispering: Whispering; context: WhisperingContext }[] = [];
+	const seen: { whispering: Whispering; folder: WhisperingFolder }[] = [];
 	const target = document.createElement('main');
 	document.body.append(target);
 	const root = mount(Root, {
@@ -44,7 +57,7 @@ async function render(
 		props: {
 			open: options.opener?.(test.open) ?? test.open,
 			page,
-			report: (whispering, context) => seen.push({ whispering, context }),
+			report: (whispering, folder) => seen.push({ whispering, folder }),
 		},
 	});
 	let removed = false;
@@ -70,7 +83,6 @@ async function render(
 test('route changes share one opened folder and keep recording', async () => {
 	const app = await render();
 	const first = await app.ready();
-	expect(first.context.folder).toBe(app.test.folder);
 	expect(first.whispering.connections?.transcription).toBeDefined();
 	await first.whispering.startRecording();
 	app.page.route = 'recordings';
@@ -79,10 +91,11 @@ test('route changes share one opened folder and keep recording', async () => {
 		'recordings',
 	);
 	expect(app.seen[1]?.whispering).toBe(first.whispering);
+	expect(app.seen[1]?.folder).toBe(first.folder);
 	expect(first.whispering.recorder.phase).toBe('recording');
-	while (first.context.folder.getStatus().saving) await Bun.sleep(5);
-	// Recording alone adds no browser departure warning. FolderApp still
-	// guards accepted edits, covered by its mounted beforeunload test.
+	await eventually(() => !first.folder.saving);
+	// Recording alone adds no browser departure warning. OpenFolder asks only
+	// while a write is out.
 	const departure = new window.Event('beforeunload', { cancelable: true });
 	expect(window.dispatchEvent(departure)).toBe(true);
 	expect(app.test.opens).toBe(1);
@@ -92,7 +105,6 @@ test('unmount leaves a recording to the page’s departure and closes the folder
 	const app = await render();
 	const { whispering } = await app.ready();
 	await whispering.startRecording();
-	// Save completion no longer waits for the display queries to catch up.
 	const rows = await readdir(`${app.test.root}/recordings`);
 	expect(rows).toHaveLength(1);
 	await app.destroy();
@@ -106,13 +118,13 @@ test('unmount leaves a recording to the page’s departure and closes the folder
 	expect(app.test.closes).toBe(1);
 });
 
-test('unmount waits for no file command held before the Folder', async () => {
+test('unmount waits for no file command held before the folder', async () => {
 	const gate = deferred<void>();
 	const begun = deferred<void>();
 	const app = await render({
-		change(folder) {
-			const write = folder.files.write;
-			folder.files.write = async (...args) => {
+		change(opened) {
+			const write = opened.write;
+			opened.write = async (...args) => {
 				if (args[0] === 'kept.md') {
 					begun.resolve();
 					await gate.promise;
@@ -127,7 +139,8 @@ test('unmount waits for no file command held before the Folder', async () => {
 	await app.destroy();
 	await eventually(() => app.test.closes === 1);
 	gate.resolve();
-	await creating;
+	// The folder closed first, so it takes no new write.
+	expect(await creating).toContain('closed');
 	expect(app.test.closes).toBe(1);
 });
 
@@ -146,54 +159,13 @@ test('unmount during opening closes once without starting the product', async ()
 	expect(await readdir(app.test.root)).toEqual([]);
 });
 
-test('unmount closes during a held first listing and starts no later reads', async () => {
-	const gate = deferred<void>();
-	const begun = deferred<void>();
-	let listings = 0;
-	let connections = 0;
-	let microphones = 0;
-	const app = await render({
-		change(folder, services) {
-			const read = services.connections.read;
-			services.connections.read = () => {
-				connections++;
-				return read();
-			};
-			const microphone = services.preferences.microphone;
-			services.preferences.microphone = () => {
-				microphones++;
-				return microphone();
-			};
-			const list = folder.files.list;
-			folder.files.list = async () => {
-				listings++;
-				begun.resolve();
-				await gate.promise;
-				return list();
-			};
-		},
-	});
-	await begun.promise;
-	await app.destroy();
-	await eventually(() => app.test.closes === 1);
-	gate.resolve();
-	await new Promise((resolve) => setTimeout(resolve, 100));
-	flushSync();
-	expect(app.seen).toHaveLength(0);
-	expect(await readdir(app.test.root)).toEqual(['.gitignore']);
-	expect(connections).toBe(0);
-	expect(microphones).toBe(0);
-	expect(listings).toBe(1);
-	expect(app.test.closes).toBe(1);
-});
-
 test('unmount during exclusion maintenance closes without waiting for it', async () => {
 	const gate = deferred<void>();
 	const begun = deferred<void>();
 	const app = await render({
-		change(folder) {
-			const write = folder.files.write;
-			folder.files.write = async (...args) => {
+		change(opened) {
+			const write = opened.write;
+			opened.write = async (...args) => {
 				if (args[0] === '.gitignore') {
 					begun.resolve();
 					await gate.promise;
@@ -204,7 +176,7 @@ test('unmount during exclusion maintenance closes without waiting for it', async
 	});
 	await begun.promise;
 	await app.destroy();
-	// Held above the Folder, so the Folder never admitted it.
+	// Held above the folder, so the folder never took it.
 	await eventually(() => app.test.closes === 1);
 	gate.resolve();
 	await new Promise((resolve) => setTimeout(resolve, 20));
@@ -214,9 +186,9 @@ test('unmount during exclusion maintenance closes without waiting for it', async
 
 test('startup failure shows the original error and unmount closes once', async () => {
 	const app = await render({
-		change(folder) {
-			folder.files.list = async () => {
-				throw new Error('the first listing was lost');
+		change(_opened, services) {
+			services.recoverRecordings = async () => {
+				throw new Error('the recorder could not be reached');
 			};
 		},
 	});
@@ -227,7 +199,7 @@ test('startup failure shows the original error and unmount closes once', async (
 		);
 	});
 	expect(app.target.querySelector('[role="alert"]')?.textContent).toContain(
-		'the first listing was lost',
+		'the recorder could not be reached',
 	);
 	await app.destroy();
 	await eventually(() => app.test.closes === 1);
@@ -235,9 +207,9 @@ test('startup failure shows the original error and unmount closes once', async (
 
 test('a refused exclusion write is visible in the shell', async () => {
 	const app = await render({
-		change(folder) {
-			const write = folder.files.write;
-			folder.files.write = async (...args) =>
+		change(opened) {
+			const write = opened.write;
+			opened.write = async (...args) =>
 				args[0] === '.gitignore'
 					? SaveError.StorageFailed({
 							cause: new Error('ignore file is read-only'),
@@ -246,9 +218,14 @@ test('a refused exclusion write is visible in the shell', async () => {
 		},
 	});
 	await app.ready();
-	expect(app.target.textContent).toContain(
-		'Git defaults could not be checked at startup',
-	);
+	await eventually(() => {
+		flushSync();
+		return (
+			app.target.textContent?.includes(
+				'Git defaults could not be checked at startup',
+			) === true
+		);
+	});
 	expect(app.target.textContent).toContain('ignore file is read-only');
 });
 
@@ -267,20 +244,50 @@ test('the page waits for the desktop close listener before starting', async () =
 	expect(nativeWindow.listeners).toBe(1);
 });
 
-test('a failed desktop close listener shows refusal and closes once', async () => {
-	nativeWindow.refuseRegistration = true;
-	desktop(true);
+test('a selected recording that left the folder is unticked once the folder shows it gone, so a new file at its path is not ticked', async () => {
 	const app = await render();
+	const { whispering, folder } = await app.ready();
+	const { view } = whispering;
+	for (const name of ['standup', 'walk'])
+		expectOk(
+			await folder.tables.recordings.create(name, {
+				fields: {
+					title: name,
+					recordedAt: '2026-03-02T09:00:00.000Z' as never,
+					capture: 'microphone',
+				},
+				body: '',
+			}),
+		);
+	for (const name of ['standup', 'walk'])
+		view.recordingSelected = toggleSelected(
+			view.recordingSelected,
+			`recordings/${name}.md`,
+			true,
+			whispering,
+		);
+	const row = folder.file('recordings/standup.md')?.data;
+
+	// A search that hides a selected row unticks nothing.
+	view.recordingQuery = 'walk';
+	flushSync();
+	expect(view.recordingSelected).toEqual([
+		'recordings/standup.md',
+		'recordings/walk.md',
+	]);
+
+	// Once the folder shows it gone, it is unticked.
+	expectOk(await folder.delete('recordings/standup.md'));
 	await eventually(() => {
 		flushSync();
-		return app.target.querySelector('[role="alert"]') !== null;
+		return view.recordingSelected.length === 1;
 	});
-	expect(app.target.querySelector('[role="alert"]')?.textContent).toContain(
-		'Close listener could not be installed',
-	);
-	expect(app.seen).toHaveLength(0);
-	expect(await readdir(app.test.root)).toEqual([]);
-	await app.destroy();
-	await eventually(() => app.test.closes === 1);
-	expect(nativeWindow.listeners).toBe(0);
+	expect(view.recordingSelected).toEqual(['recordings/walk.md']);
+
+	// Another file made at that path later is another recording: it arrives unticked.
+	if (typeof row !== 'string') throw new Error('Expected row text');
+	expectOk(await folder.write('recordings/standup.md', row));
+	view.recordingQuery = '';
+	flushSync();
+	expect(view.recordingSelected).toEqual(['recordings/walk.md']);
 });

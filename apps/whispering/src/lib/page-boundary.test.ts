@@ -3,16 +3,16 @@
  *
  * The page runs in a WebView and in a browser tab, so nothing under `src/` may
  * reach Node or Bun, or the directory opener that runs there. It names the
- * folder contract through `@epicenter/folder`. A folder is opened in exactly
- * one place: the layout supplies FolderApp its opener. The build selects
- * the browser or desktop Folder entry.
+ * folder contract through `@epicenter/folder/next`. A folder is opened in
+ * exactly one place: the layout gives OpenFolder its opener. The build
+ * selects the browser or desktop folder entry.
  * The build picks the services (`#platform/services`), so no page code asks
  * where it is running. The recording workflow is
  * file-backed, so it may not reach the Yjs store either. This reads the
  * sources, so a violation names its file.
  *
  * The same reading establishes who owns the folder: the app layout opens one
- * folder context, and pages only receive it.
+ * folder, and pages only receive it.
  */
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -62,7 +62,7 @@ test('the page imports no Node or Bun module, and Tauri only for a response’s 
 				specifier.startsWith('node:') ||
 				specifier.startsWith('bun') ||
 				// The directory opener runs in Bun, never in a page.
-				specifier === '@epicenter/folder/bun',
+				/^@epicenter\/folder(\/next)?\/bun$/.test(specifier),
 		),
 	).toEqual([]);
 	// The Tauri APIs the page names: account requests and desktop connections
@@ -80,11 +80,10 @@ test('the page imports no Node or Bun module, and Tauri only for a response’s 
 });
 
 test('only the layout opens a folder through the build-selected entry', () => {
+	// A platform entry, old or the mirror's, named directly instead of through the build.
 	expect(
 		importers((specifier) =>
-			['@epicenter/folder/browser', '@epicenter/folder/tauri'].includes(
-				specifier,
-			),
+			/^@epicenter\/folder(\/next)?\/(browser|tauri)$/.test(specifier),
 		),
 	).toEqual([]);
 	expect(callers('openFolder')).toEqual(['routes/+layout.svelte']);
@@ -129,18 +128,13 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 				specifier === 'yjs' ||
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
-				// Rows are edited through the local folder context's cache and the
-				// folder's edit handles (ADR-0528, ADR-0632): no edit whispering,
-				// open-item slot, admission, or save bar. The other shared views are
-				// the header status and the failed-save toast.
+				// Rows are read from the folder mirror and edited through drafts:
+				// no edit owner, open-item slot, admission, or save bar. The other
+				// shared views are the folder's owner and the header status.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
-						'@epicenter/svelte/snapshot',
-						'@epicenter/svelte/folder',
-						'@epicenter/svelte/folder-app',
-						'@epicenter/svelte/folder-queries',
-						'@epicenter/svelte/write-failure',
-						'@epicenter/svelte/write-failure-toast',
+						'@epicenter/svelte/folder-next',
+						'@epicenter/svelte/open-folder',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',
@@ -169,21 +163,19 @@ function callers(name: string) {
 	return files.filter((file) => call.test(file.text)).map((file) => file.path);
 }
 
-test('FolderApp owns the folder and WhisperingApp owns product state', () => {
+test('OpenFolder owns the folder and WhisperingApp owns product state', () => {
 	expect(callers('createWhispering')).toEqual([
 		'routes/components/WhisperingApp.svelte',
 	]);
 
-	expect(callers('createFolderContext')).toEqual([]);
 	expect(callers('createServices')).toEqual(['lib/whispering.svelte.ts']);
-	expect(importers((s) => s === '@epicenter/svelte/folder-app')).toEqual([
-		'routes/+layout.svelte imports @epicenter/svelte/folder-app',
-		'routes/components/test-fixtures/WhisperingRoot.svelte imports @epicenter/svelte/folder-app',
+	expect(importers((s) => s === '@epicenter/svelte/open-folder')).toEqual([
+		'routes/+layout.svelte imports @epicenter/svelte/open-folder',
+		'routes/components/test-fixtures/WhisperingRoot.svelte imports @epicenter/svelte/open-folder',
 	]);
 	expect(callers('setFolder')).toEqual([
 		'routes/components/WhisperingApp.svelte',
 		'routes/components/test-fixtures/AudioPlaybackHost.svelte',
-		'routes/components/test-fixtures/SaveStatusHost.svelte',
 		'routes/components/test-fixtures/SelectionHost.svelte',
 	]);
 });

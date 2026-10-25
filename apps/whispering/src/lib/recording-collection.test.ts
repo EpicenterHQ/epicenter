@@ -23,12 +23,8 @@
  *   it is skipped rather than sent
  * - Deleting several captures each deletion first, leaves out what the
  *   whispering refuses, removes only what was captured, and keeps the audio
- * - A transcript is edited in its own draft beside its recording, which stays
- *   selected, and publishes its complete held source; closing the details
- *   or changing page discards nothing
- * - A recording that left the folder is unticked when a listing confirms it,
- *   so a file made later at its path is not ticked; a search and a failed
- *   listing untick nothing
+ * - A transcript's body is saved beside its recording, which stays selected,
+ *   over the file as it is then; closing the details loses no save
  * - Once the app is closing, nothing new is opened, and a recording still
  *   waiting its turn to be transcribed is not sent
  */
@@ -39,15 +35,12 @@ import {
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import type { RecordingFields, TranscriptionFields } from './definition.js';
-import { settle, transcriptEditor } from './edits.test-support.js';
-import type { WhisperingFolder } from './folder.js';
 import type { WhisperingServices } from './platform/types.js';
 import {
 	captureDeletions,
@@ -67,7 +60,7 @@ import {
 	deferred,
 	eventually,
 	openTestServices,
-	replaceTables,
+	settled,
 } from './services.test-support.js';
 import type { Whispering } from './whispering.svelte.js';
 
@@ -94,11 +87,7 @@ type Transcribe = WhisperingServices['transcribe'];
  * | orphan  | Lost audio       | 2026-03-03 | 1:00   | none, and no capture source    |
  * | broken  | (does not read)  |            |        |                                |
  */
-async function history(
-	transcribe?: Transcribe,
-	/** Put something in the way of the folder the app is given, after the history is written. */
-	folderOf: (folder: WhisperingFolder) => WhisperingFolder = (given) => given,
-) {
+async function history(transcribe?: Transcribe) {
 	const test = await openTestServices();
 	const { folder } = test;
 	const sent: Parameters<Transcribe>[0][] = [];
@@ -110,9 +99,9 @@ async function history(
 		body = '',
 	) => {
 		const audioPath = `recordings/${stem}.wav`;
-		expectOk(await folder.files.write(audioPath, toneWav()));
+		expectOk(await folder.write(audioPath, toneWav()));
 		expectOk(
-			await folder.tables.recordings.write(stem, {
+			await folder.tables.recordings.create(stem, {
 				fields: {
 					title,
 					recordedAt: `2026-03-${day}T09:00:00.000Z`,
@@ -130,7 +119,7 @@ async function history(
 		body: string,
 	) =>
 		expectOk(
-			await folder.tables.transcriptions.write(stem, {
+			await folder.tables.transcriptions.create(stem, {
 				fields: {
 					recordingId,
 					createdAt: `2026-03-${day}T10:00:00.000Z`,
@@ -152,14 +141,12 @@ async function history(
 	await recording('walk', 'Walk ideas', '04', 300_000);
 	await recording('lecture', 'Lecture notes', '01', 3_000_000);
 	expectOk(
-		await folder.files.write(
+		await folder.write(
 			'recordings/orphan.md',
 			'---\ntitle: Lost audio\nrecordedAt: 2026-03-03T09:00:00.000Z\ndurationMs: 60000\n---\n',
 		),
 	);
-	expectOk(
-		await folder.files.write('recordings/broken.md', 'no frontmatter here\n'),
-	);
+	expectOk(await folder.write('recordings/broken.md', 'no frontmatter here\n'));
 	await transcript(
 		'standup-t1',
 		'standup',
@@ -179,8 +166,8 @@ async function history(
 		'Second take, cleaner. Ideas for the garden layout and the path.\n',
 	);
 
-	const { whispering, context } = await openTestWhispering({
-		folder: folderOf(test.folder),
+	const { whispering } = await openTestWhispering({
+		folder,
 		services: {
 			...test.services,
 			async transcribe(request) {
@@ -192,13 +179,13 @@ async function history(
 		},
 	});
 	cleanups.push(async () => {
-		await closeTestWhispering({ whispering, context });
+		closeTestWhispering({ whispering, folder });
 		await test.remove();
 	});
 	return {
 		whispering,
-		context,
-
+		folder,
+		failed: test.failed,
 		view: whispering.view,
 		sent,
 		root: test.root,
@@ -322,7 +309,7 @@ test('sorting gives one order every time: ties keep their order both ways', asyn
 // ============================================================================
 
 test('a selection is by path: it holds through a search, a sort, and a refresh, and drops what left the folder', async () => {
-	const { context, whispering, view } = await history();
+	const { folder, whispering, view } = await history();
 	expect(view.recordingSelected).toEqual([]);
 	expect(view.recordingSort).toEqual(DEFAULT_SORT);
 
@@ -380,7 +367,8 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 	// A new order and a refresh change nothing about what is selected.
 	view.recordingQuery = '';
 	view.recordingSort = nextSort(view.recordingSort, 'title');
-	await settle(whispering, context);
+	folder.checkpoint();
+	await settled(folder);
 	const sorted = shownRows(whispering, view.recordingQuery, view.recordingSort);
 	expect(
 		stems(selectionIn(view.recordingSelected, sorted, whispering).rows),
@@ -474,9 +462,8 @@ test('transcribing several sends the audio each row names once, in order, and sk
 });
 
 test('a recording whose audio is not in the folder says so on its row and is not sent', async () => {
-	const { context, whispering, sent, root } = await history();
-	await rm(join(root, 'recordings', 'lecture.wav'));
-	await settle(whispering, context);
+	const { folder, whispering, sent } = await history();
+	expectOk(await folder.delete('recordings/lecture.wav'));
 	expect(rowOf(whispering, 'lecture').audio).toEqual({
 		kind: 'absent',
 		path: 'recordings/lecture.*',
@@ -626,14 +613,13 @@ test('a recording with a transcription under way is left out with Whispering’s
 });
 
 test('while a result cannot be told apart from a recording’s own, none is captured, and a recording changed after capture is not removed', async () => {
-	const { context, whispering, root } = await history();
+	const { folder, whispering } = await history();
 	const captured = await captureDeletions(whispering, [
 		path('standup'),
 		path('walk'),
 	]);
 	// Something else writes a result that cannot say whose it is.
-	await writeFile(join(root, 'transcriptions', 'stray.md'), 'not a row\n');
-	await settle(whispering, context);
+	expectOk(await folder.write('transcriptions/stray.md', 'not a row\n'));
 
 	expect(
 		(await captureDeletions(whispering, [path('standup')])).deletions,
@@ -658,20 +644,21 @@ test('while a result cannot be told apart from a recording’s own, none is capt
 
 const TRANSCRIPT = 'transcriptions/standup-t1.md';
 
-test('a transcript is edited beside its recording, which stays selected, and is written at once', async () => {
-	const { context, whispering, root } = await history();
+const TRANSCRIPT_ID = 'standup-t1';
+
+test('a transcript’s body is saved beside its recording, which stays selected, and the list shows what landed', async () => {
+	const { folder, whispering, root } = await history();
 	whispering.open(path('standup'));
 	const before = await readFile(join(root, TRANSCRIPT), 'utf8');
 
-	const editor = await transcriptEditor(whispering, context, TRANSCRIPT);
-	editor.edit((row) => {
-		row.body = 'Yesterday I finished the importer. Today: the exporter.\n';
+	const saving = folder.tables.transcriptions.update(TRANSCRIPT_ID, {
+		body: 'Yesterday I finished the importer. Today: the exporter.\n',
 	});
-	// Written from the moment it is typed.
-	expect(whispering.isSaving(TRANSCRIPT)).toBe(true);
+	// Saving from the moment it is typed.
 	expect(whispering.saving).toBe(true);
-	await settle(whispering, context);
-	// The list shows the saved text: the save put it in the listing.
+	expectOk(await saving);
+	await settled(folder);
+	// The list shows the saved text, once it landed.
 	expect(transcriptExcerpt(rowOf(whispering, 'standup'), '')).toBe(
 		'Yesterday I finished the importer. Today: the exporter.',
 	);
@@ -684,175 +671,75 @@ test('a transcript is edited beside its recording, which stays selected, and is 
 	expect(whispering.selectedPath).toBe(path('standup'));
 	expect(whispering.selection?.kind).toBe('recording');
 
-	// Opening the file from Files edits the same row.
+	// Opening the file from Files shows the same row.
 	expect(whispering.open(TRANSCRIPT)).toBe(true);
 	expect(whispering.selection).toMatchObject({
 		kind: 'file',
 		path: TRANSCRIPT,
 	});
-	expect(
-		context.folder.tables.transcriptions.parse(
-			whispering.document('transcriptions', TRANSCRIPT).getSnapshot().text!,
-		).body,
-	).toBe('Yesterday I finished the importer. Today: the exporter.\n');
+	expect(folder.tables.transcriptions.row(TRANSCRIPT_ID)?.body).toBe(
+		'Yesterday I finished the importer. Today: the exporter.\n',
+	);
 });
 
-test('typing over an outside transcript change publishes the complete held source', async () => {
-	const { context, whispering, root } = await history();
+test('a transcript body saved over an outside change sets the body over the file as it is then', async () => {
+	const { folder, whispering, root, failed } = await history();
 	whispering.open(path('standup'));
-	const notices: WriteFailure[] = [];
-	whispering.onWriteFailure((notice) => notices.push(notice));
-	const editor = await transcriptEditor(whispering, context, TRANSCRIPT);
-	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8')).replace(
-		'importer',
-		'migration',
-	);
+	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8'))
+		.replace('importer', 'migration')
+		.replace('model: verification-model', 'model: outside-model');
 	await writeFile(join(root, TRANSCRIPT), outside);
 
-	editor.edit((row) => {
-		row.body = 'What I typed.\n';
-	});
-	await settle(whispering, context);
-	expect(notices).toHaveLength(0);
-	expect(editor.draft.body).toBe('What I typed.\n');
-	expect(whispering.isUnsaved(TRANSCRIPT)).toBe(false);
+	expectOk(
+		await folder.tables.transcriptions.update(TRANSCRIPT_ID, {
+			body: 'What I typed.\n',
+		}),
+	);
+	expect(failed).toHaveLength(0);
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	expect(saved).toContain('What I typed.');
 	expect(saved).not.toContain('migration');
+	// The outside change to a field the save did not name is kept.
+	expect(saved).toContain('model: outside-model');
 	expect(whispering.selectedPath).toBe(path('standup'));
 });
 
-test('closing the details and changing page lose no typing: the draft belongs to the app and saves as typed', async () => {
-	const { context, whispering, view, root } = await history();
+test('a transcript save asked for before the details close lands after they close', async () => {
+	const { folder, whispering, view, root } = await history();
 	whispering.open(path('standup'));
 	view.showingDetail = true;
-	const draft = await transcriptEditor(whispering, context, TRANSCRIPT);
-	draft.edit((row) => {
-		row.body = 'Typed just before closing the details.\n';
+	const saving = folder.tables.transcriptions.update(TRANSCRIPT_ID, {
+		body: 'Typed just before closing the details.\n',
 	});
 	view.recordingQuery = 'standup';
 
-	// Closing the pane, then a change of page: neither unloads the document.
+	// Closing the pane, then a change of page: neither withdraws the save.
 	view.showingDetail = false;
 	expect(whispering.selectedPath).toBe(path('standup'));
 
-	await settle(whispering, context);
+	expectOk(await saving);
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
 		'Typed just before closing the details.',
 	);
 });
 
 // ============================================================================
-// Selection against a folder that changes
-// ============================================================================
-
-test('a selected recording that left the folder is unticked once a listing confirms it, so a new file at its path is not ticked', async () => {
-	const listing = { fails: false };
-	const { context, whispering, view, root } = await history(
-		undefined,
-		(folder) => {
-			const { recordings } = folder.tables;
-			return replaceTables(folder, {
-				recordings: {
-					...recordings,
-					list: async () =>
-						listing.fails
-							? ({
-									data: null,
-									error: { name: 'Io', message: 'the disk did not answer' },
-								} as never)
-							: recordings.list(),
-				},
-			});
-		},
-	);
-	const row = await readFile(join(root, path('standup')), 'utf8');
-	for (const stem of ['standup', 'walk'])
-		view.recordingSelected = toggleSelected(
-			view.recordingSelected,
-			path(stem),
-			true,
-			whispering,
-		);
-
-	// A search that hides a selected row unticks nothing, however often the folder is read.
-	view.recordingQuery = 'garden';
-	await settle(whispering, context);
-	expect(view.recordingSelected).toEqual([path('standup'), path('walk')]);
-
-	// The file goes, but the listing that would say so fails: nothing is taken as gone.
-	await rm(join(root, path('standup')));
-	listing.fails = true;
-	await settle(whispering, context);
-	expect(whispering.listError).toContain('the disk did not answer');
-	expect(view.recordingSelected).toEqual([path('standup'), path('walk')]);
-
-	// A listing that is read confirms it gone, and it is unticked then.
-	listing.fails = false;
-	await settle(whispering, context);
-	expect(view.recordingSelected).toEqual([path('walk')]);
-
-	// Another file made at that path later is another recording: it arrives unticked.
-	await writeFile(
-		join(root, path('standup')),
-		row.replace('Monday standup', 'A different recording'),
-	);
-	view.recordingQuery = '';
-	await settle(whispering, context);
-	expect(rowOf(whispering, 'standup').title).toBe('A different recording');
-	const shown = shownRows(whispering, '', DEFAULT_SORT);
-	expect(
-		stems(selectionIn(view.recordingSelected, shown, whispering).rows),
-	).toEqual(['walk']);
-	expect(selectionIn(view.recordingSelected, shown, whispering).hidden).toBe(0);
-});
-
-// ============================================================================
 // Closing
 // ============================================================================
 
-test('nothing is opened or read after closing', async () => {
-	const reads: string[] = [];
-	const { context, whispering } = await history(undefined, (folder) => {
-		const { files } = folder;
-		return replaceTables(
-			folder,
-			{},
-			{
-				...files,
-				async read(target: string) {
-					reads.push(target);
-					return files.read(target);
-				},
-			},
-		);
-	});
+test('nothing is opened after closing', async () => {
+	const { folder, whispering } = await history();
 	whispering.open(path('standup'));
-	await closeTestWhispering({ whispering, context });
+	closeTestWhispering({ whispering, folder });
 	expect(whispering.closing).toBe(true);
-	const before = reads.length;
-	whispering.open('transcriptions/walk-t2.md');
-	whispering.open(path('walk'));
+	expect(whispering.open('transcriptions/walk-t2.md')).toBe(false);
+	expect(whispering.open(path('walk'))).toBe(false);
 	expect(whispering.selectedPath).toBe(path('standup'));
-	expect(reads).toHaveLength(before);
-});
-
-test('close does not save held transcript input', async () => {
-	const { context, whispering, root } = await history();
-	(await transcriptEditor(whispering, context, TRANSCRIPT)).edit((row) => {
-		row.body = 'Typed just before quitting.\n';
-	});
-
-	await closeTestWhispering({ whispering, context });
-
-	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).not.toContain(
-		'Typed just before quitting.',
-	);
 });
 
 test('closing while several are being transcribed sends nothing more: the one under way ends as it ends, the rest are reported as not sent', async () => {
 	const first = deferred<Awaited<ReturnType<Transcribe>>>();
-	const { context, whispering, sent, root } = await history(
+	const { folder, whispering, sent, root } = await history(
 		() => first.promise,
 	);
 
@@ -867,7 +754,7 @@ test('closing while several are being transcribed sends nothing more: the one un
 		'recordings/dentist.wav',
 	]);
 
-	await closeTestWhispering({ whispering, context });
+	closeTestWhispering({ whispering, folder });
 	first.resolve(Ok({ text: 'arrived after the close' }));
 	const outcome = await running;
 
@@ -886,9 +773,8 @@ test('closing while several are being transcribed sends nothing more: the one un
 		},
 	]);
 	// The one that was sent is not called transcribed: its answer arrived
-	// after the folder closed, so its file could not be written. Its row stays
-	// without a body, unfinished on the next open. The app released what
-	// it listed when it closed, so the row is read from disk.
+	// after closing began, so it was not written. Its row stays without a
+	// body, unfinished on the next open.
 	expect(outcome.transcribed).toEqual([]);
 	expect(outcome.failed.map((item) => item.title)).toEqual([
 		'Dentist reminder',

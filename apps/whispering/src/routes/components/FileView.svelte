@@ -1,34 +1,33 @@
 <!--
-	A file opened beside the recordings. A transcript that reads shows its
-	body, edited as a row. Any other text file, and a row file shown as text,
-	shows its exact editable text. The folder retains input and autosaves
-	after a pause, even after this view leaves, one write at a time for this file.
+	A file opened beside the recordings, shown by what the folder holds of it.
+	A transcript that reads shows its body, edited as a row. Any other text
+	file, and a row file shown as text, shows its exact editable text. Each is
+	a draft over the file: what was typed shows until its save answers. Audio
+	plays; any other file the folder does not keep as text is listed, not
+	opened, and can still be renamed or deleted.
 -->
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
+	import { readRow } from '@epicenter/folder/next';
+	import { draft } from '@epicenter/svelte/folder-next';
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import { textRead } from '$lib/file-reads.js';
 	import { getFolder } from '$lib/folder.js';
 
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
-	import { Loading } from '@epicenter/ui/loading';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import AudioLinesIcon from '@lucide/svelte/icons/audio-lines';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
-	import { toast, toastOnError } from '@epicenter/ui/sonner';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { toast } from '@epicenter/ui/sonner';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
-	import { TRANSCRIPTIONS } from '$lib/definition.js';
-	import { type Whispering, rowTableOf } from '$lib/whispering.svelte.js';
+	import { rowIdOf, TRANSCRIPTIONS, whisperingTables } from '$lib/definition.js';
+	import { issueLine, rowTableOf } from '$lib/whispering.svelte.js';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete, copyPath, lf } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
-	import SaveStatus from './SaveStatus.svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
 
 	let {
@@ -41,45 +40,48 @@
 		onBack?: () => void;
 	} = $props();
 	const whispering = getWhispering();
+	const folder = getFolder();
 
 	// The parent keys this view by the file; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
 	const own = path;
-	const table = $derived(rowTableOf(path));
-	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
-	/**
-	 * One file edit supplies the text; the table interprets transcript rows.
-	 */
-	// svelte-ignore state_referenced_locally
-	const fileEdit = whispering.document(own);
-	const snapshot = liveSnapshot(fileEdit);
-	const asText = $derived(!audio && (table === undefined || whispering.showsText(path, snapshot.current)));
-	const { folder, queries } = getFolder();
-	const content = $derived(table !== undefined && snapshot.current.text !== undefined
-		? folder.tables[table].parse(snapshot.current.text)
-		: undefined);
-	/** Classify unopened files before activating an editor; retained source takes precedence. */
-	const opened = createQuery(() => ({ ...queries.file(path, textRead), enabled: asText }));
-	/** A transcript that reads: its body is edited here, its fields kept. */
-	const transcript = $derived.by(() => {
-		if (table !== TRANSCRIPTIONS || asText) return undefined;
-		const shown = content;
-		return shown?.issues === null ? shown : undefined;
-	});
-	/** Held source remains editable after deletion or a failed storage read. */
-	const shouldEdit = $derived(!audio && (
-		!asText || opened.data?.kind === 'text' || fileEdit.getSnapshot().text !== undefined
-	));
-	const text = $derived(shouldEdit ? snapshot.current.text : undefined);
-	/** Why the current source does not read as a row, including unsaved input. */
+	const table = rowTableOf(own);
+	const transcriptId = rowIdOf(TRANSCRIPTIONS, own);
+	const file = $derived(folder.file(own));
+	/** The file's text, when the folder holds it as text. */
+	const text = $derived(typeof file?.data === 'string' ? file.data : undefined);
+	const audio = $derived(audioMimeTypeOf(own) !== undefined);
+	const stored = $derived(transcriptId === undefined ? undefined : folder.tables.transcriptions.row(transcriptId));
+	/** A transcript that reads, shown as its body: its fields are kept. */
+	const transcript = $derived(stored?.issues === null && !whispering.showsText(own) ? stored : undefined);
+
+	/** The last save a draft here asked for; changing editors waits for it. */
+	let lastSave: Promise<unknown> = Promise.resolve();
+	function saving<T>(save: (text: string) => Promise<T>) {
+		return (text: string) => (lastSave = save(text));
+	}
+	const body = draft(
+		() => (stored?.issues === null ? stored.body : ''),
+		saving((body) => folder.tables.transcriptions.update(transcriptId ?? '', { body })),
+	);
+	const source = draft(
+		() => text ?? '',
+		saving((text) => folder.write(own, text)),
+	);
+	/** Why the text shown does not read as a row, as it is typed. */
 	const issues = $derived(
-		table === undefined || text === undefined ? undefined : (content?.issues ?? undefined),
+		table === undefined || text === undefined
+			? undefined
+			: (readRow(source.text, whisperingTables[table]).issues ?? undefined),
 	);
 
-	function show(source: boolean) {
-		const problem = source ? whispering.editSource(path) : whispering.useForm(path);
+	/** Change editors once the last save here answered, so the other one shows it. */
+	async function show(toSource: boolean) {
+		folder.checkpoint();
+		await lastSave;
+		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.text);
 		if (problem)
-			toast.error(source ? 'The text was not opened for editing' : 'The text was not opened alone', {
+			toast.error(toSource ? 'The text was not opened for editing' : 'The text was not opened alone', {
 				description: problem,
 			});
 	}
@@ -89,14 +91,10 @@
 	/** The recording whose row names this file as its audio, if one does. */
 	const owner = $derived(whispering.recordingNaming(path));
 
-	/** A file shown as details: its extension names the type, then its size when it is known. */
-	function details(size?: number) {
+	/** A file shown as details: its extension names the type. */
+	function details() {
 		const dot = name.lastIndexOf('.');
-		const kind = dot > 0 ? `${name.slice(dot + 1).toUpperCase()} file` : 'File';
-		if (size === undefined) return kind;
-		if (size < 1024) return `${kind} · ${size} ${size === 1 ? 'byte' : 'bytes'}`;
-		if (size < 1024 * 1024) return `${kind} · ${(size / 1024).toFixed(1)} KB`;
-		return `${kind} · ${(size / (1024 * 1024)).toFixed(1)} MB`;
+		return dot > 0 ? `${name.slice(dot + 1).toUpperCase()} file` : 'File';
 	}
 </script>
 
@@ -121,11 +119,68 @@
 		</Button>
 	</div>
 
-	{#if shouldEdit && snapshot.current.loadError}
-		<p role="alert" class="border-b px-4 py-2 text-sm text-destructive">{snapshot.current.loadError.message}</p>
-	{/if}
-
-	{#if audio && text === undefined}
+	{#if file === undefined}
+		<Empty.Root class="flex-1">
+			<Empty.Title>{name} is no longer in the folder</Empty.Title>
+			<Empty.Description>It was renamed or deleted, here or by another program.</Empty.Description>
+		</Empty.Root>
+	{:else if file.readError}
+		<Empty.Root class="flex-1" data-testid="file-read-error">
+			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
+			<Empty.Title>Could not read this file</Empty.Title>
+			<Empty.Description>{file.readError.message}</Empty.Description>
+			<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Try again</Button>
+		</Empty.Root>
+	{:else if transcript}
+		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
+			<p class="text-xs text-muted-foreground">
+				The transcript’s text, the body of its file. Its fields are kept as they are.
+				<Button size="xs" variant="outline" class="ml-1" onclick={() => void show(true)}>Edit the whole file</Button>
+			</p>
+			<Textarea
+				class="min-h-40 flex-1 resize-none font-sans"
+				bind:value={body.text}
+				aria-label="Contents of {name}"
+			/>
+		</div>
+	{:else if text !== undefined}
+		{#if issues}
+			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
+				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
+					<Badge variant="destructive">Needs repair</Badge>
+					This file does not read as a row yet. Fix it here; it saves as you type.
+				</p>
+				<ul class="space-y-0.5 text-muted-foreground">
+					{#each issues as issue, index (index)}
+						{@const line = issueLine(issue)}
+						<li>{line === undefined ? '' : `Line ${line}: `}{issue.message}</li>
+					{/each}
+				</ul>
+			</div>
+		{:else if table === TRANSCRIPTIONS}
+			<p class="shrink-0 px-4 pt-2 text-xs text-muted-foreground">
+				The whole file, as its text. It saves as typed.
+				<Button size="xs" variant="outline" class="ml-1" onclick={() => void show(false)}>Edit the text only</Button>
+			</p>
+		{/if}
+		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
+			<Textarea
+				class="min-h-40 flex-1 resize-none font-mono text-xs"
+				bind:value={() => lf(source.text), (value) => source.set(withFileNewlines(value, source.text))}
+				{@attach () => { if (table !== undefined) whispering.editSource(own); }}
+				aria-label="Contents of {name}"
+				spellcheck={false}
+			/>
+		</div>
+	{:else if file.data !== undefined}
+		<Empty.Root class="flex-1" data-testid="file-not-text">
+			<Empty.Media><FileIcon class="size-8 text-muted-foreground" /></Empty.Media>
+			<Empty.Title>{details()}</Empty.Title>
+			<Empty.Description>
+				This file is not UTF-8 text, so it is listed here but not opened for editing. Rename and delete still work on it.
+			</Empty.Description>
+		</Empty.Root>
+	{:else if audio}
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4" data-testid="audio-file-view">
 			<AudioPlayer {path} label="Audio in {name}" />
 			<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
@@ -143,78 +198,14 @@
 				</dd>
 			</dl>
 		</div>
-	{:else if transcript}
-		{@const row = transcript}
-		<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
-		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
-			<p class="text-xs text-muted-foreground">
-				The transcript’s text, the body of its file. Its fields are kept as they are.
-				<Button size="xs" variant="outline" class="ml-1" onclick={() => void show(true)}>Edit the whole file</Button>
-			</p>
-			<Textarea
-				class="min-h-40 flex-1 resize-none font-sans"
-				bind:value={
-					() => row.body,
-					(value) => toastOnError(fileEdit.patch({ body: value }), 'That change was not made')
-				}
-				aria-label="Contents of {name}"
-			/>
-		</div>
-	{:else if !asText && text === undefined && snapshot.current.loadError?.name === 'Missing'}
-		<Empty.Root class="flex-1">
-			<Empty.Title>{name} is no longer in the folder</Empty.Title>
-			<Empty.Description>It was renamed or deleted, here or by another program.</Empty.Description>
-		</Empty.Root>
-	{:else if text !== undefined}
-		{@const shown = text}
-		<SaveStatus {path} class="shrink-0 border-b px-4 py-1" />
-		{#if issues}
-			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
-				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
-					<Badge variant="destructive">Needs repair</Badge>
-					This file does not read as a row yet. Fix it here; it saves when you pause.
-				</p>
-				<ul class="space-y-0.5 text-muted-foreground">
-					{#each issues as issue, index (index)}
-						<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
-					{/each}
-				</ul>
-			</div>
-		{:else if table === TRANSCRIPTIONS}
-			<p class="shrink-0 px-4 pt-2 text-xs text-muted-foreground">
-				The whole file, as its text. It saves as typed.
-				<Button size="xs" variant="outline" class="ml-1" onclick={() => void show(false)}>Edit the text only</Button>
-			</p>
-		{/if}
-		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
-			<Textarea
-				class="min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(shown), (value) => toastOnError(fileEdit.replace(withFileNewlines(value, shown)), 'That change was not made')}
-				{@attach () => { whispering.editSource(path); }}
-				aria-label="Contents of {name}"
-				spellcheck={false}
-			/>
-		</div>
-	{:else if opened.data?.kind === 'binary' || opened.data?.kind === 'tooLarge'}
-		<Empty.Root class="flex-1">
+	{:else}
+		<Empty.Root class="flex-1" data-testid="file-not-opened">
 			<Empty.Media><FileIcon class="size-8 text-muted-foreground" /></Empty.Media>
-			<Empty.Title>{details(opened.data.size)}</Empty.Title>
+			<Empty.Title>{details()}</Empty.Title>
 			<Empty.Description>
-				{opened.data.kind === 'binary'
-					? 'This file is not text, so it is listed here but not opened for editing.'
-					: 'This text file is larger than 1 MB, so it is not opened in the editor.'}
-				Rename and delete still work on it.
+				Whispering does not open this kind of file, so it is listed here but not opened. Rename and delete still work on it.
 			</Empty.Description>
 		</Empty.Root>
-	{:else if opened.isError}
-		<Empty.Root class="flex-1">
-			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
-			<Empty.Title>Could not open this file</Empty.Title>
-			<Empty.Description>{opened.error.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void opened.refetch()}>Try again</Button>
-		</Empty.Root>
-	{:else}
-		<Loading class="flex-1" label="Opening {name}…" />
 	{/if}
 
 	<FileNameBar

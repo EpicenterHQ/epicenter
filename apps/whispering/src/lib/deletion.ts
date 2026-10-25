@@ -1,10 +1,10 @@
 /**
- * Deleting from the folder: capture what a deletion removes from fresh reads,
+ * Deleting from the folder: capture what a deletion removes from the mirror,
  * tell the person exactly that, and delete those files.
  *
- * Deletion publishes removal of the current file. Pending local input captured
- * by that command is discarded only after successful deletion; newer typing
- * remains pending and may recreate the path.
+ * The mirror shows what is on disk, so a capture reads it synchronously and
+ * a deletion checks it again before deleting. Each delete removes the file
+ * as it is when its save runs.
  *
  * Deleting a recording removes its row, its transcripts, and the results made
  * from them. The audio its row names is an ordinary file the table does not
@@ -13,22 +13,20 @@
  * cannot say which recording it belongs to. A result on pasted text names no
  * recording and is never part of one.
  */
-import type { Row } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder/next';
 import { basename } from '@epicenter/folder/file-browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	RECORDINGS,
-	type RecordingFields,
 	rowIdOf,
 	rowPath,
 	TRANSCRIPTIONS,
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
-	type TransformationFields,
 } from './definition.js';
-import { describeError, listingOf } from './files.js';
+import { describeError } from './files.js';
 import type { WhisperingFolder } from './folder.js';
-import { recordingAudio } from './recording-audio.js';
+import type { RecordingAudio } from './recording-audio.js';
 
 /** What a confirmed deletion removes, captured when the person was asked. */
 export type Deletion =
@@ -65,8 +63,10 @@ export type DeletionContext = {
 	readonly folder: WhisperingFolder;
 	/** Why a recording cannot be deleted now, while work for it is under way. */
 	busy(recordingId: string): string | undefined;
+	/** Where the recording `id`'s audio is. */
+	audioOf(id: string): RecordingAudio;
 	/** The title of the recording that names `path` as its audio, if one does. */
-	audioOf(path: string): string | undefined;
+	namingAudio(path: string): string | undefined;
 };
 
 /** A recording's title, or its ID when the title is empty. */
@@ -89,25 +89,19 @@ function problemOf(row: Row): string {
 }
 
 /**
- * Every result row naming `id`, read now: transcripts, then transformation
- * results. Refused while any result does not read, since it might be this
- * recording's.
+ * Every result row naming `id`, as the mirror shows them: transcripts, then
+ * transformation results. Refused while any result does not read, since it
+ * might be this recording's.
  */
-async function resultsOf(
+function resultsOf(
 	folder: WhisperingFolder,
 	id: string,
-): Promise<Result<string[], string>> {
-	const [transcripts, outputs] = await Promise.all([
-		folder.tables.transcriptions.list(),
-		folder.tables.transformation_runs.list(),
-	]);
-	if (transcripts.error !== null) return Err(transcripts.error.message);
-	if (outputs.error !== null) return Err(outputs.error.message);
+): Result<string[], string> {
 	const found: string[] = [];
 	const unknown: string[] = [];
 	for (const [table, rows] of [
-		[TRANSCRIPTIONS, transcripts.data],
-		[TRANSFORMATION_RUNS, outputs.data],
+		[TRANSCRIPTIONS, folder.tables.transcriptions.rows],
+		[TRANSFORMATION_RUNS, folder.tables.transformation_runs.rows],
 	] as const)
 		for (const row of rows) {
 			const path = rowPath(table, row.id);
@@ -123,24 +117,19 @@ async function resultsOf(
 
 /**
  * Capture what deleting `path` would remove, for the person to confirm.
- * Capturing confirmation starts no publication.
+ * Capturing changes nothing.
  */
-export async function captureDeletion(
+export function captureDeletion(
 	context: DeletionContext,
 	path: string,
-): Promise<Result<Deletion, string>> {
+): Result<Deletion, string> {
 	const { folder } = context;
 	const recordingId = rowIdOf(RECORDINGS, path);
 	const transformationId = rowIdOf(TRANSFORMATIONS, path);
 	if (recordingId !== undefined) {
 		const busy = context.busy(recordingId);
 		if (busy !== undefined) return Err(busy);
-	}
-
-	if (recordingId !== undefined) {
-		const { data: stored, error } =
-			await folder.tables.recordings.get(recordingId);
-		if (error !== null) return Err(error.message);
+		const stored = folder.tables.recordings.row(recordingId);
 		if (stored === undefined)
 			return Err('This recording is no longer in the folder.');
 		if (stored.issues !== null)
@@ -150,25 +139,19 @@ export async function captureDeletion(
 				recordingId,
 				problem: problemOf(stored),
 			});
-		const fields: RecordingFields = stored.fields;
-		const { data: results, error: resultsError } = await resultsOf(
+		const { data: results, error: resultsError } = resultsOf(
 			folder,
 			recordingId,
 		);
 		if (resultsError !== null) return Err(resultsError);
-		const listed = await folder.files.list(RECORDINGS);
-		if (listed.error !== null) return Err(listed.error.message);
-		const audio = recordingAudio(recordingId, {
-			listing: listingOf(listed.data),
-			settling: false,
-		});
+		const audio = context.audioOf(recordingId);
 		return Ok({
 			kind: 'recording',
 			id: recordingId,
 			title: recordingTitle({
 				stem: recordingId,
 				path,
-				row: { fields },
+				row: { fields: stored.fields },
 			}),
 			path,
 			audioPath:
@@ -180,42 +163,38 @@ export async function captureDeletion(
 	}
 
 	if (transformationId !== undefined) {
-		const [stored, outputs, texts] = await Promise.all([
-			folder.tables.transformations.get(transformationId),
-			folder.tables.transformation_runs.list(),
-			folder.tables.text_runs.list(),
-		]);
-		if (stored.error !== null) return Err(stored.error.message);
-		if (stored.data === undefined)
+		const stored = folder.tables.transformations.row(transformationId);
+		if (stored === undefined)
 			return Err('This transformation is no longer in the folder.');
-		if (stored.data.issues !== null)
-			return Ok({ kind: 'file', path, problem: problemOf(stored.data) });
-		const fields: TransformationFields = stored.data.fields;
-		const results = [...(outputs.data ?? []), ...(texts.data ?? [])].filter(
+		if (stored.issues !== null)
+			return Ok({ kind: 'file', path, problem: problemOf(stored) });
+		const results = [
+			...folder.tables.transformation_runs.rows,
+			...folder.tables.text_runs.rows,
+		].filter(
 			(row) =>
 				row.issues === null && row.fields.transformationId === transformationId,
 		).length;
+		const { title } = stored.fields;
 		return Ok({
 			kind: 'transformation',
-			title: fields.title.trim() === '' ? basename(path) : fields.title,
+			title: title.trim() === '' ? basename(path) : title,
 			path,
 			results,
 		});
 	}
 
-	const { data: found, error: readError } = await folder.files.read(path);
-	if (readError !== null) return Err(readError.message);
-	if (found === undefined)
+	if (folder.file(path) === undefined)
 		return Err(`${basename(path)} is no longer in the folder.`);
-	return Ok({ kind: 'file', path, audioOf: context.audioOf(path) });
+	return Ok({ kind: 'file', path, audioOf: context.namingAudio(path) });
 }
 
-/** Delete one confirmed path through the folder's publication lane. */
+/** Delete one confirmed path. */
 async function deleteFile(
 	context: RunContext,
 	path: string,
 ): Promise<string | undefined> {
-	const { error } = await context.folder.files.delete(path);
+	const { error } = await context.folder.delete(path);
 	if (error !== null) return describeError(error);
 	context.deleted(path);
 	return undefined;
@@ -224,12 +203,13 @@ async function deleteFile(
 type RunContext = {
 	readonly folder: WhisperingFolder;
 	dropFailed(recordingId: string): void;
-	/** The caches let a deleted file go. */
+	/** The view state lets a deleted file go. */
 	deleted(path: string): void;
 };
 
 /**
- * Delete the confirmed paths while retaining the app-level recording checks.
+ * Delete the confirmed paths, checking the recording's results against the
+ * mirror again first.
  */
 export async function runDeletion(
 	context: RunContext,
@@ -237,7 +217,7 @@ export async function runDeletion(
 ): Promise<string | undefined> {
 	if (deletion.kind !== 'recording') return deleteFile(context, deletion.path);
 	const { id } = deletion;
-	const { data: now, error } = await resultsOf(context.folder, id);
+	const { data: now, error } = resultsOf(context.folder, id);
 	if (error !== null) return error;
 	const confirmed = new Set(deletion.results);
 	if (now.some((result) => !confirmed.has(result)))
