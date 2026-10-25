@@ -63,3 +63,15 @@ test('create refuses a file another tab already made', async () => {
 	await folder.close();
 	await other.close();
 });
+
+test('the browser folder refuses inside the desktop app', async () => {
+	// SAFETY: Tauri marks its pages with a global `isTauri` flag; the test sets and removes it.
+	const scope = globalThis as { isTauri?: boolean };
+	scope.isTauri = true;
+	try {
+		const opened = await openFolder({ tables });
+		expect(opened.error?.name).toBe('InsideTauri');
+	} finally {
+		delete scope.isTauri;
+	}
+});

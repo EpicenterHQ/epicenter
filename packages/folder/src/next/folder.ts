@@ -122,7 +122,12 @@ export type Folder<T extends Tables = Tables> = {
 	file(path: string): FileValue | undefined;
 	/** Whether a write is waiting or being saved. */
 	saving(): boolean;
-	/** Called once for each send that did not land, with the last typed text it carried; a create's `Exists` alone is the caller's. */
+	/**
+	 * Called once for each send that did not land, with the last typed text it
+	 * carried. A create finding a file there (`Exists`) and an update finding
+	 * none (`NothingToUpdate`) are answers for the caller, who decides what they
+	 * mean, so they raise no notice; a draft shows its own.
+	 */
 	onFailed(listener: (failure: SaveFailure) => void): () => void;
 	/** A file's bytes from storage, `null` when no file is there; for files the mirror does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
@@ -175,6 +180,11 @@ type Projector = {
 };
 
 const ATTEMPTS = 3;
+/** Refusals that answer the caller's question rather than report a failure. */
+const CALLERS_REFUSALS: ReadonlySet<string> = new Set([
+	'Exists',
+	'NothingToUpdate',
+]);
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
 const keptExtensions = new Set([
@@ -482,8 +492,10 @@ export async function createFolder<const T extends Tables>(
 			.reverse()
 			.map((item) => answers.get(item)?.error)
 			.find(
-				(error) =>
-					error !== null && error !== undefined && error.name !== 'Exists',
+				(error): error is WriteError =>
+					error !== null &&
+					error !== undefined &&
+					!CALLERS_REFUSALS.has(error.name),
 			);
 		queueMicrotask(() => {
 			if (failure !== undefined) {

@@ -241,6 +241,9 @@ describe('saving', () => {
 		await folder.tables.notes.create('a', { fields: { title: 'Duplicate' } });
 		await tick();
 		expect(failures).toHaveLength(1);
+		await folder.tables.notes.update('gone', { body: 'Nothing here' });
+		await tick();
+		expect(failures).toHaveLength(1);
 	});
 	test('writes queued before the first send fold into one', async () => {
 		const { notes, log, text } = await setup({

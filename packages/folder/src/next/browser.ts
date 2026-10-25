@@ -3,6 +3,7 @@
  * kept in IndexedDB as a Git working tree. A blob's oid is both its content
  * version and its change token, and other tabs' saves arrive as hints.
  */
+import { isTauri } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import { openRepository } from '../browser/repository.js';
 import { snapshotContent } from '../browser/storage.js';
@@ -24,6 +25,8 @@ const DEFAULT_KEY = 'default';
 export async function openFolder<const T extends Tables>(
 	options: OpenOptions<T>,
 ): Opened<T> {
+	// The desktop app opens its window's directory through the Tauri entry.
+	if (isTauri()) return OpenFolderError.InsideTauri();
 	if (typeof indexedDB === 'undefined')
 		return OpenFolderError.Unavailable({
 			cause: new Error('IndexedDB is not available in this page'),
