@@ -11,12 +11,15 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		'../../../../packages/svelte/src/svelte-dom.test-support.js'
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
-	const { createFolder, memoryHost } = await import(
+	const { createFolder, memoryHost, SaveError } = await import(
 		'@epicenter/folder/next/testing'
 	);
 	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
 	const { default: FolderViewHost } = await import(
 		'./fixtures/FolderViewHost.svelte'
+	);
+	const { default: OpenFolderToastHost } = await import(
+		'./fixtures/OpenFolderToastHost.svelte'
 	);
 
 	async function until(check: () => boolean) {
@@ -40,9 +43,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			memory.storage.read = async (paths) => {
 				const results = new Map(await read(paths));
 				if (blocked) {
-					const { ReadError } = await import(
-						'../../../../packages/folder/src/shared/errors.js'
-					);
+					const { ReadError } = await import('@epicenter/folder/next/testing');
 					results.set(
 						failRead,
 						ReadError.StorageFailed({ cause: 'temporarily unreadable' }),
@@ -125,9 +126,15 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 				.file('script.py')
 				?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await until(() => fixture.box()?.value === 'print(1)\n');
+			const box = fixture.box();
+			box?.focus();
+			const reads = fixture.log.reads.filter((batch) => batch.includes('script.py')).length;
 			type(fixture.box(), 'print(2)\n');
 			await until(() => fixture.text('script.py') === 'print(2)\n');
 			expect(fixture.box()?.value).toBe('print(2)\n');
+			expect(fixture.box()).toBe(box);
+			expect(document.activeElement).toBe(box);
+			expect(fixture.log.reads.filter((batch) => batch.includes('script.py'))).toHaveLength(reads);
 		} finally {
 			await fixture.close();
 		}
@@ -314,7 +321,10 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			);
 			click(fixture.target, 'Save view');
 			flushSync();
+			expect(fixture.target.textContent).not.toContain('This view was deleted');
 			click(fixture.target, 'Save as new');
+			flushSync();
+			expect(fixture.target.textContent).not.toContain('This view was deleted');
 			await until(
 				() =>
 					Object.keys(
@@ -398,6 +408,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 				'notes',
 			);
 			expect(save?.disabled).toBe(false);
+			await until(() => document.querySelector('[role="option"]') === null);
 		} finally {
 			await fixture.close();
 		}
@@ -462,7 +473,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 	});
 
 	test('a focused row remains visible after its edit leaves the filter', async () => {
-		const fixture = await setup({ 'a.md': '---\nstatus: todo\n---\n' });
+		const fixture = await setup({ 'a.md': '---\nstatus: todo\n---\n', 'b.md': '---\nstatus: todo\n---\n' });
 		try {
 			click(fixture.target, 'Tables');
 			flushSync();
@@ -491,6 +502,8 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			expect(fixture.target.textContent).toContain(
 				"No longer matches this view's filters",
 			);
+			expect(document.activeElement).toBe(input);
+			expect(fixture.target.querySelector('[aria-label="b.md: status"]')).not.toBeNull();
 			input?.blur();
 			await until(
 				() =>
@@ -513,9 +526,6 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			await until(
 				() => fixture.target.querySelector('[aria-label="Move a.md"]') !== null,
 			);
-			const { SaveError } = await import(
-				'../../../../packages/folder/src/shared/errors.js'
-			);
 			fixture.control.failPut.set(
 				'a.md',
 				SaveError.StorageFailed({ cause: 'full' }).error!,
@@ -532,6 +542,62 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			expect(fixture.failures).toEqual(['a.md']);
 		} finally {
 			await fixture.close();
+		}
+	});
+
+	test('a number cell keeps incomplete input local and saves a valid number', async () => {
+		const fixture = await setup({ 'a.md': '---\ncount: 3\n---\n' });
+		try {
+			click(fixture.target, 'Tables');
+			await until(() => fixture.target.querySelector('[aria-label="a.md: count"]') !== null);
+			const input = fixture.target.querySelector<HTMLInputElement>('[aria-label="a.md: count"]');
+			type(input, '');
+			flushSync();
+			expect(fixture.text('a.md')).toContain('count: 3');
+			type(input, '-');
+			flushSync();
+			expect(fixture.text('a.md')).toContain('count: 3');
+			type(input, '5');
+			await until(() => fixture.text('a.md')?.includes('count: 5') ?? false);
+			expect(input?.value).toBe('5');
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('a failed checkbox edit returns to the saved value', async () => {
+		const fixture = await setup({ 'a.md': '---\ndone: false\n---\n' });
+		try {
+			click(fixture.target, 'Tables');
+			await until(() => fixture.target.querySelector('[aria-label="a.md: done"]') !== null);
+			fixture.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
+			const checkbox = fixture.target.querySelector('[aria-label="a.md: done"]');
+			checkbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.failures.length === 1);
+			expect(checkbox?.getAttribute('aria-checked')).toBe('false');
+			expect(fixture.text('a.md')).toContain('done: false');
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('a failed write through OpenFolder shows text to copy', async () => {
+		const memory = memoryHost({ 'a.md': 'Original' });
+		memory.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
+		const target = document.createElement('div');
+		document.body.append(target);
+		const app = mount(OpenFolderToastHost, {
+			target,
+			props: { open: () => createFolder(memory.storage, { tables: {} }) },
+		});
+		try {
+			await until(() => target.textContent?.includes('Change file') ?? false);
+			click(target, 'Change file');
+			await until(() => document.body.textContent?.includes('Copy your text') ?? false);
+			expect(document.body.textContent).toContain('Could not save a.md');
+		} finally {
+			await unmount(app);
+			target.remove();
 		}
 	});
 });

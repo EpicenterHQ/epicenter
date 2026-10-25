@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+	import type { Saved } from '@epicenter/folder/next';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -24,10 +25,15 @@
 	let selected = $state<string | undefined>(undefined);
 	let view = $state('files');
 	let navigation = 0;
+	let lastSave: Saved | undefined;
+	function trackSave(saved: Saved): Saved {
+		lastSave = saved;
+		return saved;
+	}
 	async function show(next: string, path?: string) {
 		const ticket = ++navigation;
 		folder.checkpoint();
-		while (folder.saving) await new Promise((resolve) => setTimeout(resolve, 10));
+		if (lastSave) await lastSave;
 		if (ticket !== navigation) return;
 		if (path !== undefined) selected = path;
 		view = next;
@@ -43,7 +49,7 @@
 		saved: () => saved.data?.views ?? {},
 		declaration: {
 			text: () => loadProblem ? null : typeof source === 'string' ? source : undefined,
-			write: (text) => folder.write('epicenter.json', text),
+			write: (text) => trackSave(folder.write('epicenter.json', text)),
 		},
 	});
 	const recipe = $derived(views.value(view));
@@ -191,7 +197,7 @@
 						)}</pre></Alert.Description
 				></Alert.Root
 			>{/if}
-		{#if view !== TABLES && view !== SQL && !storedEntries.some(([key]) => key === view)}<p
+		{#if view !== TABLES && view !== SQL && !storedEntries.some(([key]) => key === view) && !views.submitting(view)}<p
 				class="px-4 py-2 text-sm"
 			>
 					This view was deleted or cannot be read. Your settings are still here;
@@ -203,6 +209,7 @@
 			/>{:else}<TablesView
 				{folder}
 				{openSource}
+				{trackSave}
 				view={recipe}
 				change={(value) => views.edit(view, value)}
 			/>{/if}
@@ -252,7 +259,7 @@
 			<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 				{#if selected !== undefined}
 					{#key selected}
-						<FileEditor {folder} path={selected} />
+						<FileEditor {folder} path={selected} {trackSave} />
 					{/key}
 				{:else}
 					<div

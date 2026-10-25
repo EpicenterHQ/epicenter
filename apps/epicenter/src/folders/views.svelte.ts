@@ -112,6 +112,7 @@ export function createViews({
 			);
 		},
 		dirty: (key: string) => !scratch(key) && forms.has(key),
+		submitting: (key: string) => submitted.has(key),
 		error: (key: string) => problems.get(key),
 		reload(key: string) {
 			if (!scratch(key)) forms.delete(key);

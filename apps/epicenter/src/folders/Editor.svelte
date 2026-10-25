@@ -7,6 +7,7 @@
 	 */
 	import { openFolder } from '@epicenter/folder/next/tauri';
 	import OpenFolder from '@epicenter/svelte/open-folder';
+	import { Toaster } from '@epicenter/ui/sonner';
 	import FolderView from './FolderView.svelte';
 </script>
 
@@ -15,3 +16,4 @@
 		<FolderView {folder} />
 	{/snippet}
 </OpenFolder>
+<Toaster closeButton />

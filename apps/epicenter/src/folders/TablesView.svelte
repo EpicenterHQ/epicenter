@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { documentsOf, type DocumentCache } from '@epicenter/folder/documents';
+	import type { Saved } from '@epicenter/folder/next';
 	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
 	import { Button } from '@epicenter/ui/button';
-	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { Input } from '@epicenter/ui/input';
 	import * as Select from '@epicenter/ui/select';
 	import * as Table from '@epicenter/ui/table';
@@ -10,13 +10,16 @@
 	import { applyView, boardLanes } from './view.js';
 	import TableControls from './TableControls.svelte';
 	import FieldCell from './FieldCell.svelte';
+	import BooleanCell from './BooleanCell.svelte';
+	import BoardMove from './BoardMove.svelte';
 	import type { TableView } from './views.svelte.js';
 
-	let { folder, openSource, view, change }: {
+	let { folder, openSource, view, change, trackSave }: {
 		folder: SvelteFolder<Record<never, never>>;
 		openSource: (path: string) => void;
 		view: TableView;
 		change: (value: TableView) => void;
+		trackSave: (saved: Saved) => Saved;
 	} = $props();
 	const cache: DocumentCache = new WeakMap();
 	const reading = $derived(documentsOf(folder.files, cache));
@@ -31,13 +34,10 @@
 	const members = $derived(reading.documents.filter((doc) =>
 		directory === '*' || doc.directory === (directory === '.' ? '' : directory),
 	));
-	const projection = $derived(applyView(members, view));
-	const included = $derived(new Set(projection.documents.map((doc) => doc.path)));
 	let focusedPath = $state<string>();
-	const documents = $derived([
-		...projection.documents,
-		...members.filter((doc) => doc.path === focusedPath && !included.has(doc.path)),
-	]);
+	const projection = $derived(applyView(members, view, focusedPath));
+	const included = $derived(new Set(applyView(members, view).documents.map((doc) => doc.path)));
+	const documents = $derived(projection.documents);
 	const availableColumns = $derived([
 		...new Set(members.flatMap((doc) => [
 			...Object.keys(doc.fields ?? {}),
@@ -56,6 +56,7 @@
 	let newCard = $state('');
 	let newKind = $state('string');
 	let newValue = $state('');
+	let newNumber = $state<number | null>(null);
 
 	function tableSchema() {
 		return Object.hasOwn(reading.tables, directory) ? reading.tables[directory] : undefined;
@@ -67,7 +68,7 @@
 			: undefined;
 	}
 	function update(path: string, column: string, value: unknown) {
-		return folder.update(path, { fields: { [column]: value } }, { schema: tableFor(path) });
+		return trackSave(folder.update(path, { fields: { [column]: value } }, { schema: tableFor(path) }));
 	}
 	function createLane() {
 		if (view.type !== 'board') return;
@@ -75,8 +76,8 @@
 		if (!row?.canEdit) return;
 		const value = newKind === 'null' ? null
 			: newKind === 'boolean' ? newValue === 'true'
-			: newKind === 'number' ? Number(newValue) : newValue;
-		if (newKind === 'number' && (newValue === '' || !Number.isFinite(value))) return;
+			: newKind === 'number' ? newNumber : newValue;
+		if (newKind === 'number' && (newNumber === null || !Number.isFinite(newNumber))) return;
 		void update(row.doc.path, view.groupBy, value);
 	}
 	const fieldValue = (fields: Record<string, unknown> | undefined, column: string) =>
@@ -153,13 +154,10 @@
 								{#each columns.filter((column) => column !== view.groupBy && column !== 'title') as column}
 									<p class="truncate text-sm"><span class="text-muted-foreground">{column}: </span>{display(fieldValue(doc.fields, column))}</p>
 								{/each}
-								<Select.Root type="single" value={lane.key} onValueChange={(key) => {
+								<BoardMove path={doc.path} {lane} {lanes} disabled={!row.canEdit} save={(key) => {
 									const destination = lanes.find((entry) => entry.key === key);
-									if (view.type === 'board' && destination?.editable) void update(doc.path, view.groupBy, destination.value);
-								}}>
-									<Select.Trigger aria-label="Move {doc.path}" disabled={!row.canEdit}>{lane.label}</Select.Trigger>
-									<Select.Content>{#each lanes.filter((entry) => entry.editable) as destination}<Select.Item value={destination.key}>{destination.label}</Select.Item>{/each}</Select.Content>
-								</Select.Root>
+									return view.type === 'board' && destination?.editable ? update(doc.path, view.groupBy, destination.value) : undefined;
+								}} />
 								{#each doc.issues ?? [] as issue}<p class="text-xs text-destructive">{issue.message}</p>{/each}
 							</article>
 						{/each}
@@ -170,10 +168,11 @@
 		<details><summary class="cursor-pointer text-sm">Move a card to a new value</summary>
 			<div class="flex flex-wrap items-center gap-2 pt-2">
 				<Select.Root type="single" bind:value={newCard}><Select.Trigger aria-label="Card to move">{newCard || 'Choose a card'}</Select.Trigger><Select.Content>{#each rows.filter((row) => row.canEdit) as row}<Select.Item value={row.doc.path}>{row.doc.path}</Select.Item>{/each}</Select.Content></Select.Root>
-				<Select.Root type="single" value={newKind} onValueChange={(kind) => { newKind = kind; newValue = kind === 'boolean' ? 'false' : ''; }}><Select.Trigger aria-label="New value type">{newKind}</Select.Trigger><Select.Content>{#each ['string', 'number', 'boolean', 'null'] as kind}<Select.Item value={kind}>{kind}</Select.Item>{/each}</Select.Content></Select.Root>
+				<Select.Root type="single" value={newKind} onValueChange={(kind) => { newKind = kind; newValue = kind === 'boolean' ? 'false' : ''; newNumber = null; }}><Select.Trigger aria-label="New value type">{newKind}</Select.Trigger><Select.Content>{#each ['string', 'number', 'boolean', 'null'] as kind}<Select.Item value={kind}>{kind}</Select.Item>{/each}</Select.Content></Select.Root>
 				{#if newKind === 'boolean'}<Select.Root type="single" bind:value={newValue}><Select.Trigger aria-label="New group value">{newValue || 'false'}</Select.Trigger><Select.Content><Select.Item value="true">true</Select.Item><Select.Item value="false">false</Select.Item></Select.Content></Select.Root>
-				{:else if newKind !== 'null'}<Input aria-label="New group value" bind:value={newValue} type={newKind === 'number' ? 'number' : 'text'} class="w-48" />{/if}
-				<Button disabled={!newCard || (newKind === 'number' && (newValue === '' || !Number.isFinite(Number(newValue))))} onclick={createLane}>Move card</Button>
+				{:else if newKind === 'number'}<Input aria-label="New group value" bind:value={newNumber} type="number" class="w-48" />
+				{:else if newKind !== 'null'}<Input aria-label="New group value" bind:value={newValue} type="text" class="w-48" />{/if}
+				<Button disabled={!newCard || (newKind === 'number' && (newNumber === null || !Number.isFinite(newNumber)))} onclick={createLane}>Move card</Button>
 			</div>
 		</details>
 	{:else}
@@ -188,7 +187,7 @@
 								{@const value = fieldValue(doc.fields, column)}
 								{@const kind = cellKind(doc.path, column, value)}
 								{#if kind === 'boolean'}
-									<Checkbox aria-label="{doc.path}: {column}" disabled={!canEdit} checked={value === true} onCheckedChange={(checked) => void update(doc.path, column, checked)} />
+									<BooleanCell {value} label="{doc.path}: {column}" disabled={!canEdit} save={(next) => update(doc.path, column, next)} />
 								{:else if kind === 'string' || kind === 'number' || kind === 'integer'}
 									<FieldCell {value} {kind} label="{doc.path}: {column}" disabled={!canEdit} save={(next) => update(doc.path, column, next)} />
 								{:else}<span class="font-mono text-xs">{display(value)}</span>{/if}

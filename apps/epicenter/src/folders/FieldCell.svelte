@@ -13,8 +13,9 @@
 	const shown = $derived(value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value));
 	let invalid = $state<string | null>(null);
 	const input = draft(() => shown, (text) => save(kind === 'number' || kind === 'integer' ? Number(text) : text));
-	function set(text: string) {
-		if ((kind === 'number' || kind === 'integer') && (text === '' || !Number.isFinite(Number(text)))) {
+	function set(value: string | number | null) {
+		const text = value === null ? '' : String(value);
+		if ((kind === 'number' || kind === 'integer') && (value === null || text === '' || !Number.isFinite(Number(text)))) {
 			invalid = text;
 			return;
 		}

@@ -10,7 +10,7 @@ type Filter = NonNullable<TableView['filters']>[number];
 type Scalar = string | number | boolean | null;
 
 /** Apply only saved fields. Membership in the selected table belongs to the caller. */
-export function applyView(documents: readonly Document[], view: TableView) {
+export function applyView(documents: readonly Document[], view: TableView, keepPath?: string) {
 	const filters = view.filters ?? [];
 	const problems = filters.flatMap((filter, index) => {
 		const problem = filterProblem(filter);
@@ -20,7 +20,7 @@ export function applyView(documents: readonly Document[], view: TableView) {
 	});
 	if (problems.length > 0) return { documents: [] as Document[], problems };
 	const selected = documents.filter((document) =>
-		filters.every((filter) => matches(fieldOf(document, filter.field), filter)),
+		document.path === keepPath || filters.every((filter) => matches(fieldOf(document, filter.field), filter)),
 	);
 	selected.sort((left, right) => {
 		for (const sort of view.sort ?? []) {

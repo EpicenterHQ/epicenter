@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FileValue, ReadError } from '@epicenter/folder/next';
+	import type { FileValue, ReadError, Saved } from '@epicenter/folder/next';
 	import { openedFile, withFileNewlines, type OpenedFile } from '@epicenter/folder/file-browser';
 	import { draft, type SvelteFolder } from '@epicenter/svelte/folder-next';
 	import * as Alert from '@epicenter/ui/alert';
@@ -7,21 +7,23 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { fileText } from './files.js';
 
-	let { folder, path }: { folder: SvelteFolder<Record<never, never>>; path: string } = $props();
+	let { folder, path, trackSave }: { folder: SvelteFolder<Record<never, never>>; path: string; trackSave: (saved: Saved) => Saved } = $props();
 	const file = $derived(folder.file(path));
 	let fetched = $state.raw<{ from: FileValue; opened?: OpenedFile; error?: ReadError }>();
+	let writing = false;
+	let lastWrite: Saved | undefined;
 	$effect(() => {
 		const from = folder.file(path);
-		if (!from || from.data !== undefined || from.readError || fetched?.from === from) return;
+		if (!from || from.data !== undefined || from.readError || fetched?.from === from || writing) return;
 		void folder.read(path).then(({ data, error }) => {
-			if (folder.file(path) === from)
+			if (folder.file(path) === from && !writing)
 				fetched = error ? { from, error } : { from, opened: data ? openedFile(data) : undefined };
 		});
 	});
 	const opened = $derived.by(() => {
 		if (typeof file?.data === 'string') return { kind: 'text', text: file.data } as const;
 		if (file?.data instanceof Uint8Array) return openedFile(file.data);
-		return fetched !== undefined && fetched.from === file ? fetched.opened : undefined;
+		return fetched?.opened;
 	});
 	const base = $derived(opened?.kind === 'text' ? opened.text : undefined);
 	const classification = $derived(base === undefined ? undefined : fileText(base));
@@ -29,9 +31,23 @@
 		() => base?.replaceAll('\r\n', '\n') ?? '',
 		async (value) => {
 			const out = withFileNewlines(value, base ?? '');
-			const result = await folder.write(path, out);
-			if (result.error === null && file?.data === undefined && file)
-				fetched = { from: folder.file(path) ?? file, opened: { kind: 'text', text: out } };
+			if (file?.data === undefined && file) {
+				writing = true;
+				fetched = { from: file, opened: { kind: 'text', text: out } };
+			}
+			const saved = lastWrite = trackSave(folder.write(path, out));
+			const result = await saved;
+			if (lastWrite === saved) {
+				writing = false;
+				const current = folder.file(path);
+				if (result.error === null && current)
+					fetched = { from: current, opened: { kind: 'text', text: out } };
+				else if (current && current.data === undefined) {
+					const read = await folder.read(path);
+					if (folder.file(path) === current && lastWrite === saved)
+						fetched = read.error ? { from: current, error: read.error } : { from: current, opened: read.data ? openedFile(read.data) : undefined };
+				}
+			}
 			return result;
 		},
 	);

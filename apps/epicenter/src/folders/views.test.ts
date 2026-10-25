@@ -2,7 +2,7 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { readSavedViews, type SavedView } from '@epicenter/folder/declaration';
 import { createFolder, memoryHost, tick } from '@epicenter/folder/next/testing';
-import { SaveError } from '../../../../packages/folder/src/shared/errors.js';
+import { SaveError } from '@epicenter/folder/next/testing';
 import { expectOk } from 'wellcrafted/testing';
 import type { QueryAnswer } from '../ui/bindings.gen.js';
 
@@ -23,7 +23,7 @@ async function setup(
 	};
 	const views = createViews({
 		declaration: {
-			text: () => text() ?? null,
+			text: () => text(),
 			write: (value) => folder.write('epicenter.json', value),
 		},
 		saved: () => expectOk(readSavedViews(text() ?? '{}')).views,
