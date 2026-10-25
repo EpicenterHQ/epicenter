@@ -239,11 +239,12 @@ try {
 		.fill('Draft survives failure');
 	await page.getByRole('textbox', { name: 'Title', exact: true }).blur();
 	await page.getByText('Could not save todos/seed.md').waitFor();
+	await page.getByText('Not saved:', { exact: false }).waitFor();
 	assert(
 		(await page
 			.getByRole('textbox', { name: 'Title', exact: true })
-			.inputValue()) === 'Edited seed',
-		'Failed save did not return to the disk title',
+			.inputValue()) === 'Draft survives failure',
+		'Failed save lost the typed title',
 	);
 	await page.getByRole('button', { name: 'Copy your text' }).waitFor();
 	assert(
@@ -257,9 +258,7 @@ try {
 			Reflect.get(window, 'originalPut'),
 		);
 	});
-	await page
-		.getByRole('textbox', { name: 'Title', exact: true })
-		.fill('Draft saved on retry');
+	await page.getByRole('button', { name: 'Save again' }).click();
 	await page.waitForFunction(() =>
 		document
 			.querySelector('[data-testid="status-summary"]')
@@ -267,8 +266,8 @@ try {
 			?.includes('Saved on this device'),
 	);
 	assert(
-		(await readSeed())?.includes('title: Draft saved on retry'),
-		'Next edit did not store the title',
+		(await readSeed())?.includes('title: Draft survives failure'),
+		'Retry did not store the title',
 	);
 	const databases = await page.evaluate(() => indexedDB.databases());
 	assert(
@@ -293,7 +292,7 @@ try {
 					'offline edit',
 					'unknown fields and canonical frontmatter',
 					'malformed source visible',
-					'failed save and next edit',
+					'failed save and retry',
 				],
 				database: 'epicenter.folder.default',
 				screenshot: '/tmp/epicenter-todos-local-demo.png',

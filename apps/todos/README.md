@@ -10,8 +10,9 @@ the title in the form. Existing todo controls read the folder mirror. Each text
 editor keeps its own draft while its write is pending. Title, notes, and done
 write only the fields they change over the file as it is when the save runs.
 After a successful write, the mirror already shows the saved row. A failed
-write leaves the mirror at the disk value and shows a toast with the attempted
-text to copy.
+write leaves the mirror at the disk value and keeps the attempted value visible
+in that editor. The editor offers Save again, Discard, and Copy for text; a
+toast also reports the failure.
 
 ## Run the browser app
 
@@ -25,9 +26,9 @@ Open the URL Vite prints. Use a fresh browser profile or origin for a fresh work
 
 A clean todo follows saved changes from another tab. Pending input remains in
 its editor until its write answers. Field updates merge with other changes to
-the same file. If a save fails, the editor returns to the disk value; its toast
-offers the attempted text to copy. A deleted row shows "This todo is no longer
-here." Files that do not read as todos stay visible for repair. Saving a row
+the same file. If a save fails, the attempted value remains visible until the
+person retries, discards it, or edits again. A deleted row shows "This todo is
+no longer here." Files that do not read as todos stay visible for repair. Saving a row
 keeps unnamed fields and body but writes canonical frontmatter, dropping YAML
 comments and ordering declared keys first.
 
@@ -37,7 +38,7 @@ For an isolated automated walkthrough, from the repository root run:
 bun run --cwd apps/todos demo:local
 ```
 
-The demo uses a fresh browser profile. It exercises editing, reopening, two tabs, offline edits after load, canonical frontmatter, and a controlled failed save whose toast offers the attempted text to copy. It also checks the browser's IndexedDB storage.
+The demo uses a fresh browser profile. It exercises editing, reopening, two tabs, offline edits after load, canonical frontmatter, and a controlled failed save. It also checks the browser's IndexedDB storage.
 
 ## Run the desktop app
 
@@ -74,8 +75,8 @@ and Quit behavior; that capability is not part of this standalone product.
 On macOS, the app menu's Quit and Cmd-Q request that window's ordinary close.
 The page waits for writes in flight before closing. A saved window closes
 silently. A browser unload asks only while a write is still saving. A failed
-write has already answered and leaves the disk value visible; its toast offers
-the attempted text to copy while the page remains open.
+write has already answered and leaves the attempted value in the editor with
+Save again, Discard, and Copy available while the page remains open.
 
 The shell binds the window's directory to it in trusted Rust before the window exists ([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)). The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` selects `todos:*` and gives that window the folder plugin's commands and its change event, plus reading the app identifier and its own handoff command. The page receives no opener permission.
 

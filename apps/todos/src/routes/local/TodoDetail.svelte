@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -35,6 +36,10 @@
 	const body = draft(
 		() => todo?.body ?? '',
 		(text) => folder.tables.todos.update(id, { body: text }),
+	);
+	const done = draft(
+		() => todo?.fields.done ?? false,
+		(value) => folder.tables.todos.update(id, { fields: { done: value } }),
 	);
 	const source = $derived(folder.file(path)?.data);
 	const unreadable = $derived(
@@ -75,22 +80,27 @@
 			{@render back()}
 			<Checkbox
 				aria-label="Done"
-				bind:checked={() => todo.fields.done, () => void folder.tables.todos.update(id, { fields: { done: !todo.fields.done } })}
+				bind:checked={done.value}
 			/>
-			<Input
-				class="flex-1 text-base font-medium"
-				placeholder="Title"
-				aria-label="Title"
-				bind:value={title.text}
-			/>
+			<div class="min-w-0 flex-1 space-y-2">
+				<Input
+					class="text-base font-medium"
+					placeholder="Title"
+					aria-label="Title"
+					bind:value={title.value}
+				/>
+				<UnsavedEdit draft={title} />
+			</div>
 		</div>
+		<div class="px-3 sm:px-4"><UnsavedEdit draft={done} /></div>
 		<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-0 flex-1 field-sizing-fixed resize-none"
 				placeholder="Notes in Markdown"
 				aria-label="Notes"
-				bind:value={body.text}
+				bind:value={body.value}
 			/>
+			<UnsavedEdit draft={body} />
 		</div>
 		{@render fileBar(labelOf(todo))}
 	{:else if row}

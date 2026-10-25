@@ -30,7 +30,7 @@
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
-	/** The id of the todo the detail shows. Opening never waits or asks. */
+	/** The id of the todo the detail shows. */
 	const open = $derived(page.url.searchParams.get('todo') ?? undefined);
 	let newTitle = $state('');
 
@@ -41,6 +41,7 @@
 	 */
 	async function show(id: string | undefined, { replaceState = false } = {}) {
 		if (id === open) return;
+		if (open !== undefined) await folder.settled(todoPath(open));
 		const url = new URL(page.url);
 		if (id === undefined) url.searchParams.delete('todo');
 		else url.searchParams.set('todo', id);
