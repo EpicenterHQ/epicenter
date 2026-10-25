@@ -88,5 +88,6 @@ This folder-mirror version drops these behaviors from the earlier document engin
 - Folder close fences, loading or Missing states inside an opened detail, and TanStack folder queries.
 - Preserving frontmatter comments, key order, or spelling after a structured update. Unknown keys remain.
 - Downloading unsaved input. Download now exports the saved file after pending writes settle.
+- Edit as text writes the whole file, so a save can recreate a capture deleted elsewhere while that editor is open.
 
 The earlier move to the local folder also removed Save version, Git history, sync, and automatic access to captures stored in OPFS.
