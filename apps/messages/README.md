@@ -45,7 +45,9 @@ shell and its compiled CLI must also be rebuilt for the new command.
 | Source code and fictional fixtures | This source repository |
 
 Selecting a conversation creates no file; the first keystroke creates its
-draft. Each composer keeps its own typed text until that save answers. The
+draft. Each composer keeps its own typed text until that save answers. If a
+save fails, the text stays in the composer with Save again, Discard, and Copy
+controls. Reopening a conversation waits for its pending draft writes. The
 folder mirror shows only files that landed on storage. The conversation list
 therefore shows a **Draft** preview after a save, usually about a second after
 typing. Empty drafts show the latest message instead. An unresolved attempt
@@ -58,8 +60,8 @@ readable, but old draft-file send recovery is no longer supported. The separate
 attempt file records the latest submitted text, its unique `attemptId`, its
 `state`, and the Beeper `pendingId` when accepted. An invalid or unreadable
 draft needs Markdown repair before composition; a failed read offers **Read
-again**. A failed write leaves the mirror at its saved value, and the folder
-failure notice offers the attempted text to copy.
+again**. A failed write leaves the mirror at its saved value. The composer
+keeps the unsaved text, and the folder also reports the failed write.
 
 Draft filenames hash the mode, account-set identity, and chat ID; demo and live
 drafts never share a file. The folder closes when the app unmounts. On desktop,

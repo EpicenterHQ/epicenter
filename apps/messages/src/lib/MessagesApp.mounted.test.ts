@@ -7,8 +7,12 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
-import { expectOk } from 'wellcrafted/testing';
+import {
+	createFolder,
+	memoryHost,
+	SaveError,
+} from '@epicenter/folder/next/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	click,
 	type,
@@ -129,6 +133,76 @@ test('reopening a draft waits for its previous composer save', async () => {
 	} finally {
 		gate.resolve();
 	}
+});
+
+test('typing during a save keeps the newest reply', async () => {
+	const app = await setup();
+	const gate = Promise.withResolvers<void>();
+	try {
+		await app.open('Maya Chen');
+		const id = await draftId(createDemoBackend(), 'demo-maya');
+		app.host.control.putGate = gate.promise;
+		type(app.composer(), 'First');
+		await until(
+			() => app.host.log.puts.some((put) => put.path === `drafts/${id}.md`),
+			'the first draft write',
+		);
+		type(app.composer(), 'First and second');
+		flushSync();
+		expect(app.composer()?.value).toBe('First and second');
+		gate.resolve();
+		await until(
+			() => app.folder.tables.drafts.row(id)?.body === 'First and second',
+			'the newest reply',
+		);
+		expect(app.composer()?.value).toBe('First and second');
+	} finally {
+		gate.resolve();
+	}
+});
+
+test('failed draft saves retain text for retry or discard', async () => {
+	const app = await setup();
+	await app.open('Maya Chen');
+	const id = await draftId(createDemoBackend(), 'demo-maya');
+	const path = `drafts/${id}.md`;
+	app.host.control.failPut.set(
+		path,
+		expectErr(SaveError.StorageFailed({ cause: 'no disk' })),
+	);
+	type(app.composer(), 'Keep this text');
+	flushSync();
+	expect(app.composer()?.value).toBe('Keep this text');
+	await until(
+		() => app.target.textContent?.includes('Not saved:') === true,
+		'the failed draft notice',
+	);
+	expect(app.composer()?.value).toBe('Keep this text');
+	expect(app.folder.tables.drafts.row(id)).toBeUndefined();
+	app.host.control.failPut.delete(path);
+	click(app.target, 'Save again');
+	await until(
+		() => app.folder.tables.drafts.row(id)?.body === 'Keep this text',
+		'the retried draft',
+	);
+	await until(
+		() => !app.target.textContent?.includes('Not saved:'),
+		'the cleared error',
+	);
+
+	app.host.control.failPut.set(
+		path,
+		expectErr(SaveError.StorageFailed({ cause: 'no disk' })),
+	);
+	type(app.composer(), 'Discard this change');
+	await until(
+		() => app.target.textContent?.includes('Not saved:') === true,
+		'the second failed save',
+	);
+	expect(app.composer()?.value).toBe('Discard this change');
+	click(app.target, 'Discard');
+	flushSync();
+	expect(app.composer()?.value).toBe('Keep this text');
 });
 
 test('typing recreates a draft deleted outside the app', async () => {
