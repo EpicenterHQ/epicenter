@@ -19,7 +19,7 @@
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { folderIdOf, honeycrispTables, noteIdOf } from '$lib/data.js';
-	import { actionMessage, type Notes } from '$lib/notes.svelte.js';
+	import { type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 	import NoteDetail from './NoteDetail.svelte';
 
@@ -66,8 +66,17 @@
 	const unreadable = $derived(file?.readError);
 
 	async function report(action: string, result: ReturnType<Notes['patchNote']>) {
-		const problem = actionMessage(await result);
+		const problem = await result;
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
+	}
+
+	async function openAsNote() {
+		const saved = await folder.write(path, withFileNewlines(raw.value, text ?? ''));
+		if (saved.error !== null) {
+			toast.error('Could not open as note', { description: saved.error.message });
+			return;
+		}
+		notes.open(path, 'note');
 	}
 
 	/** A file shown as details: its extension names the type, then its size. */
@@ -102,7 +111,7 @@
 						variant="outline"
 						disabled={issues.length > 0}
 						tooltip={issues.length > 0 ? 'Fix the text first' : undefined}
-						onclick={() => void notes.open(path, 'note')}
+						onclick={() => void openAsNote()}
 					>
 						Open as note
 					</Button>
@@ -145,7 +154,7 @@
 					<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 					<Empty.Title>Could not open this file</Empty.Title>
 					<Empty.Description>{unreadable.message}</Empty.Description>
-					<Button variant="outline" size="sm" onclick={() => folder.checkpoint()}>Try again</Button>
+					<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button>
 				</Empty.Root>
 			{:else}
 				<Empty.Root class="flex-1">

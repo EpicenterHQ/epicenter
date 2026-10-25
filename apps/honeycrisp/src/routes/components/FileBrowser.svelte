@@ -16,7 +16,7 @@
 	import { tick } from 'svelte';
 	import { dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { noteIdOf } from '$lib/data.js';
-	import { actionMessage, type Notes } from '$lib/notes.svelte.js';
+	import { type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
 	let { notes }: { notes: Notes } = $props();
@@ -149,8 +149,7 @@
 		try {
 			const problem = await notes.createFile(directory, name);
 			if (problem !== undefined) {
-				const message = actionMessage(problem);
-				if (message) toast.error('Could not create the file', { description: message });
+				toast.error('Could not create the file', { description: problem });
 				return;
 			}
 			editing = undefined;

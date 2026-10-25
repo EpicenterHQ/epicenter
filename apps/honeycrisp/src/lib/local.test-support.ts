@@ -6,15 +6,15 @@ import { expectOk } from 'wellcrafted/testing';
 import { type HoneycrispTables, honeycrispTables, type NoteRow } from './data.js';
 import { createNotes, type Notes } from './notes.svelte.js';
 
-export async function openNotes({ throttleMs = 0 } = {}) {
+export async function openNotes() {
     globalThis.indexedDB = new IDBFactory();
-    const raw = expectOk(await openFolder({ tables: honeycrispTables, throttleMs }));
+    const raw = expectOk(await openFolder({ tables: honeycrispTables }));
     const folder = svelteFolder(raw);
     const notes = createNotes(folder);
     const others: Folder<HoneycrispTables>[] = [];
     const put = IDBObjectStore.prototype.put;
     async function otherTab() {
-        const tab = expectOk(await openFolder({ tables: honeycrispTables, throttleMs: 0 }));
+        const tab = expectOk(await openFolder({ tables: honeycrispTables }));
         others.push(tab);
         return tab;
     }

@@ -18,7 +18,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { folderLabel, type NoteFields, noteIdOf } from '$lib/data.js';
 	import { noteBody } from '$lib/editor/rich-text.js';
-	import { actionMessage, foldersOf, type Notes } from '$lib/notes.svelte.js';
+	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
 	import RichEditor from './RichEditor.svelte';
 
 	let {
@@ -52,8 +52,7 @@
 
 	/** Say so when a change was refused. */
 	function refusal(problem: Awaited<ReturnType<Notes['patchNote']>>) {
-		const message = actionMessage(problem);
-		if (message) toast.warning('That change was not made', { description: message });
+		if (problem) toast.warning('That change was not made', { description: problem });
 	}
 
 	/** Set fields of the note and save at once. */
@@ -145,7 +144,7 @@
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read the note</Empty.Title>
 			<Empty.Description>{unreadable.error.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => notes.folder.checkpoint()}>Try again</Button>
+			<Button variant="outline" size="sm" onclick={() => void notes.folder.refresh()}>Try again</Button>
 		</Empty.Root>
 	{:else if row.issues !== null}
 		{@const issues = row.issues}

@@ -3,7 +3,7 @@
 	import { type NotesFolder, setFolder } from '$lib/folder.js';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
-	import { actionMessage, createNotes } from '$lib/notes.svelte.js';
+	import { createNotes } from '$lib/notes.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import FileDetail from './FileDetail.svelte';
@@ -30,8 +30,7 @@
 		} else if (mod && !event.shiftKey && event.key.toLowerCase() === 'n') {
 			event.preventDefault();
 			const problem = await notes.createNote();
-			const message = actionMessage(problem);
-			if (message) toast.error('Could not create the note', { description: message });
+			if (problem) toast.error('Could not create the note', { description: problem });
 		}
 	}}
 />

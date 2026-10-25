@@ -19,7 +19,7 @@ const cleanups: (() => unknown)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); document.body.replaceChildren(); });
 
 async function view(content = noteText({ title: 'Alpha' }), as: 'note' | 'text' = 'note') {
-    const fixture = await openNotes({ throttleMs: 0 });
+    const fixture = await openNotes();
     cleanups.push(() => fixture.close());
     await fixture.write('notes/a.md', content);
     fixture.notes.open('notes/a.md', as);

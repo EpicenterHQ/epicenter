@@ -13,7 +13,7 @@ import { honeycrispTables } from './data.js';
 import type { NotesFixture } from './local.test-support.ts';
 
 const { openNotes, until, shown, noteText, folderText } = await import('./local.test-support.ts');
-const { draft, svelteFolder } = await import('@epicenter/svelte/folder-next');
+const { svelteFolder } = await import('@epicenter/svelte/folder-next');
 const { createNotes, foldersOf, repairsOf } = await import('./notes.svelte.ts');
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => { for (const step of cleanup.splice(0).reverse()) await step(); });
@@ -48,73 +48,6 @@ test('outside field change merges beside a body update', async () => {
     const saved = await text(fixture);
     expect(saved).toContain('title: Other tab');
     expect(saved).toContain('Mine.');
-});
-
-test('opening a note as text waits for its body save after another note is patched', async () => {
-    const B = 'notes/b.md';
-    const host = memoryHost({ [A]: noteText(), [B]: noteText({ title: 'B' }) });
-    const raw = expectOk(await createFolder(host.storage, { tables: honeycrispTables, throttleMs: 250 }));
-    cleanup.push(() => raw.close());
-    const folder = svelteFolder(raw);
-    const notes = createNotes(folder);
-    const table = folder.tables.notes;
-    await notes.open(A, 'note');
-
-    let release: (() => void) | undefined;
-    host.control.putGate = new Promise((resolve) => { release = resolve; });
-    const first = notes.patchNote(A, { pinned: true });
-    await until(() => host.log.puts.length === 1, 'first A save to start');
-    const body = draft(
-        () => shown(notes, 'a').body,
-        (typed) => table.update('a', { body: typed }),
-    );
-    body.set('Typed in A.\n');
-    const second = notes.patchNote(B, { pinned: true });
-    release?.();
-    host.control.putGate = undefined;
-    expect(await first).toBeUndefined();
-    expect(await second).toBeUndefined();
-    expect(host.text(A)).toContain('Body.\n');
-
-    await notes.open(A, 'text');
-    expect(notes.selected?.as).toBe('text');
-    expect(host.text(A)).toContain('Typed in A.\n');
-    expect(folder.file(A)?.data).toContain('Typed in A.\n');
-});
-
-test('a whole-file draft recreates a file deleted elsewhere', async () => {
-    const host = memoryHost({ 'draft.txt': 'Original' });
-    const raw = expectOk(await createFolder(host.storage, { tables: honeycrispTables }));
-    cleanup.push(() => raw.close());
-    const folder = svelteFolder(raw);
-    const file = draft(() => folder.file('draft.txt')?.data ?? '', (value) => folder.write('draft.txt', value));
-    host.outside('draft.txt', null);
-    raw.checkpoint();
-    await until(() => folder.file('draft.txt') === undefined, 'outside deletion');
-    file.set('Recreated');
-    expect(file.value).toBe('Recreated');
-    await folder.settled('draft.txt');
-    expect(file.error).toBeNull();
-    expect(host.text('draft.txt')).toBe('Recreated');
-});
-
-test('a field draft keeps its value when its file was deleted elsewhere', async () => {
-    const host = memoryHost({ [A]: noteText() });
-    const raw = expectOk(await createFolder(host.storage, { tables: honeycrispTables }));
-    cleanup.push(() => raw.close());
-    const folder = svelteFolder(raw);
-    const title = draft(() => {
-        const row = folder.tables.notes.row('a');
-        return row?.issues === null ? row.fields.title : '';
-    }, (value) => folder.tables.notes.update('a', { fields: { title: value } }));
-    host.outside(A, null);
-    raw.checkpoint();
-    await until(() => folder.tables.notes.row('a') === undefined, 'outside deletion');
-    title.set('Keep typing');
-    await folder.settled(A);
-    expect(title.value).toBe('Keep typing');
-    expect(title.error?.name).toBe('NothingToUpdate');
-    expect(host.text(A)).toBeUndefined();
 });
 
 test('another tab save appears in the mirror', async () => {
