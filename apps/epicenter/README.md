@@ -432,27 +432,26 @@ can create a declaration containing only `views`. The editor assigns an opaque
 UUID key; changing the display title keeps that key. **Save as new** creates a
 separate entry. These views travel with the folder and have no personal override.
 
-A saved view reads the current `epicenter.json` editor content. Editing its
+A saved view reads the current `epicenter.json` mirror value. Editing its
 controls creates an unsubmitted form value retained across selections. **Reload
-settings** drops that form and refreshes the declaration. Saving transforms the
-current held declaration text, preserving unrelated JSON sections and other
-views, then calls `document.replace(text)` and `document.save()` without an
-await between them to publish that exact source. There is no
-source precondition or separate native writer.
+settings** drops that form and checkpoints the folder. Saving transforms the
+latest submitted declaration text, preserving unrelated JSON sections and other
+views, then sends that text through `folder.write`. There is no source
+precondition or separate native writer.
 
-A submitted copy gets its new key immediately, while the declaration owner keeps
-the composed source until publication settles. Failures appear beside the
-retained declaration with retry and source access; a retry publishes the same
-current owner text. The form keeps any settings that have not yet been submitted.
-A later source or settings command composes into that owner in call order.
+A submitted copy gets its new key immediately. The local `sending` text composes
+later view submissions while earlier writes are waiting; `submitted` keeps each
+view visible until its save answers. A failed save restores the form for retry
+and offers source access, while the folder owner toasts the failed write and its
+text to copy. The form keeps settings that have not yet been submitted.
 Invalid and future view entries stay in the source with diagnostics while valid
 siblings remain available. The pure `changeSavedView(text, { key, value })`
 transform is portable across storage backends.
 
-Each change batch invalidates the editor's reads, including descendants of a
-changed directory. One folder-wide watch reports changed paths from other windows and programs.
-The context invalidates affected queries; the folder refreshes subscribed editors.
-Manual refresh and returning to the window reconcile gaps without periodic polling.
+The mirror notifies the editor when a write lands or outside changes are read.
+It checkpoints on focus, visibility, connectivity, and page hide; **Reload
+settings** also checkpoints. Files, Tables, and saved views then read the same
+current file values without query invalidation or manual refresh.
 
 ### Opening apps
 
