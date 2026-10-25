@@ -42,16 +42,16 @@
 	async function add(texts: string[]): Promise<string[]> {
 		adding = true;
 		const failed: string[] = [];
-		let taken = '';
+		let failure = '';
 		for (const text of texts) {
 			const { error } = await entries.add(text);
 			if (error !== null && error.name !== 'Empty') {
 				failed.push(text);
-				if (error.name === 'Taken') taken = error.message;
+				failure ||= error.message;
 			}
 		}
 		adding = false;
-		if (taken) toast.error('An expression was not added', { description: taken });
+		if (failure) toast.error('An expression was not added', { description: failure });
 		return failed;
 	}
 	async function addSingle() {

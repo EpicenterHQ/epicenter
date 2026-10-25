@@ -1,12 +1,11 @@
 import '../../../../packages/svelte/node_modules/fake-indexeddb/auto/index.mjs';
 import { openFolder } from '@epicenter/folder/next/browser';
 import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
-import type { SaveFailure } from '@epicenter/folder/next';
 import { expectOk } from 'wellcrafted/testing';
 import { type VocabFolder, type VocabTables, vocabTables } from './data.js';
 
 export async function until(done: () => boolean, what: string) {
-	for (let attempt = 0; attempt < 500; attempt++) {
+	for (let attempt = 0; attempt < 1500; attempt++) {
 		if (done()) return;
 		await Bun.sleep(2);
 	}
@@ -27,11 +26,11 @@ export function createBrowser() {
 	const indexedDB = new IDBFactory();
 	const opened: { close(): Promise<void> }[] = [];
 	return {
-		async open({ throttleMs = 0 } = {}): Promise<VocabFolder> {
+		async open(): Promise<VocabFolder> {
 			const { svelteFolder } = await import('@epicenter/svelte/folder-next');
 			globalThis.indexedDB = indexedDB;
 			const core = expectOk(
-				await openFolder({ tables: vocabTables, throttleMs }),
+				await openFolder({ tables: vocabTables }),
 			);
 			opened.push(core);
 			return svelteFolder(core);
@@ -44,14 +43,12 @@ export function createBrowser() {
 
 export async function createMemory(
 	initial: Record<string, string | Uint8Array> = {},
-	onFailed?: (failure: SaveFailure) => void,
 ) {
 	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
 	const host = memoryHost(initial);
 	const core = expectOk(
-		await createFolder(host.storage, { tables: vocabTables, throttleMs: 0 }),
+		await createFolder(host.storage, { tables: vocabTables }),
 	);
-	if (onFailed) core.onFailed(onFailed);
 	return { folder: svelteFolder(core), core, host };
 }
 

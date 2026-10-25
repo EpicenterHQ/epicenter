@@ -1,7 +1,6 @@
-import type { SaveFailure } from '@epicenter/folder/next';
 import { createMemory, until } from '../../lib/folder.test-support.js';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	click,
@@ -9,6 +8,7 @@ import {
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { createEntries } = await import('../../lib/entries.svelte.js');
+const { toast } = await import('@epicenter/ui/sonner');
 const { confirmationDialog } = await import(
 	'@epicenter/ui/confirmation-dialog'
 );
@@ -29,10 +29,7 @@ function noteOf(target: HTMLElement): HTMLTextAreaElement {
 }
 
 async function setup() {
-	const failures: SaveFailure[] = [];
-	const { folder, core, host } = await createMemory({}, (failure) =>
-		failures.push(failure),
-	);
+	const { folder, core, host } = await createMemory();
 	const entries = createEntries(folder);
 	expectOk(await entries.add('lucid'));
 	const id = entries.words[0]!.id;
@@ -45,7 +42,6 @@ async function setup() {
 		folder,
 		core,
 		host,
-		failures,
 		entries,
 		id,
 		card,
@@ -85,7 +81,7 @@ test('typing again during a note save keeps the newer value', async () => {
 	flushSync();
 	expect(note.value).toBe('second');
 	gate.resolve();
-	await context.folder.settled(`entries/${context.id}.md`);
+	await until(() => context.folder.tables.entries.row(context.id)?.fields?.note === 'second', 'second note save');
 	flushSync();
 	expect(note.value).toBe('second');
 	expect(context.folder.tables.entries.row(context.id)?.fields?.note).toBe('second');
@@ -102,9 +98,8 @@ test('a failed note keeps its typed text and can retry or discard', async () => 
 	});
 	const note = noteOf(context.target);
 	type(note, 'failed text');
-	await until(() => context.failures.length > 0, 'failed save report');
+	await until(() => context.target.textContent?.includes('Not saved:') ?? false, 'failed save report');
 	flushSync();
-	expect(context.failures[0]?.text).toBe('failed text');
 	expect(note.value).toBe('failed text');
 	expect(context.target.textContent).toContain('Not saved:');
 	expect(context.target.textContent).toContain('Save again');
@@ -121,7 +116,10 @@ test('a failed note keeps its typed text and can retry or discard', async () => 
 		cause: 'full',
 	});
 	type(note, 'another attempt');
-	await until(() => context.failures.length > 1, 'second failed save');
+	await until(() => {
+		flushSync();
+		return context.target.textContent?.includes('Not saved:') ?? false;
+	}, 'second failed save');
 	flushSync();
 	expect(note.value).toBe('another attempt');
 	click(context.target, 'Discard');
@@ -145,6 +143,29 @@ test('note and stage updates merge over one path', async () => {
 		);
 	}, 'merged updates');
 	await context.close();
+});
+
+test('failed stage and delete commands show their errors', async () => {
+	const context = await setup();
+	const path = `entries/${context.id}.md`;
+	context.host.control.failPut.set(path, {
+		name: 'StorageFailed',
+		message: 'storage refused',
+		cause: 'full',
+	});
+	const errorToast = spyOn(toast, 'error');
+	try {
+		click(context.target, 'Understand');
+		await until(() => errorToast.mock.calls.length === 1, 'stage error');
+		expect(errorToast.mock.calls[0]?.[0]).toBe('The stage was not saved');
+		click(context.target, 'Delete');
+		await confirmationDialog.confirm();
+		expect(errorToast.mock.calls[1]?.[0]).toBe('The word was not deleted');
+		expect(context.folder.tables.entries.row(context.id)).toBeDefined();
+	} finally {
+		errorToast.mockRestore();
+		await context.close();
+	}
 });
 
 test('Delete asks first; Cancel changes nothing, and confirming deletes the word', async () => {

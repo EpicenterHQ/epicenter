@@ -26,9 +26,14 @@
 	const problems = $derived(readRow(raw.value, vocabTables.entries).issues);
 
 	async function close() {
-		await folder.settled(path);
-		if (raw.error !== null || entries.repair.open !== id) return;
-		if (entries.repair.close(raw.value)) return;
+		const value = raw.value;
+		const { error } = await folder.write(path, withFileNewlines(value, text ?? ''));
+		if (entries.repair.open !== id || raw.value !== value) return;
+		if (error !== null) {
+			closeProblem = `The file was not saved: ${error.message}`;
+			return;
+		}
+		if (entries.repair.close(value)) return;
 		const row = folder.tables.entries.row(id);
 		if (row === undefined)
 			closeProblem = 'The file is missing. Type to save it again.';
@@ -43,7 +48,7 @@
 	<UnsavedEdit draft={raw} />
 	{#if file?.readError}
 		<div role="alert" class="text-destructive">Could not read <code>{path}</code>: {file.readError.message}
-			<Button size="sm" variant="outline" onclick={() => folder.checkpoint()}>Read again</Button>
+			<Button size="sm" variant="outline" onclick={() => void folder.refresh()}>Read again</Button>
 		</div>
 	{/if}
 	{#if problems}
