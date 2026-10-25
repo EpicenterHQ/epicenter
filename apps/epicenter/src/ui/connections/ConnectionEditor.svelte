@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { draft, type SvelteFolder } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -86,23 +87,27 @@
 
 <li class="grid gap-2 rounded-md border p-3">
 	<div class="flex items-center justify-between gap-2">
-		<p class="font-medium">{title.text || id}</p>
+		<p class="font-medium">{title.value || id}</p>
 		<span class="text-muted-foreground">{KIND_LABELS[fields.kind]} · {id}</span>
 	</div>
 	<div class="grid gap-2 sm:grid-cols-2">
-		<label class="grid gap-1">
-			<span class="text-muted-foreground">Title</span>
-			<Input
-				bind:value={title.text}
-			/>
-		</label>
-		<label class="grid gap-1">
-			<span class="text-muted-foreground">Model</span>
-			<Input
-				bind:value={model.text}
-				placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
-			/>
-		</label>
+		<div class="grid gap-1">
+			<label class="grid gap-1">
+				<span class="text-muted-foreground">Title</span>
+				<Input bind:value={title.value} />
+			</label>
+			<UnsavedEdit draft={title} />
+		</div>
+		<div class="grid gap-1">
+			<label class="grid gap-1">
+				<span class="text-muted-foreground">Model</span>
+				<Input
+					bind:value={model.value}
+					placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
+				/>
+			</label>
+			<UnsavedEdit draft={model} />
+		</div>
 	</div>
 
 	{#if fields.kind === 'openai-compatible'}

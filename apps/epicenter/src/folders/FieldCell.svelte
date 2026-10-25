@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Saved } from '@epicenter/folder/next';
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Input } from '@epicenter/ui/input';
 
 	let { value, kind, label, disabled, save }: {
@@ -28,6 +29,7 @@
 	aria-label={label}
 	{disabled}
 	type={kind === 'number' || kind === 'integer' ? 'number' : 'text'}
-	bind:value={() => invalid ?? input.text, set}
+	bind:value={() => invalid ?? input.value, set}
 	onblur={() => invalid = null}
 />
+<UnsavedEdit draft={input} />

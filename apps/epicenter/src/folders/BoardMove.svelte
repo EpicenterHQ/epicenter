@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { Saved } from '@epicenter/folder/next';
+	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Select from '@epicenter/ui/select';
 	import type { BoardLane } from './view.js';
 
@@ -10,18 +12,11 @@
 		disabled: boolean;
 		save: (key: string) => Saved | undefined;
 	} = $props();
-	let pending = $state<string | undefined>();
-	let lastSave: Saved | undefined;
-	function set(key: string) {
-		const saved = save(key);
-		if (!saved) return;
-		pending = key;
-		lastSave = saved;
-		void saved.then(() => { if (lastSave === saved) pending = undefined; });
-	}
+	const move = draft(() => lane.key, async (key) => (await save(key)) ?? { data: undefined, error: null });
 </script>
 
-<Select.Root type="single" bind:value={() => pending ?? lane.key, set}>
-	<Select.Trigger aria-label="Move {path}" {disabled}>{lane.label}</Select.Trigger>
+<Select.Root type="single" bind:value={move.value}>
+	<Select.Trigger aria-label="Move {path}" {disabled}>{lanes.find((entry) => entry.key === move.value)?.label ?? move.value}</Select.Trigger>
 	<Select.Content>{#each lanes.filter((entry) => entry.editable) as destination}<Select.Item value={destination.key}>{destination.label}</Select.Item>{/each}</Select.Content>
 </Select.Root>
+<UnsavedEdit draft={move} />

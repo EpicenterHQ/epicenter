@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { documentsOf, type DocumentCache } from '@epicenter/folder/documents';
-	import type { Saved } from '@epicenter/folder/next';
 	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -14,12 +13,11 @@
 	import BoardMove from './BoardMove.svelte';
 	import type { TableView } from './views.svelte.js';
 
-	let { folder, openSource, view, change, trackSave }: {
+	let { folder, openSource, view, change }: {
 		folder: SvelteFolder<Record<never, never>>;
 		openSource: (path: string) => void;
 		view: TableView;
 		change: (value: TableView) => void;
-		trackSave: (saved: Saved) => Saved;
 	} = $props();
 	const cache: DocumentCache = new WeakMap();
 	const reading = $derived(documentsOf(folder.files, cache));
@@ -68,7 +66,7 @@
 			: undefined;
 	}
 	function update(path: string, column: string, value: unknown) {
-		return trackSave(folder.update(path, { fields: { [column]: value } }, { schema: tableFor(path) }));
+		return folder.update(path, { fields: { [column]: value } }, { schema: tableFor(path) });
 	}
 	function createLane() {
 		if (view.type !== 'board') return;
@@ -182,7 +180,7 @@
 					{@const { doc, canEdit } = row}
 					<Table.Row data-row-path={doc.path}>
 						<Table.Cell><Button variant="link" onclick={() => openSource(doc.path)}>{doc.path}</Button>{#if !included.has(doc.path)}<p class="text-xs text-muted-foreground">No longer matches this view's filters</p>{/if}</Table.Cell>
-						{#each columns as column}
+						{#each columns as column (column)}
 							<Table.Cell>
 								{@const value = fieldValue(doc.fields, column)}
 								{@const kind = cellKind(doc.path, column, value)}
