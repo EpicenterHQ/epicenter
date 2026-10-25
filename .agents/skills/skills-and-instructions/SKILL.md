@@ -10,12 +10,35 @@ A skill earns its place through knowledge, preferences, or recurring failures
 the agent would otherwise miss. Judge progress by how well the guidance helps
 the agent handle the work.
 
-## Find the instruction's owner
+## Shape a change together
 
-Use [dialectic](../dialectic/SKILL.md) when the purpose or desired behavior is
-unsettled. Let the current question determine whether to clarify intent,
-propose instructions, or show an example of their behavior. Use the user's
-responses to develop the instructions. Apply settled edits directly.
+For a new skill or a substantial revision, work through these responsibilities
+with the user. Later work can send you back to an earlier one.
+
+1. **Agree on what the guidance should do.** Settle its purpose and the
+   behavior it should produce. Use [dialectic](../dialectic/SKILL.md) when
+   either is unsettled.
+2. **Reconsider the structure before polishing wording.** Decide what the
+   relevant whole is responsible for, then how its sections should be divided
+   and ordered. Existing section boundaries need not survive. A short sketch of
+   the proposed sections can make this concrete.
+3. **Rewrite in pieces the user can judge.** How much you rethink and how much
+   you show at once are separate choices: you can rethink a whole skill while
+   reviewing one section, merge, or replacement at a time, at the user's pace.
+   Put the **Current** wording in a blockquote and the **Proposed** wording in
+   a copyable writing block, with explanation outside both. When behavior is at
+   issue, show how each version would handle a realistic request. The user may
+   accept the direction and still object to the wording; carry settled pieces
+   forward and keep working on the rest.
+4. **Read the assembled whole.** Check it against the intended behavior and
+   for clarity, repetition, and whether each rule sits with its owner. A
+   passage or example may show that the structure or intent needs revisiting.
+
+A settled change skips this sequence. When the user has selected wording or the
+fix is already clear and authorized, apply it, say what you saved, and carry
+the work through without asking again.
+
+## Find the instruction's owner
 
 Ground the guidance in actual work, source material, or the user's corrections.
 Extract the judgment that made an accepted interaction work so it transfers
@@ -82,27 +105,20 @@ permissions available in the session.
 
 ## Check what changed
 
-When changing a skill, **show how the revised skill would handle a realistic
-request compared with the current skill**. Include enough of the interaction
-or result for the user to judge the difference.
-
-Alongside that comparison, **show the actual skill wording being changed**.
-Use [writing-voice's comparison guidance](../writing-voice/SKILL.md#show-revisions-in-context)
-for both the proposed instructions and the sample outputs.
-
-Keep the request and unrelated material consistent. Clearly identify examples
-you are illustrating versus results you actually obtained by running the skill.
+When comparing how current and revised guidance handle a request, keep the
+request and unrelated material the same so the difference comes from the
+guidance. Present sample outputs using
+[writing-voice's comparison guidance](../writing-voice/SKILL.md#show-revisions-in-context).
+Clearly identify examples you are illustrating versus results you actually
+obtained by running the skill.
 
 For a new skill, show the proposed instructions and intended interaction. Use
 the appropriate surface for other outputs, such as caller code, a rendered
 screen, or an action sequence.
 
-Describe the conditions of actual runs. Use the user's reaction to develop the
-instruction. Treat a preference as evidence about that sample, and test
-materially different requests before claiming a general improvement.
-
-Use samples to make authorized work reviewable, and carry that work through
-under the existing authorization.
+Describe the conditions of actual runs. Treat a preference as evidence about
+that sample, and test materially different requests before claiming a general
+improvement.
 
 Choose checks that answer a concrete uncertainty. Check affected links after
 moving references; check frontmatter and intended-host discovery after changing
