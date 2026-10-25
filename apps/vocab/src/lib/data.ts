@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@epicenter/agent';
 import type { ServableModel } from '@epicenter/constants/ai-providers';
-import type { Folder, Row } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder/next';
+import type { SvelteFolder } from '@epicenter/svelte/folder-next';
 import { Type } from 'typebox';
 
 /**
@@ -111,12 +112,10 @@ export const vocabTables = {
 };
 
 export type VocabTables = typeof vocabTables;
-export type VocabFolder = Folder<VocabTables>;
+export type VocabFolder = SvelteFolder<VocabTables>;
 
 /** A row of `table`, as it reads: its source, its fields, and any issues. */
-export type RowOf<TName extends keyof VocabTables> = Row<
-	VocabTables[TName]
->;
+export type RowOf<TName extends keyof VocabTables> = Row<VocabTables[TName]>;
 /** A row of `table` that reads as one: its fields fit the schema. */
 export type ValidRowOf<TName extends keyof VocabTables> = Extract<
 	RowOf<TName>,
@@ -128,8 +127,7 @@ export const rowPath = (table: keyof VocabTables, id: string) =>
 	`${table}/${id}.md`;
 
 /**
- * One saved word as the list last read it. `id` is the file's name; `row` is
- * that read, the row a note or a stage typed into it starts from.
+ * One saved word from the mirror. `id` is the file's name.
  */
 export type Entry = {
 	id: string;
@@ -137,7 +135,6 @@ export type Entry = {
 	note: string;
 	stage: Stage;
 	createdAt: string;
-	row: ValidRowOf<'entries'>;
 };
 
 export type FocusItem = { entryId: string; text: string };
@@ -163,10 +160,11 @@ export function focusWord(
  * silently. `id` is set when the file is text, so it can be repaired as text.
  */
 export type UnreadableFile = { path: string; reason: string; id?: string };
+type ReadRows<TRow> = { rows: TRow[]; unreadable: UnreadableFile[] };
 
 export function readEntry(row: ValidRowOf<'entries'>): Entry {
 	const { text, note, stage, createdAt } = row.fields;
-	return { id: row.id, text, note, stage, createdAt, row };
+	return { id: row.id, text, note, stage, createdAt };
 }
 
 export function readChat(row: ValidRowOf<'chats'>): Chat {
@@ -184,30 +182,34 @@ export function readMessage(row: ValidRowOf<'messages'>): ChatMessage {
 	return {
 		id: row.id,
 		chat,
+		// SAFETY: cloning a schema-validated message preserves its shape.
 		message: structuredClone(message) as AgentMessage,
 	};
 }
 
 /**
  * Split a table's rows into the ones Vocab can show and the files it cannot,
- * each named by its path with why. A file that is not text has no `id`: it is
- * only named, never repaired here.
+ * each named by its path with why. A non-text or unreadable file has no `id`:
+ * it is only named, never repaired here.
  */
 export function readRows<TName extends keyof VocabTables, TRow>(
 	table: TName,
 	rows: readonly RowOf<TName>[],
 	read: (row: ValidRowOf<TName>) => TRow,
-): { rows: TRow[]; unreadable: UnreadableFile[] } {
+): ReadRows<TRow> {
 	const readable: TRow[] = [];
 	const unreadable: UnreadableFile[] = [];
 	for (const row of rows) {
 		if (row.issues === null) {
+			// SAFETY: the valid branch has fields of the table's schema.
 			readable.push(read(row as ValidRowOf<TName>));
 			continue;
 		}
-		const text = !row.issues.some((issue) => issue.kind === 'not-text');
+		const text = !row.issues.some(
+			(issue) => issue.kind === 'not-text' || issue.kind === 'unreadable',
+		);
 		unreadable.push({
-			path: rowPath(table, row.id),
+			path: row.path,
 			reason: row.issues.map((issue) => issue.message).join(' '),
 			...(text ? { id: row.id } : {}),
 		});

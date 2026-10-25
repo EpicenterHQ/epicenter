@@ -1,6 +1,4 @@
 <script lang="ts">
-	import type { DocumentSnapshot } from '@epicenter/folder/document';
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { Input } from '@epicenter/ui/input';
@@ -8,11 +6,8 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
-	import { CopyButton } from '@epicenter/ui/copy-button';
-	import { type Entry, type FocusItem, rowPath, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { type Entries, type EntryRows, repairsOf, wordsOf } from '$lib/entries.svelte.js';
-	import { describeFailure } from '$lib/failure.js';
+	import { type Entry, type FocusItem, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
+	import type { Entries } from '$lib/entries.svelte.js';
 	import { reviewImport, STARTER_LIST } from '$lib/import.js';
 	import EntryCard from './EntryCard.svelte';
 	import RepairCard from './RepairCard.svelte';
@@ -32,30 +27,8 @@
 	let review = $state<ReturnType<typeof reviewImport> | null>(null);
 	let selected = $state<string[]>([]);
 	let focusIds = $state<string[]>([]);
-	const listing = createQuery(() => entries.entriesQuery());
-	const parsedRows = new WeakMap<DocumentSnapshot, EntryRows[number]>();
-	// Membership comes from the listing; interpretation follows each path's current edit.
-	const observed = $derived((listing.data ?? []).map(listed => ({ listed, snapshot: liveSnapshot(entries.document(listed.id)) })));
-	const currentRows = $derived(observed.map(({ listed, snapshot }): EntryRows[number] => {
-		const current = snapshot.current;
-		if (current.text === undefined) return listed;
-		const cached = parsedRows.get(current);
-		if (cached !== undefined) return cached;
-		const markdown = entries.parse(current.text);
-		const row: EntryRows[number] = markdown.issues === null
-			? { id: listed.id, ...markdown }
-			: { id: listed.id, ...markdown, issues: [...markdown.issues] };
-		parsedRows.set(current, row);
-		return row;
-	}));
-	const words = $derived(wordsOf(currentRows));
-	const repairs = $derived(repairsOf(currentRows));
-	/** Words whose note or stage did not save and that the list no longer shows as words. */
-	const orphaned = $derived(
-		listing.data === undefined
-			? []
-			: entries.failures.filter((draft) => !words.some((entry) => rowPath('entries', entry.id) === draft.path)),
-	);
+	const words = $derived(entries.words);
+	const repairs = $derived(entries.repairs);
 
 	const selectedFocus = $derived(focusIds.map((id) => words.find((entry) => entry.id === id)).filter((entry): entry is Entry => !!entry));
 	const shown = $derived(words.filter((entry) =>
@@ -69,16 +42,16 @@
 	async function add(texts: string[]): Promise<string[]> {
 		adding = true;
 		const failed: string[] = [];
-		let reason = '';
+		let taken = '';
 		for (const text of texts) {
 			const { error } = await entries.add(text);
 			if (error !== null && error.name !== 'Empty') {
 				failed.push(text);
-				reason = error.message;
+				if (error.name === 'Taken') taken = error.message;
 			}
 		}
 		adding = false;
-		if (failed.length) toast.error(failed.length === 1 ? 'An expression was not saved' : `${failed.length} expressions were not saved`, { description: reason });
+		if (taken) toast.error('An expression was not added', { description: taken });
 		return failed;
 	}
 	async function addSingle() {
@@ -142,28 +115,6 @@
 		</div>
 		{#if entries.repair.open !== undefined}
 			{#key entries.repair.open}<RepairCard {entries} id={entries.repair.open} />{/key}
-		{/if}
-		{#if orphaned.length > 0}
-			<!-- Typing that did not save for a word no longer listed as one: kept to copy until the learner lets it go. -->
-			<section class="space-y-3 rounded-lg border border-destructive/50 p-3 text-xs" aria-label="Unsaved changes">
-				{#each orphaned as draft (draft.path)}
-					{@const document = entries.document(draft.path.slice('entries/'.length, -'.md'.length))}
-					{@const snapshot = liveSnapshot(document)}
-					{@const saving = snapshot.current.isSaving}
-					{@const content = snapshot.current.text}
-					{#if content !== undefined}
-						<div class="space-y-1" role="alert">
-							<p>A change to <code>{draft.path}</code> was not saved, and the file is no longer a word here. {describeFailure(draft.error)}</p>
-							<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{content}</pre>
-							<div class="flex gap-1">
-								<Button size="xs" variant="outline" disabled={saving} onclick={() => void document.save()}>Save again</Button>
-								<CopyButton size="xs" variant="ghost" text={content}>Copy</CopyButton>
-								<Button size="xs" variant="ghost-destructive" disabled={saving} onclick={() => document.discard()}>Discard</Button>
-							</div>
-						</div>
-					{/if}
-				{/each}
-			</section>
 		{/if}
 		{#if repairs.length > 0}
 			<section class="space-y-2 rounded-lg border p-3 text-xs" aria-label="Words that need repair">

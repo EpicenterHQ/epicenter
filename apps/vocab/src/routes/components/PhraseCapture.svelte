@@ -120,7 +120,7 @@
 		// happened to this one when it is selected again.
 		if (current !== ticket) return;
 		if (error !== null) {
-			problem = 'This phrase was not saved. Nothing was added to your words.';
+			problem = error.name === 'NotSaved' ? '' : error.message;
 			return;
 		}
 		if (outcome === 'added') added = submitted;

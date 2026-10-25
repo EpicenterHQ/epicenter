@@ -8,32 +8,22 @@
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import { onDestroy } from 'svelte';
-	import { beforeNavigate } from '$app/navigation';
-	import { page } from '$app/state';
 	import { auth } from '$lib/auth.svelte.js';
-	import { createQuery, setQueryClientContext } from '@tanstack/svelte-query';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
 	import { openVocabInference } from '$lib/inference.js';
-	import { type getFolder, setFolder } from '$lib/folder.js';
+	import { setFolder } from '$lib/folder.js';
+	import type { VocabFolder } from '$lib/data.js';
 	import { createVocab } from '$lib/vocab.svelte.js';
 	import AccountMenu from './AccountMenu.svelte';
 	import ConversationView from './ConversationView.svelte';
 	import FocusWords from './FocusWords.svelte';
 	import WordsView from './WordsView.svelte';
 
-	// Vocab over the local folder `<FolderApp>` opened.
-	let { context }: { context: ReturnType<typeof getFolder> } = $props();
-
-	// The opened context stays fixed until this app root unmounts.
+	let { folder }: { folder: VocabFolder } = $props();
 	// svelte-ignore state_referenced_locally
-	const { queryClient, getStatus, refresh } = setFolder(context);
-	setQueryClientContext(queryClient);
+	setFolder(folder);
 	// svelte-ignore state_referenced_locally
-	const vocab = createVocab(context);
-	const { folder, entries, chats } = vocab;
-	// Observed here, so a change the folder reports reads both lists again.
-	const words = createQuery(() => entries.entriesQuery());
-	const chatList = createQuery(() => chats.chatsQuery());
+	const { entries, chats } = createVocab(folder);
 
 	// The account adds hosted models and nothing else. It is read once:
 	// sign-in and sign-out replace this page, and a change made in another tab
@@ -56,10 +46,9 @@
 	let focusOpen = $state(false);
 	let openingId = $state<string | null>(null);
 	let starting = $state(false);
-	const chatSummaries = $derived(chatList.data?.chats ?? []);
+	const chatSummaries = $derived(chats.listing.chats);
 	const selectedChat = $derived(chatSummaries.find((chat) => chat.id === selectedChatId));
-	const unreadable = $derived(chatList.data?.unreadable ?? []);
-	const loadError = $derived(words.error?.message ?? chatList.error?.message);
+	const unreadable = $derived(chats.listing.unreadable);
 
 	/**
 	 * Save the focus as a new chat, then show it. The opening it requests
@@ -72,7 +61,7 @@
 		const { data: chat, error } = await chats.start(focus);
 		starting = false;
 		if (error !== null) {
-			toast.error('The chat was not started', { description: `${error.message} The tutor has not been asked.` });
+			if (error.name === 'InvalidFocus') toast.error('The chat was not started', { description: error.message });
 			return false;
 		}
 		selectedChatId = chat.id;
@@ -97,15 +86,6 @@
 		void sources.then(({ account, connections }) => Promise.allSettled([account?.close(), connections?.close()]));
 	});
 
-	// Typing not yet saved, or a save or another action still running, lives
-	// only in this page.
-	// Leaving then is cancelled; for a reload or a closed tab, SvelteKit turns
-	// the cancel into the browser's own leave confirmation.
-	beforeNavigate((navigation) => {
-		if (!getStatus().saving && getStatus().unsaved.length === 0) return;
-		if (navigation.willUnload || navigation.to?.route.id !== page.route.id) navigation.cancel();
-	});
-
 </script>
 
 <div class="flex h-dvh min-w-0 flex-col">
@@ -119,6 +99,7 @@
 	<header class="contents md:flex md:items-center md:gap-2 md:border-b md:px-4 md:py-2">
 		<div class="flex items-center justify-between gap-2 border-b px-4 py-2 md:contents">
 			<h1 class="text-lg font-semibold">Vocab</h1>
+			<span class="text-xs text-muted-foreground" role="status">{folder.saving ? 'Saving…' : 'Saved'}</span>
 			<div class="flex items-center gap-1 md:order-last md:ml-auto"><LightSwitch variant="ghost" /><AccountMenu /></div>
 		</div>
 		<!--
@@ -139,12 +120,6 @@
 			{/each}
 		</nav>
 	</header>
-	{#if loadError}
-		<div role="alert" class="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs text-destructive">
-			<span>Vocab could not read its folder in this browser: {loadError}</span>
-			<Button variant="ghost" size="sm" onclick={() => void refresh()}>Read again</Button>
-		</div>
-	{/if}
 	{#if unreadable.length > 0}
 		<details class="border-b px-3 py-2 text-xs">
 			<summary class="cursor-pointer text-destructive">{unreadable.length} saved {unreadable.length === 1 ? 'file is' : 'files are'} not shown because Vocab cannot read {unreadable.length === 1 ? 'it' : 'them'}. Nothing was changed or removed.</summary>
@@ -171,7 +146,7 @@
 			{#if focusOpen && selectedChat}<div class="border-b p-3 md:hidden"><FocusWords focus={selectedChat.focus} {entries} /></div>{/if}
 			{#if !selectedChatId}<p class="m-auto text-center text-muted-foreground">Choose a chat from history.</p>{/if}
 			{#if selectedChatId && selectedChat}
-				{#key selectedChatId}<ConversationView chatId={selectedChatId} {account} {folder} write={chats.messageWriter(selectedChatId)} {catalog} {selections} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
+				{#key selectedChatId}<ConversationView chatId={selectedChatId} {account} {folder} {catalog} {selections} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
 			{/if}
 		</div>
 		<aside class="hidden w-60 shrink-0 overflow-y-auto border-l p-3 md:block" aria-label="Focus words">

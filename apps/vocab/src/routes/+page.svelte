@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { openFolder } from '@epicenter/folder';
-	import FolderApp from '@epicenter/svelte/folder-app';
+	import { openFolder } from '@epicenter/folder/next/browser';
+	import OpenFolder from '@epicenter/svelte/open-folder';
 	import { vocabTables } from '$lib/data.js';
 	import VocabApp from './components/VocabApp.svelte';
 
@@ -9,8 +9,8 @@
 	// signed in. Vocab has no desktop build.
 </script>
 
-<FolderApp open={() => openFolder({ tables: vocabTables })}>
-	{#snippet children(context)}
-		<VocabApp {context} />
+<OpenFolder open={() => openFolder({ tables: vocabTables })}>
+	{#snippet children(folder)}
+		<VocabApp {folder} />
 	{/snippet}
-</FolderApp>
+</OpenFolder>

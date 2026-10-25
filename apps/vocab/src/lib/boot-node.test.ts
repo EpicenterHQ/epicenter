@@ -62,7 +62,7 @@ describe('the callback opens nothing', () => {
 describe('the working page needs no account', () => {
 	test('the page opens the local folder and mounts the app with no sign-in gate', async () => {
 		const page = await Bun.file(join(routes, '+page.svelte')).text();
-		expect(page).toContain('<FolderApp ');
+		expect(page).toContain('<OpenFolder ');
 		expect(page).toMatch(/openFolder\(\{\s*tables:\s*vocabTables\s*\}\)/);
 		expect(page).toMatch(/<VocabApp\b/);
 		expect(page).not.toMatch(/AppBoot|SignInScreen|\$lib\/auth/);

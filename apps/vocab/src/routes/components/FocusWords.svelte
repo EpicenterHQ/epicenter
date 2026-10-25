@@ -1,37 +1,19 @@
-<!--
-	A chat's focus words and their stages. A stage press is saved at once,
-	through the word's edit handle, so it keeps a note still being typed.
--->
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Button } from '@epicenter/ui/button';
-	import { toastOnError } from '@epicenter/ui/sonner';
-	import { createQuery } from '@tanstack/svelte-query';
 	import { type FocusItem, focusWord, STAGE_LABELS, STAGES } from '$lib/data.js';
-	import { type Entries, wordsOf } from '$lib/entries.svelte.js';
+	import type { Entries } from '$lib/entries.svelte.js';
 
-	let { focus, entries }: {
-		focus: readonly FocusItem[];
-		entries: Entries;
-	} = $props();
-
-	const words = createQuery(() => entries.entriesQuery(wordsOf));
+	let { focus, entries }: { focus: readonly FocusItem[]; entries: Entries } = $props();
 </script>
 
 <h2 class="mb-3 text-sm font-semibold">Focus words</h2>
 {#each focus as item (item.entryId)}
-	{@const entry = focusWord(words.data ?? [], item)}
+	{@const entry = focusWord(entries.words, item)}
 	<div class="mb-4">
 		<p class="font-medium">{item.text}</p>
 		{#if entry}
-			{@const snapshot = liveSnapshot(entries.document(item.entryId))}
-			{@const text = snapshot.current.text}
-			{@const content = text === undefined ? undefined : entries.parse(text)}
-			{@const stage = content?.issues === null ? content.fields.stage : entry.row.fields.stage}
 			<div class="mt-1 flex flex-wrap gap-1" aria-label="Your stage for {item.text}">
-				{#each STAGES as option}
-					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option}  onclick={() => toastOnError(entries.setStage(entry, option), 'That change was not made')}>{STAGE_LABELS[option]}</Button>
-				{/each}
+				{#each STAGES as option}<Button size="sm" variant={entry.stage === option ? 'default' : 'outline'} aria-pressed={entry.stage === option} onclick={() => void entries.setStage(entry.id, option)}>{STAGE_LABELS[option]}</Button>{/each}
 			</div>
 		{/if}
 	</div>
