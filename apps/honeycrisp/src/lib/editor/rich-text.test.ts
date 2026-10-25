@@ -56,6 +56,7 @@ const { openNotes, quiet, until, noteText } = await import(
 const { editingPlugins, noteBody, stateAfter, stateShowing } = await import(
 	'./rich-text.js'
 );
+const { draft } = await import('@epicenter/svelte/folder-next');
 
 const cleanup: (() => unknown)[] = [];
 
@@ -70,25 +71,22 @@ async function noteOver(text: string) {
     const fixture = await openNotes();
     cleanup.push(() => fixture.close());
     await fixture.write(PATH, text);
-    const { notes, raw } = fixture;
+    const { notes } = fixture;
     notes.open(PATH);
     const table = notes.folder.tables.notes;
-    let typed: string | null = null;
-    let latest = 0;
-    let landed = 0;
+    let writes = 0;
     let pending: Promise<unknown> = Promise.resolve();
     const failures: string[] = [];
+    const body = draft(() => noteBody(table.row('a')) ?? '', (value) => {
+        writes++;
+        pending = table.update('a', { body: value }).then(({ error }) => {
+            if (error !== null) failures.push(error.message);
+        });
+        return pending;
+    });
     const note = {
-        read: () => typed ?? noteBody(table.row('a')),
-        write(body: string) {
-            typed = body;
-            const mine = ++latest;
-            landed++;
-            pending = table.update('a', { body }).then(({ error }) => {
-                if (error !== null) failures.push(error.message);
-                if (mine === latest) typed = null;
-            });
-        },
+        read: () => noteBody(table.row('a')) === undefined ? undefined : body.text,
+        write: body.set,
     };
     return {
         fixture, notes, note,
@@ -99,7 +97,7 @@ async function noteOver(text: string) {
             return { ...row, body: note.read() ?? row.body };
         },
         settled: async () => { await pending; await quiet(notes); },
-        writes: () => landed,
+        writes: () => writes,
         stored: () => fixture.text(PATH),
         theirs: async (body: string) => {
             const tab = await fixture.otherTab();
@@ -555,12 +553,15 @@ describe('the editor follows the note', () => {
 		expect(undoDepth(view.shown())).toBe(0);
 	});
 
-	test('a source change during a pending draft does not replace history when the draft lands', () => {
+	test('a source change during a pending draft does not replace history when the draft lands', async () => {
 		let source = 'one\n';
-		let typed: string | null = null;
+		let release: (() => void) | undefined;
+		const body = draft(() => source, (text) => new Promise<void>((resolve) => {
+			release = () => { source = text; resolve(); };
+		}));
 		const note = {
-			read: () => typed ?? source,
-			write: (body: string) => { typed = body; },
+			read: () => body.text,
+			write: body.set,
 		};
 		const initial = bodyCodec.decode(source);
 		if (!initial.supported) throw new Error('Initial body is not rich text');
@@ -573,8 +574,9 @@ describe('the editor follows the note', () => {
 		const whilePending = bodyCodec.decode(note.read());
 		if (!whilePending.supported) throw new Error('Draft is not rich text');
 		expect(stateShowing(shown, whilePending.doc)).toBe(shown);
-		source = typed ?? source;
-		typed = null;
+		expect(release).toBeDefined();
+		release?.();
+		await Bun.sleep(0);
 		const landed = bodyCodec.decode(note.read());
 		if (!landed.supported) throw new Error('Landed body is not rich text');
 		expect(stateShowing(shown, landed.doc)).toBe(shown);
@@ -582,13 +584,14 @@ describe('the editor follows the note', () => {
 	});
 
 	test('a failed save replaces the editor state with the disk body', async () => {
-		const { fixture, type, end, settled, follow, body, ...view } = await open('one\n');
+		const { fixture, type, end, settled, follow, body, failures, ...view } = await open('one\n');
 		fixture.failSaves();
 		end();
 		type('!');
 		const typed = view.shown();
 		expect(body()).toBe('one!\n');
 		await settled();
+		expect(failures()).toHaveLength(1);
 		follow();
 		expect(body()).toBe('one\n');
 		expect(view.shown()).not.toBe(typed);
