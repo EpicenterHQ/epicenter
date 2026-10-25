@@ -136,10 +136,24 @@
 		<UnsavedEdit draft={body} />
 
 	{:else if row === undefined}
-		<Empty.Root class="flex-1">
-			<Empty.Title>This note is no longer in the folder</Empty.Title>
-			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
-		</Empty.Root>
+		<div class="flex-1">
+			<Empty.Root>
+				<Empty.Title>This note is no longer in the folder</Empty.Title>
+				<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
+			</Empty.Root>
+			{#if title.error !== null}
+				<div class="px-4 pb-3">
+					<Input aria-label="Title" bind:value={() => title.value, (typed) => title.set(typed.toWellFormed())} />
+					<UnsavedEdit draft={title} />
+				</div>
+			{/if}
+			{#if body.error !== null}
+				<div class="px-4 pb-3">
+					<Textarea aria-label="Markdown source" bind:value={() => body.value, (typed) => body.set(typed.toWellFormed())} />
+					<UnsavedEdit draft={body} />
+				</div>
+			{/if}
+		</div>
 	{:else if unreadable?.kind === 'unreadable'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read the note</Empty.Title>
