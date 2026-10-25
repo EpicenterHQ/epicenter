@@ -150,3 +150,32 @@ test('a refused learner message stays available and asks no tutor until saved', 
 	context.chat[Symbol.dispose]();
 	await context.core.close();
 });
+
+test('a refused tutor answer is retried without another tutor request', async () => {
+	const context = await setup();
+	let messagePuts = 0;
+	context.host.control.beforePut = (path) => {
+		if (!path.startsWith('messages/')) return;
+		messagePuts++;
+		if (messagePuts === 2)
+			context.host.control.failPut.set(path, {
+				name: 'StorageFailed',
+				message: 'storage refused',
+				cause: 'full',
+			});
+	};
+	context.chat.inputValue = 'Is this lucid?';
+	await context.chat.sendMessage();
+	await settle(context.chat);
+	expect(context.requests).toBe(1);
+	expect(context.chat.unsaved.map((message) => message.role)).toEqual([
+		'assistant',
+	]);
+	context.host.control.beforePut = undefined;
+	context.host.control.failPut.clear();
+	await context.chat.saveAgain();
+	expect(context.chat.unsaved).toHaveLength(0);
+	expect(context.requests).toBe(1);
+	context.chat[Symbol.dispose]();
+	await context.core.close();
+});
