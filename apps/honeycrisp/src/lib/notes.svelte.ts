@@ -61,10 +61,6 @@ const NOT_A_NOTE =
 	'This file does not read as a note. Repair it as text first.';
 const NOT_A_FOLDER =
 	'This file does not read as a folder. Repair it as text first.';
-/** A write already reported by `<OpenFolder>`; action callers still stop. */
-export const WRITE_FAILED = Symbol('write failed');
-export const actionMessage = (problem: string | typeof WRITE_FAILED | undefined) =>
-	typeof problem === 'string' ? problem : undefined;
 const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
 
 const reasonOf = (row: { issues: readonly { message?: string; kind: string }[] }) =>
@@ -125,10 +121,8 @@ export function createNotes(folder: NotesFolder) {
 	let selected = $state.raw<Selection | undefined>();
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
-	let openRequest = 0;
-
 	const failed = (error: WriteError | null | undefined) =>
-		error === null || error === undefined ? undefined : WRITE_FAILED;
+		error === null || error === undefined ? undefined : error.message;
 
 	async function patchNote(path: string, fields: Partial<NoteFields>) {
 		const id = noteIdOf(path);
@@ -155,14 +149,8 @@ export function createNotes(folder: NotesFolder) {
 		return row?.issues === null ? 'note' : 'text';
 	}
 
-	/** Show `path` in the detail after a same-file editor switch can finish saving. */
-	async function open(path: string, as: OpenAs = defaultAs(path)) {
-		const request = ++openRequest;
-		if (selected?.path === path && selected.as !== as) {
-			folder.checkpoint();
-			await folder.settled(path);
-			if (request !== openRequest) return;
-		}
+	/** Show `path` in the detail. */
+	function open(path: string, as: OpenAs = defaultAs(path)) {
 		if (as === 'note') focusRequest += 1;
 		for (const ancestor of ancestors(path)) expanded.add(ancestor);
 		if (selected?.path === path && selected.as === as) return;
@@ -217,7 +205,7 @@ export function createNotes(folder: NotesFolder) {
 		return undefined;
 	}
 
-	async function deleteConfirmed({ path }: Deletion): Promise<typeof WRITE_FAILED | undefined> {
+	async function deleteConfirmed({ path }: Deletion): Promise<string | undefined> {
 		const problem = failed((await folder.delete(path)).error);
 		if (problem !== undefined) return problem;
 		if (selected?.path === path) selected = undefined;

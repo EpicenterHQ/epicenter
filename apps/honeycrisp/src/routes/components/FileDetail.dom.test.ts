@@ -19,7 +19,7 @@ const cleanups: (() => unknown)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); document.body.replaceChildren(); });
 
 async function view(content = noteText({ title: 'Alpha' }), as: 'note' | 'text' = 'note') {
-    const fixture = await openNotes({ throttleMs: 0 });
+    const fixture = await openNotes();
     cleanups.push(() => fixture.close());
     await fixture.write('notes/a.md', content);
     fixture.notes.open('notes/a.md', as);
@@ -82,6 +82,39 @@ test('rich-text typing stays undoable after its save lands', async () => {
     await until(() => folder.tables.notes.row('a')?.body?.includes('Body.!') ?? false, 'rich save');
     render();
     expect(get<HTMLButtonElement>('button[aria-label="Undo"]').disabled).toBe(false);
+});
+
+test('a source change during a pending draft does not replace history when the draft lands', async () => {
+    const { target, get, render, folder, write } = await view();
+    const rich = get<HTMLElement>('[aria-label="Note text"]');
+    const line = rich.querySelector('p')?.firstChild;
+    if (!(line instanceof Text)) throw new Error('Missing paragraph');
+    line.data += '!';
+    await Bun.sleep(0); render();
+    expect(rich.textContent).toContain('Body.!');
+    await write('notes/a.md', noteText({ body: 'Theirs.\n' }));
+    render();
+    expect(rich.textContent).toContain('Body.!');
+    expect(get<HTMLElement>('[aria-label="Note text"]')).toBe(rich);
+    await until(() => folder.tables.notes.row('a')?.body === 'Body.!\n', 'draft landing');
+    render();
+    expect(get<HTMLElement>('[aria-label="Note text"]')).toBe(rich);
+    expect(get<HTMLButtonElement>('button[aria-label="Undo"]').disabled).toBe(false);
+    get<HTMLButtonElement>('button[aria-label="Undo"]').click(); render();
+    expect(rich.textContent).toContain('Body.');
+    expect(rich.textContent).not.toContain('Body.!');
+});
+
+test('a field draft keeps its value when its file was deleted elsewhere', async () => {
+    const { target, get, render, folder, remove } = await view();
+    type(get<HTMLInputElement>('input[aria-label="Title"]'), 'Keep typing');
+    render();
+    await remove('notes/a.md');
+    await until(() => { render(); return target.textContent?.includes('Not saved:') ?? false; }, 'deleted field error');
+    expect(folder.tables.notes.row('a')).toBeUndefined();
+    expect(get<HTMLInputElement>('input[aria-label="Title"]').value).toBe('Keep typing');
+    expect(target.textContent).toContain('There is no readable file at notes/a.md to update');
+    expect(target.textContent).toContain('Save again');
 });
 
 test('title and Source replace lone surrogates before saving', async () => {

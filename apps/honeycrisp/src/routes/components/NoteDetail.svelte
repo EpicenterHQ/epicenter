@@ -18,7 +18,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { folderLabel, type NoteFields, noteIdOf } from '$lib/data.js';
 	import { noteBody } from '$lib/editor/rich-text.js';
-	import { actionMessage, foldersOf, type Notes } from '$lib/notes.svelte.js';
+	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
 	import RichEditor from './RichEditor.svelte';
 
 	let {
@@ -52,8 +52,7 @@
 
 	/** Say so when a change was refused. */
 	function refusal(problem: Awaited<ReturnType<Notes['patchNote']>>) {
-		const message = actionMessage(problem);
-		if (message) toast.warning('That change was not made', { description: message });
+		if (problem) toast.warning('That change was not made', { description: problem });
 	}
 
 	/** Set fields of the note and save at once. */
@@ -137,15 +136,29 @@
 		<UnsavedEdit draft={body} />
 
 	{:else if row === undefined}
-		<Empty.Root class="flex-1">
-			<Empty.Title>This note is no longer in the folder</Empty.Title>
-			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
-		</Empty.Root>
+		<div class="flex-1">
+			<Empty.Root>
+				<Empty.Title>This note is no longer in the folder</Empty.Title>
+				<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
+			</Empty.Root>
+			{#if title.error !== null}
+				<div class="px-4 pb-3">
+					<Input aria-label="Title" bind:value={() => title.value, (typed) => title.set(typed.toWellFormed())} />
+					<UnsavedEdit draft={title} />
+				</div>
+			{/if}
+			{#if body.error !== null}
+				<div class="px-4 pb-3">
+					<Textarea aria-label="Markdown source" bind:value={() => body.value, (typed) => body.set(typed.toWellFormed())} />
+					<UnsavedEdit draft={body} />
+				</div>
+			{/if}
+		</div>
 	{:else if unreadable?.kind === 'unreadable'}
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read the note</Empty.Title>
 			<Empty.Description>{unreadable.error.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => notes.folder.checkpoint()}>Try again</Button>
+			<Button variant="outline" size="sm" onclick={() => void notes.folder.refresh()}>Try again</Button>
 		</Empty.Root>
 	{:else if row.issues !== null}
 		{@const issues = row.issues}

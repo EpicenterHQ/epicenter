@@ -8,7 +8,7 @@
 	import { folderLabel, type NoteEntry } from '$lib/data.js';
 	import { getDateLabel } from '$lib/date-label.js';
 	import { displayTitle, previewText } from '$lib/note-source.js';
-	import { actionMessage, foldersOf, type Notes, notesOf, repairsOf, unreadableOf } from '$lib/notes.svelte.js';
+	import { foldersOf, type Notes, notesOf, repairsOf, unreadableOf } from '$lib/notes.svelte.js';
 	import { confirmDelete } from './file-actions.js';
 
 	let { notes }: { notes: Notes } = $props();
@@ -73,7 +73,7 @@
 	});
 
 	async function report(action: string, problem: ReturnType<Notes['patchNote']> | Promise<string | undefined>) {
-		const message = actionMessage(await problem);
+		const message = await problem;
 		if (message) toast.error(`Could not ${action}`, { description: message });
 	}
 </script>

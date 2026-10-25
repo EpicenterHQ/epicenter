@@ -67,20 +67,22 @@ saves exactly what you type.
 A note's title, body, and folder selection save through the folder mirror.
 Their drafts keep what was entered while each save is in flight; the mirror
 shows only what landed. Pinning and list actions await their saved result.
-A failed write keeps the typed value and shows **Not saved** beside the editor
-with **Save again**, **Discard**, and **Copy**. A toast also reports the failed
-path. The header says **Saving…** while writes are pending and
+A failed draft save keeps the typed value and shows **Not saved** beside the editor
+with **Save again**, **Discard**, and **Copy**. Failed commands report their error
+where the command was used. The header says **Saving…** while writes are pending and
 **Saved** when they finish.
 
 A note has **Rich text** and **Source** views of its body. They share one body
 draft in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
 only the title also keeps Undo. **Edit as file** shows the whole text, including
 frontmatter, through its own draft. Switching between the two editors of the
-same file checkpoints and awaits `folder.settled(path)`. A different body shown
+same file is immediate, so the other editor may briefly show older saved text.
+**Open as note** writes and awaits valid repair text before switching. A different body shown
 in either source view starts a new rich-text history.
 
-`<OpenFolder>` opens the mirror, checkpoints it on focus, visibility, online,
-and pagehide, and closes it on unmount. A browser unload asks only while a
+`<OpenFolder>` opens the mirror, refreshes it on focus, visibility, and online,
+and closes it on unmount. Drafts send their latest text on pagehide, hidden,
+beforeunload, and folder close. A browser unload asks only while a
 save is in flight. The desktop window waits for those writes on close.
 
 The mirror keeps text files and interprets Markdown rows. `row(id)` is absent
@@ -128,7 +130,7 @@ move a note between the check and deletion.
 
 New notes use `folder.tables.notes.create`; folders use
 `folder.tables.folders.create`. A created file opens only after its write
-answers. Direct file and table writes share the mirror's per-path save lane.
+answers. Direct file and table writes take turns in the mirror's write queue.
 
 ## When something changes underneath you
 
@@ -137,7 +139,7 @@ text keeps showing that draft until its save answers. A failed save keeps
 the typed text and offers Save again, Discard, and Copy. A clean editor
 follows the changed file. Deleted files leave the list, and a selected deleted
 file shows that it is no longer in the folder. Read failures offer **Try
-again**, which checkpoints the folder.
+again**, which refreshes the folder.
 
 ## Header controls
 

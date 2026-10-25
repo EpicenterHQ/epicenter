@@ -8,6 +8,7 @@ import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
+import { type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { openNotes, until } = await import('../../lib/local.test-support.ts');
@@ -44,6 +45,15 @@ test('a file deleted elsewhere shows it is gone', async () => {
     const { remove, shows, target } = await open();
     await remove('draft.txt');
     await shows(() => target.textContent?.includes('no longer in the folder') ?? false, 'deletion');
+});
+
+test('a whole-file draft recreates a file deleted elsewhere', async () => {
+    const { remove, folder, input, shows, target } = await open();
+    type(input(), 'Recreated');
+    await remove('draft.txt');
+    await shows(() => target.textContent?.includes('no longer in the folder') ?? false, 'deletion before draft save');
+    await shows(() => folder.file('draft.txt')?.data === 'Recreated', 'draft recreation');
+    expect(input()?.value).toBe('Recreated');
 });
 
 test('text larger than 1 MB is listed without an editor', async () => {

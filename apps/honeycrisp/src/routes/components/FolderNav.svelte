@@ -10,7 +10,7 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import { FOLDERS, type FolderEntry, folderLabel as nameOf, rowFile } from '$lib/data.js';
-	import { actionMessage, foldersOf, type Notes, notesOf } from '$lib/notes.svelte.js';
+	import { foldersOf, type Notes, notesOf } from '$lib/notes.svelte.js';
 
 	let { notes }: { notes: Notes } = $props();
 
@@ -48,8 +48,7 @@
 				: name === nameOf(target)
 					? undefined
 					: await notes.patchFolder(rowFile(FOLDERS, target.id), { name });
-		const message = actionMessage(problem);
-		if (message) toast.error('Could not save the folder', { description: message });
+		if (problem) toast.error('Could not save the folder', { description: problem });
 	}
 
 	function confirmDeleteFolder(folder: FolderEntry) {
@@ -59,8 +58,7 @@
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				const problem = await notes.deleteFolder(folder);
-				const message = actionMessage(problem);
-				if (message) toast.error('Could not delete the folder', { description: message });
+				if (problem) toast.error('Could not delete the folder', { description: problem });
 			},
 		});
 	}

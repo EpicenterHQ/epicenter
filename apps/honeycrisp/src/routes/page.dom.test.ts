@@ -32,7 +32,7 @@ async function until(check: () => boolean, what: string) {
     throw new Error(`Timed out waiting for ${what}`);
 }
 async function tab() {
-    const folder = expectOk(await openFolder({ tables: honeycrispTables, throttleMs: 0 }));
+    const folder = expectOk(await openFolder({ tables: honeycrispTables }));
     cleanups.push(() => folder.close());
     return folder;
 }
@@ -89,6 +89,28 @@ test('invalid note repairs as file and opens as note when typed text validates',
     expect(page.target.querySelector('[data-testid="row-issues"]')).toBeNull();
     button(page.target, 'Open as note').click();
     await until(() => page.target.querySelector(TITLE) !== null, 'repaired note');
+    await seed.refresh();
+    expect(seed.tables.notes.row('a')?.issues).toBeNull();
+    expect(seed.file('notes/a.md')?.data).toBe(noteText());
+});
+
+test('failed repair write keeps the file editor open', async () => {
+    globalThis.indexedDB = new IDBFactory();
+    const seed = await tab();
+    expectOk(await seed.write('notes/a.md', 'plain text\n'));
+    const page = await openPage();
+    await until(() => page.target.querySelector('[data-note="notes/a.md"]') !== null, 'repair listing');
+    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
+    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'file editor');
+    type(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), noteText());
+    flushSync();
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
+    cleanups.push(() => { IDBObjectStore.prototype.put = put; });
+    button(page.target, 'Open as note').click();
+    await until(() => page.target.textContent?.includes('Could not open as note') ?? false, 'repair failure');
+    expect(page.target.querySelector('textarea[aria-label="Contents of a.md"]')).not.toBeNull();
+    expect(seed.file('notes/a.md')?.data).toBe('plain text\n');
 });
 
 test('failed title save keeps input for retry and discard', async () => {
@@ -103,7 +125,6 @@ test('failed title save keeps input for retry and discard', async () => {
     IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
     cleanups.push(() => { IDBObjectStore.prototype.put = put; });
     type(page.get<HTMLInputElement>(TITLE), 'Typed');
-    await until(() => page.target.textContent?.includes('Could not save notes/a.md') ?? false, 'save failure toast');
     await until(() => page.target.textContent?.includes('Not saved:') ?? false, 'unsaved title');
     expect(page.get<HTMLInputElement>(TITLE).value).toBe('Typed');
     expect(page.target.textContent).toContain('Copy');
@@ -119,4 +140,15 @@ test('failed title save keeps input for retry and discard', async () => {
     button(page.target, 'Discard').click();
     await until(() => page.get<HTMLInputElement>(TITLE).value === 'Typed', 'discarded title');
     expect(page.target.textContent).not.toContain('Not saved:');
+});
+
+test('failed note creation reports its error at the command', async () => {
+    globalThis.indexedDB = new IDBFactory();
+    const page = await openPage();
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
+    cleanups.push(() => { IDBObjectStore.prototype.put = put; });
+    page.get<HTMLButtonElement>('button[aria-label="New note"]').click();
+    await until(() => page.target.textContent?.includes('Could not create the note') ?? false, 'create failure');
+    expect(page.target.querySelector(TITLE)).toBeNull();
 });
