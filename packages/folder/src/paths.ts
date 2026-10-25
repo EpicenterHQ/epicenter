@@ -5,6 +5,7 @@
  * rewriting to be usable is refused so that raw access and Git history address
  * exactly the bytes a person or agent sees.
  */
+import type { TSchema as Schema } from 'typebox';
 
 /** Path segments that are never portable source. `.git` holds private Git state. */
 const PRIVATE_SEGMENTS = new Set(['.git']);
@@ -184,3 +185,15 @@ export function collisionKey(path: string): string {
 
 /** Where an opened folder publishes its declaration (ADR-0517). */
 export const DEFINITION_PATH = 'epicenter.json';
+
+/**
+ * Why `tables` cannot be opened: the first name that is not one top-level
+ * directory this folder can address on every disk, or `undefined`.
+ */
+export function invalidTable(
+	tables: Record<string, Schema>,
+): string | undefined {
+	return Object.keys(tables).find(
+		(name) => name.includes('/') || pathProblem(name) !== undefined,
+	);
+}
